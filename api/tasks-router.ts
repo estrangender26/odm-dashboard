@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createRouter, publicQuery, adminQuery } from "./middleware";
-import { getDb } from "./queries/connection";
+import { db } from "./queries/connection";
 import { tasks, equipment } from "@db/schema";
 import { eq, and, like, or } from "drizzle-orm";
 
@@ -16,7 +16,7 @@ export const tasksRouter = createRouter({
       })
     )
     .query(async ({ input }) => {
-      const db = getDb();
+      // db is already imported
       const conditions: (ReturnType<typeof eq> | ReturnType<typeof and> | ReturnType<typeof or>)[] = [
         eq(tasks.dataset, input.dataset),
       ];
@@ -67,7 +67,7 @@ export const tasksRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
+      // db is already imported
       const user = ctx.user;
       const updateData: Record<string, string | null> = {};
       if (input.operations !== undefined) updateData.operations = input.operations;
@@ -90,7 +90,7 @@ export const tasksRouter = createRouter({
       )
     )
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
+      // db is already imported
       const user = ctx.user;
       let updated = 0;
       for (const item of input) {
@@ -109,7 +109,7 @@ export const tasksRouter = createRouter({
   filters: publicQuery
     .input(z.object({ dataset: z.enum(["htt", "aglipay"]) }))
     .query(async ({ input }) => {
-      const db = getDb();
+      // db is already imported
       const rows = await db
         .selectDistinct({
           equipmentName: equipment.name,
@@ -145,7 +145,7 @@ export const tasksRouter = createRouter({
       })
     )
     .query(async ({ input }) => {
-      const db = getDb();
+      // db is already imported
       const rows = await db
         .select({ task: tasks, equipment: equipment })
         .from(tasks)
@@ -180,7 +180,7 @@ export const tasksRouter = createRouter({
       )
     )
     .mutation(async ({ input }) => {
-      const db = getDb();
+      // db is already imported
       let updated = 0;
       for (const item of input) {
         const eqRows = await db

@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
-import { getDb } from "./queries/connection";
+import { db } from "./queries/connection";
 import { governanceFacilities, governanceMilestoneState, governanceUploads } from "@db/schema";
 import { eq, and } from "drizzle-orm";
 
 export const governanceRouter = createRouter({
   // Get all facilities
   facilities: publicQuery.query(async () => {
-    const db = getDb();
+    // db is already imported
     return db.select().from(governanceFacilities);
   }),
 
@@ -15,7 +15,7 @@ export const governanceRouter = createRouter({
   milestoneState: publicQuery
     .input(z.object({ facilitySlug: z.string() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      // db is already imported
       return db
         .select()
         .from(governanceMilestoneState)
@@ -34,7 +34,7 @@ export const governanceRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
+      // db is already imported
       const user = ctx.user;
 
       // Check if record exists
@@ -79,7 +79,7 @@ export const governanceRouter = createRouter({
   uploads: publicQuery
     .input(z.object({ facilitySlug: z.string() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      // db is already imported
       return db
         .select()
         .from(governanceUploads)
@@ -100,7 +100,7 @@ export const governanceRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
+      // db is already imported
       const user = ctx.user;
 
       const result = await db.insert(governanceUploads).values({
@@ -120,7 +120,7 @@ export const governanceRouter = createRouter({
   deleteUpload: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      // db is already imported
       await db.delete(governanceUploads).where(eq(governanceUploads.id, input.id));
       return { success: true };
     }),

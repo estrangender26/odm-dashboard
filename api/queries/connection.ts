@@ -1,18 +1,16 @@
-import { drizzle } from "drizzle-orm/mysql2";
-import { env } from "../lib/env";
-import * as schema from "@db/schema";
-import * as relations from "@db/relations";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "../../db/schema";
 
-const fullSchema = { ...schema, ...relations };
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error("DATABASE_URL not set");
 
-let instance: ReturnType<typeof drizzle<typeof fullSchema>>;
+// Create postgres client with SSL (required for Supabase)
+const client = postgres(databaseUrl, {
+  ssl: "require",
+  prepare: false,
+  max_lifetime: 60,
+});
 
-export function getDb() {
-  if (!instance) {
-    instance = drizzle(env.databaseUrl, {
-      mode: "planetscale",
-      schema: fullSchema,
-    });
-  }
-  return instance;
-}
+export const db = drizzle(client, { schema });
+export type DrizzleDB = typeof db;

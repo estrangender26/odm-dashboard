@@ -1,4 +1,4 @@
-import { getDb } from "../api/queries/connection";
+import { db } from "../api/queries/connection";
 import { equipment, tasks } from "./schema";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
@@ -11,7 +11,6 @@ const pmData = JSON.parse(fs.readFileSync(join(__dirname, "seed-pm.json"), "utf-
 const maintData = JSON.parse(fs.readFileSync(join(__dirname, "seed-maint.json"), "utf-8"));
 
 async function seed() {
-  const db = getDb();
 
   // Clear existing data
   await db.delete(tasks);

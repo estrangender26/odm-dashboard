@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 import * as schema from "@db/schema";
 import type { InsertUser } from "@db/schema";
-import { getDb } from "./connection";
+import { db } from "./connection";
 import { env } from "../lib/env";
 
 export async function findUserByUnionId(unionId: string) {
-  const rows = await getDb()
+  const rows = await db
     .select()
     .from(schema.users)
     .where(eq(schema.users.unionId, unionId))
@@ -29,8 +29,11 @@ export async function upsertUser(data: InsertUser) {
     updateSet.role = "admin";
   }
 
-  await getDb()
+  await db
     .insert(schema.users)
     .values(values)
-    .onDuplicateKeyUpdate({ set: updateSet });
+    .onConflictDoUpdate({
+      target: schema.users.unionId,
+      set: updateSet,
+    });
 }

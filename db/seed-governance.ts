@@ -1,5 +1,5 @@
-import { getDb } from "../api/queries/connection";
-import { governanceFacilities, governanceMilestoneState, equipment, tasks } from "./schema";
+import { db } from "../api/queries/connection";
+import { governanceFacilities, equipment, tasks } from "./schema";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -7,7 +7,6 @@ import { dirname, join } from "path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function seed() {
-  const db = getDb();
 
   // Seed governance facilities
   await db.insert(governanceFacilities).values([
@@ -15,9 +14,7 @@ async function seed() {
     { slug: "htt", name: "HTT Sewage Treatment Plant", shortName: "HTT STP" },
     { slug: "eastbay", name: "EASTBAY Phase 2 Treatment Plant", shortName: "EASTBAY PH-2 TP" },
     { slug: "kaysakat", name: "KAYSAKAT Treatment Plant", shortName: "KAYSAKAT TP" },
-  ]).onDuplicateKeyUpdate({
-    set: { name: governanceFacilities.name },
-  });
+  ]).onConflictDoNothing();
   console.log("Governance facilities seeded");
 
   // Seed equipment and tasks from JSON (batch insert)
