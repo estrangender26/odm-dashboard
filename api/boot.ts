@@ -27,6 +27,18 @@ app.get("/api/oauth/authorize", (c) => {
   return c.redirect(`${env.kimiAuthUrl}/api/oauth/authorize?${params.toString()}`, 302);
 });
 
+// Serve original OM Governance Dashboard at /governance
+app.get("/governance", async (c) => {
+  const fs = await import("fs");
+  const path = await import("path");
+  const governancePath = path.resolve(import.meta.dirname, "../dist/public/governance.html");
+  if (fs.existsSync(governancePath)) {
+    const content = fs.readFileSync(governancePath, "utf-8");
+    return c.html(content);
+  }
+  return c.json({ error: "Governance dashboard not found" }, 404);
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",
