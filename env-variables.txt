@@ -1,0 +1,8 @@
+DATABASE_URL=postgresql://postgres:COGF6I3w1Ij6UitG@db.hpfcwqyoxbndfwzbhrbz.supabase.co:5432/postgres
+APP_ID=19dfb69c-2152-85c0-8000-00003a20814a
+APP_SECRET=qyQDh9ILKAoaBt5i4uONeea6VSd6thG9
+VITE_APP_ID=19dfb69c-2152-85c0-8000-00003a20814a
+VITE_KIMI_AUTH_URL=https://auth.kimi.com
+KIMI_AUTH_URL=https://auth.kimi.com
+KIMI_OPEN_URL=https://open.kimi.com
+OWNER_UNION_ID=d6p6t6hn4ejnd8smg8lg
