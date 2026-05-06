@@ -12,6 +12,21 @@ const app = new Hono<{ Bindings: HttpBindings }>();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
+
+// OAuth authorize — redirects to Kimi login
+app.get("/api/oauth/authorize", (c) => {
+  const redirectUri = `${new URL(c.req.url).origin}${Paths.oauthCallback}`;
+  const state = btoa(redirectUri);
+  const params = new URLSearchParams({
+    client_id: env.appId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "profile",
+    state,
+  });
+  return c.redirect(`${env.kimiAuthUrl}/api/oauth/authorize?${params.toString()}`, 302);
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",
