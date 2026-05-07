@@ -700,6 +700,7 @@ function loadFromDatabase() {
 
 async function importToDatabase(rows, filename) {
   console.log('[importToDatabase] STARTING with', rows.length, 'rows');
+  alert('Starting database upload for ' + rows.length + ' rows...');
   /* Set data locally FIRST so UI shows immediately */
   rawRows = rows;
   document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — preparing ' + rows.length + ' rows...';
@@ -741,6 +742,7 @@ async function importToDatabase(rows, filename) {
     const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
     document.getElementById('loadedFileName').textContent = 
       (filename || 'Importing') + ' — chunk ' + chunkNum + '/' + totalChunks + '...';
+    alert('Uploading chunk ' + chunkNum + ' of ' + totalChunks);
 
     try {
       const res = await apiCall('/mw.importExcel', { rows: chunk, filename: filename || '' });
@@ -752,6 +754,7 @@ async function importToDatabase(rows, filename) {
       }
     } catch (err) {
       console.error('Chunk', chunkNum, 'failed:', err);
+      alert('ERROR at chunk ' + chunkNum + ': ' + (err.message || JSON.stringify(err)));
       document.getElementById('loadedFileName').textContent = 
         (filename || 'Import') + ' — ERROR at chunk ' + chunkNum + '. Check console.';
       return;
@@ -761,6 +764,7 @@ async function importToDatabase(rows, filename) {
   document.getElementById('loadedFileName').textContent = 
     (filename || 'Imported') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped (of ' + rows.length + ')';
   console.log('Import complete:', totalInserted, 'saved,', totalSkipped, 'skipped');
+  alert('Upload complete! ' + totalInserted + ' saved, ' + totalSkipped + ' skipped');
 }
 
 function resetDatabase() {
