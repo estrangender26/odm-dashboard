@@ -10,6 +10,8 @@ let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 const queryCache: Map<string, { data: unknown; ts: number }> = new Map();
 const CACHE_TTL = 30000; // 30 seconds
 
+const FALLBACK_DB_URL = "postgresql://postgres:COGF6I3w1Ij6UitG@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?pgbouncer=true";
+
 export function getDb() {
   if (_db) return _db;
   
@@ -20,9 +22,15 @@ export function getDb() {
   }
   
   // Use Session Pooler (port 5432) instead of Transaction Pooler (port 6543)
+  // The Transaction Pooler causes replica lag — reads don't see recent writes
   databaseUrl = databaseUrl.replace(":6543/", ":5432/");
   // Session Pooler uses username "postgres" not "postgres.project_ref"
   databaseUrl = databaseUrl.replace("postgres.hpfcwqyoxbndfwzbhrbz:", "postgres:");
+  // If the URL still contains 6543, force the fallback URL
+  if (databaseUrl.includes(":6543")) {
+    console.log("[DB] Transaction Pooler detected, forcing Session Pooler fallback");
+    databaseUrl = FALLBACK_DB_URL;
+  }
   
   console.log("[DB] Connecting to database...");
   const client = postgres(databaseUrl, {
