@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Manila Water — Operator-Driven Maintenance Dashboard</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -696,9 +699,10 @@ function loadFromDatabase() {
 }
 
 async function importToDatabase(rows, filename) {
+  console.log('[importToDatabase] STARTING with', rows.length, 'rows');
   /* Set data locally FIRST so UI shows immediately */
   rawRows = rows;
-  document.getElementById('loadedFileName').textContent = (filename || 'Imported') + ' — ' + rows.length + ' rows';
+  document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — preparing ' + rows.length + ' rows...';
   document.getElementById('refreshBtn').style.display = 'inline-flex';
   document.getElementById('clearDataBtn').style.display = 'inline-flex';
   buildFilterOptions();
@@ -1292,7 +1296,11 @@ function handleFile(e) {
         return;
       }
 
-      importToDatabase(validRows, file.name);
+      importToDatabase(validRows, file.name).catch(function(err) {
+        console.error('[handleFile] importToDatabase failed:', err);
+        alert('Import failed: ' + (err.message || err));
+        document.getElementById('loadedFileName').textContent = 'Import failed — see console';
+      });
 
     } catch (err) {
       console.error('Import error:', err);
