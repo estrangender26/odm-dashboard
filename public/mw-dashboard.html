@@ -683,6 +683,8 @@ function loadFromDatabase() {
         Status: r.status || 'Pending',
         Score: r.score || 0,
         Findings: r.findings || '',
+        SubmittedAt: r.submittedAt || r.submitted_at || '',
+        Frequency: r.frequency || '',
         _dbId: r.id
       };});
 
@@ -723,6 +725,8 @@ function importToDatabase(rows, filename) {
     score: r.Score || null,
     findings: r.Findings || '',
     date: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
+    submittedAt: r.SubmittedAt || null,
+    frequency: r.Frequency || null,
   };});
 
   /* Show progress bar */

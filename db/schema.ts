@@ -81,6 +81,8 @@ export const mwInspections = pgTable("mw_inspections", {
   score: integer("score"),
   findings: text("findings"),
   date: varchar("date", { length: 20 }),
+  submittedAt: varchar("submitted_at", { length: 50 }),
+  frequency: varchar("frequency", { length: 50 }),
   updatedBy: varchar("updated_by", { length: 255 }),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

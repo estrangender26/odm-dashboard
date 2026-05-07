@@ -31,48 +31,42 @@ export const mwRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const user = ctx.user;
+      const BATCH_SIZE = 500;
       let inserted = 0;
-      let skipped = 0;
 
-      // Insert row-by-row to catch unique constraint violations
-      // UNIQUE(asset_tag, task, date) prevents duplicate inspections
-      for (const row of input.rows) {
-        try {
-          await db.insert(mwInspections).values({
-            submissionId: row.submissionId ? String(row.submissionId) : null,
-            facilityId: String(row.facilityId || ''),
-            inspector: String(row.inspector || ''),
-            inspectionDate: row.inspectionDate ? String(row.inspectionDate) : null,
-            assetTag: row.assetTag ? String(row.assetTag) : null,
-            assetName: row.assetName ? String(row.assetName) : null,
-            equipmentType: row.equipmentType ? String(row.equipmentType) : null,
-            category: String(row.category || ''),
-            task: row.task ? String(row.task) : null,
-            capture1Label: row.capture1Label ? String(row.capture1Label) : null,
-            capture1Response: row.capture1Response ? String(row.capture1Response) : null,
-            escalationTrigger: row.escalationTrigger ? String(row.escalationTrigger) : null,
-            entryNotes: row.entryNotes ? String(row.entryNotes) : null,
-            status: row.status ? String(row.status) : "pending",
-            score: row.score != null ? Number(row.score) || null : null,
-            findings: row.findings ? String(row.findings) : null,
-            date: row.date ? String(row.date) : null,
-            updatedBy: user?.name ?? "system",
-          });
-          inserted++;
-        } catch (e: any) {
-          // Unique constraint violation = duplicate, skip it
-          if (e.message?.includes('unique') || e.message?.includes('duplicate') || e.code === '23505') {
-            skipped++;
-          } else {
-            throw e; // Re-throw real errors
-          }
-        }
+      // NO DEDUP - every row in the Excel is a distinct inspection occurrence
+      // SubmittedAt timestamp differentiates repeated tasks (shifts)
+      for (let i = 0; i < input.rows.length; i += BATCH_SIZE) {
+        const batch = input.rows.slice(i, i + BATCH_SIZE).map(row => ({
+          submissionId: row.submissionId ? String(row.submissionId) : null,
+          facilityId: String(row.facilityId || ''),
+          inspector: String(row.inspector || ''),
+          inspectionDate: row.inspectionDate ? String(row.inspectionDate) : null,
+          assetTag: row.assetTag ? String(row.assetTag) : null,
+          assetName: row.assetName ? String(row.assetName) : null,
+          equipmentType: row.equipmentType ? String(row.equipmentType) : null,
+          category: String(row.category || ''),
+          task: row.task ? String(row.task) : null,
+          capture1Label: row.capture1Label ? String(row.capture1Label) : null,
+          capture1Response: row.capture1Response ? String(row.capture1Response) : null,
+          escalationTrigger: row.escalationTrigger ? String(row.escalationTrigger) : null,
+          entryNotes: row.entryNotes ? String(row.entryNotes) : null,
+          status: row.status ? String(row.status) : "pending",
+          score: row.score != null ? Number(row.score) || null : null,
+          findings: row.findings ? String(row.findings) : null,
+          date: row.date ? String(row.date) : null,
+          submittedAt: row.submittedAt ? String(row.submittedAt) : null,
+          frequency: row.frequency ? String(row.frequency) : null,
+          updatedBy: user?.name ?? "system",
+        }));
+        await db.insert(mwInspections).values(batch);
+        inserted += batch.length;
       }
 
       // Invalidate cache so next read fetches fresh data
       cacheInvalidate("mw_inspections");
 
-      return { success: true, inserted, skipped, total: input.rows.length };
+      return { success: true, inserted, skipped: 0, total: input.rows.length };
     }),
 
   // List all inspections — uses cache for read-after-write consistency
