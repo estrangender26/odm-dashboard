@@ -629,6 +629,9 @@
   .action-btn{padding:6px 10px;font-size:11px}
   .filter-bar select,.filter-bar input{font-size:11px;padding:5px 8px}
 }
+.progress-bar{width:200px;height:20px;background:#e5e7eb;border-radius:10px;overflow:hidden;position:relative;display:inline-block;vertical-align:middle;margin-left:10px}
+.progress-fill{height:100%;background:var(--mw-blue);width:0%;transition:width .3s ease;border-radius:10px}
+.progress-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:600;color:var(--mw-navy)}
 </style>
 </head>
 
@@ -684,6 +687,7 @@ function loadFromDatabase() {
       };});
 
       document.getElementById('loadedFileName').textContent = rows.length + ' records from database';
+      document.getElementById('uploadProgress').style.display = 'none';
       document.getElementById('refreshBtn').style.display = 'inline-flex';
       document.getElementById('clearDataBtn').style.display = 'inline-flex';
       buildFilterOptions();
@@ -721,6 +725,11 @@ function importToDatabase(rows, filename) {
     date: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
   };});
 
+  /* Show progress bar */
+  document.getElementById('uploadProgress').style.display = 'inline-block';
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressText').textContent = '0%';
+
   /* Upload in chunks using callbacks — works on all browsers including iPhone */
   var CHUNK_SIZE = 2000;
   var totalInserted = 0;
@@ -731,6 +740,8 @@ function importToDatabase(rows, filename) {
   function sendNextChunk() {
     if (currentChunk >= totalChunks) {
       /* All chunks uploaded — now load from DB to display */
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('progressText').textContent = '100%';
       document.getElementById('loadedFileName').textContent = 
         (filename || 'Importing') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped. Loading...';
       loadFromDatabase();
@@ -751,6 +762,10 @@ function importToDatabase(rows, filename) {
             totalInserted += result.inserted;
             totalSkipped += result.skipped;
           }
+          /* Update progress bar */
+          var pct = Math.round((currentChunk / totalChunks) * 100);
+          document.getElementById('progressFill').style.width = pct + '%';
+          document.getElementById('progressText').textContent = pct + '%';
           sendNextChunk(); /* no delay, fire immediately */
         },
         function(err) {
@@ -794,6 +809,10 @@ function resetDatabase() {
       <div class="nav-home"><a href="/">&#8592; Back to Home</a></div>
       <div class="header-actions">
         <span class="header-filename" id="loadedFileName"></span>
+        <div class="progress-bar" id="uploadProgress" style="display:none">
+          <div class="progress-fill" id="progressFill"></div>
+          <span class="progress-text" id="progressText">0%</span>
+        </div>
         <button class="btn btn-ghost" id="refreshBtn" style="display:none">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"/>
