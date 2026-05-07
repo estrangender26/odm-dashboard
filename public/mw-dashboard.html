@@ -657,7 +657,10 @@ function loadFromDatabase() {
   apiCall('/mw.listInspections', {},
     function(res) {
       var rows = res.result && res.result.data && res.result.data.json || [];
-      if (rows.length === 0) return;
+      if (rows.length === 0) {
+        document.getElementById('loadedFileName').textContent = 'No records in database';
+        return;
+      }
 
       rawRows = rows.map(function(r) { return {
         SubmissionID: r.submissionId || '',
@@ -692,14 +695,10 @@ function loadFromDatabase() {
 }
 
 function importToDatabase(rows, filename) {
-  /* Set data locally FIRST so UI shows immediately */
-  rawRows = rows;
-  document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — ' + rows.length + ' rows';
+  /* DO NOT show data yet — wait for DB upload to complete */
+  document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — uploading ' + rows.length + ' rows to server...';
   document.getElementById('refreshBtn').style.display = 'inline-flex';
   document.getElementById('clearDataBtn').style.display = 'inline-flex';
-  buildFilterOptions();
-  showDashboard();
-  refreshAll();
 
   /* Build payload with ALL fields */
   var payload = rows.map(function(r) { return {
@@ -731,9 +730,10 @@ function importToDatabase(rows, filename) {
 
   function sendNextChunk() {
     if (currentChunk >= totalChunks) {
-      /* All done */
+      /* All chunks uploaded — now load from DB to display */
       document.getElementById('loadedFileName').textContent = 
-        (filename || 'Imported') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped (of ' + rows.length + ')';
+        (filename || 'Importing') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped. Loading...';
+      loadFromDatabase();
       return;
     }
     var start = currentChunk * CHUNK_SIZE;
@@ -757,7 +757,8 @@ function importToDatabase(rows, filename) {
           retries++;
           if (retries >= 2) {
             document.getElementById('loadedFileName').textContent = 
-              (filename || 'Import') + ' — FAILED at chunk ' + currentChunk;
+              (filename || 'Import') + ' — FAILED at chunk ' + currentChunk + '. No data shown.';
+            rawRows = []; /* Do not display data on upload failure */
             return;
           }
           setTimeout(trySend, 1000); /* Retry after 1s */
