@@ -21,12 +21,14 @@ export const mwRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const user = ctx.user;
+      const BATCH_SIZE = 500;
       let inserted = 0;
-      let skipped = 0;
 
-      for (const row of input.rows) {
-        // Insert every row — no dedup for inspection logs
-        await db.insert(mwInspections).values({
+      // Batch insert in chunks of 500 for speed
+      // Single-row inserts = 3462 round-trips (very slow)
+      // Batch insert = 7 round-trips (fast)
+      for (let i = 0; i < input.rows.length; i += BATCH_SIZE) {
+        const batch = input.rows.slice(i, i + BATCH_SIZE).map(row => ({
           facilityId: row.facilityId,
           inspector: row.inspector,
           category: row.category,
@@ -35,8 +37,9 @@ export const mwRouter = createRouter({
           findings: row.findings ?? null,
           date: row.date ?? null,
           updatedBy: user?.name ?? "system",
-        });
-        inserted++;
+        }));
+        await db.insert(mwInspections).values(batch);
+        inserted += batch.length;
       }
 
       // Invalidate cache so next read fetches fresh data
