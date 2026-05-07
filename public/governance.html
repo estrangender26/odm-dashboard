@@ -166,7 +166,8 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .tag{font-size:9px;font-weight:600;padding:1px 5px;border-radius:8px;margin:1px;display:inline-block;line-height:1.3;white-space:nowrap;position:relative}
 .tg{border:1px solid var(--mw-cyan);color:var(--mw-cyan);background:rgba(0,168,210,.04)}
 .og{border:1px solid var(--mw-orange);color:var(--mw-orange);background:rgba(232,137,12,.04)}
-.up{border:1px dashed var(--mw-border);border-radius:var(--r-sm);padding:4px 6px;text-align:center;cursor:pointer;transition:all .15s;font-size:10px;color:var(--mw-muted);background:#FAFBFC}
+.up{border:1px dashed var(--mw-border);border-radius:var(--r-sm);padding:4px 6px;text-align:center;cursor:pointer;transition:all .15s;font-size:10px;color:var(--mw-muted);background:#FAFBFC;position:relative;overflow:hidden}
+.up-loading{background:var(--mw-cyan);color:#fff;border-color:var(--mw-cyan);pointer-events:none}
 .up:hover{border-color:var(--mw-cyan);background:#F0F9FF}
 .up.hf{border-color:var(--mw-success);background:var(--mw-success-bg);color:var(--mw-success)}
 .fl{margin-top:3px;display:flex;flex-direction:column;gap:2px}
@@ -707,10 +708,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       upDiv.className='up '+(files.length?'hf':'');
       upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload '+tkey);
       var fileIn=document.createElement('input');
-      fileIn.type='file';fileIn.multiple=true;fileIn.style.display='none';
+      fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
       fileIn.addEventListener('change',function(ev){hTocUp(mid,tkey,ev)});
       upDiv.appendChild(fileIn);
-      upDiv.addEventListener('click',function(){fileIn.click()});
       rDiv.appendChild(upDiv);
       // File list
       if(files.length>0){
@@ -754,10 +754,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       upDiv.className='up '+(files.length?'hf':'');
       upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload ANNEX '+aid);
       var fileIn=document.createElement('input');
-      fileIn.type='file';fileIn.multiple=true;fileIn.style.display='none';
+      fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
       fileIn.addEventListener('change',function(ev){hTocUp(mid,akey,ev)});
       upDiv.appendChild(fileIn);
-      upDiv.addEventListener('click',function(){fileIn.click()});
       rDiv.appendChild(upDiv);
       // File list
       if(files.length>0){
@@ -791,10 +790,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     otherUp.className='up '+(otherFiles.length?'hf':'');
     otherUp.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(otherFiles.length?otherFiles.length+' file(s)':'Upload other files');
     var otherIn=document.createElement('input');
-    otherIn.type='file';otherIn.multiple=true;otherIn.style.display='none';
+    otherIn.type='file';otherIn.multiple=true;otherIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
     otherIn.addEventListener('change',function(ev){hTocUp(mid,otherKey,ev)});
     otherUp.appendChild(otherIn);
-    otherUp.addEventListener('click',function(){otherIn.click()});
     otherR.appendChild(otherUp);
     if(otherFiles.length>0){
       var otherFl=document.createElement('div');otherFl.className='fl';
@@ -1055,12 +1053,11 @@ if(allFiles.length>0){
     c4.appendChild(fr);
   });
 }else{
-  var upDiv=document.createElement('div');upDiv.className='up';upDiv.style.cssText='padding:4px 8px;font-size:10px;width:auto;border-style:dashed;border-width:1px';
+  var upDiv=document.createElement('div');upDiv.className='up';upDiv.style.cssText='padding:4px 8px;font-size:10px;width:auto;border-style:dashed;border-width:1px;position:relative;overflow:hidden';
   upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload '+tnum;
-  var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.style.display='none';
+  var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
   fileIn.addEventListener('change',function(ev){hDlvUp(tnum,ev)});
   upDiv.appendChild(fileIn);
-  upDiv.addEventListener('click',function(){fileIn.click()});
   c4.appendChild(upDiv);
 }
 grid.appendChild(c4);
@@ -1069,8 +1066,8 @@ el.appendChild(grid);
 document.getElementById('db').textContent=cp+' / 14 with uploads';
 }
 
-function hDlvUp(tnum,e){const files=e.target.files;if(!files||files.length===0)return;var key='TOC-'+tnum;var owner=tocOwner[key];var c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;
-Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(owner){if(!c.up[owner])c.up[owner]={};if(!c.up[owner][key])c.up[owner][key]=[];c.up[owner][key].push({n:f.name,d:b64Data})}else{if(!c.up['__deliv'])c.up['__deliv']={};if(!c.up['__deliv'][key])c.up['__deliv'][key]=[];c.up['__deliv'][key].push({n:f.name,d:b64Data})}pending--;if(pending===0){SV();RD();RM();RS()}govUploadFile(facilitySlug,owner||'__deliv',key,f.name,f.type||'application/octet-stream',f.size,b64Data).catch(function(err){console.error('DB upload error:',err)})};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RD();RM();RS()}};r.readAsDataURL(f)})}
+function hDlvUp(tnum,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;var key='TOC-'+tnum;var owner=tocOwner[key];var c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;
+Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(owner){if(!c.up[owner])c.up[owner]={};if(!c.up[owner][key])c.up[owner][key]=[];c.up[owner][key].push({n:f.name,d:b64Data})}else{if(!c.up['__deliv'])c.up['__deliv']={};if(!c.up['__deliv'][key])c.up['__deliv'][key]=[];c.up['__deliv'][key].push({n:f.name,d:b64Data})}pending--;if(pending===0){SV();RD();RM();RS();fileInput.value='';}govUploadFile(facilitySlug,owner||'__deliv',key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RD();RM();RS();fileInput.value='';}};r.readAsDataURL(f)})}
 
 function rDlvUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RD();RM();RS()}}
 
@@ -1112,7 +1109,7 @@ function fallbackDownload(blob,filename){
 function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
 
 // UPLOAD HANDLERS (TOC-specific per milestone)
-function hTocUp(mid,key,e){const files=e.target.files;if(!files||files.length===0)return;const c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(!c.up[mid])c.up[mid]={};if(!c.up[mid][key])c.up[mid][key]=[];c.up[mid][key].push({n:f.name,d:b64Data});pending--;if(pending===0){SV();RM();RD();RS()}govUploadFile(facilitySlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).catch(function(err){console.error('DB upload error:',err)})};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RM();RD();RS()}};r.readAsDataURL(f)})}
+function hTocUp(mid,key,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;const c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(!c.up[mid])c.up[mid]={};if(!c.up[mid][key])c.up[mid][key]=[];c.up[mid][key].push({n:f.name,d:b64Data});pending--;if(pending===0){SV();RM();RD();RS();fileInput.value='';}govUploadFile(facilitySlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RM();RD();RS();fileInput.value='';}};r.readAsDataURL(f)})}
 function rTocUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RM();RD()}}
 
 // IMPORT/EXPORT/RESET
