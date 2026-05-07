@@ -34,16 +34,10 @@ export const mwRouter = createRouter({
       let inserted = 0;
       let skipped = 0;
 
-      // Group rows by (assetTag, task, date) and assign sequence numbers
-      // UNIQUE(asset_tag, task, date, sequence_num) prevents duplicate uploads
-      // while allowing multiple shift inspections (seq 1, 2, 3...)
-      const groupMap = new Map<string, number>();
-      
+      // Deduplication: UNIQUE(asset_tag, task, date, submitted_at)
+      // Same task on same asset same date at same time = duplicate
+      // Different times = different inspections (shifts)
       for (const row of input.rows) {
-        const key = (row.assetTag || '') + '|' + (row.task || '') + '|' + (row.date || '');
-        const seq = (groupMap.get(key) || 0) + 1;
-        groupMap.set(key, seq);
-        
         try {
           await db.insert(mwInspections).values({
             submissionId: row.submissionId ? String(row.submissionId) : null,
@@ -65,7 +59,6 @@ export const mwRouter = createRouter({
             date: row.date ? String(row.date) : null,
             submittedAt: row.submittedAt ? String(row.submittedAt) : null,
             frequency: row.frequency ? String(row.frequency) : null,
-            sequenceNum: seq,
             updatedBy: user?.name ?? "system",
           });
           inserted++;
