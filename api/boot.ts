@@ -51,6 +51,21 @@ app.get("/mw-dashboard", async (c) => {
   return c.json({ error: "MW dashboard not found" }, 404);
 });
 
+// Health check — shows deployed version and DB connection status
+app.get("/_health", async (c) => {
+  const { getDb } = await import("./queries/connection");
+  try {
+    const db = getDb();
+    return c.json({ 
+      status: "ok", 
+      commit: "0931b41-session-pooler-fix",
+      dbConnected: !!db 
+    });
+  } catch (e: any) {
+    return c.json({ status: "error", message: e.message }, 500);
+  }
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",
