@@ -33,38 +33,14 @@ export const mwRouter = createRouter({
       const user = ctx.user;
       const BATCH_SIZE = 500;
       let inserted = 0;
-      let skipped = 0;
 
-      // Build set of existing composite keys for dedup
-      // SubmissionID is a FORM ID, not a row ID — multiple rows share the same submissionId
-      // Use composite key: facilityId + inspector + date + assetTag + category + task
-      const existingKeys = new Set<string>();
-      const allDbRows = await db.select({
-        facilityId: mwInspections.facilityId,
-        inspector: mwInspections.inspector,
-        date: mwInspections.date,
-        assetTag: mwInspections.assetTag,
-        category: mwInspections.category,
-        task: mwInspections.task,
-      }).from(mwInspections);
-      allDbRows.forEach(r => {
-        existingKeys.add((r.facilityId || '') + '|' + (r.inspector || '') + '|' + (r.date || '') + '|' + (r.assetTag || '') + '|' + (r.category || '') + '|' + (r.task || ''));
-      });
-
-      // Filter out duplicates before inserting
-      const newRows = input.rows.filter(row => {
-        const key = (row.facilityId || '') + '|' + (row.inspector || '') + '|' + (row.date || '') + '|' + (row.assetTag || '') + '|' + (row.category || '') + '|' + (row.task || '');
-        if (existingKeys.has(key)) {
-          skipped++;
-          return false;
-        }
-        existingKeys.add(key);
-        return true;
-      });
+      // NO DEDUP — save all rows as-is
+      // Each row is a unique inspection occurrence (even same task on same asset)
+      // Frequency is handled by having multiple rows
 
       // Batch insert in chunks of 500 for speed
-      for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
-        const batch = newRows.slice(i, i + BATCH_SIZE).map(row => ({
+      for (let i = 0; i < input.rows.length; i += BATCH_SIZE) {
+        const batch = input.rows.slice(i, i + BATCH_SIZE).map(row => ({
           submissionId: row.submissionId ? String(row.submissionId) : null,
           facilityId: String(row.facilityId || ''),
           inspector: String(row.inspector || ''),
@@ -91,7 +67,7 @@ export const mwRouter = createRouter({
       // Invalidate cache so next read fetches fresh data
       cacheInvalidate("mw_inspections");
 
-      return { success: true, inserted, skipped, total: input.rows.length };
+      return { success: true, inserted, skipped: 0, total: input.rows.length };
     }),
 
   // List all inspections — uses cache for read-after-write consistency
