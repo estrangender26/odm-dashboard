@@ -1455,35 +1455,39 @@ function refreshAll() {
 const ABNORMAL_KEYWORDS = [
   'leak','loose','vibration','vibrating','noisy','noise','abnormal',
   'hot','overheat','overheating','smoke','blocked','jammed','misaligned',
-  'worn','crack','damage','fail','alarm'
+  'worn','crack','damage','fail','alarm','not ok','not_ok','ng','no good',
+  'defect','fault','error','critical','urgent','repair','replace','broken'
 ];
 
-/* EntryNotes-only abnormality check */
-function isAbnormalEntryNotes(notes) {
-  if (!notes || notes.toString().trim() === '') return false;
-  const t = notes.toString().toLowerCase();
+/* Check if text contains abnormal keywords */
+function hasAbnormalKeyword(text) {
+  if (!text || text.toString().trim() === '') return false;
+  const t = text.toString().toLowerCase();
   return ABNORMAL_KEYWORDS.some(k => t.includes(k));
 }
 
-/* Negative findings: abnormal keywords in EntryNotes OR Capture1Response */
+/* Negative findings: abnormal keywords in ANY inspection field */
 function hasNegativeFindings(row) {
-  if (isAbnormalEntryNotes(row.EntryNotes)) return true;
-  if (isAbnormalEntryNotes(row.Capture1Response)) return true;
+  if (hasAbnormalKeyword(row.EntryNotes)) return true;
+  if (hasAbnormalKeyword(row.Capture1Response)) return true;
+  if (hasAbnormalKeyword(row.Findings)) return true;
+  if (hasAbnormalKeyword(row.Task)) return true;
   return false;
 }
 
-/* General abnormality: negative findings OR EscalationTrigger filled */
+/* General abnormality: negative findings OR escalation trigger OR failed status */
 function isAbnormalRow(row) {
   if (hasNegativeFindings(row)) return true;
-  if (row.EscalationTrigger && row.EscalationTrigger.toString().trim() !== '') return true;
+  if (row.EscalationTrigger && row.EscalationTrigger.toString().trim() !== '' && row.EscalationTrigger.toString().toLowerCase() !== 'none') return true;
+  if (row.Status && /offline|down|fault|alarm|critical/i.test(row.Status.toString())) return true;
   return false;
 }
 
-/* ---------- Equipment Health Score (EntryNotes ONLY) ---------- */
+/* ---------- Equipment Health Score (all fields) ---------- */
 function computeHealthScore(rows) {
   let unhealthy = 0;
   rows.forEach(r => {
-    if (isAbnormalEntryNotes(r.EntryNotes)) unhealthy++;
+    if (isAbnormalRow(r)) unhealthy++;
   });
   const total = rows.length;
   return total ? 100 - (unhealthy / total) * 100 : 100;
@@ -1511,33 +1515,45 @@ function computeDataQuality(rows) {
 }
 
 /* ============================================================
-   PREDICTIVE MAINTENANCE RISK (Linear Regression)
+   PREDICTIVE MAINTENANCE RISK
    ============================================================ */
 
 function computePredictiveRisk(rows) {
+  if (!rows.length) return 'Normal';
+  
+  // Count daily abnormalities and total abnormal rate
   const daily = new Map();
+  let totalAbnormal = 0;
   rows.forEach(r => {
     if (!r.InspectionDate) return;
     const key = r.InspectionDate.toISOString().slice(0,10);
     if (!daily.has(key)) daily.set(key, 0);
-    if (hasNegativeFindings(r)) daily.set(key, daily.get(key) + 1);
+    if (isAbnormalRow(r)) {
+      daily.set(key, daily.get(key) + 1);
+      totalAbnormal++;
+    }
   });
 
+  // Factor 1: Overall abnormality rate
+  const abnormalityRate = totalAbnormal / rows.length;
+  
+  // Factor 2: Trend (linear regression on daily counts)
   const dates = Array.from(daily.keys()).sort();
-  if (dates.length < 2) return 'Normal';
-
-  const xs = dates.map((_, i) => i);
-  const ys = dates.map(d => daily.get(d));
-
-  let n = xs.length, sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-  for (let i = 0; i < n; i++) {
-    sumX += xs[i]; sumY += ys[i]; sumXY += xs[i] * ys[i]; sumXX += xs[i] * xs[i];
+  let slope = 0;
+  if (dates.length >= 3) {
+    const xs = dates.map((_, i) => i);
+    const ys = dates.map(d => daily.get(d));
+    let n = xs.length, sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (let i = 0; i < n; i++) {
+      sumX += xs[i]; sumY += ys[i]; sumXY += xs[i] * ys[i]; sumXX += xs[i] * xs[i];
+    }
+    const denom = n * sumXX - sumX * sumX;
+    slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
   }
-  const denom = n * sumXX - sumX * sumX;
-  const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
 
-  if (slope > 0.5) return 'High';
-  if (slope > 0.1) return 'Elevated';
+  // Risk scoring: combine rate + trend
+  if (abnormalityRate > 0.10 || slope > 0.5) return 'High';
+  if (abnormalityRate > 0.05 || slope > 0.2) return 'Elevated';
   return 'Normal';
 }
 
