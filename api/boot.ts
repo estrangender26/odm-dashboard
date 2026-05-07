@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import { sql } from "drizzle-orm";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
@@ -54,18 +55,34 @@ app.get("/mw-dashboard", async (c) => {
   return c.json({ error: "MW dashboard not found" }, 404);
 });
 
-// Health check — shows deployed version and DB connection status
+// Health check — tests database connectivity and shows deployment info
 app.get("/_health", async (c) => {
-  const { getDb } = await import("./queries/connection");
   try {
+    // Test actual database query
+    const { getDb } = await import("./queries/connection");
     const db = getDb();
+    const result = await db.select({ count: sql<number>`count(*)` }).from(sql`mw_inspections`);
+    const dbRecords = result[0]?.count || 0;
+    
     return c.json({ 
-      status: "ok", 
-      commit: "0931b41-session-pooler-fix",
-      dbConnected: !!db 
+      status: "ok",
+      service: "odm-dashboard",
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: true,
+        records: dbRecords
+      }
     });
   } catch (e: any) {
-    return c.json({ status: "error", message: e.message }, 500);
+    return c.json({ 
+      status: "degraded",
+      service: "odm-dashboard",
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: false,
+        error: e.message
+      }
+    }, 500);
   }
 });
 
