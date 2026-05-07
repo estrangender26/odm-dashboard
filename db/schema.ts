@@ -61,3 +61,51 @@ export const governanceUploads = pgTable("governance_uploads", {
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
 });
+
+export const mwInspections = pgTable("mw_inspections", {
+  id: serial("id").primaryKey(),
+  facilityId: varchar("facility_id", { length: 50 }).notNull(),
+  inspector: varchar("inspector", { length: 255 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  score: integer("score"),
+  findings: text("findings"),
+  date: varchar("date", { length: 20 }),
+  updatedBy: varchar("updated_by", { length: 255 }),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const mwCompliance = pgTable("mw_compliance", {
+  id: serial("id").primaryKey(),
+  facilityId: varchar("facility_id", { length: 50 }).notNull(),
+  standard: varchar("standard", { length: 255 }).notNull(),
+  compliant: varchar("compliant", { length: 10 }).notNull().default("no"),
+  notes: text("notes"),
+  updatedBy: varchar("updated_by", { length: 255 }),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const mwEscalations = pgTable("mw_escalations", {
+  id: serial("id").primaryKey(),
+  facilityId: varchar("facility_id", { length: 50 }).notNull(),
+  issue: varchar("issue", { length: 255 }).notNull(),
+  severity: varchar("severity", { length: 20 }).notNull().default("low"),
+  status: varchar("status", { length: 20 }).notNull().default("open"),
+  assignedTo: varchar("assigned_to", { length: 255 }),
+  resolution: text("resolution"),
+  updatedBy: varchar("updated_by", { length: 255 }),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const governanceFiles = pgTable("governance_files", {
+  id: serial("id").primaryKey(),
+  facilitySlug: varchar("facility_slug", { length: 50 }).notNull(),
+  milestoneId: varchar("milestone_id", { length: 10 }).notNull(),
+  tocItem: varchar("toc_item", { length: 20 }),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  fileType: varchar("file_type", { length: 50 }).notNull(),
+  fileSize: integer("file_size"),
+  fileData: text("file_data").notNull(), // base64 encoded
+  uploadedBy: varchar("uploaded_by", { length: 255 }),
+  uploadedAt: timestamp("uploaded_at").defaultNow(),
+});

@@ -19,13 +19,17 @@ function createEnv() {
     kimiOpenUrl: process.env.KIMI_OPEN_URL,
   };
   const parsed = schema.safeParse(raw);
+  const result = parsed.success ? parsed.data : (parsed.data || raw as any);
+  
+  // Add isProduction flag
+  (result as any).isProduction = process.env.NODE_ENV === "production";
+  
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n");
     console.warn(`[env] Missing or invalid env vars (app may not work correctly):\n${issues}`);
-    // Return a partial env object so the app can start
-    return parsed.data || raw as any;
   }
-  return parsed.data;
+  
+  return result;
 }
 
 export const env = createEnv();

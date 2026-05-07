@@ -1,7 +1,9 @@
 import { authRouter } from "./auth-router";
 import { tasksRouter } from "./tasks-router";
 import { governanceRouter } from "./governance-router";
+import { governanceFilesRouter } from "./governance-files-router";
 import { seedRouter } from "./seed-router";
+import { mwRouter } from "./mw-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -9,7 +11,9 @@ export const appRouter = createRouter({
   auth: authRouter,
   tasks: tasksRouter,
   governance: governanceRouter,
+  govFiles: governanceFilesRouter,
   seed: seedRouter,
+  mw: mwRouter,
 });
 
 export type AppRouter = typeof appRouter;

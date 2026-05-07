@@ -39,6 +39,18 @@ app.get("/governance", async (c) => {
   return c.json({ error: "Governance dashboard not found" }, 404);
 });
 
+// Serve Manila Water Operator-Driven Maintenance Dashboard at /mw-dashboard
+app.get("/mw-dashboard", async (c) => {
+  const fs = await import("fs");
+  const path = await import("path");
+  const mwPath = path.resolve(import.meta.dirname, "../dist/public/mw-dashboard.html");
+  if (fs.existsSync(mwPath)) {
+    const content = fs.readFileSync(mwPath, "utf-8");
+    return c.html(content);
+  }
+  return c.json({ error: "MW dashboard not found" }, 404);
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

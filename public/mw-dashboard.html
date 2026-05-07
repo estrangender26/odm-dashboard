@@ -1196,18 +1196,33 @@ function handleFile(e) {
         wb = XLSX.read(data, {type:'array', cellDates:true});
       }
 
-      /* Try ALL sheets, pick the one with the most data rows */
+      /* Try ALL sheets, skip reference/lookup sheets, find one with inspection data */
+      const skipSheets = ['lists', 'lookup', 'reference', 'config', 'settings', 'dropdown', 'dropdowns', 'master', 'template'];
       let bestSheet = null;
       let bestSheetName = '';
       let maxRows = 0;
       
       for (const name of wb.SheetNames) {
+        if (skipSheets.includes(name.toLowerCase())) continue;
         const sheet = wb.Sheets[name];
         const json = XLSX.utils.sheet_to_json(sheet, {defval:''});
         if (json.length > maxRows) {
           maxRows = json.length;
           bestSheet = sheet;
           bestSheetName = name;
+        }
+      }
+      
+      /* Fallback: if no valid sheet found after skipping, try all sheets */
+      if (!bestSheet || maxRows === 0) {
+        for (const name of wb.SheetNames) {
+          const sheet = wb.Sheets[name];
+          const json = XLSX.utils.sheet_to_json(sheet, {defval:''});
+          if (json.length > maxRows) {
+            maxRows = json.length;
+            bestSheet = sheet;
+            bestSheetName = name;
+          }
         }
       }
 
@@ -1258,25 +1273,34 @@ function showDashboard() {
 
 /* ---------- Row Normalisation ---------- */
 function normalizeRow(r) {
+  /* Flexible column name matching — tries multiple possible names */
+  function getVal(...keys) {
+    for (const k of keys) {
+      if (r[k] !== undefined && r[k] !== '') return r[k];
+    }
+    return '';
+  }
   return {
-    SubmissionID:      r['SubmissionID']      || '',
-    InspectionDate:    parseExcelDate(r['InspectionDate']),
-    Inspector:         r['Inspector']          || '',
-    AssetTag:          r['AssetTag']           || '',
-    AssetName:         r['AssetName']          || '',
-    Plant:             r['Plant']              || '',
-    EquipmentType:     r['EquipmentType']      || '',
-    Category:          r['Category']           || '',
-    Task:              r['Task']               || '',
-    Capture1Label:     r['Capture1Label']      || '',
-    Capture1Response:  r['Capture1Response']   || '',
-    EscalationTrigger: r['EscalationTrigger']  || '',
-    EntryNotes:        r['EntryNotes']         || ''
+    SubmissionID:      getVal('SubmissionID','ID','No','No.','#'),
+    InspectionDate:    parseExcelDate(getVal('InspectionDate','Date','Inspection Date','Inspected','Date Inspected')),
+    Inspector:         getVal('Inspector','Staff','Person','InspectorName','Inspected By','By'),
+    AssetTag:          getVal('AssetTag','Tag','Asset ID','ID Tag'),
+    AssetName:         getVal('AssetName','Asset','Equipment Name','Item'),
+    Plant:             getVal('Plant','Facility','Site','Location','Station','Plant ID'),
+    EquipmentType:     getVal('EquipmentType','Type','Equip Type','Equipment','Equip'),
+    Category:          getVal('Category','Cat','Group','Class','Discipline'),
+    Task:              getVal('Task','Activity','Work','Job','Description'),
+    Capture1Label:     getVal('Capture1Label','Label','Field','Question'),
+    Capture1Response:  getVal('Capture1Response','Response','Answer','Result','Value'),
+    EscalationTrigger: getVal('EscalationTrigger','Escalation','Trigger','Alert','Flag'),
+    EntryNotes:        getVal('EntryNotes','Notes','Remarks','Comments','Findings')
   };
 }
 
 function parseExcelDate(v) {
   if (!v) return null;
+  /* SheetJS returns Date objects for Excel dates */
+  if (v instanceof Date) return v;
   if (typeof v === 'string') {
     const d = new Date(v);
     return isNaN(d.getTime()) ? null : d;

@@ -14,7 +14,7 @@ export const governanceRouter = createRouter({
   // Get milestone state for a facility
   milestoneState: publicQuery
     .input(z.object({ facilitySlug: z.string() }))
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       // db is already imported
       return db
         .select()
@@ -78,7 +78,7 @@ export const governanceRouter = createRouter({
   // Get uploads for a facility
   uploads: publicQuery
     .input(z.object({ facilitySlug: z.string() }))
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       // db is already imported
       return db
         .select()
