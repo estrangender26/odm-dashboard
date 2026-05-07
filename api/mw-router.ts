@@ -34,9 +34,9 @@ export const mwRouter = createRouter({
       const BATCH_SIZE = 500;
       let inserted = 0;
 
-      // NO DEDUP — save all rows as-is
-      // Each row is a unique inspection occurrence (even same task on same asset)
-      // Frequency is handled by having multiple rows
+      // NO DEDUP — save ALL rows as-is
+      // Each row in the Excel is a distinct inspection occurrence
+      // Frequency (Daily/Per Shift/Weekly) determines how many times same task appears
 
       // Batch insert in chunks of 500 for speed
       for (let i = 0; i < input.rows.length; i += BATCH_SIZE) {
