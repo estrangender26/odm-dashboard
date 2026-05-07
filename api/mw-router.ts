@@ -34,9 +34,16 @@ export const mwRouter = createRouter({
       let inserted = 0;
       let skipped = 0;
 
-      // Insert row-by-row with conflict detection
-      // UNIQUE(asset_tag, task, date, submitted_at) prevents duplicate uploads
+      // Group rows by (assetTag, task, date) and assign sequence numbers
+      // UNIQUE(asset_tag, task, date, sequence_num) prevents duplicate uploads
+      // while allowing multiple shift inspections (seq 1, 2, 3...)
+      const groupMap = new Map<string, number>();
+      
       for (const row of input.rows) {
+        const key = (row.assetTag || '') + '|' + (row.task || '') + '|' + (row.date || '');
+        const seq = (groupMap.get(key) || 0) + 1;
+        groupMap.set(key, seq);
+        
         try {
           await db.insert(mwInspections).values({
             submissionId: row.submissionId ? String(row.submissionId) : null,
@@ -58,6 +65,7 @@ export const mwRouter = createRouter({
             date: row.date ? String(row.date) : null,
             submittedAt: row.submittedAt ? String(row.submittedAt) : null,
             frequency: row.frequency ? String(row.frequency) : null,
+            sequenceNum: seq,
             updatedBy: user?.name ?? "system",
           });
           inserted++;
@@ -66,7 +74,7 @@ export const mwRouter = createRouter({
           if (e.message?.includes('unique') || e.message?.includes('duplicate') || e.code === '23505') {
             skipped++;
           } else {
-            throw e; // Re-throw real errors
+            throw e;
           }
         }
       }

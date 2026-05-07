@@ -706,8 +706,12 @@ function importToDatabase(rows, filename) {
   document.getElementById('refreshBtn').style.display = 'inline-flex';
   document.getElementById('clearDataBtn').style.display = 'inline-flex';
 
-  /* Build payload with ALL fields */
-  var payload = rows.map(function(r) { return {
+  /* Build payload with ALL fields + sequence numbers */
+  var groupMap = {};
+  var payload = rows.map(function(r) {
+    var key = (r.AssetTag || '') + '|' + (r.Task || '') + '|' + (r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : '');
+    groupMap[key] = (groupMap[key] || 0) + 1;
+    return {
     submissionId: r.SubmissionID || null,
     facilityId: r.Plant || 'unknown',
     inspector: r.Inspector || '',
@@ -723,6 +727,7 @@ function importToDatabase(rows, filename) {
     entryNotes: r.EntryNotes || null,
     status: r.Status || 'pending',
     score: r.Score || null,
+    sequenceNum: groupMap[key],
     findings: r.Findings || '',
     date: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
     submittedAt: r.SubmittedAt || null,
