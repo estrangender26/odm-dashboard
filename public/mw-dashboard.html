@@ -1559,6 +1559,11 @@ function hasAbnormalKeyword(text) {
   return ABNORMAL_KEYWORDS.some(k => t.includes(k));
 }
 
+/* Alias used by table renderers */
+function isAbnormalEntryNotes(text) {
+  return hasAbnormalKeyword(text);
+}
+
 /* Negative findings: abnormal keywords in INSPECTOR RESPONSES ONLY
    Task descriptions are TEMPLATES ("Check CPU RUN/FAULT...") — NOT findings */
 function hasNegativeFindings(row) {
