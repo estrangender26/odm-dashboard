@@ -701,7 +701,7 @@ function importToDatabase(rows, filename) {
       const result = res.result?.data?.json;
       if (result) {
         console.log('Imported to DB:', result.inserted, 'Skipped duplicates:', result.skipped);
-        document.getElementById('loadedFileName').textContent = (filename || 'Imported') + ' — ' + rows.length + ' rows (' + result.inserted + ' saved to DB)';
+        document.getElementById('loadedFileName').textContent = (filename || 'Imported') + ' — ' + result.inserted + ' saved, ' + result.skipped + ' skipped (of ' + rows.length + ')';
       }
     })
     .catch(err => {
