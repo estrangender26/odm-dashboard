@@ -723,7 +723,7 @@ function importToDatabase(rows, filename) {
   };});
 
   /* Upload in chunks using callbacks — works on all browsers including iPhone */
-  var CHUNK_SIZE = 1000;
+  var CHUNK_SIZE = 2000;
   var totalInserted = 0;
   var totalSkipped = 0;
   var totalChunks = Math.ceil(payload.length / CHUNK_SIZE);
@@ -751,7 +751,7 @@ function importToDatabase(rows, filename) {
             totalInserted += result.inserted;
             totalSkipped += result.skipped;
           }
-          setTimeout(sendNextChunk, 500); /* 500ms gap between chunks */
+          sendNextChunk(); /* no delay, fire immediately */
         },
         function(err) {
           retries++;
@@ -760,7 +760,7 @@ function importToDatabase(rows, filename) {
               (filename || 'Import') + ' — FAILED at chunk ' + currentChunk;
             return;
           }
-          setTimeout(trySend, 3000); /* Retry after 3s */
+          setTimeout(trySend, 1000); /* Retry after 1s */
         }
       );
     }
