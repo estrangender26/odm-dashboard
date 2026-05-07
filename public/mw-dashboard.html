@@ -1479,10 +1479,12 @@ function hasNegativeFindings(row) {
   return false;
 }
 
-/* General abnormality: negative findings OR escalation trigger OR failed status */
+/* General abnormality: actual negative findings OR failed status ONLY
+   EscalationTrigger is a TEMPLATE field ("Escalate if...") — NOT an actual escalation flag */
 function isAbnormalRow(row) {
+  // Only flag if inspector entered actual abnormal findings
   if (hasNegativeFindings(row)) return true;
-  if (row.EscalationTrigger && row.EscalationTrigger.toString().trim() !== '' && row.EscalationTrigger.toString().toLowerCase() !== 'none') return true;
+  // Only flag if status indicates actual fault
   if (row.Status && /offline|down|fault|alarm|critical/i.test(row.Status.toString())) return true;
   return false;
 }
