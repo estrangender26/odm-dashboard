@@ -7,11 +7,15 @@ let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 export function getDb() {
   if (_db) return _db;
   
-  const databaseUrl = process.env.DATABASE_URL;
+  let databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     console.error("[DB] DATABASE_URL not set!");
     throw new Error("DATABASE_URL not set");
   }
+  
+  // Use Session Pooler (port 5432) instead of Transaction Pooler (port 6543)
+  // to guarantee read-after-write consistency (no replica lag)
+  databaseUrl = databaseUrl.replace(":6543/", ":5432/");
   
   console.log("[DB] Connecting to database...");
   const client = postgres(databaseUrl, {
