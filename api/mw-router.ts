@@ -35,26 +35,30 @@ export const mwRouter = createRouter({
       let inserted = 0;
       let skipped = 0;
 
-      // Build set of existing submissionIds for fast dedup
-      const existingIds = new Set<string>();
-      const hasSubmissionIds = input.rows.some(r => r.submissionId);
-      if (hasSubmissionIds) {
-        const dbRows = await db.select({ submissionId: mwInspections.submissionId })
-          .from(mwInspections)
-          .where(eq(mwInspections.submissionId, input.rows[0].submissionId || ""));
-        // Simpler: fetch all non-null submissionIds
-        const allDbIds = await db.select({ submissionId: mwInspections.submissionId })
-          .from(mwInspections);
-        allDbIds.forEach(r => { if (r.submissionId) existingIds.add(r.submissionId); });
-      }
+      // Build set of existing composite keys for dedup
+      // SubmissionID is a FORM ID, not a row ID — multiple rows share the same submissionId
+      // Use composite key: facilityId + inspector + date + assetTag + category + task
+      const existingKeys = new Set<string>();
+      const allDbRows = await db.select({
+        facilityId: mwInspections.facilityId,
+        inspector: mwInspections.inspector,
+        date: mwInspections.date,
+        assetTag: mwInspections.assetTag,
+        category: mwInspections.category,
+        task: mwInspections.task,
+      }).from(mwInspections);
+      allDbRows.forEach(r => {
+        existingKeys.add((r.facilityId || '') + '|' + (r.inspector || '') + '|' + (r.date || '') + '|' + (r.assetTag || '') + '|' + (r.category || '') + '|' + (r.task || ''));
+      });
 
       // Filter out duplicates before inserting
       const newRows = input.rows.filter(row => {
-        if (row.submissionId && existingIds.has(row.submissionId)) {
+        const key = (row.facilityId || '') + '|' + (row.inspector || '') + '|' + (row.date || '') + '|' + (row.assetTag || '') + '|' + (row.category || '') + '|' + (row.task || '');
+        if (existingKeys.has(key)) {
           skipped++;
           return false;
         }
-        if (row.submissionId) existingIds.add(row.submissionId);
+        existingKeys.add(key);
         return true;
       });
 
