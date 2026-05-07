@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, integer, bigint, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -85,7 +85,10 @@ export const mwInspections = pgTable("mw_inspections", {
   frequency: varchar("frequency", { length: 50 }),
   updatedBy: varchar("updated_by", { length: 255 }),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  // Prevent duplicate uploads: same asset + task + date = same inspection
+  unique("mw_inspections_dedup").on(table.assetTag, table.task, table.date),
+]);
 
 export const mwCompliance = pgTable("mw_compliance", {
   id: serial("id").primaryKey(),
@@ -117,7 +120,7 @@ export const governanceFiles = pgTable("governance_files", {
   fileName: varchar("file_name", { length: 255 }).notNull(),
   fileType: varchar("file_type", { length: 50 }).notNull(),
   fileSize: integer("file_size"),
-  fileData: text("file_data").notNull(), // base64 encoded
+  fileData: text("file_data").notNull(),
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
 });

@@ -3,9 +3,10 @@ import { createRouter, publicQuery } from "./middleware";
 import { db, cacheGet, cacheSet, cacheInvalidate } from "./queries/connection";
 import { mwInspections } from "@db/schema";
 import { eq } from "drizzle-orm";
+import { onConflictDoNothing } from "drizzle-orm/pg-core";
 
 export const mwRouter = createRouter({
-  // Import Excel data — batch inserts with dedup by submissionId
+  // Import Excel data — fast batch insert with ON CONFLICT DO NOTHING
   importExcel: publicQuery
     .input(z.object({
       rows: z.array(z.object({
@@ -26,51 +27,47 @@ export const mwRouter = createRouter({
         score: z.any().optional(),
         findings: z.any().optional(),
         date: z.any().optional(),
+        submittedAt: z.any().optional(),
+        frequency: z.any().optional(),
       })),
       filename: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const user = ctx.user;
-      let inserted = 0;
-      let skipped = 0;
 
-      // Deduplication: UNIQUE(asset_tag, task, date, submitted_at)
-      // Same task on same asset same date at same time = duplicate
-      // Different times = different inspections (shifts)
-      for (const row of input.rows) {
-        try {
-          await db.insert(mwInspections).values({
-            submissionId: row.submissionId ? String(row.submissionId) : null,
-            facilityId: String(row.facilityId || ''),
-            inspector: String(row.inspector || ''),
-            inspectionDate: row.inspectionDate ? String(row.inspectionDate) : null,
-            assetTag: row.assetTag ? String(row.assetTag) : null,
-            assetName: row.assetName ? String(row.assetName) : null,
-            equipmentType: row.equipmentType ? String(row.equipmentType) : null,
-            category: String(row.category || ''),
-            task: row.task ? String(row.task) : null,
-            capture1Label: row.capture1Label ? String(row.capture1Label) : null,
-            capture1Response: row.capture1Response ? String(row.capture1Response) : null,
-            escalationTrigger: row.escalationTrigger ? String(row.escalationTrigger) : null,
-            entryNotes: row.entryNotes ? String(row.entryNotes) : null,
-            status: row.status ? String(row.status) : "pending",
-            score: row.score != null ? Number(row.score) || null : null,
-            findings: row.findings ? String(row.findings) : null,
-            date: row.date ? String(row.date) : null,
-            submittedAt: row.submittedAt ? String(row.submittedAt) : null,
-            frequency: row.frequency ? String(row.frequency) : null,
-            updatedBy: user?.name ?? "system",
-          });
-          inserted++;
-        } catch (e: any) {
-          // Unique constraint violation = duplicate, skip it
-          if (e.message?.includes('unique') || e.message?.includes('duplicate') || e.code === '23505') {
-            skipped++;
-          } else {
-            throw e;
-          }
-        }
-      }
+      // Map input rows to DB rows
+      const dbRows = input.rows.map(row => ({
+        submissionId: row.submissionId ? String(row.submissionId) : null,
+        facilityId: String(row.facilityId || ''),
+        inspector: String(row.inspector || ''),
+        inspectionDate: row.inspectionDate ? String(row.inspectionDate) : null,
+        assetTag: row.assetTag ? String(row.assetTag) : null,
+        assetName: row.assetName ? String(row.assetName) : null,
+        equipmentType: row.equipmentType ? String(row.equipmentType) : null,
+        category: String(row.category || ''),
+        task: row.task ? String(row.task) : null,
+        capture1Label: row.capture1Label ? String(row.capture1Label) : null,
+        capture1Response: row.capture1Response ? String(row.capture1Response) : null,
+        escalationTrigger: row.escalationTrigger ? String(row.escalationTrigger) : null,
+        entryNotes: row.entryNotes ? String(row.entryNotes) : null,
+        status: row.status ? String(row.status) : "pending",
+        score: row.score != null ? Number(row.score) || null : null,
+        findings: row.findings ? String(row.findings) : null,
+        date: row.date ? String(row.date) : null,
+        submittedAt: row.submittedAt ? String(row.submittedAt) : null,
+        frequency: row.frequency ? String(row.frequency) : null,
+        updatedBy: user?.name ?? "system",
+      }));
+
+      // Fast batch insert — ON CONFLICT DO NOTHING handles duplicates
+      // Unique constraint: (asset_tag, task, date)
+      const result = await db.insert(mwInspections)
+        .values(dbRows)
+        .onConflictDoNothing({ target: [mwInspections.assetTag, mwInspections.task, mwInspections.date] });
+
+      // Drizzle returns empty array for onConflictDoNothing, count rows for reporting
+      const inserted = result.length || 0;
+      const skipped = input.rows.length - inserted;
 
       // Invalidate cache so next read fetches fresh data
       cacheInvalidate("mw_inspections");

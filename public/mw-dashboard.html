@@ -706,11 +706,8 @@ function importToDatabase(rows, filename) {
   document.getElementById('refreshBtn').style.display = 'inline-flex';
   document.getElementById('clearDataBtn').style.display = 'inline-flex';
 
-  /* Build payload with ALL fields + sequence numbers */
-  var groupMap = {};
+  /* Build payload with ALL fields */
   var payload = rows.map(function(r) {
-    var key = (r.AssetTag || '') + '|' + (r.Task || '') + '|' + (r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : '');
-    groupMap[key] = (groupMap[key] || 0) + 1;
     return {
     submissionId: r.SubmissionID || null,
     facilityId: r.Plant || 'unknown',
@@ -726,8 +723,7 @@ function importToDatabase(rows, filename) {
     escalationTrigger: r.EscalationTrigger || null,
     entryNotes: r.EntryNotes || null,
     status: r.Status || 'pending',
-    score: r.Score || null,
-    sequenceNum: groupMap[key],
+    score: r.Score != null ? Number(r.Score) || null : null,
     findings: r.Findings || '',
     date: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
     submittedAt: r.SubmittedAt || null,
@@ -1382,7 +1378,12 @@ function normalizeRow(r) {
     Capture1Label:     getVal('Capture1Label','Label','Field','Question'),
     Capture1Response:  getVal('Capture1Response','Response','Answer','Result','Value'),
     EscalationTrigger: getVal('EscalationTrigger','Escalation','Trigger','Alert','Flag'),
-    EntryNotes:        getVal('EntryNotes','Notes','Remarks','Comments','Findings')
+    EntryNotes:        getVal('EntryNotes','Notes','Remarks','Comments','Observation'),
+    Status:            getVal('Status','State','Condition','Equipment Status'),
+    SubmittedAt:       getVal('SubmittedAt','Submitted At','Submit Time','Timestamp','Date Submitted'),
+    Score:             getVal('Score','Rating','Points','Grade','Health Score'),
+    Findings:          getVal('Findings','Finding','Result','Outcome','Observation'),
+    Frequency:         getVal('Frequency','Freq','Interval','Period','Schedule')
   };
 }
 
