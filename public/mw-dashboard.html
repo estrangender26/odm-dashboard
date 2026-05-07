@@ -765,8 +765,8 @@ function importToDatabase(rows, filename) {
   document.getElementById('progressFill').style.width = '0%';
   document.getElementById('progressText').textContent = '0%';
 
-  /* Upload in chunks using callbacks */
-  var CHUNK_SIZE = 2000;
+  /* Upload in chunks — small chunks so API responds fast, progress updates frequently */
+  var CHUNK_SIZE = 200;  /* 200 rows = ~2-5s API response, progress updates every ~2s */
   var totalInserted = 0;
   var totalSkipped = 0;
   var totalChunks = Math.ceil(payload.length / CHUNK_SIZE);
@@ -784,8 +784,13 @@ function importToDatabase(rows, filename) {
     var start = currentChunk * CHUNK_SIZE;
     var chunk = payload.slice(start, start + CHUNK_SIZE);
     currentChunk++;
+
+    /* UPDATE PROGRESS BEFORE API CALL so user sees movement */
+    var pct = Math.round(((currentChunk - 1) / totalChunks) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressText').textContent = pct + '%';
     document.getElementById('loadedFileName').textContent =
-      (filename || 'Importing') + ' — chunk ' + currentChunk + '/' + totalChunks + '...';
+      (filename || 'Importing') + ' — chunk ' + currentChunk + '/' + totalChunks + ' (' + chunk.length + ' rows)...';
 
     var retries = 0;
     function trySend() {
@@ -797,6 +802,7 @@ function importToDatabase(rows, filename) {
             totalInserted += result.inserted;
             totalSkipped += result.skipped;
           }
+          /* Update progress after successful chunk */
           var pct = Math.round((currentChunk / totalChunks) * 100);
           document.getElementById('progressFill').style.width = pct + '%';
           document.getElementById('progressText').textContent = pct + '%';
@@ -810,14 +816,14 @@ function importToDatabase(rows, filename) {
             useClientSide(rows, filename);
             return;
           }
-          setTimeout(trySend, 1000);
+          setTimeout(trySend, 2000);  /* Wait 2s before retry */
         }
       );
     }
     trySend();
   }
 
-  setTimeout(sendNextChunk, 100);
+  setTimeout(sendNextChunk, 50);
 }
 
 /* Client-side fallback: process data directly when API is unavailable */
@@ -862,6 +868,19 @@ function resetDatabase() {
       rawRows = []; clearStorageUI();
     }
   );
+}
+
+/* DIAGNOSTIC: test import with sample data */
+function runImportTest() {
+  console.log('[TEST] Starting import test...');
+  var testRows = [
+    {SubmissionID:'1', InspectionDate:new Date('2026-04-30'), Inspector:'Test Inspector', AssetTag:'WS-TEST-001', AssetName:'Test Pump', Plant:'Balara PS', EquipmentType:'Pump', Category:'Inspection', Task:'Check seal leakage', Capture1Label:'Condition', Capture1Response:'OK', EscalationTrigger:'Escalate if leak', EntryNotes:'', Status:'Active', SubmittedAt:'2026-04-30 09:00:00', Score:'', Findings:'', Frequency:'Daily'},
+    {SubmissionID:'2', InspectionDate:new Date('2026-04-30'), Inspector:'Test Inspector', AssetTag:'WS-TEST-001', AssetName:'Test Pump', Plant:'Balara PS', EquipmentType:'Pump', Category:'Inspection', Task:'Check seal leakage', Capture1Label:'Condition', Capture1Response:'OK', EscalationTrigger:'Escalate if leak', EntryNotes:'', Status:'Active', SubmittedAt:'2026-04-30 09:00:00', Score:'', Findings:'', Frequency:'Daily'},
+    {SubmissionID:'3', InspectionDate:new Date('2026-04-30'), Inspector:'Test Inspector', AssetTag:'WS-TEST-002', AssetName:'Test Motor', Plant:'Balara PS', EquipmentType:'Motor', Category:'Inspection', Task:'Measure bearing temp', Capture1Label:'Temp', Capture1Response:'Normal', EscalationTrigger:'Escalate if hot', EntryNotes:'', Status:'Active', SubmittedAt:'2026-04-30 10:00:00', Score:'', Findings:'', Frequency:'Daily'},
+    {SubmissionID:'4', InspectionDate:new Date('2026-05-01'), Inspector:'Test Inspector', AssetTag:'WS-TEST-001', AssetName:'Test Pump', Plant:'Balara PS', EquipmentType:'Pump', Category:'Inspection', Task:'Check seal leakage', Capture1Label:'Condition', Capture1Response:'Loose', EscalationTrigger:'Escalate if leak', EntryNotes:'No pressure gauge', Status:'Active', SubmittedAt:'2026-05-01 09:00:00', Score:'', Findings:'', Frequency:'Daily'}
+  ];
+  console.log('[TEST] testRows.length=' + testRows.length);
+  importToDatabase(testRows, 'TestFile.xlsx');
 }
 </script>
 
