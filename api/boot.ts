@@ -46,6 +46,9 @@ app.get("/mw-dashboard", async (c) => {
   const mwPath = path.resolve(import.meta.dirname, "../dist/public/mw-dashboard.html");
   if (fs.existsSync(mwPath)) {
     const content = fs.readFileSync(mwPath, "utf-8");
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
+    c.header("Pragma", "no-cache");
+    c.header("Expires", "0");
     return c.html(content);
   }
   return c.json({ error: "MW dashboard not found" }, 404);
