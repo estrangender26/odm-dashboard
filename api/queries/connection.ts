@@ -16,6 +16,8 @@ export function getDb() {
   // Use Session Pooler (port 5432) instead of Transaction Pooler (port 6543)
   // to guarantee read-after-write consistency (no replica lag)
   databaseUrl = databaseUrl.replace(":6543/", ":5432/");
+  // Session Pooler uses username "postgres" not "postgres.project_ref"
+  databaseUrl = databaseUrl.replace("postgres.hpfcwqyoxbndfwzbhrbz:", "postgres:");
   
   console.log("[DB] Connecting to database...");
   const client = postgres(databaseUrl, {
