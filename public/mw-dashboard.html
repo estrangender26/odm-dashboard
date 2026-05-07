@@ -659,12 +659,20 @@ function loadFromDatabase() {
       }
 
       rawRows = rows.map(r => ({
+        SubmissionID: r.submissionId || '',
         Plant: r.facilityId || '',
-        EquipmentName: '',
-        EquipmentType: '',
-        Category: r.category || '',
         Inspector: r.inspector || '',
-        InspectionDate: r.date ? new Date(r.date) : null,
+        InspectionDate: r.inspectionDate ? new Date(r.inspectionDate) : (r.date ? new Date(r.date) : null),
+        AssetTag: r.assetTag || '',
+        AssetName: r.assetName || '',
+        EquipmentType: r.equipmentType || '',
+        EquipmentName: r.assetName || '',
+        Category: r.category || '',
+        Task: r.task || '',
+        Capture1Label: r.capture1Label || '',
+        Capture1Response: r.capture1Response || '',
+        EscalationTrigger: r.escalationTrigger || '',
+        EntryNotes: r.entryNotes || '',
         Status: r.status || 'Pending',
         Score: r.score || 0,
         Findings: r.findings || '',
@@ -697,11 +705,21 @@ function importToDatabase(rows, filename) {
   showDashboard();
   refreshAll();
 
-  /* Send to database in background */
+  /* Send to database in background — ALL fields */
   const payload = rows.map(r => ({
+    submissionId: r.SubmissionID || null,
     facilityId: r.Plant || 'unknown',
     inspector: r.Inspector || '',
+    inspectionDate: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
+    assetTag: r.AssetTag || null,
+    assetName: r.AssetName || null,
+    equipmentType: r.EquipmentType || null,
     category: r.Category || '',
+    task: r.Task || null,
+    capture1Label: r.Capture1Label || null,
+    capture1Response: r.Capture1Response || null,
+    escalationTrigger: r.EscalationTrigger || null,
+    entryNotes: r.EntryNotes || null,
     status: r.Status || 'pending',
     score: r.Score || null,
     findings: r.Findings || '',
