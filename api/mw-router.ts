@@ -2,8 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db, cacheGet, cacheSet, cacheInvalidate } from "./queries/connection";
 import { mwInspections } from "@db/schema";
-import { eq } from "drizzle-orm";
-import { onConflictDoNothing } from "drizzle-orm/pg-core";
+import { eq, sql } from "drizzle-orm";
 
 export const mwRouter = createRouter({
   // Import Excel data — fast batch insert with ON CONFLICT DO NOTHING
@@ -59,15 +58,29 @@ export const mwRouter = createRouter({
         updatedBy: user?.name ?? "system",
       }));
 
-      // Fast batch insert — ON CONFLICT DO NOTHING handles duplicates
-      // Unique constraint: (asset_tag, task, date)
-      const result = await db.insert(mwInspections)
-        .values(dbRows)
-        .onConflictDoNothing({ target: [mwInspections.assetTag, mwInspections.task, mwInspections.date] });
-
-      // Drizzle returns empty array for onConflictDoNothing, count rows for reporting
-      const inserted = result.length || 0;
-      const skipped = input.rows.length - inserted;
+      // Batch insert with ON CONFLICT DO UPDATE — merge EntryNotes from duplicates
+      // If a later row has EntryNotes and the existing row doesn't, preserve the notes
+      let inserted = 0;
+      let skipped = 0;
+      
+      // Process in smaller batches to avoid SQL param limits
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < dbRows.length; i += BATCH_SIZE) {
+        const batch = dbRows.slice(i, i + BATCH_SIZE);
+        const result = await db.insert(mwInspections)
+          .values(batch)
+          .onConflictDoUpdate({
+            target: [mwInspections.assetTag, mwInspections.task, mwInspections.date],
+            set: {
+              // Merge: keep existing entryNotes, OR update if new row has notes and existing doesn't
+              entryNotes: sql`COALESCE(${mwInspections.entryNotes}, EXCLUDED.entry_notes)`,
+              capture1Response: sql`COALESCE(${mwInspections.capture1Response}, EXCLUDED.capture1_response)`,
+              findings: sql`COALESCE(${mwInspections.findings}, EXCLUDED.findings)`,
+            }
+          });
+        inserted += result.length || 0;
+      }
+      skipped = input.rows.length - inserted;
 
       // Invalidate cache so next read fetches fresh data
       cacheInvalidate("mw_inspections");
