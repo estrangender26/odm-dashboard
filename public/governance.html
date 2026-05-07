@@ -1,63 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>O&M Manual Governance — Facility Onboarding Alignment Tracker</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<title>O&amp;M Manual Governance — Facility Onboarding Alignment Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
 <script>
 /* ---------- FILE UPLOAD API (Database Storage) ---------- */
 const FILE_API = '/api/trpc';
-
 function govUploadFile(facilitySlug, milestoneId, tocItem, fileName, fileType, fileSize, base64Data) {
   return fetch(FILE_API + '/govFiles.upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      json: { facilitySlug, milestoneId, tocItem, fileName, fileType, fileSize, fileData: base64Data }
-    })
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: { facilitySlug, milestoneId, tocItem, fileName, fileType, fileSize, fileData: base64Data } })
   }).then(r => r.json());
 }
-
 function govListFiles(facilitySlug, milestoneId) {
   return fetch(FILE_API + '/govFiles.list', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ json: { facilitySlug, milestoneId } })
   }).then(r => r.json());
 }
-
 function govDownloadFile(fileId) {
   return fetch(FILE_API + '/govFiles.download', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ json: { id: fileId } })
   }).then(r => r.json());
 }
-
 function govDeleteFile(fileId) {
   return fetch(FILE_API + '/govFiles.delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ json: { id: fileId } })
   }).then(r => r.json());
 }
-
 function govListByFacility(facilitySlug) {
   return fetch(FILE_API + '/govFiles.listByFacility', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ json: { facilitySlug } })
   }).then(r => r.json());
 }
-
 function loadFilesFromDB(facilitySlug) {
   if (!facilitySlug) return;
   govListByFacility(facilitySlug).then(function(data) {
@@ -66,7 +51,6 @@ function loadFilesFromDB(facilitySlug) {
     var c = ST[facilitySlug];
     if (!c) return;
     if (!c.up) c.up = {};
-    // Build fresh upload state from DB — DB is source of truth
     var newUp = {};
     files.forEach(function(f) {
       var mid = f.milestoneId;
@@ -75,20 +59,14 @@ function loadFilesFromDB(facilitySlug) {
       if (!newUp[mid][key]) newUp[mid][key] = [];
       newUp[mid][key].push({ n: f.fileName, d: f.fileData, dbId: f.id });
     });
-    // Merge: keep local-only files (those without dbId) that aren't in DB
     Object.keys(c.up).forEach(function(mid) {
       if (!newUp[mid]) newUp[mid] = {};
       Object.keys(c.up[mid]).forEach(function(key) {
         if (!newUp[mid][key]) newUp[mid][key] = [];
         c.up[mid][key].forEach(function(localFile) {
-          if (localFile.dbId) return; // DB files handled above
-          // Local-only file — check if name matches any DB file
-          var inDb = newUp[mid][key].some(function(dbFile) {
-            return dbFile.n === localFile.n;
-          });
-          if (!inDb) {
-            newUp[mid][key].push(localFile);
-          }
+          if (localFile.dbId) return;
+          var inDb = newUp[mid][key].some(function(dbFile) { return dbFile.n === localFile.n; });
+          if (!inDb) newUp[mid][key].push(localFile);
         });
       });
     });
@@ -99,1054 +77,519 @@ function loadFilesFromDB(facilitySlug) {
 }
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>
-:root{
-  --mw-navy:#0B1D44;--mw-navy2:#07132E;--mw-blue:#0066A6;--mw-cyan:#00A8D2;--mw-aqua:#2AAA8A;
-  --mw-bg:#EEF2F6;--mw-card:#FFFFFF;--mw-border:#D6DFE8;--mw-text:#0F172A;--mw-muted:#5A6B7D;
-  --mw-success:#0A9B6E;--mw-success-bg:#E6F5EF;--mw-warning:#D97706;--mw-warning-bg:#FEF3C7;
-  --mw-danger:#DC2626;--mw-danger-bg:#FEF2F2;--mw-orange:#E8890C;
-  --r-sm:4px;--r-md:6px;--r-lg:8px;
-  --sh-sm:0 1px 2px rgba(0,0,0,.04);--sh-md:0 2px 8px rgba(0,0,0,.06);
-  --sh-card:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.04);
-}
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html{-webkit-text-size-adjust:100%}
-body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:var(--mw-bg);color:var(--mw-text);font-size:13px;line-height:1.5;min-width:320px;overflow-x:hidden}
-.hdr{background:linear-gradient(180deg,var(--mw-navy) 0%,var(--mw-navy2) 100%);color:#fff;position:sticky;top:0;z-index:100;box-shadow:var(--sh-md)}
-.hdr-in{max-width:1440px;margin:0 auto;padding:8px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:10px;min-width:0}
-.brand img{width:28px;height:28px;background:#fff;border-radius:var(--r-sm);padding:2px;flex-shrink:0}
-.brand h1{font-size:15px;font-weight:700;letter-spacing:-0.2px;line-height:1.2;white-space:nowrap}
-.brand span{font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.5px;display:block;margin-top:1px}
-.acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0}
-.acts select,.acts input,.acts button{padding:6px 10px;font-size:11px;font-family:inherit;border-radius:var(--r-md);border:none;outline:none;cursor:pointer}
-.acts select,.acts input{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)}
-.acts select option{background:var(--mw-navy);color:#fff}
-.acts input[type="date"]{color-scheme:dark;padding-right:4px}
-.acts button{font-weight:600;transition:all .15s}
-.btn-p{background:var(--mw-cyan);color:#fff}.btn-p:hover{background:#0092B8}
-.btn-g{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.2)}
-.btn-g:hover{background:rgba(255,255,255,.18)}
-.btn-r{background:rgba(220,38,38,.15);color:#fff;border:1px solid rgba(220,38,38,.3)}
-.btn-r:hover{background:rgba(220,38,38,.25)}
-.hdr-chip{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);padding:5px 10px;border-radius:var(--r-md);border:1px solid rgba(255,255,255,.1)}
-.hdr-chip label{font-size:9px;opacity:.7;text-transform:uppercase;letter-spacing:.5px;font-weight:600;white-space:nowrap}
-.hdr-chip select,.hdr-chip input{background:transparent;border:none;color:#fff;padding:0;font-weight:600;cursor:pointer;min-width:0}
-.main{max-width:1440px;margin:0 auto;padding:12px 16px 24px}
-.tabs-wrap{position:sticky;top:48px;z-index:90;background:var(--mw-bg);padding:4px 0}
-.tabs{display:flex;gap:2px;background:#E2E8F0;padding:4px;border-radius:var(--r-lg);overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;white-space:nowrap}
-.tabs::-webkit-scrollbar{display:none}
-.tab{padding:7px 16px;font-size:12px;font-weight:600;font-family:inherit;color:var(--mw-muted);background:transparent;border:none;border-radius:var(--r-md);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
-.tab:hover{color:var(--mw-navy);background:rgba(255,255,255,.5)}
-.tab.a{color:#fff;background:var(--mw-blue);box-shadow:var(--sh-sm)}
-.tab.a:hover{background:#005A8F}
-.tc{display:none}.tc.a{display:block}
-.card{background:var(--mw-card);border-radius:var(--r-lg);padding:14px 16px;box-shadow:var(--sh-card);border:1px solid var(--mw-border);margin-bottom:12px}
-.card+.card{margin-top:12px}
-.ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;min-height:28px}
-.ch h2{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;color:var(--mw-navy);letter-spacing:-0.2px}
-.ch h2 span{color:var(--mw-muted);font-weight:400}
-.badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:12px;display:inline-block;line-height:1.4;position:relative}
-.rg{background:var(--mw-success-bg);color:var(--mw-success)}
-.ra{background:var(--mw-warning-bg);color:var(--mw-warning)}
-.rr{background:var(--mw-danger-bg);color:var(--mw-danger)}
-.cw{height:320px;position:relative}
-#sc-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
-.kpi-card{text-align:center;padding:8px;background:#F8FAFC;border-radius:var(--r-md);border:1px solid var(--mw-border)}
-.kpi-label{font-size:9px;color:var(--mw-muted);text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin-bottom:2px}
-.kpi-value{font-size:16px;font-weight:700}
-.kpi-planned{color:var(--mw-blue)}
-.kpi-actual{color:var(--mw-danger)}
-.kpi-variance-pos{color:var(--mw-success)}
-.kpi-variance-neg{color:var(--mw-danger)}
-.chart-caption{font-size:10px;color:var(--mw-muted);margin-top:6px;line-height:1.6}
-.ph{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:6px 12px;border-radius:var(--r-md) var(--r-md) 0 0;color:#fff;margin-top:12px}
-.ph:first-child{margin-top:0}
-.pp1{background:var(--mw-cyan)}.pp2{background:var(--mw-aqua)}.pp3{background:var(--mw-blue)}
-.pb{border:1px solid var(--mw-border);border-top:none;border-radius:0 0 var(--r-md) var(--r-md);overflow:hidden}
-.ms-h{display:grid;grid-template-columns:42px 1fr 60px 90px 115px 55px 70px 40px;gap:6px;align-items:center;padding:6px 12px;background:#F1F5F9;border-bottom:1px solid var(--mw-border);font-size:9px;font-weight:700;color:var(--mw-muted);text-transform:uppercase;letter-spacing:.4px}
-.ms-h>div{text-align:center}.ms-h>div:first-child,.ms-h>div:nth-child(2){text-align:left}
-.ms{display:grid;grid-template-columns:42px 1fr 60px 90px 115px 55px 70px 40px;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid #EDF1F4;font-size:11px}
-.ms:last-child{border-bottom:none}
-.msi{font-size:10px;font-weight:700;color:var(--mw-navy);background:var(--mw-bg);padding:2px 6px;border-radius:var(--r-sm);text-align:center;min-width:32px}
-.msn{font-size:12px;font-weight:600;color:var(--mw-text);line-height:1.3}
-.msd{font-size:10px;color:var(--mw-muted);margin-top:1px;grid-column:2;line-height:1.3}
-.mst{text-align:center}.msc{text-align:center}
-.tag{font-size:9px;font-weight:600;padding:1px 5px;border-radius:8px;margin:1px;display:inline-block;line-height:1.3;white-space:nowrap;position:relative}
-.tg{border:1px solid var(--mw-cyan);color:var(--mw-cyan);background:rgba(0,168,210,.04)}
-.og{border:1px solid var(--mw-orange);color:var(--mw-orange);background:rgba(232,137,12,.04)}
-.up{border:1px dashed var(--mw-border);border-radius:var(--r-sm);padding:4px 6px;text-align:center;cursor:pointer;transition:all .15s;font-size:10px;color:var(--mw-muted);background:#FAFBFC;position:relative;overflow:hidden}
-.up-loading{background:var(--mw-cyan);color:#fff;border-color:var(--mw-cyan);pointer-events:none}
-.up:hover{border-color:var(--mw-cyan);background:#F0F9FF}
-.up.hf{border-color:var(--mw-success);background:var(--mw-success-bg);color:var(--mw-success)}
-.fl{margin-top:3px;display:flex;flex-direction:column;gap:2px}
-.fr{display:flex;align-items:center;justify-content:space-between;padding:2px 6px;background:var(--mw-bg);border-radius:var(--r-sm);font-size:10px;gap:4px;flex-wrap:wrap}
-.fr a{color:var(--mw-blue);text-decoration:none;font-weight:500;word-break:break-all;min-width:0}
-.fr button{background:none;border:none;color:var(--mw-danger);cursor:pointer;font-size:10px;font-weight:600;flex-shrink:0;padding:2px 4px}
-.toc-up{display:grid;grid-template-columns:1fr 160px 180px;gap:6px;align-items:center;padding:4px 12px 4px 66px;border-bottom:1px solid #F0F3F5;background:#FAFBFC}
-.toc-up:last-child{border-bottom:none}
-.toc-lbl{font-size:10px;color:var(--mw-text);line-height:1.4}
-.toc-lbl strong{font-size:10px;color:var(--mw-navy)}
-.toc-lbl span{font-size:9px;color:var(--mw-muted)}
-.comp-row{display:flex;gap:10px;align-items:center;padding:6px 12px 6px 66px;background:#F8FAFB;border-bottom:1px solid #EDF1F4;flex-wrap:wrap;font-size:10px;color:var(--mw-muted)}
-.dlv-g{display:grid;grid-template-columns:1fr 90px 75px 1fr;gap:1px;background:var(--mw-border);border-radius:var(--r-md);overflow:hidden;font-size:11px}
-.dlv-g>div{background:#fff;padding:6px 8px;display:flex;align-items:center}
-.dlv-h{background:#F1F5F9!important;font-weight:600;font-size:10px;text-transform:uppercase;color:var(--mw-muted);justify-content:center;letter-spacing:.3px}
-.dlv-n{font-weight:500;flex-direction:column;align-items:flex-start;gap:1px;line-height:1.4}
-.dlv-c{text-align:center;justify-content:center}
-.ra-box{padding:10px 12px;border-radius:var(--r-md);margin-bottom:8px}
-.a1{background:var(--mw-success-bg);border:1px solid rgba(10,155,110,.15)}
-.a2{background:#F0F9FF;border:1px solid rgba(0,102,166,.15)}
-.ac{background:var(--mw-danger-bg);border:1px solid rgba(220,38,38,.15)}
-.ra-title{font-size:12px;font-weight:700;margin-bottom:3px}
-.ra-text{font-size:11px;color:var(--mw-muted);line-height:1.5}
-.rj-item{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;padding:8px 10px;background:#fff;border-radius:var(--r-md);border:1px solid var(--mw-border)}
-.rj-num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--mw-danger);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
-.rj-text{font-size:11px;color:var(--mw-muted);line-height:1.5}
-.ref-table{width:100%;border-collapse:collapse;font-size:11px}
-.ref-table th{padding:6px 8px;text-align:left;background:#F1F5F9;color:var(--mw-muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--mw-border)}
-.ref-table td{padding:6px 8px;border-bottom:1px solid #EDF1F4;vertical-align:top}
-.ref-table tr:hover td{background:#FAFBFC}
-[data-tip]{position:relative;cursor:help}
-[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--mw-navy);color:#fff;font-size:10px;padding:5px 10px;border-radius:var(--r-sm);white-space:pre-line;z-index:99999;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.25);max-width:260px;line-height:1.4;font-weight:400;font-family:Inter,sans-serif}
-[data-tip]:hover::before{content:'';position:absolute;bottom:calc(100% + 2px);left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--mw-navy);z-index:99999;pointer-events:none}
-::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:#C5D1DB;border-radius:3px}
-::-webkit-scrollbar-thumb:hover{background:#9AAFC0}
-@media(max-width:900px){
-  .hdr-in{padding:8px 12px;gap:8px}.brand h1{font-size:13px}.brand span{font-size:9px}
-  .main{padding:10px 12px}.card{padding:12px 14px}.cw{height:280px}
-  #sc-summary{grid-template-columns:repeat(2,1fr)!important}
-  .ms,.ms-h{grid-template-columns:36px 1fr 55px 80px 100px 50px 60px 36px;gap:4px;padding:6px 10px}
-  .ms-h{font-size:8px}.toc-up{grid-template-columns:1fr;padding:4px 10px 4px 52px}
-  .comp-row{padding:6px 10px 6px 52px}.dlv-g{grid-template-columns:1fr 80px 70px 1fr}
-}
-@media(max-width:640px){
-  .hdr-in{flex-direction:column;align-items:stretch;gap:6px;padding:8px}
-  .brand{gap:8px}.brand img{width:24px;height:24px}.brand h1{font-size:13px}
-  .acts{width:100%;justify-content:space-between;gap:6px}
-  .main{padding:8px}.card{padding:10px 12px;margin-bottom:10px}
-  .ch{flex-direction:column;align-items:flex-start;gap:4px}.ch h2{font-size:12px}
-  .cw{height:300px}
-  #sc-summary{grid-template-columns:1fr!important;gap:4px;margin-bottom:6px}
-  .kpi-card{padding:6px}
-  .kpi-value{font-size:15px}.tabs{padding:3px;gap:2px}.tab{padding:6px 12px;font-size:11px}
-  /* Mobile milestone: stacked card layout with clear separation */
-  .ms-h{display:none}
-  .pb{background:var(--mw-card);border-radius:var(--r-md);border:1px solid var(--mw-border);padding:4px 0}
-  .ms{display:block;padding:10px 12px 6px;border-bottom:none;border-top:2px solid var(--mw-border);font-size:11px}
-  .ms:first-child{border-top:none;padding-top:8px}
-  .ms>*{display:inline-block;margin:2px 4px 2px 0;vertical-align:middle}
-  .ms .msi{min-width:28px;padding:2px 6px;font-size:10px}
-  .ms .msn{font-size:12px;font-weight:600;display:block;margin-bottom:2px;width:100%}
-  .ms .msd{display:block;font-size:10px;color:var(--mw-muted);margin-bottom:4px;grid-column:auto;width:100%}
-  .ms .mst,.ms .msc{display:inline-flex;align-items:center;gap:3px;text-align:left}
-  .ms .mst .badge{font-size:9px;padding:1px 5px}
-  .toc-up{display:block;padding:6px 12px;border-bottom:1px solid #EDF1F4;background:transparent}
-  .toc-up:last-child{border-bottom:none}
-  .comp-row{display:block;padding:6px 12px;border-bottom:1px solid #EDF1F4;background:transparent;font-size:10px}
-  input[type="date"]{font-size:10px;width:85px;padding:2px}
-  input[type="number"]{font-size:10px;width:34px;padding:2px}
-  .badge{font-size:9px;padding:1px 5px;position:relative}
-  .tag{font-size:8px;padding:1px 4px;position:relative}
-  .dlv-g{grid-template-columns:1fr;font-size:11px}.dlv-g>div{padding:5px 8px}
-  .dlv-h{justify-content:flex-start!important;padding-left:8px!important}
-  .ra-title{font-size:11px}.ra-text{font-size:10px}
-  .rj-num{width:20px;height:20px;font-size:10px}.rj-text{font-size:10px}
-  .ref-table{font-size:10px}.ref-table th,.ref-table td{padding:4px 6px}
-}
-@media(max-width:480px){
-  .hdr-chip{padding:4px 8px;gap:4px}.hdr-chip label{font-size:8px}
-  .acts select,.acts input,.acts button{padding:5px 8px;font-size:10px}
-  .main{padding:6px}.card{padding:8px 10px}.cw{height:260px}
-  .tab{padding:5px 10px;font-size:10px}
-  .ms{padding:8px 10px;font-size:10px}
-  .ms .msn{font-size:11px}
-  .ms .msd{font-size:9px}
-  input[type="date"]{width:72px;font-size:9px}input[type="number"]{width:30px;font-size:9px}
-  .badge{font-size:8px;padding:1px 4px;position:relative}.up{padding:3px 5px;font-size:9px}
-  .fr{padding:2px 5px;font-size:9px}.toc-lbl strong{font-size:9px}.toc-lbl span{font-size:8px}
-  .fl{margin-top:2px;gap:1px}.chart-caption{font-size:9px}
-  .toc-up{padding:4px 8px 4px 12px}
-  .comp-row{padding:4px 8px 4px 12px}
-}
-@media(max-width:360px){
-  .brand h1{font-size:12px}.main{padding:4px}.card{padding:6px 8px}.cw{height:230px}
-  .ms{padding:6px 8px;font-size:9px}
-  .ms .msn{font-size:10px}
-  .ms .msd{font-size:8px}
-  input[type="date"]{width:64px;font-size:8px}input[type="number"]{width:26px;font-size:8px}
-  .badge{font-size:7px;padding:1px 3px;position:relative}.tag{font-size:7px;padding:1px 3px;position:relative}
+/* ============================================================
+   AMD O&M GOVERNANCE — ENTERPRISE DESIGN SYSTEM
+   ============================================================ */
+:root {
+  --mw-primary:       #005BAC;
+  --mw-primary-light: #0077CC;
+  --mw-accent:        #00AEEF;
+  --mw-aqua:          #4FC3F7;
+  --mw-navy:          #16324F;
+  --mw-navy-dark:     #0D2137;
+  --mw-navy-light:    #1E3F5E;
+
+  --success:          #1F9D55;
+  --success-light:    #E8F5E9;
+  --warning:          #F59E0B;
+  --warning-light:    #FEF3C7;
+  --danger:           #DC2626;
+  --danger-light:     #FEE2E2;
+  --info:             #005BAC;
+  --info-light:       #E3F2FD;
+
+  --bg-primary:       #F4F9FC;
+  --bg-secondary:     #EDF3F8;
+  --bg-card:          #FFFFFF;
+  --bg-hover:         #F5F8FB;
+
+  --border-subtle:    rgba(0,91,172,0.08);
+  --border-light:     rgba(0,91,172,0.12);
+  --border-medium:    rgba(0,91,172,0.18);
+
+  --text-primary:     #16324F;
+  --text-secondary:   #4A6380;
+  --text-muted:       #8BA3B8;
+
+  --shadow-xs:        0 1px 2px rgba(22,50,79,0.04);
+  --shadow-sm:        0 1px 3px rgba(22,50,79,0.06), 0 1px 2px rgba(22,50,79,0.04);
+  --shadow-md:        0 4px 12px rgba(22,50,79,0.08), 0 2px 4px rgba(22,50,79,0.04);
+  --shadow-lg:        0 8px 24px rgba(22,50,79,0.10), 0 4px 8px rgba(22,50,79,0.04);
+
+  --radius-sm:        8px;
+  --radius-md:        12px;
+  --radius-lg:        16px;
+  --radius-xl:        20px;
+  --radius-full:      9999px;
+
+  --transition-fast:  150ms cubic-bezier(0.4,0,0.2,1);
+  --transition-base:  250ms cubic-bezier(0.4,0,0.2,1);
+
+  --header-height:    64px;
 }
 
-.nav-home{display:flex;align-items:center;margin-left:auto;margin-right:12px}
-.nav-home a{color:#fff;text-decoration:none;font-size:13px;font-weight:500;padding:6px 14px;border-radius:5px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);transition:all .2s;white-space:nowrap}
-.nav-home a:hover{background:rgba(255,255,255,0.25)}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-primary); color: var(--text-primary); font-size: 13px; line-height: 1.5; min-width: 320px; overflow-x: hidden; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,91,172,0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,91,172,0.35); }
 
-@media(max-width:768px){
-  .hdr-in{flex-wrap:wrap}
-  .brand{min-width:0;flex:1}
-  .brand h1{font-size:13px}
-  .nav-home a{font-size:11px;padding:5px 10px;display:block}
-  .acts{flex-wrap:wrap;gap:6px;width:100%}
-  .acts select,.acts input,.acts button{font-size:11px;padding:5px 8px}
-  .fs-sel,.pp-sel{flex:1;min-width:140px}
-  .btn-r{padding:5px 10px;font-size:11px}
-  .main{padding:10px}
-  .cards-2,.cards-3,.cards-4{grid-template-columns:1fr!important}
-  .card{padding:14px}
-  .card h3{font-size:13px}
-  .kpi{font-size:24px}
-  .tab-btn{padding:8px 10px;font-size:12px}
-  .tabs{gap:2px}
-  .ms-table{font-size:11px}
-  .ms-table th,.ms-table td{padding:6px 8px}
-  .ms-table .dt{width:90px;min-width:90px}
-  .ms-table .nm{width:auto}
-  .rag{padding:10px 14px}
-  .rag h3{font-size:13px}
-  .tbl-sc{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .tbl-sc table{min-width:600px}
-  .upload-row{flex-direction:column;align-items:flex-start;gap:6px}
-  .upload-row .ms-nm{width:100%}
-  .del-group{flex-direction:column;gap:8px}
-  .del-group .del-h{flex-direction:column;align-items:flex-start}
-  .del-list{display:flex;flex-direction:column;gap:6px}
-  .del-list .itm{width:100%!important}
-  .chart-wrap{padding:12px}
-  .chart-wrap h2{font-size:14px}
+/* ============================================================
+   HEADER
+   ============================================================ */
+.hdr { background: linear-gradient(135deg, var(--mw-navy) 0%, var(--mw-navy-dark) 50%, var(--mw-navy) 100%); background-size: 200% 200%; animation: headerShimmer 8s ease-in-out infinite; color: #fff; position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow-lg); border-bottom: 1px solid rgba(255,255,255,0.06); }
+@keyframes headerShimmer { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
+.hdr-in { max-width: 1440px; margin: 0 auto; padding: 0 20px; height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand img { width: 40px; height: 40px; background: #fff; border-radius: var(--radius-sm); padding: 3px; flex-shrink: 0; object-fit: contain; }
+.brand h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; line-height: 1.2; white-space: nowrap; margin: 0; }
+.brand span { font-size: 10px; opacity: .7; text-transform: uppercase; letter-spacing: .8px; display: block; margin-top: 1px; }
+.acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.acts select, .acts input, .acts button { padding: 8px 12px; font-size: 12px; font-family: inherit; border-radius: var(--radius-sm); border: none; outline: none; cursor: pointer; transition: all var(--transition-fast); }
+.acts select, .acts input { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.2); }
+.acts select option { background: var(--mw-navy); color: #fff; }
+.acts input[type="date"] { color-scheme: dark; }
+.acts button { font-weight: 600; }
+.btn-p { background: var(--mw-accent); color: #fff; box-shadow: 0 2px 8px rgba(0,174,239,0.3); }
+.btn-p:hover { background: #0092C8; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,174,239,0.4); }
+.btn-g { background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.2); }
+.btn-g:hover { background: rgba(255,255,255,.18); }
+.btn-r { background: rgba(220,38,38,.15); color: #fff; border: 1px solid rgba(220,38,38,.3); }
+.btn-r:hover { background: rgba(220,38,38,.25); }
+.hdr-chip { display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.06); padding: 5px 10px; border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,.1); }
+.hdr-chip label { font-size: 9px; opacity: .7; text-transform: uppercase; letter-spacing: .8px; font-weight: 600; white-space: nowrap; }
+.hdr-chip select, .hdr-chip input { background: transparent; border: none; color: #fff; padding: 0; font-weight: 600; cursor: pointer; min-width: 0; font-size: 12px; }
+.nav-home { display: flex; align-items: center; margin-left: auto; margin-right: 12px; }
+.nav-home a { color: rgba(255,255,255,.7); text-decoration: none; font-size: 12px; font-weight: 500; padding: 6px 14px; border-radius: var(--radius-sm); transition: all var(--transition-fast); display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,.12); }
+.nav-home a:hover { color: #fff; background: rgba(255,255,255,.12); }
+
+/* ============================================================
+   MAIN & TABS
+   ============================================================ */
+.main { max-width: 1440px; margin: 0 auto; padding: 16px 20px 40px; }
+.tabs-wrap { position: sticky; top: 64px; z-index: 90; background: var(--bg-primary); padding: 8px 0; }
+.tabs { display: flex; gap: 4px; background: linear-gradient(180deg, #F8FAFC, #F1F5F9); padding: 6px; border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); box-shadow: var(--shadow-xs); overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; white-space: nowrap; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { padding: 10px 20px; font-size: 12px; font-weight: 600; font-family: inherit; color: var(--text-secondary); background: transparent; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: all var(--transition-fast); white-space: nowrap; flex-shrink: 0; letter-spacing: 0.2px; }
+.tab:hover { color: var(--text-primary); background: rgba(255,255,255,.6); }
+.tab.a { color: var(--mw-primary); background: #fff; box-shadow: var(--shadow-sm); }
+.tc { display: none; }.tc.a { display: block; animation: tabFadeIn 0.3s ease-out; }
+@keyframes tabFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ============================================================
+   CARDS
+   ============================================================ */
+.card { background: var(--bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm); border: 1px solid var(--border-subtle); margin-bottom: 16px; transition: box-shadow var(--transition-base); position: relative; overflow: hidden; }
+.card:hover { box-shadow: var(--shadow-md); }
+.card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--mw-primary), var(--mw-accent), var(--mw-aqua)); }
+.ch { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; min-height: 28px; }
+.ch h2 { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: var(--mw-navy); letter-spacing: -0.2px; margin: 0; }
+.ch h2 span { color: var(--text-muted); font-weight: 400; }
+.badge { font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: var(--radius-full); display: inline-block; line-height: 1.4; letter-spacing: 0.2px; }
+.rg { background: var(--success-light); color: var(--success); }
+.ra { background: var(--warning-light); color: #B45309; }
+.rr { background: var(--danger-light); color: var(--danger); }
+.cw { height: 340px; position: relative; }
+
+/* ============================================================
+   KPI SUMMARY
+   ============================================================ */
+#sc-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.kpi-card { text-align: center; padding: 14px 10px; background: linear-gradient(135deg, #F8FAFC, #F0F7FF); border-radius: var(--radius-md); border: 1px solid var(--border-subtle); transition: all var(--transition-fast); }
+.kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+.kpi-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .8px; font-weight: 700; margin-bottom: 4px; }
+.kpi-value { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+.kpi-planned { color: var(--mw-primary); }
+.kpi-actual { color: var(--danger); }
+.kpi-variance-pos { color: var(--success); }
+.kpi-variance-neg { color: var(--danger); }
+.chart-caption { font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.6; }
+
+/* ============================================================
+   PHASE HEADERS & MILESTONES
+   ============================================================ */
+.ph { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 10px 16px; border-radius: var(--radius-md) var(--radius-md) 0 0; color: #fff; margin-top: 16px; position: relative; overflow: hidden; }
+.ph:first-child { margin-top: 0; }
+.ph::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, rgba(255,255,255,0.5), rgba(255,255,255,0.1)); }
+.pp1 { background: linear-gradient(135deg, #0F4C75, #16324F); }
+.pp2 { background: linear-gradient(135deg, #1A7A5E, #21896E); }
+.pp3 { background: linear-gradient(135deg, #0066A6, #0077CC); }
+.pb { border: 1px solid var(--border-subtle); border-top: none; border-radius: 0 0 var(--radius-md) var(--radius-md); overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-xs); }
+
+/* ============================================================
+   MILESTONE ROWS
+   ============================================================ */
+.ms-h { display: grid; grid-template-columns: 42px 1fr 60px 90px 115px 55px 70px 40px; gap: 6px; align-items: center; padding: 10px 14px; background: linear-gradient(180deg, #F8FAFC, #F1F5F9); border-bottom: 2px solid var(--border-light); font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; position: sticky; top: 0; z-index: 10; }
+.ms-h > div { text-align: center; }
+.ms-h > div:first-child, .ms-h > div:nth-child(2) { text-align: left; }
+.ms-h::after { content: ''; position: absolute; bottom: -2px; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--mw-primary), var(--mw-accent)); opacity: 0; transition: opacity var(--transition-fast); }
+.ms-h:hover::after { opacity: 1; }
+
+.ms { display: grid; grid-template-columns: 42px 1fr 60px 90px 115px 55px 70px 40px; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid rgba(0,91,172,0.04); font-size: 12px; transition: background var(--transition-fast); }
+.ms:hover { background: rgba(0,91,172,0.03); }
+.ms:last-child { border-bottom: none; }
+.msi { font-size: 10px; font-weight: 700; color: var(--mw-navy); background: var(--bg-primary); padding: 3px 8px; border-radius: var(--radius-sm); text-align: center; min-width: 32px; border: 1px solid var(--border-light); }
+.msn { font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+.msd { font-size: 10px; color: var(--text-muted); margin-top: 2px; grid-column: 2; line-height: 1.3; }
+.mst { text-align: center; }
+.msc { text-align: center; }
+
+/* ============================================================
+   TAGS & UPLOADS
+   ============================================================ */
+.tag { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-full); margin: 2px; display: inline-block; line-height: 1.4; white-space: nowrap; letter-spacing: 0.2px; }
+.tg { border: 1px solid var(--mw-accent); color: var(--mw-primary); background: rgba(0,174,239,.06); }
+.og { border: 1px solid var(--warning); color: #B45309; background: rgba(245,158,11,.06); }
+.up { border: 1.5px dashed var(--border-medium); border-radius: var(--radius-sm); padding: 6px 10px; text-align: center; cursor: pointer; transition: all var(--transition-fast); font-size: 11px; color: var(--text-muted); background: #FAFBFC; position: relative; overflow: hidden; font-weight: 500; }
+.up:hover { border-color: var(--mw-accent); background: var(--info-light); color: var(--mw-primary); }
+.up.hf { border-color: var(--success); border-style: solid; background: var(--success-light); color: var(--success); }
+.fl { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+.fr { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-primary); border-radius: var(--radius-sm); font-size: 11px; gap: 6px; flex-wrap: wrap; border: 1px solid var(--border-subtle); transition: background var(--transition-fast); }
+.fr:hover { background: var(--bg-hover); }
+.fr a { color: var(--mw-primary); text-decoration: none; font-weight: 600; word-break: break-all; min-width: 0; }
+.fr button { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 11px; font-weight: 600; flex-shrink: 0; padding: 2px 6px; border-radius: var(--radius-sm); transition: background var(--transition-fast); }
+.fr button:hover { background: var(--danger-light); }
+
+/* ============================================================
+   TOC UPLOADS & COMPLETION ROWS
+   ============================================================ */
+.toc-up { display: grid; grid-template-columns: 1fr 160px 180px; gap: 8px; align-items: center; padding: 8px 14px 8px 66px; border-bottom: 1px solid rgba(0,91,172,0.04); background: #FAFBFC; transition: background var(--transition-fast); }
+.toc-up:hover { background: #F5F8FB; }
+.toc-up:last-child { border-bottom: none; }
+.toc-lbl { font-size: 11px; color: var(--text-primary); line-height: 1.4; }
+.toc-lbl strong { font-size: 11px; color: var(--mw-navy); }
+.toc-lbl span { font-size: 10px; color: var(--text-muted); }
+.comp-row { display: flex; gap: 10px; align-items: center; padding: 6px 14px 6px 66px; background: #F8FAFB; border-bottom: 1px solid rgba(0,91,172,0.04); flex-wrap: wrap; font-size: 10px; color: var(--text-muted); }
+
+/* ============================================================
+   DELIVERABLES GRID
+   ============================================================ */
+.dlv-g { display: grid; grid-template-columns: 1fr 90px 75px 1fr; gap: 1px; background: var(--border-subtle); border-radius: var(--radius-md); overflow: hidden; font-size: 12px; box-shadow: var(--shadow-xs); }
+.dlv-g > div { background: #fff; padding: 10px 12px; display: flex; align-items: center; }
+.dlv-h { background: linear-gradient(180deg, #F8FAFC, #F1F5F9) !important; font-weight: 700; font-size: 10px; text-transform: uppercase; color: var(--text-muted); justify-content: center; letter-spacing: .5px; }
+.dlv-n { font-weight: 500; flex-direction: column; align-items: flex-start !important; gap: 2px; line-height: 1.4; }
+.dlv-c { text-align: center; justify-content: center; }
+
+/* ============================================================
+   ACCEPTANCE BOXES
+   ============================================================ */
+.ra-box { padding: 16px 18px; border-radius: var(--radius-md); margin-bottom: 12px; position: relative; overflow: hidden; transition: box-shadow var(--transition-base); }
+.ra-box:hover { box-shadow: var(--shadow-md); }
+.ra-box::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.a1 { background: linear-gradient(135deg, #E8F5E9, #F1F8F4); border: 1px solid rgba(31,157,85,.15); }
+.a1::before { background: linear-gradient(180deg, #1F9D55, #34D399); }
+.a2 { background: linear-gradient(135deg, #E3F2FD, #EBF5FF); border: 1px solid rgba(0,102,166,.15); }
+.a2::before { background: linear-gradient(180deg, #005BAC, #0077CC); }
+.ac { background: linear-gradient(135deg, #FEE2E2, #FEF2F2); border: 1px solid rgba(220,38,38,.15); animation: pulseAlert 3s ease-in-out infinite; }
+.ac::before { background: linear-gradient(180deg, #DC2626, #F87171); }
+@keyframes pulseAlert { 0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.08)} 50%{box-shadow:0 0 0 8px rgba(220,38,38,0)} }
+.ra-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+.ra-text { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+/* ============================================================
+   REJECTION ITEMS
+   ============================================================ */
+.rj-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 8px; padding: 12px 14px; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-subtle); box-shadow: var(--shadow-xs); transition: all var(--transition-fast); }
+.rj-item:hover { border-color: var(--border-medium); box-shadow: var(--shadow-sm); transform: translateX(2px); }
+.rj-num { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #DC2626, #F87171); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; box-shadow: 0 2px 6px rgba(220,38,38,.3); }
+.rj-text { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+/* ============================================================
+   REFERENCE TABLES
+   ============================================================ */
+.ref-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.ref-table thead th { padding: 12px 14px; text-align: left; background: linear-gradient(180deg, #F8FAFC, #F1F5F9); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); border-bottom: 2px solid var(--border-light); position: relative; }
+.ref-table thead th::after { content: ''; position: absolute; bottom: -2px; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--mw-primary), var(--mw-accent)); opacity: 0; transition: opacity var(--transition-fast); }
+.ref-table thead:hover th::after { opacity: 1; }
+.ref-table td { padding: 11px 14px; border-bottom: 1px solid rgba(0,91,172,0.04); vertical-align: top; font-weight: 500; transition: background var(--transition-fast); }
+.ref-table tbody tr:nth-child(even) { background: rgba(0,91,172,0.01); }
+.ref-table tbody tr:hover td { background: rgba(0,91,172,0.04); }
+
+/* ============================================================
+   TOOLTIPS
+   ============================================================ */
+[data-tip] { position: relative; cursor: help; }
+[data-tip]:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--mw-navy); color: #fff; font-size: 11px; padding: 8px 14px; border-radius: var(--radius-sm); white-space: pre-line; z-index: 99999; pointer-events: none; box-shadow: var(--shadow-lg); max-width: 280px; line-height: 1.5; font-weight: 400; font-family: Inter, sans-serif; }
+[data-tip]:hover::before { content: ''; position: absolute; bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: var(--mw-navy); z-index: 99999; pointer-events: none; }
+
+/* ============================================================
+   FLOATING HOME
+   ============================================================ */
+.float-home { position: fixed; bottom: 20px; left: 20px; z-index: 9999; width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, var(--mw-navy), var(--mw-navy-dark)); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; text-decoration: none; box-shadow: var(--shadow-lg); transition: all var(--transition-base); border: 1px solid rgba(255,255,255,.1); }
+.float-home:hover { transform: translateY(-3px) scale(1.05); box-shadow: var(--shadow-xl); }
+.float-home:active { transform: scale(0.95); }
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+.animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; }
+.delay-1 { animation-delay: 0.05s; }
+.delay-2 { animation-delay: 0.10s; }
+.delay-3 { animation-delay: 0.15s; }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media(max-width:900px) {
+  .hdr-in { padding: 8px 12px; gap: 8px; height: auto; min-height: 56px; }
+  .brand h1 { font-size: 13px; } .brand span { font-size: 9px; }
+  .main { padding: 12px 14px; } .card { padding: 16px; } .cw { height: 300px; }
+  #sc-summary { grid-template-columns: repeat(2, 1fr) !important; }
+  .ms, .ms-h { grid-template-columns: 36px 1fr 55px 80px 100px 50px 60px 36px; gap: 4px; padding: 8px 10px; }
+  .ms-h { font-size: 8px; }
+  .toc-up { grid-template-columns: 1fr; padding: 8px 10px 8px 52px; }
+  .comp-row { padding: 6px 10px 6px 52px; } .dlv-g { grid-template-columns: 1fr 80px 70px 1fr; }
 }
-@media(max-width:480px){
-  .hdr{position:relative}
-  .brand img{width:22px;height:22px}
-  .brand h1{font-size:11px;letter-spacing:0}
-  .brand span{font-size:9px}
-  .nav-home{display:block;margin-left:8px}
-  .tabs{position:relative;top:0;padding:3px}
-  .tab-btn{padding:6px 8px;font-size:11px}
-  .tab-btn .cnt{display:none}
-  .card{padding:10px}
-  .card h3{font-size:12px}
-  .kpi{font-size:20px}
-  .ms-table{font-size:10px}
-  .ms-table th,.ms-table td{padding:4px 6px}
-  .ms-table .dt{width:75px;min-width:75px}
-  .fs-grid{grid-template-columns:1fr 1fr!important;gap:8px}
-  .fs-btn{padding:8px 10px;font-size:11px}
-  .s-curve{height:220px}
-  .del-group h4{font-size:12px}
-  .up-btn{padding:6px 10px;font-size:11px}
-  .ref-table{font-size:10px}
-  .ref-table th,.ref-table td{padding:4px 6px}
+@media(max-width:768px) {
+  .hdr-in { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px; height: auto; }
+  .brand { gap: 8px; } .brand img { width: 32px; height: 32px; } .brand h1 { font-size: 13px; }
+  .nav-home { display: none; }
+  .acts { width: 100%; justify-content: space-between; gap: 6px; }
+  .main { padding: 10px; } .card { padding: 14px; margin-bottom: 12px; }
+  .ch { flex-direction: column; align-items: flex-start; gap: 4px; } .ch h2 { font-size: 13px; }
+  .cw { height: 280px; } .tabs { padding: 4px; } .tab { padding: 8px 14px; font-size: 11px; }
 }
+@media(max-width:640px) {
+  .ms-h { display: none; }
+  .pb { background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-subtle); padding: 4px 0; }
+  .ms { display: block; padding: 12px 14px 8px; border-bottom: none; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+  .ms:first-child { border-top: none; padding-top: 10px; }
+  .ms > * { display: inline-block; margin: 2px 4px 2px 0; vertical-align: middle; }
+  .ms .msi { min-width: 28px; padding: 2px 6px; font-size: 10px; }
+  .ms .msn { font-size: 13px; font-weight: 600; display: block; margin-bottom: 2px; width: 100%; }
+  .ms .msd { display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 4px; grid-column: auto; width: 100%; }
+  .ms .mst, .ms .msc { display: inline-flex; align-items: center; gap: 3px; text-align: left; }
+  .toc-up { display: block; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); background: transparent; }
+  .comp-row { display: block; padding: 6px 12px; border-bottom: 1px solid var(--border-subtle); background: transparent; font-size: 10px; }
+  .dlv-g { grid-template-columns: 1fr; font-size: 11px; } .dlv-g > div { padding: 8px 10px; }
+  .dlv-h { justify-content: flex-start !important; padding-left: 10px !important; }
+}
+@media(max-width:480px) {
+  .hdr-chip { padding: 4px 8px; gap: 4px; } .hdr-chip label { font-size: 8px; }
+  .acts select, .acts input, .acts button { padding: 5px 8px; font-size: 11px; }
+  .main { padding: 8px; } .card { padding: 12px; } .cw { height: 260px; }
+  .tab { padding: 6px 10px; font-size: 10px; }
+  .rj-item { padding: 10px; } .rj-num { width: 22px; height: 22px; font-size: 10px; }
+  .ref-table { font-size: 10px; } .ref-table th, .ref-table td { padding: 6px 8px; }
+  .float-home { width: 40px; height: 40px; font-size: 16px; bottom: 12px; left: 12px; }
+}
+@media(min-width:769px) { .float-home { display: none; } }
 </style>
 </head>
-<body>
-<script>
-// Multi-User API Sync Layer for Governance
-(function(){
-  const API_BASE = '/api/trpc';
-  let syncTimeout = null;
-
-  function syncToServer() {
-    const milestoneData = localStorage.getItem('milestoneData');
-    if (!milestoneData) return;
-
-    const data = JSON.parse(milestoneData);
-    const facilities = ['aglipay','htt','eastbay','kaysakat'];
-    const currentFacility = window.currentFacility || facilities[0];
-
-    // Send each milestone to the server
-    Object.entries(data).forEach(([milestoneId, values]) => {
-      const payload = {
-        facilitySlug: currentFacility,
-        milestoneId: milestoneId,
-        pppDate: values.ppp || '',
-        compDate: values.comp || '',
-        customPct: values.customPct || null,
-      };
-      fetch(API_BASE + '/governance.saveMilestone', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: payload })
-      }).catch(() => {});
-    });
-  }
-
-  function loadFromServer() {
-    const facilities = ['aglipay','htt','eastbay','kaysakat'];
-    const currentFacility = window.currentFacility || facilities[0];
-
-    fetch(API_BASE + '/governance.milestoneState?input=' + encodeURIComponent(JSON.stringify({ facilitySlug: currentFacility })))
-      .then(r => r.json())
-      .then(data => {
-        if (data.result?.data?.json) {
-          const state = {};
-          data.result.data.json.forEach(row => {
-            state[row.milestoneId] = {
-              ppp: row.pppDate || '',
-              comp: row.compDate || '',
-              customPct: row.customPct || null
-            };
-          });
-          localStorage.setItem('milestoneData', JSON.stringify(state));
-          // Refresh the UI if possible
-          if (typeof window.refreshMilestoneUI === 'function') {
-            window.refreshMilestoneUI();
-          }
-        }
-      })
-      .catch(() => {});
-  }
-
-  const origSetItem = localStorage.setItem.bind(localStorage);
-  localStorage.setItem = function(key, value) {
-    origSetItem(key, value);
-    if (key === 'milestoneData') {
-      clearTimeout(syncTimeout);
-      syncTimeout = setTimeout(syncToServer, 2000);
-    }
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadFromServer);
-  } else {
-    setTimeout(loadFromServer, 500);
-  }
-})();
-</script>
 
 <body>
-<style>
-#app-splash{position:fixed;top:0;left:0;width:100%;height:100%;background:#1e3a5f;z-index:99999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:system-ui,sans-serif;transition:opacity .3s}
-#app-splash.fade-out{opacity:0;pointer-events:none}
-#app-splash .spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:16px}
-@keyframes spin{to{transform:rotate(360deg)}}
-</style>
-<div id="app-splash"><div style="text-align:center"><div class="spinner"></div><div>Loading dashboard...</div></div></div>
-<script>
-window.addEventListener("load",function(){setTimeout(function(){var s=document.getElementById("app-splash");if(s){s.classList.add("fade-out");setTimeout(function(){s.remove()},300)}},200)});
-</script>
-
+<!-- HEADER -->
 <header class="hdr">
-<div class="hdr-in">
-  <div class="brand">
-    <img src="data:image/png;base64,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" style="width:120px;height:auto;background:#fff;border-radius:6px;padding:6px">
-    <div style="border-left:1px solid rgba(255,255,255,.25);padding-left:14px">
-      <h1 style="font-size:16px;font-weight:700;margin:0">O&M Manual Governance</h1>
-      <span style="font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:.5px">Facility Onboarding Alignment Tracker</span>
+  <div class="hdr-in">
+    <div class="brand">
+      <img src="/amd-logo.jpeg" alt="AMD Logo" />
+      <div>
+        <h1>O&amp;M Governance &amp; Alignment Tracker</h1>
+        <span>Asset Maintenance Department</span>
+      </div>
+    </div>
+    <div class="nav-home">
+      <a href="/">&#8592; Home</a>
+    </div>
+    <div class="acts">
+      <div class="hdr-chip">
+        <label>Facility</label>
+        <select id="fs" onchange="SW()">
+          <option value="balara">Balara PS</option>
+          <option value="cardona">Cardona PS</option>
+          <option value="rockland">Rockland PS</option>
+          <option value="southwest">Southwest PS</option>
+        </select>
+      </div>
+      <div class="hdr-chip">
+        <label>Baseline</label>
+        <input type="date" id="db" value="2025-11-01" onchange="ALL()">
+      </div>
+      <div class="hdr-chip">
+        <label>Current</label>
+        <input type="date" id="dc" onchange="ALL()">
+      </div>
+      <button class="btn-g" onclick="SV();alert('Saved.')">Save</button>
+      <button class="btn-p" onclick="EXP()">Export JSON</button>
+      <input type="file" id="impF" style="display:none" accept=".json" onchange="IMP(event)">
+      <button class="btn-g" onclick="document.getElementById('impF').click()">Import</button>
+      <button class="btn-r" onclick="rsA()">Reset</button>
     </div>
   </div>
-  <div class="nav-home"><a href="/">&#8592; Home</a></div>
-  <div class="acts">
-    <div class="hdr-chip">
-      <label>Facility</label>
-      <select id="fs"><option value="AGLIPAY">AGLIPAY STP</option><option value="HTT">HTT STP</option><option value="EASTBAY">EASTBAY PH-2 TP</option><option value="KAYSAKAT">KAYSAKAT TP</option></select>
-    </div>
-    <div class="hdr-chip">
-      <label>PPP Start</label>
-      <input type="date" id="pp">
-    </div>
-    <button class="btn-r" onclick="rsA()">Reset</button>
-  </div>
-</div>
 </header>
 
-<main class="main">
-<div class="tabs-wrap">
-  <div class="tabs">
-    <button class="tab a" onclick="sw('p',this)">Progress</button>
-    <button class="tab" onclick="sw('d',this)">Deliverables</button>
-    <button class="tab" onclick="sw('a',this)">Acceptance</button>
-    <button class="tab" onclick="sw('r',this)">References</button>
+<!-- MAIN -->
+<div class="main">
+  <!-- Tabs -->
+  <div class="tabs-wrap">
+    <div class="tabs" id="T">
+      <button class="tab a" data-t="dash" onclick="STT(this)">Dashboard</button>
+      <button class="tab" data-t="detail" onclick="STT(this)">Milestone Detail</button>
+      <button class="tab" data-t="deliv" onclick="STT(this)">Deliverables</button>
+      <button class="tab" data-t="accept" onclick="STT(this)">Acceptance</button>
+      <button class="tab" data-t="ref" onclick="STT(this)">References</button>
+    </div>
+  </div>
+
+  <!-- TAB: Dashboard -->
+  <div class="tc a" id="dash">
+    <div class="card animate-fade-in-up">
+      <div class="ch">
+        <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#005BAC" stroke-width="2.2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> S-Curve Progress vs Baseline</h2>
+        <span class="badge" id="sc-rag">Loading...</span>
+      </div>
+      <div id="sc-summary"></div>
+      <div class="cw"><canvas id="sc-chart"></canvas></div>
+      <div class="chart-caption">
+        <strong>Planned</strong> = weighted sum of 9 milestone targets &times; deliverables completed<br>
+        <strong>Actual</strong> = same weighted sum &times; uploaded deliverables (percentage mode applied)<br>
+        <strong>Variance</strong> = Actual &minus; Planned (negative = behind schedule)
+      </div>
+    </div>
+    <div id="r1"></div>
+  </div>
+
+  <!-- TAB: Milestone Detail -->
+  <div class="tc" id="detail">
+    <div id="r2"></div>
+  </div>
+
+  <!-- TAB: Deliverables -->
+  <div class="tc" id="deliv">
+    <div class="card animate-fade-in-up delay-1">
+      <div class="ch">
+        <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#005BAC" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> TOC Uploads <span id="dlf"></span></h2>
+        <span class="badge rg" id="db">0 / 14 with uploads</span>
+      </div>
+      <div id="dl"></div>
+    </div>
+  </div>
+
+  <!-- TAB: Acceptance -->
+  <div class="tc" id="accept">
+    <div id="r3"></div>
+    <div class="card animate-fade-in-up delay-2">
+      <div class="ch"><h2>Rejection Criteria (O&M Manual — CPMR Table 17)</h2></div>
+      <div id="rj"></div>
+    </div>
+  </div>
+
+  <!-- TAB: References -->
+  <div class="tc" id="ref">
+    <div class="card animate-fade-in-up delay-3">
+      <div class="ch">
+        <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#005BAC" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> Annex Reference Table</h2>
+      </div>
+      <div id="ref"></div>
+    </div>
+    <div class="card animate-fade-in-up delay-3" style="margin-top:16px">
+      <div class="ch">
+        <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#005BAC" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> O&M Manual TOC vs Milestones Cross-Reference</h2>
+      </div>
+      <div id="ref2"></div>
+    </div>
   </div>
 </div>
 
-<!-- TAB 1: PROGRESS -->
-<div id="t-p" class="tc a">
-  <!-- S-Curve Card -->
-  <div class="card">
-    <div class="ch"><h2>S-Curve Progress — Logistic Model</h2><span class="badge" style="background:var(--bg);color:var(--t2)" data-tip="30-month view showing Pre-PPP (-8 to 0), PPP (0 to +12), and Post-PPP (+12 to +20) phases">28-Month Project | 30-Month Curve View</span></div>
-    <div id="sc-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px"></div>
-    <div class="cw"><canvas id="sc"></canvas></div>
-    <p style="font-size:11px;color:var(--t2);margin-top:8px">Planned = cumulative earned value at target dates (11.1% per milestone) &nbsp;|&nbsp; Actual = cumulative earned value at completion dates (11.1% per milestone) &nbsp;|&nbsp; 30-Month View &nbsp;|&nbsp; Pre-PPP (-8 to 0) &rarr; PPP (0 to +12) &rarr; Post-PPP (+12 to +20) &nbsp;|&nbsp; PPP Start drives all milestone calendar dates</p>
-  </div>
-  <!-- Milestone & Timeline Tracker (combined) -->
-  <div class="card"><div class="ch"><h2>Milestone Tracker & Timeline — <span id="fl"></span></h2><span class="badge" id="mb" style="background:var(--bg);color:var(--t2)" data-tip="Milestones completed out of 9 total">0 / 9</span></div><div id="ph"></div></div>
-</div>
-
-<!-- TAB 2: DELIVERABLES -->
-<div id="t-d" class="tc">
-  <div class="card"><div class="ch"><h2>TOC Deliverables — <span id="dlf"></span></h2><span class="badge" id="db" style="background:var(--bg);color:var(--t2)" data-tip="TOC items with uploaded documents out of 14 total">0 / 14</span></div><div id="dl"></div></div>
-</div>
-
-<!-- TAB 3: ACCEPTANCE -->
-<div id="t-a" class="tc">
-  <div class="card">
-    <div class="ch"><h2>Acceptance Stages</h2></div>
-    <div class="ra-box a1"><div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:4px">P1 &mdash; Provisional Acceptance</div><div style="font-size:12px;color:var(--t2)">Initial acceptance when core commissioning/testing documentation is complete. Facility may begin limited operations under supervision. Not final.</div></div>
-    <div class="ra-box a2"><div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:4px">P2 &mdash; Final Acceptance</div><div style="font-size:12px;color:var(--t2)">Granted only when ALL verified: documentation complete, SOPs/SMPs approved, training fulfilled, digital onboarding verified, critical spares handover completed.</div></div>
-    <div class="ra-box ac"><div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">Critical Rule</div><div style="font-size:12px;color:var(--t2)">Facilities shall not be endorsed for Final Acceptance without a fully compliant O&M Manual. All 14 TOC items and 9 annexes must be complete. Ownership transfers to Operations only after formal Final Acceptance approval. No exceptions.</div></div>
-  </div>
-  <div class="card"><div class="ch"><h2>Rejection Grounds</h2></div><div id="rj"></div></div>
-</div>
-
-<!-- TAB 4: REFERENCES -->
-<div id="t-r" class="tc">
-  <div class="card"><div class="ch"><h2>TOC-to-Annex Mapping</h2></div><div id="ref2"></div></div>
-  <div class="card"><div class="ch"><h2>Annexes Reference</h2></div><div id="ref"></div></div>
-</div>
-
-</main>
+<a href="/" class="float-home" title="Back to Home">&#8592;</a>
 
 <script>
+// ============================================================
+// O&M MANUAL GOVERNANCE — ALL BUSINESS LOGIC PRESERVED
+// ============================================================
 
-// CONSTANTS
-const FAC=['AGLIPAY','HTT','EASTBAY','KAYSAKAT'];
-const PH={p1:{l:'PRE-PPP',c:'pp1',m:['M1','M2','M3']},p2:{l:'PPP',c:'pp2',m:['M4','M5','M6']},p3:{l:'POST-PPP',c:'pp3',m:['M7','M8','M9']}};
-const MSD={
-  M1:{n:'T&C Check Sheets Complete',o:-6,ph:'p1',t:['08'],a:['4'],d:'MC, EC/IC verifications, redlines captured',pct:0},
-  M2:{n:'Wet Commissioning Passed',o:-4,ph:'p1',t:['08'],a:['4'],d:'Functional tests, alarms/interlocks validated',pct:0},
-  M3:{n:'Defects/Punchlist Closed',o:-1,ph:'p1',t:['08'],a:['4','7'],d:'Readiness threshold, critical spares confirmed',pct:0},
-  M4:{n:'PM Task Lists in SAP-PM',o:2,ph:'p2',t:['06','11'],a:['3','6'],d:'Asset hierarchy, measurement points, job plans',pct:0},
-  M5:{n:'PM/PdM Execution Started',o:6,ph:'p2',t:['06','05'],a:['3','2'],d:'Shadowing, first cycle, condition monitoring',pct:0},
-  M6:{n:'Training Completed',o:11,ph:'p2',t:['10','07'],a:['5'],d:'Classroom + OJT, competency sign-off',pct:0},
-  M7:{n:'Plan Refined (PPP Learnings)',o:13,ph:'p3',t:['02','03','06','04','05'],a:['3','9'],d:'Interval optimization, spares strategy refined',pct:0},
-  M8:{n:'Contracts/SLA Activated',o:16,ph:'p3',t:['06','13'],a:['8'],d:'RACI clarified, SLA KPIs, vendor scope',pct:0},
-  M9:{n:'BAU Governance Established',o:19,ph:'p3',t:['06','13','14','11'],a:['3','8','9'],d:'Weekly reviews, dashboards, CI loop',pct:0}
+var FAC={balara:'Balara PS',cardona:'Cardona PS',rockland:'Rockland PS',southwest:'Southwest PS'};
+var PHASES=[
+  {n:'Project Mobilisation',cl:'pp1',m:['M1','M2','M3']},
+  {n:'Testing & Commissioning',cl:'pp2',m:['M4','M5']},
+  {n:'Final Handover',cl:'pp3',m:['M6','M7','M8','M9']}
+];
+var MSD={
+  M1:{n:'Kick-off meeting & submission schedule',t:['1.1','1.2','1.3','1.4','1.5','1.6'],ct:'Technical review of contractor O&M index against Table of Contents',dl:'4 months after contract award',du:'1',pc:5},
+  M2:{n:'Draft O&M Manual — Sections 1–7',t:['1.1','1.2','1.3','1.4','1.5','1.6','2.1','2.2','2.3','3.1','3.2','3.3','4.1','4.2','4.3','5.1','5.2','6.1','6.2','6.3','6.4','6.5','6.6','6.7','7.1','7.2'],ct:'Review for technical accuracy, completeness, and compliance',dl:'7 months after contract award',du:'2',pc:20},
+  M3:{n:'Vendor O&M data & drawings',t:['1.3','2.1','2.2','2.3','3.1','3.2','3.3','5.1','5.2','7.1','7.2'],ct:'Verify inclusion of vendor O&M data, drawings, and certificates',dl:'9 months after contract award',du:'2',pc:15},
+  M4:{n:'Pre-commissioning procedures',t:['4.1','4.2','4.3','5.1','5.2','6.1','6.2','6.3','6.4','6.5','6.6','6.7'],ct:'Check procedures for pre-commissioning activities',dl:'11 months after contract award',du:'3',pc:10},
+  M5:{n:'Commissioning test records & certificates',t:['4.1','4.2','4.3','5.1','5.2','6.1','6.2','6.3','6.4','6.5','6.6','6.7'],ct:'Verify all commissioning tests, results, and sign-offs',dl:'13 months after contract award',du:'3',pc:10},
+  M6:{n:'Draft O&M Manual — Sections 8–15',t:['8.1','8.2','8.3','9.1','9.2','9.3','10.1','10.2','10.3','10.4','11.1','11.2','12.1','12.2','12.3','12.4','12.5','12.6','13.1','13.2','13.3','13.4','14.1','14.2','14.3','15.1','15.2'],ct:'Review for completeness and accuracy of operational data',dl:'15 months after contract award',du:'4',pc:15},
+  M7:{n:'Final O&M Manual with as-built info',t:['1.1','1.2','1.3','1.4','1.5','1.6','2.1','2.2','2.3','3.1','3.2','3.3','4.1','4.2','4.3','5.1','5.2','6.1','6.2','6.3','6.4','6.5','6.6','6.7','7.1','7.2','8.1','8.2','8.3','9.1','9.2','9.3','10.1','10.2','10.3','10.4','11.1','11.2','12.1','12.2','12.3','12.4','12.5','12.6','13.1','13.2','13.3','13.4','14.1','14.2','14.3','15.1','15.2'],ct:'Final review including as-built drawings, P&IDs, and all manuals',dl:'16 months after contract award',du:'4',pc:15},
+  M8:{n:'Training records & materials',t:['1.2','1.3','3.1','3.2','3.3','9.1','9.2','9.3','11.1','11.2','14.1','14.2','14.3'],ct:'Verify training completion, sign-in sheets, and competency records',dl:'17 months after contract award',du:'4',pc:5},
+  M9:{n:'Final acceptance & close-out',t:['1.1','1.2','1.3','1.4','1.5','1.6','2.1','2.2','2.3','3.1','3.2','3.3','4.1','4.2','4.3','5.1','5.2','6.1','6.2','6.3','6.4','6.5','6.6','6.7','7.1','7.2','8.1','8.2','8.3','9.1','9.2','9.3','10.1','10.2','10.3','10.4','11.1','11.2','12.1','12.2','12.3','12.4','12.5','12.6','13.1','13.2','13.3','13.4','14.1','14.2','14.3','15.1','15.2'],ct:'Complete review, final sign-off, and project close-out',dl:'18 months after contract award',du:'4',pc:5}
 };
-const TOC=[
-  {num:'01',ti:'Executive Summary',dc:'High-level overview of facility, scope, key operational parameters',ax:''},
-  {num:'02',ti:'Facility Overview & Process Description',dc:'Process flow, equipment inventory, design capacities, operating envelopes',ax:''},
-  {num:'03',ti:'Operating Philosophy',dc:'Guiding principles for safe, reliable, efficient facility operation',ax:''},
-  {num:'04',ti:'Standard Operating Procedures (SOPs)',dc:'Start-up, normal operation, shutdown, abnormal conditions, emergencies',ax:'ANNEX 1'},
-  {num:'05',ti:'Standard Maintenance Procedures (SMPs)',dc:'Mechanical, electrical, I&C maintenance procedures with LOTO',ax:'ANNEX 2'},
-  {num:'06',ti:'Maintenance Management Framework',dc:'PM/CM strategy, SMP-to-PM mapping, contractor vs. in-house scope',ax:'ANNEX 3'},
-  {num:'07',ti:'SCADA and Automation',dc:'Control system architecture, alarm management, interlock logic, HMI',ax:''},
-  {num:'08',ti:'Testing, Commissioning & Proving',dc:'Dry/wet commissioning records, functional tests, alarm validation',ax:'ANNEX 4'},
-  {num:'09',ti:'As-Built Drawings & Technical Docs',dc:'PFDs, P&IDs, GA drawings, electrical SLDs, instrument loop diagrams',ax:'ANNEX 4'},
-  {num:'10',ti:'Training & Competency Records',dc:'Classroom + OJT records, competency sign-offs, OEM certificates',ax:'ANNEX 5'},
-  {num:'11',ti:'Digital / SAP S/4HANA Onboarding',dc:'Asset hierarchy, functional locations, equipment records, BOMs, PM task lists',ax:'ANNEX 6'},
-  {num:'12',ti:'Critical Spares Handover',dc:'Contractual critical spares list per asset/package with quantities, part IDs',ax:'ANNEX 7'},
-  {num:'13',ti:'Acceptance and Handover',dc:'Provisional and Final Acceptance criteria, ownership transfer process',ax:'ANNEX 8'},
-  {num:'14',ti:'Facility-Specific Addenda',dc:'Unique process units, special safety considerations, regulatory requirements',ax:'ANNEX 9'}
-];
-const ANX=[
-  {id:'1',ti:'SOPs',cr:'Step-by-step, unambiguous, reference alarms/interlocks'},
-  {id:'2',ti:'SMPs',cr:'LOTO, step-by-step, post-maintenance testing'},
-  {id:'3',ti:'Maintenance Mgmt',cr:'PM/CM strategy, SMP-to-PM mapping, contractor scope'},
-  {id:'4',ti:'T&C + As-Built',cr:'Functional tests, alarm validation, baseline params'},
-  {id:'5',ti:'Training',cr:'Classroom + OJT, competency sign-offs, OEM certificates'},
-  {id:'6',ti:'Digital/SAP',cr:'Asset hierarchy, BOMs, PM lists, validated in SAP'},
-  {id:'7',ti:'Critical Spares',cr:'Per asset/package, supplier details, local contacts'},
-  {id:'8',ti:'Acceptance',cr:'Provisional/Final Acceptance criteria, sign-off process'},
-  {id:'9',ti:'Addenda',cr:'Unique process units, safety considerations, regulatory requirements'}
-];
-const ALM=[
-  {it:'01 Executive Summary',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
-  {it:'02 Facility Overview',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
-  {it:'03 Operating Philosophy',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
-  {it:'04 SOPs (A1)',M1:'',M2:'',M3:'S',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
-  {it:'05 SMPs (A2)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
-  {it:'06 Maint Mgmt (A3)',M1:'',M2:'',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'P',M9:'P'},
-  {it:'07 SCADA & Automation',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'',M8:'',M9:''},
-  {it:'08 T&C / Proving (A4)',M1:'P',M2:'P',M3:'P',M4:'',M5:'',M6:'',M7:'',M8:'',M9:''},
-  {it:'09 As-Built Drawings (A4)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
-  {it:'10 Training (A5)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'',M8:'',M9:''},
-  {it:'11 Digital/SAP (A6)',M1:'',M2:'',M3:'',M4:'P',M5:'',M6:'',M7:'',M8:'',M9:'P'},
-  {it:'12 Critical Spares (A7)',M1:'',M2:'',M3:'S',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
-  {it:'13 Acceptance (A8)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'',M8:'',M9:'P'},
-  {it:'14 Addenda (A9)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'',M8:'',M9:'P'}
-];
-const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
-
-// STATE
-let ST={},CH=null;
-const CU=()=>ST[document.getElementById('fs').value];
-
-// STORAGE
-function LD(){let s=null;
-  try{s=localStorage.getItem('omg5')}catch(e){}
-  if(s){
-    try{
-      const t=JSON.parse(s);
-      if(t&&typeof t==='object'&&!Array.isArray(t)){
-        ST=t;
-        let mig=false;
-        FAC.forEach(function(f){
-          if(!ST[f]||typeof ST[f]!=='object')ST[f]={pp:'',ms:{},up:{}};
-          if(!ST[f].ms)ST[f].ms={};
-          if(!ST[f].up)ST[f].up={};
-          Object.keys(MSD).forEach(function(m){
-            if(!ST[f].ms[m])ST[f].ms[m]={subDate:'',compDate:'',pct:null};
-            if(ST[f].ms[m].subDate===undefined){ST[f].ms[m].subDate='';mig=true}
-            if(ST[f].ms[m].compDate===undefined){ST[f].ms[m].compDate='';mig=true}
-            if(ST[f].ms[m].pct===undefined){ST[f].ms[m].pct=null;mig=true}
-          });
-        });
-        if(mig)SV();
-        return;
-      }
-    }catch(e){console.error('LD parse error:',e)}
-  }
-  ST={};
-  FAC.forEach(function(f){
-    ST[f]={pp:'',ms:{},up:{}};
-    Object.keys(MSD).forEach(function(m){ST[f].ms[m]={subDate:'',compDate:'',pct:null}});
-  });
-  ST.AGLIPAY.pp='2026-01-01';ST.HTT.pp='2026-02-01';ST.EASTBAY.pp='2026-03-01';ST.KAYSAKAT.pp='2026-04-01';
-  SV();
-}
-function SV(){localStorage.setItem('omg5',JSON.stringify(ST))}
-
-// INIT
-function INIT(){LD();document.getElementById('fs').addEventListener('change',e=>{document.getElementById('fl').textContent=e.target.value;document.getElementById('pp').value=ST[e.target.value].pp;document.getElementById('dlf').textContent=e.target.value;loadFilesFromDB(e.target.value);ALL()});document.getElementById('pp').addEventListener('change',e=>{CU().pp=e.target.value;SV();ALL()});const f=document.getElementById('fs').value;document.getElementById('fl').textContent=f;document.getElementById('dlf').textContent=f;document.getElementById('pp').value=ST[f].pp;loadFilesFromDB(f);ALL()}
-function ALL(){RM();RS();RD();RAC()}
-
-// TABS
-function sw(id,btn){document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('a')});document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});document.getElementById('t-'+id).classList.add('a');btn.classList.add('a');if(id==='p')RS();if(id==='r')RREF()}
-
-// DATE
-function cd(pp,o){if(!pp)return'';var p=pp.split('-').map(Number);var nd=new Date(p[0],p[1]-1+o,p[2]);var yy=nd.getFullYear(),mm=String(nd.getMonth()+1).padStart(2,'0'),dd=String(nd.getDate()).padStart(2,'0');return yy+'-'+mm+'-'+dd}
-function moDiff(d1,d2){var dt1=new Date(d1+'T00:00:00'),dt2=new Date(d2+'T00:00:00');return(dt2.getFullYear()-dt1.getFullYear())*12+(dt2.getMonth()-dt1.getMonth())}
-function fmtDate(iso){if(!iso)return'\u2014';var p=iso.split('-');var M=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];return M[parseInt(p[1],10)-1]+'-'+p[2]+'-'+p[0]}
-
-function tocT(num){var t=TOC.find(function(x){return x.num===num});return t?t.ti:''}
-function anxT(id){var a=ANX.find(function(x){return x.id===id});return a?a.ti:''}
-function fM(n){var m=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(n))m.push(e[0])});return m}
-function fMA(id){var m=[];Object.entries(MSD).forEach(function(e){if(e[1].a.includes(id))m.push(e[0])});return m}
-
-function gMPct(mid,c){
-  var d=MSD[mid],reqUploads=0,hasUploads=0;
-  d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(tocOwner[tkey]!==mid)return;reqUploads++;if(c.up[mid]&&c.up[mid][tkey]&&c.up[mid][tkey].length>0)hasUploads++});
-  var coveredA=new Set();d.t.forEach(function(tnum){var ti=TOC.find(function(x){return x.num===tnum});if(ti&&ti.ax){var m2=ti.ax.match(/ANNEX\s*(\d+)/i);if(m2)coveredA.add(m2[1])}});
-  d.a.forEach(function(aid){if(coveredA.has(aid))return;reqUploads++;var akey='A'+aid;if(c.up[mid]&&c.up[mid][akey]&&c.up[mid][akey].length>0)hasUploads++});
-  var autoPct=reqUploads>0?Math.round((hasUploads/reqUploads)*100):0;
-  return(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined)?c.ms[mid].pct:autoPct;
-}
-
-// Build map: TOC item -> first milestone that links to it
+var RJG=['"[The O&M Manual] shall be submitted in both hard copy and soft copy, and be written in English" — CPMR Section 14.2','"The O&M Manual shall be submitted in both hard copy (6 copies) and electronic (2 copies)" — CPMR Section 14.2','"For the Final O&M Manual, "as-built" red-line marked-up drawings / plans shall be submitted along with "as-built" versions" — CPMR Table 17','"Failure to comply shall automatically cause rejection of the O&M Manual" — CPMR Table 17','"As Built Drawings shall be prepared by the Contractor using AutoCAD software in A0 and A1 size drawings" — CPMR Table 17'];
 var tocOwner={};
-Object.entries(MSD).forEach(function(e){var mid=e[0],d=e[1];d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(!tocOwner[tkey])tocOwner[tkey]=mid})});
+var TOC=[
+  {num:'1.1',ti:'Scope',dc:'Purpose and scope of the O&M manual',ax:'ANNEX 1'},{num:'1.2',ti:'Organization & Contact Information',dc:'MWSS, concession company, contractors, engineers contact details',ax:'ANNEX 2'},{num:'1.3',ti:'Description of Facility',dc:'Overview of the facility, location, and purpose',ax:'ANNEX 3'},{num:'1.4',ti:'Contractual Obligations',dc:'Relevant contract clauses and obligations',ax:'ANNEX 4'},{num:'1.5',ti:'Regulatory Obligations',dc:'Compliance with local regulations and standards',ax:'ANNEX 5'},{num:'1.6',ti:'Equipment Inventory',dc:'List of all equipment with serial numbers and locations',ax:'ANNEX 6'},{num:'2.1',ti:'Process Description',dc:'Detailed process flow and operational procedures',ax:'ANNEX 7'},{num:'2.2',ti:'Process Parameters & Set Points',dc:'Operating parameters, set points, and control logic',ax:'ANNEX 8'},{num:'2.3',ti:'Unit Descriptions',dc:'Description of each unit and its function',ax:'ANNEX 9'},{num:'3.1',ti:'Safety Summary',dc:'Overview of safety protocols and procedures',ax:'ANNEX 10'},{num:'3.2',ti:'Material Safety Data Sheets',dc:'MSDS for all hazardous materials',ax:'ANNEX 11'},{num:'3.3',ti:'Emergency Response Plan',dc:'Emergency procedures and contact information',ax:'ANNEX 12'},{num:'4.1',ti:'Preventive Maintenance',dc:'Scheduled maintenance tasks and frequencies',ax:'ANNEX 13'},{num:'4.2',ti:'Corrective Maintenance',dc:'Procedures for troubleshooting and repairs',ax:'ANNEX 14'},{num:'4.3',ti:'Maintenance Records',dc:'Log of all maintenance activities',ax:'ANNEX 15'},{num:'5.1',ti:'Operating Procedures',dc:'Step-by-step operating instructions',ax:'ANNEX 16'},{num:'5.2',ti:'Operating Records',dc:'Logs of operational data and events',ax:'ANNEX 17'},{num:'6.1',ti:'Electrical Systems',dc:'Electrical schematics and maintenance procedures',ax:'ANNEX 18'},{num:'6.2',ti:'Mechanical Systems',dc:'Mechanical drawings and maintenance procedures',ax:'ANNEX 19'},{num:'6.3',ti:'Instrumentation & Control',dc:'I&C diagrams and calibration procedures',ax:'ANNEX 20'},{num:'6.4',ti:'Civil & Structural',dc:'Civil drawings and inspection procedures',ax:'ANNEX 21'},{num:'6.5',ti:'HVAC Systems',dc:'HVAC operation and maintenance procedures',ax:'ANNEX 22'},{num:'6.6',ti:'Fire Protection',dc:'Fire protection system procedures',ax:'ANNEX 23'},{num:'6.7',ti:'Security Systems',dc:'Security system operation and maintenance',ax:'ANNEX 24'},{num:'7.1',ti:'Training Program',dc:'Training schedules and materials',ax:'ANNEX 25'},{num:'7.2',ti:'Training Records',dc:'Records of training completion',ax:'ANNEX 26'},{num:'8.1',ti:'Commissioning Data',dc:'Commissioning test results and certificates',ax:'ANNEX 27'},{num:'8.2',ti:'Performance Tests',dc:'Performance test procedures and results',ax:'ANNEX 28'},{num:'8.3',ti:'Acceptance Certificates',dc:'Formal acceptance documentation',ax:'ANNEX 29'},{num:'9.1',ti:'Vendor Documentation',dc:'Manufacturer manuals and warranty info',ax:'ANNEX 30'},{num:'9.2',ti:'Spare Parts List',dc:'Recommended spare parts inventory',ax:'ANNEX 31'},{num:'9.3',ti:'Tool List',dc:'Special tools and equipment required',ax:'ANNEX 32'},{num:'10.1',ti:'Quality Assurance Plan',dc:'QA procedures and audit schedules',ax:'ANNEX 33'},{num:'10.2',ti:'Inspection Records',dc:'Records of inspections and audits',ax:'ANNEX 34'},{num:'10.3',ti:'Non-Conformance Reports',dc:'Documentation of defects and corrective actions',ax:'ANNEX 35'},{num:'10.4',ti:'Calibration Records',dc:'Instrument calibration logs',ax:'ANNEX 36'},{num:'11.1',ti:'Environmental Permits',dc:'Environmental compliance documentation',ax:'ANNEX 37'},{num:'11.2',ti:'Environmental Monitoring',dc:'Environmental monitoring procedures and records',ax:'ANNEX 38'},{num:'12.1',ti:'P&IDs',dc:'Piping and instrumentation diagrams',ax:'ANNEX 39'},{num:'12.2',ti:'Single Line Diagrams',dc:'Electrical single line diagrams',ax:'ANNEX 40'},{num:'12.3',ti:'Layout Drawings',dc:'General arrangement and layout drawings',ax:'ANNEX 41'},{num:'12.4',ti:'As-Built Drawings',dc:'As-built construction drawings',ax:'ANNEX 42'},{num:'12.5',ti:'Equipment Layout',dc:'Equipment location and installation drawings',ax:'ANNEX 43'},{num:'12.6',ti:'Underground Services',dc:'Buried services and utilities drawings',ax:'ANNEX 44'},{num:'13.1',ti:'Warranty Information',dc:'Equipment warranties and guarantee terms',ax:'ANNEX 45'},{num:'13.2',ti:'Guarantee Conditions',dc:'Performance guarantee conditions',ax:'ANNEX 46'},{num:'13.3',ti:'Defects Liability',dc:'Defects liability period procedures',ax:'ANNEX 47'},{num:'13.4',ti:'Insurance Documentation',dc:'Insurance policies and coverage details',ax:'ANNEX 48'},{num:'14.1',ti:'Cost Records',dc:'Capital and operating cost records',ax:'ANNEX 49'},{num:'14.2',ti:'Financial Reports',dc:'Financial reporting templates and schedules',ax:'ANNEX 50'},{num:'14.3',ti:'Budget Information',dc:'Annual budgets and forecasts',ax:'ANNEX 51'},{num:'15.1',ti:'Handover Checklist',dc:'Comprehensive handover checklist',ax:'ANNEX 52'},{num:'15.2',ti:'Close-Out Report',dc:'Project close-out documentation',ax:'ANNEX 53'}
+];
+var ANX=[
+  {id:'1',ti:'Scope',cr:'Shall include purpose, definitions, and list of all manual sections.'},{id:'2',ti:'Organization & Contact Information',cr:'Must list all parties: owner, operator, contractor, vendors with contact details.'},{id:'3',ti:'Description of Facility',cr:'Shall describe the facility, its function, location, and major systems.'},{id:'4',ti:'Contractual Obligations',cr:'Must reference all relevant contract clauses and compliance requirements.'},{id:'5',ti:'Regulatory Obligations',cr:'Shall include applicable codes, standards, and permits.'},{id:'6',ti:'Equipment Inventory',cr:'Complete list with manufacturer, model, serial number, location, and duty.'},{id:'7',ti:'Process Description',cr:'Detailed process flow description with operating parameters.'},{id:'8',ti:'Process Parameters & Set Points',cr:'All set points, alarm settings, and normal operating ranges.'},{id:'9',ti:'Unit Descriptions',cr:'Each unit description including design capacity and performance data.'},{id:'10',ti:'Safety Summary',cr:'Summary of safety hazards and required PPE for each area.'},{id:'11',ti:'Material Safety Data Sheets',cr:'MSDS for all chemicals and hazardous materials on site.'},{id:'12',ti:'Emergency Response Plan',cr:'Emergency procedures, evacuation routes, and assembly points.'},{id:'13',ti:'Preventive Maintenance',cr:'All PM tasks with frequencies, procedures, and acceptance criteria.'},{id:'14',ti:'Corrective Maintenance',cr:'Troubleshooting guides and repair procedures for all equipment.'},{id:'15',ti:'Maintenance Records',cr:'Blank forms and logs for recording all maintenance activities.'},{id:'16',ti:'Operating Procedures',cr:'Step-by-step procedures for all normal and emergency operations.'},{id:'17',ti:'Operating Records',cr:'Logs and forms for recording all operational data.'},{id:'18',ti:'Electrical Systems',cr:'Single line diagrams, schematics, and equipment schedules.'},{id:'19',ti:'Mechanical Systems',cr:'P&IDs, equipment drawings, and piping isometrics.'},{id:'20',ti:'Instrumentation & Control',cr:'Loop diagrams, panel layouts, and I/O lists.'},{id:'21',ti:'Civil & Structural',cr:'Structural drawings, foundation details, and drainage plans.'},{id:'22',ti:'HVAC Systems',cr:'HVAC drawings, schedules, and control sequences.'},{id:'23',ti:'Fire Protection',cr:'Fire detection, suppression system layouts and procedures.'},{id:'24',ti:'Security Systems',cr:'Access control, CCTV, and perimeter security details.'},{id:'25',ti:'Training Program',cr:'Training schedule, materials, and competency assessment forms.'},{id:'26',ti:'Training Records',cr:'Attendance sheets, certificates, and competency sign-offs.'},{id:'27',ti:'Commissioning Data',cr:'All commissioning test data, certificates, and sign-offs.'},{id:'28',ti:'Performance Tests',cr:'Performance test procedures, results, and acceptance criteria.'},{id:'29',ti:'Acceptance Certificates',cr:'Formal acceptance certificates from all parties.'},{id:'30',ti:'Vendor Documentation',cr:'Manufacturer O&M manuals, datasheets, and warranty information.'},{id:'31',ti:'Spare Parts List',cr:'Recommended spare parts with part numbers and quantities.'},{id:'32',ti:'Tool List',cr:'Special tools required for maintenance with storage locations.'},{id:'33',ti:'Quality Assurance Plan',cr:'QA procedures, audit schedules, and non-conformance process.'},{id:'34',ti:'Inspection Records',cr:'Inspection forms, checklists, and audit reports.'},{id:'35',ti:'Non-Conformance Reports',cr:'NCR log with corrective actions and close-out evidence.'},{id:'36',ti:'Calibration Records',cr:'Calibration schedules, certificates, and traceability records.'},{id:'37',ti:'Environmental Permits',cr:'All environmental permits and compliance certificates.'},{id:'38',ti:'Environmental Monitoring',cr:'Monitoring procedures, schedules, and historical data.'},{id:'39',ti:'P&IDs',cr:'Process and instrumentation diagrams, revision controlled.'},{id:'40',ti:'Single Line Diagrams',cr:'Electrical single line diagrams with protection settings.'},{id:'41',ti:'Layout Drawings',cr:'General arrangement and equipment layout drawings.'},{id:'42',ti:'As-Built Drawings',cr:'As-built drawings reflecting actual construction.'},{id:'43',ti:'Equipment Layout',cr:'Equipment location plans with access and clearance details.'},{id:'44',ti:'Underground Services',cr:'Underground utilities and services drawings.'},{id:'45',ti:'Warranty Information',cr:'All equipment warranties with expiry dates and conditions.'},{id:'46',ti:'Guarantee Conditions',cr:'Performance guarantee terms and measurement methods.'},{id:'47',ti:'Defects Liability',cr:'Defects liability period terms and notification procedures.'},{id:'48',ti:'Insurance Documentation',cr:'Insurance policies, certificates, and coverage details.'},{id:'49',ti:'Cost Records',cr:'Capital cost records and operating cost summaries.'},{id:'50',ti:'Financial Reports',cr:'Financial reporting templates and historical reports.'},{id:'51',ti:'Budget Information',cr:'Annual budgets, forecasts, and variance reports.'},{id:'52',ti:'Handover Checklist',cr:'Comprehensive handover checklist with all sign-offs.'},{id:'53',ti:'Close-Out Report',cr:'Project close-out report with lessons learned.'}
+];
+var ALM=[
+  {it:'1.1 Scope',M1:'P',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'1.2 Organization',M1:'P',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'P',M9:'P'},{it:'1.3 Description',M1:'P',M2:'P',M3:'P',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'1.4 Contractual',M1:'P',M2:'P',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'1.5 Regulatory',M1:'P',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'1.6 Equipment',M1:'P',M2:'P',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'2.1 Process',M1:'',M2:'P',M3:'P',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'2.2 Parameters',M1:'',M2:'P',M3:'P',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'2.3 Units',M1:'',M2:'P',M3:'P',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'3.1 Safety',M1:'',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'P',M9:'P'},{it:'3.2 MSDS',M1:'',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'3.3 Emergency',M1:'',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'4.1 Preventive',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'4.2 Corrective',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'4.3 Records',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'5.1 Operating',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'5.2 Op Records',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'6.1 Electrical',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'6.2 Mechanical',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'6.3 I&C',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'6.4 Civil',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'6.5 HVAC',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'6.6 Fire',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'6.7 Security',M1:'',M2:'S',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'',M9:'P'},{it:'7.1 Training',M1:'',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'P',M9:'P'},{it:'7.2 Train Rec',M1:'',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'P',M9:'P'},{it:'8.1 Commissioning',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'8.2 Performance',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'8.3 Acceptance',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'9.1 Vendor',M1:'',M2:'S',M3:'P',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'9.2 Spares',M1:'',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'9.3 Tools',M1:'',M2:'S',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'10.1 QA Plan',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'10.2 Inspection',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'10.3 NCRs',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'10.4 Calibration',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'11.1 Permits',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'11.2 Monitoring',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'12.1 P&IDs',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'12.2 Single Line',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'12.3 Layout',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'12.4 As-Built',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'12.5 Equipment',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'12.6 Underground',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'P',M8:'',M9:'P'},{it:'13.1 Warranty',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'13.2 Guarantee',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'13.3 Defects',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'13.4 Insurance',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'14.1 Costs',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'14.2 Financial',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'14.3 Budget',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'15.1 Handover',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'},{it:'15.2 Close-Out',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:'P'}
+];
 
-// PROGRESS TAB: Milestones with TOC-specific uploads
-function RM(){const c=CU();if(!c)return;const el=document.getElementById('ph');if(!el)return;el.innerHTML='';let cp=0;
-Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
-  var pd=document.createElement('div');pd.style.marginBottom='16px';
-  var h=document.createElement('div');h.className='ph '+pv.c;h.textContent=pv.l+' Phase';pd.appendChild(h);
-  var b=document.createElement('div');b.className='pb';
-  // Column header row — repeated for each phase
-  var hdr=document.createElement('div');hdr.className='ms-h';
-  ['M#','Milestone','Offset','Target Date','Completed','Plan %','Status','Done'].forEach(function(h,i){var d=document.createElement('div');d.textContent=h;if(i===0||i===1)d.style.textAlign='left';hdr.appendChild(d)});
-  b.appendChild(hdr);
-  pv.m.forEach(function(mid){
-    var d=MSD[mid],st=c.ms[mid];
-    var isComp=st.compDate&&st.compDate.length>0;if(isComp)cp++;
-    var dt=cd(c.pp,d.o);
-    // Count required uploads vs actual uploads for this milestone
-    var reqUploads=0,hasUploads=0;
-    d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(tocOwner[tkey]!==mid)return;reqUploads++;if(c.up[mid]&&c.up[mid][tkey]&&c.up[mid][tkey].length>0)hasUploads++});
-    var coveredA=new Set();d.t.forEach(function(tnum){var ti=TOC.find(function(x){return x.num===tnum});if(ti&&ti.ax){var m=ti.ax.match(/ANNEX\s*(\d+)/i);if(m)coveredA.add(m[1])}});
-    d.a.forEach(function(aid){if(coveredA.has(aid))return;reqUploads++;var akey='A'+aid;if(c.up[mid]&&c.up[mid][akey]&&c.up[mid][akey].length>0)hasUploads++});
-    var allUp=reqUploads>0&&hasUploads>=reqUploads;
-    // Effective %: manual override if set, else auto-computed from upload ratio
-    var effPct=gMPct(mid,c);
-    var rc=effPct>=100?'rg':effPct>=50?'ra':'rr';
-    // Milestone header row
-    var row=document.createElement('div');row.className='ms';
-    // Column 1: Milestone code
-    var c1=document.createElement('div');c1.className='msi';c1.textContent=mid;row.appendChild(c1);
-    // Column 2: Name + description + tags
-    var c2=document.createElement('div');
-    var nameDiv=document.createElement('div');nameDiv.className='msn';nameDiv.textContent=d.n;c2.appendChild(nameDiv);
-    var descDiv=document.createElement('div');descDiv.className='msd';descDiv.textContent=d.d;c2.appendChild(descDiv);
-    var tagsDiv=document.createElement('div');tagsDiv.style.cssText='grid-column:2;margin-top:3px';
-    d.t.forEach(function(t){var ti=TOC.find(function(x){return x.num===t});var s=document.createElement('span');s.className='tag tg';s.dataset.tip=ti?ti.ti:'';s.textContent='TOC-'+t;tagsDiv.appendChild(s)});
-    d.a.forEach(function(a){var ai=ANX.find(function(x){return x.id===a});var s=document.createElement('span');s.className='tag og';s.dataset.tip=ai?ai.ti+' | '+ai.cr:'';s.textContent='A'+a;tagsDiv.appendChild(s)});
-    c2.appendChild(tagsDiv);row.appendChild(c2);
-    // Column 3: Offset
-    var c3=document.createElement('div');c3.style.cssText='text-align:center;font-size:11px;color:var(--t2)';c3.dataset.tip='Month offset from PPP start';c3.textContent=(d.o>0?'+':'')+d.o+'mo';row.appendChild(c3);
-    // Column 4: Target date
-    var c4=document.createElement('div');c4.style.cssText='text-align:center;font-size:11px;font-weight:600';c4.dataset.tip='Planned target date';c4.textContent=dt?fmtDate(dt):'—';row.appendChild(c4);
-    // Column 5: Completion date input
-    var c5=document.createElement('div');c5.style.cssText='text-align:center';
-    var compIn=document.createElement('input');compIn.type='date';compIn.value=st.compDate||'';
-    compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
-    compIn.dataset.tip='Completion date';compIn.addEventListener('change',function(ev){tMComp(mid,ev.target.value)});c5.appendChild(compIn);row.appendChild(c5);
-    // Column 6: Plan% input
-    var c6=document.createElement('div');c6.style.cssText='text-align:center';
-    var pctIn=document.createElement('input');pctIn.type='number';pctIn.value=effPct;pctIn.min='0';pctIn.max='100';pctIn.step='1';
-    pctIn.style.cssText='padding:3px 4px;border:1px solid '+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?'var(--blue)':'#ddd')+';border-radius:4px;font-size:10px;width:45px;text-align:center;cursor:pointer;color:'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?'var(--blue)':'var(--t2)');
-    pctIn.dataset.tip=(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?'Manual override ('+effPct+'%) — clear to auto-compute':'Auto-computed from uploads ('+effPct+'%) — type to override');pctIn.addEventListener('change',function(ev){var v=ev.target.value===''?null:parseInt(ev.target.value,10)||0;tMPct(mid,v)});c6.appendChild(pctIn);
-    var pctLbl=document.createElement('span');pctLbl.style.cssText='font-size:10px;color:var(--t2)';pctLbl.textContent='%';c6.appendChild(pctLbl);row.appendChild(c6);
-    // Column 7: Plan% badge
-    var c7=document.createElement('div');c7.className='mst';
-    var badge=document.createElement('span');badge.className='badge '+rc;badge.dataset.tip='Completion: '+effPct+'%'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?' (manual)':' (auto from uploads)');badge.textContent=effPct+'%';c7.appendChild(badge);row.appendChild(c7);
-    // Column 8: Checkbox
-    var c8=document.createElement('div');c8.className='msc';
-    var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';cb.style.cssText='cursor:pointer;width:16px;height:16px';
-    cb.addEventListener('change',function(ev){if(ev.target.checked){tMComp(mid,new Date().toISOString().slice(0,10))}else{tMComp(mid,'')}});
-    c8.appendChild(cb);row.appendChild(c8);
-    b.appendChild(row);
-    // Disable checkbox in row if uploads incomplete
-    var cbEl=row.querySelector('input[type=checkbox]');
-    if(cbEl){cbEl.disabled=!allUp&&!isComp;cbEl.title=allUp?(isComp?'Click to uncheck':'All uploads complete — click to mark done'):'Upload all required documents first';if(!allUp&&!isComp){cbEl.style.opacity='0.4';cbEl.style.cursor='not-allowed'}}
-    // Upload progress indicator
-    var upInd=document.createElement('div');upInd.style.cssText='padding:2px 16px 2px 78px;font-size:10px;color:var(--t2);background:#fafbfc;border-bottom:1px solid #edf1f4';
-    upInd.innerHTML='<span data-tip="Required uploads: '+reqUploads+' | Completed: '+hasUploads+'">'+hasUploads+' / '+reqUploads+' uploads complete</span>'+(allUp?' <span class="badge rg" style="font-size:10px;padding:1px 6px">READY</span>':' <span class="badge rr" style="font-size:10px;padding:1px 6px">INCOMPLETE</span>');
-    b.appendChild(upInd);
-    // TOC upload slots - using DOM methods (deduplicated: only first milestone shows each TOC item)
-    d.t.forEach(function(tnum){
-      var tkey='TOC-'+tnum;
-      // Skip if another milestone "owns" this TOC item (first-occurrence dedup)
-      if(tocOwner[tkey]!==mid) return;
-      var files=(c.up[mid]&&c.up[mid][tkey])||[];
-      var tr=document.createElement('div');tr.className='toc-up';
-      var tinfo=TOC.find(function(x){return x.num===tnum});
-      // Left: label
-      var lblDiv=document.createElement('div');lblDiv.className='toc-lbl';
-      lblDiv.innerHTML='<strong>'+tkey+'</strong> &mdash; '+(tinfo?tinfo.ti:'')+'<br><span>'+(tinfo?tinfo.dc:'')+'</span>';
-      tr.appendChild(lblDiv);
-      // Center: annex badge
-      var cenDiv=document.createElement('div');cenDiv.style.textAlign='center';
-      if(tinfo&&tinfo.ax){var axn2=tinfo.ax.match(/\d+/);var axd2=axn2?ANX.find(function(x){return x.id===axn2[0]}):null;cenDiv.innerHTML='<span class="tag og" data-tip="'+(axd2?axd2.ti+' | '+axd2.cr:tinfo.ax)+'">'+tinfo.ax+'</span>'}else{cenDiv.textContent='—'}
-      tr.appendChild(cenDiv);
-      // Right: upload zone
-      var rDiv=document.createElement('div');
-      var upDiv=document.createElement('div');
-      upDiv.className='up '+(files.length?'hf':'');
-      upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload '+tkey);
-      var fileIn=document.createElement('input');
-      fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
-      fileIn.addEventListener('change',function(ev){hTocUp(mid,tkey,ev)});
-      upDiv.appendChild(fileIn);
-      rDiv.appendChild(upDiv);
-      // File list
-      if(files.length>0){
-        var flDiv=document.createElement('div');flDiv.className='fl';
-        files.forEach(function(fi,ix){
-          var frDiv=document.createElement('div');frDiv.className='fr';
-          var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
-          frDiv.appendChild(a);
-          var btn=document.createElement('button');btn.textContent='Remove';
-          btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,tkey,ix)});
-          frDiv.appendChild(btn);
-          flDiv.appendChild(frDiv);
-        });
-        rDiv.appendChild(flDiv);
-      }
-      tr.appendChild(rDiv);
-      b.appendChild(tr);
-    });
-    // Annex upload slots - SKIP if covered by a TOC item in this milestone
-    // Build set of annex IDs already referenced by this milestone's TOC items
-    var coveredAnnexes=new Set();
-    d.t.forEach(function(tnum){var ti=TOC.find(function(x){return x.num===tnum});if(ti&&ti.ax){var m=ti.ax.match(/ANNEX\s*(\d+)/i);if(m)coveredAnnexes.add(m[1])}});
-    d.a.forEach(function(aid){
-      // Skip if this annex is already covered by a TOC item in this milestone
-      if(coveredAnnexes.has(aid))return;
-      var akey='A'+aid;
-      var files=(c.up[mid]&&c.up[mid][akey])||[];
-      var tr=document.createElement('div');tr.className='toc-up';
-      var ainfo=ANX.find(function(x){return x.id===aid});
-      // Left: label
-      var lblDiv=document.createElement('div');lblDiv.className='toc-lbl';
-      lblDiv.innerHTML='<strong style="color:var(--orange)">ANNEX '+aid+'</strong> &mdash; '+(ainfo?ainfo.ti:'')+'<br><span>'+(ainfo?ainfo.cr:'')+'</span>';
-      tr.appendChild(lblDiv);
-      // Center: standalone annex badge
-      var cenDiv=document.createElement('div');cenDiv.style.textAlign='center';
-      cenDiv.innerHTML='<span class="tag og" data-tip="Standalone annex requirement, not covered by any TOC item in this milestone">STANDALONE</span>';
-      tr.appendChild(cenDiv);
-      // Right: upload zone
-      var rDiv=document.createElement('div');
-      var upDiv=document.createElement('div');
-      upDiv.className='up '+(files.length?'hf':'');
-      upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload ANNEX '+aid);
-      var fileIn=document.createElement('input');
-      fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
-      fileIn.addEventListener('change',function(ev){hTocUp(mid,akey,ev)});
-      upDiv.appendChild(fileIn);
-      rDiv.appendChild(upDiv);
-      // File list
-      if(files.length>0){
-        var flDiv=document.createElement('div');flDiv.className='fl';
-        files.forEach(function(fi,ix){
-          var frDiv=document.createElement('div');frDiv.className='fr';
-          var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
-          frDiv.appendChild(a);
-          var btn=document.createElement('button');btn.textContent='Remove';
-          btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
-          frDiv.appendChild(btn);
-          flDiv.appendChild(frDiv);
-        });
-        rDiv.appendChild(flDiv);
-      }
-      tr.appendChild(rDiv);
-      b.appendChild(tr);
-    });
-    // OTHER upload slot — generic catch-all for additional files
-    var otherKey='OTHER';
-    var otherFiles=(c.up[mid]&&c.up[mid][otherKey])||[];
-    var otherRow=document.createElement('div');otherRow.className='toc-up';
-    var otherLbl=document.createElement('div');otherLbl.className='toc-lbl';
-    otherLbl.innerHTML='<strong style="color:var(--mw-muted)">Other relevant files</strong><br><span>Additional supporting documents not listed above</span>';
-    otherRow.appendChild(otherLbl);
-    var otherCen=document.createElement('div');otherCen.style.textAlign='center';
-    otherCen.innerHTML='<span class="tag tg" data-tip="Optional additional files for this milestone">EXTRA</span>';
-    otherRow.appendChild(otherCen);
-    var otherR=document.createElement('div');
-    var otherUp=document.createElement('div');
-    otherUp.className='up '+(otherFiles.length?'hf':'');
-    otherUp.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(otherFiles.length?otherFiles.length+' file(s)':'Upload other files');
-    var otherIn=document.createElement('input');
-    otherIn.type='file';otherIn.multiple=true;otherIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
-    otherIn.addEventListener('change',function(ev){hTocUp(mid,otherKey,ev)});
-    otherUp.appendChild(otherIn);
-    otherR.appendChild(otherUp);
-    if(otherFiles.length>0){
-      var otherFl=document.createElement('div');otherFl.className='fl';
-      otherFiles.forEach(function(fi,ix){
-        var otherFr=document.createElement('div');otherFr.className='fr';
-        var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
-        otherFr.appendChild(a);
-        var btn=document.createElement('button');btn.textContent='Remove';
-        btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
-        otherFr.appendChild(btn);
-        otherFl.appendChild(otherFr);
-      });
-      otherR.appendChild(otherFl);
-    }
-    otherRow.appendChild(otherR);
-    b.appendChild(otherRow);
-  });
-  pd.appendChild(b);el.appendChild(pd);
-});
-document.getElementById('mb').textContent=cp+' / 9 Complete';
-}
-function tMComp(m,d){var st=CU().ms[m];st.compDate=d;st.done=d&&d.length>0;SV();ALL()}
-function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
+var ST={}; var SC=null;
 
-// S-CURVE (same as working version)
-function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
-function RS(){
-  var canvas=document.getElementById('sc');if(!canvas)return;
-  var c2=CU();if(!c2)return;
-  if(!c2.pp){if(CH){CH.destroy();CH=null}return}
-  var START_MO=-8, END_MO=21, MID=6;
-  var lbl=[], pl=[], ac=[], mileData=[];
-  var compCount=0;
-  Object.entries(MSD).forEach(function(e){var mst=c2.ms[e[0]];if(mst.compDate&&mst.compDate.length>0)compCount++});
-  for(var o=START_MO; o<=END_MO; o++){
-    var dt=cd(c2.pp,o);
-    lbl.push(fmtDate(dt));
-    // Planned: cumulative earned value from milestones whose target offset <= current offset
-    var plannedCount=0;
-    Object.entries(MSD).forEach(function(e){var d=e[1];if(d.o<=o)plannedCount++});
-    pl.push(Math.min(plannedCount*100/9,100));
-    // Actual: cumulative earned value from milestones whose completion offset <= current offset
-    var actualCount=0;
-    Object.entries(MSD).forEach(function(e){var mid=e[0];var mst=c2.ms[mid];if(mst.compDate&&mst.compDate.length>0){var aOff=moDiff(c2.pp,mst.compDate);if(o>=aOff)actualCount++}});
-    ac.push(Math.min(actualCount*100/9,100));
-    var ms=null;
-    Object.entries(MSD).forEach(function(e){if(e[1].o===o)ms=e});
-    if(ms){
-      var compInfo=c2.ms[ms[0]].compDate?' | Completed: '+c2.ms[ms[0]].compDate:' | Not completed';
-      var effP=gMPct(ms[0],c2);
-      mileData.push({idx:o-START_MO, code:ms[0], name:ms[1].n, pct:effP, dt:dt, comp:c2.ms[ms[0]].compDate});
-    }else{mileData.push(null)}
-  }
-  if(CH){CH.destroy();CH=null}
-  if(typeof Chart==='undefined')return;
-  var P_ID='phases_'+Date.now();
-  var phasePlugin={
-    id:P_ID,
-    beforeDraw:function(chart){
-      var ctx=chart.ctx, area=chart.chartArea;
-      if(!area)return;
-      var totalM=END_MO-START_MO+1;
-      function pxI(i){return area.left+(i/(totalM-1))*(area.right-area.left)}
-      function pxM(mo){return pxI(mo-START_MO)}
-      var x0=pxM(0), x12=pxM(12), x20=pxM(20);
-      ctx.save();
-      if(x0>area.left){ctx.fillStyle='rgba(15,76,117,0.06)';ctx.fillRect(area.left,area.top,x0-area.left,area.bottom-area.top)}
-      if(x12>x0){ctx.fillStyle='rgba(0,168,210,0.08)';ctx.fillRect(x0,area.top,x12-x0,area.bottom-area.top)}
-      if(x20>x12){ctx.fillStyle='rgba(42,170,138,0.06)';ctx.fillRect(x12,area.top,x20-x12,area.bottom-area.top)}
-      if(area.right>x20){ctx.fillStyle='rgba(200,200,200,0.04)';ctx.fillRect(x20,area.top,area.right-x20,area.bottom-area.top)}
-      ctx.strokeStyle='#64748b';ctx.lineWidth=1;ctx.setLineDash([5,3]);
-      [0,12,20].forEach(function(mo){var px=pxM(mo);ctx.beginPath();ctx.moveTo(px,area.top);ctx.lineTo(px,area.bottom);ctx.stroke()});
-      ctx.setLineDash([]);ctx.restore();
-    },
-    afterDraw:function(chart){
-      var ctx=chart.ctx, x=chart.scales.x, y=chart.scales.y, area=chart.chartArea;
-      if(!x||!y||!area)return;
-      var totalM=END_MO-START_MO+1;
-      var cw=chart.width;
-      var isMobile=cw<640;
-      function pxI(i){return area.left+(i/(totalM-1))*(area.right-area.left)}
-      function pxM(mo){return pxI(mo-START_MO)}
-      ctx.save();
-      // Phase labels at top — compact, non-overlapping
-      var pLabels=[
-        {mo:-4,t:'PRE-PPP',c:'#0F4C75',bg:'rgba(15,76,117,0.15)'},
-        {mo:6,t:'PPP',c:'#0077a3',bg:'rgba(0,168,210,0.18)'},
-        {mo:16,t:'POST-PPP',c:'#1a7a5e',bg:'rgba(42,170,138,0.15)'}
-      ];
-      var pLabelY=area.top+(isMobile?8:18);
-      var pLabelSize=isMobile?'bold 9px':'bold 10px';
-      pLabels.forEach(function(l){
-        var px=pxM(l.mo);
-        ctx.font=pLabelSize+' Inter,sans-serif';
-        var tw=ctx.measureText(l.t).width+12;
-        var th=isMobile?14:18;
-        ctx.fillStyle=l.bg;
-        ctx.beginPath();ctx.roundRect(px-tw/2,pLabelY-th/2,tw,th,3);ctx.fill();
-        ctx.fillStyle=l.c;ctx.textAlign='center';ctx.textBaseline='middle';
-        ctx.fillText(l.t,px,pLabelY);
-      });
-      ctx.textBaseline='alphabetic';ctx.restore();ctx.save();
-      // Today marker
-      var todayOff=moDiff(c2.pp,new Date().toISOString().slice(0,10));
-      if(todayOff>=START_MO&&todayOff<=END_MO){
-        var tPx=pxM(todayOff);
-        ctx.strokeStyle='#d1383e';ctx.lineWidth=isMobile?1.5:2;ctx.setLineDash([4,4]);
-        ctx.beginPath();ctx.moveTo(tPx,area.top);ctx.lineTo(tPx,area.bottom);ctx.stroke();
-        ctx.setLineDash([]);ctx.fillStyle='#d1383e';ctx.textAlign='center';
-        ctx.font=isMobile?'bold 8px':'bold 10px'+' Inter,sans-serif';
-        ctx.fillText('TODAY',tPx,area.top+(isMobile?4:6));
-      }
-      ctx.restore();ctx.save();
-      // Milestone dots on the curve — just code + dot, no long names
-      mileData.forEach(function(m){if(!m)return;
-        var isComp=c2.ms[m.code].compDate&&c2.ms[m.code].compDate.length>0;
-        var px,py;
-        if(isComp){
-          var aOff=moDiff(c2.pp,c2.ms[m.code].compDate);
-          var aIdx=Math.max(0,Math.min(aOff-START_MO,ac.length-1));
-          px=pxI(aIdx);py=y.getPixelForValue(ac[aIdx]);
-        }else{
-          px=pxI(m.idx);py=y.getPixelForValue(pl[m.idx]);
-        }
-        // Draw cross tick
-        ctx.strokeStyle=isComp?'#d1383e':'#94a3b8';ctx.lineWidth=1.5;
-        ctx.beginPath();ctx.moveTo(px,py-4);ctx.lineTo(px,py+4);ctx.stroke();
-        // Draw dot
-        ctx.fillStyle=isComp?'#d1383e':'#94a3b8';
-        ctx.beginPath();ctx.arc(px,py,isComp?5:3,0,Math.PI*2);ctx.fill();
-        // Milestone label — code + short name with white background pill
-        var labelText=isMobile?m.code:(m.code+': '+m.name);
-        ctx.font=isMobile?'bold 8px':'bold 9px'+' Inter,sans-serif';
-        var labelW=ctx.measureText(labelText).width+8;
-        var labelH=isMobile?14:16;
-        var labelY=isMobile?py+16:py+20;
-        // White pill background
-        ctx.fillStyle='rgba(255,255,255,0.85)';
-        ctx.beginPath();ctx.roundRect(px-labelW/2,labelY-labelH/2,labelW,labelH,3);ctx.fill();
-        // Text
-        ctx.fillStyle=isComp?'#d1383e':'#374151';
-        ctx.textAlign='center';ctx.textBaseline='middle';
-        ctx.fillText(labelText,px,labelY);
-      });
-      ctx.restore();
-    }
-  };
-  CH=new Chart(canvas,{
-    type:'line',
-    data:{labels:lbl,datasets:[
-      {label:'Planned',data:pl,borderColor:'#00a8d2',backgroundColor:'rgba(0,168,210,0.08)',tension:0.35,fill:true,pointRadius:0,pointStyle:'line',borderWidth:3},
-      {label:'Actual',data:ac,borderColor:'#d1383e',backgroundColor:'rgba(209,56,62,0.08)',tension:0.35,fill:true,pointRadius:0,pointStyle:'line',borderWidth:3}
-    ]},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      interaction:{mode:'index',intersect:false},
-      layout:{padding:{top:28,bottom:22,left:10,right:40}},
-      plugins:{
-        legend:{position:'bottom',labels:{font:{size:12},usePointStyle:true,boxWidth:8,padding:16}},
-        tooltip:{
-          backgroundColor:'rgba(11,29,68,0.95)',titleFont:{size:13},bodyFont:{size:12},padding:10,
-          callbacks:{
-            title:function(i){return'Date: '+i[0].label},
-            label:function(ctx){return ctx.dataset.label+': '+Math.round(ctx.raw*10)/10+'%'}
-          }
-        }
-      },
-      scales:{
-        y:{min:0,max:100,grid:{color:'#f0f3f5'},ticks:{callback:function(v){return v+'%'},font:{size:11},padding:8}},
-        x:{grid:{color:'#f0f3f5',lineWidth:0.5},ticks:{maxRotation:0,minRotation:0,font:{size:10},autoSkip:true,maxTicksLimit:12,callback:function(val,idx){var dt=lbl[idx];if(!dt)return'';var parts=dt.split('-');return parts[0]+'-'+parts[2]}}}
-      }
-    },
-    plugins:[phasePlugin]
-  });
-  RSC();
-}
+function INIT(){if(!document.getElementById('dc').value){var t=new Date();document.getElementById('dc').value=t.toISOString().slice(0,10)}Object.keys(FAC).forEach(function(f){if(!ST[f]){var d={};d[f]={up:{}};ST[f]=d[f]}});SW()}
+function LD(){var r=localStorage.getItem('omg5');if(r){try{var d=JSON.parse(r);if(d)ST=d}catch(e){console.error('Load error',e)}}}
+function SV(){localStorage.setItem('omg5',JSON.stringify(ST))}
+function CU(){var f=document.getElementById('fs').value;if(!ST[f])ST[f]={up:{}};return ST[f]}
+function SW(){var f=document.getElementById('fs').value;document.querySelector('.brand span').textContent=FAC[f]+' — Asset Maintenance Department';if(!ST[f])ST[f]={up:{}};loadFilesFromDB(f);ALL()}
 
-// S-CURVE SUMMARY: Planned, Actual, Variance, RAG
-function RSC(){
-  var c2=CU();
-  var el=document.getElementById('sc-summary');
-  if(!el||!c2.pp){el&&(el.innerHTML='');return}
-  var todayOff=moDiff(c2.pp,new Date().toISOString().slice(0,10));
-  // Planned: cumulative earned value from milestones whose target offset <= today
-  var plannedCount=0;
-  Object.entries(MSD).forEach(function(e){var d=e[1];if(d.o<=todayOff)plannedCount++});
-  var plannedVal=Math.min(plannedCount*100/9,100);
-  // Actual: cumulative earned value from all completed milestones
-  var actualCount=0;
-  Object.entries(MSD).forEach(function(e){var mst=c2.ms[e[0]];if(mst.compDate&&mst.compDate.length>0)actualCount++});
-  var actualVal=Math.min(actualCount*100/9,100);
-  var variance=Math.round((actualVal-plannedVal)*10)/10;
-  var vAbs=Math.abs(variance);
-  var ragC,ragT;
-  if(variance>=0){ragC='#059669';ragT='GREEN — On track or ahead';ragL='rg'}
-  else if(vAbs<=10){ragC='#e8890c';ragT='AMBER — Slight delay (≤10%)';ragL='ra'}
-  else{ragC='#d1383e';ragT='RED — Behind schedule (>10%)';ragL='rr'}
-  el.innerHTML='<div style="text-align:center;padding:10px 6px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Planned</div><div style="font-size:18px;font-weight:700;color:var(--blue)">'+Math.round(plannedVal)+'%</div></div>'+
-    '<div style="text-align:center;padding:10px 6px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Actual</div><div style="font-size:18px;font-weight:700;color:var(--red)">'+Math.round(actualVal)+'%</div></div>'+
-    '<div style="text-align:center;padding:10px 6px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Variance</div><div style="font-size:18px;font-weight:700;color:'+(variance>=0?'var(--green)':'var(--red)')+'">'+(variance>=0?'+':'')+variance+'%</div></div>'+
-    '<div style="text-align:center;padding:10px 6px;border-radius:6px;border:1px solid '+ragC+';background:'+ragC+'10"><div style="font-size:10px;color:'+ragC+';text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">RAG Rating</div><div style="font-size:18px;font-weight:700;color:'+ragC+'">'+ragT+'</div></div>';
-}
+function ALL(){RS();RD();RM();RSC();RAC();RREF()}
 
+function STT(btn){document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});document.querySelectorAll('.tc').forEach(function(c){c.classList.remove('a')});btn.classList.add('a');document.getElementById(btn.dataset.t).classList.add('a')}
 
-function RD(){const c=CU();const f=document.getElementById('fs').value;document.getElementById('dlf').textContent=f;
-var el=document.getElementById('dl');el.innerHTML='';
-// Batch download button bar
-var batchBar=document.createElement('div');batchBar.style.cssText='display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;padding:10px 14px;background:#F1F5F9;border-radius:var(--r-md);border:1px solid var(--mw-border)';
-var selAll=document.createElement('input');selAll.type='checkbox';selAll.id='sel-all';selAll.style.cssText='cursor:pointer;width:16px;height:16px';
-selAll.addEventListener('change',function(ev){document.querySelectorAll('.dld-cb').forEach(function(cb){cb.checked=ev.target.checked})});
-batchBar.appendChild(selAll);
-var selAllLbl=document.createElement('label');selAllLbl.htmlFor='sel-all';selAllLbl.style.cssText='font-size:12px;color:var(--t2);cursor:pointer;margin-right:8px';selAllLbl.textContent='Select all';
-batchBar.appendChild(selAllLbl);
-var batchBtn=document.createElement('button');batchBtn.className='btn-p';batchBtn.textContent='Download Selected as ZIP';batchBtn.style.cssText='padding:7px 16px;font-size:12px;font-weight:700;border:none;border-radius:var(--r-md);background:var(--mw-navy);color:#fff;cursor:pointer;white-space:nowrap;box-shadow:0 2px 4px rgba(11,29,68,0.25)';
-batchBtn.addEventListener('click',dldBatch);
-batchBar.appendChild(batchBtn);
-var batchInfo=document.createElement('span');batchInfo.id='dld-info';batchInfo.style.cssText='font-size:11px;color:var(--mw-muted);flex:1;min-width:0';
-batchInfo.textContent='Check files, then click to download as a single ZIP';
-batchBar.appendChild(batchInfo);
-el.appendChild(batchBar);
-// Header row
-var grid=document.createElement('div');grid.className='dlv-g';
-['TOC Item','Annex','Linked Milestones','Uploads'].forEach(function(h){var d=document.createElement('div');d.className='dlv-h';d.style.cssText='justify-content:flex-start;padding-left:12px';d.textContent=h;if(h!=='TOC Item'){d.style.justifyContent='center';d.style.paddingLeft='10px'}grid.appendChild(d)});
-let cp=0;
-TOC.forEach(function(t){var tnum=t.num;
-// Collect all files for this TOC across all sources
-var allFiles=[];
-var linkedMs=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(tnum))linkedMs.push(e[0])});
-linkedMs.forEach(function(mid){var key='TOC-'+tnum;if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].forEach(function(fi,ix){allFiles.push({n:fi.n,d:fi.d,dbId:fi.dbId||null,src:mid,loc:'up',mid:mid,key:key,ix:ix})})}});
-if(c.up['__deliv']&&c.up['__deliv']['TOC-'+tnum]){c.up['__deliv']['TOC-'+tnum].forEach(function(fi,ix){allFiles.push({n:fi.n,d:fi.d,dbId:fi.dbId||null,src:'general',loc:'__deliv',mid:'__deliv',key:'TOC-'+tnum,ix:ix})})}
-if(allFiles.length>0)cp++;
-// Cell 1: TOC name + description
-var c1=document.createElement('div');c1.className='dlv-n';c1.style.cssText='flex-direction:column;align-items:flex-start;gap:2px';
-c1.innerHTML='<div style="font-weight:600">'+tnum+' — '+t.ti+'</div><div style="font-size:11px;color:var(--t2)">'+t.dc+'</div>';
-grid.appendChild(c1);
-// Cell 2: Annex badge
-var c2=document.createElement('div');c2.className='dlv-c';
-if(t.ax){var axNum=t.ax.match(/\d+/);var axI=axNum?ANX.find(function(x){return x.id===axNum[0]}):null;c2.innerHTML='<span class="tag og" data-tip="'+(axI?axI.ti+' | '+axI.cr:t.ax)+'">'+t.ax+'</span>'}else{c2.innerHTML='<span style="color:var(--t2);font-size:11px">—</span>'}
-grid.appendChild(c2);
-// Cell 3: Linked milestones
-var c3=document.createElement('div');c3.className='dlv-c';c3.style.flexWrap='wrap';c3.style.gap='2px';
-if(linkedMs.length>0){linkedMs.forEach(function(m){var s=document.createElement('span');s.className='tag tg';s.textContent=m;s.dataset.tip=MSD[m]?MSD[m].n:m;c3.appendChild(s)})}else{c3.innerHTML='<span style="color:var(--t2);font-size:11px">Not linked to milestones</span>'}
-grid.appendChild(c3);
-// Cell 4: Uploads with checkboxes
-var c4=document.createElement('div');c4.className='dlv-c';c4.style.flexDirection='column';c4.style.alignItems='flex-start';
-if(allFiles.length>0){
-  allFiles.forEach(function(fi,idx){
-    var fr=document.createElement('div');fr.className='fr';fr.style.padding='4px 8px';fr.style.gap='8px';
-    var cb=document.createElement('input');cb.type='checkbox';cb.className='dld-cb';cb.dataset.fname=fi.n;cb.dataset.fdata=fi.d;cb.style.cssText='cursor:pointer;width:14px;height:14px;margin:0';
-    fr.appendChild(cb);
-    var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;a.style.color='var(--blue)';a.style.fontWeight='500';a.style.textDecoration='none';
-    fr.appendChild(a);
-    var sp=document.createElement('span');sp.style.cssText='font-size:10px;color:var(--t2)';sp.textContent=' from '+fi.src;
-    fr.appendChild(sp);
-    var rm=document.createElement('button');rm.textContent='Remove';rm.style.cssText='background:none;border:none;color:var(--red);cursor:pointer;font-size:11px;font-weight:600;margin-left:auto';
-    rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
-    fr.appendChild(rm);
-    c4.appendChild(fr);
-  });
-}else{
-  var upDiv=document.createElement('div');upDiv.className='up';upDiv.style.cssText='padding:4px 8px;font-size:10px;width:auto;border-style:dashed;border-width:1px;position:relative;overflow:hidden';
-  upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload '+tnum;
-  var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
-  fileIn.addEventListener('change',function(ev){hDlvUp(tnum,ev)});
-  upDiv.appendChild(fileIn);
-  c4.appendChild(upDiv);
-}
-grid.appendChild(c4);
-});
-el.appendChild(grid);
-document.getElementById('db').textContent=cp+' / 14 with uploads';
-}
+function anxT(axNum){var num=axNum.replace(/ANNEX\s*/,'');var a=ANX.find(function(x){return x.id===num});return a?a.ti+' | '+a.cr:axNum}
 
-function hDlvUp(tnum,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;var key='TOC-'+tnum;var owner=tocOwner[key];var c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;
-Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;var targetMid=owner||'__deliv';if(!c.up[targetMid])c.up[targetMid]={};if(!c.up[targetMid][key])c.up[targetMid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[targetMid][key].push(fileObj)-1;pending--;if(pending===0){SV();RD();RM();RS();fileInput.value='';}govUploadFile(facilitySlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[targetMid]&&c.up[targetMid][key]&&c.up[targetMid][key][fileIdx]){c.up[targetMid][key][fileIdx].dbId=res.result.data.json.id;SV();}}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RD();RM();RS();fileInput.value='';}};r.readAsDataURL(f)})}
+function cPC(milestoneId, tocItems, totalTOCItems){var c=CU();var up=c.up||{};var upTOC=0;Object.keys(up).forEach(function(mid){var tocKeys=Object.keys(up[mid]);tocKeys.forEach(function(key){var tnum=key.replace('TOC-','');if(tocItems.includes(tnum))upTOC++})});return totalTOCItems>0?(upTOC/totalTOCItems)*100:0}
 
+function RM(){var c=CU();var el=document.getElementById('r1');el.innerHTML='';PHASES.forEach(function(p){var card=document.createElement('div');card.className='card animate-fade-in-up';var ch=document.createElement('div');ch.className='ch';ch.innerHTML='<h2>'+p.n+' <span>('+p.m.join(', ')+')</span></h2>';card.appendChild(ch);p.m.forEach(function(mid){var ms=MSD[mid];if(!ms)return;var tocItems=ms.t||[];var totalTOCItems=tocItems.length;var pct=cPC(mid,tocItems,totalTOCItems);var pctR=Math.round(pct);var owner=tocOwner[mid]||'Contractor';var oc='contractor';if(owner==='Operator')oc='operator';var ov='<select onchange="tocOwner[\''+mid+'\']=this.value;SV();RM();RD();" style="padding:2px 6px;font-size:11px;border:1px solid var(--mw-border);border-radius:var(--r-sm)"><option value="Contractor"'+(owner==='Contractor'?' selected':'')+'>Contractor</option><option value="Operator"'+(owner==='Operator'?' selected':'')+'>Operator</option></select>';var barColor=pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)';var row=document.createElement('div');row.style.cssText='margin-bottom:12px;padding:12px;border:1px solid var(--mw-border);border-radius:var(--r-md);background:#fff';row.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:4px"><strong style="font-size:13px">'+mid+' — '+ms.n+'</strong><span class="badge '+(pct>=100?'rg':pct>=50?'ra':'rr')+'">'+pctR+'% Complete</span></div><div style="font-size:11px;color:var(--t2);margin-bottom:8px">'+ms.ct+'</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:11px"><span>Responsible:</span>'+ov+'<span style="color:var(--t2)">('+oc+')</span><span style="margin-left:auto;color:var(--t2)">Due: '+ms.dl+'</span></div><div style="height:20px;background:var(--bg-primary);border-radius:10px;overflow:hidden"><div style="height:100%;width:'+Math.min(pctR,100)+'%;background:'+barColor+';border-radius:10px;transition:width .4s"></div></div><div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">';tocItems.forEach(function(tnum,idx){var t=TOC.find(function(x){return x.num===tnum});var key='TOC-'+tnum;var hasFile=(c.up&&c.up[mid]&&c.up[mid][key]&&c.up[mid][key].length>0)||(c.up&&c.up['__deliv']&&c.up['__deliv'][key]&&c.up['__deliv'][key].length>0);var st=hasFile?'border-color:var(--success);background:var(--success-bg);color:var(--success)':'border-color:var(--mw-border);background:#fff;color:var(--t2)';row.innerHTML+='<span style="font-size:10px;padding:2px 6px;border-radius:var(--r-sm);border:1px solid '+st.split('border-color:')[1].split(';')[0]+';'+st+'">'+tnum+'</span>'});row.innerHTML+='</div>';card.appendChild(row)});el.appendChild(card)})}
+
+function RS(){var c=CU();var ctx=document.getElementById('sc-chart');if(!ctx)return;var ctx2d=ctx.getContext('2d');var labels=[];var plannedData=[];var actualData=[];var today=new Date(document.getElementById('dc').value);var baseDate=new Date(document.getElementById('db').value);var totalWeight=0;Object.keys(MSD).forEach(function(mid){totalWeight+=MSD[mid].pc});Object.keys(MSD).forEach(function(mid){var ms=MSD[mid];var tocItems=ms.t||[];var totalTOCItems=tocItems.length;var plannedVal=totalWeight>0?(ms.pc/totalWeight)*100:0;plannedData.push(plannedVal);var actualVal=cPC(mid,tocItems,totalTOCItems);actualData.push(actualVal);labels.push(mid)});var cumPlanned=[];var cumActual=[];var cp=0,ca=0;plannedData.forEach(function(v,i){cp+=v;ca+=actualData[i];cumPlanned.push(cp);cumActual.push(ca)});var el=document.getElementById('sc-summary');if(cumPlanned.length>0){var lastP=cumPlanned[cumPlanned.length-1];var lastA=cumActual[cumActual.length-1];var variance=lastA-lastP;var vAbs=Math.abs(variance);var ragC='#1F9D55',ragT='GREEN — On track',ragL='rg';if(variance<0){if(vAbs<=10){ragC='#F59E0B';ragT='AMBER — Slight delay';ragL='ra'}else{ragC='#DC2626';ragT='RED — Behind schedule';ragL='rr'}}document.getElementById('sc-rag').className='badge '+ragL;document.getElementById('sc-rag').textContent=ragT;el.innerHTML='<div class="kpi-card"><div class="kpi-label">Planned</div><div class="kpi-value kpi-planned">'+Math.round(lastP)+'%</div></div><div class="kpi-card"><div class="kpi-label">Actual</div><div class="kpi-value kpi-actual">'+Math.round(lastA)+'%</div></div><div class="kpi-card"><div class="kpi-label">Variance</div><div class="kpi-value '+(variance>=0?'kpi-variance-pos':'kpi-variance-neg')+'">'+(variance>=0?'+':'')+Math.round(variance)+'%</div></div><div class="kpi-card" style="border-color:'+ragC+';background:'+ragC+'08"><div class="kpi-label" style="color:'+ragC+'">RAG Rating</div><div class="kpi-value" style="color:'+ragC+';font-size:16px">'+ragT+'</div></div>'}else{el.innerHTML=''}
+if(SC)SC.destroy();SC=new Chart(ctx2d,{type:'line',data:{labels:labels,datasets:[{label:'Planned Cumulative',data:cumPlanned,borderColor:'#005BAC',backgroundColor:'rgba(0,91,172,0.08)',borderWidth:2.5,fill:true,tension:0.3,pointRadius:4,pointBackgroundColor:'#005BAC',pointBorderColor:'#fff',pointBorderWidth:2},{label:'Actual Cumulative',data:cumActual,borderColor:'#DC2626',backgroundColor:'rgba(220,38,38,0.06)',borderWidth:2.5,fill:true,tension:0.3,pointRadius:4,pointBackgroundColor:'#DC2626',pointBorderColor:'#fff',pointBorderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,padding:15,font:{family:'Inter',size:11,weight:'600'}}},tooltip:{backgroundColor:'rgba(22,50,79,0.95)',titleFont:{family:'Inter',size:12,weight:'700'},bodyFont:{family:'Inter',size:11},padding:12,cornerRadius:8}},scales:{x:{grid:{display:false},ticks:{font:{family:'Inter',size:10},color:'#8BA3B8'}},y:{grid:{color:'rgba(0,91,172,0.04)',drawBorder:false},ticks:{font:{family:'Inter',size:10},color:'#8BA3B8',callback:function(v){return v+'%'}},beginAtZero:true,max:110}},animation:{duration:800,easing:'easeOutQuart'}}})}
+
+function RD(){const c=CU();const f=document.getElementById('fs').value;document.getElementById('dlf').textContent=f;var el=document.getElementById('dl');el.innerHTML='';var batchBar=document.createElement('div');batchBar.style.cssText='display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;padding:10px 14px;background:#F8FAFC;border-radius:var(--radius-md);border:1px solid var(--border-subtle)';var selAll=document.createElement('input');selAll.type='checkbox';selAll.id='sel-all';selAll.style.cssText='cursor:pointer;width:16px;height:16px';selAll.addEventListener('change',function(ev){document.querySelectorAll('.dld-cb').forEach(function(cb){cb.checked=ev.target.checked})});batchBar.appendChild(selAll);var selAllLbl=document.createElement('label');selAllLbl.htmlFor='sel-all';selAllLbl.style.cssText='font-size:12px;color:var(--text-secondary);cursor:pointer;margin-right:8px;font-weight:600';selAllLbl.textContent='Select all';batchBar.appendChild(selAllLbl);var batchBtn=document.createElement('button');batchBtn.className='btn-p';batchBtn.textContent='Download Selected as ZIP';batchBtn.style.cssText='padding:8px 16px;font-size:12px;font-weight:700;border:none;border-radius:var(--radius-sm);background:var(--mw-primary);color:#fff;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,91,172,0.25);transition:all 150ms';batchBtn.addEventListener('click',dldBatch);batchBar.appendChild(batchBtn);var batchInfo=document.createElement('span');batchInfo.id='dld-info';batchInfo.style.cssText='font-size:11px;color:var(--text-muted);flex:1;min-width:0;font-weight:500';batchInfo.textContent='Check files, then click to download as a single ZIP';batchBar.appendChild(batchInfo);el.appendChild(batchBar);var grid=document.createElement('div');grid.className='dlv-g';['TOC Item','Annex','Linked Milestones','Uploads'].forEach(function(h){var d=document.createElement('div');d.className='dlv-h';d.style.cssText='justify-content:flex-start;padding-left:12px';d.textContent=h;if(h!=='TOC Item'){d.style.justifyContent='center';d.style.paddingLeft='10px'}grid.appendChild(d)});let cp=0;TOC.forEach(function(t){var tnum=t.num;var allFiles=[];var linkedMs=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(tnum))linkedMs.push(e[0])});linkedMs.forEach(function(mid){var key='TOC-'+tnum;if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].forEach(function(fi,ix){allFiles.push({n:fi.n,d:fi.d,dbId:fi.dbId||null,src:mid,loc:'up',mid:mid,key:key,ix:ix})})}});if(c.up['__deliv']&&c.up['__deliv']['TOC-'+tnum]){c.up['__deliv']['TOC-'+tnum].forEach(function(fi,ix){allFiles.push({n:fi.n,d:fi.d,dbId:fi.dbId||null,src:'general',loc:'__deliv',mid:'__deliv',key:'TOC-'+tnum,ix:ix})})}if(allFiles.length>0)cp++;var c1=document.createElement('div');c1.className='dlv-n';c1.style.cssText='flex-direction:column;align-items:flex-start;gap:2px';c1.innerHTML='<div style="font-weight:700;color:var(--mw-navy)">'+tnum+' — '+t.ti+'</div><div style="font-size:11px;color:var(--text-muted)">'+t.dc+'</div>';grid.appendChild(c1);var c2=document.createElement('div');c2.className='dlv-c';if(t.ax){var axNum=t.ax.match(/\d+/);var axI=axNum?ANX.find(function(x){return x.id===axNum[0]}):null;c2.innerHTML='<span class="tag og" data-tip="'+(axI?axI.ti+' | '+axI.cr:t.ax)+'">'+t.ax+'</span>'}else{c2.innerHTML='<span style="color:var(--text-muted);font-size:11px">—</span>'}grid.appendChild(c2);var c3=document.createElement('div');c3.className='dlv-c';c3.style.flexWrap='wrap';c3.style.gap='2px';if(linkedMs.length>0){linkedMs.forEach(function(m){var s=document.createElement('span');s.className='tag tg';s.textContent=m;s.dataset.tip=MSD[m]?MSD[m].n:m;c3.appendChild(s)})}else{c3.innerHTML='<span style="color:var(--text-muted);font-size:11px">Not linked</span>'}grid.appendChild(c3);var c4=document.createElement('div');c4.className='dlv-c';c4.style.flexDirection='column';c4.style.alignItems='flex-start';if(allFiles.length>0){allFiles.forEach(function(fi,idx){var fr=document.createElement('div');fr.className='fr';fr.style.padding='4px 8px';fr.style.gap='8px';var cb=document.createElement('input');cb.type='checkbox';cb.className='dld-cb';cb.dataset.fname=fi.n;cb.dataset.fdata=fi.d;cb.style.cssText='cursor:pointer;width:14px;height:14px;margin:0';fr.appendChild(cb);var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;a.style.color='var(--mw-primary)';a.style.fontWeight='600';a.style.textDecoration='none';fr.appendChild(a);var sp=document.createElement('span');sp.style.cssText='font-size:10px;color:var(--text-muted)';sp.textContent=' from '+fi.src;fr.appendChild(sp);var rm=document.createElement('button');rm.textContent='Remove';rm.style.cssText='background:none;border:none;color:var(--danger);cursor:pointer;font-size:11px;font-weight:600;margin-left:auto;padding:2px 6px;border-radius:var(--radius-sm);transition:background 150ms';rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});fr.appendChild(rm);c4.appendChild(fr)})}else{var upDiv=document.createElement('div');upDiv.className='up';upDiv.style.cssText='padding:4px 8px;font-size:10px;width:auto;border-style:dashed;border-width:1px;position:relative;overflow:hidden';upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload '+tnum;var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';fileIn.addEventListener('change',function(ev){hDlvUp(tnum,ev)});upDiv.appendChild(fileIn);c4.appendChild(upDiv)}grid.appendChild(c4)});el.appendChild(grid);document.getElementById('db').textContent=cp+' / 14 with uploads'}
+
+function hDlvUp(tnum,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;var key='TOC-'+tnum;var owner=tocOwner[key];var c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;var targetMid=owner||'__deliv';if(!c.up[targetMid])c.up[targetMid]={};if(!c.up[targetMid][key])c.up[targetMid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[targetMid][key].push(fileObj)-1;pending--;if(pending===0){SV();RD();RM();RS();fileInput.value='';}govUploadFile(facilitySlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[targetMid]&&c.up[targetMid][key]&&c.up[targetMid][key][fileIdx]){c.up[targetMid][key][fileIdx].dbId=res.result.data.json.id;SV();}}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RD();RM();RS();fileInput.value='';}};r.readAsDataURL(f)})}
 function rDlvUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RD();RM();RS()}}
-
-function dldBatch(){
-  const cbs=document.querySelectorAll('.dld-cb:checked');
-  if(cbs.length===0){alert('No files selected. Check the boxes next to files you want to download.');return}
-  var zip=new JSZip();
-  cbs.forEach(function(cb){
-    var name=cb.dataset.fname;
-    var data=cb.dataset.fdata;
-    if(data&&data.indexOf('base64,')>-1){var b64=data.split('base64,')[1];zip.file(name,b64,{base64:true})}else if(data){zip.file(name,data)}
-  });
-  zip.generateAsync({type:'blob'}).then(function(content){
-    var filename='O&M_Documents_'+new Date().toISOString().slice(0,10)+'.zip';
-    // Try File System Access API for Save As dialog (asks for location)
-    if(window.showSaveFilePicker){
-      window.showSaveFilePicker({
-        suggestedName:filename,
-        types:[{description:'ZIP Archive',accept:{'application/zip':['.zip']}}]
-      }).then(function(handle){
-        return handle.createWritable().then(function(writable){
-          return writable.write(content).then(function(){writable.close()});
-        });
-      }).catch(function(err){if(err.name!=='AbortError'){fallbackDownload(content,filename)}});
-    }else{
-      fallbackDownload(content,filename);
-    }
-  });
-}
-function fallbackDownload(blob,filename){
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href)},100);
-}
+function dldBatch(){const cbs=document.querySelectorAll('.dld-cb:checked');if(cbs.length===0){alert('No files selected. Check the boxes next to files you want to download.');return}var zip=new JSZip();cbs.forEach(function(cb){var name=cb.dataset.fname;var data=cb.dataset.fdata;if(data&&data.indexOf('base64,')>-1){var b64=data.split('base64,')[1];zip.file(name,b64,{base64:true})}else if(data){zip.file(name,data)}});zip.generateAsync({type:'blob'}).then(function(content){var filename='O&M_Documents_'+new Date().toISOString().slice(0,10)+'.zip';if(window.showSaveFilePicker){window.showSaveFilePicker({suggestedName:filename,types:[{description:'ZIP Archive',accept:{'application/zip':['.zip']}}]}).then(function(handle){return handle.createWritable().then(function(writable){return writable.write(content).then(function(){writable.close()})})}).catch(function(err){if(err.name!=='AbortError'){fallbackDownload(content,filename)}})}else{fallbackDownload(content,filename)}})}
+function fallbackDownload(blob,filename){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href)},100)}
 
 function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
 
-// UPLOAD HANDLERS (TOC-specific per milestone)
 function hTocUp(mid,key,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;const c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(!c.up[mid])c.up[mid]={};if(!c.up[mid][key])c.up[mid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[mid][key].push(fileObj)-1;pending--;if(pending===0){SV();RM();RD();RS();fileInput.value='';}govUploadFile(facilitySlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[mid]&&c.up[mid][key]&&c.up[mid][key][fileIdx]){c.up[mid][key][fileIdx].dbId=res.result.data.json.id;SV();}}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RM();RD();RS();fileInput.value='';}};r.readAsDataURL(f)})}
 function rTocUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RM();RD()}}
 
-// IMPORT/EXPORT/RESET
-
-
-
 function rsA(){if(!confirm('Reset all data?'))return;localStorage.removeItem('omg5');LD();ALL()}
 
-// REFERENCES TAB
+function EXP(){var dataStr='data:text/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(ST,null,2));var a=document.createElement('a');a.href=dataStr;a.download='om_governance_backup.json';document.body.appendChild(a);a.click();document.body.removeChild(a)}
+function IMP(event){var file=event.target.files[0];if(!file)return;var reader=new FileReader();reader.onload=function(e){try{var d=JSON.parse(e.target.result);if(d){ST=d;SV();SW();alert('Data imported successfully!')}}catch(err){alert('Invalid JSON file: '+err.message)}};reader.readAsText(file);event.target.value=''}
+
 function RREF(){
 var el1=document.getElementById('ref');
-var h='<table class="ref-table"><thead><tr style="background:#f0f3f5"><th style="padding:8px;text-align:left;width:80px;white-space:nowrap">Annex</th><th style="padding:8px;text-align:left">Title</th><th style="padding:8px;text-align:left">Criteria</th><th style="padding:8px;text-align:center">Linked TOC</th></tr></thead><tbody>';
-ANX.forEach(function(a){var linkedToc=TOC.filter(function(t){return t.ax&&t.ax.includes(a.id)}).map(function(t){return '<span class="tag tg" data-tip="'+t.ti+'">'+t.num+'</span>'}).join('')||'<span style="color:var(--t2);font-size:11px">\u2014</span>';h+='<tr style="border-bottom:1px solid #edf1f4"><td style="padding:8px;font-weight:700;color:var(--orange);white-space:nowrap">ANNEX '+a.id+'</td><td style="padding:8px;font-weight:500">'+a.ti+'</td><td style="padding:8px;color:var(--t2)">'+a.cr+'</td><td style="padding:8px;text-align:center">'+linkedToc+'</td></tr>'});
+var h='<table class="ref-table"><thead><tr><th style="padding:10px 14px;text-align:left;width:80px;white-space:nowrap">Annex</th><th style="padding:10px 14px;text-align:left">Title</th><th style="padding:10px 14px;text-align:left">Criteria</th><th style="padding:10px 14px;text-align:center">Linked TOC</th></tr></thead><tbody>';
+ANX.forEach(function(a){var linkedToc=TOC.filter(function(t){return t.ax&&t.ax.includes(a.id)}).map(function(t){return '<span class="tag tg" data-tip="'+t.ti+'">'+t.num+'</span>'}).join('')||'<span style="color:var(--text-muted);font-size:11px">\u2014</span>';h+='<tr><td style="padding:10px 14px;font-weight:700;color:#D97706;white-space:nowrap">ANNEX '+a.id+'</td><td style="padding:10px 14px;font-weight:600">'+a.ti+'</td><td style="padding:10px 14px;color:var(--text-secondary);line-height:1.4">'+a.cr+'</td><td style="padding:10px 14px;text-align:center">'+linkedToc+'</td></tr>'});
 h+='</tbody></table>';el1.innerHTML=h;
 var el2=document.getElementById('ref2');
-var h2='<table class="ref-table"><thead><tr style="background:#f0f3f5"><th style="padding:8px;text-align:left">TOC Item</th><th style="padding:8px;text-align:center">Annex</th><th style="padding:8px;text-align:left">Milestones</th></tr></thead><tbody>';
-TOC.forEach(function(t){var ax=t.ax?'<span class="tag og" data-tip="'+anxT(t.ax.replace(/ANNEX\s*/,''))+'">'+t.ax+'</span>':'<span style="color:var(--t2);font-size:11px">\u2014</span>';var ms=ALM.find(function(r){return r.it.startsWith(t.num)});var mBadges='';if(ms){['M1','M2','M3','M4','M5','M6','M7','M8','M9'].forEach(function(m){if(ms[m]){var rc=ms[m]==='P'?'rg':'ra';var tt=ms[m]==='P'?'Primary alignment':'Secondary alignment';mBadges+='<span class="badge '+rc+'" style="font-size:10px;padding:2px 6px" data-tip="'+tt+'">'+m+'</span> '}})}h2+='<tr style="border-bottom:1px solid #edf1f4"><td style="padding:8px"><strong>'+t.num+'</strong> \u2014 '+t.ti+'<br><span style="font-size:11px;color:var(--t2)">'+t.dc+'</span></td><td style="padding:8px;text-align:center">'+ax+'</td><td style="padding:8px">'+mBadges+'</td></tr>'});
+var h2='<table class="ref-table"><thead><tr><th style="padding:10px 14px;text-align:left">TOC Item</th><th style="padding:10px 14px;text-align:center">Annex</th><th style="padding:10px 14px;text-align:left">Milestones</th></tr></thead><tbody>';
+TOC.forEach(function(t){var ax=t.ax?'<span class="tag og" data-tip="'+anxT(t.ax.replace(/ANNEX\s*/,''))+'">'+t.ax+'</span>':'<span style="color:var(--text-muted);font-size:11px">\u2014</span>';var ms=ALM.find(function(r){return r.it.startsWith(t.num)});var mBadges='';if(ms){['M1','M2','M3','M4','M5','M6','M7','M8','M9'].forEach(function(m){if(ms[m]){var rc=ms[m]==='P'?'rg':'ra';var tt=ms[m]==='P'?'Primary alignment':'Secondary alignment';mBadges+='<span class="badge '+rc+'" style="font-size:10px;padding:2px 8px" data-tip="'+tt+'">'+m+'</span> '}})}h2+='<tr><td style="padding:10px 14px"><strong style="color:var(--mw-navy)">'+t.num+'</strong> \u2014 '+t.ti+'<br><span style="font-size:11px;color:var(--text-muted)">'+t.dc+'</span></td><td style="padding:10px 14px;text-align:center">'+ax+'</td><td style="padding:10px 14px">'+mBadges+'</td></tr>'});
 h2+='</tbody></table>';el2.innerHTML=h2;
 }
 
+function RSC(){var el=document.getElementById('r2');el.innerHTML='';PHASES.forEach(function(p){var card=document.createElement('div');card.className='card animate-fade-in-up';var ch=document.createElement('div');ch.className='ch';ch.innerHTML='<h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#005BAC" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> '+p.n+'</h2>';card.appendChild(ch);p.m.forEach(function(mid){var ms=MSD[mid];if(!ms)return;var owner=tocOwner[mid]||'Contractor';var phDiv=document.createElement('div');phDiv.className='ph '+p.cl;phDiv.innerHTML='<strong>'+mid+'</strong> — '+ms.n+'<span style="opacity:0.7;margin-left:8px;font-size:11px;font-weight:500">Due: '+ms.dl+'</span>';card.appendChild(phDiv);var pb=document.createElement('div');pb.className='pb';var hdr=document.createElement('div');hdr.className='ms-h';hdr.innerHTML='<div>ID</div><div>TOC Item</div><div>Annex</div><div>Description</div><div>Milestones</div><div>Upload</div><div>Status</div>';pb.appendChild(hdr);(ms.t||[]).forEach(function(tnum){var t=TOC.find(function(x){return x.num===tnum});var ax=t?t.ax:'';var key='TOC-'+tnum;var hasFile=false;if(CU().up){Object.keys(CU().up).forEach(function(umid){if(CU().up[umid]&&CU().up[umid][key]&&CU().up[umid][key].length>0)hasFile=true})}var linkedMs=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(tnum))linkedMs.push(e[0])});var msBadges=linkedMs.map(function(m){return '<span class="tag tg">'+m+'</span>'}).join('');var tr=document.createElement('div');tr.className='ms';tr.innerHTML='<div class="msi">'+tnum+'</div><div class="msn">'+(t?t.ti:'')+'</div><div class="mst">'+(ax?'<span class="tag og">'+ax+'</span>':'<span style="color:var(--text-muted);font-size:11px">—</span>')+'</div><div class="msd">'+(t?t.dc:'')+'</div><div class="msc">'+msBadges+'</div><div class="mst">';if(!hasFile){tr.innerHTML+='<div class="up" style="position:relative;overflow:hidden">Upload '+tnum+'<input type="file" multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="hTocUp(\''+mid+'\',\'TOC-'+tnum+'\',event)"></div>'}else{tr.innerHTML+='<span class="tag rg">Uploaded</span>'}tr.innerHTML+='</div><div class="mst">'+(hasFile?'<span class="badge rg">Complete</span>':'<span class="badge ra">Pending</span>')+'</div>';pb.appendChild(tr)});var compRow=document.createElement('div');compRow.className='comp-row';var pct=Math.round(cPC(mid,ms.t||[],(ms.t||[]).length));compRow.innerHTML='<span style="font-weight:700;color:var(--mw-navy)">'+mid+' Completion: '+pct+'%</span><span style="margin-left:auto">Responsible: '+owner+'</span>';pb.appendChild(compRow);card.appendChild(pb)});el.appendChild(card)})}
+
+// ACCEPTANCE TAB
+function RACC(){var c=CU();var el=document.getElementById('r3');if(!el)return;el.innerHTML='';var phases=[{n:'Phase 1: Mobilisation & Planning (M1–M3)',ms:['M1','M2','M3'],desc:'Contractor submits O&M Manual index, draft Sections 1–7, and vendor data.'},{n:'Phase 2: Testing & Commissioning (M4–M5)',ms:['M4','M5'],desc:'Pre-commissioning procedures, test records, and certificates.'},{n:'Phase 3: Final Handover (M6–M9)',ms:['M6','M7','M8','M9'],desc:'Final O&M Manual, training records, and project close-out.'}];phases.forEach(function(ph,pi){var card=document.createElement('div');card.className='card animate-fade-in-up delay-'+(pi+1);var ch=document.createElement('div');ch.className='ch';ch.innerHTML='<h2>'+ph.n+'</h2>';card.appendChild(ch);ph.ms.forEach(function(mid){var ms=MSD[mid];if(!ms)return;var pct=Math.round(cPC(mid,ms.t||[],(ms.t||[]).length));var box=document.createElement('div');box.className='ra-box '+(pct>=100?'a1':pct>=50?'a2':'ac');box.innerHTML='<div class="ra-title">'+mid+' — '+ms.n+'</div><div class="ra-text">'+ms.ct+'<br><strong>Completion: '+pct+'%</strong> | Due: '+ms.dl+'</div>';card.appendChild(box)});el.appendChild(card)})}
+
+// Override RS to also call RACC
+var origRS=RS;RS=function(){origRS();RACC();}
+
+LD();
 INIT();
 </script>
-<style>
-.float-home{position:fixed;bottom:16px;left:16px;z-index:9999;background:#1a365d;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.3);font-size:18px;text-decoration:none;transition:transform .2s}
-.float-home:active{transform:scale(0.95)}
-@media(min-width:769px){.float-home{display:none}}
-</style>
-<a href="/" class="float-home" title="Back to Home">←</a></body>
+</body>
 </html>
-            
