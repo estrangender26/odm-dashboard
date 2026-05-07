@@ -164,7 +164,11 @@ function SCurve({
     }
   }, [msState, color]);
 
-  return <canvas ref={canvasRef} width={700} height={300} className="w-full max-w-[700px]" />;
+  return (
+    <div className="w-full overflow-x-auto">
+      <canvas ref={canvasRef} width={700} height={300} className="min-w-[600px] w-full max-w-[700px]" />
+    </div>
+  );
 }
 
 /* ───── Main Component ───── */
@@ -315,25 +319,25 @@ export default function GovernanceDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-[#1a365d] text-white shadow-lg sticky top-0 z-50">
-        <div className="max-w-[1400px] mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/15 rounded-lg flex items-center justify-center text-xl">📊</div>
-            <div>
-              <h1 className="text-xl font-bold">OM Governance Dashboard</h1>
-              <p className="text-sm opacity-70">Multi-facility project tracking</p>
+      <header className="text-white sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <img src="/amd-logo.jpeg" alt="AMD" className="w-9 h-9 sm:w-10 sm:h-10 bg-white rounded-lg p-1 object-contain flex-shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-xl font-bold truncate">OM Governance Dashboard</h1>
+              <p className="text-xs sm:text-sm opacity-55" style={{ letterSpacing: '0.5px' }}>Multi-facility project tracking</p>
             </div>
           </div>
           {user && (
-            <div className="flex items-center gap-2 text-sm">
-              <img src={user.avatar || undefined} alt="" className="w-8 h-8 rounded-full bg-white/20" />
-              <span>{user.name}</span>
+            <div className="flex items-center gap-2 text-xs sm:text-sm ml-auto">
+              <img src={user.avatar || undefined} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/20 object-cover" />
+              <span className="hidden sm:inline truncate max-w-[120px]">{user.name}</span>
             </div>
           )}
         </div>
       </header>
 
-      <main className="max-w-[1400px] mx-auto px-6 py-5">
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 sm:py-5">
         {/* Facility Selector */}
         <div className="flex flex-wrap gap-2 mb-4">
           {FACILITIES.map(f => (
@@ -382,12 +386,12 @@ export default function GovernanceDashboard() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-4 border-b border-gray-200">
+        <div className="flex gap-1 mb-4 border-b border-gray-200 overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           {(["progress", "deliverables", "acceptance", "references"] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-5 py-3 text-sm font-semibold capitalize border-b-2 transition ${
+              className={`px-4 sm:px-5 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold capitalize border-b-2 transition whitespace-nowrap flex-shrink-0 ${
                 activeTab === tab
                   ? "border-blue-600 text-blue-700"
                   : "border-transparent text-gray-500 hover:text-gray-700"
@@ -440,82 +444,84 @@ export default function GovernanceDashboard() {
 
             {/* Milestone Tracker */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Milestone</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Planned Date</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Completion</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Progress</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {MSD.map(m => {
-                    const comp = getCompDate(m.id);
-                    const pct = getCustomPct(m.id);
-                    const planned = getPlannedDate(m.id);
-                    const isComplete = !!comp;
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Milestone</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Planned</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Completion</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Progress</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {MSD.map(m => {
+                      const comp = getCompDate(m.id);
+                      const pct = getCustomPct(m.id);
+                      const planned = getPlannedDate(m.id);
+                      const isComplete = !!comp;
 
-                    return (
-                      <tr key={m.id} className="hover:bg-gray-50 transition">
-                        <td className="px-4 py-3 border-b border-gray-100">
-                          <div className="font-semibold text-gray-800">{m.label}</div>
-                        </td>
-                        <td className="px-4 py-3 border-b border-gray-100 text-gray-600">{fmtDate(planned)}</td>
-                        <td className="px-4 py-3 border-b border-gray-100">
-                          {editMode ? (
-                            <input
-                              type="date"
-                              value={comp}
-                              onChange={e => onMsChange(m.id, "compDate", e.target.value)}
-                              className="px-2 py-1 border border-gray-300 rounded text-xs w-32"
-                            />
-                          ) : (
-                            <span className={isComplete ? "text-green-700 font-semibold" : "text-gray-400"}>
-                              {fmtDate(comp)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 border-b border-gray-100">
-                          {editMode ? (
-                            <div className="flex items-center gap-2">
+                      return (
+                        <tr key={m.id} className="hover:bg-gray-50 transition">
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
+                            <div className="font-semibold text-gray-800 text-xs sm:text-sm">{m.label}</div>
+                          </td>
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 text-gray-600 whitespace-nowrap text-xs sm:text-sm">{fmtDate(planned)}</td>
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
+                            {editMode ? (
                               <input
-                                type="range"
-                                min={0}
-                                max={100}
-                                value={pct}
-                                onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))}
-                                className="w-24"
+                                type="date"
+                                value={comp}
+                                onChange={e => onMsChange(m.id, "compDate", e.target.value)}
+                                className="px-2 py-1 border border-gray-300 rounded text-xs w-full sm:w-32"
                               />
-                              <span className="text-xs font-semibold w-8">{pct}%</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all"
-                                  style={{ width: `${pct}%`, backgroundColor: currentFacility.color }}
+                            ) : (
+                              <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>
+                                {fmtDate(comp)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
+                            {editMode ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={100}
+                                  value={pct}
+                                  onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))}
+                                  className="w-16 sm:w-24"
                                 />
+                                <span className="text-xs font-semibold w-8">{pct}%</span>
                               </div>
-                              <span className="text-xs font-semibold">{pct}%</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 border-b border-gray-100">
-                          {isComplete ? (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">Completed</span>
-                          ) : pct > 0 ? (
-                            <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">In Progress</span>
-                          ) : (
-                            <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs font-semibold">Pending</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <div className="w-16 sm:w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full transition-all"
+                                    style={{ width: `${pct}%`, backgroundColor: currentFacility.color }}
+                                  />
+                                </div>
+                                <span className="text-xs font-semibold">{pct}%</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
+                            {isComplete ? (
+                              <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">Completed</span>
+                            ) : pct > 0 ? (
+                              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">In Progress</span>
+                            ) : (
+                              <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs font-semibold">Pending</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* TOC Deliverables Upload */}
@@ -526,12 +532,12 @@ export default function GovernanceDashboard() {
                   const msIds = MSD.filter(m => m.toc.includes(toc.id)).map(m => m.id);
                   const tocUploads = uploads?.filter(u => u.tocItem === toc.id) || [];
                   return (
-                    <div key={toc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono text-gray-500 w-6">{toc.id}</span>
-                        <span className="text-sm font-medium text-gray-800">{toc.label}</span>
+                    <div key={toc.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-gray-50 rounded-lg gap-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-xs font-mono text-gray-500 w-6 flex-shrink-0">{toc.id}</span>
+                        <span className="text-sm font-medium text-gray-800 truncate">{toc.label}</span>
                         {msIds.length > 0 && (
-                          <span className="text-xs text-gray-400">M{msIds.join(",")}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">M{msIds.join(",")}</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2">

@@ -11,22 +11,22 @@ export default function Home() {
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <img src="/amd-logo.jpeg" alt="AMD" style={{ width: 36, height: 36, background: '#fff', borderRadius: 8, padding: 3, flexShrink: 0, objectFit: 'contain' }} />
-            <div>
-              <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.2px', lineHeight: 1.2, whiteSpace: 'nowrap' }}>Program Oversight Center</h1>
-              <span style={{ fontSize: 10, opacity: 0.55, textTransform: 'uppercase', letterSpacing: '1.5px', display: 'block', marginTop: 1 }}>Asset Maintenance Department</span>
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
+              <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Asset Maintenance Department</span>
             </div>
           </div>
           {isAuthenticated && user && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-              <img src={user.avatar || undefined} alt="" style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
-              <span>{user.name}</span>
+            <div className="flex items-center gap-2 text-xs ml-auto flex-shrink-0">
+              <img src={user.avatar || undefined} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />
+              <span className="hidden sm:inline max-w-[100px] truncate">{user.name}</span>
             </div>
           )}
         </div>
       </header>
 
       {/* Main Content */}
-      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '40px 20px 60px' }}>
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 16px 40px' }} className="sm:!px-5 sm:!py-10 lg:!px-6 lg:!pb-16">
         {/* Sub-header */}
         <div style={{ marginBottom: 32 }}>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: '#0B1D44', letterSpacing: '-0.3px', marginBottom: 4 }}>Dashboard Suite</h2>
