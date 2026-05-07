@@ -637,40 +637,29 @@
 /* ---------- DATABASE API LAYER ---------- */
 const API_BASE = '/api/trpc';
 
-function apiCall(endpoint, payload) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(function() { controller.abort(); }, 30000); // 30s timeout (includes server wake-up)
-  return fetch(API_BASE + endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ json: payload }),
-    signal: controller.signal
-  }).then(function(r) {
-    clearTimeout(timeoutId);
-    return r.json();
-  }).catch(function(err) {
-    clearTimeout(timeoutId);
-    throw err;
-  });
+function apiCall(endpoint, payload, callback, errback) {
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', API_BASE + endpoint, true);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.timeout = 30000; // 30 second timeout
+  xhr.ontimeout = function() { if(errback) errback(new Error('Timeout')); };
+  xhr.onerror = function() { if(errback) errback(new Error('Network error')); };
+  xhr.onload = function() {
+    if(xhr.status >= 200 && xhr.status < 300) {
+      try { var d = JSON.parse(xhr.responseText); if(callback) callback(d); }
+      catch(e) { if(errback) errback(e); }
+    } else { if(errback) errback(new Error('HTTP ' + xhr.status)); }
+  };
+  xhr.send(JSON.stringify({ json: payload }));
 }
 
 function loadFromDatabase() {
-  console.log('[loadFromDatabase] Starting...');
-  return apiCall('/mw.listInspections', {})
-    .then(res => {
-      console.log('[loadFromDatabase] Response:', res);
-      if (res.error) {
-        console.error('[loadFromDatabase] API error:', res.error);
-        return false;
-      }
-      const rows = res.result?.data?.json || [];
-      console.log('[loadFromDatabase] Rows received:', rows.length);
-      if (rows.length === 0) {
-        console.log('[loadFromDatabase] No rows, showing empty state');
-        return false;
-      }
+  apiCall('/mw.listInspections', {},
+    function(res) {
+      var rows = res.result && res.result.data && res.result.data.json || [];
+      if (rows.length === 0) return;
 
-      rawRows = rows.map(r => ({
+      rawRows = rows.map(function(r) { return {
         SubmissionID: r.submissionId || '',
         Plant: r.facilityId || '',
         Inspector: r.inspector || '',
@@ -689,26 +678,20 @@ function loadFromDatabase() {
         Score: r.score || 0,
         Findings: r.findings || '',
         _dbId: r.id
-      }));
+      };});
 
-      console.log('[loadFromDatabase] rawRows set, length:', rawRows.length);
       document.getElementById('loadedFileName').textContent = rows.length + ' records from database';
       document.getElementById('refreshBtn').style.display = 'inline-flex';
       document.getElementById('clearDataBtn').style.display = 'inline-flex';
       buildFilterOptions();
       showDashboard();
       refreshAll();
-      console.log('[loadFromDatabase] Dashboard displayed');
-      return true;
-    })
-    .catch(err => {
-      console.error('[loadFromDatabase] FAILED:', err);
-      return false;
-    });
+    },
+    function(err) { console.error('DB load failed:', err); }
+  );
 }
 
-async function importToDatabase(rows, filename) {
-  console.log('[importToDatabase] STARTING with', rows.length, 'rows');
+function importToDatabase(rows, filename) {
   /* Set data locally FIRST so UI shows immediately */
   rawRows = rows;
   document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — ' + rows.length + ' rows';
@@ -719,7 +702,7 @@ async function importToDatabase(rows, filename) {
   refreshAll();
 
   /* Build payload with ALL fields */
-  const payload = rows.map(r => ({
+  var payload = rows.map(function(r) { return {
     submissionId: r.SubmissionID || null,
     facilityId: r.Plant || 'unknown',
     inspector: r.Inspector || '',
@@ -737,59 +720,63 @@ async function importToDatabase(rows, filename) {
     score: r.Score || null,
     findings: r.Findings || '',
     date: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
-  }));
+  };});
 
-  /* Upload in chunks of 100 to avoid timeout (Render free tier = 30s max) */
-  const CHUNK_SIZE = 100;
-  let totalInserted = 0;
-  let totalSkipped = 0;
-  const totalChunks = Math.ceil(payload.length / CHUNK_SIZE);
+  /* Upload in chunks using callbacks — works on all browsers including iPhone */
+  var CHUNK_SIZE = 100;
+  var totalInserted = 0;
+  var totalSkipped = 0;
+  var totalChunks = Math.ceil(payload.length / CHUNK_SIZE);
+  var currentChunk = 0;
 
-  for (let i = 0; i < payload.length; i += CHUNK_SIZE) {
-    const chunk = payload.slice(i, i + CHUNK_SIZE);
-    const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
-    document.getElementById('loadedFileName').textContent = 
-      (filename || 'Importing') + ' — chunk ' + chunkNum + '/' + totalChunks + '...';
-
-    let retries = 0;
-    while (retries < 2) {
-      try {
-        const res = await apiCall('/mw.importExcel', { rows: chunk, filename: filename || '' });
-        const result = res.result?.data?.json;
-        if (result) {
-          totalInserted += result.inserted;
-          totalSkipped += result.skipped;
-          console.log('Chunk', chunkNum, ': inserted=', result.inserted, 'skipped=', result.skipped);
-        }
-        break; // success, move to next chunk
-      } catch (err) {
-        retries++;
-        console.error('Chunk', chunkNum, 'attempt', retries, 'failed:', err.message || err);
-        if (retries >= 2) {
-          document.getElementById('loadedFileName').textContent = 
-            (filename || 'Import') + ' — FAILED at chunk ' + chunkNum + '/' + totalChunks;
-          return;
-        }
-        /* Wait 3s then retry */
-        await new Promise(function(resolve) { setTimeout(resolve, 3000); });
-      }
+  function sendNextChunk() {
+    if (currentChunk >= totalChunks) {
+      /* All done */
+      document.getElementById('loadedFileName').textContent = 
+        (filename || 'Imported') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped (of ' + rows.length + ')';
+      return;
     }
+    var start = currentChunk * CHUNK_SIZE;
+    var chunk = payload.slice(start, start + CHUNK_SIZE);
+    currentChunk++;
+    document.getElementById('loadedFileName').textContent = 
+      (filename || 'Importing') + ' — chunk ' + currentChunk + '/' + totalChunks + '...';
+
+    var retries = 0;
+    function trySend() {
+      apiCall('/mw.importExcel', { rows: chunk, filename: filename || '' },
+        function(res) {
+          var result = res.result && res.result.data && res.result.data.json;
+          if (result) {
+            totalInserted += result.inserted;
+            totalSkipped += result.skipped;
+          }
+          setTimeout(sendNextChunk, 500); /* 500ms gap between chunks */
+        },
+        function(err) {
+          retries++;
+          if (retries >= 2) {
+            document.getElementById('loadedFileName').textContent = 
+              (filename || 'Import') + ' — FAILED at chunk ' + currentChunk;
+            return;
+          }
+          setTimeout(trySend, 3000); /* Retry after 3s */
+        }
+      );
+    }
+    trySend();
   }
 
-  document.getElementById('loadedFileName').textContent = 
-    (filename || 'Imported') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped (of ' + rows.length + ')';
-  console.log('Import complete:', totalInserted, 'saved,', totalSkipped, 'skipped');
-  alert('Upload complete! ' + totalInserted + ' saved, ' + totalSkipped + ' skipped');
+  /* Start uploading */
+  setTimeout(sendNextChunk, 100);
 }
 
 function resetDatabase() {
   if (!confirm('Are you sure you want to clear ALL inspection data from the database? This will affect all users.')) return;
-  apiCall('/mw.resetAll', {})
-    .then(() => {
-      rawRows = [];
-      clearStorageUI();
-    })
-    .catch(err => console.error('Reset failed:', err));
+  apiCall('/mw.resetAll', {},
+    function() { rawRows = []; clearStorageUI(); },
+    function(err) { console.error('Reset failed:', err); }
+  );
 }
 </script>
 
@@ -1315,11 +1302,7 @@ function handleFile(e) {
         return;
       }
 
-      importToDatabase(validRows, file.name).catch(function(err) {
-        console.error('[handleFile] importToDatabase failed:', err);
-        alert('Import failed: ' + (err.message || err));
-        document.getElementById('loadedFileName').textContent = 'Import failed — see console';
-      });
+      importToDatabase(validRows, file.name);
 
     } catch (err) {
       console.error('Import error:', err);
