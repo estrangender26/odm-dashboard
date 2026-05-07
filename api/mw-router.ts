@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { mwInspections } from "@db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 export const mwRouter = createRouter({
   // Import Excel data — inserts each row, skips duplicates
@@ -25,33 +25,12 @@ export const mwRouter = createRouter({
       let skipped = 0;
 
       for (const row of input.rows) {
-        // Check for duplicate: same facility + inspector + category + date + findings + status
-        const existing = await db
-          .select()
-          .from(mwInspections)
-          .where(
-            and(
-              eq(mwInspections.facilityId, row.facilityId),
-              eq(mwInspections.inspector, row.inspector),
-              eq(mwInspections.category, row.category),
-              eq(mwInspections.date, row.date || ""),
-              eq(mwInspections.findings, row.findings || ""),
-              eq(mwInspections.status, row.status || "pending")
-            )
-          )
-          .limit(1);
-
-        if (existing.length > 0) {
-          skipped++;
-          continue; // Skip duplicate
-        }
-
-        // Insert new record
+        // Insert every row — no dedup for inspection logs
         await db.insert(mwInspections).values({
           facilityId: row.facilityId,
           inspector: row.inspector,
           category: row.category,
-          status: row.status,
+          status: row.status || "pending",
           score: row.score ?? null,
           findings: row.findings ?? null,
           date: row.date ?? null,
@@ -60,7 +39,7 @@ export const mwRouter = createRouter({
         inserted++;
       }
 
-      return { success: true, inserted, skipped, total: input.rows.length };
+      return { success: true, inserted, skipped: 0, total: input.rows.length };
     }),
 
   // List all inspections from database
