@@ -639,7 +639,7 @@ const API_BASE = '/api/trpc';
 
 function apiCall(endpoint, payload) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(function() { controller.abort(); }, 25000); // 25s timeout
+  const timeoutId = setTimeout(function() { controller.abort(); }, 15000); // 15s timeout per chunk
   return fetch(API_BASE + endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -740,20 +740,19 @@ async function importToDatabase(rows, filename) {
     date: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
   }));
 
-  /* Upload in chunks of 200 to avoid timeout (Render free tier = 30s max) */
-  const CHUNK_SIZE = 200;
+  /* Upload in chunks of 100 to avoid timeout (Render free tier = 30s max) */
+  const CHUNK_SIZE = 100;
   let totalInserted = 0;
   let totalSkipped = 0;
   const totalChunks = Math.ceil(payload.length / CHUNK_SIZE);
 
-  /* Wake up Render server first (free tier sleeps after 15 min) */
-  document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — waking up server...';
+  /* Wake up Render server first (free tier sleeps after 15 min idle) */
+  document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — connecting...';
   try {
-    await fetch(API_BASE + '/mw.listInspections', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ json: {} })
-    });
-  } catch(e) { /* ignore, just waking up */ }
+    const wakeController = new AbortController();
+    setTimeout(function() { wakeController.abort(); }, 8000); // 8s wake-up timeout
+    await fetch(API_BASE.replace('/api/trpc',''), { signal: wakeController.signal });
+  } catch(e) { /* ignore wake-up errors, proceed anyway */ }
 
   for (let i = 0; i < payload.length; i += CHUNK_SIZE) {
     const chunk = payload.slice(i, i + CHUNK_SIZE);
@@ -762,20 +761,29 @@ async function importToDatabase(rows, filename) {
       (filename || 'Importing') + ' — chunk ' + chunkNum + '/' + totalChunks + '...';
     alert('Uploading chunk ' + chunkNum + ' of ' + totalChunks);
 
-    try {
-      const res = await apiCall('/mw.importExcel', { rows: chunk, filename: filename || '' });
-      const result = res.result?.data?.json;
-      if (result) {
-        totalInserted += result.inserted;
-        totalSkipped += result.skipped;
-        console.log('Chunk', chunkNum, ': inserted=', result.inserted, 'skipped=', result.skipped);
+    let retries = 0;
+    while (retries < 2) {
+      try {
+        const res = await apiCall('/mw.importExcel', { rows: chunk, filename: filename || '' });
+        const result = res.result?.data?.json;
+        if (result) {
+          totalInserted += result.inserted;
+          totalSkipped += result.skipped;
+          console.log('Chunk', chunkNum, ': inserted=', result.inserted, 'skipped=', result.skipped);
+        }
+        break; // success, move to next chunk
+      } catch (err) {
+        retries++;
+        console.error('Chunk', chunkNum, 'attempt', retries, 'failed:', err.message || err);
+        if (retries >= 2) {
+          alert('ERROR at chunk ' + chunkNum + ' after retry: ' + (err.message || 'Timeout'));
+          document.getElementById('loadedFileName').textContent = 
+            (filename || 'Import') + ' — ERROR at chunk ' + chunkNum;
+          return;
+        }
+        /* Wait 3s then retry */
+        await new Promise(function(resolve) { setTimeout(resolve, 3000); });
       }
-    } catch (err) {
-      console.error('Chunk', chunkNum, 'failed:', err);
-      alert('ERROR at chunk ' + chunkNum + ': ' + (err.message || JSON.stringify(err)));
-      document.getElementById('loadedFileName').textContent = 
-        (filename || 'Import') + ' — ERROR at chunk ' + chunkNum + '. Check console.';
-      return;
     }
   }
 
