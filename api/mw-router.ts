@@ -59,7 +59,8 @@ export const mwRouter = createRouter({
       }));
 
       // Batch insert with ON CONFLICT DO UPDATE — merge EntryNotes from duplicates
-      // If a later row has EntryNotes and the existing row doesn't, preserve the notes
+      // Unique key: (asset_tag, task, date, submitted_at)
+      // Same asset+task+date+time = duplicate; different time = different inspection
       let inserted = 0;
       let skipped = 0;
       
@@ -70,7 +71,7 @@ export const mwRouter = createRouter({
         const result = await db.insert(mwInspections)
           .values(batch)
           .onConflictDoUpdate({
-            target: [mwInspections.assetTag, mwInspections.task, mwInspections.date],
+            target: [mwInspections.assetTag, mwInspections.task, mwInspections.date, mwInspections.submittedAt],
             set: {
               // Merge: keep existing entryNotes, OR update if new row has notes and existing doesn't
               entryNotes: sql`COALESCE(${mwInspections.entryNotes}, EXCLUDED.entry_notes)`,

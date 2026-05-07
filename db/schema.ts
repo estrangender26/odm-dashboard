@@ -86,8 +86,9 @@ export const mwInspections = pgTable("mw_inspections", {
   updatedBy: varchar("updated_by", { length: 255 }),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
-  // Prevent duplicate uploads: same asset + task + date = same inspection
-  unique("mw_inspections_dedup").on(table.assetTag, table.task, table.date),
+  // Prevent duplicate uploads: same asset + task + date + timestamp = same inspection
+  // Different times = different shift inspections (keep both)
+  unique("mw_inspections_dedup").on(table.assetTag, table.task, table.date, table.submittedAt),
 ]);
 
 export const mwCompliance = pgTable("mw_compliance", {

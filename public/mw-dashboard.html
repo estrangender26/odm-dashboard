@@ -824,11 +824,12 @@ function importToDatabase(rows, filename) {
 function useClientSide(rows, filename) {
   document.getElementById('uploadProgress').style.display = 'none';
 
-  /* Deduplicate: same assetTag + task + date = one record */
-  /* Merge EntryNotes across duplicates — keep first non-null notes */
+  /* Deduplicate: same assetTag + task + date + submittedAt = one record
+     Different timestamps = different shift inspections (keep both) */
   var groupMap = {};
   rows.forEach(function(r) {
-    var key = (r.AssetTag || '') + '|' + (r.Task || '') + '|' + (r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : '');
+    var dateStr = r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : '';
+    var key = (r.AssetTag || '') + '|' + (r.Task || '') + '|' + dateStr + '|' + (r.SubmittedAt || '');
     if (!groupMap[key]) {
       groupMap[key] = r;
     } else if (r.EntryNotes && !groupMap[key].EntryNotes) {
