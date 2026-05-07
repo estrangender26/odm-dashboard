@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
-import { db } from "./queries/connection";
+import { db, cacheGet, cacheSet, cacheInvalidate } from "./queries/connection";
 import { mwInspections } from "@db/schema";
 import { eq } from "drizzle-orm";
 
@@ -39,21 +39,33 @@ export const mwRouter = createRouter({
         inserted++;
       }
 
+      // Invalidate cache so next read fetches fresh data
+      cacheInvalidate("mw_inspections");
+
       return { success: true, inserted, skipped: 0, total: input.rows.length };
     }),
 
-  // List all inspections from database
+  // List all inspections — uses cache for read-after-write consistency
   listInspections: publicQuery
     .input(z.object({ facilityId: z.string().optional() }).optional())
     .mutation(async ({ input }) => {
+      const cacheKey = "mw_inspections:" + (input?.facilityId || "all");
+      const cached = cacheGet(cacheKey);
+      if (cached) return cached;
+
+      let rows;
       if (input?.facilityId) {
-        return db
+        rows = await db
           .select()
           .from(mwInspections)
           .where(eq(mwInspections.facilityId, input.facilityId))
           .orderBy(mwInspections.date);
+      } else {
+        rows = await db.select().from(mwInspections).orderBy(mwInspections.date);
       }
-      return db.select().from(mwInspections).orderBy(mwInspections.date);
+
+      cacheSet(cacheKey, rows);
+      return rows;
     }),
 
   // Get single inspection
@@ -92,6 +104,7 @@ export const mwRouter = createRouter({
       if (input.date !== undefined) updates.date = input.date;
 
       await db.update(mwInspections).set(updates).where(eq(mwInspections.id, input.id));
+      cacheInvalidate("mw_inspections");
       return { success: true };
     }),
 
@@ -100,6 +113,7 @@ export const mwRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await db.delete(mwInspections).where(eq(mwInspections.id, input.id));
+      cacheInvalidate("mw_inspections");
       return { success: true };
     }),
 
@@ -107,6 +121,7 @@ export const mwRouter = createRouter({
   resetAll: publicQuery
     .mutation(async () => {
       await db.delete(mwInspections);
+      cacheInvalidate("mw_inspections");
       return { success: true };
     }),
 });

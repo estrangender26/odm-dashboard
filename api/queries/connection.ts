@@ -4,6 +4,12 @@ import * as schema from "../../db/schema";
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
+// In-memory cache for read-after-write consistency
+// Supabase pooler has replica lag — writes go to primary, reads hit lagging replicas
+// Cache ensures reads always see the latest data
+const queryCache: Map<string, { data: unknown; ts: number }> = new Map();
+const CACHE_TTL = 30000; // 30 seconds
+
 export function getDb() {
   if (_db) return _db;
   
@@ -14,7 +20,6 @@ export function getDb() {
   }
   
   // Use Session Pooler (port 5432) instead of Transaction Pooler (port 6543)
-  // to guarantee read-after-write consistency (no replica lag)
   databaseUrl = databaseUrl.replace(":6543/", ":5432/");
   // Session Pooler uses username "postgres" not "postgres.project_ref"
   databaseUrl = databaseUrl.replace("postgres.hpfcwqyoxbndfwzbhrbz:", "postgres:");
@@ -23,8 +28,8 @@ export function getDb() {
   const client = postgres(databaseUrl, {
     ssl: "require",
     prepare: false,
-    max: 1,           // Force single connection — no pool hopping
-    max_lifetime: 600, // 10 min lifetime to reduce reconnects
+    max: 1,
+    max_lifetime: 600,
   });
   
   _db = drizzle(client, { schema });
@@ -37,5 +42,30 @@ export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
     return getDb()[prop as keyof typeof _db];
   },
 });
+
+// Cache helpers for consistent reads
+export function cacheGet(key: string): unknown | undefined {
+  const entry = queryCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() - entry.ts > CACHE_TTL) {
+    queryCache.delete(key);
+    return undefined;
+  }
+  return entry.data;
+}
+
+export function cacheSet(key: string, data: unknown): void {
+  queryCache.set(key, { data, ts: Date.now() });
+}
+
+export function cacheInvalidate(pattern?: string): void {
+  if (!pattern) {
+    queryCache.clear();
+    return;
+  }
+  for (const key of queryCache.keys()) {
+    if (key.includes(pattern)) queryCache.delete(key);
+  }
+}
 
 export type DrizzleDB = ReturnType<typeof getDb>;
