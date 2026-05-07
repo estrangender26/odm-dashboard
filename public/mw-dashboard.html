@@ -659,9 +659,19 @@ function apiCall(endpoint, payload, callback, errback) {
 function loadFromDatabase() {
   apiCall('/mw.listInspections', {},
     function(res) {
+      apiAvailable = true;
       var rows = res.result && res.result.data && res.result.data.json || [];
       if (rows.length === 0) {
         document.getElementById('loadedFileName').textContent = 'No records in database';
+        /* Fall back to localStorage if DB is empty */
+        if (loadFromStorage()) {
+          document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage';
+          document.getElementById('refreshBtn').style.display = 'inline-flex';
+          document.getElementById('clearDataBtn').style.display = 'inline-flex';
+          buildFilterOptions();
+          showDashboard();
+          refreshAll();
+        }
         return;
       }
 
@@ -696,13 +706,27 @@ function loadFromDatabase() {
       showDashboard();
       refreshAll();
     },
-    function(err) { console.error('DB load failed:', err); }
+    function(err) {
+      console.error('DB load failed:', err);
+      apiAvailable = false;
+      /* Fall back to localStorage */
+      if (loadFromStorage()) {
+        document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage (API unavailable)';
+        document.getElementById('refreshBtn').style.display = 'inline-flex';
+        document.getElementById('clearDataBtn').style.display = 'inline-flex';
+        buildFilterOptions();
+        showDashboard();
+        refreshAll();
+      }
+    }
   );
 }
 
+/* Track whether API is available — if not, use client-side fallback */
+var apiAvailable = true;
+
 function importToDatabase(rows, filename) {
-  /* DO NOT show data yet — wait for DB upload to complete */
-  document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — uploading ' + rows.length + ' rows to server...';
+  document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — uploading ' + rows.length + ' rows...';
   document.getElementById('refreshBtn').style.display = 'inline-flex';
   document.getElementById('clearDataBtn').style.display = 'inline-flex';
 
@@ -730,12 +754,18 @@ function importToDatabase(rows, filename) {
     frequency: r.Frequency || null,
   };});
 
+  /* If API is known to be down, skip straight to client-side */
+  if (!apiAvailable) {
+    useClientSide(rows, filename);
+    return;
+  }
+
   /* Show progress bar */
   document.getElementById('uploadProgress').style.display = 'inline-block';
   document.getElementById('progressFill').style.width = '0%';
   document.getElementById('progressText').textContent = '0%';
 
-  /* Upload in chunks using callbacks — works on all browsers including iPhone */
+  /* Upload in chunks using callbacks */
   var CHUNK_SIZE = 2000;
   var totalInserted = 0;
   var totalSkipped = 0;
@@ -744,59 +774,89 @@ function importToDatabase(rows, filename) {
 
   function sendNextChunk() {
     if (currentChunk >= totalChunks) {
-      /* All chunks uploaded — now load from DB to display */
       document.getElementById('progressFill').style.width = '100%';
       document.getElementById('progressText').textContent = '100%';
-      document.getElementById('loadedFileName').textContent = 
-        (filename || 'Importing') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped. Loading...';
+      document.getElementById('loadedFileName').textContent =
+        (filename || 'Importing') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped (server).';
       loadFromDatabase();
       return;
     }
     var start = currentChunk * CHUNK_SIZE;
     var chunk = payload.slice(start, start + CHUNK_SIZE);
     currentChunk++;
-    document.getElementById('loadedFileName').textContent = 
+    document.getElementById('loadedFileName').textContent =
       (filename || 'Importing') + ' — chunk ' + currentChunk + '/' + totalChunks + '...';
 
     var retries = 0;
     function trySend() {
       apiCall('/mw.importExcel', { rows: chunk, filename: filename || '' },
         function(res) {
+          apiAvailable = true;
           var result = res.result && res.result.data && res.result.data.json;
           if (result) {
             totalInserted += result.inserted;
             totalSkipped += result.skipped;
           }
-          /* Update progress bar */
           var pct = Math.round((currentChunk / totalChunks) * 100);
           document.getElementById('progressFill').style.width = pct + '%';
           document.getElementById('progressText').textContent = pct + '%';
-          sendNextChunk(); /* no delay, fire immediately */
+          sendNextChunk();
         },
         function(err) {
           retries++;
           if (retries >= 2) {
-            document.getElementById('loadedFileName').textContent = 
-              (filename || 'Import') + ' — FAILED at chunk ' + currentChunk + '. No data shown.';
-            rawRows = []; /* Do not display data on upload failure */
+            /* API unreachable — fall back to client-side processing */
+            apiAvailable = false;
+            useClientSide(rows, filename);
             return;
           }
-          setTimeout(trySend, 1000); /* Retry after 1s */
+          setTimeout(trySend, 1000);
         }
       );
     }
     trySend();
   }
 
-  /* Start uploading */
   setTimeout(sendNextChunk, 100);
 }
 
+/* Client-side fallback: process data directly when API is unavailable */
+function useClientSide(rows, filename) {
+  document.getElementById('uploadProgress').style.display = 'none';
+
+  /* Deduplicate client-side: same assetTag + task + date = one record */
+  var seen = {};
+  var uniqueRows = [];
+  rows.forEach(function(r) {
+    var key = (r.AssetTag || '') + '|' + (r.Task || '') + '|' + (r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : '');
+    if (!seen[key]) {
+      seen[key] = true;
+      uniqueRows.push(r);
+    }
+  });
+
+  rawRows = uniqueRows;
+  saveToStorage();
+
+  document.getElementById('loadedFileName').textContent =
+    (filename || 'Import') + ' — ' + uniqueRows.length + ' records (client-side, API unavailable)';
+  document.getElementById('refreshBtn').style.display = 'inline-flex';
+  document.getElementById('clearDataBtn').style.display = 'inline-flex';
+  buildFilterOptions();
+  showDashboard();
+  refreshAll();
+}
+
 function resetDatabase() {
-  if (!confirm('Are you sure you want to clear ALL inspection data from the database? This will affect all users.')) return;
+  if (!confirm('Are you sure you want to clear ALL inspection data?')) return;
+  localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(LS_FILENAME);
   apiCall('/mw.resetAll', {},
     function() { rawRows = []; clearStorageUI(); },
-    function(err) { console.error('Reset failed:', err); }
+    function(err) {
+      /* API may be unavailable — still clear UI */
+      rawRows = []; clearStorageUI();
+    }
   );
 }
 </script>
@@ -1476,12 +1536,12 @@ function hasAbnormalKeyword(text) {
   return ABNORMAL_KEYWORDS.some(k => t.includes(k));
 }
 
-/* Negative findings: abnormal keywords in ANY inspection field */
+/* Negative findings: abnormal keywords in INSPECTOR RESPONSES ONLY
+   Task descriptions are TEMPLATES ("Check CPU RUN/FAULT...") — NOT findings */
 function hasNegativeFindings(row) {
   if (hasAbnormalKeyword(row.EntryNotes)) return true;
   if (hasAbnormalKeyword(row.Capture1Response)) return true;
   if (hasAbnormalKeyword(row.Findings)) return true;
-  if (hasAbnormalKeyword(row.Task)) return true;
   return false;
 }
 
