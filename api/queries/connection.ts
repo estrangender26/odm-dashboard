@@ -21,7 +21,8 @@ export function getDb() {
   const client = postgres(databaseUrl, {
     ssl: "require",
     prepare: false,
-    max_lifetime: 60,
+    max: 1,           // Force single connection — no pool hopping
+    max_lifetime: 600, // 10 min lifetime to reduce reconnects
   });
   
   _db = drizzle(client, { schema });
