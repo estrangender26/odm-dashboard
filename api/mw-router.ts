@@ -91,13 +91,13 @@ export const mwRouter = createRouter({
   updateInspection: publicQuery
     .input(z.object({
       id: z.number(),
-      facilityId: z.string().optional(),
-      inspector: z.string().optional(),
-      category: z.string().optional(),
-      status: z.string().optional(),
-      score: z.number().optional(),
-      findings: z.string().optional(),
-      date: z.string().optional(),
+      facilityId: z.string().nullable().optional(),
+      inspector: z.string().nullable().optional(),
+      category: z.string().nullable().optional(),
+      status: z.string().nullable().optional(),
+      score: z.number().nullable().optional(),
+      findings: z.string().nullable().optional(),
+      date: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const user = ctx.user;
