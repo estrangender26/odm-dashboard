@@ -25,7 +25,7 @@ export const mwRouter = createRouter({
       let skipped = 0;
 
       for (const row of input.rows) {
-        // Check for duplicate: same facility + inspector + category + date
+        // Check for duplicate: same facility + inspector + category + date + findings
         const existing = await db
           .select()
           .from(mwInspections)
@@ -34,7 +34,8 @@ export const mwRouter = createRouter({
               eq(mwInspections.facilityId, row.facilityId),
               eq(mwInspections.inspector, row.inspector),
               eq(mwInspections.category, row.category),
-              eq(mwInspections.date, row.date || "")
+              eq(mwInspections.date, row.date || ""),
+              eq(mwInspections.findings, row.findings || "")
             )
           )
           .limit(1);
