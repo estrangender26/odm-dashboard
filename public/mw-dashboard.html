@@ -643,10 +643,20 @@ function apiCall(endpoint, payload) {
 }
 
 function loadFromDatabase() {
+  console.log('[loadFromDatabase] Starting...');
   return apiCall('/mw.listInspections', {})
     .then(res => {
+      console.log('[loadFromDatabase] Response:', res);
+      if (res.error) {
+        console.error('[loadFromDatabase] API error:', res.error);
+        return false;
+      }
       const rows = res.result?.data?.json || [];
-      if (rows.length === 0) return false;
+      console.log('[loadFromDatabase] Rows received:', rows.length);
+      if (rows.length === 0) {
+        console.log('[loadFromDatabase] No rows, showing empty state');
+        return false;
+      }
 
       rawRows = rows.map(r => ({
         Plant: r.facilityId || '',
@@ -661,16 +671,18 @@ function loadFromDatabase() {
         _dbId: r.id
       }));
 
+      console.log('[loadFromDatabase] rawRows set, length:', rawRows.length);
       document.getElementById('loadedFileName').textContent = rows.length + ' records from database';
       document.getElementById('refreshBtn').style.display = 'inline-flex';
       document.getElementById('clearDataBtn').style.display = 'inline-flex';
       buildFilterOptions();
       showDashboard();
       refreshAll();
+      console.log('[loadFromDatabase] Dashboard displayed');
       return true;
     })
     .catch(err => {
-      console.error('DB load failed:', err);
+      console.error('[loadFromDatabase] FAILED:', err);
       return false;
     });
 }
