@@ -6,14 +6,14 @@ export default function Home() {
 
   return (
     <div className="min-h-screen" style={{ background: '#FFFFFF', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
-      {/* Manila Water Header */}
-      <header style={{ background: 'linear-gradient(180deg, #0B1D44 0%, #07132E 100%)', color: '#fff', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+      {/* AMD Header */}
+      <header style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', backgroundSize: '200% 200%', color: '#fff', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <img src="/mw-logo.png" alt="Manila Water" style={{ width: 28, height: 28, background: '#fff', borderRadius: 4, padding: 2, flexShrink: 0 }} />
+            <img src="/amd-logo.jpeg" alt="AMD" style={{ width: 36, height: 36, background: '#fff', borderRadius: 8, padding: 3, flexShrink: 0, objectFit: 'contain' }} />
             <div>
               <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.2px', lineHeight: 1.2, whiteSpace: 'nowrap' }}>Program Oversight Center</h1>
-              <span style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginTop: 1 }}>Care in Every Drop</span>
+              <span style={{ fontSize: 10, opacity: 0.55, textTransform: 'uppercase', letterSpacing: '1.5px', display: 'block', marginTop: 1 }}>Asset Maintenance Department</span>
             </div>
           </div>
           {isAuthenticated && user && (
@@ -116,7 +116,7 @@ export default function Home() {
               </div>
             </div>
             <p style={{ fontSize: 13, color: '#5A6B7D', lineHeight: 1.5, marginBottom: 14 }}>
-              Manila Water corporate analytics, predictive insights, inspector tracking, data quality, and escalation monitoring.
+              Corporate analytics, predictive insights, inspector tracking, data quality, and escalation monitoring.
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#E6F5EF', color: '#0A9B6E' }}>Analytics</span>
@@ -132,7 +132,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'center', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
-        <span style={{ fontWeight: 600, color: '#0B1D44' }}>Manila Water</span> — Program Oversight Center — Care in Every Drop
+        <span style={{ fontWeight: 600, color: '#16324F' }}>Asset Maintenance Department</span> — Program Oversight Center
       </footer>
     </div>
   );

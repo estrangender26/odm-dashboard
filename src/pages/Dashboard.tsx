@@ -291,13 +291,13 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="text-white shadow-lg sticky top-0 z-50" style={{ background: 'linear-gradient(180deg, #0B1D44 0%, #07132E 100%)' }}>
+      <header className="text-white sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden" style={{ background: '#fff' }}><img src="/mw-logo.png" alt="MW" className="w-full h-full object-contain p-0.5" /></div>
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden" style={{ background: '#fff' }}><img src="/amd-logo.jpeg" alt="AMD" className="w-full h-full object-contain p-0.5" /></div>
             <div>
               <h1 className="text-base sm:text-xl font-bold leading-tight">Maintenance Planning Post-PPP</h1>
-              <p className="text-xs sm:text-sm opacity-70 hidden sm:block">HTT STP &amp; Aglipay STP — Multi-User</p>
+              <p className="text-xs sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Asset Maintenance Department — Multi-User</p>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 ml-auto">
@@ -656,7 +656,7 @@ export default function Dashboard() {
       </main>
 
       <footer className="text-center py-5 text-sm text-gray-500 border-t border-gray-200 mt-4">
-        Maintenance Planning Post-PPP — Manila Water
+        Maintenance Planning Post-PPP — Asset Maintenance Department
       </footer>
 
       {/* Floating home button for mobile */}
