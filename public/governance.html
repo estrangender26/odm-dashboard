@@ -84,13 +84,33 @@ function loadFilesFromDB(facilitySlug) {
     if (!c.up) c.up = {};
     console.log('[GOV] Before merge, c.up keys:', Object.keys(c.up));
     // Build fresh upload state from DB — DB is source of truth
+    // CRITICAL FIX: Distribute TOC files to ALL locations so both tabs can see them
     var newUp = {};
     files.forEach(function(f) {
       var mid = f.milestoneId;
-      var key = f.tocItem || 'TOC-DB';
-      if (!newUp[mid]) newUp[mid] = {};
-      if (!newUp[mid][key]) newUp[mid][key] = [];
-      newUp[mid][key].push({ n: f.fileName, d: f.fileData, dbId: f.id });
+      var tocItem = f.tocItem || 'TOC-DB';
+      var fileObj = { n: f.fileName, d: f.fileData, dbId: f.id };
+      function addFile(targetMid, key) {
+        if (!newUp[targetMid]) newUp[targetMid] = {};
+        if (!newUp[targetMid][key]) newUp[targetMid][key] = [];
+        var exists = newUp[targetMid][key].some(function(existing) {
+          return existing.n === fileObj.n && existing.dbId === fileObj.dbId;
+        });
+        if (!exists) newUp[targetMid][key].push(fileObj);
+      }
+      // ALWAYS store in the original location from DB
+      addFile(mid, tocItem);
+      // If this is a TOC item, also distribute to __deliv and all linked milestones
+      // so both Progress tab and Deliverables tab can find it
+      if (tocItem.indexOf('TOC-') === 0) {
+        var tnum = tocItem.replace('TOC-', '');
+        addFile('__deliv', tocItem); // Deliverables tab fallback bucket
+        Object.keys(MSD).forEach(function(msCode) {
+          if (MSD[msCode].t && MSD[msCode].t.indexOf(tnum) >= 0) {
+            addFile(msCode, tocItem); // Progress tab milestone buckets
+          }
+        });
+      }
     });
     console.log('[GOV] newUp built from DB:', JSON.stringify(newUp, null, 2).slice(0, 500));
     // Merge: keep local-only files (those without dbId) that aren't in DB
