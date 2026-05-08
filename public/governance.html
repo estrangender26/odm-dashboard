@@ -210,9 +210,9 @@ window.testUpload = function() {
     .catch(function(err) { console.error('[GOV TEST] Upload error:', err); });
 };
 
-/* ---------- Multi-User Sync: Refresh + Polling ---------- */
-var __pollInterval = null;
-var __currentFacilityForPoll = null;
+/* ---------- Multi-User Sync: Manual Refresh Only ---------- */
+// Auto-polling removed — it was interfering with uploads by re-rendering
+// the UI during active upload operations. Use the Refresh button instead.
 
 function updateSyncStatus(text) {
   var el = document.getElementById('sync-status');
@@ -227,27 +227,6 @@ function forceRefresh() {
   if (typeof loadFromServer === 'function') loadFromServer();
   var btn = document.querySelector('button[onclick="forceRefresh()"]');
   if (btn) { var orig = btn.textContent; btn.textContent = '✓ Refreshed'; setTimeout(function(){ btn.textContent = orig; }, 1200); }
-}
-
-function startFilePolling() {
-  if (__pollInterval) clearInterval(__pollInterval);
-  __currentFacilityForPoll = document.getElementById('fs').value;
-  __pollInterval = setInterval(function() {
-    var current = document.getElementById('fs').value;
-    if (current !== __currentFacilityForPoll) { __currentFacilityForPoll = current; }
-    console.log('[GOV] Auto-poll for:', current);
-    updateSyncStatus('Polling...');
-    loadFilesFromDB(__currentFacilityForPoll);
-  }, 10000);
-  console.log('[GOV] File polling started for:', __currentFacilityForPoll);
-  updateSyncStatus('Auto-sync ON (10s)');
-}
-
-// Start polling after page loads
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', function(){ setTimeout(startFilePolling, 2000); });
-} else {
-  setTimeout(startFilePolling, 2000);
 }
 </script>
 
