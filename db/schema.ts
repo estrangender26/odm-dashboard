@@ -119,7 +119,7 @@ export const governanceFiles = pgTable("governance_files", {
   milestoneId: varchar("milestone_id", { length: 10 }).notNull(),
   tocItem: varchar("toc_item", { length: 20 }),
   fileName: varchar("file_name", { length: 255 }).notNull(),
-  fileType: varchar("file_type", { length: 50 }).notNull(),
+  fileType: varchar("file_type", { length: 100 }).notNull(),
   fileSize: integer("file_size"),
   fileData: text("file_data").notNull(),
   uploadedBy: varchar("uploaded_by", { length: 255 }),

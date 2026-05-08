@@ -37,7 +37,7 @@ export const governanceFilesRouter = createRouter({
           milestoneId: input.milestoneId,
           tocItem: tocLabel,
           fileName: input.fileName,
-          fileType: input.fileType,
+          fileType: input.fileType.slice(0, 100), // Safety truncate to match DB column
           fileSize: input.fileSize || null,
           fileData: input.fileData,
           uploadedBy: ctx.user?.name || "anonymous",
