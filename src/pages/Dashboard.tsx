@@ -101,8 +101,6 @@ export default function Dashboard() {
 
   // Import progress
   const [importProgress, setImportProgress] = useState<{ show: boolean; text: string; sub: string; pct: number } | null>(null);
-  // Help modal
-  const [showHelp, setShowHelp] = useState(false);
 
   // tRPC queries
   const utils = trpc.useUtils();
@@ -184,7 +182,7 @@ export default function Dashboard() {
   }, []);
 
   const selectAll = useCallback(() => {
-    if (!data) return;
+    if (!data?.groups) return;
     const allIds = new Set<number>();
     data?.groups?.forEach((g) => g.tasks?.forEach((t) => allIds.add(t.id)));
     setSelected(allIds);
@@ -433,9 +431,6 @@ export default function Dashboard() {
               <a href="/" className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition">←</a>
               <button onClick={() => { setIsRefreshing(true); utils.tasks.list.invalidate().then(() => { utils.tasks.filters.invalidate().then(() => { setIsRefreshing(false); setLastSync(new Date()); }); }); }} className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition" title="Refresh data">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={isRefreshing ? "animate-spin" : ""}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-              </button>
-              <button onClick={() => setShowHelp(true)} className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition" title="Help">
-                <span className="sm:hidden">?</span><span className="hidden sm:inline">Help</span>
               </button>
               {lastSync && (
                 <span className="text-[10px] opacity-50 whitespace-nowrap hidden md:inline">
