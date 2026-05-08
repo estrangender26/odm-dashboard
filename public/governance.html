@@ -97,6 +97,41 @@ function loadFilesFromDB(facilitySlug) {
     RD(); RM(); RS();
   }).catch(function(err) { console.error('loadFilesFromDB error:', err); });
 }
+
+/* ---------- Multi-User Sync: Refresh + Polling ---------- */
+var __pollInterval = null;
+var __currentFacilityForPoll = null;
+
+function forceRefresh() {
+  var facility = document.getElementById('fs').value;
+  console.log('[GOV] Manual refresh for facility:', facility);
+  loadFilesFromDB(facility);
+  // Also re-trigger the multi-user milestone sync
+  if (typeof loadFromServer === 'function') loadFromServer();
+  // Visual feedback
+  var btn = document.querySelector('button[onclick="forceRefresh()"]');
+  if (btn) { var orig = btn.textContent; btn.textContent = '✓ Refreshed'; setTimeout(function(){ btn.textContent = orig; }, 1200); }
+}
+
+function startFilePolling() {
+  if (__pollInterval) clearInterval(__pollInterval);
+  __currentFacilityForPoll = document.getElementById('fs').value;
+  __pollInterval = setInterval(function() {
+    var current = document.getElementById('fs').value;
+    if (current !== __currentFacilityForPoll) {
+      __currentFacilityForPoll = current;
+    }
+    loadFilesFromDB(__currentFacilityForPoll);
+  }, 10000); // Poll every 10 seconds
+  console.log('[GOV] File polling started for:', __currentFacilityForPoll);
+}
+
+// Start polling after page loads
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(startFilePolling, 2000); });
+} else {
+  setTimeout(startFilePolling, 2000);
+}
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -448,6 +483,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
       <label>PPP Start</label>
       <input type="date" id="pp">
     </div>
+    <button class="btn-g" onclick="forceRefresh()" title="Refresh uploads from server">🔄 Refresh</button>
     <button class="btn-r" onclick="rsA()">Reset</button>
   </div>
 </div>
@@ -1077,7 +1113,7 @@ document.getElementById('db').textContent=cp+' / 14 with uploads';
 }
 
 function hDlvUp(tnum,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;var key='TOC-'+tnum;var owner=tocOwner[key];var c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;
-Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;var targetMid=owner||'__deliv';if(!c.up[targetMid])c.up[targetMid]={};if(!c.up[targetMid][key])c.up[targetMid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[targetMid][key].push(fileObj)-1;pending--;if(pending===0){SV();RD();RM();RS();fileInput.value='';}govUploadFile(facilitySlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[targetMid]&&c.up[targetMid][key]&&c.up[targetMid][key][fileIdx]){c.up[targetMid][key][fileIdx].dbId=res.result.data.json.id;SV();}}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RD();RM();RS();fileInput.value='';}};r.readAsDataURL(f)})}
+Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;var targetMid=owner||'__deliv';if(!c.up[targetMid])c.up[targetMid]={};if(!c.up[targetMid][key])c.up[targetMid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[targetMid][key].push(fileObj)-1;pending--;if(pending===0){SV();RD();RM();RS();fileInput.value='';}govUploadFile(facilitySlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[targetMid]&&c.up[targetMid][key]&&c.up[targetMid][key][fileIdx]){c.up[targetMid][key][fileIdx].dbId=res.result.data.json.id;SV();}loadFilesFromDB(facilitySlug);}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RD();RM();RS();fileInput.value='';}};r.readAsDataURL(f)})}
 
 function rDlvUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RD();RM();RS()}}
 
@@ -1119,7 +1155,7 @@ function fallbackDownload(blob,filename){
 function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
 
 // UPLOAD HANDLERS (TOC-specific per milestone)
-function hTocUp(mid,key,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;const c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(!c.up[mid])c.up[mid]={};if(!c.up[mid][key])c.up[mid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[mid][key].push(fileObj)-1;pending--;if(pending===0){SV();RM();RD();RS();fileInput.value='';}govUploadFile(facilitySlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[mid]&&c.up[mid][key]&&c.up[mid][key][fileIdx]){c.up[mid][key][fileIdx].dbId=res.result.data.json.id;SV();}}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RM();RD();RS();fileInput.value='';}};r.readAsDataURL(f)})}
+function hTocUp(mid,key,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;const c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(!c.up[mid])c.up[mid]={};if(!c.up[mid][key])c.up[mid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[mid][key].push(fileObj)-1;pending--;if(pending===0){SV();RM();RD();RS();fileInput.value='';}govUploadFile(facilitySlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[mid]&&c.up[mid][key]&&c.up[mid][key][fileIdx]){c.up[mid][key][fileIdx].dbId=res.result.data.json.id;SV();}loadFilesFromDB(facilitySlug);}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RM();RD();RS();fileInput.value='';}};r.readAsDataURL(f)})}
 function rTocUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RM();RD()}}
 
 // IMPORT/EXPORT/RESET
