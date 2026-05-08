@@ -734,4 +734,41 @@ export default function Dashboard() {
                                 <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">AMD</label>
                                 <select disabled={!editMode} value={amdValue} onChange={(e) => onDropdownChange(task.id, "amd", e.target.value)}
                                   className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                         
+                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">ARD</label>
+                                <select disabled={!editMode} value={ardValue} onChange={(e) => onDropdownChange(task.id, "ard", e.target.value)}
+                                  className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </main>
+
+      <footer className="text-center py-5 text-sm text-gray-500 border-t border-gray-200 mt-4">
+        Maintenance Planning Post-PPP — Asset Maintenance Department
+      </footer>
+
+      {/* Floating home button for mobile */}
+      <a
+        href="/"
+        className="fixed bottom-4 left-4 z-50 w-11 h-11 text-white rounded-full flex items-center justify-center shadow-lg text-lg hover:opacity-90 transition-transform active:scale-95 sm:hidden"
+        style={{ background: '#0066A6' }}
+        title="Back to Home"
+      >
+        ←
+      </a>
+    </div>
+  );
+}

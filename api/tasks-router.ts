@@ -180,8 +180,10 @@ export const tasksRouter = createRouter({
       )
     )
     .mutation(async ({ input }) => {
-      // db is already imported
+      console.log("[SERVER IMPORT] Received", input.length, "rows");
       let updated = 0;
+      const skipped: Array<{ eq: string; task: string; reason: string }> = [];
+
       for (const item of input) {
         const eqRows = await db
           .select()
@@ -189,7 +191,11 @@ export const tasksRouter = createRouter({
           .where(eq(equipment.name, item.equipmentType))
           .limit(1);
 
-        if (eqRows.length === 0) continue;
+        if (eqRows.length === 0) {
+          console.log("[SERVER IMPORT] Equipment not found:", item.equipmentType);
+          skipped.push({ eq: item.equipmentType, task: item.taskList.substring(0, 50), reason: "Equipment not found" });
+          continue;
+        }
         const eqId = eqRows[0].id;
 
         const taskRows = await db
@@ -198,7 +204,11 @@ export const tasksRouter = createRouter({
           .where(and(eq(tasks.equipmentId, eqId), eq(tasks.taskList, item.taskList)))
           .limit(1);
 
-        if (taskRows.length === 0) continue;
+        if (taskRows.length === 0) {
+          console.log("[SERVER IMPORT] Task not found:", item.equipmentType, ">", item.taskList.substring(0, 50));
+          skipped.push({ eq: item.equipmentType, task: item.taskList.substring(0, 50), reason: "Task not found" });
+          continue;
+        }
         const taskId = taskRows[0].id;
 
         const updateData: Record<string, string | null> = {};
@@ -209,10 +219,12 @@ export const tasksRouter = createRouter({
         if (Object.keys(updateData).length > 0) {
           await db.update(tasks).set(updateData).where(eq(tasks.id, taskId));
           updated++;
+          console.log("[SERVER IMPORT] Updated task", taskId);
         } else {
           updated++; // no-op update, still counts
         }
       }
-      return { success: true, updated, total: input.length };
+      console.log("[SERVER IMPORT] Done:", { updated, total: input.length, skipped: skipped.length });
+      return { success: true, updated, total: input.length, skipped: skipped.slice(0, 10) };
     }),
 });
