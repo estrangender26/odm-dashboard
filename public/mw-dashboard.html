@@ -2245,8 +2245,7 @@ function importToDatabase(rows, filename) {
   document.getElementById('progressFill').style.width = '0%';
 
   var CHUNK_SIZE = 200;
-  var totalInserted = 0;
-  var totalSkipped = 0;
+  var totalProcessed = 0;
   var totalChunks = Math.ceil(payload.length / CHUNK_SIZE);
   var currentChunk = 0;
 
@@ -2254,7 +2253,7 @@ function importToDatabase(rows, filename) {
     if (currentChunk >= totalChunks) {
       document.getElementById('progressFill').style.width = '100%';
       document.getElementById('loadedFileName').textContent =
-        (filename || 'Importing') + ' — ' + totalInserted + ' saved, ' + totalSkipped + ' skipped (server).';
+        (filename || 'Importing') + ' — ' + totalProcessed + ' rows processed (server).';
       loadFromDatabase();
       return;
     }
@@ -2274,8 +2273,7 @@ function importToDatabase(rows, filename) {
           apiAvailable = true;
           var result = res.result && res.result.data && res.result.data.json;
           if (result) {
-            totalInserted += result.inserted;
-            totalSkipped += result.skipped;
+            totalProcessed += result.processed || 0;
           }
           var pct = Math.round((currentChunk / totalChunks) * 100);
           document.getElementById('progressFill').style.width = pct + '%';
@@ -2305,11 +2303,8 @@ function useClientSide(rows, filename) {
   rows.forEach(function(r) {
     var dateStr = r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : '';
     var key = (r.AssetTag || '') + '|' + (r.Task || '') + '|' + dateStr + '|' + (r.SubmittedAt || '');
-    if (!groupMap[key]) {
-      groupMap[key] = r;
-    } else if (r.EntryNotes && !groupMap[key].EntryNotes) {
-      groupMap[key].EntryNotes = r.EntryNotes;
-    }
+    // Always overwrite with latest row — re-uploading same file updates records
+    groupMap[key] = r;
   });
   var uniqueRows = Object.values(groupMap);
 

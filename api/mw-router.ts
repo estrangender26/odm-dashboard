@@ -2,10 +2,12 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db, cacheGet, cacheSet, cacheInvalidate } from "./queries/connection";
 import { mwInspections } from "@db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export const mwRouter = createRouter({
-  // Import Excel data — fast batch insert with ON CONFLICT DO NOTHING
+  // Import Excel data — UPSERT: insert new, update existing on conflict
+  // Unique key: (asset_tag, task, date, submitted_at)
+  // Same file re-uploaded = existing rows UPDATE with new data
   importExcel: publicQuery
     .input(z.object({
       rows: z.array(z.object({
@@ -58,21 +60,40 @@ export const mwRouter = createRouter({
         updatedBy: user?.name ?? "system",
       }));
 
-      // Fast batch insert — duplicates skipped via ON CONFLICT DO NOTHING
-      // Unique key: (asset_tag, task, date, submitted_at)
+      // UPSERT: ON CONFLICT DO UPDATE — re-uploading same file updates existing records
       const result = await db.insert(mwInspections)
         .values(dbRows)
-        .onConflictDoNothing({
-          target: [mwInspections.assetTag, mwInspections.task, mwInspections.date, mwInspections.submittedAt]
+        .onConflictDoUpdate({
+          target: [mwInspections.assetTag, mwInspections.task, mwInspections.date, mwInspections.submittedAt],
+          set: {
+            submissionId: sql`EXCLUDED.${sql.raw(mwInspections.submissionId.name)}`,
+            facilityId: sql`EXCLUDED.${sql.raw(mwInspections.facilityId.name)}`,
+            inspector: sql`EXCLUDED.${sql.raw(mwInspections.inspector.name)}`,
+            inspectionDate: sql`EXCLUDED.${sql.raw(mwInspections.inspectionDate.name)}`,
+            assetName: sql`EXCLUDED.${sql.raw(mwInspections.assetName.name)}`,
+            equipmentType: sql`EXCLUDED.${sql.raw(mwInspections.equipmentType.name)}`,
+            category: sql`EXCLUDED.${sql.raw(mwInspections.category.name)}`,
+            task: sql`EXCLUDED.${sql.raw(mwInspections.task.name)}`,
+            capture1Label: sql`EXCLUDED.${sql.raw(mwInspections.capture1Label.name)}`,
+            capture1Response: sql`EXCLUDED.${sql.raw(mwInspections.capture1Response.name)}`,
+            escalationTrigger: sql`EXCLUDED.${sql.raw(mwInspections.escalationTrigger.name)}`,
+            entryNotes: sql`EXCLUDED.${sql.raw(mwInspections.entryNotes.name)}`,
+            status: sql`EXCLUDED.${sql.raw(mwInspections.status.name)}`,
+            score: sql`EXCLUDED.${sql.raw(mwInspections.score.name)}`,
+            findings: sql`EXCLUDED.${sql.raw(mwInspections.findings.name)}`,
+            frequency: sql`EXCLUDED.${sql.raw(mwInspections.frequency.name)}`,
+            updatedBy: user?.name ?? "system",
+            updatedAt: new Date(),
+          }
         });
 
-      const inserted = result.length || 0;
-      const skipped = input.rows.length - inserted;
+      // With onConflictDoUpdate, result.length includes both inserted and updated
+      const processed = input.rows.length;
 
       // Invalidate cache so next read fetches fresh data
       cacheInvalidate("mw_inspections");
 
-      return { success: true, inserted, skipped, total: input.rows.length };
+      return { success: true, processed, total: input.rows.length };
     }),
 
   // List all inspections — uses cache for read-after-write consistency
