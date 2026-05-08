@@ -380,7 +380,7 @@ export default function Dashboard() {
 
   const tabLabel = activeTab === "htt" ? "HTT STP" : "Aglipay STP";
   const totalTasks = data?.totalTasks ?? 0;
-  const totalGroups = data?.groups.length ?? 0;
+  const totalGroups = data?.groups?.length ?? 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
