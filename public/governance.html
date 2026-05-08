@@ -60,10 +60,12 @@ function govListByFacility(facilitySlug) {
 
 function loadFilesFromDB(facilitySlug) {
   if (!facilitySlug) { console.log('[GOV] loadFilesFromDB skipped: no facilitySlug'); return; }
-  console.log('[GOV] loadFilesFromDB START for:', facilitySlug, 'ST keys:', Object.keys(ST));
+  // FIX: lowercase to match DB (DB stores 'aglipay', HTML select has 'AGLIPAY')
+  var dbSlug = facilitySlug.toLowerCase();
+  console.log('[GOV] loadFilesFromDB START for:', facilitySlug, '→ querying DB as:', dbSlug, 'ST keys:', Object.keys(ST));
   var cBefore = ST[facilitySlug] ? JSON.parse(JSON.stringify(ST[facilitySlug].up || {})) : null;
   console.log('[GOV] Current local up state keys:', cBefore ? Object.keys(cBefore) : 'null');
-  govListByFacility(facilitySlug).then(function(data) {
+  govListByFacility(dbSlug).then(function(data) {
     console.log('[GOV] listByFacility raw response:', data);
     if (data && data.error) { console.error('[GOV] listByFacility SERVER ERROR:', data.error); }
     if (!data || !data.result || !data.result.data) {
@@ -460,7 +462,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 
     const data = JSON.parse(milestoneData);
     const facilities = ['aglipay','htt','eastbay','kaysakat'];
-    const currentFacility = window.currentFacility || facilities[0];
+    const currentFacility = (window.currentFacility || facilities[0]).toLowerCase();
 
     // Send each milestone to the server
     Object.entries(data).forEach(([milestoneId, values]) => {
@@ -481,7 +483,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 
   function loadFromServer() {
     const facilities = ['aglipay','htt','eastbay','kaysakat'];
-    const currentFacility = window.currentFacility || facilities[0];
+    const currentFacility = (window.currentFacility || facilities[0]).toLowerCase();
 
     fetch(API_BASE + '/governance.milestoneState?input=' + encodeURIComponent(JSON.stringify({ facilitySlug: currentFacility })))
       .then(r => r.json())
@@ -1183,8 +1185,8 @@ el.appendChild(grid);
 document.getElementById('db').textContent=cp+' / 14 with uploads';
 }
 
-function hDlvUp(tnum,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;var key='TOC-'+tnum;var owner=tocOwner[key];var c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;console.log('[GOV] hDlvUp START:', files.length, 'files, facility:', facilitySlug, 'key:', key, 'owner:', owner);
-Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;var targetMid=owner||'__deliv';if(!c.up[targetMid])c.up[targetMid]={};if(!c.up[targetMid][key])c.up[targetMid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[targetMid][key].push(fileObj)-1;pending--;console.log('[GOV] File read complete:', f.name, 'pending:', pending);if(pending===0){SV();RD();RM();RS();fileInput.value='';}govUploadFile(facilitySlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('[GOV] Upload API response:', res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[targetMid]&&c.up[targetMid][key]&&c.up[targetMid][key][fileIdx]){c.up[targetMid][key][fileIdx].dbId=res.result.data.json.id;SV();}console.log('[GOV] Triggering loadFilesFromDB after upload...');setTimeout(function(){loadFilesFromDB(facilitySlug);}, 300);}).catch(function(err){console.error('[GOV] DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('[GOV] File read error for '+f.name);if(pending===0){SV();RD();RM();RS();fileInput.value='';}};r.readAsDataURL(f)})}
+function hDlvUp(tnum,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;var key='TOC-'+tnum;var owner=tocOwner[key];var c=CU();var facilitySlug=document.getElementById('fs').value;var dbSlug=facilitySlug.toLowerCase();var pending=files.length;console.log('[GOV] hDlvUp START:', files.length, 'files, facility:', facilitySlug, '→ dbSlug:', dbSlug, 'key:', key, 'owner:', owner);
+Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;var targetMid=owner||'__deliv';if(!c.up[targetMid])c.up[targetMid]={};if(!c.up[targetMid][key])c.up[targetMid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[targetMid][key].push(fileObj)-1;pending--;console.log('[GOV] File read complete:', f.name, 'pending:', pending);if(pending===0){SV();RD();RM();RS();fileInput.value='';}govUploadFile(dbSlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('[GOV] Upload API response:', res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[targetMid]&&c.up[targetMid][key]&&c.up[targetMid][key][fileIdx]){c.up[targetMid][key][fileIdx].dbId=res.result.data.json.id;SV();}console.log('[GOV] Triggering loadFilesFromDB after upload...');setTimeout(function(){loadFilesFromDB(facilitySlug);}, 300);}).catch(function(err){console.error('[GOV] DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('[GOV] File read error for '+f.name);if(pending===0){SV();RD();RM();RS();fileInput.value='';}};r.readAsDataURL(f)})}
 
 function rDlvUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RD();RM();RS()}}
 
@@ -1226,7 +1228,7 @@ function fallbackDownload(blob,filename){
 function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
 
 // UPLOAD HANDLERS (TOC-specific per milestone)
-function hTocUp(mid,key,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;const c=CU();var facilitySlug=document.getElementById('fs').value;var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(!c.up[mid])c.up[mid]={};if(!c.up[mid][key])c.up[mid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[mid][key].push(fileObj)-1;pending--;if(pending===0){SV();RM();RD();RS();fileInput.value='';}govUploadFile(facilitySlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[mid]&&c.up[mid][key]&&c.up[mid][key][fileIdx]){c.up[mid][key][fileIdx].dbId=res.result.data.json.id;SV();}loadFilesFromDB(facilitySlug);}).catch(function(err){console.error('DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('File read error for '+f.name);if(pending===0){SV();RM();RD();RS();fileInput.value='';}};r.readAsDataURL(f)})}
+function hTocUp(mid,key,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;const c=CU();var facilitySlug=document.getElementById('fs').value;var dbSlug=facilitySlug.toLowerCase();var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(!c.up[mid])c.up[mid]={};if(!c.up[mid][key])c.up[mid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[mid][key].push(fileObj)-1;pending--;if(pending===0){SV();RM();RD();RS();fileInput.value='';}govUploadFile(dbSlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('[GOV] Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[mid]&&c.up[mid][key]&&c.up[mid][key][fileIdx]){c.up[mid][key][fileIdx].dbId=res.result.data.json.id;SV();}loadFilesFromDB(facilitySlug);}).catch(function(err){console.error('[GOV] DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('[GOV] File read error for '+f.name);if(pending===0){SV();RM();RD();RS();fileInput.value='';}};r.readAsDataURL(f)})}
 function rTocUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RM();RD()}}
 
 // IMPORT/EXPORT/RESET

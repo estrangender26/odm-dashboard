@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { governanceFiles } from "@db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 export const governanceFilesRouter = createRouter({
   // Upload a file
@@ -17,10 +17,11 @@ export const governanceFilesRouter = createRouter({
       fileData: z.string().max(20_000_000, "Base64 file data exceeds 20MB limit"),
     }))
     .mutation(async ({ input, ctx }) => {
-      console.log("[GOV API] upload received:", input.fileName, "facility:", input.facilitySlug, "milestone:", input.milestoneId, "tocItem:", input.tocItem, "size:", input.fileData?.length, "by:", ctx.user?.name || "anonymous");
+      const dbSlug = input.facilitySlug.toLowerCase();
+      console.log("[GOV API] upload received:", input.fileName, "facility:", dbSlug, "milestone:", input.milestoneId, "tocItem:", input.tocItem, "size:", input.fileData?.length, "by:", ctx.user?.name || "anonymous");
       try {
         const result = await db.insert(governanceFiles).values({
-          facilitySlug: input.facilitySlug,
+          facilitySlug: dbSlug,
           milestoneId: input.milestoneId,
           tocItem: input.tocItem || null,
           fileName: input.fileName,
@@ -122,6 +123,7 @@ export const governanceFilesRouter = createRouter({
     .input(z.object({ facilitySlug: z.string() }))
     .mutation(async ({ input }) => {
       console.log("[GOV API] listByFacility input:", input.facilitySlug);
+      // Case-insensitive match: DB stores lowercase like 'aglipay', frontend may send 'AGLIPAY'
       const rows = await db
         .select({
           id: governanceFiles.id,
@@ -136,7 +138,7 @@ export const governanceFilesRouter = createRouter({
           uploadedAt: governanceFiles.uploadedAt,
         })
         .from(governanceFiles)
-        .where(eq(governanceFiles.facilitySlug, input.facilitySlug))
+        .where(sql`LOWER(${governanceFiles.facilitySlug}) = LOWER(${input.facilitySlug})`)
         .orderBy(governanceFiles.uploadedAt);
       console.log("[GOV API] listByFacility returning:", rows.length, "rows for", input.facilitySlug);
       if (rows.length > 0) {
