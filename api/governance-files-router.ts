@@ -17,6 +17,7 @@ export const governanceFilesRouter = createRouter({
       fileData: z.string(), // base64
     }))
     .mutation(async ({ input, ctx }) => {
+      console.log("[GOV API] upload received:", input.fileName, "facility:", input.facilitySlug, "milestone:", input.milestoneId, "tocItem:", input.tocItem, "size:", input.fileData?.length, "by:", ctx.user?.name || "anonymous");
       const result = await db.insert(governanceFiles).values({
         facilitySlug: input.facilitySlug,
         milestoneId: input.milestoneId,
@@ -28,6 +29,7 @@ export const governanceFilesRouter = createRouter({
         uploadedBy: ctx.user?.name || "anonymous",
       }).returning({ id: governanceFiles.id });
 
+      console.log("[GOV API] upload saved, id:", result[0].id);
       return { success: true, id: result[0].id };
     }),
 
@@ -92,7 +94,8 @@ export const governanceFilesRouter = createRouter({
   listByFacility: publicQuery
     .input(z.object({ facilitySlug: z.string() }))
     .mutation(async ({ input }) => {
-      return db
+      console.log("[GOV API] listByFacility input:", input.facilitySlug);
+      const rows = await db
         .select({
           id: governanceFiles.id,
           facilitySlug: governanceFiles.facilitySlug,
@@ -108,5 +111,10 @@ export const governanceFilesRouter = createRouter({
         .from(governanceFiles)
         .where(eq(governanceFiles.facilitySlug, input.facilitySlug))
         .orderBy(governanceFiles.uploadedAt);
+      console.log("[GOV API] listByFacility returning:", rows.length, "rows for", input.facilitySlug);
+      if (rows.length > 0) {
+        console.log("[GOV API] listByFacility first row:", { id: rows[0].id, milestoneId: rows[0].milestoneId, tocItem: rows[0].tocItem, fileName: rows[0].fileName, fileDataLen: rows[0].fileData?.length });
+      }
+      return rows;
     }),
 });
