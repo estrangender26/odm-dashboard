@@ -58,6 +58,27 @@ function govListByFacility(facilitySlug) {
   }).then(r => r.json());
 }
 
+/* ---------- Progress Bar ---------- */
+function pbShow(text, sub) {
+  var el = document.getElementById('pb-overlay');
+  if (!el) return;
+  document.getElementById('pb-text').textContent = text || 'Uploading...';
+  document.getElementById('pb-sub').textContent = sub || '';
+  document.getElementById('pb-fill').style.width = '0%';
+  document.getElementById('pb-count').textContent = '';
+  el.style.display = 'flex';
+}
+function pbUpdate(pct, sub, count) {
+  var fill = document.getElementById('pb-fill');
+  if (fill) fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+  if (sub) document.getElementById('pb-sub').textContent = sub;
+  if (count) document.getElementById('pb-count').textContent = count;
+}
+function pbHide() {
+  var el = document.getElementById('pb-overlay');
+  if (el) el.style.display = 'none';
+}
+
 function loadFilesFromDB(facilitySlug) {
   if (!facilitySlug) { console.log('[GOV] loadFilesFromDB skipped: no facilitySlug'); return; }
   // FIX: lowercase to match DB (DB stores 'aglipay', HTML select has 'AGLIPAY')
@@ -460,9 +481,26 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
   .ref-table{font-size:10px}
   .ref-table th,.ref-table td{padding:4px 6px}
 }
+/* Progress bar overlay */
+#pb-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:10000;display:none;align-items:center;justify-content:center}
+#pb-box{background:#fff;border-radius:12px;padding:24px 32px;min-width:320px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+#pb-bar{height:10px;background:#e5e7eb;border-radius:5px;margin-top:14px;overflow:hidden}
+#pb-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--p),#34d399);border-radius:5px;transition:width .25s ease}
+#pb-text{margin-bottom:4px;font-size:14px;font-weight:600;color:#374151}
+#pb-sub{font-size:12px;color:#6b7280;margin-top:8px}
+#pb-count{font-size:11px;color:#9ca3af;margin-top:4px}
 </style>
 </head>
 <body>
+<!-- Progress Bar Overlay -->
+<div id="pb-overlay">
+  <div id="pb-box">
+    <div id="pb-text">Uploading...</div>
+    <div id="pb-bar"><div id="pb-fill"></div></div>
+    <div id="pb-sub">Preparing file...</div>
+    <div id="pb-count"></div>
+  </div>
+</div>
 <script>
 // Multi-User API Sync Layer for Governance
 (function(){
@@ -855,7 +893,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
           frDiv.appendChild(a);
           var btn=document.createElement('button');btn.textContent='Remove';
-          btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,tkey,ix)});
+          btn.addEventListener('click',function(ev){ev.stopPropagation();rTocUp(mid,tkey,ix)});
           frDiv.appendChild(btn);
           flDiv.appendChild(frDiv);
         });
@@ -1209,7 +1247,7 @@ el.appendChild(grid);
 document.getElementById('db').textContent=cp+' / 14 with uploads';
 }
 
-// DELIVERABLES upload handler — DB-first: UI only updates after DB confirms
+// DELIVERABLES upload handler
 function hDlvUp(tnum,e){
   const fileInput=e.target;
   const files=fileInput.files;
@@ -1219,54 +1257,56 @@ function hDlvUp(tnum,e){
   var facilitySlug=document.getElementById('fs').value;
   var dbSlug=facilitySlug.toLowerCase();
   var targetMid=owner||'__deliv';
-  var pending=files.length;
-  var failed=[];
-  console.log('[GOV] hDlvUp START:', files.length, 'files, facility:', facilitySlug, '→ dbSlug:', dbSlug, 'key:', key, 'targetMid:', targetMid);
-  
+  var total=files.length, done=0;
+  pbShow('Uploading '+total+' file(s)', 'Reading files...');
+  console.log('[GOV] hDlvUp:', total, 'files | facility:', facilitySlug, 'key:', key, 'mid:', targetMid);
+
   Array.from(files).forEach(function(f){
-    updateSyncStatus('Uploading '+f.name+'...');
-    const r=new FileReader();
+    var r=new FileReader();
     r.onload=function(ev){
-      var b64Data=ev.target.result;
-      // Upload to DB FIRST — do NOT add to local state yet
-      govUploadFile(dbSlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data)
+      var b64=ev.target.result;
+      done++;
+      pbUpdate((done/total)*50, 'Uploading '+f.name+'...', done+' / '+total);
+      govUploadFile(dbSlug, targetMid, key, f.name, f.type||'application/octet-stream', f.size, b64)
         .then(function(res){
-          console.log('[GOV] Upload DB success:', f.name, res);
-          pending--;
-          if(pending===0){
-            updateSyncStatus('Upload complete — refreshing...');
-            fileInput.value='';
-            // NOW refresh from DB — this is the ONLY way files appear in UI
-            loadFilesFromDB(facilitySlug);
+          console.log('[GOV] Uploaded:', f.name, res);
+          if(done===total){
+            pbUpdate(100, 'Refreshing...');
+            setTimeout(function(){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }, 400);
+          } else {
+            pbUpdate(50 + (done/total)*50, 'Uploading...', done+' / '+total);
           }
         })
         .catch(function(err){
-          console.error('[GOV] Upload DB FAILED:', f.name, err);
-          failed.push(f.name);
-          pending--;
-          if(pending===0){
-            fileInput.value='';
-            if(failed.length>0){
-              alert('Failed to upload: '+failed.join(', ')+'. Please try again.');
-            }
-            loadFilesFromDB(facilitySlug);
-          }
+          console.error('[GOV] FAILED:', f.name, err);
+          alert('Upload failed for "'+f.name+'": '+(err.message||'Server error'));
+          if(done===total){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }
         });
     };
     r.onerror=function(){
-      console.error('[GOV] File read error:', f.name);
-      failed.push(f.name);
-      pending--;
-      if(pending===0){
-        fileInput.value='';
-        loadFilesFromDB(facilitySlug);
-      }
+      done++;
+      alert('Cannot read file: '+f.name);
+      if(done===total){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }
     };
     r.readAsDataURL(f);
   });
 }
 
-function rDlvUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RD();RM();RS()}}
+// REMOVE file from Deliverables tab — DB first, then UI
+function rDlvUp(mid,key,ix){
+  var c=CU();
+  if(!c.up[mid]||!c.up[mid][key])return;
+  var fi=c.up[mid][key][ix];
+  if(!fi)return;
+  if(!confirm('Delete "'+fi.n+'"?'))return;
+  if(fi.dbId){
+    govDeleteFile(fi.dbId).then(function(){console.log('[GOV] Deleted from DB:',fi.dbId);})
+    .catch(function(err){console.error('[GOV] DB delete failed:',err);});
+  }
+  c.up[mid][key].splice(ix,1);
+  if(c.up[mid][key].length===0)delete c.up[mid][key];
+  SV();RD();RM();RS();
+}
 
 function dldBatch(){
   const cbs=document.querySelectorAll('.dld-cb:checked');
@@ -1305,63 +1345,65 @@ function fallbackDownload(blob,filename){
 
 function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
 
-// UPLOAD HANDLERS (TOC-specific per milestone)
-// UPLOAD HANDLER (TOC-specific per milestone) — DB-first: UI only updates after DB confirms
+// UPLOAD a file under a milestone+key (Progress tab TOC/Annex/Other)
 function hTocUp(mid,key,e){
   const fileInput=e.target;
   const files=fileInput.files;
   if(!files||files.length===0)return;
   var facilitySlug=document.getElementById('fs').value;
   var dbSlug=facilitySlug.toLowerCase();
-  var pending=files.length;
-  var failed=[];
-  console.log('[GOV] hTocUp START:', files.length, 'files, facility:', facilitySlug, '→ dbSlug:', dbSlug, 'mid:', mid, 'key:', key);
-  
-  Array.from(files).forEach(function(f){
-    // Show temporary "Uploading..." indicator
-    updateSyncStatus('Uploading '+f.name+'...');
-    const r=new FileReader();
+  var total=files.length, done=0, failed=0;
+  pbShow('Uploading '+total+' file(s)', 'Reading files...');
+  console.log('[GOV] hTocUp:', total, 'files | facility:', facilitySlug, 'mid:', mid, 'key:', key);
+
+  Array.from(files).forEach(function(f, idx){
+    var r=new FileReader();
     r.onload=function(ev){
-      var b64Data=ev.target.result;
-      // Upload to DB FIRST — do NOT add to local state yet
-      govUploadFile(dbSlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data)
+      var b64=ev.target.result;
+      done++;
+      pbUpdate((done/total)*50, 'Uploading '+f.name+'...', done+' / '+total);
+      govUploadFile(dbSlug, mid, key, f.name, f.type||'application/octet-stream', f.size, b64)
         .then(function(res){
-          console.log('[GOV] Upload DB success:', f.name, res);
-          pending--;
-          if(pending===0){
-            updateSyncStatus('Upload complete — refreshing...');
-            fileInput.value='';
-            // NOW refresh from DB — this is the ONLY way files appear in UI
-            loadFilesFromDB(facilitySlug);
+          console.log('[GOV] Uploaded:', f.name, res);
+          if(done===total){
+            pbUpdate(100, 'Refreshing...');
+            setTimeout(function(){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }, 400);
+          } else {
+            pbUpdate(50 + (done/total)*50, 'Uploading...', done+' / '+total);
           }
         })
         .catch(function(err){
-          console.error('[GOV] Upload DB FAILED:', f.name, err);
-          failed.push(f.name);
-          pending--;
-          if(pending===0){
-            fileInput.value='';
-            if(failed.length>0){
-              alert('Failed to upload: '+failed.join(', ')+'. Please try again.');
-            }
-            // Refresh anyway to show any successful uploads
-            loadFilesFromDB(facilitySlug);
+          failed++;
+          console.error('[GOV] FAILED:', f.name, err);
+          alert('Upload failed for "'+f.name+'": '+(err.message||'Server error'));
+          if(done===total){
+            pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug);
           }
         });
     };
     r.onerror=function(){
-      console.error('[GOV] File read error:', f.name);
-      failed.push(f.name);
-      pending--;
-      if(pending===0){
-        fileInput.value='';
-        loadFilesFromDB(facilitySlug);
-      }
+      failed++; done++;
+      alert('Cannot read file: '+f.name);
+      if(done===total){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }
     };
     r.readAsDataURL(f);
   });
 }
-function rTocUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RM();RD()}}
+// REMOVE file from Progress tab — DB first, then UI
+function rTocUp(mid,key,ix){
+  var c=CU();
+  if(!c.up[mid]||!c.up[mid][key])return;
+  var fi=c.up[mid][key][ix];
+  if(!fi)return;
+  if(!confirm('Delete "'+fi.n+'"?'))return;
+  if(fi.dbId){
+    govDeleteFile(fi.dbId).then(function(){console.log('[GOV] Deleted from DB:',fi.dbId);})
+    .catch(function(err){console.error('[GOV] DB delete failed:',err);});
+  }
+  c.up[mid][key].splice(ix,1);
+  if(c.up[mid][key].length===0)delete c.up[mid][key];
+  SV();RM();RD();
+}
 
 // IMPORT/EXPORT/RESET
 
