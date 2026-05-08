@@ -95,15 +95,26 @@ export default function Dashboard() {
 
   // tRPC queries
   const utils = trpc.useUtils();
-  const { data, isLoading: isDataLoading } = trpc.tasks.list.useQuery({
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const { data, isLoading: isDataLoading, dataUpdatedAt } = trpc.tasks.list.useQuery({
     dataset: activeTab,
     search: search || undefined,
     equipFilter: equipFilter || undefined,
     freqFilter: freqFilter || undefined,
     personFilter: personFilter || undefined,
-  }, { refetchInterval: 30000 });
+  }, {
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
+    staleTime: 0,
+    onSuccess: () => setLastSync(new Date()),
+  });
 
-  const { data: filters } = trpc.tasks.filters.useQuery({ dataset: activeTab }, { refetchInterval: 30000 });
+  const { data: filters } = trpc.tasks.filters.useQuery({ dataset: activeTab }, {
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
+  });
 
   const updateMutation = trpc.tasks.update.useMutation({
     onSuccess: () => {
@@ -385,6 +396,32 @@ export default function Dashboard() {
             >
               ← <span className="hidden sm:inline">Home</span>
             </a>
+            <button
+              onClick={() => {
+                setIsRefreshing(true);
+                utils.tasks.list.invalidate().then(() => {
+                  utils.tasks.filters.invalidate().then(() => {
+                    setIsRefreshing(false);
+                    setLastSync(new Date());
+                  });
+                });
+              }}
+              disabled={isRefreshing}
+              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition flex items-center gap-1.5 disabled:opacity-50"
+              title="Refresh data from server"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={isRefreshing ? "animate-spin" : ""}>
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              <span className="hidden sm:inline">{isRefreshing ? "Refreshing..." : "Refresh"}</span>
+            </button>
+            {lastSync && (
+              <span className="text-[10px] opacity-50 whitespace-nowrap hidden md:inline">
+                Synced {Math.round((Date.now() - lastSync.getTime()) / 1000)}s ago
+              </span>
+            )}
           </div>
         </div>
         {/* Tabs */}
@@ -697,41 +734,4 @@ export default function Dashboard() {
                                 <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">AMD</label>
                                 <select disabled={!editMode} value={amdValue} onChange={(e) => onDropdownChange(task.id, "amd", e.target.value)}
                                   className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">ARD</label>
-                                <select disabled={!editMode} value={ardValue} onChange={(e) => onDropdownChange(task.id, "ard", e.target.value)}
-                                  className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </main>
-
-      <footer className="text-center py-5 text-sm text-gray-500 border-t border-gray-200 mt-4">
-        Maintenance Planning Post-PPP — Asset Maintenance Department
-      </footer>
-
-      {/* Floating home button for mobile */}
-      <a
-        href="/"
-        className="fixed bottom-4 left-4 z-50 w-11 h-11 text-white rounded-full flex items-center justify-center shadow-lg text-lg hover:opacity-90 transition-transform active:scale-95 sm:hidden"
-        style={{ background: '#0066A6' }}
-        title="Back to Home"
-      >
-        ←
-      </a>
-    </div>
-  );
-}
+                         

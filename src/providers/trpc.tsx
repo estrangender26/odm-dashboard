@@ -9,7 +9,15 @@ export const trpc = createTRPCReact<AppRouter>();
 
 const API_URL = import.meta.env.VITE_API_URL || "/api/trpc";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+      refetchIntervalInBackground: true,
+    },
+  },
+});
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
