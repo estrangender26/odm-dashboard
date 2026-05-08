@@ -484,11 +484,11 @@ export default function Dashboard() {
               </button>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
             <select
               value={equipFilter}
               onChange={(e) => setEquipFilter(e.target.value)}
-              className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white flex-1 sm:flex-none min-w-[140px]"
+              className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]"
             >
               <option value="">All Equipment</option>
               {filters?.equipment.map((e) => (
@@ -498,7 +498,7 @@ export default function Dashboard() {
             <select
               value={freqFilter}
               onChange={(e) => setFreqFilter(e.target.value)}
-              className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white flex-1 sm:flex-none min-w-[140px]"
+              className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]"
             >
               <option value="">All Freq.</option>
               {filters?.frequencies.map((f) => (
@@ -509,7 +509,7 @@ export default function Dashboard() {
               <select
                 value={personFilter}
                 onChange={(e) => setPersonFilter(e.target.value)}
-                className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white flex-1 sm:flex-none min-w-[140px]"
+                className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]"
               >
                 <option value="">All Personnel</option>
                 {filters?.personnel.map((p) => (
@@ -518,8 +518,8 @@ export default function Dashboard() {
               </select>
             )}
           </div>
-          <div className="text-xs sm:text-sm text-gray-500 sm:ml-auto">
-            {isDataLoading ? "Loading..." : <>Showing <strong>{totalTasks}</strong> tasks in <strong>{totalGroups}</strong> groups</>}
+          <div className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">
+            {isDataLoading ? "Loading..." : <><strong>{totalGroups}</strong> groups · <strong>{totalTasks}</strong> tasks</>}
           </div>
         </div>
 
