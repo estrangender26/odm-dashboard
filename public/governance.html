@@ -347,7 +347,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 ::-webkit-scrollbar-thumb:hover{background:#9AAFC0}
 @media(max-width:900px){
   .hdr-in{padding:8px 12px;gap:8px}.brand h1{font-size:13px}.brand span{font-size:9px}
-  .main{padding:10px 12px}.card{padding:12px 14px}.cw{height:280px}
+  .main{padding:10px 12px}.card{padding:12px 14px}.cw{height:240px}
   #sc-summary{grid-template-columns:repeat(2,1fr)!important}
   .ms,.ms-h{grid-template-columns:36px 1fr 55px 80px 100px 50px 60px 36px;gap:4px;padding:6px 10px}
   .ms-h{font-size:8px}.toc-up{grid-template-columns:1fr;padding:4px 10px 4px 52px}
@@ -359,8 +359,8 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
   .acts{width:100%;justify-content:space-between;gap:6px}
   .main{padding:8px}.card{padding:10px 12px;margin-bottom:10px}
   .ch{flex-direction:column;align-items:flex-start;gap:4px}.ch h2{font-size:12px}
-  .cw{height:300px}
-  #sc-summary{grid-template-columns:1fr!important;gap:4px;margin-bottom:6px}
+  .cw{height:220px}
+  #sc-summary{grid-template-columns:repeat(2,1fr)!important;gap:4px;margin-bottom:6px}
   .kpi-card{padding:6px}
   .kpi-value{font-size:15px}.tabs{padding:3px;gap:2px}.tab{padding:6px 12px;font-size:11px}
   /* Mobile milestone: stacked card layout with clear separation */
@@ -1159,10 +1159,15 @@ function RSC(){
   if(variance>=0){ragC='#059669';ragT='GREEN — On track or ahead';ragL='rg'}
   else if(vAbs<=10){ragC='#e8890c';ragT='AMBER — Slight delay (≤10%)';ragL='ra'}
   else{ragC='#d1383e';ragT='RED — Behind schedule (>10%)';ragL='rr'}
-  el.innerHTML='<div style="text-align:center;padding:10px 6px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Planned</div><div style="font-size:18px;font-weight:700;color:var(--blue)">'+Math.round(plannedVal)+'%</div></div>'+
-    '<div style="text-align:center;padding:10px 6px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Actual</div><div style="font-size:18px;font-weight:700;color:var(--red)">'+Math.round(actualVal)+'%</div></div>'+
-    '<div style="text-align:center;padding:10px 6px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Variance</div><div style="font-size:18px;font-weight:700;color:'+(variance>=0?'var(--green)':'var(--red)')+'">'+(variance>=0?'+':'')+variance+'%</div></div>'+
-    '<div style="text-align:center;padding:10px 6px;border-radius:6px;border:1px solid '+ragC+';background:'+ragC+'10"><div style="font-size:10px;color:'+ragC+';text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">RAG Rating</div><div style="font-size:18px;font-weight:700;color:'+ragC+'">'+ragT+'</div></div>';
+  var isMobile=window.innerWidth<768;
+  var pad=isMobile?'6px 4px':'10px 6px';
+  var valSize=isMobile?'14px':'18px';
+  var lblSize=isMobile?'9px':'10px';
+  var ragText=isMobile?(variance>=0?'On track':(vAbs<=10?'Slight delay':'Behind')):ragT;
+  el.innerHTML='<div style="text-align:center;padding:'+pad+';background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:'+lblSize+';color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Planned</div><div style="font-size:'+valSize+';font-weight:700;color:var(--blue)">'+Math.round(plannedVal)+'%</div></div>'+
+    '<div style="text-align:center;padding:'+pad+';background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:'+lblSize+';color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Actual</div><div style="font-size:'+valSize+';font-weight:700;color:var(--red)">'+Math.round(actualVal)+'%</div></div>'+
+    '<div style="text-align:center;padding:'+pad+';background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:'+lblSize+';color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Variance</div><div style="font-size:'+valSize+';font-weight:700;color:'+(variance>=0?'var(--green)':'var(--red)')+'">'+(variance>=0?'+':'')+variance+'%</div></div>'+
+    '<div style="text-align:center;padding:'+pad+';border-radius:6px;border:1px solid '+ragC+';background:'+ragC+'10"><div style="font-size:'+lblSize+';color:'+ragC+';text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">RAG</div><div style="font-size:'+valSize+';font-weight:700;color:'+ragC+'">'+ragText+'</div></div>';
 }
 
 
