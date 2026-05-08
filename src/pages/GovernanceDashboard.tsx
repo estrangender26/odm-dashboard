@@ -186,14 +186,18 @@ export default function GovernanceDashboard() {
 
   // tRPC queries
   const { data: facilities } = trpc.governance.facilities.useQuery();
-  const { data: milestoneState } = trpc.governance.milestoneState.useQuery(
-    { facilitySlug: activeFacility },
-    { enabled: !!activeFacility }
-  );
-  const { data: uploads } = trpc.governance.uploads.useQuery(
+  const { data: milestoneState, error: msError } = trpc.governance.milestoneState.useQuery(
     { facilitySlug: activeFacility },
     { enabled: !!activeFacility, refetchInterval: 30000 }
   );
+  const { data: uploads, error: uploadsError } = trpc.governance.uploads.useQuery(
+    { facilitySlug: activeFacility },
+    { enabled: !!activeFacility, refetchInterval: 30000 }
+  );
+
+  // Show query errors in console
+  if (msError) console.error("[GOV] milestoneState error:", msError);
+  if (uploadsError) console.error("[GOV] uploads error:", uploadsError);
 
   const saveMilestone = trpc.governance.saveMilestone.useMutation({
     onSuccess: () => {
@@ -203,7 +207,14 @@ export default function GovernanceDashboard() {
 
   const addUpload = trpc.governance.addUpload.useMutation({
     onSuccess: () => {
-      utils.governance.uploads.invalidate();
+      // Force immediate refetch so user sees their upload right away
+      utils.governance.uploads.invalidate().then(() => {
+        console.log("[GOV] Uploads refreshed after addUpload");
+      });
+    },
+    onError: (err) => {
+      console.error("[GOV] addUpload error:", err);
+      alert("Upload failed: " + (err.message || "Server error"));
     },
   });
 

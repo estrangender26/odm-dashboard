@@ -14,8 +14,8 @@ export const governanceRouter = createRouter({
   // Get milestone state for a facility
   milestoneState: publicQuery
     .input(z.object({ facilitySlug: z.string() }))
-    .mutation(async ({ input }) => {
-      // db is already imported
+    .query(async ({ input }) => {
+      console.log("[GOV API] milestoneState query for:", input.facilitySlug);
       return db
         .select()
         .from(governanceMilestoneState)
@@ -78,13 +78,15 @@ export const governanceRouter = createRouter({
   // Get uploads for a facility
   uploads: publicQuery
     .input(z.object({ facilitySlug: z.string() }))
-    .mutation(async ({ input }) => {
-      // db is already imported
-      return db
+    .query(async ({ input }) => {
+      console.log("[GOV API] uploads query for facility:", input.facilitySlug);
+      const rows = await db
         .select()
         .from(governanceUploads)
         .where(eq(governanceUploads.facilitySlug, input.facilitySlug))
         .orderBy(governanceUploads.uploadedAt);
+      console.log("[GOV API] uploads returned:", rows.length, "rows");
+      return rows;
     }),
 
   // Add upload record
@@ -100,8 +102,8 @@ export const governanceRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      // db is already imported
       const user = ctx.user;
+      console.log("[GOV API] addUpload:", input.fileName, "for facility:", input.facilitySlug, "by:", user?.name || "anonymous");
 
       const result = await db.insert(governanceUploads).values({
         facilitySlug: input.facilitySlug,
@@ -113,6 +115,7 @@ export const governanceRouter = createRouter({
         uploadedBy: user?.name || null,
       });
 
+      console.log("[GOV API] addUpload success, id:", Number(result[0].insertId));
       return { success: true, id: Number(result[0].insertId) };
     }),
 
