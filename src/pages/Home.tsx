@@ -16,12 +16,15 @@ export default function Home() {
               <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Programs</span>
             </div>
           </Link>
-          {isAuthenticated && user && (
-            <div className="flex items-center gap-2 text-xs ml-auto flex-shrink-0">
-              <img src={user.avatar || undefined} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />
-              <span className="hidden sm:inline max-w-[100px] truncate">{user.name}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+            <Link to="/help" className="text-xs font-medium px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition">Help</Link>
+            {isAuthenticated && user && (
+              <div className="flex items-center gap-2 text-xs">
+                <img src={user.avatar || undefined} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                <span className="hidden sm:inline max-w-[100px] truncate">{user.name}</span>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
