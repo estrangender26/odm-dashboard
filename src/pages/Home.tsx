@@ -13,7 +13,7 @@ export default function Home() {
             <img src="/programs-logo.jpeg" alt="Programs" style={{ width: 36, height: 36, background: '#fff', borderRadius: 8, padding: 3, flexShrink: 0, objectFit: 'contain' }} />
             <div className="min-w-0">
               <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
-              <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Programs Engineering</span>
+              <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Programs</span>
             </div>
           </Link>
           {isAuthenticated && user && (
@@ -132,7 +132,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'center', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
-        <span style={{ fontWeight: 600, color: '#16324F' }}>Programs Engineering</span> — Program Oversight Center
+        <span style={{ fontWeight: 600, color: '#16324F' }}>Programs</span> — Program Oversight Center
       </footer>
     </div>
   );
