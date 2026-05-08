@@ -90,6 +90,11 @@ export default function Dashboard() {
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const expandAll = useCallback(() => setCollapsedGroups(new Set()), []);
+  const collapseAll = useCallback(() => {
+    if (!data?.groups) return;
+    setCollapsedGroups(new Set(data.groups.map(g => g.equipmentType)));
+  }, [data]);
 
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -517,6 +522,10 @@ export default function Dashboard() {
                 ))}
               </select>
             )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={expandAll} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 font-medium">Expand</button>
+            <button onClick={collapseAll} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 font-medium">Collapse</button>
           </div>
           <div className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">
             {isDataLoading ? "Loading..." : <><strong>{totalGroups}</strong> groups · <strong>{totalTasks}</strong> tasks</>}
