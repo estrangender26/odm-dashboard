@@ -79,33 +79,21 @@ function pbHide() {
   if (el) el.style.display = 'none';
 }
 
+// Load files from DB with retry — source of truth for UI
+var __lfRetryCount = 0;
 function loadFilesFromDB(facilitySlug) {
-  if (!facilitySlug) { console.log('[GOV] loadFilesFromDB skipped: no facilitySlug'); return; }
-  // FIX: lowercase to match DB (DB stores 'aglipay', HTML select has 'AGLIPAY')
+  if (!facilitySlug) return;
   var dbSlug = facilitySlug.toLowerCase();
-  console.log('[GOV] loadFilesFromDB START for:', facilitySlug, '→ querying DB as:', dbSlug, 'ST keys:', Object.keys(ST));
-  var cBefore = ST[facilitySlug] ? JSON.parse(JSON.stringify(ST[facilitySlug].up || {})) : null;
-  console.log('[GOV] Current local up state keys:', cBefore ? Object.keys(cBefore) : 'null');
+  console.log('[GOV] loadFilesFromDB #' + (__lfRetryCount+1) + ' for:', facilitySlug);
+  var c = ST[facilitySlug];
+  if (!c) { console.error('[GOV] No ST for', facilitySlug); return; }
+  if (!c.up) c.up = {};
+  
   govListByFacility(dbSlug).then(function(data) {
-    console.log('[GOV] listByFacility raw response:', data);
-    if (data && data.error) { console.error('[GOV] listByFacility SERVER ERROR:', data.error); }
-    if (!data || !data.result || !data.result.data) {
-      console.error('[GOV] listByFacility INVALID response structure:', JSON.stringify(data).slice(0,200));
-      return;
-    }
-    var files = data.result.data.json;
-    console.log('[GOV] listByFacility files count:', files ? files.length : 'null/undefined');
-    if (files && files.length > 0) {
-      files.forEach(function(f, i) {
-        console.log('[GOV] DB file #' + i + ':', { id: f.id, mid: f.milestoneId, tocItem: f.tocItem, name: f.fileName, dataLen: f.fileData ? f.fileData.length : 0 });
-      });
-    }
-    var c = ST[facilitySlug];
-    if (!c) { console.error('[GOV] No ST entry for facility:', facilitySlug); return; }
-    if (!c.up) c.up = {};
-    console.log('[GOV] Before merge, c.up keys:', Object.keys(c.up));
-    // Build fresh upload state from DB — DB is source of truth
-    // Store files at their ORIGINAL DB location only — no duplication
+    var files = (data && data.result && data.result.data && data.result.data.json) || [];
+    console.log('[GOV] DB returned', files.length, 'files');
+    
+    // Build state from DB
     var newUp = {};
     files.forEach(function(f) {
       var mid = f.milestoneId;
@@ -114,40 +102,44 @@ function loadFilesFromDB(facilitySlug) {
       if (!newUp[mid][key]) newUp[mid][key] = [];
       newUp[mid][key].push({ n: f.fileName, d: f.fileData, dbId: f.id });
     });
-    console.log('[GOV] newUp built from DB:', JSON.stringify(newUp, null, 2).slice(0, 500));
-    // Merge: keep local-only files (those without dbId) that aren't in DB
+    
+    // Keep local-only files (no dbId) not in DB
     Object.keys(c.up).forEach(function(mid) {
       if (!newUp[mid]) newUp[mid] = {};
       Object.keys(c.up[mid]).forEach(function(key) {
         if (!newUp[mid][key]) newUp[mid][key] = [];
-        c.up[mid][key].forEach(function(localFile) {
-          if (localFile.dbId) return; // DB files handled above
-          var inDb = newUp[mid][key].some(function(dbFile) { return dbFile.n === localFile.n; });
-          if (!inDb) { newUp[mid][key].push(localFile); }
+        c.up[mid][key].forEach(function(lf) {
+          if (lf.dbId) return;
+          var inDb = newUp[mid][key].some(function(df) { return df.n === lf.n; });
+          if (!inDb) newUp[mid][key].push(lf);
         });
       });
     });
+    
     c.up = newUp;
-    console.log('[GOV] After merge, c.up keys:', Object.keys(c.up));
-    SV();
-    RD(); RM(); RS();
-    // Count UNIQUE files by dbId (not total entries)
-    var seenIds = new Set();
-    var uniqueCount = 0;
-    Object.keys(c.up || {}).forEach(function(mid) {
-      Object.keys(c.up[mid] || {}).forEach(function(k) {
-        (c.up[mid][k] || []).forEach(function(f) {
-          if (f.dbId) {
-            if (!seenIds.has(f.dbId)) { seenIds.add(f.dbId); uniqueCount++; }
-          } else {
-            uniqueCount++; // Local-only files (no dbId)
-          }
-        });
+    console.log('[GOV] c.up keys after load:', Object.keys(c.up));
+    SV(); RD(); RM(); RS();
+    
+    // Retry if DB empty but we just uploaded (replication lag)
+    if (files.length === 0 && __lfRetryCount < 3) {
+      __lfRetryCount++;
+      console.log('[GOV] DB empty, retry #' + __lfRetryCount + ' in 1s');
+      updateSyncStatus('Waiting for DB...');
+      setTimeout(function() { loadFilesFromDB(facilitySlug); }, 1000);
+      return;
+    }
+    __lfRetryCount = 0;
+    
+    // Count unique
+    var seen = new Set(), ucnt = 0;
+    Object.keys(c.up).forEach(function(m) {
+      Object.keys(c.up[m]).forEach(function(k) {
+        (c.up[m][k] || []).forEach(function(f) { if (f.dbId) { if (!seen.has(f.dbId)) { seen.add(f.dbId); ucnt++; } } else { ucnt++; } });
       });
     });
-    updateSyncStatus('Synced: ' + uniqueCount + ' unique files');
-    console.log('[GOV] loadFilesFromDB DONE. UI refreshed. Unique files:', uniqueCount);
-  }).catch(function(err) { console.error('[GOV] loadFilesFromDB CATCH error:', err); });
+    updateSyncStatus('Synced: ' + ucnt + ' files');
+    console.log('[GOV] loadFilesFromDB DONE. Files:', ucnt);
+  }).catch(function(err) { console.error('[GOV] loadFilesFromDB error:', err); });
 }
 
 // Console debug helpers
