@@ -116,6 +116,11 @@ export default function Dashboard() {
     onSuccess: () => {
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
+      alert("Changes saved successfully!");
+    },
+    onError: (err) => {
+      console.error("Save failed:", err);
+      alert("Save failed: " + (err.message || "Server error. Your changes were not saved."));
     },
   });
 
@@ -195,6 +200,10 @@ export default function Dashboard() {
         onSuccess: () => {
           setEditMode(false);
           setPending({});
+        },
+        onError: () => {
+          // Stay in edit mode so user can retry, but clear loading state
+          // The global onError handler already alerted the user
         },
       });
     } else {

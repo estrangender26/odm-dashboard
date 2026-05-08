@@ -68,7 +68,7 @@ export default function Home() {
 
           {/* O&M Manual Governance */}
           <a
-            href="/governance"
+            href="/governance.html"
             className="block rounded-lg p-5 border transition hover:shadow-lg hover:-translate-y-0.5"
             style={{
               background: '#FFFFFF',
@@ -99,7 +99,7 @@ export default function Home() {
 
           {/* Operator-Driven Maintenance */}
           <a
-            href="/mw-dashboard"
+            href="/mw-dashboard.html"
             className="block rounded-lg p-5 border transition hover:shadow-lg hover:-translate-y-0.5"
             style={{
               background: '#FFFFFF',
