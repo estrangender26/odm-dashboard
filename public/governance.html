@@ -84,33 +84,14 @@ function loadFilesFromDB(facilitySlug) {
     if (!c.up) c.up = {};
     console.log('[GOV] Before merge, c.up keys:', Object.keys(c.up));
     // Build fresh upload state from DB — DB is source of truth
-    // CRITICAL FIX: Distribute TOC files to ALL locations so both tabs can see them
+    // Store files at their ORIGINAL DB location only — no duplication
     var newUp = {};
     files.forEach(function(f) {
       var mid = f.milestoneId;
-      var tocItem = f.tocItem || 'TOC-DB';
-      var fileObj = { n: f.fileName, d: f.fileData, dbId: f.id };
-      function addFile(targetMid, key) {
-        if (!newUp[targetMid]) newUp[targetMid] = {};
-        if (!newUp[targetMid][key]) newUp[targetMid][key] = [];
-        var exists = newUp[targetMid][key].some(function(existing) {
-          return existing.n === fileObj.n && existing.dbId === fileObj.dbId;
-        });
-        if (!exists) newUp[targetMid][key].push(fileObj);
-      }
-      // ALWAYS store in the original location from DB
-      addFile(mid, tocItem);
-      // If this is a TOC item, also distribute to __deliv and all linked milestones
-      // so both Progress tab and Deliverables tab can find it
-      if (tocItem.indexOf('TOC-') === 0) {
-        var tnum = tocItem.replace('TOC-', '');
-        addFile('__deliv', tocItem); // Deliverables tab fallback bucket
-        Object.keys(MSD).forEach(function(msCode) {
-          if (MSD[msCode].t && MSD[msCode].t.indexOf(tnum) >= 0) {
-            addFile(msCode, tocItem); // Progress tab milestone buckets
-          }
-        });
-      }
+      var key = f.tocItem || 'TOC-DB';
+      if (!newUp[mid]) newUp[mid] = {};
+      if (!newUp[mid][key]) newUp[mid][key] = [];
+      newUp[mid][key].push({ n: f.fileName, d: f.fileData, dbId: f.id });
     });
     console.log('[GOV] newUp built from DB:', JSON.stringify(newUp, null, 2).slice(0, 500));
     // Merge: keep local-only files (those without dbId) that aren't in DB
@@ -129,10 +110,22 @@ function loadFilesFromDB(facilitySlug) {
     console.log('[GOV] After merge, c.up keys:', Object.keys(c.up));
     SV();
     RD(); RM(); RS();
-    var totalFiles = 0;
-    Object.keys(c.up || {}).forEach(function(mid) { Object.keys(c.up[mid] || {}).forEach(function(k) { totalFiles += (c.up[mid][k] || []).length; }); });
-    updateSyncStatus('Synced: ' + totalFiles + ' files');
-    console.log('[GOV] loadFilesFromDB DONE. UI refreshed. Total files:', totalFiles);
+    // Count UNIQUE files by dbId (not total entries)
+    var seenIds = new Set();
+    var uniqueCount = 0;
+    Object.keys(c.up || {}).forEach(function(mid) {
+      Object.keys(c.up[mid] || {}).forEach(function(k) {
+        (c.up[mid][k] || []).forEach(function(f) {
+          if (f.dbId) {
+            if (!seenIds.has(f.dbId)) { seenIds.add(f.dbId); uniqueCount++; }
+          } else {
+            uniqueCount++; // Local-only files (no dbId)
+          }
+        });
+      });
+    });
+    updateSyncStatus('Synced: ' + uniqueCount + ' unique files');
+    console.log('[GOV] loadFilesFromDB DONE. UI refreshed. Unique files:', uniqueCount);
   }).catch(function(err) { console.error('[GOV] loadFilesFromDB CATCH error:', err); });
 }
 
@@ -830,7 +823,10 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       var tkey='TOC-'+tnum;
       // Skip if another milestone "owns" this TOC item (first-occurrence dedup)
       if(tocOwner[tkey]!==mid) return;
-      var files=(c.up[mid]&&c.up[mid][tkey])||[];
+      // Check milestone bucket AND __deliv bucket (files uploaded from Deliverables tab)
+      var msFiles=(c.up[mid]&&c.up[mid][tkey])||[];
+      var delivFiles=(c.up['__deliv']&&c.up['__deliv'][tkey])||[];
+      var files=msFiles.concat(delivFiles);
       var tr=document.createElement('div');tr.className='toc-up';
       var tinfo=TOC.find(function(x){return x.num===tnum});
       // Left: label
@@ -876,7 +872,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       // Skip if this annex is already covered by a TOC item in this milestone
       if(coveredAnnexes.has(aid))return;
       var akey='A'+aid;
-      var files=(c.up[mid]&&c.up[mid][akey])||[];
+      var aMsFiles=(c.up[mid]&&c.up[mid][akey])||[];
+      var aDelivFiles=(c.up['__deliv']&&c.up['__deliv'][akey])||[];
+      var files=aMsFiles.concat(aDelivFiles);
       var tr=document.createElement('div');tr.className='toc-up';
       var ainfo=ANX.find(function(x){return x.id===aid});
       // Left: label
@@ -916,7 +914,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     });
     // OTHER upload slot — generic catch-all for additional files
     var otherKey='OTHER';
-    var otherFiles=(c.up[mid]&&c.up[mid][otherKey])||[];
+    var oMsFiles=(c.up[mid]&&c.up[mid][otherKey])||[];
+    var oDelivFiles=(c.up['__deliv']&&c.up['__deliv'][otherKey])||[];
+    var otherFiles=oMsFiles.concat(oDelivFiles);
     var otherRow=document.createElement('div');otherRow.className='toc-up';
     var otherLbl=document.createElement('div');otherLbl.className='toc-lbl';
     otherLbl.innerHTML='<strong style="color:var(--mw-muted)">Other relevant files</strong><br><span>Additional supporting documents not listed above</span>';
@@ -1162,6 +1162,10 @@ var allFiles=[];
 var linkedMs=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(tnum))linkedMs.push(e[0])});
 linkedMs.forEach(function(mid){var key='TOC-'+tnum;if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].forEach(function(fi,ix){allFiles.push({n:fi.n,d:fi.d,dbId:fi.dbId||null,src:mid,loc:'up',mid:mid,key:key,ix:ix})})}});
 if(c.up['__deliv']&&c.up['__deliv']['TOC-'+tnum]){c.up['__deliv']['TOC-'+tnum].forEach(function(fi,ix){allFiles.push({n:fi.n,d:fi.d,dbId:fi.dbId||null,src:'general',loc:'__deliv',mid:'__deliv',key:'TOC-'+tnum,ix:ix})})}
+// DEDUPLICATE: same file may appear in multiple milestone buckets + __deliv
+var seenDbIds=new Set();var uniqueFiles=[];
+allFiles.forEach(function(fi){if(fi.dbId&&seenDbIds.has(fi.dbId))return;if(fi.dbId)seenDbIds.add(fi.dbId);uniqueFiles.push(fi)});
+allFiles=uniqueFiles;
 if(allFiles.length>0)cp++;
 // Cell 1: TOC name + description
 var c1=document.createElement('div');c1.className='dlv-n';c1.style.cssText='flex-direction:column;align-items:flex-start;gap:2px';
