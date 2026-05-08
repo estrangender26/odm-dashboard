@@ -93,7 +93,7 @@ export default function Dashboard() {
   const expandAll = useCallback(() => setCollapsedGroups(new Set()), []);
   const collapseAll = useCallback(() => {
     if (!data?.groups) return;
-    setCollapsedGroups(new Set(data.groups.map(g => g.equipmentType)));
+    setCollapsedGroups(new Set(data.groups.map(g => g.equipment.name)));
   }, [data]);
 
   // File input ref
