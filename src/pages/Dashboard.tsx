@@ -286,7 +286,12 @@ export default function Dashboard() {
 
       importMutation.mutate(updates, {
         onSuccess: (res) => {
-          alert(`Imported ${res.updated} rows from ${file.name}`);
+          const msg = `Imported: ${res.updated} rows updated out of ${updates.length} from file.`;
+          if (res.updated < updates.length) {
+            alert(msg + "\n\nNote: Some rows were skipped because the Equipment Type + Task Description combination was not found in the database.");
+          } else {
+            alert(msg);
+          }
         },
       });
     };

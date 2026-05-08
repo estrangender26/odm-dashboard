@@ -209,8 +209,10 @@ export const tasksRouter = createRouter({
         if (Object.keys(updateData).length > 0) {
           await db.update(tasks).set(updateData).where(eq(tasks.id, taskId));
           updated++;
+        } else {
+          updated++; // no-op update, still counts
         }
       }
-      return { success: true, updated };
+      return { success: true, updated, total: input.length };
     }),
 });
