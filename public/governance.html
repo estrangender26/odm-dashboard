@@ -1209,8 +1209,62 @@ el.appendChild(grid);
 document.getElementById('db').textContent=cp+' / 14 with uploads';
 }
 
-function hDlvUp(tnum,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;var key='TOC-'+tnum;var owner=tocOwner[key];var c=CU();var facilitySlug=document.getElementById('fs').value;var dbSlug=facilitySlug.toLowerCase();var pending=files.length;console.log('[GOV] hDlvUp START:', files.length, 'files, facility:', facilitySlug, '→ dbSlug:', dbSlug, 'key:', key, 'owner:', owner);
-Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;var targetMid=owner||'__deliv';if(!c.up[targetMid])c.up[targetMid]={};if(!c.up[targetMid][key])c.up[targetMid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[targetMid][key].push(fileObj)-1;pending--;console.log('[GOV] File read complete:', f.name, 'pending:', pending);if(pending===0){SV();RD();RM();RS();fileInput.value='';}govUploadFile(dbSlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('[GOV] Upload API response:', res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[targetMid]&&c.up[targetMid][key]&&c.up[targetMid][key][fileIdx]){c.up[targetMid][key][fileIdx].dbId=res.result.data.json.id;SV();}console.log('[GOV] Triggering loadFilesFromDB after upload...');setTimeout(function(){loadFilesFromDB(facilitySlug);}, 300);}).catch(function(err){console.error('[GOV] DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('[GOV] File read error for '+f.name);if(pending===0){SV();RD();RM();RS();fileInput.value='';}};r.readAsDataURL(f)})}
+// DELIVERABLES upload handler — DB-first: UI only updates after DB confirms
+function hDlvUp(tnum,e){
+  const fileInput=e.target;
+  const files=fileInput.files;
+  if(!files||files.length===0)return;
+  var key='TOC-'+tnum;
+  var owner=tocOwner[key];
+  var facilitySlug=document.getElementById('fs').value;
+  var dbSlug=facilitySlug.toLowerCase();
+  var targetMid=owner||'__deliv';
+  var pending=files.length;
+  var failed=[];
+  console.log('[GOV] hDlvUp START:', files.length, 'files, facility:', facilitySlug, '→ dbSlug:', dbSlug, 'key:', key, 'targetMid:', targetMid);
+  
+  Array.from(files).forEach(function(f){
+    updateSyncStatus('Uploading '+f.name+'...');
+    const r=new FileReader();
+    r.onload=function(ev){
+      var b64Data=ev.target.result;
+      // Upload to DB FIRST — do NOT add to local state yet
+      govUploadFile(dbSlug,targetMid,key,f.name,f.type||'application/octet-stream',f.size,b64Data)
+        .then(function(res){
+          console.log('[GOV] Upload DB success:', f.name, res);
+          pending--;
+          if(pending===0){
+            updateSyncStatus('Upload complete — refreshing...');
+            fileInput.value='';
+            // NOW refresh from DB — this is the ONLY way files appear in UI
+            loadFilesFromDB(facilitySlug);
+          }
+        })
+        .catch(function(err){
+          console.error('[GOV] Upload DB FAILED:', f.name, err);
+          failed.push(f.name);
+          pending--;
+          if(pending===0){
+            fileInput.value='';
+            if(failed.length>0){
+              alert('Failed to upload: '+failed.join(', ')+'. Please try again.');
+            }
+            loadFilesFromDB(facilitySlug);
+          }
+        });
+    };
+    r.onerror=function(){
+      console.error('[GOV] File read error:', f.name);
+      failed.push(f.name);
+      pending--;
+      if(pending===0){
+        fileInput.value='';
+        loadFilesFromDB(facilitySlug);
+      }
+    };
+    r.readAsDataURL(f);
+  });
+}
 
 function rDlvUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RD();RM();RS()}}
 
@@ -1252,7 +1306,61 @@ function fallbackDownload(blob,filename){
 function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
 
 // UPLOAD HANDLERS (TOC-specific per milestone)
-function hTocUp(mid,key,e){const fileInput=e.target;const files=fileInput.files;if(!files||files.length===0)return;const c=CU();var facilitySlug=document.getElementById('fs').value;var dbSlug=facilitySlug.toLowerCase();var pending=files.length;Array.from(files).forEach(function(f){const r=new FileReader();r.onload=function(ev){var b64Data=ev.target.result;if(!c.up[mid])c.up[mid]={};if(!c.up[mid][key])c.up[mid][key]=[];var fileObj={n:f.name,d:b64Data};var fileIdx=c.up[mid][key].push(fileObj)-1;pending--;if(pending===0){SV();RM();RD();RS();fileInput.value='';}govUploadFile(dbSlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data).then(function(res){console.log('[GOV] Upload saved to DB:',res);if(res&&res.result&&res.result.data&&res.result.data.json&&res.result.data.json.id&&c.up[mid]&&c.up[mid][key]&&c.up[mid][key][fileIdx]){c.up[mid][key][fileIdx].dbId=res.result.data.json.id;SV();}loadFilesFromDB(facilitySlug);}).catch(function(err){console.error('[GOV] DB upload error:',err);alert('File saved locally but server sync failed. Please check connection.');});};r.onerror=function(){pending--;console.error('[GOV] File read error for '+f.name);if(pending===0){SV();RM();RD();RS();fileInput.value='';}};r.readAsDataURL(f)})}
+// UPLOAD HANDLER (TOC-specific per milestone) — DB-first: UI only updates after DB confirms
+function hTocUp(mid,key,e){
+  const fileInput=e.target;
+  const files=fileInput.files;
+  if(!files||files.length===0)return;
+  var facilitySlug=document.getElementById('fs').value;
+  var dbSlug=facilitySlug.toLowerCase();
+  var pending=files.length;
+  var failed=[];
+  console.log('[GOV] hTocUp START:', files.length, 'files, facility:', facilitySlug, '→ dbSlug:', dbSlug, 'mid:', mid, 'key:', key);
+  
+  Array.from(files).forEach(function(f){
+    // Show temporary "Uploading..." indicator
+    updateSyncStatus('Uploading '+f.name+'...');
+    const r=new FileReader();
+    r.onload=function(ev){
+      var b64Data=ev.target.result;
+      // Upload to DB FIRST — do NOT add to local state yet
+      govUploadFile(dbSlug,mid,key,f.name,f.type||'application/octet-stream',f.size,b64Data)
+        .then(function(res){
+          console.log('[GOV] Upload DB success:', f.name, res);
+          pending--;
+          if(pending===0){
+            updateSyncStatus('Upload complete — refreshing...');
+            fileInput.value='';
+            // NOW refresh from DB — this is the ONLY way files appear in UI
+            loadFilesFromDB(facilitySlug);
+          }
+        })
+        .catch(function(err){
+          console.error('[GOV] Upload DB FAILED:', f.name, err);
+          failed.push(f.name);
+          pending--;
+          if(pending===0){
+            fileInput.value='';
+            if(failed.length>0){
+              alert('Failed to upload: '+failed.join(', ')+'. Please try again.');
+            }
+            // Refresh anyway to show any successful uploads
+            loadFilesFromDB(facilitySlug);
+          }
+        });
+    };
+    r.onerror=function(){
+      console.error('[GOV] File read error:', f.name);
+      failed.push(f.name);
+      pending--;
+      if(pending===0){
+        fileInput.value='';
+        loadFilesFromDB(facilitySlug);
+      }
+    };
+    r.readAsDataURL(f);
+  });
+}
 function rTocUp(mid,key,ix){const c=CU();if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].splice(ix,1);if(c.up[mid][key].length===0)delete c.up[mid][key];SV();RM();RD()}}
 
 // IMPORT/EXPORT/RESET
