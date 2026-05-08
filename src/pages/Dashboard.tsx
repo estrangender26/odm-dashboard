@@ -396,61 +396,43 @@ export default function Dashboard() {
 
       {/* Header */}
       <header className="text-white sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
-        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
-          <Link to="/" className="flex items-center gap-3 no-underline text-white">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden" style={{ background: '#fff' }}><img src="/amd-logo.jpeg" alt="AMD" className="w-full h-full object-contain p-0.5" /></div>
-            <div>
-              <h1 className="text-base sm:text-xl font-bold leading-tight">Maintenance Planning Post-PPP</h1>
-              <p className="text-xs sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Asset Maintenance Department — Multi-User</p>
+        <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-3 sm:py-4">
+          {/* Desktop: side-by-side | Mobile: stacked */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+            {/* Left: Logo + Title */}
+            <Link to="/" className="flex items-center gap-2 sm:gap-3 no-underline text-white min-w-0">
+              <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: '#fff' }}><img src="/amd-logo.jpeg" alt="AMD" className="w-full h-full object-contain p-0.5" /></div>
+              <div className="min-w-0">
+                <h1 className="text-sm sm:text-xl font-bold leading-tight truncate">Maintenance Planning Post-PPP</h1>
+                <p className="text-[10px] sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Asset Maintenance Department — Multi-User</p>
+              </div>
+            </Link>
+            {/* Right: Stats + Buttons */}
+            <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+              <div className="flex gap-1.5 sm:gap-2">
+                <div className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 sm:px-3 sm:py-2 text-center">
+                  <div className="text-xs sm:text-lg font-bold">976</div>
+                  <div className="text-[0.5rem] sm:text-[0.65rem] uppercase opacity-70">HTT</div>
+                </div>
+                <div className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 sm:px-3 sm:py-2 text-center">
+                  <div className="text-xs sm:text-lg font-bold">401</div>
+                  <div className="text-[0.5rem] sm:text-[0.65rem] uppercase opacity-70">Aglipay</div>
+                </div>
+                <div className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 sm:px-3 sm:py-2 text-center hidden sm:block">
+                  <div className="text-xs sm:text-lg font-bold">128</div>
+                  <div className="text-[0.6rem] sm:text-[0.65rem] uppercase opacity-70">Equip.</div>
+                </div>
+              </div>
+              <a href="/" className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition">←</a>
+              <button onClick={() => { setIsRefreshing(true); utils.tasks.list.invalidate().then(() => { utils.tasks.filters.invalidate().then(() => { setIsRefreshing(false); setLastSync(new Date()); }); }); }} className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition" title="Refresh data">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={isRefreshing ? "animate-spin" : ""}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              </button>
+              {lastSync && (
+                <span className="text-[10px] opacity-50 whitespace-nowrap hidden md:inline">
+                  Synced {Math.round((Date.now() - lastSync.getTime()) / 1000)}s ago
+                </span>
+              )}
             </div>
-          </Link>
-          <div className="flex items-center gap-2 sm:gap-3 ml-auto">
-            <div className="flex gap-1.5 sm:gap-2">
-              <div className="bg-white/10 border border-white/20 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-center">
-                <div className="text-sm sm:text-lg font-bold">976</div>
-                <div className="text-[0.6rem] sm:text-[0.65rem] uppercase opacity-70">HTT</div>
-              </div>
-              <div className="bg-white/10 border border-white/20 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-center">
-                <div className="text-sm sm:text-lg font-bold">401</div>
-                <div className="text-[0.6rem] sm:text-[0.65rem] uppercase opacity-70">Aglipay</div>
-              </div>
-              <div className="bg-white/10 border border-white/20 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-center hidden sm:block">
-                <div className="text-sm sm:text-lg font-bold">128</div>
-                <div className="text-[0.6rem] sm:text-[0.65rem] uppercase opacity-70">Equip.</div>
-              </div>
-            </div>
-            <a
-              href="/"
-              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition"
-            >
-              ← <span className="hidden sm:inline">Home</span>
-            </a>
-            <button
-              onClick={() => {
-                setIsRefreshing(true);
-                utils.tasks.list.invalidate().then(() => {
-                  utils.tasks.filters.invalidate().then(() => {
-                    setIsRefreshing(false);
-                    setLastSync(new Date());
-                  });
-                });
-              }}
-              disabled={isRefreshing}
-              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition flex items-center gap-1.5 disabled:opacity-50"
-              title="Refresh data from server"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={isRefreshing ? "animate-spin" : ""}>
-                <polyline points="23 4 23 10 17 10"/>
-                <polyline points="1 20 1 14 7 14"/>
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-              </svg>
-              <span className="hidden sm:inline">{isRefreshing ? "Refreshing..." : "Refresh"}</span>
-            </button>
-            {lastSync && (
-              <span className="text-[10px] opacity-50 whitespace-nowrap hidden md:inline">
-                Synced {Math.round((Date.now() - lastSync.getTime()) / 1000)}s ago
-              </span>
-            )}
           </div>
         </div>
         {/* Tabs */}
@@ -477,7 +459,7 @@ export default function Dashboard() {
       </header>
 
       {/* Main */}
-      <main className="max-w-[1600px] mx-auto px-6 py-5">
+      <main className="max-w-[1600px] mx-auto px-3 sm:px-6 py-3 sm:py-5">
         {/* Edit banner */}
         {editMode && (
           <div className="mb-3 px-4 py-3 bg-yellow-50 border border-yellow-400 rounded-lg text-sm font-semibold text-yellow-800 flex items-center gap-2">
@@ -542,8 +524,8 @@ export default function Dashboard() {
         </div>
 
         {/* Action bar */}
-        <div className="flex flex-col sm:flex-row flex-wrap gap-2 mb-4 p-2 sm:p-3 bg-white border border-gray-200 rounded-lg items-start sm:items-center">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-2 mb-4 p-2 sm:p-3 bg-white border border-gray-200 rounded-lg">
+          <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
               <input
                 type="checkbox"
@@ -551,33 +533,36 @@ export default function Dashboard() {
                 onChange={() => selected.size > 0 ? deselectAll() : selectAll()}
                 className="w-4 h-4"
               />
-              Select All
+              <span className="hidden sm:inline">Select All</span>
+              <span className="sm:hidden">All</span>
             </label>
-            {selected.size > 0 && <span className="text-sm text-gray-500">{selected.size} selected</span>}
+            {selected.size > 0 && <span className="text-xs text-gray-500 ml-2">{selected.size} selected</span>}
+            <div className="flex gap-1.5 ml-auto">
+              {!editMode ? (
+                <button onClick={startEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1">
+                  <span>✏️</span><span className="hidden sm:inline">Edit</span>
+                </button>
+              ) : (
+                <>
+                  <button onClick={saveEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-green-700 text-white rounded-lg text-xs font-semibold hover:bg-green-800 flex items-center gap-1">
+                    <span>💾</span><span className="hidden sm:inline">Save</span>
+                  </button>
+                  <button onClick={cancelEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-red-100 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-200 flex items-center gap-1">
+                    <span>✕</span><span className="hidden sm:inline">Cancel</span>
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex gap-2 flex-wrap sm:ml-auto">
-            {!editMode ? (
-              <button onClick={startEdit} className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg text-xs sm:text-sm font-semibold hover:bg-blue-700 flex items-center gap-1 sm:gap-2">
-                <span>✏️</span><span className="hidden sm:inline">Edit</span>
-              </button>
-            ) : (
-              <>
-                <button onClick={saveEdit} className="px-3 sm:px-4 py-2 bg-green-700 text-white rounded-lg text-xs sm:text-sm font-semibold hover:bg-green-800 flex items-center gap-1 sm:gap-2">
-                  <span>💾</span><span className="hidden sm:inline">Save</span>
-                </button>
-                <button onClick={cancelEdit} className="px-3 sm:px-4 py-2 bg-red-100 text-red-700 rounded-lg text-xs sm:text-sm font-semibold hover:bg-red-200 flex items-center gap-1 sm:gap-2">
-                  <span>✕</span><span className="hidden sm:inline">Cancel</span>
-                </button>
-              </>
-            )}
-            <button onClick={() => handleExport(true)} className="px-3 sm:px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs sm:text-sm font-semibold hover:bg-gray-50 flex items-center gap-1 sm:gap-2">
+          <div className="flex gap-1.5 flex-wrap">
+            <button onClick={() => handleExport(true)} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
               <span>📄</span><span className="hidden sm:inline">Export Selected</span><span className="sm:hidden">Export</span>
             </button>
-            <button onClick={() => handleExport(false)} className="px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 text-white hover:opacity-90" style={{ background: '#0066A6' }}>
+            <button onClick={() => handleExport(false)} className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 text-white hover:opacity-90" style={{ background: '#0066A6' }}>
               <span>⬇️</span><span className="hidden sm:inline">Export All</span><span className="sm:hidden">All</span>
             </button>
-            <label className="px-3 sm:px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs sm:text-sm font-semibold hover:bg-gray-50 flex items-center gap-1 sm:gap-2 cursor-pointer">
-              <span>📂</span><span className="hidden sm:inline">Import</span>
+            <label className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1 cursor-pointer">
+              <span>📂</span><span className="hidden sm:inline">Import</span><span className="sm:hidden">Import</span>
               <input
                 type="file"
                 accept=".csv,.xlsx,.xlsm,.xls"
