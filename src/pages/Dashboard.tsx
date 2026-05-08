@@ -101,9 +101,9 @@ export default function Dashboard() {
     equipFilter: equipFilter || undefined,
     freqFilter: freqFilter || undefined,
     personFilter: personFilter || undefined,
-  });
+  }, { refetchInterval: 30000 });
 
-  const { data: filters } = trpc.tasks.filters.useQuery({ dataset: activeTab });
+  const { data: filters } = trpc.tasks.filters.useQuery({ dataset: activeTab }, { refetchInterval: 30000 });
 
   const updateMutation = trpc.tasks.update.useMutation({
     onSuccess: () => {
