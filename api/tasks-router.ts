@@ -212,16 +212,17 @@ export const tasksRouter = createRouter({
         const taskId = taskRows[0].id;
 
         const updateData: Record<string, string | null> = {};
-        if (item.operations !== undefined) updateData.operations = item.operations;
-        if (item.amd !== undefined) updateData.amd = item.amd;
-        if (item.ard !== undefined) updateData.ard = item.ard;
+        // Only update fields that have non-empty values — skip blanks to avoid overwriting existing data
+        if (item.operations !== undefined && item.operations !== null && item.operations.trim() !== "") updateData.operations = item.operations.trim();
+        if (item.amd !== undefined && item.amd !== null && item.amd.trim() !== "") updateData.amd = item.amd.trim();
+        if (item.ard !== undefined && item.ard !== null && item.ard.trim() !== "") updateData.ard = item.ard.trim();
 
         if (Object.keys(updateData).length > 0) {
           await db.update(tasks).set(updateData).where(eq(tasks.id, taskId));
           updated++;
-          console.log("[SERVER IMPORT] Updated task", taskId);
+          console.log("[SERVER IMPORT] Updated task", taskId, "fields:", Object.keys(updateData));
         } else {
-          updated++; // no-op update, still counts
+          console.log("[SERVER IMPORT] Skipped task", taskId, "(no non-empty fields to update)");
         }
       }
       console.log("[SERVER IMPORT] Done:", { updated, total: input.length, skipped: skipped.length });

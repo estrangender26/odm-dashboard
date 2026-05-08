@@ -333,7 +333,9 @@ export default function Dashboard() {
         `Import preview:\n` +
         `• File: ${file.name}\n` +
         `• Rows to import: ${updates.length}\n\n` +
-        `This will UPDATE existing tasks matching Equipment Type + Task Description.\n` +
+        `This will UPDATE existing tasks matching Equipment Type + Task Description.\n\n` +
+        `⚠️ Blank cells will NOT overwrite existing values.\n` +
+        `Only non-empty fields will be updated.\n\n` +
         `Continue?`
       );
       if (!proceed) { setImportProgress(null); return; }
