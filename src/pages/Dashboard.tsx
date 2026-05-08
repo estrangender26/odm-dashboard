@@ -563,12 +563,9 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <div className="flex gap-1.5 flex-wrap">
-            <button onClick={() => handleExport(true)} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
-              <span>📄</span><span className="hidden sm:inline">Export Selected</span><span className="sm:hidden">Export</span>
-            </button>
-            <button onClick={() => handleExport(false)} className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 text-white hover:opacity-90" style={{ background: '#0066A6' }}>
-              <span>⬇️</span><span className="hidden sm:inline">Export All</span><span className="sm:hidden">All</span>
+          <div className="flex gap-1.5">
+            <button onClick={() => handleExport(selected.size > 0)} className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 text-white hover:opacity-90" style={{ background: '#0066A6' }}>
+              <span>⬇️</span><span className="hidden sm:inline">{selected.size > 0 ? 'Export Selected' : 'Export All'}</span><span className="sm:hidden">Export</span>
             </button>
             <label className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1 cursor-pointer">
               <span>📂</span><span className="hidden sm:inline">Import</span><span className="sm:hidden">Import</span>
