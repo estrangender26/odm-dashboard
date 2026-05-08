@@ -192,7 +192,7 @@ export default function GovernanceDashboard() {
   );
   const { data: uploads } = trpc.governance.uploads.useQuery(
     { facilitySlug: activeFacility },
-    { enabled: !!activeFacility }
+    { enabled: !!activeFacility, refetchInterval: 30000 }
   );
 
   const saveMilestone = trpc.governance.saveMilestone.useMutation({

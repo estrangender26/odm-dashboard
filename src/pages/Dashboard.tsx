@@ -126,15 +126,13 @@ export default function Dashboard() {
 
   const importMutation = trpc.tasks.import.useMutation({
     onSuccess: () => {
+      // Invalidate queries to refresh data after import
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
-      setTimeout(() => {
-        alert("Import successful!");
-      }, 0);
     },
     onError: (err) => {
       console.error("Import failed:", err);
-      alert("Import failed: " + (err.message || "Server rejected the import. Check console for details."));
+      alert("Import failed: " + (err.message || "Server error. Check console for details."));
     },
   });
 
@@ -277,33 +275,70 @@ export default function Dashboard() {
         sheetRows = parseCsv(text);
       }
       if (sheetRows.length < 2) { alert("File is empty or invalid"); return; }
+
       const headers = sheetRows[0].map(h => String(h).trim());
-      const eqIdx = headers.indexOf("Equipment Type");
-      const taskIdx = headers.indexOf("Task Description");
-      const opsIdx = headers.indexOf("Operations");
-      const amdIdx = headers.indexOf("AMD");
-      const ardIdx = headers.indexOf("ARD");
-      if (eqIdx < 0 || taskIdx < 0) { alert("Missing required columns: Equipment Type, Task Description"); return; }
+
+      // Case-insensitive header matching
+      const findHeader = (names: string[]): number => {
+        for (let i = 0; i < headers.length; i++) {
+          const h = headers[i].toLowerCase().replace(/\s+/g, '');
+          for (const name of names) {
+            if (h === name.toLowerCase().replace(/\s+/g, '')) return i;
+          }
+        }
+        return -1;
+      };
+
+      const eqIdx = findHeader(["Equipment Type", "Equipment", "equipment_type"]);
+      const taskIdx = findHeader(["Task Description", "Task Description", "task_description", "Task List", "tasklist"]);
+      const opsIdx = findHeader(["Operations", "Ops"]);
+      const amdIdx = findHeader(["AMD"]);
+      const ardIdx = findHeader(["ARD"]);
+
+      if (eqIdx < 0 || taskIdx < 0) {
+        alert("Missing required columns.\n\nFound: " + headers.join(", ") + "\n\nNeed: 'Equipment Type' and 'Task Description' (case-insensitive).");
+        return;
+      }
 
       const updates = sheetRows.slice(1).map((row) => ({
-        equipmentType: String(row[eqIdx] || ""),
-        taskList: String(row[taskIdx] || ""),
-        operations: opsIdx >= 0 ? (String(row[opsIdx] || "")) : undefined,
-        amd: amdIdx >= 0 ? (String(row[amdIdx] || "")) : undefined,
-        ard: ardIdx >= 0 ? (String(row[ardIdx] || "")) : undefined,
+        equipmentType: String(row[eqIdx] || "").trim(),
+        taskList: String(row[taskIdx] || "").trim(),
+        operations: opsIdx >= 0 ? (String(row[opsIdx] || "").trim()) : undefined,
+        amd: amdIdx >= 0 ? (String(row[amdIdx] || "").trim()) : undefined,
+        ard: ardIdx >= 0 ? (String(row[ardIdx] || "").trim()) : undefined,
       })).filter((u) => u.equipmentType && u.taskList);
+
+      if (updates.length === 0) {
+        alert("No valid data rows found. Make sure Equipment Type and Task Description are not empty.");
+        return;
+      }
+
+      const proceed = confirm(
+        `Import preview:\n` +
+        `• File: ${file.name}\n` +
+        `• Rows to import: ${updates.length}\n\n` +
+        `This will UPDATE existing tasks matching Equipment Type + Task Description.\n` +
+        `Continue?`
+      );
+      if (!proceed) return;
 
       importMutation.mutate(updates, {
         onSuccess: (res) => {
-          const msg = `Imported: ${res.updated} rows updated out of ${updates.length} from file.`;
-          if (res.updated < updates.length) {
-            alert(msg + "\n\nNote: Some rows were skipped because the Equipment Type + Task Description combination was not found in the database.");
-          } else {
-            alert(msg);
+          const updated = res?.updated ?? 0;
+          const total = res?.total ?? updates.length;
+          const skipped = total - updated;
+          let msg = `Import complete!\n\n• ${updated} rows updated\n• ${skipped} rows not found in database`;
+          if (skipped > 0) {
+            msg += "\n\nTip: Check that Equipment Type and Task Description match exactly.";
           }
+          alert(msg);
+        },
+        onError: (err) => {
+          alert("Import failed: " + (err.message || "Unknown server error"));
         },
       });
     };
+    reader.onerror = () => alert("Failed to read file. Please try again.");
     if (isExcel) {
       reader.readAsArrayBuffer(file);
     } else {
