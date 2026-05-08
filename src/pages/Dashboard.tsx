@@ -615,7 +615,7 @@ export default function Dashboard() {
                       </div>
                     </td>
                   </tr>
-                ) : !data?.groups.length ? (
+                ) : !data?.groups?.length ? (
                   <tr>
                     <td colSpan={8} className="text-center py-20 text-gray-500">
                       <h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3>
