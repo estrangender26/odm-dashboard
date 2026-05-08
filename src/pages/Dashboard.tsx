@@ -123,6 +123,13 @@ export default function Dashboard() {
     onSuccess: () => {
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
+      setTimeout(() => {
+        alert("Import successful!");
+      }, 0);
+    },
+    onError: (err) => {
+      console.error("Import failed:", err);
+      alert("Import failed: " + (err.message || "Server rejected the import. Check console for details."));
     },
   });
 
@@ -204,33 +211,41 @@ export default function Dashboard() {
 
   // Export
   const handleExport = useCallback(async (selectedOnly: boolean) => {
-    const result = await utils.tasks.export.fetch({
-      dataset: activeTab,
-      selectedIds: selectedOnly && selected.size > 0 ? Array.from(selected) : undefined,
-    });
-    if (!result) return;
+    try {
+      const result = await utils.tasks.export.fetch({
+        dataset: activeTab,
+        selectedIds: selectedOnly && selected.size > 0 ? Array.from(selected) : undefined,
+      });
+      if (!result || result.length === 0) {
+        alert("Export returned no data. Make sure tasks exist for the current dataset.");
+        return;
+      }
 
-    const headers = ["Equipment Type", "Task Description", "Frequency", "Responsible Personnel", "Operations", "AMD", "ARD"];
-    let csv = headers.map(csvEsc).join(",") + "\n";
-    result.forEach((row) => {
-      csv += [
-        row.equipmentType,
-        row.taskList,
-        row.frequency,
-        row.responsiblePersonnel,
-        row.operations,
-        row.amd,
-        row.ard,
-      ].map(csvEsc).join(",") + "\n";
-    });
+      const headers = ["Equipment Type", "Task Description", "Frequency", "Responsible Personnel", "Operations", "AMD", "ARD"];
+      let csv = headers.map(csvEsc).join(",") + "\n";
+      result.forEach((row) => {
+        csv += [
+          row.equipmentType,
+          row.taskList,
+          row.frequency,
+          row.responsiblePersonnel,
+          row.operations,
+          row.amd,
+          row.ard,
+        ].map(csvEsc).join(",") + "\n";
+      });
 
-    const blob = new Blob([csv], { type: "text/csv" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = selectedOnly ? `${activeTab}_selected.csv` : `${activeTab}.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }, [activeTab, selected, utils.tasks.export]);
+      const blob = new Blob([csv], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = selectedOnly ? `${activeTab}_selected.csv` : `${activeTab}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (err: any) {
+      console.error("Export failed:", err);
+      alert("Export failed: " + (err.message || "Server error. Check console for details."));
+    }
+  }, [utils.tasks.export, activeTab, selected]);
 
   // Import — supports .csv, .xlsx, .xlsm, .xls
   const handleImport = useCallback((file: File) => {

@@ -167,7 +167,7 @@ export const tasksRouter = createRouter({
       }));
     }),
 
-  import: adminQuery
+  import: publicQuery
     .input(
       z.array(
         z.object({
