@@ -403,7 +403,7 @@ export default function Dashboard() {
             <Link to="/" className="flex items-center gap-2 sm:gap-3 no-underline text-white min-w-0">
               <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: '#fff' }}><img src="/programs-logo.jpeg" alt="Programs" className="w-full h-full object-contain p-0.5" /></div>
               <div className="min-w-0">
-                <h1 className="text-sm sm:text-xl font-bold leading-tight truncate">Maintenance Planning Post-PPP</h1>
+                <h1 className="text-sm sm:text-xl font-bold leading-tight truncate">Maintenance Planning (Post-PPP)</h1>
                 <p className="text-[10px] sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Programs — Multi-User</p>
               </div>
             </Link>
@@ -771,7 +771,7 @@ export default function Dashboard() {
       </main>
 
       <footer className="text-center py-5 text-sm text-gray-500 border-t border-gray-200 mt-4">
-        Maintenance Planning Post-PPP — Programs
+        Maintenance Planning (Post-PPP) — Programs
       </footer>
 
       {/* Floating home button for mobile */}

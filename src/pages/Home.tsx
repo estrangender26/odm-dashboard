@@ -35,7 +35,7 @@ export default function Home() {
 
         {/* Dashboard Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Maintenance Planning Post-PPP */}
+          {/* Maintenance Planning (Post-PPP) */}
           <Link
             to="/equipment"
             className="block rounded-lg p-5 border transition hover:shadow-lg hover:-translate-y-0.5"
@@ -50,7 +50,7 @@ export default function Home() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(0,102,166,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🔧</div>
               <div>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>Maintenance Planning Post-PPP</h3>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>Maintenance Planning (Post-PPP)</h3>
               </div>
             </div>
             <p style={{ fontSize: 13, color: '#5A6B7D', lineHeight: 1.5, marginBottom: 14 }}>
