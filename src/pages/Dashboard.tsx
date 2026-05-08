@@ -93,6 +93,9 @@ export default function Dashboard() {
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Import progress
+  const [importProgress, setImportProgress] = useState<{ show: boolean; text: string; sub: string; pct: number } | null>(null);
+
   // tRPC queries
   const utils = trpc.useUtils();
   const [lastSync, setLastSync] = useState<Date | null>(null);
@@ -268,11 +271,12 @@ export default function Dashboard() {
   // Import — supports .csv, .xlsx, .xlsm, .xls
   const handleImport = useCallback((file: File) => {
     const isExcel = /\.(xlsx|xlsm|xls)$/i.test(file.name);
+    setImportProgress({ show: true, text: 'Reading file...', sub: file.name, pct: 10 });
     const reader = new FileReader();
     reader.onload = (e) => {
+      setImportProgress({ show: true, text: 'Parsing data...', sub: 'Extracting rows', pct: 30 });
       let sheetRows: string[][] = [];
       if (isExcel) {
-        /* Excel: use SheetJS */
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: 'array', cellDates: true });
         const sheetName = wb.SheetNames[0];
@@ -280,12 +284,11 @@ export default function Dashboard() {
         const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as string[][];
         sheetRows = json;
       } else {
-        /* CSV: use existing parser */
         const rawText = e.target?.result as string;
         const text = rawText.charCodeAt(0) === 0xfeff ? rawText.substring(1) : rawText;
         sheetRows = parseCsv(text);
       }
-      if (sheetRows.length < 2) { alert("File is empty or invalid"); return; }
+      if (sheetRows.length < 2) { setImportProgress(null); alert("File is empty or invalid"); return; }
 
       const headers = sheetRows[0].map(h => String(h).trim());
 
@@ -307,6 +310,7 @@ export default function Dashboard() {
       const ardIdx = findHeader(["ARD"]);
 
       if (eqIdx < 0 || taskIdx < 0) {
+        setImportProgress(null);
         alert("Missing required columns.\n\nFound: " + headers.join(", ") + "\n\nNeed: 'Equipment Type' and 'Task Description' (case-insensitive).");
         return;
       }
@@ -320,6 +324,7 @@ export default function Dashboard() {
       })).filter((u) => u.equipmentType && u.taskList);
 
       if (updates.length === 0) {
+        setImportProgress(null);
         alert("No valid data rows found. Make sure Equipment Type and Task Description are not empty.");
         return;
       }
@@ -331,10 +336,13 @@ export default function Dashboard() {
         `This will UPDATE existing tasks matching Equipment Type + Task Description.\n` +
         `Continue?`
       );
-      if (!proceed) return;
+      if (!proceed) { setImportProgress(null); return; }
 
+      setImportProgress({ show: true, text: `Uploading ${updates.length} rows...`, sub: 'Sending to server', pct: 60 });
       importMutation.mutate(updates, {
         onSuccess: (res) => {
+          setImportProgress({ show: true, text: 'Import complete!', sub: 'Refreshing data...', pct: 100 });
+          setTimeout(() => setImportProgress(null), 800);
           const updated = res?.updated ?? 0;
           const total = res?.total ?? updates.length;
           const skipped = total - updated;
@@ -345,11 +353,12 @@ export default function Dashboard() {
           alert(msg);
         },
         onError: (err) => {
+          setImportProgress(null);
           alert("Import failed: " + (err.message || "Unknown server error"));
         },
       });
     };
-    reader.onerror = () => alert("Failed to read file. Please try again.");
+    reader.onerror = () => { setImportProgress(null); alert("Failed to read file. Please try again."); };
     if (isExcel) {
       reader.readAsArrayBuffer(file);
     } else {
@@ -365,6 +374,23 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Import Progress Overlay */}
+      {importProgress?.show && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center">
+          <div className="bg-white rounded-xl p-6 sm:p-8 min-w-[280px] sm:min-w-[320px] shadow-2xl">
+            <div className="text-sm font-semibold text-gray-700 mb-1">{importProgress.text}</div>
+            <div className="text-xs text-gray-500 mb-3">{importProgress.sub}</div>
+            <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${importProgress.pct}%`, background: 'linear-gradient(90deg, #2563eb, #34d399)' }}
+              />
+            </div>
+            <div className="text-xs text-gray-400 mt-2 text-right">{importProgress.pct}%</div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="text-white sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
