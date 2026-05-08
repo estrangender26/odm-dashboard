@@ -643,19 +643,19 @@ export default function Dashboard() {
                                 </td>
                                 <td className="px-3 py-2 border-b border-gray-100">
                                   <select disabled={!editMode} value={opsValue} onChange={(e) => onDropdownChange(task.id, "operations", e.target.value)}
-                                    className={`w-full px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                    className={`w-full min-w-[160px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                     {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
                                   </select>
                                 </td>
                                 <td className="px-3 py-2 border-b border-gray-100">
                                   <select disabled={!editMode} value={amdValue} onChange={(e) => onDropdownChange(task.id, "amd", e.target.value)}
-                                    className={`w-full px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                    className={`w-full min-w-[160px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                     {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
                                   </select>
                                 </td>
                                 <td className="px-3 py-2 border-b border-gray-100">
                                   <select disabled={!editMode} value={ardValue} onChange={(e) => onDropdownChange(task.id, "ard", e.target.value)}
-                                    className={`w-full px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                    className={`w-full min-w-[160px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                     {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
                                   </select>
                                 </td>
@@ -726,21 +726,21 @@ export default function Dashboard() {
                               <div>
                                 <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">Operations</label>
                                 <select disabled={!editMode} value={opsValue} onChange={(e) => onDropdownChange(task.id, "operations", e.target.value)}
-                                  className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  className={`w-full min-w-[160px] px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                   {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
                                 </select>
                               </div>
                               <div>
                                 <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">AMD</label>
                                 <select disabled={!editMode} value={amdValue} onChange={(e) => onDropdownChange(task.id, "amd", e.target.value)}
-                                  className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  className={`w-full min-w-[160px] px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                   {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
                                 </select>
                               </div>
                               <div>
                                 <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">ARD</label>
                                 <select disabled={!editMode} value={ardValue} onChange={(e) => onDropdownChange(task.id, "ard", e.target.value)}
-                                  className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  className={`w-full min-w-[160px] px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                   {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
                                 </select>
                               </div>
