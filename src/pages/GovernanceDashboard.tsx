@@ -184,15 +184,15 @@ export default function GovernanceDashboard() {
 
   const utils = trpc.useUtils();
 
-  // tRPC queries
+  // tRPC queries with aggressive multi-user sync
   const { data: facilities } = trpc.governance.facilities.useQuery();
   const { data: milestoneState, error: msError } = trpc.governance.milestoneState.useQuery(
     { facilitySlug: activeFacility },
-    { enabled: !!activeFacility, refetchInterval: 30000 }
+    { enabled: !!activeFacility, refetchInterval: 15000, refetchIntervalInBackground: true }
   );
   const { data: uploads, error: uploadsError } = trpc.governance.uploads.useQuery(
     { facilitySlug: activeFacility },
-    { enabled: !!activeFacility, refetchInterval: 30000 }
+    { enabled: !!activeFacility, refetchInterval: 15000, refetchIntervalInBackground: true }
   );
 
   // Show query errors in console
@@ -207,9 +207,11 @@ export default function GovernanceDashboard() {
 
   const addUpload = trpc.governance.addUpload.useMutation({
     onSuccess: () => {
-      // Force immediate refetch so user sees their upload right away
+      // Immediately refetch so the user sees their upload AND invalidate for other queries
       utils.governance.uploads.invalidate().then(() => {
-        console.log("[GOV] Uploads refreshed after addUpload");
+        utils.governance.uploads.refetch().then(() => {
+          console.log("[GOV] Uploads refetched after addUpload");
+        });
       });
     },
     onError: (err) => {
@@ -301,25 +303,41 @@ export default function GovernanceDashboard() {
 
   // Upload handler
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadTarget, setUploadTarget] = useState<{ mId: string; cat: string } | null>(null);
+  const [uploadTarget, setUploadTarget] = useState<{ mId: string; cat: string; tocItem?: string } | null>(null);
 
-  const handleFileSelect = (mId: string, cat: string) => {
-    setUploadTarget({ mId, cat });
+  const handleFileSelect = (mId: string, cat: string, tocItem?: string) => {
+    setUploadTarget({ mId, cat, tocItem });
     fileInputRef.current?.click();
   };
 
   const handleFileUpload = async (file: File) => {
     if (!uploadTarget) return;
-    // For demo: store as base64 data URL
+
+    // File size check: warn if > 5MB (base64 inflates by ~33%)
+    const MAX_SIZE_MB = 5;
+    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+      alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is ${MAX_SIZE_MB}MB.`);
+      setUploadTarget(null);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
+      const base64 = reader.result as string;
+      console.log("[GOV CLIENT] Uploading file:", file.name, "size:", (base64.length / 1024).toFixed(1), "KB", "tocItem:", uploadTarget.tocItem || "null");
       addUpload.mutate({
         facilitySlug: activeFacility,
         milestoneId: uploadTarget.mId,
         category: uploadTarget.cat,
+        tocItem: uploadTarget.tocItem || null,
         fileName: file.name,
-        fileUrl: reader.result as string,
+        fileUrl: base64,
       });
+      setUploadTarget(null);
+    };
+    reader.onerror = () => {
+      alert("Failed to read file. Please try again.");
+      setUploadTarget(null);
     };
     reader.readAsDataURL(file);
   };
@@ -349,8 +367,8 @@ export default function GovernanceDashboard() {
       </header>
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 sm:py-5">
-        {/* Facility Selector */}
-        <div className="flex flex-wrap gap-2 mb-4">
+        {/* Facility Selector + Sync */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
           {FACILITIES.map(f => (
             <button
               key={f.slug}
@@ -366,6 +384,19 @@ export default function GovernanceDashboard() {
               {f.short}
             </button>
           ))}
+          <button
+            onClick={() => {
+              utils.governance.uploads.invalidate().then(() => {
+                utils.governance.milestoneState.invalidate().then(() => {
+                  console.log("[GOV] Manual refresh complete");
+                });
+              });
+            }}
+            className="ml-auto px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 flex items-center gap-1"
+            title="Force refresh for multi-user sync"
+          >
+            🔄 Refresh
+          </button>
         </div>
 
         {/* Edit banner */}
@@ -556,7 +587,7 @@ export default function GovernanceDashboard() {
                           <span className="text-xs text-green-600 font-semibold">{tocUploads.length} uploaded</span>
                         )}
                         <button
-                          onClick={() => handleFileSelect(msIds[0] || "M1", "toc")}
+                          onClick={() => handleFileSelect(msIds[0] || "M1", "toc", toc.id)}
                           className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700"
                         >
                           📎 Upload
@@ -611,7 +642,7 @@ export default function GovernanceDashboard() {
                       </td>
                       <td className="px-4 py-3 border-b border-gray-100">
                         <button
-                          onClick={() => handleFileSelect(msIds[0] || "M1", "deliverable")}
+                          onClick={() => handleFileSelect(msIds[0] || "M1", "deliverable", toc.id)}
                           className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700"
                         >
                           📎 Upload

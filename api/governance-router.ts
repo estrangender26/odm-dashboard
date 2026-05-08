@@ -98,12 +98,13 @@ export const governanceRouter = createRouter({
         category: z.string(),
         tocItem: z.string().nullable().optional(),
         fileName: z.string(),
-        fileUrl: z.string(),
+        fileUrl: z.string().max(50_000_000, "File too large — max 50MB base64 encoded"),
       })
     )
     .mutation(async ({ input, ctx }) => {
       const user = ctx.user;
-      console.log("[GOV API] addUpload:", input.fileName, "for facility:", input.facilitySlug, "by:", user?.name || "anonymous");
+      const fileSizeKb = Math.round(input.fileUrl.length / 1024);
+      console.log("[GOV API] addUpload:", input.fileName, "size:", fileSizeKb + "KB", "tocItem:", input.tocItem || "null", "for facility:", input.facilitySlug, "by:", user?.name || "anonymous");
 
       const result = await db.insert(governanceUploads).values({
         facilitySlug: input.facilitySlug,
