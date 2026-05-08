@@ -114,15 +114,53 @@ function loadFilesFromDB(facilitySlug) {
   }).catch(function(err) { console.error('[GOV] loadFilesFromDB CATCH error:', err); });
 }
 
-// Console debug helper
+// Console debug helpers
 window.debugGovState = function() {
   var f = document.getElementById('fs').value;
   console.log('[GOV DEBUG] Facility:', f);
-  console.log('[GOV DEBUG] ST:', ST[f]);
-  console.log('[GOV DEBUG] Uploads (up):', ST[f] ? ST[f].up : null);
-  console.log('[GOV DEBUG] localStorage omg5:', localStorage.getItem('omg5'));
-  // Trigger a refresh and log
+  console.log('[GOV DEBUG] ST[f].up:', ST[f] ? ST[f].up : null);
+  console.log('[GOV DEBUG] Full ST keys:', Object.keys(ST));
   loadFilesFromDB(f);
+};
+
+// Test: List ALL files in DB (no filter)
+window.testListAll = function() {
+  console.log('[GOV TEST] Calling listAll...');
+  fetch('/api/trpc/govFiles.listAll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({})
+  }).then(function(r){ return r.json(); }).then(function(data){
+    console.log('[GOV TEST] listAll raw response:', data);
+    if (data && data.result && data.result.data && data.result.data.json) {
+      var files = data.result.data.json;
+      console.log('[GOV TEST] Total files in DB:', files.length);
+      files.forEach(function(f, i) {
+        console.log('[GOV TEST] File #' + i + ':', f.id, f.facilitySlug, f.milestoneId, f.tocItem, f.fileName);
+      });
+    } else {
+      console.error('[GOV TEST] Invalid response:', data);
+    }
+  }).catch(function(err){ console.error('[GOV TEST] listAll error:', err); });
+};
+
+// Test: Upload a tiny dummy file
+window.testUpload = function() {
+  var facility = document.getElementById('fs').value;
+  var tinyFile = 'data:text/plain;base64,' + btoa('Test upload at ' + new Date().toISOString());
+  console.log('[GOV TEST] Uploading tiny test file to facility:', facility);
+  govUploadFile(facility, 'M1', 'TOC-1', 'test-upload.txt', 'text/plain', 50, tinyFile)
+    .then(function(res) {
+      console.log('[GOV TEST] Upload response:', res);
+      if (res && res.result && res.result.data && res.result.data.json) {
+        console.log('[GOV TEST] Upload success! id:', res.result.data.json.id);
+      } else {
+        console.error('[GOV TEST] Upload failed or invalid response');
+      }
+      // Immediately check DB
+      setTimeout(function() { loadFilesFromDB(facility); window.testListAll(); }, 500);
+    })
+    .catch(function(err) { console.error('[GOV TEST] Upload error:', err); });
 };
 
 /* ---------- Multi-User Sync: Refresh + Polling ---------- */
