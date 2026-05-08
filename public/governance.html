@@ -146,9 +146,28 @@ function loadFilesFromDB(facilitySlug) {
 window.debugGovState = function() {
   var f = document.getElementById('fs').value;
   console.log('[GOV DEBUG] Facility:', f);
-  console.log('[GOV DEBUG] ST[f].up:', ST[f] ? ST[f].up : null);
-  console.log('[GOV DEBUG] Full ST keys:', Object.keys(ST));
+  console.log('[GOV DEBUG] ST[f].up keys:', ST[f] && ST[f].up ? Object.keys(ST[f].up) : 'null');
   loadFilesFromDB(f);
+};
+// Direct API test — bypass upload handler
+window.testUploadDirect = function() {
+  var f = document.getElementById('fs').value;
+  var dbSlug = f.toLowerCase();
+  var b64 = 'data:text/plain;base64,' + btoa('test '+Date.now());
+  console.log('[GOV TEST] Direct upload to DB, facility:', dbSlug);
+  govUploadFile(dbSlug, 'M1', 'TOC-01', 'direct-test.txt', 'text/plain', 20, b64)
+    .then(function(res) {
+      console.log('[GOV TEST] Upload response:', JSON.stringify(res));
+      setTimeout(function() {
+        console.log('[GOV TEST] Now listing...');
+        govListByFacility(dbSlug).then(function(listRes) {
+          var files = (listRes && listRes.result && listRes.result.data && listRes.result.data.json) || [];
+          console.log('[GOV TEST] List returned', files.length, 'files:', files.map(function(x){return x.fileName;}));
+          loadFilesFromDB(f);
+        });
+      }, 500);
+    })
+    .catch(function(err) { console.error('[GOV TEST] Upload failed:', err); });
 };
 
 // Test: List ALL files in DB (no filter)
