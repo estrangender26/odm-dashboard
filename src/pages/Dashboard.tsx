@@ -93,7 +93,7 @@ export default function Dashboard() {
   const expandAll = useCallback(() => setCollapsedGroups(new Set()), []);
   const collapseAll = useCallback(() => {
     if (!data?.groups) return;
-    setCollapsedGroups(new Set(data?.groups?.map(g => g.equipment?.name) ?? []));
+    setCollapsedGroups(new Set(data.groups.map(g => g.equipmentType)));
   }, [data]);
 
   // File input ref
@@ -182,9 +182,9 @@ export default function Dashboard() {
   }, []);
 
   const selectAll = useCallback(() => {
-    if (!data?.groups) return;
+    if (!data) return;
     const allIds = new Set<number>();
-    data?.groups?.forEach((g) => g.tasks?.forEach((t) => allIds.add(t.id)));
+    data.groups.forEach((g) => g.tasks.forEach((t) => allIds.add(t.id)));
     setSelected(allIds);
   }, [data]);
 
@@ -378,7 +378,7 @@ export default function Dashboard() {
 
   const tabLabel = activeTab === "htt" ? "HTT STP" : "Aglipay STP";
   const totalTasks = data?.totalTasks ?? 0;
-  const totalGroups = data?.groups?.length ?? 0;
+  const totalGroups = data?.groups.length ?? 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -538,7 +538,7 @@ export default function Dashboard() {
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
               <input
                 type="checkbox"
-                checked={selected.size > 0 && data?.groups?.every((g) => g.tasks?.every((t) => selected.has(t.id)))}
+                checked={selected.size > 0 && data?.groups.every((g) => g.tasks.every((t) => selected.has(t.id)))}
                 onChange={() => selected.size > 0 ? deselectAll() : selectAll()}
                 className="w-4 h-4"
               />
@@ -563,9 +563,12 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <div className="flex gap-1.5">
-            <button onClick={() => handleExport(selected.size > 0)} className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 text-white hover:opacity-90" style={{ background: '#0066A6' }}>
-              <span>⬇️</span><span className="hidden sm:inline">{selected.size > 0 ? 'Export Selected' : 'Export All'}</span><span className="sm:hidden">Export</span>
+          <div className="flex gap-1.5 flex-wrap">
+            <button onClick={() => handleExport(true)} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
+              <span>📄</span><span className="hidden sm:inline">Export Selected</span><span className="sm:hidden">Export</span>
+            </button>
+            <button onClick={() => handleExport(false)} className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 text-white hover:opacity-90" style={{ background: '#0066A6' }}>
+              <span>⬇️</span><span className="hidden sm:inline">Export All</span><span className="sm:hidden">All</span>
             </button>
             <label className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1 cursor-pointer">
               <span>📂</span><span className="hidden sm:inline">Import</span><span className="sm:hidden">Import</span>
@@ -610,7 +613,7 @@ export default function Dashboard() {
                       </div>
                     </td>
                   </tr>
-                ) : !data?.groups?.length ? (
+                ) : !data?.groups.length ? (
                   <tr>
                     <td colSpan={8} className="text-center py-20 text-gray-500">
                       <h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3>
@@ -618,21 +621,21 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 ) : (
-                  data?.groups?.map((group) => {
-                    const isCollapsed = collapsedGroups.has(group.equipment?.name);
+                  data.groups.map((group) => {
+                    const isCollapsed = collapsedGroups.has(group.equipment.name);
                     return (
-                      <Fragment key={`dt-group-${group.equipment?.id}`}>
+                      <Fragment key={`dt-group-${group.equipment.id}`}>
                         <tr
                           className="bg-gray-50 cursor-pointer hover:bg-gray-100 transition"
-                          onClick={() => toggleGroup(group.equipment?.name)}
+                          onClick={() => toggleGroup(group.equipment.name)}
                         >
                           <td colSpan={8} className="px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200">
                             <div className="flex items-center gap-3">
                               <span className={`text-gray-500 text-xs transition-transform ${isCollapsed ? "-rotate-90" : ""}`}>▼</span>
                               <span className="w-8 h-8 bg-blue-50 text-blue-700 rounded-lg flex items-center justify-center text-xs font-bold">
-                                {group.equipment?.initials}
+                                {group.equipment.initials}
                               </span>
-                              <span className="font-bold text-gray-800 text-sm">{group.equipment?.name}</span>
+                              <span className="font-bold text-gray-800 text-sm">{group.equipment.name}</span>
                               <span className="text-xs text-gray-500">{group.tasks.length} task{group.tasks.length !== 1 ? "s" : ""}</span>
                             </div>
                           </td>
@@ -653,7 +656,7 @@ export default function Dashboard() {
                                 <td className="px-3 py-2 border-b border-gray-100">
                                   <input type="checkbox" checked={isSel} onChange={() => toggleSelect(task.id)} className="w-4 h-4" />
                                 </td>
-                                <td className="px-3 py-2 border-b border-gray-100 font-semibold text-gray-800">{group.equipment?.name}</td>
+                                <td className="px-3 py-2 border-b border-gray-100 font-semibold text-gray-800">{group.equipment.name}</td>
                                 <td className="px-3 py-2 border-b border-gray-100 text-gray-700">{task.taskList}</td>
                                 <td className="px-3 py-2 border-b border-gray-100">
                                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getFreqBadgeClass(task.frequency)}`}>{task.frequency || "-"}</span>
@@ -697,24 +700,24 @@ export default function Dashboard() {
                 <div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
                 <span>Loading data...</span>
               </div>
-            ) : !data?.groups?.length ? (
+            ) : !data?.groups.length ? (
               <div className="text-center py-20 text-gray-500">
                 <h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3>
                 <p className="text-sm">Try adjusting your search or filters.</p>
               </div>
             ) : (
-              data?.groups?.map((group) => {
-                const isCollapsed = collapsedGroups.has(group.equipment?.name);
+              data.groups.map((group) => {
+                const isCollapsed = collapsedGroups.has(group.equipment.name);
                 return (
-                  <div key={`mob-group-${group.equipment?.id}`}>
+                  <div key={`mob-group-${group.equipment.id}`}>
                     {/* Mobile Group Header */}
                     <div
                       className="bg-gray-50 px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200 flex items-center gap-3 cursor-pointer"
-                      onClick={() => toggleGroup(group.equipment?.name)}
+                      onClick={() => toggleGroup(group.equipment.name)}
                     >
                       <span className={`text-gray-500 text-xs transition-transform ${isCollapsed ? "-rotate-90" : ""}`}>▼</span>
-                      <span className="w-7 h-7 bg-blue-50 text-blue-700 rounded flex items-center justify-center text-xs font-bold">{group.equipment?.initials}</span>
-                      <span className="font-bold text-gray-800 text-sm">{group.equipment?.name}</span>
+                      <span className="w-7 h-7 bg-blue-50 text-blue-700 rounded flex items-center justify-center text-xs font-bold">{group.equipment.initials}</span>
+                      <span className="font-bold text-gray-800 text-sm">{group.equipment.name}</span>
                       <span className="text-xs text-gray-500 ml-auto">{group.tasks.length} task{group.tasks.length !== 1 ? "s" : ""}</span>
                     </div>
                     {/* Mobile Task Cards */}
@@ -734,7 +737,7 @@ export default function Dashboard() {
                             <div className="flex items-start gap-2 mb-2">
                               <input type="checkbox" checked={isSel} onChange={() => toggleSelect(task.id)} className="w-4 h-4 mt-0.5 flex-shrink-0" />
                               <div className="flex-1 min-w-0">
-                                <div className="text-xs text-gray-500 mb-0.5">{group.equipment?.name}</div>
+                                <div className="text-xs text-gray-500 mb-0.5">{group.equipment.name}</div>
                                 <div className="text-sm font-medium text-gray-800 leading-snug">{task.taskList}</div>
                               </div>
                             </div>
