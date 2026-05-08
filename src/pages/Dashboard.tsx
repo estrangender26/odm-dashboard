@@ -543,7 +543,7 @@ export default function Dashboard() {
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
               <input
                 type="checkbox"
-                checked={selected.size > 0 && data?.groups.every((g) => g.tasks.every((t) => selected.has(t.id)))}
+                checked={selected.size > 0 && data?.groups?.every((g) => g.tasks?.every((t) => selected.has(t.id)))}
                 onChange={() => selected.size > 0 ? deselectAll() : selectAll()}
                 className="w-4 h-4"
               />
@@ -702,13 +702,13 @@ export default function Dashboard() {
                 <div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
                 <span>Loading data...</span>
               </div>
-            ) : !data?.groups.length ? (
+            ) : !data?.groups?.length ? (
               <div className="text-center py-20 text-gray-500">
                 <h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3>
                 <p className="text-sm">Try adjusting your search or filters.</p>
               </div>
             ) : (
-              data.groups.map((group) => {
+              data?.groups.map((group) => {
                 const isCollapsed = collapsedGroups.has(group.equipment.name);
                 return (
                   <div key={`mob-group-${group.equipment.id}`}>
