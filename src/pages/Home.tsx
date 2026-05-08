@@ -9,13 +9,13 @@ export default function Home() {
       {/* AMD Header */}
       <header style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', backgroundSize: '200% 200%', color: '#fff', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
             <img src="/amd-logo.jpeg" alt="AMD" style={{ width: 36, height: 36, background: '#fff', borderRadius: 8, padding: 3, flexShrink: 0, objectFit: 'contain' }} />
             <div className="min-w-0">
               <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
               <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Asset Maintenance Department</span>
             </div>
-          </div>
+          </Link>
           {isAuthenticated && user && (
             <div className="flex items-center gap-2 text-xs ml-auto flex-shrink-0">
               <img src={user.avatar || undefined} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />

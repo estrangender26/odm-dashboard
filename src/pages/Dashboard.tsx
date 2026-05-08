@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useMemo, Fragment } from "react";
+import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
 
@@ -396,13 +397,13 @@ export default function Dashboard() {
       {/* Header */}
       <header className="text-white sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center gap-3 no-underline text-white">
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden" style={{ background: '#fff' }}><img src="/amd-logo.jpeg" alt="AMD" className="w-full h-full object-contain p-0.5" /></div>
             <div>
               <h1 className="text-base sm:text-xl font-bold leading-tight">Maintenance Planning Post-PPP</h1>
               <p className="text-xs sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Asset Maintenance Department — Multi-User</p>
             </div>
-          </div>
+          </Link>
           <div className="flex items-center gap-2 sm:gap-3 ml-auto">
             <div className="flex gap-1.5 sm:gap-2">
               <div className="bg-white/10 border border-white/20 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-center">
