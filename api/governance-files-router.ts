@@ -14,16 +14,28 @@ export const governanceFilesRouter = createRouter({
       fileName: z.string(),
       fileType: z.string(),
       fileSize: z.number().optional(),
-      fileData: z.string().max(20_000_000, "Base64 file data exceeds 20MB limit"),
+      fileData: z.string().max(50_000_000, "File too large — max ~37MB"),
     }))
     .mutation(async ({ input, ctx }) => {
       const dbSlug = input.facilitySlug.toLowerCase();
-      console.log("[GOV API] upload received:", input.fileName, "facility:", dbSlug, "milestone:", input.milestoneId, "tocItem:", input.tocItem, "size:", input.fileData?.length, "by:", ctx.user?.name || "anonymous");
+      const tocLabel = input.tocItem || null;
+      const fileSizeMb = input.fileData ? (input.fileData.length / 1024 / 1024).toFixed(2) : 0;
+      console.log("[GOV API] upload received:", input.fileName, "| facility:", dbSlug, "| ms:", input.milestoneId, "| toc:", tocLabel, "| size:", fileSizeMb + "MB", "| by:", ctx.user?.name || "anonymous");
+
       try {
+        // Validate required fields before insert
+        if (!input.fileData || input.fileData.length < 50) {
+          console.error("[GOV API] upload rejected: fileData too small or empty");
+          throw new Error("File data is empty or too small — file may be corrupted");
+        }
+        if (!dbSlug) {
+          throw new Error("facilitySlug is required");
+        }
+
         const result = await db.insert(governanceFiles).values({
           facilitySlug: dbSlug,
           milestoneId: input.milestoneId,
-          tocItem: input.tocItem || null,
+          tocItem: tocLabel,
           fileName: input.fileName,
           fileType: input.fileType,
           fileSize: input.fileSize || null,
@@ -31,11 +43,17 @@ export const governanceFilesRouter = createRouter({
           uploadedBy: ctx.user?.name || "anonymous",
         }).returning({ id: governanceFiles.id });
 
-        console.log("[GOV API] upload saved, id:", result[0].id);
+        console.log("[GOV API] upload saved successfully, id:", result[0].id);
         return { success: true, id: result[0].id };
       } catch (err) {
-        console.error("[GOV API] upload DB error:", err);
-        throw new Error("Database insert failed: " + (err.message || err));
+        console.error("[GOV API] upload FAILED:", {
+          fileName: input.fileName,
+          errorType: err.constructor?.name,
+          errorMessage: err.message,
+          errorCode: err.code,
+          detail: err.detail,
+        });
+        throw new Error("Upload failed: " + (err.message || "Unknown database error"));
       }
     }),
 

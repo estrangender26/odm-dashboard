@@ -1268,34 +1268,48 @@ function hDlvUp(tnum,e){
   var facilitySlug=document.getElementById('fs').value;
   var dbSlug=facilitySlug.toLowerCase();
   var targetMid=owner||'__deliv';
-  var total=files.length, done=0;
+  var total=files.length, done=0, failed=0;
   pbShow('Uploading '+total+' file(s)', 'Reading files...');
   console.log('[GOV] hDlvUp:', total, 'files | facility:', facilitySlug, 'key:', key, 'mid:', targetMid);
 
   Array.from(files).forEach(function(f){
+    if(f.size > 35 * 1024 * 1024){
+      alert('File "'+f.name+'" is too large ('+(f.size/1024/1024).toFixed(1)+'MB). Max is 30MB.');
+      done++; failed++;
+      if(done===total){ pbHide(); fileInput.value=''; }
+      return;
+    }
     var r=new FileReader();
     r.onload=function(ev){
       var b64=ev.target.result;
       done++;
-      pbUpdate((done/total)*50, 'Uploading '+f.name+'...', done+' / '+total);
+      pbUpdate((done/total)*50, 'Uploading '+f.name+' ('+(b64.length/1024).toFixed(0)+'KB)...', done+' / '+total);
       govUploadFile(dbSlug, targetMid, key, f.name, f.type||'application/octet-stream', f.size, b64)
         .then(function(res){
-          console.log('[GOV] Uploaded:', f.name, res);
+          if(res && res.error){
+            var errMsg = (res.error.json && res.error.json.message) || 'Server error';
+            console.error('[GOV] Server error for', f.name, ':', errMsg);
+            alert('Upload failed for "'+f.name+'": '+errMsg);
+            failed++;
+          } else {
+            console.log('[GOV] Uploaded:', f.name, res);
+          }
           if(done===total){
-            pbUpdate(100, 'Refreshing...');
+            pbUpdate(100, failed>0 ? failed+' failed, refreshing...' : 'Refreshing...');
             setTimeout(function(){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }, 400);
           } else {
             pbUpdate(50 + (done/total)*50, 'Uploading...', done+' / '+total);
           }
         })
         .catch(function(err){
-          console.error('[GOV] FAILED:', f.name, err);
-          alert('Upload failed for "'+f.name+'": '+(err.message||'Server error'));
+          failed++;
+          console.error('[GOV] Network error:', f.name, err);
+          alert('Upload failed for "'+f.name+'": '+(err.message||'Network error'));
           if(done===total){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }
         });
     };
     r.onerror=function(){
-      done++;
+      done++; failed++;
       alert('Cannot read file: '+f.name);
       if(done===total){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }
     };
@@ -1368,16 +1382,31 @@ function hTocUp(mid,key,e){
   console.log('[GOV] hTocUp:', total, 'files | facility:', facilitySlug, 'mid:', mid, 'key:', key);
 
   Array.from(files).forEach(function(f, idx){
+    // Check file size before reading (max ~30MB before base64 inflation)
+    if(f.size > 35 * 1024 * 1024){
+      alert('File "'+f.name+'" is too large ('+(f.size/1024/1024).toFixed(1)+'MB). Max is 30MB.');
+      done++; failed++;
+      if(done===total){ pbHide(); fileInput.value=''; }
+      return;
+    }
     var r=new FileReader();
     r.onload=function(ev){
       var b64=ev.target.result;
       done++;
-      pbUpdate((done/total)*50, 'Uploading '+f.name+'...', done+' / '+total);
+      pbUpdate((done/total)*50, 'Uploading '+f.name+' ('+(b64.length/1024).toFixed(0)+'KB)...', done+' / '+total);
       govUploadFile(dbSlug, mid, key, f.name, f.type||'application/octet-stream', f.size, b64)
         .then(function(res){
-          console.log('[GOV] Uploaded:', f.name, res);
+          // Check for tRPC error response
+          if(res && res.error){
+            var errMsg = (res.error.json && res.error.json.message) || 'Server error';
+            console.error('[GOV] Server error for', f.name, ':', errMsg);
+            alert('Upload failed for "'+f.name+'": '+errMsg);
+            failed++;
+          } else {
+            console.log('[GOV] Uploaded:', f.name, res);
+          }
           if(done===total){
-            pbUpdate(100, 'Refreshing...');
+            pbUpdate(100, failed>0 ? failed+' failed, refreshing...' : 'Refreshing...');
             setTimeout(function(){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }, 400);
           } else {
             pbUpdate(50 + (done/total)*50, 'Uploading...', done+' / '+total);
@@ -1385,8 +1414,8 @@ function hTocUp(mid,key,e){
         })
         .catch(function(err){
           failed++;
-          console.error('[GOV] FAILED:', f.name, err);
-          alert('Upload failed for "'+f.name+'": '+(err.message||'Server error'));
+          console.error('[GOV] Network error:', f.name, err);
+          alert('Upload failed for "'+f.name+'": '+(err.message||'Network error'));
           if(done===total){
             pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug);
           }
