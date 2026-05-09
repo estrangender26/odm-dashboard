@@ -13,6 +13,36 @@ import path from "path";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
+/**
+ * Find the dist/public directory that contains index.html.
+ * Tries multiple strategies to work in both bundled (production) and
+ * dynamic-import (dev) contexts.
+ */
+function findDistPublic(): string | null {
+  const candidates: string[] = [];
+
+  // Strategy 1: process.cwd() — works when server is started from project root
+  candidates.push(path.resolve(process.cwd(), "dist/public"));
+
+  // Strategy 2: import.meta.dirname + ../dist/public — when bundled to dist/boot.js
+  candidates.push(path.resolve(import.meta.dirname, "../dist/public"));
+
+  // Strategy 3: import.meta.dirname + ../../dist/public — when loaded dynamically from api/lib/
+  candidates.push(path.resolve(import.meta.dirname, "../../dist/public"));
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "index.html"))) {
+      return candidate;
+    }
+  }
+
+  // None found — return the most likely one for error reporting
+  return candidates[0];
+}
+
+// Resolve dist path once at module load
+const distPath = findDistPublic();
+
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
@@ -32,21 +62,21 @@ app.get("/api/oauth/authorize", (c) => {
 
 // Serve original OM Governance Dashboard at /governance
 app.get("/governance", async (c) => {
-  const fs = await import("fs");
-  const path = await import("path");
-  const governancePath = path.resolve(import.meta.dirname, "../dist/public/governance.html");
+  const dp = distPath || findDistPublic();
+  if (!dp) return c.json({ error: "dist/public not found" }, 500);
+  const governancePath = path.join(dp, "governance.html");
   if (fs.existsSync(governancePath)) {
     const content = fs.readFileSync(governancePath, "utf-8");
     return c.html(content);
   }
-  return c.json({ error: "Governance dashboard not found" }, 404);
+  return c.json({ error: "Governance dashboard not found", path: governancePath }, 404);
 });
 
 // Serve Manila Water Operator-Driven Maintenance Dashboard at /mw-dashboard
 app.get("/mw-dashboard", async (c) => {
-  const fs = await import("fs");
-  const path = await import("path");
-  const mwPath = path.resolve(import.meta.dirname, "../dist/public/mw-dashboard.html");
+  const dp = distPath || findDistPublic();
+  if (!dp) return c.json({ error: "dist/public not found" }, 500);
+  const mwPath = path.join(dp, "mw-dashboard.html");
   if (fs.existsSync(mwPath)) {
     const content = fs.readFileSync(mwPath, "utf-8");
     c.header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
@@ -54,7 +84,7 @@ app.get("/mw-dashboard", async (c) => {
     c.header("Expires", "0");
     return c.html(content);
   }
-  return c.json({ error: "MW dashboard not found" }, 404);
+  return c.json({ error: "MW dashboard not found", path: mwPath }, 404);
 });
 
 // Health check — tests database connectivity and shows deployment info
@@ -104,25 +134,25 @@ if (env.isProduction) {
   const { serve } = await import("@hono/node-server");
   
   // Startup verification — log dist path before serving
-  const distPath = path.resolve(import.meta.dirname, "../dist/public");
+  const dp = distPath || findDistPublic();
   console.log("[BOOT] import.meta.dirname:", import.meta.dirname);
-  console.log("[BOOT] distPath:", distPath);
-  console.log("[BOOT] index.html exists:", fs.existsSync(path.join(distPath, "index.html")));
-  console.log("[BOOT] assets dir exists:", fs.existsSync(path.join(distPath, "assets")));
-  if (fs.existsSync(path.join(distPath, "assets"))) {
-    console.log("[BOOT] asset files:", fs.readdirSync(path.join(distPath, "assets")).join(", "));
+  console.log("[BOOT] process.cwd():", process.cwd());
+  console.log("[BOOT] Resolved distPath:", dp);
+  console.log("[BOOT] index.html exists:", dp ? fs.existsSync(path.join(dp, "index.html")) : false);
+  if (dp && fs.existsSync(path.join(dp, "assets"))) {
+    console.log("[BOOT] asset files:", fs.readdirSync(path.join(dp, "assets")).join(", "));
   }
 
   // Debug endpoint - MUST be before serveStaticFiles
   app.get("/_debug/static", (c) => {
     return c.json({
-      distPath,
+      distPath: dp,
       cwd: process.cwd(),
       dirname: import.meta.dirname,
-      indexExists: fs.existsSync(path.join(distPath, "index.html")),
-      assetsExists: fs.existsSync(path.join(distPath, "assets")),
-      assetsFiles: fs.existsSync(path.join(distPath, "assets"))
-        ? fs.readdirSync(path.join(distPath, "assets")).slice(0, 10)
+      indexExists: dp ? fs.existsSync(path.join(dp, "index.html")) : false,
+      assetsExists: dp ? fs.existsSync(path.join(dp, "assets")) : false,
+      assetsFiles: dp && fs.existsSync(path.join(dp, "assets"))
+        ? fs.readdirSync(path.join(dp, "assets")).slice(0, 10)
         : [],
     });
   });
@@ -133,7 +163,7 @@ if (env.isProduction) {
   const port = parseInt(process.env.PORT || "3000");
   serve({ fetch: app.fetch, port }, () => {
     console.log(`Server running on http://localhost:${port}/`);
-    console.log(`[BOOT] Static files served from: ${distPath}`);
+    console.log(`[BOOT] Static files served from: ${dp}`);
     console.log(`[BOOT] Health check: http://localhost:${port}/_health`);
     console.log(`[BOOT] Debug endpoint: http://localhost:${port}/_debug/static`);
   });

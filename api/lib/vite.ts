@@ -23,23 +23,64 @@ function getMime(p: string) {
   return MIME[path.extname(p).toLowerCase()] || "application/octet-stream";
 }
 
+/**
+ * Find the dist/public directory that contains index.html.
+ * Tries multiple strategies to work in both bundled (production) and
+ * dynamic-import (dev) contexts.
+ */
+function findDistPublic(): string | null {
+  const candidates: string[] = [];
+
+  // Strategy 1: process.cwd() — works when server is started from project root
+  candidates.push(path.resolve(process.cwd(), "dist/public"));
+
+  // Strategy 2: import.meta.dirname + ../dist/public — when bundled to dist/boot.js
+  candidates.push(path.resolve(import.meta.dirname, "../dist/public"));
+
+  // Strategy 3: import.meta.dirname + ../../dist/public — when loaded dynamically from api/lib/
+  candidates.push(path.resolve(import.meta.dirname, "../../dist/public"));
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "index.html"))) {
+      return candidate;
+    }
+  }
+
+  // None found — return the most likely one for error reporting
+  return candidates[0];
+}
+
 export function serveStaticFiles(app: App) {
-  // vite.ts is at api/lib/ — go up two levels to reach dist/public at project root
-  const distPath = path.resolve(import.meta.dirname, "../../dist/public");
+  const distPath = findDistPublic();
 
-  console.log("[VITE] distPath:", distPath);
-  console.log("[VITE] index exists:", fs.existsSync(path.join(distPath, "index.html")));
+  console.log("[VITE] Resolved distPath:", distPath);
+  console.log("[VITE] cwd:", process.cwd());
+  console.log("[VITE] import.meta.dirname:", import.meta.dirname);
 
-  if (!fs.existsSync(path.join(distPath, "index.html"))) {
-    app.get("/", (c) => c.json({ error: "Build not found", distPath }, 500));
+  if (!distPath || !fs.existsSync(path.join(distPath, "index.html"))) {
+    console.error("[VITE] ERROR: index.html not found in dist/public");
+    app.get("/*", (c) =>
+      c.json(
+        {
+          error: "Build not found",
+          distPath,
+          cwd: process.cwd(),
+          dirname: import.meta.dirname,
+          hint: "Run 'npm run build' to generate the frontend files",
+        },
+        500
+      )
+    );
     return;
   }
+
+  console.log("[VITE] index.html found. Serving static files from:", distPath);
 
   // Serve assets with exact path match
   app.get("/assets/*", (c) => {
     const pathname = new URL(c.req.url).pathname;
-    const filePath = path.join(distPath, pathname);
-    if (!filePath.startsWith(distPath)) return c.notFound();
+    const filePath = path.join(distPath!, pathname);
+    if (!filePath.startsWith(distPath!)) return c.notFound();
     try {
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const content = fs.readFileSync(filePath);
@@ -60,8 +101,8 @@ export function serveStaticFiles(app: App) {
     }
     // Only serve files with extensions
     if (!path.extname(pathname)) return c.notFound();
-    const filePath = path.join(distPath, pathname);
-    if (!filePath.startsWith(distPath)) return c.notFound();
+    const filePath = path.join(distPath!, pathname);
+    if (!filePath.startsWith(distPath!)) return c.notFound();
     try {
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const content = fs.readFileSync(filePath);
@@ -79,7 +120,7 @@ export function serveStaticFiles(app: App) {
     if (pathname.startsWith("/api/") || pathname.startsWith("/trpc") || pathname.startsWith("/_") || path.extname(pathname)) {
       return c.json({ error: "Not Found" }, 404);
     }
-    const content = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
+    const content = fs.readFileSync(path.join(distPath!, "index.html"), "utf-8");
     c.header("Cache-Control", "no-cache");
     return c.html(content);
   });
