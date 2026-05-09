@@ -1,41 +1,63 @@
 import type { Hono } from "hono";
 import type { HttpBindings } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import fs from "fs";
 import path from "path";
+import { stream } from "hono/streaming";
 
 type App = Hono<{ Bindings: HttpBindings }>;
 
-export function serveStaticFiles(app: App) {
-  // import.meta.dirname resolves to dist/ after build (next to boot.js)
-  // So ../dist/public from dist/ = dist/public (correct!)
-  const distPath = path.resolve(import.meta.dirname, "../dist/public");
+const MIME: Record<string, string> = {
+  ".html": "text/html", ".js": "application/javascript",
+  ".css": "text/css", ".json": "application/json", ".png": "image/png",
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml",
+  ".ico": "image/x-icon", ".woff2": "font/woff2", ".woff": "font/woff",
+};
 
-  console.log("[VITE] import.meta.dirname:", import.meta.dirname);
+function getMime(p: string) {
+  return MIME[path.extname(p).toLowerCase()] || "application/octet-stream";
+}
+
+export function serveStaticFiles(app: App) {
+  const distPath = path.resolve(import.meta.dirname, "../dist/public");
   console.log("[VITE] distPath:", distPath);
-  console.log("[VITE] cwd:", process.cwd());
-  console.log("[VITE] exists:", fs.existsSync(path.join(distPath, "index.html")));
 
   if (!fs.existsSync(path.join(distPath, "index.html"))) {
-    console.error("[VITE] CRITICAL: index.html not found at", distPath);
-    app.get("/", (c) => c.json({ error: "Frontend build not found", distPath }, 500));
+    app.get("/", (c) => c.json({ error: "Build not found", distPath }, 500));
     return;
   }
 
-  // serveStatic needs a relative path from cwd
-  const staticRoot = path.relative(process.cwd(), distPath) || ".";
-  console.log("[VITE] staticRoot:", staticRoot);
-
-  app.use("*", serveStatic({ root: staticRoot }));
-
-  // SPA fallback for React Router
-  app.notFound((c) => {
+  // Manual static file serving - more reliable than serveStatic
+  app.use("*", async (c, next) => {
     const pathname = new URL(c.req.url).pathname;
     if (pathname.startsWith("/api/") || pathname.startsWith("/trpc")) {
-      return c.json({ error: "Not Found" }, 404);
+      return next();
     }
-    const content = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
-    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
-    return c.html(content);
+
+    const filePath = path.join(distPath, pathname === "/" ? "index.html" : pathname);
+    
+    // Security: prevent directory traversal
+    if (!filePath.startsWith(distPath)) {
+      return next();
+    }
+
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const content = fs.readFileSync(filePath);
+      c.header("Content-Type", getMime(filePath));
+      if (filePath.endsWith(".html")) {
+        c.header("Cache-Control", "no-cache");
+      } else {
+        c.header("Cache-Control", "public, max-age=31536000, immutable");
+      }
+      return c.body(content);
+    }
+
+    // SPA fallback: serve index.html for unknown paths
+    if (!pathname.startsWith("/assets/")) {
+      const content = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
+      c.header("Cache-Control", "no-cache");
+      return c.html(content);
+    }
+
+    return next();
   });
 }
