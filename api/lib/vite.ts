@@ -21,6 +21,10 @@ export function serveStaticFiles(app: App) {
     }
     const indexPath = path.resolve(distPath, "index.html");
     const content = fs.readFileSync(indexPath, "utf-8");
+    // Prevent browser caching of index.html so new builds load fresh assets
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
+    c.header("Pragma", "no-cache");
+    c.header("Expires", "0");
     return c.html(content);
   });
 }
