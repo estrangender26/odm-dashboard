@@ -1,31 +1,23 @@
 /**
- * ProgramsEngineeringLogo — SVG flowing water logo component.
+ * ProgramsEngineeringLogo — SVG flowing water shimmer logo.
  *
- * On hover, the logo image is sliced into 7 horizontal bands that each
- * shift left/right at different speeds, creating a gentle water-wave
- * distortion. Two shimmer "current" overlays sweep diagonally for a
- * premium liquid-glass effect.
+ * The logo stays whole and sharp. On hover, a diagonal gradient
+ * sweeps across the surface like light catching flowing water.
  *
  * Usage:
  *   <ProgramsEngineeringLogo size={36} borderRadius={8} />
+ *   <ProgramsEngineeringLogo size={0} borderRadius={8} className="w-9 h-9" />
  */
 
 import React from "react";
 
 interface Props {
-  /** Width/height in px */
   size?: number;
-  /** Border radius in px */
   borderRadius?: number;
-  /** Additional CSS classes */
   className?: string;
-  /** Additional inline styles (merged with base) */
   style?: React.CSSProperties;
-  /** Alt text for accessibility */
   alt?: string;
 }
-
-const BANDS = 7;
 
 const ProgramsEngineeringLogo: React.FC<Props> = ({
   size = 36,
@@ -33,43 +25,25 @@ const ProgramsEngineeringLogo: React.FC<Props> = ({
   className = "",
   style,
   alt = "Programs",
-}) => {
-  const svgUrl = "/programs_engineering_vertical_logo.svg";
-
-  return (
-    <span
-      className={`pe-liquid-logo ${className}`.trim()}
-      style={{
-        ...(size > 0 ? { width: size, height: size } : {}),
-        borderRadius,
-        ...style,
-      }}
-      role="img"
-      aria-label={alt}
-    >
-      {/* Base logo — always visible and sharp */}
-      <img
-        className="pe-liquid-logo__base"
-        src={svgUrl}
-        alt={alt}
-        draggable={false}
-      />
-
-      {/* Wave band layer — 7 horizontal slices */}
-      <span className="pe-liquid-logo__wave-layer" aria-hidden="true">
-        {Array.from({ length: BANDS }, (_, i) => (
-          <span
-            key={i}
-            className={`pe-liquid-logo__band pe-liquid-logo__band--${i + 1}`}
-          />
-        ))}
-      </span>
-
-      {/* Shimmer current overlays */}
-      <span className="pe-liquid-logo__current current-a" aria-hidden="true" />
-      <span className="pe-liquid-logo__current current-b" aria-hidden="true" />
-    </span>
-  );
-};
+}) => (
+  <span
+    className={`pe-liquid-logo ${className}`.trim()}
+    style={{
+      width: size || undefined,
+      height: size || undefined,
+      borderRadius,
+      ...style,
+    }}
+    role="img"
+    aria-label={alt}
+  >
+    <img
+      className="pe-liquid-logo__base"
+      src="/programs_engineering_vertical_logo.svg"
+      alt={alt}
+      draggable={false}
+    />
+  </span>
+);
 
 export default ProgramsEngineeringLogo;
