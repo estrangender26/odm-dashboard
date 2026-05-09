@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 
 export default function Help() {
   return (
@@ -7,9 +8,7 @@ export default function Help() {
       <header style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', color: '#fff', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
-            <span className="mw-liquid-logo" style={{ borderRadius: 8, width: 36, height: 36, background: '#fff' }}>
-              <img src="/programs-logo.jpeg" alt="Programs" style={{ width: 36, height: 36, borderRadius: 8, padding: 3, flexShrink: 0, objectFit: 'contain' }} />
-            </span>
+            <ProgramsEngineeringLogo size={36} borderRadius={8} />
             <div>
               <h1 className="text-sm sm:text-[15px] font-bold" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
               <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Programs</span>

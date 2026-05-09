@@ -1,0 +1,148 @@
+.pe-liquid-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: #fff;
+  cursor: pointer;
+}
+
+.pe-liquid-logo__base {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform 280ms ease, filter 280ms ease;
+}
+
+.pe-liquid-logo__wave-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 260ms ease;
+}
+
+.pe-liquid-logo__band {
+  flex: 1 1 0;
+  background-image: url('/programs_engineering_vertical_logo.svg');
+  background-repeat: no-repeat;
+  background-size: 100% 700%;
+  will-change: transform, filter;
+  filter: saturate(1.08) contrast(1.02);
+}
+
+.pe-liquid-logo__band--1 { background-position: 0 0%; }
+.pe-liquid-logo__band--2 { background-position: 0 16.666%; }
+.pe-liquid-logo__band--3 { background-position: 0 33.333%; }
+.pe-liquid-logo__band--4 { background-position: 0 50%; }
+.pe-liquid-logo__band--5 { background-position: 0 66.666%; }
+.pe-liquid-logo__band--6 { background-position: 0 83.333%; }
+.pe-liquid-logo__band--7 { background-position: 0 100%; }
+
+.pe-liquid-logo__current {
+  position: absolute;
+  inset: 15%;
+  z-index: 3;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.pe-liquid-logo .current-a {
+  background: linear-gradient(115deg, transparent 20%, rgba(0, 174, 239, 0.13) 45%, rgba(255, 255, 255, 0.18) 52%, transparent 72%);
+  transform: translateX(-120%) rotate(-8deg);
+}
+
+.pe-liquid-logo .current-b {
+  background: linear-gradient(70deg, transparent 18%, rgba(55, 165, 145, 0.12) 46%, rgba(255, 255, 255, 0.14) 55%, transparent 76%);
+  transform: translateX(120%) rotate(8deg);
+}
+
+.pe-liquid-logo:hover .pe-liquid-logo__base,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__base {
+  transform: scale(1.015);
+  filter: drop-shadow(0 0 7px rgba(0, 174, 239, 0.32));
+}
+
+.pe-liquid-logo:hover .pe-liquid-logo__wave-layer,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__wave-layer {
+  opacity: 0.88;
+}
+
+.pe-liquid-logo:hover .pe-liquid-logo__band--1,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__band--1 { animation: peWave1 1.75s ease-in-out infinite; }
+.pe-liquid-logo:hover .pe-liquid-logo__band--2,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__band--2 { animation: peWave2 1.95s ease-in-out infinite 90ms; }
+.pe-liquid-logo:hover .pe-liquid-logo__band--3,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__band--3 { animation: peWave3 1.6s ease-in-out infinite 180ms; }
+.pe-liquid-logo:hover .pe-liquid-logo__band--4,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__band--4 { animation: peWave4 2.05s ease-in-out infinite 120ms; }
+.pe-liquid-logo:hover .pe-liquid-logo__band--5,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__band--5 { animation: peWave5 1.8s ease-in-out infinite 240ms; }
+.pe-liquid-logo:hover .pe-liquid-logo__band--6,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__band--6 { animation: peWave6 2.15s ease-in-out infinite 160ms; }
+.pe-liquid-logo:hover .pe-liquid-logo__band--7,
+.pe-liquid-logo:focus-visible .pe-liquid-logo__band--7 { animation: peWave7 1.7s ease-in-out infinite 280ms; }
+
+.pe-liquid-logo:hover .current-a,
+.pe-liquid-logo:focus-visible .current-a {
+  opacity: 1;
+  animation: peCurrentA 1.85s ease-in-out infinite;
+}
+
+.pe-liquid-logo:hover .current-b,
+.pe-liquid-logo:focus-visible .current-b {
+  opacity: 1;
+  animation: peCurrentB 2.2s ease-in-out infinite 180ms;
+}
+
+@keyframes peWave1 { 0%,100% { transform: translateX(0) translateY(0); } 50% { transform: translateX(2.5px) translateY(-0.4px); } }
+@keyframes peWave2 { 0%,100% { transform: translateX(0) translateY(0); } 50% { transform: translateX(-3.5px) translateY(0.6px); } }
+@keyframes peWave3 { 0%,100% { transform: translateX(0) translateY(0); } 50% { transform: translateX(4px) translateY(-0.5px); } }
+@keyframes peWave4 { 0%,100% { transform: translateX(0) translateY(0); } 50% { transform: translateX(-4.5px) translateY(0.5px); } }
+@keyframes peWave5 { 0%,100% { transform: translateX(0) translateY(0); } 50% { transform: translateX(3.5px) translateY(-0.6px); } }
+@keyframes peWave6 { 0%,100% { transform: translateX(0) translateY(0); } 50% { transform: translateX(-2.5px) translateY(0.4px); } }
+@keyframes peWave7 { 0%,100% { transform: translateX(0) translateY(0); } 50% { transform: translateX(2px) translateY(-0.3px); } }
+
+@keyframes peCurrentA {
+  0% { transform: translateX(-125%) rotate(-8deg); opacity: 0; }
+  30% { opacity: 0.55; }
+  65% { opacity: 0.2; }
+  100% { transform: translateX(130%) rotate(-8deg); opacity: 0; }
+}
+
+@keyframes peCurrentB {
+  0% { transform: translateX(125%) rotate(8deg); opacity: 0; }
+  35% { opacity: 0.42; }
+  75% { opacity: 0.16; }
+  100% { transform: translateX(-130%) rotate(8deg); opacity: 0; }
+}
+
+@media (hover: none) {
+  .pe-liquid-logo:active .pe-liquid-logo__wave-layer { opacity: 0.88; }
+  .pe-liquid-logo:active .pe-liquid-logo__band--1 { animation: peWave1 1.75s ease-in-out infinite; }
+  .pe-liquid-logo:active .pe-liquid-logo__band--2 { animation: peWave2 1.95s ease-in-out infinite 90ms; }
+  .pe-liquid-logo:active .pe-liquid-logo__band--3 { animation: peWave3 1.6s ease-in-out infinite 180ms; }
+  .pe-liquid-logo:active .pe-liquid-logo__band--4 { animation: peWave4 2.05s ease-in-out infinite 120ms; }
+  .pe-liquid-logo:active .pe-liquid-logo__band--5 { animation: peWave5 1.8s ease-in-out infinite 240ms; }
+  .pe-liquid-logo:active .pe-liquid-logo__band--6 { animation: peWave6 2.15s ease-in-out infinite 160ms; }
+  .pe-liquid-logo:active .pe-liquid-logo__band--7 { animation: peWave7 1.7s ease-in-out infinite 280ms; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pe-liquid-logo__wave-layer,
+  .pe-liquid-logo__current {
+    display: none !important;
+  }
+}
