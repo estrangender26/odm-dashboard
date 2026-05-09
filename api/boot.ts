@@ -100,6 +100,24 @@ export default app;
 
 if (env.isProduction) {
   const { serve } = await import("@hono/node-server");
+  
+  // Debug endpoint - MUST be before serveStaticFiles
+  app.get("/_debug/static", (c) => {
+    const fs = require("fs");
+    const path = require("path");
+    const distPath = path.resolve(import.meta.dirname, "../dist/public");
+    return c.json({
+      distPath,
+      cwd: process.cwd(),
+      dirname: import.meta.dirname,
+      indexExists: fs.existsSync(path.join(distPath, "index.html")),
+      assetsExists: fs.existsSync(path.join(distPath, "assets")),
+      assetsFiles: fs.existsSync(path.join(distPath, "assets"))
+        ? fs.readdirSync(path.join(distPath, "assets")).slice(0, 10)
+        : [],
+    });
+  });
+  
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);
 

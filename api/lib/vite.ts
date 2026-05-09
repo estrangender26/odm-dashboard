@@ -29,30 +29,16 @@ export function serveStaticFiles(app: App) {
   console.log("[VITE] distPath:", distPath);
   console.log("[VITE] index exists:", fs.existsSync(path.join(distPath, "index.html")));
 
-  // Debug endpoint
-  app.get("/_debug/static", (c) => {
-    return c.json({
-      distPath,
-      cwd: process.cwd(),
-      dirname: import.meta.dirname,
-      indexExists: fs.existsSync(path.join(distPath, "index.html")),
-      assetsExists: fs.existsSync(path.join(distPath, "assets")),
-      assetsFiles: fs.existsSync(path.join(distPath, "assets"))
-        ? fs.readdirSync(path.join(distPath, "assets")).slice(0, 10)
-        : [],
-    });
-  });
-
   if (!fs.existsSync(path.join(distPath, "index.html"))) {
     app.get("/", (c) => c.json({ error: "Build not found", distPath }, 500));
     return;
   }
 
-  // Static file serving
+  // Static files middleware
   app.use("*", async (c, next) => {
     const pathname = new URL(c.req.url).pathname;
 
-    // Skip API and internal routes
+    // Skip API, trpc, and internal routes
     if (pathname.startsWith("/api/") || pathname.startsWith("/trpc") || pathname.startsWith("/_")) {
       return next();
     }
@@ -78,7 +64,7 @@ export function serveStaticFiles(app: App) {
     return next();
   });
 
-  // SPA fallback
+  // SPA fallback for React Router
   app.notFound((c) => {
     const pathname = new URL(c.req.url).pathname;
     if (pathname.startsWith("/api/") || pathname.startsWith("/trpc") || pathname.startsWith("/_")) {
