@@ -1,16 +1,9 @@
 /**
- * Water Ripple Effect — ripples follow the mouse cursor like touching water
- * Only activates when hovering over a logo. Ripples spawn at cursor position.
+ * True Image Water Ripple — the actual logo image distorts like water
+ * Uses WebGL to displace image pixels with ripple waves that follow the cursor.
  */
 (function () {
   'use strict';
-
-  /* ---------- config ---------- */
-  const RIPPLE_SPEED   = 0.45;  // ring expansion speed (px/frame) — slow like real water
-  const RIPPLE_FADE    = 0.006; // opacity decay per frame — rings persist longer
-  const RIPPLE_MAX_R   = 0.50;  // max radius as fraction of min dimension
-  const COLOR          = [0, 102, 166]; // brand blue
-  const SPAWN_INTERVAL = 450;   // ms between spawns — spaced out like dripping water
 
   /* ---------- find logo images ---------- */
   function findLogos() {
@@ -23,93 +16,223 @@
     });
   }
 
+  /* ---------- vertex shader ---------- */
+  var VERT = `
+    attribute vec2 a_pos;
+    varying vec2 v_uv;
+    void main() {
+      v_uv = a_pos * 0.5 + 0.5;
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+    }
+  `;
+
+  /* ---------- fragment shader ---------- */
+  var FRAG = `
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform sampler2D u_img;
+    uniform vec2  u_res;
+    uniform float u_time;
+
+    // mouse trail: x,y,age for 12 points
+    uniform vec4  u_m0;  uniform vec4  u_m1;
+    uniform vec4  u_m2;  uniform vec4  u_m3;
+    uniform vec4  u_m4;  uniform vec4  u_m5;
+    uniform vec4  u_m6;  uniform vec4  u_m7;
+    uniform vec4  u_m8;  uniform vec4  u_m9;
+    uniform vec4  u_m10; uniform vec4  u_m11;
+
+    float wave(vec2 uv, vec4 m) {
+      if (m.z < 0.0) return 0.0;
+      float age = m.z;
+      float spd = 0.28;          // ripple propagation speed
+      float r = age * spd;       // current radius
+      float d = distance(uv, m.xy);
+      float w = d - r;
+      // sine wave packet that travels outward
+      float amp = 0.012 * exp(-age * 0.35) * smoothstep(0.0, 0.06, r);
+      // only show the leading/trailing wave edge
+      float ring = exp(-w * w * 1800.0) * sin(w * 40.0);
+      return amp * ring;
+    }
+
+    void main() {
+      vec2 uv = v_uv;
+      float dx = 0.0, dy = 0.0;
+
+      dx += wave(uv, u_m0);  dy += wave(uv, u_m0);
+      dx += wave(uv, u_m1);  dy += wave(uv, u_m1);
+      dx += wave(uv, u_m2);  dy += wave(uv, u_m2);
+      dx += wave(uv, u_m3);  dy += wave(uv, u_m3);
+      dx += wave(uv, u_m4);  dy += wave(uv, u_m4);
+      dx += wave(uv, u_m5);  dy += wave(uv, u_m5);
+      dx += wave(uv, u_m6);  dy += wave(uv, u_m6);
+      dx += wave(uv, u_m7);  dy += wave(uv, u_m7);
+      dx += wave(uv, u_m8);  dy += wave(uv, u_m8);
+      dx += wave(uv, u_m9);  dy += wave(uv, u_m9);
+      dx += wave(uv, u_m10); dy += wave(uv, u_m10);
+      dx += wave(uv, u_m11); dy += wave(uv, u_m11);
+
+      // sample image with displaced UV
+      vec4 col = texture2D(u_img, uv + vec2(dx, dy));
+      gl_FragColor = col;
+    }
+  `;
+
+  /* ---------- WebGL helpers ---------- */
+  function makeShader(gl, type, src) {
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return s;
+  }
+
+  function setupWebGL(canvas, img) {
+    var gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false });
+    if (!gl) return null;
+
+    var vs = makeShader(gl, gl.VERTEX_SHADER, VERT);
+    var fs = makeShader(gl, gl.FRAGMENT_SHADER, FRAG);
+    var prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    // fullscreen quad
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1,-1,  1,-1,  -1,1,
+      -1,1,   1,-1,   1,1
+    ]), gl.STATIC_DRAW);
+    var aPos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    // upload image as texture
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+
+    return {
+      gl: gl,
+      prog: prog,
+      locs: {
+        img:  gl.getUniformLocation(prog, 'u_img'),
+        res:  gl.getUniformLocation(prog, 'u_res'),
+        time: gl.getUniformLocation(prog, 'u_time'),
+        m: [
+          gl.getUniformLocation(prog, 'u_m0'),  gl.getUniformLocation(prog, 'u_m1'),
+          gl.getUniformLocation(prog, 'u_m2'),  gl.getUniformLocation(prog, 'u_m3'),
+          gl.getUniformLocation(prog, 'u_m4'),  gl.getUniformLocation(prog, 'u_m5'),
+          gl.getUniformLocation(prog, 'u_m6'),  gl.getUniformLocation(prog, 'u_m7'),
+          gl.getUniformLocation(prog, 'u_m8'),  gl.getUniformLocation(prog, 'u_m9'),
+          gl.getUniformLocation(prog, 'u_m10'), gl.getUniformLocation(prog, 'u_m11'),
+        ]
+      }
+    };
+  }
+
   /* ---------- setup a single logo ---------- */
   function setupLogo(img) {
     if (img.__rippleDone) return;
-    img.__rippleDone = true;
 
     function init() {
+      if (!img.complete || !img.naturalWidth) return;
+
       var parent = img.parentElement;
       if (!parent) return;
 
-      var cs = window.getComputedStyle(parent);
-      if (cs.position === 'static') parent.style.position = 'relative';
+      // ensure parent is positioned
+      var pcs = window.getComputedStyle(parent);
+      if (pcs.position === 'static') parent.style.position = 'relative';
 
+      // create canvas that overlays the image exactly
       var canvas = document.createElement('canvas');
       canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;border-radius:inherit;';
-      canvas.width  = img.offsetWidth  * window.devicePixelRatio;
-      canvas.height = img.offsetHeight * window.devicePixelRatio;
+
+      var w = img.offsetWidth;
+      var h = img.offsetHeight;
+      var dpr = Math.min(window.devicePixelRatio, 2);
+      canvas.width  = w * dpr;
+      canvas.height = h * dpr;
       parent.appendChild(canvas);
 
-      var ctx      = canvas.getContext('2d');
-      var ripples  = [];
-      var mx = 0, my = 0;           // mouse pos (CSS pixels, relative to logo)
-      var isHover  = false;
-      var animId   = null;
-      var lastSpawn = 0;
+      var webgl = setupWebGL(canvas, img);
+      if (!webgl) { canvas.remove(); return; }
+      var gl = webgl.gl;
+      var locs = webgl.locs;
 
-      function resize() {
+      // position canvas over image
+      function position() {
         var r = img.getBoundingClientRect();
         var pr = parent.getBoundingClientRect();
         canvas.style.width  = r.width  + 'px';
         canvas.style.height = r.height + 'px';
         canvas.style.top    = (r.top - pr.top) + 'px';
         canvas.style.left   = (r.left - pr.left) + 'px';
-        canvas.width  = r.width  * window.devicePixelRatio;
-        canvas.height = r.height * window.devicePixelRatio;
+        var cw = r.width  * dpr;
+        var ch = r.height * dpr;
+        if (canvas.width !== cw || canvas.height !== ch) {
+          canvas.width  = cw;
+          canvas.height = ch;
+          gl.viewport(0, 0, cw, ch);
+        }
       }
-      resize();
+      position();
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.uniform1i(locs.img, 0);
 
-      function spawnRipple(x, y) {
-        ripples.push({ x: x, y: y, r: 0, op: 0.35, lw: 1.4 });
+      // mouse trail — circular buffer of 12 points
+      var TRAIL = 12;
+      var trail = [];
+      var isHover = false;
+      var t0 = performance.now();
+      var animId = null;
+
+      function spawn(mx, my) {
+        trail.push({ x: mx, y: my, t: (performance.now() - t0) / 1000 });
+        if (trail.length > TRAIL) trail.shift();
       }
 
       function draw() {
-        var w = canvas.width;
-        var h = canvas.height;
-        ctx.clearRect(0, 0, w, h);
+        var now = (performance.now() - t0) / 1000;
+        position();
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.uniform2f(locs.res, canvas.width, canvas.height);
+        gl.uniform1f(locs.time, now);
 
-        var maxR = Math.min(w, h) * RIPPLE_MAX_R;
-
-        for (var i = ripples.length - 1; i >= 0; i--) {
-          var p = ripples[i];
-          p.r  += RIPPLE_SPEED * window.devicePixelRatio;
-          p.op -= RIPPLE_FADE;
-          p.lw -= 0.012;
-
-          if (p.op <= 0 || p.r > maxR) { ripples.splice(i, 1); continue; }
-
-          // main ring
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-          ctx.strokeStyle = 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',' + p.op.toFixed(3) + ')';
-          ctx.lineWidth   = Math.max(0.5, p.lw);
-          ctx.stroke();
-
-          // faint inner echo
-          if (p.r > 6) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.r * 0.5, 0, Math.PI * 2);
-            ctx.strokeStyle = 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',' + (p.op * 0.18).toFixed(3) + ')';
-            ctx.lineWidth   = Math.max(0.3, p.lw * 0.35);
-            ctx.stroke();
+        // upload trail to shader
+        for (var i = 0; i < TRAIL; i++) {
+          var pt = trail[trail.length - 1 - i];
+          if (pt) {
+            gl.uniform4f(locs.m[i], pt.x, pt.y, now - pt.t, 0.0);
+          } else {
+            gl.uniform4f(locs.m[i], 0.0, 0.0, -1.0, 0.0);
           }
         }
 
-        if (isHover) {
-          // very soft glow under cursor
-          var grad = ctx.createRadialGradient(mx, my, 0, mx, my, maxR * 0.5);
-          grad.addColorStop(0, 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',0.05)');
-          grad.addColorStop(1, 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',0)');
-          ctx.fillStyle = grad;
-          ctx.fillRect(0, 0, w, h);
-        }
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-        if (isHover || ripples.length > 0) {
-          animId = requestAnimationFrame(draw);
+        if (isHover || trail.length > 0) {
+          // keep animating until all ripples fade
+          var alive = false;
+          for (var j = 0; j < trail.length; j++) {
+            if (now - trail[j].t < 6.0) { alive = true; break; }
+          }
+          if (alive) {
+            animId = requestAnimationFrame(draw);
+          } else {
+            trail = [];
+            animId = null;
+          }
         } else {
           animId = null;
-          ctx.clearRect(0, 0, w, h);
         }
       }
 
@@ -117,7 +240,7 @@
         if (!animId) animId = requestAnimationFrame(draw);
       }
 
-      // ——— mouse events ———
+      // mouse events — convert to UV coordinates [0,1]
       img.addEventListener('mouseenter', function () {
         isHover = true;
         start();
@@ -125,22 +248,21 @@
 
       img.addEventListener('mousemove', function (e) {
         var r = img.getBoundingClientRect();
-        mx = (e.clientX - r.left) * window.devicePixelRatio;
-        my = (e.clientY - r.top ) * window.devicePixelRatio;
-
-        var now = Date.now();
-        if (now - lastSpawn > SPAWN_INTERVAL) {
-          lastSpawn = now;
-          spawnRipple(mx, my);
-          start();
-        }
+        var ux = (e.clientX - r.left) / r.width;
+        var uy = 1.0 - (e.clientY - r.top) / r.height; // flip Y for GL
+        spawn(ux, uy);
+        start();
       });
 
       img.addEventListener('mouseleave', function () {
         isHover = false;
       });
 
-      window.addEventListener('resize', resize);
+      window.addEventListener('resize', function () {
+        if (animId) position();
+      });
+
+      img.__rippleDone = true;
     }
 
     if (img.complete) {
@@ -161,7 +283,6 @@
     run();
   }
 
-  // Re-scan for dynamically added logos (SPA nav)
   setInterval(function () {
     findLogos().forEach(setupLogo);
   }, 2000);
