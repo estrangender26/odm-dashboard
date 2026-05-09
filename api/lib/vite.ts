@@ -7,17 +7,24 @@ import path from "path";
 type App = Hono<{ Bindings: HttpBindings }>;
 
 export function serveStaticFiles(app: App) {
-  const distPath = path.resolve(import.meta.dirname, "../dist/public");
+  // Resolve from this file's location: api/lib/ → ../../ = project root
+  const distPath = path.resolve(import.meta.dirname, "../../dist/public");
+  // Compute relative path from cwd for serveStatic
+  const staticRoot = path.relative(process.cwd(), distPath) || ".";
 
-  app.use("*", serveStatic({ root: "./dist/public" }));
+  app.use("*", serveStatic({ root: staticRoot }));
 
   app.notFound((c) => {
     const accept = c.req.header("accept") ?? "";
     if (!accept.includes("text/html")) {
       return c.json({ error: "Not Found" }, 404);
     }
-    const indexPath = path.resolve(distPath, "index.html");
-    const content = fs.readFileSync(indexPath, "utf-8");
-    return c.html(content);
+    try {
+      const indexPath = path.resolve(distPath, "index.html");
+      const content = fs.readFileSync(indexPath, "utf-8");
+      return c.html(content);
+    } catch (err) {
+      return c.json({ error: "index.html not found", distPath, cwd: process.cwd() }, 500);
+    }
   });
 }
