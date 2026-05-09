@@ -90,11 +90,6 @@ export default function Dashboard() {
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const expandAll = useCallback(() => setCollapsedGroups(new Set()), []);
-  const collapseAll = useCallback(() => {
-    if (!data?.groups) return;
-    setCollapsedGroups(new Set(data.groups.map(g => g.equipmentType)));
-  }, [data]);
 
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -146,7 +141,6 @@ export default function Dashboard() {
 
   const importMutation = trpc.tasks.import.useMutation({
     onSuccess: () => {
-      // Invalidate queries to refresh data after import
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
     },
@@ -160,6 +154,13 @@ export default function Dashboard() {
     { dataset: activeTab, selectedIds: selected.size > 0 ? Array.from(selected) : undefined },
     { enabled: false }
   );
+
+  // Tab label
+  const tabLabel = activeTab === "htt" ? "HTT STP" : "Aglipay STP";
+  const totalTasks = data?.totalTasks ?? 0;
+  const totalGroups = data?.groups?.length ?? 0;
+
+  // ====== ALL CALLBACKS DEFINED AFTER data IS AVAILABLE ======
 
   // Toggle group collapse
   const toggleGroup = useCallback((name: string) => {
@@ -182,15 +183,22 @@ export default function Dashboard() {
   }, []);
 
   const selectAll = useCallback(() => {
-    if (!data) return;
+    if (!data?.groups) return;
     const allIds = new Set<number>();
-    data.groups.forEach((g) => g.tasks.forEach((t) => allIds.add(t.id)));
+    data.groups.forEach((g) => g.tasks?.forEach((t) => allIds.add(t.id)));
     setSelected(allIds);
   }, [data]);
 
   const deselectAll = useCallback(() => {
     setSelected(new Set());
   }, []);
+
+  const expandAll = useCallback(() => setCollapsedGroups(new Set()), []);
+
+  const collapseAll = useCallback(() => {
+    if (!data?.groups) return;
+    setCollapsedGroups(new Set(data.groups.map((g) => g.equipment?.name).filter(Boolean) as string[]));
+  }, [data]);
 
   // Edit handlers
   const startEdit = useCallback(() => {
@@ -219,10 +227,7 @@ export default function Dashboard() {
           setEditMode(false);
           setPending({});
         },
-        onError: () => {
-          // Stay in edit mode so user can retry, but clear loading state
-          // The global onError handler already alerted the user
-        },
+        onError: () => {},
       });
     } else {
       setEditMode(false);
@@ -274,7 +279,7 @@ export default function Dashboard() {
     }
   }, [utils.tasks.export, activeTab, selected]);
 
-  // Import — supports .csv, .xlsx, .xlsm, .xls
+  // Import
   const handleImport = useCallback((file: File) => {
     const isExcel = /\.(xlsx|xlsm|xls)$/i.test(file.name);
     setImportProgress({ show: true, text: 'Reading file...', sub: file.name, pct: 10 });
@@ -283,22 +288,18 @@ export default function Dashboard() {
       setImportProgress({ show: true, text: 'Parsing data...', sub: 'Extracting rows', pct: 30 });
       let sheetRows: string[][] = [];
       if (isExcel) {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: 'array', cellDates: true });
-        const sheetName = wb.SheetNames[0];
-        const sheet = wb.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as string[][];
-        sheetRows = json;
+        const raw = e.target?.result as ArrayBuffer;
+        const wb = XLSX.read(raw, { type: 'array', cellDates: true });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        sheetRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as string[][];
       } else {
-        const rawText = e.target?.result as string;
-        const text = rawText.charCodeAt(0) === 0xfeff ? rawText.substring(1) : rawText;
+        const raw = e.target?.result as string;
+        const text = raw.charCodeAt(0) === 0xfeff ? raw.substring(1) : raw;
         sheetRows = parseCsv(text);
       }
       if (sheetRows.length < 2) { setImportProgress(null); alert("File is empty or invalid"); return; }
 
-      const headers = sheetRows[0].map(h => String(h).trim());
-
-      // Case-insensitive header matching
+      const headers = sheetRows[0].map((h: string) => String(h).trim());
       const findHeader = (names: string[]): number => {
         for (let i = 0; i < headers.length; i++) {
           const h = headers[i].toLowerCase().replace(/\s+/g, '');
@@ -310,76 +311,56 @@ export default function Dashboard() {
       };
 
       const eqIdx = findHeader(["Equipment Type", "Equipment", "equipment_type"]);
-      const taskIdx = findHeader(["Task Description", "Task Description", "task_description", "Task List", "tasklist"]);
+      const taskIdx = findHeader(["Task Description", "task_description", "Task List", "tasklist"]);
       const opsIdx = findHeader(["Operations", "Ops"]);
       const amdIdx = findHeader(["AMD"]);
       const ardIdx = findHeader(["ARD"]);
 
       if (eqIdx < 0 || taskIdx < 0) {
         setImportProgress(null);
-        alert("Missing required columns.\n\nFound: " + headers.join(", ") + "\n\nNeed: 'Equipment Type' and 'Task Description' (case-insensitive).");
+        alert("Missing required columns.\n\nFound: " + headers.join(", ") + "\n\nNeed: 'Equipment Type' and 'Task Description'.");
         return;
       }
 
       const updates = sheetRows.slice(1).map((row) => ({
         equipmentType: String(row[eqIdx] || "").trim(),
         taskList: String(row[taskIdx] || "").trim(),
-        operations: opsIdx >= 0 ? (String(row[opsIdx] || "").trim()) : undefined,
-        amd: amdIdx >= 0 ? (String(row[amdIdx] || "").trim()) : undefined,
-        ard: ardIdx >= 0 ? (String(row[ardIdx] || "").trim()) : undefined,
+        operations: opsIdx >= 0 ? String(row[opsIdx] || "").trim() : undefined,
+        amd: amdIdx >= 0 ? String(row[amdIdx] || "").trim() : undefined,
+        ard: ardIdx >= 0 ? String(row[ardIdx] || "").trim() : undefined,
       })).filter((u) => u.equipmentType && u.taskList);
 
       if (updates.length === 0) {
         setImportProgress(null);
-        alert("No valid data rows found. Make sure Equipment Type and Task Description are not empty.");
+        alert("No valid data rows found.");
         return;
       }
 
-      const proceed = confirm(
-        `Import preview:\n` +
-        `• File: ${file.name}\n` +
-        `• Rows to import: ${updates.length}\n\n` +
-        `This will UPDATE existing tasks matching Equipment Type + Task Description.\n\n` +
-        `⚠️ Blank cells will NOT overwrite existing values.\n` +
-        `Only non-empty fields will be updated.\n\n` +
-        `Continue?`
-      );
-      if (!proceed) { setImportProgress(null); return; }
+      if (!confirm(`Import ${updates.length} rows?\n\nBlank cells will NOT overwrite existing data.`)) {
+        setImportProgress(null); return;
+      }
 
       setImportProgress({ show: true, text: `Uploading ${updates.length} rows...`, sub: 'Sending to server', pct: 60 });
       importMutation.mutate(updates, {
         onSuccess: (res) => {
-          setImportProgress({ show: true, text: 'Import complete!', sub: 'Refreshing data...', pct: 100 });
+          setImportProgress({ show: true, text: 'Import complete!', sub: 'Refreshing...', pct: 100 });
           setTimeout(() => setImportProgress(null), 800);
           const updated = res?.updated ?? 0;
           const total = res?.total ?? updates.length;
-          const skipped = total - updated;
-          let msg = `Import complete!\n\n• ${updated} rows updated\n• ${skipped} rows not found in database`;
-          if (skipped > 0) {
-            msg += "\n\nTip: Check that Equipment Type and Task Description match exactly.";
-          }
-          alert(msg);
+          alert(`Import complete!\n\n• ${updated} rows updated\n• ${total - updated} rows not found`);
         },
         onError: (err) => {
           setImportProgress(null);
-          alert("Import failed: " + (err.message || "Unknown server error"));
+          alert("Import failed: " + (err.message || "Server error"));
         },
       });
     };
-    reader.onerror = () => { setImportProgress(null); alert("Failed to read file. Please try again."); };
-    if (isExcel) {
-      reader.readAsArrayBuffer(file);
-    } else {
-      reader.readAsText(file);
-    }
+    reader.onerror = () => { setImportProgress(null); alert("Failed to read file."); };
+    if (isExcel) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
   }, [importMutation]);
 
-  // Auth gate removed — dashboard is open to all users
-
-  const tabLabel = activeTab === "htt" ? "HTT STP" : "Aglipay STP";
-  const totalTasks = data?.totalTasks ?? 0;
-  const totalGroups = data?.groups.length ?? 0;
-
+  // ====== RENDER ======
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Import Progress Overlay */}
@@ -389,10 +370,7 @@ export default function Dashboard() {
             <div className="text-sm font-semibold text-gray-700 mb-1">{importProgress.text}</div>
             <div className="text-xs text-gray-500 mb-3">{importProgress.sub}</div>
             <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-300 ease-out"
-                style={{ width: `${importProgress.pct}%`, background: 'linear-gradient(90deg, #2563eb, #34d399)' }}
-              />
+              <div className="h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${importProgress.pct}%`, background: 'linear-gradient(90deg, #2563eb, #34d399)' }} />
             </div>
             <div className="text-xs text-gray-400 mt-2 text-right">{importProgress.pct}%</div>
           </div>
@@ -402,17 +380,16 @@ export default function Dashboard() {
       {/* Header */}
       <header className="text-white sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-3 sm:py-4">
-          {/* Desktop: side-by-side | Mobile: stacked */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
-            {/* Left: Logo + Title */}
             <Link to="/" className="flex items-center gap-2 sm:gap-3 no-underline text-white min-w-0">
-              <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: '#fff' }}><img src="/programs-logo.jpeg" alt="Programs" className="w-full h-full object-contain p-0.5" /></div>
+              <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: '#fff' }}>
+                <img src="/programs-logo.jpeg" alt="Programs" className="w-full h-full object-contain p-0.5" />
+              </div>
               <div className="min-w-0">
                 <h1 className="text-sm sm:text-xl font-bold leading-tight truncate">Maintenance Planning (Post-PPP)</h1>
-                <p className="text-[10px] sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Programs — Multi-User</p>
+                <p className="text-[10px] sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Programs</p>
               </div>
             </Link>
-            {/* Right: Stats + Buttons */}
             <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
               <div className="flex gap-1.5 sm:gap-2">
                 <div className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 sm:px-3 sm:py-2 text-center">
@@ -428,37 +405,21 @@ export default function Dashboard() {
                   <div className="text-[0.6rem] sm:text-[0.65rem] uppercase opacity-70">Equip.</div>
                 </div>
               </div>
-              <a href="/" className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition">←</a>
+              <a href="/" className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition">&#8592;</a>
               <button onClick={() => { setIsRefreshing(true); utils.tasks.list.invalidate().then(() => { utils.tasks.filters.invalidate().then(() => { setIsRefreshing(false); setLastSync(new Date()); }); }); }} className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition" title="Refresh data">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={isRefreshing ? "animate-spin" : ""}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
               </button>
-              {lastSync && (
-                <span className="text-[10px] opacity-50 whitespace-nowrap hidden md:inline">
-                  Synced {Math.round((Date.now() - lastSync.getTime()) / 1000)}s ago
-                </span>
-              )}
+              <Link to="/help" className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition">Help</Link>
             </div>
           </div>
         </div>
         {/* Tabs */}
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab("htt")}
-            className={`px-3 sm:px-5 py-2.5 sm:py-3 rounded-t-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 transition whitespace-nowrap flex-shrink-0 ${
-              activeTab === "htt" ? "text-white" : "text-white/60 hover:text-white/85 hover:bg-white/5"
-            }`}
-            style={activeTab === "htt" ? { background: '#0066A6' } : {}}
-          >
-            📋 <span className="hidden sm:inline">HTT STP</span><span className="sm:hidden">HTT</span> <span className="bg-white/20 text-[0.65rem] px-1.5 sm:px-2 py-0.5 rounded-full">976</span>
+          <button onClick={() => setActiveTab("htt")} className={`px-3 sm:px-5 py-2.5 sm:py-3 rounded-t-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 transition whitespace-nowrap flex-shrink-0 ${activeTab === "htt" ? "text-white" : "text-white/60 hover:text-white/85 hover:bg-white/5"}`} style={activeTab === "htt" ? { background: '#0066A6' } : {}}>
+            &#128203; <span className="hidden sm:inline">HTT STP</span><span className="sm:hidden">HTT</span> <span className="bg-white/20 text-[0.65rem] px-1.5 sm:px-2 py-0.5 rounded-full">976</span>
           </button>
-          <button
-            onClick={() => setActiveTab("aglipay")}
-            className={`px-3 sm:px-5 py-2.5 sm:py-3 rounded-t-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 transition whitespace-nowrap flex-shrink-0 ${
-              activeTab === "aglipay" ? "text-white" : "text-white/60 hover:text-white/85 hover:bg-white/5"
-            }`}
-            style={activeTab === "aglipay" ? { background: '#0066A6' } : {}}
-          >
-            🔧 <span className="hidden sm:inline">Aglipay STP</span><span className="sm:hidden">Aglipay</span> <span className="bg-white/20 text-[0.65rem] px-1.5 sm:px-2 py-0.5 rounded-full">401</span>
+          <button onClick={() => setActiveTab("aglipay")} className={`px-3 sm:px-5 py-2.5 sm:py-3 rounded-t-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 transition whitespace-nowrap flex-shrink-0 ${activeTab === "aglipay" ? "text-white" : "text-white/60 hover:text-white/85 hover:bg-white/5"}`} style={activeTab === "aglipay" ? { background: '#0066A6' } : {}}>
+            &#128295; <span className="hidden sm:inline">Aglipay STP</span><span className="sm:hidden">Aglipay</span> <span className="bg-white/20 text-[0.65rem] px-1.5 sm:px-2 py-0.5 rounded-full">401</span>
           </button>
         </div>
       </header>
@@ -468,58 +429,30 @@ export default function Dashboard() {
         {/* Edit banner */}
         {editMode && (
           <div className="mb-3 px-4 py-3 bg-yellow-50 border border-yellow-400 rounded-lg text-sm font-semibold text-yellow-800 flex items-center gap-2">
-            ✏️ Edit mode: changes are not saved yet. Click <strong>Save</strong> to commit or <strong>Cancel</strong> to discard.
+            &#9999; Edit mode: changes are not saved yet. Click <strong>Save</strong> to commit or <strong>Cancel</strong> to discard.
           </div>
         )}
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row flex-wrap gap-2 mb-3 items-stretch sm:items-center">
           <div className="relative flex-1 min-w-0 sm:min-w-[220px] sm:max-w-[360px]">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-            <input
-              type="text"
-              placeholder="Search tasks or equipment..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-            />
-            {search && (
-              <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                ✕
-              </button>
-            )}
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">&#128269;</span>
+            <input type="text" placeholder="Search tasks or equipment..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none" />
+            {search && <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">&#10005;</button>}
           </div>
           <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
-            <select
-              value={equipFilter}
-              onChange={(e) => setEquipFilter(e.target.value)}
-              className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]"
-            >
+            <select value={equipFilter} onChange={(e) => setEquipFilter(e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]">
               <option value="">All Equipment</option>
-              {filters?.equipment.map((e) => (
-                <option key={e} value={e}>{e}</option>
-              ))}
+              {filters?.equipment?.map((e) => (<option key={e} value={e}>{e}</option>))}
             </select>
-            <select
-              value={freqFilter}
-              onChange={(e) => setFreqFilter(e.target.value)}
-              className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]"
-            >
+            <select value={freqFilter} onChange={(e) => setFreqFilter(e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]">
               <option value="">All Freq.</option>
-              {filters?.frequencies.map((f) => (
-                <option key={f} value={f}>{f}</option>
-              ))}
+              {filters?.frequencies?.map((f) => (<option key={f} value={f}>{f}</option>))}
             </select>
             {activeTab === "aglipay" && (
-              <select
-                value={personFilter}
-                onChange={(e) => setPersonFilter(e.target.value)}
-                className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]"
-              >
+              <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]">
                 <option value="">All Personnel</option>
-                {filters?.personnel.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
+                {filters?.personnel?.map((p) => (<option key={p} value={p}>{p}</option>))}
               </select>
             )}
           </div>
@@ -528,7 +461,7 @@ export default function Dashboard() {
             <button onClick={collapseAll} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 font-medium">Collapse</button>
           </div>
           <div className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">
-            {isDataLoading ? "Loading..." : <><strong>{totalGroups}</strong> groups · <strong>{totalTasks}</strong> tasks</>}
+            {isDataLoading ? "Loading..." : <><strong>{totalGroups}</strong> groups &#183; <strong>{totalTasks}</strong> tasks</>}
           </div>
         </div>
 
@@ -536,12 +469,7 @@ export default function Dashboard() {
         <div className="flex flex-col gap-2 mb-4 p-2 sm:p-3 bg-white border border-gray-200 rounded-lg">
           <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selected.size > 0 && data?.groups.every((g) => g.tasks.every((t) => selected.has(t.id)))}
-                onChange={() => selected.size > 0 ? deselectAll() : selectAll()}
-                className="w-4 h-4"
-              />
+              <input type="checkbox" checked={selected.size > 0 && data?.groups?.every((g) => g.tasks?.every((t) => selected.has(t.id)))} onChange={() => selected.size > 0 ? deselectAll() : selectAll()} className="w-4 h-4" />
               <span className="hidden sm:inline">Select All</span>
               <span className="sm:hidden">All</span>
             </label>
@@ -549,15 +477,15 @@ export default function Dashboard() {
             <div className="flex gap-1.5 ml-auto">
               {!editMode ? (
                 <button onClick={startEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1">
-                  <span>✏️</span><span className="hidden sm:inline">Edit</span>
+                  <span>&#9999;</span><span className="hidden sm:inline">Edit</span>
                 </button>
               ) : (
                 <>
                   <button onClick={saveEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-green-700 text-white rounded-lg text-xs font-semibold hover:bg-green-800 flex items-center gap-1">
-                    <span>💾</span><span className="hidden sm:inline">Save</span>
+                    <span>&#128190;</span><span className="hidden sm:inline">Save</span>
                   </button>
                   <button onClick={cancelEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-red-100 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-200 flex items-center gap-1">
-                    <span>✕</span><span className="hidden sm:inline">Cancel</span>
+                    <span>&#10005;</span><span className="hidden sm:inline">Cancel</span>
                   </button>
                 </>
               )}
@@ -565,23 +493,14 @@ export default function Dashboard() {
           </div>
           <div className="flex gap-1.5 flex-wrap">
             <button onClick={() => handleExport(true)} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
-              <span>📄</span><span className="hidden sm:inline">Export Selected</span><span className="sm:hidden">Export</span>
+              <span>&#128196;</span><span className="hidden sm:inline">Export Selected</span><span className="sm:hidden">Export</span>
             </button>
             <button onClick={() => handleExport(false)} className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 text-white hover:opacity-90" style={{ background: '#0066A6' }}>
-              <span>⬇️</span><span className="hidden sm:inline">Export All</span><span className="sm:hidden">All</span>
+              <span>&#11015;</span><span className="hidden sm:inline">Export All</span><span className="sm:hidden">All</span>
             </button>
             <label className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1 cursor-pointer">
-              <span>📂</span><span className="hidden sm:inline">Import</span><span className="sm:hidden">Import</span>
-              <input
-                type="file"
-                accept=".csv,.xlsx,.xlsm,.xls"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleImport(file);
-                  e.target.value = "";
-                }}
-              />
+              <span>&#128194;</span><span className="hidden sm:inline">Import</span><span className="sm:hidden">Import</span>
+              <input type="file" accept=".csv,.xlsx,.xlsm,.xls" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImport(file); e.target.value = ""; }} />
             </label>
           </div>
         </div>
@@ -605,86 +524,56 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {isDataLoading ? (
-                  <tr>
-                    <td colSpan={8} className="text-center py-20 text-gray-500">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-                        <span>Loading data...</span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : !data?.groups.length ? (
-                  <tr>
-                    <td colSpan={8} className="text-center py-20 text-gray-500">
-                      <h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3>
-                      <p className="text-sm">Try adjusting your search or filters.</p>
-                    </td>
-                  </tr>
+                  <tr><td colSpan={8} className="text-center py-20 text-gray-500"><div className="flex flex-col items-center gap-3"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading data...</span></div></td></tr>
+                ) : !data?.groups?.length ? (
+                  <tr><td colSpan={8} className="text-center py-20 text-gray-500"><h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3><p className="text-sm">Try adjusting your search or filters.</p></td></tr>
                 ) : (
-                  data.groups.map((group) => {
-                    const isCollapsed = collapsedGroups.has(group.equipment.name);
+                  data?.groups?.map((group) => {
+                    const isCollapsed = collapsedGroups.has(group?.equipment?.name ?? "");
                     return (
-                      <Fragment key={`dt-group-${group.equipment.id}`}>
-                        <tr
-                          className="bg-gray-50 cursor-pointer hover:bg-gray-100 transition"
-                          onClick={() => toggleGroup(group.equipment.name)}
-                        >
+                      <Fragment key={`dt-group-${group?.equipment?.id ?? "unknown"}`}>
+                        <tr className="bg-gray-50 cursor-pointer hover:bg-gray-100 transition" onClick={() => toggleGroup(group?.equipment?.name ?? "")}>
                           <td colSpan={8} className="px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200">
                             <div className="flex items-center gap-3">
-                              <span className={`text-gray-500 text-xs transition-transform ${isCollapsed ? "-rotate-90" : ""}`}>▼</span>
-                              <span className="w-8 h-8 bg-blue-50 text-blue-700 rounded-lg flex items-center justify-center text-xs font-bold">
-                                {group.equipment.initials}
-                              </span>
-                              <span className="font-bold text-gray-800 text-sm">{group.equipment.name}</span>
-                              <span className="text-xs text-gray-500">{group.tasks.length} task{group.tasks.length !== 1 ? "s" : ""}</span>
+                              <span className={`text-gray-500 text-xs transition-transform ${isCollapsed ? "-rotate-90" : ""}`}>&#9660;</span>
+                              <span className="w-8 h-8 bg-blue-50 text-blue-700 rounded-lg flex items-center justify-center text-xs font-bold">{group?.equipment?.initials ?? "?"}</span>
+                              <span className="font-bold text-gray-800 text-sm">{group?.equipment?.name ?? "Unknown"}</span>
+                              <span className="text-xs text-gray-500">{(group?.tasks?.length ?? 0)} task{(group?.tasks?.length ?? 0) !== 1 ? "s" : ""}</span>
                             </div>
                           </td>
                         </tr>
-                        {!isCollapsed &&
-                          group.tasks.map((task) => {
-                            const isSel = selected.has(task.id);
-                            const pend = pending[task.id];
-                            const opsValue = pend?.operations !== undefined ? pend.operations : (task.operations || "");
-                            const amdValue = pend?.amd !== undefined ? pend.amd : (task.amd || "");
-                            const ardValue = pend?.ard !== undefined ? pend.ard : (task.ard || "");
-                            const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined);
-                            return (
-                              <tr
-                                key={`dt-task-${task.id}`}
-                                className={`transition ${isSel ? "bg-blue-50" : ""} ${isPending ? "bg-yellow-50/50" : ""} hover:bg-gray-50`}
-                              >
-                                <td className="px-3 py-2 border-b border-gray-100">
-                                  <input type="checkbox" checked={isSel} onChange={() => toggleSelect(task.id)} className="w-4 h-4" />
-                                </td>
-                                <td className="px-3 py-2 border-b border-gray-100 font-semibold text-gray-800">{group.equipment.name}</td>
-                                <td className="px-3 py-2 border-b border-gray-100 text-gray-700">{task.taskList}</td>
-                                <td className="px-3 py-2 border-b border-gray-100">
-                                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getFreqBadgeClass(task.frequency)}`}>{task.frequency || "-"}</span>
-                                </td>
-                                <td className="px-3 py-2 border-b border-gray-100">
-                                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getPersBadgeClass(task.responsiblePersonnel || "")}`}>{task.responsiblePersonnel || "-"}</span>
-                                </td>
-                                <td className="px-3 py-2 border-b border-gray-100">
-                                  <select disabled={!editMode} value={opsValue} onChange={(e) => onDropdownChange(task.id, "operations", e.target.value)}
-                                    className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                    {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
-                                  </select>
-                                </td>
-                                <td className="px-3 py-2 border-b border-gray-100">
-                                  <select disabled={!editMode} value={amdValue} onChange={(e) => onDropdownChange(task.id, "amd", e.target.value)}
-                                    className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                    {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
-                                  </select>
-                                </td>
-                                <td className="px-3 py-2 border-b border-gray-100">
-                                  <select disabled={!editMode} value={ardValue} onChange={(e) => onDropdownChange(task.id, "ard", e.target.value)}
-                                    className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                    {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
-                                  </select>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                        {!isCollapsed && group?.tasks?.map((task) => {
+                          const isSel = selected.has(task?.id);
+                          const pend = task?.id ? pending[task.id] : undefined;
+                          const opsValue = pend?.operations !== undefined ? pend.operations : (task?.operations || "");
+                          const amdValue = pend?.amd !== undefined ? pend.amd : (task?.amd || "");
+                          const ardValue = pend?.ard !== undefined ? pend.ard : (task?.ard || "");
+                          const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined);
+                          return (
+                            <tr key={`dt-task-${task?.id ?? "unknown"}`} className={`transition ${isSel ? "bg-blue-50" : ""} ${isPending ? "bg-yellow-50/50" : ""} hover:bg-gray-50`}>
+                              <td className="px-3 py-2 border-b border-gray-100"><input type="checkbox" checked={isSel} onChange={() => task?.id && toggleSelect(task.id)} className="w-4 h-4" /></td>
+                              <td className="px-3 py-2 border-b border-gray-100 font-semibold text-gray-800">{group?.equipment?.name ?? "-"}</td>
+                              <td className="px-3 py-2 border-b border-gray-100 text-gray-700">{task?.taskList ?? "-"}</td>
+                              <td className="px-3 py-2 border-b border-gray-100"><span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getFreqBadgeClass(task?.frequency ?? "")}`}>{task?.frequency || "-"}</span></td>
+                              <td className="px-3 py-2 border-b border-gray-100"><span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getPersBadgeClass(task?.responsiblePersonnel ?? "")}`}>{task?.responsiblePersonnel || "-"}</span></td>
+                              <td className="px-3 py-2 border-b border-gray-100">
+                                <select disabled={!editMode} value={opsValue} onChange={(e) => task?.id && onDropdownChange(task.id, "operations", e.target.value)} className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task?.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
+                                </select>
+                              </td>
+                              <td className="px-3 py-2 border-b border-gray-100">
+                                <select disabled={!editMode} value={amdValue} onChange={(e) => task?.id && onDropdownChange(task.id, "amd", e.target.value)} className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task?.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
+                                </select>
+                              </td>
+                              <td className="px-3 py-2 border-b border-gray-100">
+                                <select disabled={!editMode} value={ardValue} onChange={(e) => task?.id && onDropdownChange(task.id, "ard", e.target.value)} className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task?.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
+                                </select>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </Fragment>
                     );
                   })
@@ -696,81 +585,60 @@ export default function Dashboard() {
           {/* Mobile Cards (visible only on mobile) */}
           <div className="sm:hidden">
             {isDataLoading ? (
-              <div className="flex flex-col items-center gap-3 py-20 text-gray-500">
-                <div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-                <span>Loading data...</span>
-              </div>
-            ) : !data?.groups.length ? (
-              <div className="text-center py-20 text-gray-500">
-                <h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3>
-                <p className="text-sm">Try adjusting your search or filters.</p>
-              </div>
+              <div className="flex flex-col items-center gap-3 py-20 text-gray-500"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading data...</span></div>
+            ) : !data?.groups?.length ? (
+              <div className="text-center py-20 text-gray-500"><h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3><p className="text-sm">Try adjusting your search or filters.</p></div>
             ) : (
-              data.groups.map((group) => {
-                const isCollapsed = collapsedGroups.has(group.equipment.name);
+              data?.groups?.map((group) => {
+                const isCollapsed = collapsedGroups.has(group?.equipment?.name ?? "");
                 return (
-                  <div key={`mob-group-${group.equipment.id}`}>
-                    {/* Mobile Group Header */}
-                    <div
-                      className="bg-gray-50 px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200 flex items-center gap-3 cursor-pointer"
-                      onClick={() => toggleGroup(group.equipment.name)}
-                    >
-                      <span className={`text-gray-500 text-xs transition-transform ${isCollapsed ? "-rotate-90" : ""}`}>▼</span>
-                      <span className="w-7 h-7 bg-blue-50 text-blue-700 rounded flex items-center justify-center text-xs font-bold">{group.equipment.initials}</span>
-                      <span className="font-bold text-gray-800 text-sm">{group.equipment.name}</span>
-                      <span className="text-xs text-gray-500 ml-auto">{group.tasks.length} task{group.tasks.length !== 1 ? "s" : ""}</span>
+                  <div key={`mob-group-${group?.equipment?.id ?? "unknown"}`}>
+                    <div className="bg-gray-50 px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200 flex items-center gap-3 cursor-pointer" onClick={() => toggleGroup(group?.equipment?.name ?? "")}>
+                      <span className={`text-gray-500 text-xs transition-transform ${isCollapsed ? "-rotate-90" : ""}`}>&#9660;</span>
+                      <span className="w-7 h-7 bg-blue-50 text-blue-700 rounded flex items-center justify-center text-xs font-bold">{group?.equipment?.initials ?? "?"}</span>
+                      <span className="font-bold text-gray-800 text-sm">{group?.equipment?.name ?? "Unknown"}</span>
+                      <span className="text-xs text-gray-500 ml-auto">{(group?.tasks?.length ?? 0)} task{(group?.tasks?.length ?? 0) !== 1 ? "s" : ""}</span>
                     </div>
-                    {/* Mobile Task Cards */}
-                    {!isCollapsed &&
-                      group.tasks.map((task) => {
-                        const isSel = selected.has(task.id);
-                        const pend = pending[task.id];
-                        const opsValue = pend?.operations !== undefined ? pend.operations : (task.operations || "");
-                        const amdValue = pend?.amd !== undefined ? pend.amd : (task.amd || "");
-                        const ardValue = pend?.ard !== undefined ? pend.ard : (task.ard || "");
-                        const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined);
-                        return (
-                          <div
-                            key={`mob-task-${task.id}`}
-                            className={`p-3 border-b border-gray-100 ${isSel ? "bg-blue-50" : ""} ${isPending ? "bg-yellow-50/50" : ""}`}
-                          >
-                            <div className="flex items-start gap-2 mb-2">
-                              <input type="checkbox" checked={isSel} onChange={() => toggleSelect(task.id)} className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs text-gray-500 mb-0.5">{group.equipment.name}</div>
-                                <div className="text-sm font-medium text-gray-800 leading-snug">{task.taskList}</div>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5 mb-2 ml-6">
-                              <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getFreqBadgeClass(task.frequency)}`}>{task.frequency || "-"}</span>
-                              <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getPersBadgeClass(task.responsiblePersonnel || "")}`}>{task.responsiblePersonnel || "-"}</span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 ml-6">
-                              <div>
-                                <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">Operations</label>
-                                <select disabled={!editMode} value={opsValue} onChange={(e) => onDropdownChange(task.id, "operations", e.target.value)}
-                                  className={`w-auto min-w-[180px] px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">AMD</label>
-                                <select disabled={!editMode} value={amdValue} onChange={(e) => onDropdownChange(task.id, "amd", e.target.value)}
-                                  className={`w-auto min-w-[180px] px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">ARD</label>
-                                <select disabled={!editMode} value={ardValue} onChange={(e) => onDropdownChange(task.id, "ard", e.target.value)}
-                                  className={`w-auto min-w-[180px] px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
-                                </select>
-                              </div>
+                    {!isCollapsed && group?.tasks?.map((task) => {
+                      const isSel = selected.has(task?.id);
+                      const pend = task?.id ? pending[task.id] : undefined;
+                      const opsValue = pend?.operations !== undefined ? pend.operations : (task?.operations || "");
+                      const amdValue = pend?.amd !== undefined ? pend.amd : (task?.amd || "");
+                      const ardValue = pend?.ard !== undefined ? pend.ard : (task?.ard || "");
+                      const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined);
+                      return (
+                        <div key={`mob-task-${task?.id ?? "unknown"}`} className={`p-3 border-b border-gray-100 ${isSel ? "bg-blue-50" : ""} ${isPending ? "bg-yellow-50/50" : ""}`}>
+                          <div className="flex items-start gap-2 mb-2">
+                            <input type="checkbox" checked={isSel} onChange={() => task?.id && toggleSelect(task.id)} className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs text-gray-500 mb-0.5">{group?.equipment?.name ?? "-"}</div>
+                              <div className="text-sm font-medium text-gray-800 leading-snug">{task?.taskList ?? "-"}</div>
                             </div>
                           </div>
-                        );
-                      })}
+                          <div className="flex flex-wrap gap-1.5 mb-2 ml-6">
+                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getFreqBadgeClass(task?.frequency ?? "")}`}>{task?.frequency || "-"}</span>
+                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getPersBadgeClass(task?.responsiblePersonnel ?? "")}`}>{task?.responsiblePersonnel || "-"}</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 ml-6">
+                            <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">Operations</label>
+                              <select disabled={!editMode} value={opsValue} onChange={(e) => task?.id && onDropdownChange(task.id, "operations", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task?.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                              </select>
+                            </div>
+                            <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">AMD</label>
+                              <select disabled={!editMode} value={amdValue} onChange={(e) => task?.id && onDropdownChange(task.id, "amd", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task?.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                              </select>
+                            </div>
+                            <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">ARD</label>
+                              <select disabled={!editMode} value={ardValue} onChange={(e) => task?.id && onDropdownChange(task.id, "ard", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task?.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })
@@ -780,18 +648,11 @@ export default function Dashboard() {
       </main>
 
       <footer className="text-center py-5 text-sm text-gray-500 border-t border-gray-200 mt-4">
-        Maintenance Planning (Post-PPP) — Programs
+        Maintenance Planning (Post-PPP) &#8212; Programs
       </footer>
 
       {/* Floating home button for mobile */}
-      <a
-        href="/"
-        className="fixed bottom-4 left-4 z-50 w-11 h-11 text-white rounded-full flex items-center justify-center shadow-lg text-lg hover:opacity-90 transition-transform active:scale-95 sm:hidden"
-        style={{ background: '#0066A6' }}
-        title="Back to Home"
-      >
-        ←
-      </a>
+      <a href="/" className="fixed bottom-4 left-4 z-50 w-11 h-11 text-white rounded-full flex items-center justify-center shadow-lg text-lg hover:opacity-90 transition-transform active:scale-95 sm:hidden" style={{ background: '#0066A6' }} title="Back to Home">&#8592;</a>
     </div>
   );
 }
