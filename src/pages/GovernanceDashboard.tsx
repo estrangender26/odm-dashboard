@@ -352,7 +352,10 @@ export default function GovernanceDashboard() {
       <header className="text-white sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
           <Link to="/" className="flex items-center gap-3 min-w-0 no-underline text-white">
-            <img src="/programs-logo.jpeg" alt="Programs" className="w-9 h-9 sm:w-10 sm:h-10 bg-white rounded-lg p-1 object-contain flex-shrink-0" />
+            <span className="logo-ripple w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex-shrink-0" style={{ background: '#fff' }}>
+              <span className="ripple-ring" /><span className="ripple-ring" /><span className="ripple-ring" /><span className="ripple-ring" />
+              <img src="/programs-logo.jpeg" alt="Programs" className="w-full h-full bg-white rounded-lg p-1 object-contain" />
+            </span>
             <div className="min-w-0">
               <h1 className="text-base sm:text-xl font-bold truncate">OM Governance Dashboard</h1>
               <p className="text-xs sm:text-sm opacity-55" style={{ letterSpacing: '0.5px' }}>Multi-facility project tracking</p>

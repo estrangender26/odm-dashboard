@@ -480,6 +480,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 #pb-sub{font-size:12px;color:#6b7280;margin-top:8px}
 #pb-count{font-size:11px;color:#9ca3af;margin-top:4px}
 </style>
+<link rel="stylesheet" href="/logo-ripple.css" />
 </head>
 <body>
 <!-- Progress Bar Overlay -->
@@ -581,7 +582,10 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 <div class="hdr-in">
   <div class="brand">
     <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;min-width:0">
-      <img src="/programs-logo.jpeg" alt="Programs Logo" style="width:28px;height:28px;background:#fff;border-radius:6px;padding:2px;flex-shrink:0">
+      <span class="logo-ripple" style="width:28px;height:28px;background:#fff;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;">
+        <span class="ripple-ring"></span><span class="ripple-ring"></span><span class="ripple-ring"></span><span class="ripple-ring"></span>
+        <img src="/programs-logo.jpeg" alt="Programs Logo" style="width:28px;height:28px;background:#fff;border-radius:6px;padding:2px;flex-shrink:0;object-fit:contain;position:relative;z-index:2;" />
+      </span>
       <div style="border-left:1px solid rgba(255,255,255,.25);padding-left:14px">
         <h1 style="font-size:16px;font-weight:700;margin:0;color:#fff">O&amp;M Manual Governance</h1>
         <span style="font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:.5px;color:#fff;display:block;margin-top:1px">Facility Onboarding Alignment Tracker</span>
@@ -1457,7 +1461,7 @@ INIT();
 @media(min-width:769px){.float-home{display:none}}
 </style>
 <a href="/" class="float-home" title="Back to Home">←</a>
-<script src="/water-ripple.js"></script>
+
 </body>
 </html>
             

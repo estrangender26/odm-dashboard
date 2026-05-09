@@ -382,9 +382,10 @@ export default function Dashboard() {
         <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-3 sm:py-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
             <Link to="/" className="flex items-center gap-2 sm:gap-3 no-underline text-white min-w-0">
-              <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: '#fff' }}>
-                <img src="/programs-logo.jpeg" alt="Programs" className="w-full h-full object-contain p-0.5" />
-              </div>
+              <span className="logo-ripple w-7 h-7 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: '#fff' }}>
+                <span className="ripple-ring" /><span className="ripple-ring" /><span className="ripple-ring" /><span className="ripple-ring" />
+                <img src="/programs-logo.jpeg" alt="Programs" className="w-full h-full object-contain p-0.5 rounded-lg" />
+              </span>
               <div className="min-w-0">
                 <h1 className="text-sm sm:text-xl font-bold leading-tight truncate">Maintenance Planning (Post-PPP)</h1>
                 <p className="text-[10px] sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Programs</p>
