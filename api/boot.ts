@@ -100,14 +100,8 @@ export default app;
 
 if (env.isProduction) {
   const { serve } = await import("@hono/node-server");
-  try {
-    const { serveStaticFiles } = await import("./lib/vite");
-    serveStaticFiles(app);
-    console.log("[BOOT] Static files configured");
-  } catch (err) {
-    console.error("[BOOT] Failed to configure static files:", err);
-    app.get("/", (c) => c.json({ error: "Static files not configured", detail: String(err) }, 500));
-  }
+  const { serveStaticFiles } = await import("./lib/vite");
+  serveStaticFiles(app);
 
   const port = parseInt(process.env.PORT || "3000");
   serve({ fetch: app.fetch, port }, () => {
