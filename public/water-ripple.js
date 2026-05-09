@@ -6,11 +6,11 @@
   'use strict';
 
   /* ---------- config ---------- */
-  const RIPPLE_SPEED   = 1.6;   // ring expansion speed (px/frame)
-  const RIPPLE_FADE    = 0.022; // opacity decay per frame
+  const RIPPLE_SPEED   = 0.45;  // ring expansion speed (px/frame) — slow like real water
+  const RIPPLE_FADE    = 0.006; // opacity decay per frame — rings persist longer
   const RIPPLE_MAX_R   = 0.50;  // max radius as fraction of min dimension
   const COLOR          = [0, 102, 166]; // brand blue
-  const SPAWN_INTERVAL = 200;   // ms between auto-spawns while moving
+  const SPAWN_INTERVAL = 450;   // ms between spawns — spaced out like dripping water
 
   /* ---------- find logo images ---------- */
   function findLogos() {
@@ -61,7 +61,7 @@
       resize();
 
       function spawnRipple(x, y) {
-        ripples.push({ x: x, y: y, r: 0, op: 0.50, lw: 2.2 });
+        ripples.push({ x: x, y: y, r: 0, op: 0.35, lw: 1.4 });
       }
 
       function draw() {
@@ -87,19 +87,19 @@
           ctx.stroke();
 
           // faint inner echo
-          if (p.r > 10) {
+          if (p.r > 6) {
             ctx.beginPath();
-            ctx.arc(p.x, p.y, p.r * 0.55, 0, Math.PI * 2);
-            ctx.strokeStyle = 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',' + (p.op * 0.28).toFixed(3) + ')';
-            ctx.lineWidth   = Math.max(0.3, p.lw * 0.4);
+            ctx.arc(p.x, p.y, p.r * 0.5, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',' + (p.op * 0.18).toFixed(3) + ')';
+            ctx.lineWidth   = Math.max(0.3, p.lw * 0.35);
             ctx.stroke();
           }
         }
 
         if (isHover) {
-          // soft glow under cursor
-          var grad = ctx.createRadialGradient(mx, my, 0, mx, my, maxR * 0.6);
-          grad.addColorStop(0, 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',0.08)');
+          // very soft glow under cursor
+          var grad = ctx.createRadialGradient(mx, my, 0, mx, my, maxR * 0.5);
+          grad.addColorStop(0, 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',0.05)');
           grad.addColorStop(1, 'rgba(' + COLOR[0] + ',' + COLOR[1] + ',' + COLOR[2] + ',0)');
           ctx.fillStyle = grad;
           ctx.fillRect(0, 0, w, h);
