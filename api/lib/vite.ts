@@ -7,41 +7,53 @@ import { fileURLToPath } from "url";
 
 type App = Hono<{ Bindings: HttpBindings }>;
 
-// Resolve __dirname equivalent for ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Try multiple possible locations for dist/public
+function findDistPublic(): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), "dist/public"),      // cwd/dist/public
+    path.resolve(__dirname, "../public"),             // dist/public (boot.js in dist/)
+    path.resolve(__dirname, "../../dist/public"),     // project-root/dist/public
+    path.resolve(__dirname, "../dist/public"),        // fallback
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(path.join(p, "index.html"))) {
+      console.log("[VITE] Found dist/public at:", p);
+      return p;
+    }
+  }
+  // Log what we checked
+  console.error("[VITE] Could not find dist/public. Checked:");
+  for (const p of candidates) {
+    console.error("  -", p, "(exists:", fs.existsSync(p), ")");
+  }
+  return null;
+}
+
 export function serveStaticFiles(app: App) {
-  // Resolve from this file's location (api/lib/ → ../../dist/public = project-root/dist/public)
-  const distPath = path.resolve(__dirname, "../../dist/public");
+  const distPath = findDistPublic();
+
+  if (!distPath) {
+    console.error("[VITE] CRITICAL: dist/public not found. Static files will not be served.");
+    app.get("/", (c) => c.json({ error: "Frontend build not found. Run npm run build." }, 500));
+    return;
+  }
+
   const staticRoot = path.relative(process.cwd(), distPath) || ".";
-
-  console.log("[VITE] __dirname:", __dirname);
-  console.log("[VITE] distPath:", distPath);
-  console.log("[VITE] cwd:", process.cwd());
   console.log("[VITE] staticRoot:", staticRoot);
-  console.log("[VITE] dist exists:", fs.existsSync(distPath));
-  console.log("[VITE] index.html exists:", fs.existsSync(path.join(distPath, "index.html")));
+  console.log("[VITE] cwd:", process.cwd());
 
-  // Serve static files with explicit root
   app.use("*", serveStatic({ root: staticRoot }));
 
-  // SPA fallback: serve index.html for all non-API, non-asset routes
   app.notFound((c) => {
-    const accept = c.req.header("accept") ?? "";
     const pathname = new URL(c.req.url).pathname;
-    // Don't serve HTML for API routes or known asset extensions
     if (pathname.startsWith("/api/") || pathname.startsWith("/trpc")) {
       return c.json({ error: "Not Found" }, 404);
     }
-    try {
-      const indexPath = path.resolve(distPath, "index.html");
-      const content = fs.readFileSync(indexPath, "utf-8");
-      c.header("Cache-Control", "no-cache, no-store, must-revalidate");
-      return c.html(content);
-    } catch (err) {
-      console.error("[VITE] Error serving index.html:", err);
-      return c.json({ error: "index.html not found", distPath, cwd: process.cwd(), staticRoot }, 500);
-    }
+    const content = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
+    return c.html(content);
   });
 }
