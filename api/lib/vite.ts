@@ -6,14 +6,10 @@ import path from "path";
 
 type App = Hono<{ Bindings: HttpBindings }>;
 
-// Resolve dist path from project root (works in dev, build, and Render)
-const projectRoot = path.resolve(import.meta.dirname, "../../");
-const distPath = path.resolve(projectRoot, "dist/public");
-
 export function serveStaticFiles(app: App) {
-  // Use absolute path for serveStatic so it works regardless of cwd
-  const staticRoot = path.relative(process.cwd(), distPath) || ".";
-  app.use("*", serveStatic({ root: staticRoot }));
+  const distPath = path.resolve(import.meta.dirname, "../dist/public");
+
+  app.use("*", serveStatic({ root: "./dist/public" }));
 
   app.notFound((c) => {
     const accept = c.req.header("accept") ?? "";
