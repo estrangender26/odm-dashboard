@@ -24,7 +24,8 @@ function getMime(p: string) {
 }
 
 export function serveStaticFiles(app: App) {
-  const distPath = path.resolve(import.meta.dirname, "../dist/public");
+  // vite.ts is at api/lib/ — go up two levels to reach dist/public at project root
+  const distPath = path.resolve(import.meta.dirname, "../../dist/public");
 
   console.log("[VITE] distPath:", distPath);
   console.log("[VITE] index exists:", fs.existsSync(path.join(distPath, "index.html")));
@@ -34,13 +35,11 @@ export function serveStaticFiles(app: App) {
     return;
   }
 
-  // Static files middleware - only match non-API paths
-  app.use("/assets/*", async (c, next) => {
+  // Serve assets with exact path match
+  app.get("/assets/*", (c) => {
     const pathname = new URL(c.req.url).pathname;
     const filePath = path.join(distPath, pathname);
-
-    if (!filePath.startsWith(distPath)) return next();
-
+    if (!filePath.startsWith(distPath)) return c.notFound();
     try {
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const content = fs.readFileSync(filePath);
@@ -48,25 +47,21 @@ export function serveStaticFiles(app: App) {
         c.header("Cache-Control", "public, max-age=31536000");
         return c.body(content);
       }
-    } catch { /* fall through */ }
-    return next();
+    } catch { /* */ }
+    return c.notFound();
   });
 
-  app.use("/*", async (c, next) => {
+  // Serve other static files (favicon, etc.)
+  app.get("/*", (c) => {
     const pathname = new URL(c.req.url).pathname;
-
-    // Skip API, trpc, and internal routes
+    // Don't serve HTML for API routes
     if (pathname.startsWith("/api/") || pathname.startsWith("/trpc") || pathname.startsWith("/_")) {
-      return next();
+      return c.notFound();
     }
-
-    // Only serve known file types, not SPA routes
-    const hasExtension = path.extname(pathname).length > 0;
-    if (!hasExtension) return next();
-
+    // Only serve files with extensions
+    if (!path.extname(pathname)) return c.notFound();
     const filePath = path.join(distPath, pathname);
-    if (!filePath.startsWith(distPath)) return next();
-
+    if (!filePath.startsWith(distPath)) return c.notFound();
     try {
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const content = fs.readFileSync(filePath);
@@ -74,22 +69,18 @@ export function serveStaticFiles(app: App) {
         c.header("Cache-Control", "no-cache");
         return c.body(content);
       }
-    } catch { /* fall through */ }
-    return next();
+    } catch { /* */ }
+    return c.notFound();
   });
 
-  // SPA fallback for React Router
+  // SPA fallback - only for non-API, non-file paths
   app.notFound((c) => {
     const pathname = new URL(c.req.url).pathname;
-    if (pathname.startsWith("/api/") || pathname.startsWith("/trpc") || pathname.startsWith("/_")) {
+    if (pathname.startsWith("/api/") || pathname.startsWith("/trpc") || pathname.startsWith("/_") || path.extname(pathname)) {
       return c.json({ error: "Not Found" }, 404);
     }
-    try {
-      const content = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
-      c.header("Cache-Control", "no-cache");
-      return c.html(content);
-    } catch {
-      return c.json({ error: "index.html missing" }, 500);
-    }
+    const content = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
+    c.header("Cache-Control", "no-cache");
+    return c.html(content);
   });
 }

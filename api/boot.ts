@@ -8,6 +8,8 @@ import { createContext } from "./context";
 import { env } from "./lib/env";
 import { createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
+import fs from "fs";
+import path from "path";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -101,11 +103,18 @@ export default app;
 if (env.isProduction) {
   const { serve } = await import("@hono/node-server");
   
+  // Startup verification — log dist path before serving
+  const distPath = path.resolve(import.meta.dirname, "../dist/public");
+  console.log("[BOOT] import.meta.dirname:", import.meta.dirname);
+  console.log("[BOOT] distPath:", distPath);
+  console.log("[BOOT] index.html exists:", fs.existsSync(path.join(distPath, "index.html")));
+  console.log("[BOOT] assets dir exists:", fs.existsSync(path.join(distPath, "assets")));
+  if (fs.existsSync(path.join(distPath, "assets"))) {
+    console.log("[BOOT] asset files:", fs.readdirSync(path.join(distPath, "assets")).join(", "));
+  }
+
   // Debug endpoint - MUST be before serveStaticFiles
   app.get("/_debug/static", (c) => {
-    const fs = require("fs");
-    const path = require("path");
-    const distPath = path.resolve(import.meta.dirname, "../dist/public");
     return c.json({
       distPath,
       cwd: process.cwd(),
@@ -124,5 +133,8 @@ if (env.isProduction) {
   const port = parseInt(process.env.PORT || "3000");
   serve({ fetch: app.fetch, port }, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    console.log(`[BOOT] Static files served from: ${distPath}`);
+    console.log(`[BOOT] Health check: http://localhost:${port}/_health`);
+    console.log(`[BOOT] Debug endpoint: http://localhost:${port}/_debug/static`);
   });
 }
