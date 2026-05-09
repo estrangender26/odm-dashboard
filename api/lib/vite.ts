@@ -34,8 +34,25 @@ export function serveStaticFiles(app: App) {
     return;
   }
 
-  // Static files middleware
-  app.use("*", async (c, next) => {
+  // Static files middleware - only match non-API paths
+  app.use("/assets/*", async (c, next) => {
+    const pathname = new URL(c.req.url).pathname;
+    const filePath = path.join(distPath, pathname);
+
+    if (!filePath.startsWith(distPath)) return next();
+
+    try {
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const content = fs.readFileSync(filePath);
+        c.header("Content-Type", getMime(filePath));
+        c.header("Cache-Control", "public, max-age=31536000");
+        return c.body(content);
+      }
+    } catch { /* fall through */ }
+    return next();
+  });
+
+  app.use("/*", async (c, next) => {
     const pathname = new URL(c.req.url).pathname;
 
     // Skip API, trpc, and internal routes
@@ -43,24 +60,21 @@ export function serveStaticFiles(app: App) {
       return next();
     }
 
-    const filePath = path.join(distPath, pathname === "/" ? "index.html" : pathname);
+    // Only serve known file types, not SPA routes
+    const hasExtension = path.extname(pathname).length > 0;
+    if (!hasExtension) return next();
 
-    // Security: prevent directory traversal
-    if (!filePath.startsWith(distPath)) {
-      return next();
-    }
+    const filePath = path.join(distPath, pathname);
+    if (!filePath.startsWith(distPath)) return next();
 
     try {
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const content = fs.readFileSync(filePath);
         c.header("Content-Type", getMime(filePath));
-        c.header("Cache-Control", pathname.startsWith("/assets/") ? "public, max-age=31536000" : "no-cache");
+        c.header("Cache-Control", "no-cache");
         return c.body(content);
       }
-    } catch {
-      // fall through
-    }
-
+    } catch { /* fall through */ }
     return next();
   });
 
