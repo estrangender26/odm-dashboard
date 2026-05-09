@@ -1,0 +1,119 @@
+/* ============================================================
+   mw-liquid-logo — SVG displacement filter liquid distortion
+   The logo image itself becomes the water surface.
+   ============================================================ */
+
+/* --- SVG filter definition (hidden) --- */
+.mw-liquid-logo-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* --- logo container --- */
+.mw-liquid-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* --- the actual logo image --- */
+.mw-liquid-logo > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: filter 0.35s ease;
+  will-change: filter;
+}
+
+/* --- idle: calm water (very subtle shimmer) --- */
+.mw-liquid-logo > img {
+  filter: url('#mw-logo-water-idle');
+}
+
+/* --- hover: full liquid distortion --- */
+.mw-liquid-logo:hover > img,
+.mw-liquid-logo.mw-liquid-active > img {
+  filter: url('#mw-logo-water-active');
+}
+
+/* --- shimmer overlay --- */
+.mw-liquid-logo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255,255,255,0.10) 40%,
+    rgba(0,102,166,0.08) 50%,
+    rgba(255,255,255,0.10) 60%,
+    transparent 70%
+  );
+  background-size: 250% 250%;
+  background-position: 100% 100%;
+  opacity: 0;
+  z-index: 3;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+}
+
+.mw-liquid-logo:hover::after,
+.mw-liquid-logo.mw-liquid-active::after {
+  opacity: 1;
+  animation: mwShimmerSweep 2.8s ease-in-out infinite;
+}
+
+@keyframes mwShimmerSweep {
+  0%   { background-position: 100% 100%; }
+  50%  { background-position: 0% 0%; }
+  100% { background-position: 100% 100%; }
+}
+
+/* --- radial glow behind --- */
+.mw-liquid-logo::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at center,
+    rgba(0,102,166,0.12) 0%,
+    rgba(0,102,166,0.04) 40%,
+    transparent 65%
+  );
+  opacity: 0;
+  z-index: -1;
+  transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+
+.mw-liquid-logo:hover::before,
+.mw-liquid-logo.mw-liquid-active::before {
+  opacity: 1;
+}
+
+/* --- touch support --- */
+@media (hover: none) {
+  .mw-liquid-logo > img {
+    filter: none;
+  }
+  .mw-liquid-logo:active > img {
+    filter: url('#mw-logo-water-active');
+  }
+  .mw-liquid-logo:active::after  { opacity: 1; animation: mwShimmerSweep 2.8s ease-in-out infinite; }
+  .mw-liquid-logo:active::before { opacity: 1; }
+}
+
+/* --- reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  .mw-liquid-logo > img { filter: none !important; }
+  .mw-liquid-logo::after,
+  .mw-liquid-logo::before { display: none !important; }
+}
