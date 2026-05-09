@@ -7,9 +7,9 @@ import path from "path";
 type App = Hono<{ Bindings: HttpBindings }>;
 
 export function serveStaticFiles(app: App) {
-  // Absolute path to dist/public, resolved from this file's location
-  const distPath = path.resolve(import.meta.dirname, "../dist/public");
-  // Relative path from process.cwd() (needed for serveStatic)
+  // Resolve dist/public from project root (api/lib → ../../ = project root)
+  const distPath = path.resolve(import.meta.dirname, "../../dist/public");
+  // Relative path from cwd for serveStatic
   const staticRoot = path.relative(process.cwd(), distPath) || ".";
 
   app.use("*", serveStatic({ root: staticRoot }));
