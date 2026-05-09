@@ -1,7 +1,7 @@
 /* ============================================================
-   pe-liquid-logo — flowing water shimmer over a whole logo
-   The logo stays sharp. A diagonal gradient sweeps across
-   like light catching water. Premium, subtle, corporate.
+   pe-liquid-logo — one whole logo, one shimmer overlay.
+   The logo never moves. A diagonal light gradient sweeps across
+   on hover, like sunlight catching water. Runs once per hover.
    ============================================================ */
 
 .pe-liquid-logo {
@@ -11,102 +11,56 @@
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-  cursor: pointer;
 }
 
-/* base logo — always sharp, never distorted */
+/* --- the logo: one single image, never animated --- */
 .pe-liquid-logo > img,
 .pe-liquid-logo__base {
-  position: relative;
-  z-index: 1;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  transition: filter 0.4s ease, transform 0.4s ease;
 }
 
-/* --- 1. Subtle idle breathing glow (very faint) --- */
-.pe-liquid-logo::before {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  z-index: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgba(0, 174, 239, 0.10) 0%,
-    rgba(55, 165, 145, 0.04) 45%,
-    transparent 70%
-  );
-  opacity: 0;
-  transition: opacity 0.6s ease;
-  pointer-events: none;
-}
-
-/* --- 2. Water shimmer overlay --- */
+/* --- shimmer overlay --- */
 .pe-liquid-logo::after {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -40%;
   z-index: 2;
-  border-radius: inherit;
   background: linear-gradient(
-    125deg,
-    transparent 0%,
-    transparent 25%,
-    rgba(255, 255, 255, 0.22) 38%,
-    rgba(0, 174, 239, 0.18) 46%,
-    rgba(55, 165, 145, 0.14) 50%,
-    rgba(255, 255, 255, 0.20) 54%,
-    transparent 65%,
-    transparent 100%
+    120deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.45) 45%,
+    rgba(0, 174, 239, 0.25) 50%,
+    transparent 60%
   );
-  background-size: 280% 280%;
-  background-position: 100% 50%;
+  transform: translateX(-120%);
   opacity: 0;
-  mix-blend-mode: overlay;
   pointer-events: none;
-  transition: opacity 0.5s ease;
 }
 
-/* --- Hover state --- */
-.pe-liquid-logo:hover::before,
-.pe-liquid-logo:focus-visible::before {
+/* hover: sweep once, 1.4s */
+.pe-liquid-logo:hover::after {
   opacity: 1;
+  animation: waterShimmer 1.4s ease-out;
 }
 
-.pe-liquid-logo:hover::after,
-.pe-liquid-logo:focus-visible::after {
-  opacity: 1;
-  animation: peWaterFlow 3.2s ease-in-out infinite;
+@keyframes waterShimmer {
+  from { transform: translateX(-120%); }
+  to   { transform: translateX(120%); }
 }
 
-.pe-liquid-logo:hover > img,
-.pe-liquid-logo:hover .pe-liquid-logo__base,
-.pe-liquid-logo:focus-visible > img,
-.pe-liquid-logo:focus-visible .pe-liquid-logo__base {
-  filter: drop-shadow(0 0 6px rgba(0, 174, 239, 0.28));
-}
-
-/* diagonal shimmer sweeps across */
-@keyframes peWaterFlow {
-  0%   { background-position: 100% 50%; }
-  50%  { background-position: 0% 50%; }
-  100% { background-position: 100% 50%; }
-}
-
-/* --- Touch devices --- */
+/* --- touch --- */
 @media (hover: none) {
-  .pe-liquid-logo::after { opacity: 0; }
-  .pe-liquid-logo:active::after { opacity: 1; animation: peWaterFlow 3.2s ease-in-out infinite; }
-  .pe-liquid-logo:active::before { opacity: 1; }
-  .pe-liquid-logo:active > img,
-  .pe-liquid-logo:active .pe-liquid-logo__base { filter: drop-shadow(0 0 6px rgba(0, 174, 239, 0.28)); }
+  .pe-liquid-logo::after { opacity: 0; transform: translateX(-120%); }
+  .pe-liquid-logo:active::after {
+    opacity: 1;
+    animation: waterShimmer 1.4s ease-out;
+  }
 }
 
-/* --- Reduced motion --- */
+/* --- reduced motion --- */
 @media (prefers-reduced-motion: reduce) {
-  .pe-liquid-logo::after,
-  .pe-liquid-logo::before { display: none !important; }
+  .pe-liquid-logo::after { display: none !important; }
 }
