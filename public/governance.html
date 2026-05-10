@@ -794,7 +794,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
   var b=document.createElement('div');b.className='pb';
   // Column header row — repeated for each phase
   var hdr=document.createElement('div');hdr.className='ms-h';
-  ['M#','Milestone','Offset','Target Date','Completed','Plan %','Status','Done'].forEach(function(h,i){var d=document.createElement('div');d.textContent=h;if(i===0||i===1)d.style.textAlign='left';hdr.appendChild(d)});
+  ['M#','Milestone','Offset','Target Date','Completed','Status','Done'].forEach(function(h,i){var d=document.createElement('div');d.textContent=h;if(i===0||i===1)d.style.textAlign='left';hdr.appendChild(d)});
   b.appendChild(hdr);
   pv.m.forEach(function(mid){
     var d=MSD[mid],st=c.ms[mid];
