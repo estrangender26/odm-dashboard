@@ -284,7 +284,10 @@ export default function GovernanceDashboard() {
     return msStateMap[mId]?.customPct ?? 0;
   };
 
-  // Merged state map: DB + local pending changes (used by S-Curve)
+  // Checkbox simulation state — local only, not saved to DB, resets on refresh
+  const [checkboxSim, setCheckboxSim] = useState<Record<string, boolean | undefined>>({});
+
+  // Merged state for S-Curve: DB + pending changes + checkbox simulation
   const mergedStateMap = useMemo(() => {
     const merged: typeof msStateMap = { ...msStateMap };
     for (const [mId, pend] of Object.entries(pendingMilestones)) {
@@ -292,8 +295,19 @@ export default function GovernanceDashboard() {
       if (pend.compDate !== undefined) merged[mId]!.compDate = pend.compDate;
       if (pend.customPct !== undefined) merged[mId]!.customPct = pend.customPct;
     }
+    // Checkbox simulation overrides compDate for chart preview only
+    for (const [mId, simChecked] of Object.entries(checkboxSim)) {
+      if (!merged[mId]) merged[mId] = {};
+      if (simChecked === true) {
+        // Simulated checked: pretend there's a completion date
+        merged[mId]!.compDate = merged[mId]!.compDate || new Date().toISOString().split("T")[0];
+      } else if (simChecked === false) {
+        // Simulated unchecked: pretend no completion date for chart
+        merged[mId]!.compDate = null;
+      }
+    }
     return merged;
-  }, [msStateMap, pendingMilestones]);
+  }, [msStateMap, pendingMilestones, checkboxSim]);
 
   // Get planned date
   const getPlannedDate = (mId: string) => {
@@ -801,16 +815,11 @@ export default function GovernanceDashboard() {
                                   )}
                                   <input
                                     type="checkbox"
-                                    checked={isComplete}
+                                    checked={checkboxSim[m.id] ?? isComplete}
                                     className="w-5 h-5 accent-green-600"
-                                    title={isComplete ? "Uncheck to remove completion" : "Check to mark complete"}
+                                    title={isComplete ? "Uncheck to simulate incomplete" : "Check to simulate complete"}
                                     onChange={() => {
-                                      if (isComplete) {
-                                        onMsChange(m.id, "compDate", "");
-                                      } else {
-                                        const today = new Date().toISOString().split("T")[0];
-                                        onMsChange(m.id, "compDate", today);
-                                      }
+                                      setCheckboxSim(prev => ({ ...prev, [m.id]: !(prev[m.id] ?? isComplete) }));
                                     }}
                                   />
                                 </div>
@@ -844,18 +853,12 @@ export default function GovernanceDashboard() {
                               )}
                               <input
                                 type="checkbox"
-                                checked={isComplete}
+                                checked={checkboxSim[m.id] ?? isComplete}
                                 className="ms-done"
-                                title={isComplete ? "Uncheck to remove completion" : "Check to mark complete (sets today's date)"}
+                                title={isComplete ? "Uncheck to simulate incomplete" : "Check to simulate complete"}
                                 onChange={() => {
-                                  if (isComplete) {
-                                    // Uncheck: clear completion date
-                                    onMsChange(m.id, "compDate", "");
-                                  } else {
-                                    // Check: set completion date to today
-                                    const today = new Date().toISOString().split("T")[0];
-                                    onMsChange(m.id, "compDate", today);
-                                  }
+                                  // Toggle local simulation only — does NOT save to DB
+                                  setCheckboxSim(prev => ({ ...prev, [m.id]: !(prev[m.id] ?? isComplete) }));
                                 }}
                               />
                             </div>
