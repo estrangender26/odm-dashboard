@@ -479,6 +479,10 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 #pb-text{margin-bottom:4px;font-size:14px;font-weight:600;color:#374151}
 #pb-sub{font-size:12px;color:#6b7280;margin-top:8px}
 #pb-count{font-size:11px;color:#9ca3af;margin-top:4px}
+
+/* Edit mode visibility */
+.hidden-upload{display:none !important}
+.view-only .edit-control{opacity:0.5;pointer-events:none}
 </style>
 <link rel="stylesheet" href="/ProgramsEngineeringLogo.css" />
 
@@ -722,7 +726,7 @@ const ALM=[
 const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
 
 // STATE
-let ST={},CH=null,PENDING={},EDIT_MODE=false;
+let ST={},CH=null,PENDING={},EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={};
 const CU=()=>ST[document.getElementById('fs').value];
 // DF = Display resolver: ST + PENDING merged for UI/chart
 const DF=()=>{
@@ -916,11 +920,11 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       // Right: upload zone
       var rDiv=document.createElement('div');
       var upDiv=document.createElement('div');
-      upDiv.className='up '+(files.length?'hf':'');
+      upDiv.className='up '+(files.length?'hf':'')+(EDIT_MODE?'':' hidden-upload');
       upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload '+tkey);
       var fileIn=document.createElement('input');
       fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
-      fileIn.addEventListener('change',function(ev){hTocUp(mid,tkey,ev)});
+      fileIn.disabled=!EDIT_MODE;fileIn.style.cursor=EDIT_MODE?'pointer':'not-allowed';fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,tkey,ev)});
       upDiv.appendChild(fileIn);
       rDiv.appendChild(upDiv);
       // File list
@@ -930,7 +934,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           var frDiv=document.createElement('div');frDiv.className='fr';
           var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
           frDiv.appendChild(a);
-          var btn=document.createElement('button');btn.textContent='Remove';
+          var btn=document.createElement('button');btn.textContent='Remove';btn.style.display=EDIT_MODE?'inline-block':'none';
           btn.addEventListener('click',function(ev){ev.stopPropagation();rTocUp(mid,tkey,ix)});
           frDiv.appendChild(btn);
           flDiv.appendChild(frDiv);
@@ -964,11 +968,11 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       // Right: upload zone
       var rDiv=document.createElement('div');
       var upDiv=document.createElement('div');
-      upDiv.className='up '+(files.length?'hf':'');
+      upDiv.className='up '+(files.length?'hf':'')+(EDIT_MODE?'':' hidden-upload');
       upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload ANNEX '+aid);
       var fileIn=document.createElement('input');
       fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
-      fileIn.addEventListener('change',function(ev){hTocUp(mid,akey,ev)});
+      fileIn.disabled=!EDIT_MODE;fileIn.style.cursor=EDIT_MODE?'pointer':'not-allowed';fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,akey,ev)});
       upDiv.appendChild(fileIn);
       rDiv.appendChild(upDiv);
       // File list
@@ -978,7 +982,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           var frDiv=document.createElement('div');frDiv.className='fr';
           var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
           frDiv.appendChild(a);
-          var btn=document.createElement('button');btn.textContent='Remove';
+          var btn=document.createElement('button');btn.textContent='Remove';btn.style.display=EDIT_MODE?'inline-block':'none';
           btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
           frDiv.appendChild(btn);
           flDiv.appendChild(frDiv);
@@ -1015,7 +1019,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         var otherFr=document.createElement('div');otherFr.className='fr';
         var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
         otherFr.appendChild(a);
-        var btn=document.createElement('button');btn.textContent='Remove';
+        var btn=document.createElement('button');btn.textContent='Remove';btn.style.display=EDIT_MODE?'inline-block':'none';
         btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
         otherFr.appendChild(btn);
         otherFl.appendChild(otherFr);
@@ -1034,9 +1038,9 @@ function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
 
 // EDIT / SAVE / CANCEL
 function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';}
-function startEdit(){EDIT_MODE=true;console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
-function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;if(!PENDING[f]){EDIT_MODE=false;updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
-function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};EDIT_MODE=false;updateEditButtons();ALL();}
+function startEdit(){EDIT_MODE=true;DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
+function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){EDIT_MODE=false;updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
+function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;updateEditButtons();ALL();}
 
 // S-CURVE (same as working version)
 function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
@@ -1297,8 +1301,7 @@ document.getElementById('db').textContent=cp+' / 14 with uploads';
 }
 
 // DELIVERABLES upload handler
-function hDlvUp(tnum,e){
-  const fileInput=e.target;
+function hDlvUp(tnum,e){if(!EDIT_MODE){alert('Press Edit to upload files');return;}const fileInput=e.target;
   const files=fileInput.files;
   if(!files||files.length===0)return;
   var key='TOC-'+tnum;
@@ -1356,8 +1359,7 @@ function hDlvUp(tnum,e){
 }
 
 // REMOVE file from Deliverables tab — DB first, then UI
-function rDlvUp(mid,key,ix){
-  var c=CU();
+function rDlvUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');return;}var c=CU();
   if(!c.up[mid]||!c.up[mid][key])return;
   var fi=c.up[mid][key][ix];
   if(!fi)return;
@@ -1409,8 +1411,7 @@ function fallbackDownload(blob,filename){
 function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
 
 // UPLOAD a file under a milestone+key (Progress tab TOC/Annex/Other)
-function hTocUp(mid,key,e){
-  const fileInput=e.target;
+function hTocUp(mid,key,e){if(!EDIT_MODE){alert('Press Edit to upload files');return;}const fileInput=e.target;
   const files=fileInput.files;
   if(!files||files.length===0)return;
   var facilitySlug=document.getElementById('fs').value;
@@ -1468,8 +1469,7 @@ function hTocUp(mid,key,e){
   });
 }
 // REMOVE file from Progress tab — DB first, then UI
-function rTocUp(mid,key,ix){
-  var c=CU();
+function rTocUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');return;}var c=CU();
   if(!c.up[mid]||!c.up[mid][key])return;
   var fi=c.up[mid][key][ix];
   if(!fi)return;
