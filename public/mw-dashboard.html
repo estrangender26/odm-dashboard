@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -958,41 +958,108 @@
       .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
     }
 
-    @media (max-width: 768px) {
-      :root { --header-height: 56px; }
-      .main { padding: var(--space-4); }
-      .header-inner { padding: 0 var(--space-4); }
-      .brand-text h1 { font-size: 13px; }
-      .brand-text span { display: none; }
-      .header-filename { display: none; }
-      .progress-bar { display: none !important; }
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: var(--space-3); }
-      .kpi-card { padding: var(--space-4); }
-      .kpi-value { font-size: 22px; }
-      .filters-card { flex-direction: column; align-items: stretch; }
-      .filter-group { min-width: unset; }
-      .tab-btn { padding: 8px 12px; font-size: 11px; }
-      .tab-bar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-      .dash-grid { gap: var(--space-4); }
-      .card { padding: var(--space-4); }
-      .float-home { display: flex; }
-      .nav-home { display: none; }
-    }
+    /* ============================================================
+       MOBILE RESPONSIVE — iPhone Safari optimized
+       ============================================================ */
 
-    @media (max-width: 480px) {
-      .main { padding: var(--space-3); }
+    /* --- Header: 2-row layout on mobile --- */
+    @media (max-width: 768px) {
+      :root { --header-height: auto; }
+      .app-header { height: auto; position: sticky; }
+      .header-inner {
+        flex-wrap: wrap;
+        padding: 8px var(--space-4);
+        gap: 8px;
+      }
+      .brand { flex: 1 1 auto; min-width: 0; }
       .brand-logo { width: 36px; height: 36px; }
       .brand-logo img { width: 32px; height: 32px; }
-      .brand-text h1 { font-size: 11px; }
-      .kpi-grid { grid-template-columns: 1fr; }
-      .kpi-value { font-size: 24px; }
-      .btn { padding: 6px 10px; font-size: 11px; }
-      .tab-btn { padding: 6px 10px; font-size: 10px; }
-      .tab-content { padding: var(--space-3); }
+      .brand-text h1 { font-size: 14px; }
+      .brand-text span { display: none; }
+      .header-center { display: none; }
+      .header-actions {
+        flex: 1 1 100%;
+        justify-content: flex-end;
+        gap: 6px;
+        order: 3;
+      }
+      .header-actions .btn {
+        height: 36px;
+        padding: 6px 12px;
+        font-size: 11px;
+        gap: 4px;
+      }
+      .header-actions .btn svg { width: 12px; height: 12px; }
+      .nav-home { display: none; }
+      .main { padding: var(--space-3); padding-bottom: calc(var(--space-3) + 60px); }
+
+      /* --- Filters: 2-column compact grid --- */
+      .filters-card {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 14px;
+      }
+      .filter-group { min-width: unset; gap: 4px; }
+      .filter-group label { font-size: 10px; letter-spacing: 0.5px; }
+      select, input[type="date"] { padding: 7px 10px; font-size: 12px; height: 38px; }
+      .filter-group:last-child { grid-column: 1 / -1; }
+      .filter-group:last-child .btn { width: 100%; justify-content: center; }
+
+      /* --- KPI: compact 2-column --- */
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      .kpi-card { padding: 14px; min-height: unset; }
+      .kpi-card:hover { transform: none; box-shadow: var(--shadow-sm); }
+      .kpi-header { margin-bottom: 8px; }
+      .kpi-label { font-size: 10px; letter-spacing: 0.5px; }
+      .kpi-icon { width: 32px; height: 32px; }
+      .kpi-icon svg { width: 14px; height: 14px; }
+      .kpi-value { font-size: 26px; letter-spacing: -0.5px; }
+      .kpi-sub { font-size: 10px; margin-top: 2px; }
+      .kpi-trend { font-size: 10px; margin-top: 4px; }
+
+      /* --- Charts: compact --- */
+      .dash-grid { gap: var(--space-3); }
+      .card { padding: 14px; }
+      .card-header { margin-bottom: var(--space-3); }
+      .card-title { font-size: 13px; }
+      .card-title-icon { width: 28px; height: 28px; }
+      .card-badge { font-size: 10px; padding: 3px 10px; }
+      .cumulative-box { padding: 10px 14px; gap: var(--space-3); }
+      .cumulative-icon { width: 36px; height: 36px; }
+      .cumulative-value { font-size: 20px; }
+      canvas { max-height: 240px !important; }
+
+      /* --- Table: horizontal scroll --- */
+      .table-wrap { -webkit-overflow-scrolling: touch; }
       table { font-size: 11px; }
       th, td { padding: 8px 10px; }
-      .cumulative-box { flex-direction: column; text-align: center; gap: var(--space-2); }
+
+      /* --- Tabs --- */
+      .tab-btn { padding: 7px 10px; font-size: 11px; }
+      .tab-bar { gap: 4px; }
+      .tab-content { padding: var(--space-3); }
+
+      /* --- Floating home button --- */
+      .float-home {
+        display: flex;
+        width: 44px; height: 44px;
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        right: 12px; left: auto;
+        font-size: 16px;
+      }
       .section-divider { margin: var(--space-4) 0 var(--space-3); }
+      .alert { padding: 10px 14px; font-size: 12px; margin-bottom: var(--space-4); }
+      .empty-state { padding: 60px 16px; }
+      .empty-state-icon { width: 56px; height: 56px; }
+      .empty-state h2 { font-size: 16px; }
+      .empty-state p { font-size: 12px; }
+    }
+
+    @media (max-width: 390px) {
+      .filters-card { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: 1fr; }
+      .brand-text h1 { font-size: 12px; }
     }
 
     @media (min-width: 769px) {
