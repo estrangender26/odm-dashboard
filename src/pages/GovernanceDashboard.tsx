@@ -333,6 +333,19 @@ export default function GovernanceDashboard() {
     setPendingMilestones(prev => ({ ...prev, [mId]: { ...prev[mId], [field]: value } }));
   };
 
+  // ─── Upload debug (visible on screen) ───
+  const SHOW_UPLOAD_DEBUG = true;
+  const [uploadDebug, setUploadDebug] = useState<{
+    clicked?: string;
+    selectedFile?: string;
+    status?: string;
+    responseStatus?: number;
+    responseJson?: any;
+    error?: string;
+    dbUploadId?: number;
+    lastDbCheck?: any;
+  }>({});
+
   // ─── Upload status feedback ───
   const [uploadStatus, setUploadStatus] = useState<{ text: string; ts: number } | null>(null);
 
@@ -354,6 +367,15 @@ export default function GovernanceDashboard() {
   ) => {
     console.log("[UPLOAD] File selected:", file.name, "mId:", mId, "cat:", cat, "tocItem:", tocItem);
     showStatus(`Uploading ${file.name}...`);
+    setUploadDebug({
+      clicked: `${cat} ${tocItem || ""} (ms: ${mId})`,
+      selectedFile: file.name,
+      status: "preparing",
+      responseStatus: undefined,
+      responseJson: undefined,
+      error: undefined,
+      dbUploadId: undefined,
+    });
 
     // File size check
     const MAX_SIZE_MB = 5;
@@ -367,6 +389,7 @@ export default function GovernanceDashboard() {
     reader.onload = () => {
       const base64 = reader.result as string;
       console.log("[UPLOAD] Sending:", file.name, "size:", (base64.length / 1024).toFixed(1), "KB");
+      setUploadDebug(prev => ({ ...prev, status: "uploading" }));
       addUpload.mutate(
         {
           facilitySlug: activeFacility,
@@ -377,13 +400,25 @@ export default function GovernanceDashboard() {
           fileUrl: base64,
         },
         {
-          onSuccess: () => {
-            console.log("[UPLOAD] Success:", file.name);
+          onSuccess: (data) => {
+            console.log("[UPLOAD] Success:", file.name, data);
             showStatus(`Uploaded: ${file.name}`);
+            setUploadDebug(prev => ({
+              ...prev,
+              status: "success",
+              responseStatus: 200,
+              responseJson: data,
+              dbUploadId: data?.id || data?.[0]?.id,
+            }));
           },
           onError: (err) => {
             console.error("[UPLOAD] Failed:", err);
             showStatus(`Upload failed: ${err.message || "Server error"}`);
+            setUploadDebug(prev => ({
+              ...prev,
+              status: "error",
+              error: err.message || "Server error",
+            }));
           },
         }
       );
@@ -413,7 +448,10 @@ export default function GovernanceDashboard() {
           onChange={e => {
             const file = e.target.files?.[0];
             e.target.value = "";
-            if (file) handleFileUpload(file, mId, cat, tocItem);
+            if (file) {
+              setUploadDebug(prev => ({ ...prev, clicked: `${cat} ${tocItem || ""} (ms: ${mId})`, status: "file_selected" }));
+              handleFileUpload(file, mId, cat, tocItem);
+            }
           }}
         />
         <label
@@ -553,6 +591,79 @@ export default function GovernanceDashboard() {
           </div>
         )}
 
+        {/* ─── UPLOAD DEBUG PANEL (visible) ─── */}
+        {SHOW_UPLOAD_DEBUG && (
+          <div className="mb-4 border-2 border-orange-300 rounded-xl bg-orange-50 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-orange-800">Upload Debug</h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const r = await fetch("/api/debug/uploads");
+                      const j = await r.json();
+                      setUploadDebug(prev => ({ ...prev, lastDbCheck: j }));
+                    } catch (e: any) {
+                      setUploadDebug(prev => ({ ...prev, lastDbCheck: { error: e.message } }));
+                    }
+                  }}
+                  className="px-3 py-1 bg-orange-600 text-white rounded text-xs font-semibold hover:bg-orange-700"
+                >
+                  Check DB uploads
+                </button>
+                <button
+                  onClick={() => setUploadDebug({})}
+                  className="px-3 py-1 bg-gray-400 text-white rounded text-xs font-semibold hover:bg-gray-500"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1 text-xs font-mono">
+              <div><strong>Clicked:</strong> {uploadDebug.clicked || "—"}</div>
+              <div><strong>File:</strong> {uploadDebug.selectedFile || "—"}</div>
+              <div><strong>Status:</strong> <span className={
+                uploadDebug.status === "success" ? "text-green-700 font-bold" :
+                uploadDebug.status === "error" ? "text-red-700 font-bold" :
+                uploadDebug.status ? "text-blue-700" : "text-gray-500"
+              }>{uploadDebug.status || "idle"}</span></div>
+              {uploadDebug.responseStatus && (
+                <div><strong>Response:</strong> {uploadDebug.responseStatus} {uploadDebug.responseStatus >= 200 && uploadDebug.responseStatus < 300 ? "OK" : "FAILED"}</div>
+              )}
+              {uploadDebug.dbUploadId && (
+                <div><strong>DB ID:</strong> {uploadDebug.dbUploadId}</div>
+              )}
+              {uploadDebug.error && (
+                <div className="text-red-700"><strong>Error:</strong> {uploadDebug.error}</div>
+              )}
+              {uploadDebug.lastDbCheck && (
+                <div className="mt-2">
+                  <strong>DB Check ({uploadDebug.lastDbCheck.count || 0} rows):</strong>
+                  <pre className="mt-1 bg-white p-2 rounded text-[10px] overflow-auto max-h-40 border">
+                    {JSON.stringify(uploadDebug.lastDbCheck, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+            {/* Raw uploads from API */}
+            <div className="mt-3">
+              <strong className="text-xs">API uploads count:</strong>{" "}
+              <span className="text-xs font-bold">{uploads?.length || 0}</span>
+              {uploads && uploads.length > 0 && (
+                <pre className="mt-1 bg-white p-2 rounded text-[10px] overflow-auto max-h-40 border">
+                  {JSON.stringify(uploads.map(u => ({
+                    id: u.id,
+                    mId: u.milestoneId,
+                    toc: u.tocItem,
+                    cat: u.category,
+                    name: u.fileName,
+                  })), null, 2)}
+                </pre>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ──── PROGRESS TAB ──── */}
         {activeTab === "progress" && (
           <div className="space-y-6">
@@ -681,15 +792,22 @@ export default function GovernanceDashboard() {
                           <span className="text-xs text-gray-400 flex-shrink-0">M{msIds.join(",")}</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Uploaded file names */}
                         {tocUploads.length > 0 && (
-                          <span className="text-xs text-green-600 font-semibold">{tocUploads.length} uploaded</span>
+                          <div className="flex flex-col gap-1">
+                            {tocUploads.map(u => (
+                              <span key={u.id} className="text-xs text-green-700 font-medium flex items-center gap-1">
+                                ✓ {u.fileName}
+                              </span>
+                            ))}
+                          </div>
                         )}
                         <FileUploadButton
                           mId={msIds[0] || "M1"}
                           cat="toc"
                           tocItem={toc.id}
-                          label="📎 Upload"
+                          label={tocUploads.length > 0 ? "📎 Upload more" : "📎 Upload"}
                         />
                       </div>
                     </div>

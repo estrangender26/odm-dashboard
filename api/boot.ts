@@ -118,6 +118,22 @@ app.get("/_health", async (c) => {
   }
 });
 
+// Debug: list latest uploads
+app.get("/api/debug/uploads", async (c) => {
+  try {
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(sql.raw('"governance_uploads"'))
+      .orderBy(sql.raw('"id" DESC'))
+      .limit(20);
+    return c.json({ count: rows.length, uploads: rows });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",
