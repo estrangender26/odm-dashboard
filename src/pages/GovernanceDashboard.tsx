@@ -146,6 +146,7 @@ function SCurve({
     for (let i = 0; i < MSD.length; i++) {
       const st = msState[MSD[i].id];
       const pct = st?.customPct ?? (st?.compDate ? 100 : 0);
+      if (i === 0) console.log("[SCURVE] msState keys:", Object.keys(msState), "M1 compDate:", msState["M1"]?.compDate, "→ pct:", pct);
       totalPct = pct;
       const x = 60 + ((w - 80) * (i + 1)) / 10;
       const y = h - 40 - ((h - 80) * pct) / 100;
@@ -808,6 +809,25 @@ export default function GovernanceDashboard() {
             {/* S-Curve Chart */}
             <div className="bg-white border border-gray-200 rounded-xl p-5">
               <h3 className="text-lg font-bold text-gray-800 mb-4">Project S-Curve — {currentFacility.short}</h3>
+              {/* ─── Checkbox Sim Debug (temporary) ─── */}
+              <div className="mb-3 p-2 bg-gray-100 rounded-lg text-xs font-mono">
+                <div className="font-bold mb-1">Chart Debug:</div>
+                <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+                  {MSD.map(m => {
+                    const dbVal = msStateMap[m.id]?.compDate;
+                    const simVal = checkboxSim[m.id];
+                    const mergedVal = mergedStateMap[m.id]?.compDate;
+                    const chartPct = mergedStateMap[m.id]?.customPct ?? (mergedVal ? 100 : 0);
+                    return (
+                      <div key={m.id} className="flex items-center gap-1">
+                        <span className="font-bold w-6">{m.id}:</span>
+                        <span className={chartPct === 100 ? "text-green-600" : "text-gray-400"}>{chartPct}%</span>
+                        <span className="text-gray-400">(DB:{dbVal ? "✓" : "✗"} Sim:{simVal === false ? "✗" : "—"})</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
               <SCurve msState={mergedStateMap} color={currentFacility.color} />
             </div>
 
