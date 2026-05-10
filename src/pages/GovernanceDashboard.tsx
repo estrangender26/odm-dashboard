@@ -488,6 +488,86 @@ export default function GovernanceDashboard() {
         </div>
       </header>
 
+      {/* Tablet responsive styles */}
+      <style>{`
+        /* Tablet: 768px–1180px — card layout instead of cramped table */
+        @media (min-width: 768px) and (max-width: 1180px) {
+          .ms-tablet-wrap { overflow-x: visible !important; }
+          .ms-tablet-table { display: block !important; min-width: unset !important; width: 100%; border-collapse: separate; border-spacing: 0 12px; background: transparent !important; border: none !important; }
+          .ms-tablet-table thead { display: none !important; }
+          .ms-tablet-table tbody { display: block !important; background: transparent !important; }
+          .ms-tablet-table tr {
+            display: block !important;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            margin-bottom: 0;
+            padding: 0;
+          }
+          /* First td = card content; hide desktop tds 2-5 */
+          .ms-tablet-table td:first-child {
+            display: block !important;
+            border: none !important;
+            padding: 14px 16px !important;
+          }
+          .ms-tablet-table td:not(:first-child) {
+            display: none !important;
+          }
+          .ms-tablet-row1 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+          }
+          .ms-tablet-row1 .ms-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 6px;
+            color: #fff;
+            flex-shrink: 0;
+          }
+          .ms-tablet-row1 .ms-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1f2937;
+          }
+          .ms-tablet-fields {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+            align-items: end;
+          }
+          .ms-tablet-field label {
+            font-size: 10px;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            display: block;
+          }
+          .ms-tablet-field input[type="date"] {
+            min-width: unset !important;
+            max-width: unset !important;
+            width: 100%;
+            height: 38px;
+            font-size: 13px;
+          }
+          .ms-tablet-field input[type="range"] {
+            width: 100%;
+          }
+          .ms-tablet-field span.inline-block {
+            margin-top: 4px;
+          }
+        }
+        @media (min-width: 768px) and (max-width: 980px) {
+          .ms-tablet-fields {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+        }
+      `}</style>
+
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 sm:py-5">
         {/* Facility Selector + Sync */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -695,8 +775,8 @@ export default function GovernanceDashboard() {
 
             {/* Milestone Tracker */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[640px]">
+              <div className="overflow-x-auto ms-tablet-wrap">
+                <table className="w-full text-sm min-w-[640px] ms-tablet-table">
                   <thead>
                     <tr className="bg-gray-50">
                       <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Milestone</th>
@@ -715,9 +795,70 @@ export default function GovernanceDashboard() {
 
                       return (
                         <tr key={m.id} className="hover:bg-gray-50 transition">
+                          {/* Milestone title + badge — tablet row 1 */}
                           <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
-                            <div className="font-semibold text-gray-800 text-xs sm:text-sm">{m.label}</div>
+                            <div className="ms-tablet-row1">
+                              <span className="ms-badge" style={{ backgroundColor: currentFacility.color }}>{m.id}</span>
+                              <span className="ms-title">{m.label}</span>
+                            </div>
+                            {/* Tablet: grid of fields */}
+                            <div className="ms-tablet-fields">
+                              <div className="ms-tablet-field">
+                                <label>Target</label>
+                                <span className="text-gray-600 text-xs sm:text-sm">{fmtDate(planned)}</span>
+                              </div>
+                              <div className="ms-tablet-field">
+                                <label>Completion</label>
+                                {editMode ? (
+                                  <input
+                                    type="date"
+                                    value={comp}
+                                    onChange={e => onMsChange(m.id, "compDate", e.target.value)}
+                                    className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
+                                    style={{ height: 38, WebkitAppearance: 'none' }}
+                                  />
+                                ) : (
+                                  <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>
+                                    {fmtDate(comp)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="ms-tablet-field">
+                                <label>Progress</label>
+                                {editMode ? (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="range"
+                                      min={0}
+                                      max={100}
+                                      value={pct}
+                                      onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))}
+                                      className="w-16 sm:w-24"
+                                    />
+                                    <span className="text-xs font-semibold">{pct}%</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-16 sm:w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: currentFacility.color }} />
+                                    </div>
+                                    <span className="text-xs font-semibold">{pct}%</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="ms-tablet-field">
+                                <label>Status</label>
+                                {isComplete ? (
+                                  <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold inline-block">Completed</span>
+                                ) : pct > 0 ? (
+                                  <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold inline-block">In Progress</span>
+                                ) : (
+                                  <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs font-semibold inline-block">Pending</span>
+                                )}
+                              </div>
+                            </div>
                           </td>
+                          {/* Desktop columns (hidden on tablet) */}
                           <td className="px-3 sm:px-4 py-3 border-b border-gray-100 text-gray-600 whitespace-nowrap text-xs sm:text-sm">{fmtDate(planned)}</td>
                           <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
                             {editMode ? (
@@ -737,23 +878,13 @@ export default function GovernanceDashboard() {
                           <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
                             {editMode ? (
                               <div className="flex items-center gap-2">
-                                <input
-                                  type="range"
-                                  min={0}
-                                  max={100}
-                                  value={pct}
-                                  onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))}
-                                  className="w-16 sm:w-24"
-                                />
+                                <input type="range" min={0} max={100} value={pct} onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))} className="w-16 sm:w-24" />
                                 <span className="text-xs font-semibold w-8">{pct}%</span>
                               </div>
                             ) : (
                               <div className="flex items-center gap-2">
                                 <div className="w-16 sm:w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full transition-all"
-                                    style={{ width: `${pct}%`, backgroundColor: currentFacility.color }}
-                                  />
+                                  <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: currentFacility.color }} />
                                 </div>
                                 <span className="text-xs font-semibold">{pct}%</span>
                               </div>
