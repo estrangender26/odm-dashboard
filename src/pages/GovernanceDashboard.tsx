@@ -523,14 +523,10 @@ export default function GovernanceDashboard() {
           .ms-card-badge .badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; color: #fff; flex-shrink: 0; }
           .ms-card-badge .title { font-size: 14px; font-weight: 600; color: #1f2937; }
           .ms-card-badge .subtitle { font-size: 11px; color: #6b7280; }
-          .ms-card-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+          .ms-card-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
           .ms-card-field label { font-size: 10px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: block; }
           .ms-card-field input[type="date"] { width: 100%; height: 38px; font-size: 13px; }
           .ms-card-field .stat { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
-        }
-        @media (max-width: 640px) {
-          .ms-card-fields { grid-template-columns: repeat(2, 1fr); }
-        }
       `}</style>
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 sm:py-5">
@@ -769,10 +765,6 @@ export default function GovernanceDashboard() {
                               </div>
                             </div>
                             <div className="ms-card-fields">
-                              <div className="ms-card-field">
-                                <label>Target</label>
-                                <span className="text-gray-600 text-sm">{fmtDate(planned)}</span>
-                              </div>
                               <div className="ms-card-field">
                                 <label>Completed</label>
                                 {editMode ? (

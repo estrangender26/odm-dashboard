@@ -296,9 +296,9 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .ph:first-child{margin-top:0}
 .pp1{background:var(--mw-cyan)}.pp2{background:var(--mw-aqua)}.pp3{background:var(--mw-blue)}
 .pb{border:1px solid var(--mw-border);border-top:none;border-radius:0 0 var(--r-md) var(--r-md);overflow:hidden}
-.ms-h{display:grid;grid-template-columns:42px 1fr 60px 90px 115px 55px 70px 40px;gap:6px;align-items:center;padding:6px 12px;background:#F1F5F9;border-bottom:1px solid var(--mw-border);font-size:9px;font-weight:700;color:var(--mw-muted);text-transform:uppercase;letter-spacing:.4px}
+.ms-h{display:grid;grid-template-columns:42px 1fr 60px 90px 140px 70px 36px;gap:6px;align-items:center;padding:6px 12px;background:#F1F5F9;border-bottom:1px solid var(--mw-border);font-size:9px;font-weight:700;color:var(--mw-muted);text-transform:uppercase;letter-spacing:.4px}
 .ms-h>div{text-align:center}.ms-h>div:first-child,.ms-h>div:nth-child(2){text-align:left}
-.ms{display:grid;grid-template-columns:42px 1fr 60px 90px 115px 55px 70px 40px;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid #EDF1F4;font-size:11px}
+.ms{display:grid;grid-template-columns:42px 1fr 60px 90px 140px 70px 36px;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid #EDF1F4;font-size:11px}
 .ms:last-child{border-bottom:none}
 .msi{font-size:10px;font-weight:700;color:var(--mw-navy);background:var(--mw-bg);padding:2px 6px;border-radius:var(--r-sm);text-align:center;min-width:32px}
 .msn{font-size:12px;font-weight:600;color:var(--mw-text);line-height:1.3}
@@ -349,7 +349,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
   .hdr-in{padding:8px 12px;gap:8px}.brand h1{font-size:13px}.brand span{font-size:9px}
   .main{padding:10px 12px}.card{padding:12px 14px}.cw{height:240px}
   #sc-summary{grid-template-columns:repeat(2,1fr)!important}
-  .ms,.ms-h{grid-template-columns:36px 1fr 55px 80px 100px 50px 60px 36px;gap:4px;padding:6px 10px}
+  .ms,.ms-h{grid-template-columns:36px 1fr 55px 80px 110px 60px 36px;gap:4px;padding:6px 10px}
   .ms-h{font-size:8px}.toc-up{grid-template-columns:1fr;padding:4px 10px 4px 52px}
   .comp-row{padding:6px 10px 6px 52px}.dlv-g{grid-template-columns:1fr 80px 70px 1fr}
 }
@@ -831,11 +831,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
     compIn.dataset.tip='Completion date';compIn.addEventListener('change',function(ev){tMComp(mid,ev.target.value)});c5.appendChild(compIn);row.appendChild(c5);
     // Column 6: Plan% input
-    var c6=document.createElement('div');c6.style.cssText='text-align:center';
-    var pctIn=document.createElement('input');pctIn.type='number';pctIn.value=effPct;pctIn.min='0';pctIn.max='100';pctIn.step='1';
-    pctIn.style.cssText='padding:3px 4px;border:1px solid '+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?'var(--blue)':'#ddd')+';border-radius:4px;font-size:10px;width:45px;text-align:center;cursor:pointer;color:'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?'var(--blue)':'var(--t2)');
-    pctIn.dataset.tip=(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?'Manual override ('+effPct+'%) — clear to auto-compute':'Auto-computed from uploads ('+effPct+'%) — type to override');pctIn.addEventListener('change',function(ev){var v=ev.target.value===''?null:parseInt(ev.target.value,10)||0;tMPct(mid,v)});c6.appendChild(pctIn);
-    var pctLbl=document.createElement('span');pctLbl.style.cssText='font-size:10px;color:var(--t2)';pctLbl.textContent='%';c6.appendChild(pctLbl);row.appendChild(c6);
+    
     // Column 7: Plan% badge
     var c7=document.createElement('div');c7.className='mst';
     var badge=document.createElement('span');badge.className='badge '+rc;badge.dataset.tip='Completion: '+effPct+'%'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?' (manual)':' (auto from uploads)');badge.textContent=effPct+'%';c7.appendChild(badge);row.appendChild(c7);
