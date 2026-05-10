@@ -481,8 +481,10 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 #pb-count{font-size:11px;color:#9ca3af;margin-top:4px}
 
 /* Edit mode visibility */
-.hidden-upload{display:none !important}
-.view-only .edit-control{opacity:0.5;pointer-events:none}
+/* Edit mode: upload zone dimmed when not editing */
+.up{opacity:1;transition:opacity 0.2s}
+body:not(.editing) .up{opacity:0.4;pointer-events:none}
+body.editing .up{opacity:1;pointer-events:auto}
 </style>
 <link rel="stylesheet" href="/ProgramsEngineeringLogo.css" />
 
@@ -920,7 +922,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       // Right: upload zone
       var rDiv=document.createElement('div');
       var upDiv=document.createElement('div');
-      upDiv.className='up '+(files.length?'hf':'')+(EDIT_MODE?'':' hidden-upload');
+      upDiv.className='up '+(files.length?'hf':'');
       upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload '+tkey);
       var fileIn=document.createElement('input');
       fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
@@ -934,7 +936,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           var frDiv=document.createElement('div');frDiv.className='fr';
           var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
           frDiv.appendChild(a);
-          var btn=document.createElement('button');btn.textContent='Remove';btn.style.display=EDIT_MODE?'inline-block':'none';
+          var btn=document.createElement('button');btn.textContent='Remove';btn.disabled=!EDIT_MODE;btn.style.opacity=EDIT_MODE?'1':'0.3';btn.style.cursor=EDIT_MODE?'pointer':'not-allowed';
           btn.addEventListener('click',function(ev){ev.stopPropagation();rTocUp(mid,tkey,ix)});
           frDiv.appendChild(btn);
           flDiv.appendChild(frDiv);
@@ -968,7 +970,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       // Right: upload zone
       var rDiv=document.createElement('div');
       var upDiv=document.createElement('div');
-      upDiv.className='up '+(files.length?'hf':'')+(EDIT_MODE?'':' hidden-upload');
+      upDiv.className='up '+(files.length?'hf':'');
       upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload ANNEX '+aid);
       var fileIn=document.createElement('input');
       fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10';
@@ -982,7 +984,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           var frDiv=document.createElement('div');frDiv.className='fr';
           var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
           frDiv.appendChild(a);
-          var btn=document.createElement('button');btn.textContent='Remove';btn.style.display=EDIT_MODE?'inline-block':'none';
+          var btn=document.createElement('button');btn.textContent='Remove';btn.disabled=!EDIT_MODE;btn.style.opacity=EDIT_MODE?'1':'0.3';btn.style.cursor=EDIT_MODE?'pointer':'not-allowed';
           btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
           frDiv.appendChild(btn);
           flDiv.appendChild(frDiv);
@@ -1019,7 +1021,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         var otherFr=document.createElement('div');otherFr.className='fr';
         var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
         otherFr.appendChild(a);
-        var btn=document.createElement('button');btn.textContent='Remove';btn.style.display=EDIT_MODE?'inline-block':'none';
+        var btn=document.createElement('button');btn.textContent='Remove';btn.disabled=!EDIT_MODE;btn.style.opacity=EDIT_MODE?'1':'0.3';btn.style.cursor=EDIT_MODE?'pointer':'not-allowed';
         btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
         otherFr.appendChild(btn);
         otherFl.appendChild(otherFr);
@@ -1038,9 +1040,9 @@ function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
 
 // EDIT / SAVE / CANCEL
 function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';}
-function startEdit(){EDIT_MODE=true;DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
-function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){EDIT_MODE=false;updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
-function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;updateEditButtons();ALL();}
+function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
+function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
+function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();ALL();}
 
 // S-CURVE (same as working version)
 function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
