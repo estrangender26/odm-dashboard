@@ -488,63 +488,48 @@ export default function GovernanceDashboard() {
         </div>
       </header>
 
-      {/* Responsive milestone styles — desktop / tablet / mobile */}
+      {/* Responsive milestone styles */}
       <style>{`
-        /* ─── CARD LAYOUT: applies to ALL widths < 1024px ─── */
-        @media (max-width: 1023px) {
-          .ms-tablet-wrap { overflow-x: visible !important; }
-          .ms-tablet-table { display: block !important; min-width: 0 !important; width: 100%; border-collapse: separate; border-spacing: 0 8px; background: transparent !important; }
-          .ms-tablet-table thead { display: none !important; }
-          .ms-tablet-table tbody { display: block !important; background: transparent !important; }
-          .ms-tablet-table tr {
-            display: block !important;
-            background: #fff;
-            border: 1px solid #e5e7eb;
-            border-radius: 10px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-          }
-          .ms-tablet-table td.ms-card-td {
-            display: block !important;
-            border: none !important;
-            padding: 14px 16px !important;
-          }
-          .ms-tablet-table td.ms-desk-td { display: none !important; }
-          .ms-tb-row1 { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
-          .ms-tb-row1 .ms-tb-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; color: #fff; flex-shrink: 0; }
-          .ms-tb-row1 .ms-tb-title-wrap { flex: 1; min-width: 0; }
-          .ms-tb-row1 .ms-tb-title { font-size: 14px; font-weight: 600; color: #1f2937; }
-          .ms-tb-row1 .ms-tb-desc { font-size: 11px; color: #6b7280; margin-top: 2px; }
-          .ms-tb-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: end; }
-          .ms-tb-field label { font-size: 10px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: block; }
-          .ms-tb-field input[type="date"] { width: 100%; height: 38px; font-size: 13px; }
-          .ms-tb-field .ms-tb-stat { display: inline-block; margin-top: 4px; font-size: 11px; white-space: nowrap; }
+        /* ─── DESKTOP >=1100px: 4-column table ─── */
+        @media (min-width: 1100px) {
+          .ms-table { table-layout: fixed; width: 100%; border-collapse: collapse; }
+          .ms-table th, .ms-table td { padding: 12px 14px; vertical-align: middle; border-bottom: 1px solid #e5e7eb; }
+          .ms-table th { font-size: 10px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.8px; background: #f9fafb; }
+          .ms-table td { font-size: 13px; }
+          .ms-col-id  { width: 60px; }
+          .ms-col-info { width: auto; }
+          .ms-col-schedule { width: 120px; }
+          .ms-col-completion { width: 420px; }
+          /* Completion flex group */
+          .ms-completion-group { display: flex; align-items: center; gap: 14px; }
+          .ms-completion-group input[type="date"] { width: 150px; height: 36px; font-size: 12px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #0f2d4a; }
+          .ms-completion-group .ms-badge-stat { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; white-space: nowrap; display: inline-block; }
+          .ms-completion-group .ms-done { width: 20px; height: 20px; accent-color: #16a34a; flex-shrink: 0; }
         }
-        @media (max-width: 767px) {
-          .ms-tb-fields { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-          .ms-tb-field input[type="date"] { height: 40px; font-size: 14px; }
+        @media (min-width: 1280px) {
+          .ms-col-completion { width: 480px; }
+          .ms-completion-group input[type="date"] { width: 170px; }
         }
 
-        /* ─── DESKTOP >=1024px: clean table with fixed columns ─── */
-        @media (min-width: 1024px) {
-          .ms-desk-table { table-layout: fixed; width: 100%; }
-          .ms-desk-table th, .ms-desk-table td { padding: 10px 8px; vertical-align: middle; overflow: visible; }
-          .ms-desk-table th { font-size: 9px; letter-spacing: 0.5px; }
-          .ms-desk-table td { font-size: 12px; }
-          .ms-desk-col-title { width: auto; }
-          .ms-desk-col-tgt   { width: 100px; }
-          .ms-desk-col-comp  { width: 170px; }
-          .ms-desk-col-stat  { width: 110px; }
-          .ms-desk-table td input[type="date"] { width: 150px !important; min-width: 150px !important; max-width: 150px !important; height: 34px; font-size: 11px; padding: 4px 6px; }
-          .ms-desk-table td .ms-badge-stat { white-space: nowrap; font-size: 9px; padding: 2px 6px; display: inline-block; }
+        /* ─── BELOW 1100px: card layout ─── */
+        @media (max-width: 1099px) {
+          .ms-table { display: block; width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+          .ms-table thead { display: none; }
+          .ms-table tbody { display: block; }
+          .ms-table tr { display: block; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+          .ms-table td.ms-card { display: block; border: none; padding: 14px 16px; }
+          .ms-table td.ms-hide-below-1100 { display: none; }
+          .ms-card-badge { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+          .ms-card-badge .badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; color: #fff; flex-shrink: 0; }
+          .ms-card-badge .title { font-size: 14px; font-weight: 600; color: #1f2937; }
+          .ms-card-badge .subtitle { font-size: 11px; color: #6b7280; }
+          .ms-card-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+          .ms-card-field label { font-size: 10px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: block; }
+          .ms-card-field input[type="date"] { width: 100%; height: 38px; font-size: 13px; }
+          .ms-card-field .stat { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
         }
-        /* Wider desktop */
-        @media (min-width: 1280px) {
-          .ms-desk-table th, .ms-desk-table td { padding: 12px 10px; }
-          .ms-desk-table td { font-size: 13px; }
-          .ms-desk-col-comp { width: 185px; }
-          .ms-desk-col-stat { width: 120px; }
-          .ms-desk-table td input[type="date"] { width: 165px !important; min-width: 165px !important; max-width: 165px !important; height: 36px; font-size: 12px; }
-          .ms-desk-table td .ms-badge-stat { font-size: 10px; padding: 3px 8px; }
+        @media (max-width: 640px) {
+          .ms-card-fields { grid-template-columns: repeat(2, 1fr); }
         }
       `}</style>
 
@@ -753,16 +738,16 @@ export default function GovernanceDashboard() {
               </div>
             </div>
 
-            {/* Milestone Tracker */}
+            {/* Milestone Tracker — 4-column: M# | Milestone | Schedule | Completion */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <div className="overflow-x-auto ms-tablet-wrap">
-                <table className="w-full text-sm ms-tablet-table ms-desk-table">
+              <div className="overflow-x-auto">
+                <table className="ms-table">
                   <thead>
-                    <tr className="bg-gray-50">
-                      <th className="ms-desk-col-title px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Milestone</th>
-                      <th className="ms-desk-col-tgt px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Target</th>
-                      <th className="ms-desk-col-comp px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Completed</th>
-                      <th className="ms-desk-col-stat px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Status</th>
+                    <tr>
+                      <th className="ms-col-id">M#</th>
+                      <th className="ms-col-info">MILESTONE</th>
+                      <th className="ms-col-schedule">SCHEDULE</th>
+                      <th className="ms-col-completion">COMPLETION</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -773,65 +758,69 @@ export default function GovernanceDashboard() {
                       const isComplete = !!comp;
 
                       return (
-                        <tr key={m.id} className="hover:bg-gray-50 transition">
-                          {/* Card cell (visible on tablet/mobile) + desktop columns */}
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-card-td">
-                            {/* Card: badge + title */}
-                            <div className="ms-tb-row1">
-                              <span className="ms-tb-badge" style={{ backgroundColor: currentFacility.color }}>{m.id}</span>
-                              <div className="ms-tb-title-wrap">
-                                <div className="ms-tb-title">{m.label}</div>
-                                <div className="ms-tb-desc">Planned: {fmtDate(planned)}</div>
+                        <tr key={m.id} className="hover:bg-gray-50">
+                          {/* ── Card cell: visible below 1100px ── */}
+                          <td className="ms-card" colSpan={4}>
+                            <div className="ms-card-badge">
+                              <span className="badge" style={{ backgroundColor: currentFacility.color }}>{m.id}</span>
+                              <div>
+                                <div className="title">{m.label}</div>
+                                <div className="subtitle">Target: {fmtDate(planned)}</div>
                               </div>
                             </div>
-                            {/* Card: 4-col field grid */}
-                            <div className="ms-tb-fields">
-                              <div className="ms-tb-field">
+                            <div className="ms-card-fields">
+                              <div className="ms-card-field">
                                 <label>Target</label>
-                                <span className="text-gray-600 text-xs sm:text-sm">{fmtDate(planned)}</span>
+                                <span className="text-gray-600 text-sm">{fmtDate(planned)}</span>
                               </div>
-                              <div className="ms-tb-field">
-                                <label>Completion</label>
+                              <div className="ms-card-field">
+                                <label>Completed</label>
                                 {editMode ? (
                                   <input type="date" value={comp} onChange={e => onMsChange(m.id, "compDate", e.target.value)}
-                                    className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
-                                    style={{ height: 38, WebkitAppearance: 'none' }} />
+                                    className="px-2 py-1 border border-gray-300 rounded text-sm bg-white" style={{ height: 38 }} />
                                 ) : (
-                                  <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>{fmtDate(comp)}</span>
+                                  <span className={isComplete ? "text-green-700 font-semibold text-sm" : "text-gray-400 text-sm"}>{fmtDate(comp)}</span>
                                 )}
                               </div>
-                              {/* Progress — not shown in UI but pct variable is kept for status calculation */}
-                              <div className="ms-tb-field">
+                              <div className="ms-card-field">
                                 <label>Status</label>
                                 {isComplete ? (
-                                  <span className="ms-tb-stat px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">Completed</span>
+                                  <span className="stat bg-green-100 text-green-700">Completed</span>
                                 ) : pct > 0 ? (
-                                  <span className="ms-tb-stat px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">In Progress</span>
+                                  <span className="stat bg-yellow-100 text-yellow-700">In Progress</span>
                                 ) : (
-                                  <span className="ms-tb-stat px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs font-semibold">Pending</span>
+                                  <span className="stat bg-gray-100 text-gray-500">Pending</span>
                                 )}
                               </div>
                             </div>
                           </td>
-                          {/* Desktop columns — hidden on tablet/mobile */}
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 text-gray-600 whitespace-nowrap text-xs sm:text-sm ms-desk-td">{fmtDate(planned)}</td>
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-desk-td">
-                            {editMode ? (
-                              <input type="date" value={comp} onChange={e => onMsChange(m.id, "compDate", e.target.value)}
-                                className="px-2 py-1 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
-                                style={{ width: 150, minWidth: 150, height: 36, WebkitAppearance: 'none', fontSize: 12 }} />
-                            ) : (
-                              <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>{fmtDate(comp)}</span>
-                            )}
+
+                          {/* ── Desktop columns: hidden below 1100px ── */}
+                          <td className="ms-col-id ms-hide-below-1100">
+                            <span className="text-xs font-bold px-2 py-1 rounded text-white" style={{ backgroundColor: currentFacility.color }}>{m.id}</span>
                           </td>
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-desk-td">
-                            {isComplete ? (
-                              <span className="ms-badge-stat px-2 py-1 bg-green-100 text-green-700 rounded font-semibold">Completed</span>
-                            ) : pct > 0 ? (
-                              <span className="ms-badge-stat px-2 py-1 bg-yellow-100 text-yellow-700 rounded font-semibold">In Progress</span>
-                            ) : (
-                              <span className="ms-badge-stat px-2 py-1 bg-gray-100 text-gray-500 rounded font-semibold">Pending</span>
-                            )}
+                          <td className="ms-col-info ms-hide-below-1100">
+                            <div className="font-semibold text-gray-800">{m.label}</div>
+                          </td>
+                          <td className="ms-col-schedule ms-hide-below-1100">
+                            <div className="text-gray-600 text-sm whitespace-nowrap">{fmtDate(planned)}</div>
+                          </td>
+                          <td className="ms-col-completion ms-hide-below-1100">
+                            <div className="ms-completion-group">
+                              {editMode ? (
+                                <input type="date" value={comp} onChange={e => onMsChange(m.id, "compDate", e.target.value)} />
+                              ) : (
+                                <span className={isComplete ? "text-green-700 font-semibold text-sm whitespace-nowrap" : "text-gray-400 text-sm whitespace-nowrap"}>{fmtDate(comp)}</span>
+                              )}
+                              {isComplete ? (
+                                <span className="ms-badge-stat bg-green-100 text-green-700">Completed</span>
+                              ) : pct > 0 ? (
+                                <span className="ms-badge-stat bg-yellow-100 text-yellow-700">In Progress</span>
+                              ) : (
+                                <span className="ms-badge-stat bg-gray-100 text-gray-500">Pending</span>
+                              )}
+                              <input type="checkbox" checked={isComplete} readOnly className="ms-done" title="Toggle completion" />
+                            </div>
                           </td>
                         </tr>
                       );
