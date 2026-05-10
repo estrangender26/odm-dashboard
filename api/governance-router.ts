@@ -131,12 +131,52 @@ export const governanceRouter = createRouter({
       return { success: true, id: Number(result[0].insertId) };
     }),
 
-  // Delete upload
+  // Delete upload — clears completion date if no uploads remain for the milestone
   deleteUpload: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      // db is already imported
+      // Find the upload to get its milestone before deleting
+      const uploadRows = await db
+        .select()
+        .from(governanceUploads)
+        .where(eq(governanceUploads.id, input.id))
+        .limit(1);
+
+      const upload = uploadRows[0];
+
+      // Delete the upload
       await db.delete(governanceUploads).where(eq(governanceUploads.id, input.id));
+
+      // If we know the milestone, check remaining uploads
+      if (upload) {
+        const remaining = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(governanceUploads)
+          .where(
+            and(
+              eq(governanceUploads.facilitySlug, upload.facilitySlug),
+              eq(governanceUploads.milestoneId, upload.milestoneId)
+            )
+          );
+
+        const remainingCount = remaining[0]?.count ?? 0;
+        console.log(`[GOV API] deleteUpload: ${upload.milestoneId} has ${remainingCount} uploads remaining`);
+
+        // If no uploads remain, clear the completion date
+        if (remainingCount === 0) {
+          await db
+            .update(governanceMilestoneState)
+            .set({ compDate: null })
+            .where(
+              and(
+                eq(governanceMilestoneState.facilitySlug, upload.facilitySlug),
+                eq(governanceMilestoneState.milestoneId, upload.milestoneId)
+              )
+            );
+          console.log(`[GOV API] deleteUpload: cleared compDate for ${upload.milestoneId} (no uploads)`);
+        }
+      }
+
       return { success: true };
     }),
 });
