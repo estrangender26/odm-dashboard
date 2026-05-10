@@ -577,8 +577,27 @@ export default function GovernanceDashboard() {
             margin-bottom: 4px; display: block;
           }
           .ms-tb-field input[type="date"] { width: 100%; height: 38px; font-size: 13px; }
-          .ms-tb-field input[type="range"] { width: 100%; }
-          .ms-tb-field .ms-tb-stat { display: inline-block; margin-top: 4px; }
+          .ms-tb-field input[type="range"] { width: 100%; min-width: 0; }
+          /* Progress: slider + percent on one line, nowrap */
+          .ms-tb-field .ms-tb-pct-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+          }
+          .ms-tb-field .ms-tb-pct-val {
+            font-size: 12px;
+            font-weight: 700;
+            color: #0f2d4a;
+            white-space: nowrap;
+            min-width: 32px;
+          }
+          .ms-tb-field .ms-tb-stat {
+            display: inline-block;
+            margin-top: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+          }
           /* Upload section inside card */
           .ms-tb-uploads { margin-top: 14px; padding-top: 12px; border-top: 1px solid #f3f4f6; }
           .ms-tb-uploads .ms-tb-doc {
@@ -881,16 +900,16 @@ export default function GovernanceDashboard() {
                               <div className="ms-tb-field">
                                 <label>Progress</label>
                                 {editMode ? (
-                                  <div className="flex items-center gap-2">
-                                    <input type="range" min={0} max={100} value={pct} onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))} className="w-16 sm:w-24" />
-                                    <span className="text-xs font-semibold">{pct}%</span>
+                                  <div className="ms-tb-pct-wrap">
+                                    <input type="range" min={0} max={100} value={pct} onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))} className="flex-1 min-w-0" />
+                                    <span className="ms-tb-pct-val">{pct}%</span>
                                   </div>
                                 ) : (
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-16 sm:w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div className="ms-tb-pct-wrap">
+                                    <div className="flex-1 min-w-0 h-2 bg-gray-200 rounded-full overflow-hidden">
                                       <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: currentFacility.color }} />
                                     </div>
-                                    <span className="text-xs font-semibold">{pct}%</span>
+                                    <span className="ms-tb-pct-val">{pct}%</span>
                                   </div>
                                 )}
                               </div>
