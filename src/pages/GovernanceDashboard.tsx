@@ -488,12 +488,29 @@ export default function GovernanceDashboard() {
         </div>
       </header>
 
-      {/* Tablet responsive styles */}
+      {/* Responsive milestone styles — desktop / tablet / mobile */}
       <style>{`
-        /* Tablet: 768px–1180px — card layout instead of cramped table */
-        @media (min-width: 768px) and (max-width: 1180px) {
+        /* ─── DESKTOP >=1200px: clean table with fixed columns ─── */
+        @media (min-width: 1200px) {
+          .ms-desk-table { table-layout: fixed; width: 100%; }
+          .ms-desk-table th,
+          .ms-desk-table td { padding: 14px 12px; vertical-align: top; }
+          .ms-desk-table th { font-size: 11px; letter-spacing: 0.5px; }
+          .ms-desk-table td { font-size: 13px; }
+          .ms-desk-col-id    { width: 56px; }
+          .ms-desk-col-title { width: auto; min-width: 280px; }
+          .ms-desk-col-off   { width: 80px; }
+          .ms-desk-col-tgt   { width: 120px; }
+          .ms-desk-col-comp  { width: 160px; }
+          .ms-desk-col-pct   { width: 100px; }
+          .ms-desk-col-stat  { width: 110px; }
+          .ms-desk-col-done  { width: 60px; text-align: center; }
+        }
+
+        /* ─── TABLET 768–1199px: card layout ─── */
+        @media (min-width: 768px) and (max-width: 1199px) {
           .ms-tablet-wrap { overflow-x: visible !important; }
-          .ms-tablet-table { display: block !important; min-width: unset !important; width: 100%; border-collapse: separate; border-spacing: 0 12px; background: transparent !important; border: none !important; }
+          .ms-tablet-table { display: block !important; min-width: unset !important; width: 100%; border-collapse: separate; border-spacing: 0 10px; background: transparent !important; border: none !important; }
           .ms-tablet-table thead { display: none !important; }
           .ms-tablet-table tbody { display: block !important; background: transparent !important; }
           .ms-tablet-table tr {
@@ -502,69 +519,95 @@ export default function GovernanceDashboard() {
             border: 1px solid #e5e7eb;
             border-radius: 12px;
             margin-bottom: 0;
-            padding: 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
           }
-          /* First td = card content; hide desktop tds 2-5 */
-          .ms-tablet-table td:first-child {
+          /* Card td = visible; desktop tds hidden */
+          .ms-tablet-table td.ms-card-td {
             display: block !important;
             border: none !important;
-            padding: 14px 16px !important;
+            padding: 16px 18px !important;
           }
-          .ms-tablet-table td:not(:first-child) {
+          .ms-tablet-table td.ms-desk-td {
             display: none !important;
           }
-          .ms-tablet-row1 {
+          /* Row 1: badge + title */
+          .ms-tb-row1 {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 10px;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
           }
-          .ms-tablet-row1 .ms-badge {
-            font-size: 11px;
-            font-weight: 700;
-            padding: 3px 10px;
-            border-radius: 6px;
-            color: #fff;
-            flex-shrink: 0;
+          .ms-tb-row1 .ms-tb-badge {
+            font-size: 11px; font-weight: 700;
+            padding: 3px 10px; border-radius: 6px;
+            color: #fff; flex-shrink: 0; margin-top: 2px;
           }
-          .ms-tablet-row1 .ms-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: #1f2937;
+          .ms-tb-row1 .ms-tb-title-wrap { flex: 1; min-width: 0; }
+          .ms-tb-row1 .ms-tb-title { font-size: 14px; font-weight: 600; color: #1f2937; }
+          .ms-tb-row1 .ms-tb-desc  { font-size: 11px; color: #6b7280; margin-top: 2px; }
+          .ms-tb-row1 .ms-tb-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+          .ms-tb-row1 .ms-tb-badges span {
+            font-size: 9px; font-weight: 600; padding: 2px 6px;
+            border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px;
           }
-          .ms-tablet-fields {
+          /* Row 2: 4-col field grid */
+          .ms-tb-fields {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 10px;
+            gap: 12px;
             align-items: end;
           }
-          .ms-tablet-field label {
-            font-size: 10px;
-            font-weight: 600;
-            color: #6b7280;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-            display: block;
+          .ms-tb-field label {
+            font-size: 10px; font-weight: 600; color: #6b7280;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 4px; display: block;
           }
-          .ms-tablet-field input[type="date"] {
-            min-width: unset !important;
-            max-width: unset !important;
-            width: 100%;
-            height: 38px;
-            font-size: 13px;
+          .ms-tb-field input[type="date"] { width: 100%; height: 38px; font-size: 13px; }
+          .ms-tb-field input[type="range"] { width: 100%; }
+          .ms-tb-field .ms-tb-stat { display: inline-block; margin-top: 4px; }
+          /* Upload section inside card */
+          .ms-tb-uploads { margin-top: 14px; padding-top: 12px; border-top: 1px solid #f3f4f6; }
+          .ms-tb-uploads .ms-tb-doc {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 10px; background: #f9fafb; border-radius: 8px;
+            margin-bottom: 6px; gap: 8px;
           }
-          .ms-tablet-field input[type="range"] {
-            width: 100%;
-          }
-          .ms-tablet-field span.inline-block {
-            margin-top: 4px;
+          .ms-tb-uploads .ms-tb-doc-title { font-size: 12px; font-weight: 500; }
+          .ms-tb-uploads .ms-tb-doc-tag {
+            font-size: 9px; font-weight: 600; padding: 2px 6px;
+            border-radius: 4px; flex-shrink: 0; text-transform: uppercase;
           }
         }
         @media (min-width: 768px) and (max-width: 980px) {
-          .ms-tablet-fields {
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          .ms-tb-fields { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+        }
+
+        /* ─── MOBILE <768px: stacked card ─── */
+        @media (max-width: 767px) {
+          .ms-tablet-wrap { overflow-x: visible !important; }
+          .ms-tablet-table { display: block !important; min-width: unset !important; width: 100%; border-collapse: separate; border-spacing: 0 8px; background: transparent !important; border: none !important; }
+          .ms-tablet-table thead { display: none !important; }
+          .ms-tablet-table tbody { display: block !important; background: transparent !important; }
+          .ms-tablet-table tr {
+            display: block !important;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            margin-bottom: 0;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
           }
+          .ms-tablet-table td.ms-card-td {
+            display: block !important;
+            border: none !important;
+            padding: 12px 14px !important;
+          }
+          .ms-tablet-table td.ms-desk-td { display: none !important; }
+          .ms-tb-row1 { flex-direction: column; gap: 6px; margin-bottom: 10px; }
+          .ms-tb-row1 .ms-tb-badge { align-self: flex-start; }
+          .ms-tb-fields { grid-template-columns: 1fr 1fr !important; gap: 10px; }
+          .ms-tb-field input[type="date"] { width: 100%; height: 40px; font-size: 14px; }
+          .ms-tb-uploads { margin-top: 10px; padding-top: 10px; }
+          .ms-tb-uploads .ms-tb-doc { flex-direction: column; align-items: flex-start; gap: 6px; }
         }
       `}</style>
 
@@ -776,14 +819,14 @@ export default function GovernanceDashboard() {
             {/* Milestone Tracker */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
               <div className="overflow-x-auto ms-tablet-wrap">
-                <table className="w-full text-sm min-w-[640px] ms-tablet-table">
+                <table className="w-full text-sm min-w-[640px] ms-tablet-table ms-desk-table">
                   <thead>
                     <tr className="bg-gray-50">
-                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Milestone</th>
-                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Planned</th>
-                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Completion</th>
-                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Progress</th>
-                      <th className="px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Status</th>
+                      <th className="ms-desk-col-title px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Milestone</th>
+                      <th className="ms-desk-col-tgt px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Planned</th>
+                      <th className="ms-desk-col-comp px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Completion</th>
+                      <th className="ms-desk-col-pct px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Progress</th>
+                      <th className="ms-desk-col-stat px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -795,46 +838,37 @@ export default function GovernanceDashboard() {
 
                       return (
                         <tr key={m.id} className="hover:bg-gray-50 transition">
-                          {/* Milestone title + badge — tablet row 1 */}
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
-                            <div className="ms-tablet-row1">
-                              <span className="ms-badge" style={{ backgroundColor: currentFacility.color }}>{m.id}</span>
-                              <span className="ms-title">{m.label}</span>
+                          {/* Card cell (visible on tablet/mobile) + desktop columns */}
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-card-td">
+                            {/* Card: badge + title */}
+                            <div className="ms-tb-row1">
+                              <span className="ms-tb-badge" style={{ backgroundColor: currentFacility.color }}>{m.id}</span>
+                              <div className="ms-tb-title-wrap">
+                                <div className="ms-tb-title">{m.label}</div>
+                                <div className="ms-tb-desc">Planned: {fmtDate(planned)}</div>
+                              </div>
                             </div>
-                            {/* Tablet: grid of fields */}
-                            <div className="ms-tablet-fields">
-                              <div className="ms-tablet-field">
+                            {/* Card: 4-col field grid */}
+                            <div className="ms-tb-fields">
+                              <div className="ms-tb-field">
                                 <label>Target</label>
                                 <span className="text-gray-600 text-xs sm:text-sm">{fmtDate(planned)}</span>
                               </div>
-                              <div className="ms-tablet-field">
+                              <div className="ms-tb-field">
                                 <label>Completion</label>
                                 {editMode ? (
-                                  <input
-                                    type="date"
-                                    value={comp}
-                                    onChange={e => onMsChange(m.id, "compDate", e.target.value)}
+                                  <input type="date" value={comp} onChange={e => onMsChange(m.id, "compDate", e.target.value)}
                                     className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
-                                    style={{ height: 38, WebkitAppearance: 'none' }}
-                                  />
+                                    style={{ height: 38, WebkitAppearance: 'none' }} />
                                 ) : (
-                                  <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>
-                                    {fmtDate(comp)}
-                                  </span>
+                                  <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>{fmtDate(comp)}</span>
                                 )}
                               </div>
-                              <div className="ms-tablet-field">
+                              <div className="ms-tb-field">
                                 <label>Progress</label>
                                 {editMode ? (
                                   <div className="flex items-center gap-2">
-                                    <input
-                                      type="range"
-                                      min={0}
-                                      max={100}
-                                      value={pct}
-                                      onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))}
-                                      className="w-16 sm:w-24"
-                                    />
+                                    <input type="range" min={0} max={100} value={pct} onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))} className="w-16 sm:w-24" />
                                     <span className="text-xs font-semibold">{pct}%</span>
                                   </div>
                                 ) : (
@@ -846,36 +880,30 @@ export default function GovernanceDashboard() {
                                   </div>
                                 )}
                               </div>
-                              <div className="ms-tablet-field">
+                              <div className="ms-tb-field">
                                 <label>Status</label>
                                 {isComplete ? (
-                                  <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold inline-block">Completed</span>
+                                  <span className="ms-tb-stat px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">Completed</span>
                                 ) : pct > 0 ? (
-                                  <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold inline-block">In Progress</span>
+                                  <span className="ms-tb-stat px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">In Progress</span>
                                 ) : (
-                                  <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs font-semibold inline-block">Pending</span>
+                                  <span className="ms-tb-stat px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs font-semibold">Pending</span>
                                 )}
                               </div>
                             </div>
                           </td>
-                          {/* Desktop columns (hidden on tablet) */}
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 text-gray-600 whitespace-nowrap text-xs sm:text-sm">{fmtDate(planned)}</td>
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
+                          {/* Desktop columns — hidden on tablet/mobile */}
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 text-gray-600 whitespace-nowrap text-xs sm:text-sm ms-desk-td">{fmtDate(planned)}</td>
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-desk-td">
                             {editMode ? (
-                              <input
-                                type="date"
-                                value={comp}
-                                onChange={e => onMsChange(m.id, "compDate", e.target.value)}
+                              <input type="date" value={comp} onChange={e => onMsChange(m.id, "compDate", e.target.value)}
                                 className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
-                                style={{ minWidth: 130, maxWidth: 150, height: 38, WebkitAppearance: 'none' }}
-                              />
+                                style={{ minWidth: 130, maxWidth: 150, height: 38, WebkitAppearance: 'none' }} />
                             ) : (
-                              <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>
-                                {fmtDate(comp)}
-                              </span>
+                              <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>{fmtDate(comp)}</span>
                             )}
                           </td>
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-desk-td">
                             {editMode ? (
                               <div className="flex items-center gap-2">
                                 <input type="range" min={0} max={100} value={pct} onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))} className="w-16 sm:w-24" />
@@ -890,7 +918,7 @@ export default function GovernanceDashboard() {
                               </div>
                             )}
                           </td>
-                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100">
+                          <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-desk-td">
                             {isComplete ? (
                               <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">Completed</span>
                             ) : pct > 0 ? (
