@@ -284,6 +284,17 @@ export default function GovernanceDashboard() {
     return msStateMap[mId]?.customPct ?? 0;
   };
 
+  // Merged state map: DB + local pending changes (used by S-Curve)
+  const mergedStateMap = useMemo(() => {
+    const merged: typeof msStateMap = { ...msStateMap };
+    for (const [mId, pend] of Object.entries(pendingMilestones)) {
+      if (!merged[mId]) merged[mId] = {};
+      if (pend.compDate !== undefined) merged[mId]!.compDate = pend.compDate;
+      if (pend.customPct !== undefined) merged[mId]!.customPct = pend.customPct;
+    }
+    return merged;
+  }, [msStateMap, pendingMilestones]);
+
   // Get planned date
   const getPlannedDate = (mId: string) => {
     const m = MSD.find(x => x.id === mId);
@@ -711,7 +722,7 @@ export default function GovernanceDashboard() {
             {/* S-Curve Chart */}
             <div className="bg-white border border-gray-200 rounded-xl p-5">
               <h3 className="text-lg font-bold text-gray-800 mb-4">Project S-Curve — {currentFacility.short}</h3>
-              <SCurve msState={msStateMap} color={currentFacility.color} />
+              <SCurve msState={mergedStateMap} color={currentFacility.color} />
             </div>
 
             {/* PPP Date */}
