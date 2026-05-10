@@ -301,7 +301,7 @@ export default function GovernanceDashboard() {
     const updates = Object.entries(pendingMilestones).map(([mId, v]) => ({
       facilitySlug: activeFacility,
       milestoneId: mId,
-      compDate: v.compDate ?? null,
+      compDate: v.compDate || null,
       customPct: v.customPct ?? null,
       pppDate: mId === "M1" && pppDate ? pppDate : undefined,
     }));
@@ -780,13 +780,29 @@ export default function GovernanceDashboard() {
                               </div>
                               <div className="ms-card-field">
                                 <label>Status</label>
-                                {isComplete ? (
-                                  <span className="stat bg-green-100 text-green-700">Completed</span>
-                                ) : pct > 0 ? (
-                                  <span className="stat bg-yellow-100 text-yellow-700">In Progress</span>
-                                ) : (
-                                  <span className="stat bg-gray-100 text-gray-500">Pending</span>
-                                )}
+                                <div className="flex items-center gap-2">
+                                  {isComplete ? (
+                                    <span className="stat bg-green-100 text-green-700">Completed</span>
+                                  ) : pct > 0 ? (
+                                    <span className="stat bg-yellow-100 text-yellow-700">In Progress</span>
+                                  ) : (
+                                    <span className="stat bg-gray-100 text-gray-500">Pending</span>
+                                  )}
+                                  <input
+                                    type="checkbox"
+                                    checked={isComplete}
+                                    className="w-5 h-5 accent-green-600"
+                                    title={isComplete ? "Uncheck to remove completion" : "Check to mark complete"}
+                                    onChange={() => {
+                                      if (isComplete) {
+                                        onMsChange(m.id, "compDate", "");
+                                      } else {
+                                        const today = new Date().toISOString().split("T")[0];
+                                        onMsChange(m.id, "compDate", today);
+                                      }
+                                    }}
+                                  />
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -815,7 +831,22 @@ export default function GovernanceDashboard() {
                               ) : (
                                 <span className="ms-badge-stat bg-gray-100 text-gray-500">Pending</span>
                               )}
-                              <input type="checkbox" checked={isComplete} readOnly className="ms-done" title="Toggle completion" />
+                              <input
+                                type="checkbox"
+                                checked={isComplete}
+                                className="ms-done"
+                                title={isComplete ? "Uncheck to remove completion" : "Check to mark complete (sets today's date)"}
+                                onChange={() => {
+                                  if (isComplete) {
+                                    // Uncheck: clear completion date
+                                    onMsChange(m.id, "compDate", "");
+                                  } else {
+                                    // Check: set completion date to today
+                                    const today = new Date().toISOString().split("T")[0];
+                                    onMsChange(m.id, "compDate", today);
+                                  }
+                                }}
+                              />
                             </div>
                           </td>
                         </tr>
