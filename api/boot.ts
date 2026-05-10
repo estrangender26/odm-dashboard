@@ -60,7 +60,7 @@ app.get("/api/oauth/authorize", (c) => {
   return c.redirect(`${env.kimiAuthUrl}/api/oauth/authorize?${params.toString()}`, 302);
 });
 
-// Serve original OM Governance Dashboard at /governance
+// Serve O&M Governance Dashboard at /governance
 app.get("/governance", async (c) => {
   const dp = distPath || findDistPublic();
   if (!dp) return c.json({ error: "dist/public not found" }, 500);
