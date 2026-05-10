@@ -644,6 +644,18 @@ export default function GovernanceDashboard() {
           .ms-tb-uploads { margin-top: 10px; padding-top: 10px; }
           .ms-tb-uploads .ms-tb-doc { flex-direction: column; align-items: flex-start; gap: 6px; }
         }
+
+        /* ─── MOBILE LANDSCAPE: force card layout, hide desktop table ─── */
+        @media (orientation: landscape) and (max-height: 520px) and (max-width: 950px) {
+          .ms-desk-table { table-layout: auto !important; }
+          .ms-desk-table thead { display: none !important; }
+          .ms-desk-table tbody { display: block !important; }
+          .ms-desk-table tr { display: block !important; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 8px; }
+          .ms-desk-table td.ms-card-td { display: block !important; border: none !important; padding: 12px 14px !important; }
+          .ms-desk-table td.ms-desk-td { display: none !important; }
+          .ms-tablet-wrap { overflow-x: visible !important; }
+          .ms-tb-fields { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 10px !important; }
+        }
       `}</style>
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 sm:py-5">
