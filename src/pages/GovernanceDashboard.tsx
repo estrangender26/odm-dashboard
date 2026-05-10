@@ -298,31 +298,37 @@ export default function GovernanceDashboard() {
     return msStateMap[mId]?.customPct ?? 0;
   };
 
-  // Checkbox simulation state — persisted in localStorage for chart preview
-  // On page refresh, localStorage is cleared so chart reverts to DB value
-  useEffect(() => {
-    localStorage.removeItem("gov_checkbox_sim");
-  }, []);
+  // Checkbox simulation — temporary local override for chart preview only.
+  // Stores `false` for milestones that should simulate as incomplete (0%).
+  // When a milestone is NOT in this map, the DB value is used.
+  // Resets on every page refresh (no localStorage).
+  const [checkboxSim, setCheckboxSim] = useState<Record<string, false>>({});
 
-  const [checkboxSim, setCheckboxSim] = useState<Record<string, boolean | undefined>>({});
+  // Helper: is this milestone currently simulated as unchecked?
+  const isSimUnchecked = (mId: string) => checkboxSim[mId] === false;
 
-  // Merged state for S-Curve: DB + pending changes + checkbox simulation
+  // Merged state for S-Curve: DB + pending changes + checkbox simulation.
+  // Uses deep-clone to avoid mutating the original msStateMap objects.
   const mergedStateMap = useMemo(() => {
-    const merged: typeof msStateMap = { ...msStateMap };
+    // Deep clone: new outer object + new inner objects
+    const merged: typeof msStateMap = {};
+    for (const [mId, st] of Object.entries(msStateMap)) {
+      merged[mId] = { ...st };
+    }
+
+    // Apply pending edit changes
     for (const [mId, pend] of Object.entries(pendingMilestones)) {
       if (!merged[mId]) merged[mId] = {};
       if (pend.compDate !== undefined) merged[mId]!.compDate = pend.compDate;
       if (pend.customPct !== undefined) merged[mId]!.customPct = pend.customPct;
     }
-    // Checkbox simulation overrides compDate for chart preview only
-    for (const [mId, simChecked] of Object.entries(checkboxSim)) {
-      if (!merged[mId]) merged[mId] = {};
-      if (simChecked === true) {
-        // Simulated checked: pretend there's a completion date
-        merged[mId]!.compDate = merged[mId]!.compDate || new Date().toISOString().split("T")[0];
-      } else if (simChecked === false) {
-        // Simulated unchecked: pretend no completion date for chart
-        merged[mId]!.compDate = null;
+
+    // Checkbox simulation: `false` means "simulate incomplete" (0% on chart).
+    // Does NOT touch the database — purely visual.
+    for (const mId of Object.keys(checkboxSim)) {
+      if (checkboxSim[mId] === false) {
+        if (!merged[mId]) merged[mId] = {};
+        merged[mId] = { ...merged[mId]!, compDate: null };
       }
     }
     return merged;
@@ -408,13 +414,6 @@ export default function GovernanceDashboard() {
   const [uploadStatus, setUploadStatus] = useState<{ text: string; ts: number } | null>(null);
 
   const showStatus = (text: string) => setUploadStatus({ text, ts: Date.now() });
-
-  // Persist checkbox simulation to localStorage (for chart reaction within session)
-  useEffect(() => {
-    if (Object.keys(checkboxSim).length > 0) {
-      localStorage.setItem("gov_checkbox_sim", JSON.stringify(checkboxSim));
-    }
-  }, [checkboxSim]);
 
   // Dismiss status after 4s
   useEffect(() => {
@@ -644,11 +643,26 @@ export default function GovernanceDashboard() {
             </span>
           )}
           <button
-            onClick={() => {
-              utils.governance.milestoneState.invalidate();
-              utils.governance.uploads.invalidate();
-              utils.governance.uploadCounts.invalidate();
-              console.log("[GOV] Manual refresh complete");
+            onClick={async () => {
+              console.log("[GOV] Refresh clicked — refetching...");
+              setSyncStatus("saving");
+              try {
+                await Promise.all([
+                  utils.governance.milestoneState.refetch(),
+                  utils.governance.uploads.refetch(),
+                  utils.governance.uploadCounts.refetch(),
+                ]);
+                // Clear checkbox simulation on refresh so chart reverts to DB
+                setCheckboxSim({});
+                setSyncStatus("saved");
+                setLastSavedAt(new Date().toLocaleTimeString());
+                setTimeout(() => setSyncStatus("idle"), 1500);
+                console.log("[GOV] Refresh complete — DB values reloaded");
+              } catch (err) {
+                console.error("[GOV] Refresh failed:", err);
+                setSyncStatus("error");
+                setTimeout(() => setSyncStatus("idle"), 3000);
+              }
             }}
             className="ml-auto px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 flex items-center gap-1"
             title="Force refresh for multi-user sync"
@@ -874,7 +888,9 @@ export default function GovernanceDashboard() {
                               <div className="ms-card-field">
                                 <label>Status</label>
                                 <div className="flex items-center gap-2">
-                                  {isComplete ? (
+                                  {isSimUnchecked(m.id) ? (
+                                    <span className="stat bg-orange-100 text-orange-700">Simulated</span>
+                                  ) : isComplete ? (
                                     <span className="stat bg-green-100 text-green-700">Completed</span>
                                   ) : pct > 0 ? (
                                     <span className="stat bg-yellow-100 text-yellow-700">In Progress</span>
@@ -883,11 +899,23 @@ export default function GovernanceDashboard() {
                                   )}
                                   <input
                                     type="checkbox"
-                                    checked={checkboxSim[m.id] ?? isComplete}
+                                    checked={!isSimUnchecked(m.id)}
                                     className="w-5 h-5 accent-green-600"
-                                    title={isComplete ? "Uncheck to simulate incomplete" : "Check to simulate complete"}
+                                    title={isSimUnchecked(m.id) ? "Check to revert to DB value" : "Uncheck to simulate incomplete"}
                                     onChange={() => {
-                                      setCheckboxSim(prev => ({ ...prev, [m.id]: !(prev[m.id] ?? isComplete) }));
+                                      // Toggle simulation: unchecked → simulate incomplete (0%)
+                                      //                    checked → revert to DB value
+                                      setCheckboxSim(prev => {
+                                        const next = { ...prev };
+                                        if (prev[m.id] === false) {
+                                          // Currently simulated incomplete → revert to DB
+                                          delete next[m.id];
+                                        } else {
+                                          // Currently using DB → simulate incomplete
+                                          next[m.id] = false;
+                                        }
+                                        return next;
+                                      });
                                     }}
                                   />
                                 </div>
@@ -922,7 +950,9 @@ export default function GovernanceDashboard() {
                               ) : (
                                 <span className={isComplete ? "text-green-700 font-semibold text-sm whitespace-nowrap" : "text-gray-400 text-sm whitespace-nowrap"}>{fmtDate(comp)}</span>
                               )}
-                              {isComplete ? (
+                              {isSimUnchecked(m.id) ? (
+                                <span className="ms-badge-stat bg-orange-100 text-orange-700">Simulated</span>
+                              ) : isComplete ? (
                                 <span className="ms-badge-stat bg-green-100 text-green-700">Completed</span>
                               ) : pct > 0 ? (
                                 <span className="ms-badge-stat bg-yellow-100 text-yellow-700">In Progress</span>
@@ -931,12 +961,23 @@ export default function GovernanceDashboard() {
                               )}
                               <input
                                 type="checkbox"
-                                checked={checkboxSim[m.id] ?? isComplete}
+                                checked={!isSimUnchecked(m.id)}
                                 className="ms-done"
-                                title={isComplete ? "Uncheck to simulate incomplete" : "Check to simulate complete"}
+                                title={isSimUnchecked(m.id) ? "Check to revert to DB value" : "Uncheck to simulate incomplete"}
                                 onChange={() => {
-                                  // Toggle local simulation only — does NOT save to DB
-                                  setCheckboxSim(prev => ({ ...prev, [m.id]: !(prev[m.id] ?? isComplete) }));
+                                  // Toggle simulation: unchecked → simulate incomplete (0%)
+                                  //                    checked → revert to DB value
+                                  setCheckboxSim(prev => {
+                                    const next = { ...prev };
+                                    if (prev[m.id] === false) {
+                                      // Currently simulated incomplete → revert to DB
+                                      delete next[m.id];
+                                    } else {
+                                      // Currently using DB → simulate incomplete
+                                      next[m.id] = false;
+                                    }
+                                    return next;
+                                  });
                                 }}
                               />
                             </div>
