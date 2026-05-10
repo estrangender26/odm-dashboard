@@ -131,7 +131,7 @@ export const governanceRouter = createRouter({
       return { success: true, id: Number(result[0].insertId) };
     }),
 
-  // Delete upload — clears completion date if no uploads remain for the milestone
+  // Delete upload — ALWAYS clears completion date (even if other files remain)
   deleteUpload: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
@@ -147,34 +147,18 @@ export const governanceRouter = createRouter({
       // Delete the upload
       await db.delete(governanceUploads).where(eq(governanceUploads.id, input.id));
 
-      // If we know the milestone, check remaining uploads
+      // ALWAYS clear completion date for this milestone
       if (upload) {
-        const remaining = await db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(governanceUploads)
+        await db
+          .update(governanceMilestoneState)
+          .set({ compDate: null })
           .where(
             and(
-              eq(governanceUploads.facilitySlug, upload.facilitySlug),
-              eq(governanceUploads.milestoneId, upload.milestoneId)
+              eq(governanceMilestoneState.facilitySlug, upload.facilitySlug),
+              eq(governanceMilestoneState.milestoneId, upload.milestoneId)
             )
           );
-
-        const remainingCount = remaining[0]?.count ?? 0;
-        console.log(`[GOV API] deleteUpload: ${upload.milestoneId} has ${remainingCount} uploads remaining`);
-
-        // If no uploads remain, clear the completion date
-        if (remainingCount === 0) {
-          await db
-            .update(governanceMilestoneState)
-            .set({ compDate: null })
-            .where(
-              and(
-                eq(governanceMilestoneState.facilitySlug, upload.facilitySlug),
-                eq(governanceMilestoneState.milestoneId, upload.milestoneId)
-              )
-            );
-          console.log(`[GOV API] deleteUpload: cleared compDate for ${upload.milestoneId} (no uploads)`);
-        }
+        console.log(`[GOV API] deleteUpload: cleared compDate for ${upload.milestoneId}`);
       }
 
       return { success: true };

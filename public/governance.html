@@ -933,7 +933,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
           frDiv.appendChild(a);
           var btn=document.createElement('button');btn.textContent='Remove';
-          btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
+          btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
           frDiv.appendChild(btn);
           flDiv.appendChild(frDiv);
         });
@@ -970,7 +970,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
         otherFr.appendChild(a);
         var btn=document.createElement('button');btn.textContent='Remove';
-        btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
+        btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
         otherFr.appendChild(btn);
         otherFl.appendChild(otherFr);
       });
@@ -1226,7 +1226,7 @@ if(allFiles.length>0){
     var sp=document.createElement('span');sp.style.cssText='font-size:10px;color:var(--t2)';sp.textContent=' from '+fi.src;
     fr.appendChild(sp);
     var rm=document.createElement('button');rm.textContent='Remove';rm.style.cssText='background:none;border:none;color:var(--red);cursor:pointer;font-size:11px;font-weight:600;margin-left:auto';
-    rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"? This cannot be undone.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
+    rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
     fr.appendChild(rm);
     c4.appendChild(fr);
   });
@@ -1309,7 +1309,7 @@ function rDlvUp(mid,key,ix){
   if(!c.up[mid]||!c.up[mid][key])return;
   var fi=c.up[mid][key][ix];
   if(!fi)return;
-  if(!confirm('Delete "'+fi.n+'"?'))return;
+  if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;
   if(fi.dbId){
     govDeleteFile(fi.dbId).then(function(){console.log('[GOV] Deleted from DB:',fi.dbId);})
     .catch(function(err){console.error('[GOV] DB delete failed:',err);});
@@ -1421,7 +1421,7 @@ function rTocUp(mid,key,ix){
   if(!c.up[mid]||!c.up[mid][key])return;
   var fi=c.up[mid][key][ix];
   if(!fi)return;
-  if(!confirm('Delete "'+fi.n+'"?'))return;
+  if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;
   if(fi.dbId){
     govDeleteFile(fi.dbId).then(function(){console.log('[GOV] Deleted from DB:',fi.dbId);})
     .catch(function(err){console.error('[GOV] DB delete failed:',err);});
