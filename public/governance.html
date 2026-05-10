@@ -604,6 +604,10 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
     </div>
     <button class="btn-g" onclick="forceRefresh()" title="Refresh uploads from server">🔄 Refresh</button>
     <button class="btn-r" onclick="rsA()">Reset</button>
+    <button class="btn-g" id="btn-edit" onclick="startEdit()" style="display:inline-block">✏️ Edit</button>
+    <button class="btn-p" id="btn-save" onclick="saveAll()" style="display:none;background:#059669">💾 Save</button>
+    <button class="btn-r" id="btn-cancel" onclick="cancelEdit()" style="display:none">✕ Cancel</button>
+    <span id="edit-status" style="font-size:10px;opacity:0.7;white-space:nowrap;color:#fbbf24"></span>
     <span id="sync-status" style="font-size:10px;opacity:0.7;white-space:nowrap">Ready</span>
   </div>
 </div>
@@ -718,8 +722,22 @@ const ALM=[
 const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
 
 // STATE
-let ST={},CH=null;
+let ST={},CH=null,PENDING={},EDIT_MODE=false;
 const CU=()=>ST[document.getElementById('fs').value];
+// DF = Display resolver: ST + PENDING merged for UI/chart
+const DF=()=>{
+  var f=document.getElementById('fs').value;
+  var d={pp:'',ms:{},up:{}};
+  if(ST[f]){d.pp=ST[f].pp;d.ms=JSON.parse(JSON.stringify(ST[f].ms));d.up=ST[f].up?JSON.parse(JSON.stringify(ST[f].up)):{};}
+  if(PENDING[f]&&PENDING[f].ms){
+    Object.entries(PENDING[f].ms).forEach(function(e){
+      var k=e[0],v=e[1];
+      if(!d.ms[k])d.ms[k]={};
+      if(v.compDate!==undefined)d.ms[k].compDate=v.compDate;
+    });
+  }
+  return d;
+};
 
 // STORAGE
 function LD(){let s=null;
@@ -757,7 +775,7 @@ function LD(){let s=null;
 function SV(){localStorage.setItem('omg5',JSON.stringify(ST))}
 
 // INIT
-function INIT(){LD();document.getElementById('fs').addEventListener('change',e=>{document.getElementById('fl').textContent=e.target.value;document.getElementById('pp').value=ST[e.target.value].pp;document.getElementById('dlf').textContent=e.target.value;loadFilesFromDB(e.target.value);ALL()});document.getElementById('pp').addEventListener('change',e=>{CU().pp=e.target.value;SV();ALL()});const f=document.getElementById('fs').value;document.getElementById('fl').textContent=f;document.getElementById('dlf').textContent=f;document.getElementById('pp').value=ST[f].pp;loadFilesFromDB(f);ALL()}
+function INIT(){LD();document.getElementById('fs').addEventListener('change',e=>{EDIT_MODE=false;PENDING={};updateEditButtons();document.getElementById('fl').textContent=e.target.value;document.getElementById('pp').value=ST[e.target.value].pp;document.getElementById('dlf').textContent=e.target.value;loadFilesFromDB(e.target.value);ALL()});document.getElementById('pp').addEventListener('change',e=>{CU().pp=e.target.value;SV();ALL()});const f=document.getElementById('fs').value;document.getElementById('fl').textContent=f;document.getElementById('dlf').textContent=f;document.getElementById('pp').value=ST[f].pp;loadFilesFromDB(f);ALL()}
 function ALL(){RM();RS();RD();RAC()}
 
 // TABS
@@ -828,8 +846,14 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     // Column 5: Completion date input
     var c5=document.createElement('div');c5.style.cssText='text-align:center';
     var compIn=document.createElement('input');compIn.type='date';compIn.value=st.compDate||'';
-    compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
-    compIn.dataset.tip='Completion date';compIn.addEventListener('change',function(ev){tMComp(mid,ev.target.value)});c5.appendChild(compIn);row.appendChild(c5);
+    compIn.disabled=!EDIT_MODE;compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
+    compIn.dataset.tip='Completion date';compIn.addEventListener('change',function(ev){
+      if(!EDIT_MODE)return;
+      var f=document.getElementById('fs').value;
+      if(!PENDING[f])PENDING[f]={ms:{}};
+      PENDING[f].ms[mid]={compDate:ev.target.value||null};
+      updateEditButtons();ALL();
+    });c5.appendChild(compIn);row.appendChild(c5);
     // Column 6: Plan% input
     
     // Column 7: Plan% badge
@@ -838,7 +862,17 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     // Column 8: Checkbox
     var c8=document.createElement('div');c8.className='msc';
     var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';cb.style.cssText='cursor:pointer;width:16px;height:16px';
-    cb.addEventListener('change',function(ev){if(ev.target.checked){tMComp(mid,new Date().toISOString().slice(0,10))}else{tMComp(mid,'')}});
+    cb.disabled=!EDIT_MODE;cb.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:16px;height:16px;opacity:'+(EDIT_MODE?'1':'.5');cb.addEventListener('change',function(ev){
+      if(!EDIT_MODE)return;
+      var f=document.getElementById('fs').value;
+      var dbCompleted=ST[f]&&ST[f].ms&&ST[f].ms[mid]&&ST[f].ms[mid].compDate;
+      var checked=ev.target.checked;
+      if(checked===!!dbCompleted){if(PENDING[f])delete PENDING[f].ms[mid];updateEditButtons();ALL();return;}
+      if(!PENDING[f])PENDING[f]={ms:{}};
+      if(checked){var dt=cd(c.pp,d.o);PENDING[f].ms[mid]={compDate:dt};}
+      else{PENDING[f].ms[mid]={compDate:null};}
+      updateEditButtons();ALL();
+    });
     c8.appendChild(cb);row.appendChild(c8);
     b.appendChild(row);
     // Disable checkbox in row if uploads incomplete
@@ -848,6 +882,15 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var upInd=document.createElement('div');upInd.style.cssText='padding:2px 16px 2px 78px;font-size:10px;color:var(--t2);background:#fafbfc;border-bottom:1px solid #edf1f4';
     upInd.innerHTML='<span data-tip="Required uploads: '+reqUploads+' | Completed: '+hasUploads+'">'+hasUploads+' / '+reqUploads+' uploads complete</span>'+(allUp?' <span class="badge rg" style="font-size:10px;padding:1px 6px">READY</span>':' <span class="badge rr" style="font-size:10px;padding:1px 6px">INCOMPLETE</span>');
     b.appendChild(upInd);
+    // Modified badge when pending
+    var fSlug2=document.getElementById('fs').value;
+    if(PENDING[fSlug2]&&PENDING[fSlug2].ms&&PENDING[fSlug2].ms[mid]){
+      var modRow=document.createElement('div');modRow.style.cssText='margin-top:4px;text-align:center;';
+      var modBadge=document.createElement('span');
+      modBadge.style.cssText='background:#FEF3C7;color:#D97706;font-size:9px;padding:2px 8px;border-radius:12px;font-weight:600;';
+      modBadge.textContent='Modified';
+      modRow.appendChild(modBadge);b.appendChild(modRow);
+    }
     // TOC upload slots - using DOM methods (deduplicated: only first milestone shows each TOC item)
     d.t.forEach(function(tnum){
       var tkey='TOC-'+tnum;
@@ -986,11 +1029,17 @@ document.getElementById('mb').textContent=cp+' / 9 Complete';
 function tMComp(m,d){var st=CU().ms[m];st.compDate=d;st.done=d&&d.length>0;SV();ALL()}
 function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
 
+// EDIT / SAVE / CANCEL
+function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';}
+function startEdit(){EDIT_MODE=true;updateEditButtons();ALL();}
+function saveAll(){var f=document.getElementById('fs').value;if(!PENDING[f]){EDIT_MODE=false;updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
+function cancelEdit(){PENDING={};EDIT_MODE=false;updateEditButtons();ALL();}
+
 // S-CURVE (same as working version)
 function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
 function RS(){
   var canvas=document.getElementById('sc');if(!canvas)return;
-  var c2=CU();if(!c2)return;
+  var c2=DF();if(!c2)return;
   if(!c2.pp){if(CH){CH.destroy();CH=null}return}
   var START_MO=-8, END_MO=21, MID=6;
   var lbl=[], pl=[], ac=[], mileData=[];
@@ -1141,7 +1190,7 @@ function RS(){
 
 // S-CURVE SUMMARY: Planned, Actual, Variance, RAG
 function RSC(){
-  var c2=CU();
+  var c2=DF();
   var el=document.getElementById('sc-summary');
   if(!el||!c2.pp){el&&(el.innerHTML='');return}
   var todayOff=moDiff(c2.pp,new Date().toISOString().slice(0,10));
