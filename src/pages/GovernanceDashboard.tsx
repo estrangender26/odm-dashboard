@@ -490,137 +490,10 @@ export default function GovernanceDashboard() {
 
       {/* Responsive milestone styles — desktop / tablet / mobile */}
       <style>{`
-        /* ─── DESKTOP >=1200px: clean table with fixed columns ─── */
-        @media (min-width: 1200px) {
-          .ms-desk-table { table-layout: fixed; width: 100%; }
-          .ms-desk-table th,
-          .ms-desk-table td { padding: 12px 10px; vertical-align: middle; overflow: visible; }
-          .ms-desk-table th { font-size: 10px; letter-spacing: 0.5px; }
-          .ms-desk-table td { font-size: 13px; }
-          .ms-desk-col-title { width: auto; }
-          .ms-desk-col-tgt   { width: 110px; }
-          .ms-desk-col-comp  { width: 175px; }
-          .ms-desk-col-pct   { width: 95px; }
-          .ms-desk-col-stat  { width: 115px; }
-          /* Completed date input */
-          .ms-desk-table td input[type="date"] {
-            width: 155px !important;
-            min-width: 155px !important;
-            max-width: 155px !important;
-            height: 36px;
-            font-size: 12px;
-          }
-          /* Plan percent */
-          .ms-desk-table td input[type="range"] { width: 55px; }
-          .ms-desk-table td .ms-pct-val { font-size: 11px; font-weight: 700; white-space: nowrap; }
-          /* Status badge */
-          .ms-desk-table td .ms-badge-stat {
-            white-space: nowrap;
-            font-size: 10px;
-            padding: 3px 8px;
-          }
-          /* Completed date */
-          .ms-desk-table td input[type="date"] { white-space: nowrap; }
-        }
-
-        /* ─── TABLET 768–1199px: card layout ─── */
-        @media (min-width: 768px) and (max-width: 1199px) {
+        /* ─── CARD LAYOUT: applies to ALL widths < 1024px ─── */
+        @media (max-width: 1023px) {
           .ms-tablet-wrap { overflow-x: visible !important; }
-          .ms-tablet-table { display: block !important; min-width: unset !important; width: 100%; border-collapse: separate; border-spacing: 0 10px; background: transparent !important; border: none !important; }
-          .ms-tablet-table thead { display: none !important; }
-          .ms-tablet-table tbody { display: block !important; background: transparent !important; }
-          .ms-tablet-table tr {
-            display: block !important;
-            background: #fff;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            margin-bottom: 0;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-          }
-          /* Card td = visible; desktop tds hidden */
-          .ms-tablet-table td.ms-card-td {
-            display: block !important;
-            border: none !important;
-            padding: 16px 18px !important;
-          }
-          .ms-tablet-table td.ms-desk-td {
-            display: none !important;
-          }
-          /* Row 1: badge + title */
-          .ms-tb-row1 {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            margin-bottom: 12px;
-          }
-          .ms-tb-row1 .ms-tb-badge {
-            font-size: 11px; font-weight: 700;
-            padding: 3px 10px; border-radius: 6px;
-            color: #fff; flex-shrink: 0; margin-top: 2px;
-          }
-          .ms-tb-row1 .ms-tb-title-wrap { flex: 1; min-width: 0; }
-          .ms-tb-row1 .ms-tb-title { font-size: 14px; font-weight: 600; color: #1f2937; }
-          .ms-tb-row1 .ms-tb-desc  { font-size: 11px; color: #6b7280; margin-top: 2px; }
-          .ms-tb-row1 .ms-tb-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-          .ms-tb-row1 .ms-tb-badges span {
-            font-size: 9px; font-weight: 600; padding: 2px 6px;
-            border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px;
-          }
-          /* Row 2: 4-col field grid */
-          .ms-tb-fields {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-            align-items: end;
-          }
-          .ms-tb-field label {
-            font-size: 10px; font-weight: 600; color: #6b7280;
-            text-transform: uppercase; letter-spacing: 0.5px;
-            margin-bottom: 4px; display: block;
-          }
-          .ms-tb-field input[type="date"] { width: 100%; height: 38px; font-size: 13px; }
-          .ms-tb-field input[type="range"] { width: 100%; min-width: 0; }
-          /* Progress: slider + percent on one line, nowrap */
-          .ms-tb-field .ms-tb-pct-wrap {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            white-space: nowrap;
-          }
-          .ms-tb-field .ms-tb-pct-val {
-            font-size: 12px;
-            font-weight: 700;
-            color: #0f2d4a;
-            white-space: nowrap;
-            min-width: 32px;
-          }
-          .ms-tb-field .ms-tb-stat {
-            display: inline-block;
-            margin-top: 4px;
-            font-size: 11px;
-            white-space: nowrap;
-          }
-          /* Upload section inside card */
-          .ms-tb-uploads { margin-top: 14px; padding-top: 12px; border-top: 1px solid #f3f4f6; }
-          .ms-tb-uploads .ms-tb-doc {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 8px 10px; background: #f9fafb; border-radius: 8px;
-            margin-bottom: 6px; gap: 8px;
-          }
-          .ms-tb-uploads .ms-tb-doc-title { font-size: 12px; font-weight: 500; }
-          .ms-tb-uploads .ms-tb-doc-tag {
-            font-size: 9px; font-weight: 600; padding: 2px 6px;
-            border-radius: 4px; flex-shrink: 0; text-transform: uppercase;
-          }
-        }
-        @media (min-width: 768px) and (max-width: 980px) {
-          .ms-tb-fields { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-        }
-
-        /* ─── MOBILE <768px: stacked card ─── */
-        @media (max-width: 767px) {
-          .ms-tablet-wrap { overflow-x: visible !important; }
-          .ms-tablet-table { display: block !important; min-width: unset !important; width: 100%; border-collapse: separate; border-spacing: 0 8px; background: transparent !important; border: none !important; }
+          .ms-tablet-table { display: block !important; min-width: 0 !important; width: 100%; border-collapse: separate; border-spacing: 0 8px; background: transparent !important; }
           .ms-tablet-table thead { display: none !important; }
           .ms-tablet-table tbody { display: block !important; background: transparent !important; }
           .ms-tablet-table tr {
@@ -628,33 +501,47 @@ export default function GovernanceDashboard() {
             background: #fff;
             border: 1px solid #e5e7eb;
             border-radius: 10px;
-            margin-bottom: 0;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
           }
           .ms-tablet-table td.ms-card-td {
             display: block !important;
             border: none !important;
-            padding: 12px 14px !important;
+            padding: 14px 16px !important;
           }
           .ms-tablet-table td.ms-desk-td { display: none !important; }
-          .ms-tb-row1 { flex-direction: column; gap: 6px; margin-bottom: 10px; }
-          .ms-tb-row1 .ms-tb-badge { align-self: flex-start; }
-          .ms-tb-fields { grid-template-columns: 1fr 1fr !important; gap: 10px; }
-          .ms-tb-field input[type="date"] { width: 100%; height: 40px; font-size: 14px; }
-          .ms-tb-uploads { margin-top: 10px; padding-top: 10px; }
-          .ms-tb-uploads .ms-tb-doc { flex-direction: column; align-items: flex-start; gap: 6px; }
+          .ms-tb-row1 { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+          .ms-tb-row1 .ms-tb-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; color: #fff; flex-shrink: 0; }
+          .ms-tb-row1 .ms-tb-title-wrap { flex: 1; min-width: 0; }
+          .ms-tb-row1 .ms-tb-title { font-size: 14px; font-weight: 600; color: #1f2937; }
+          .ms-tb-row1 .ms-tb-desc { font-size: 11px; color: #6b7280; margin-top: 2px; }
+          .ms-tb-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: end; }
+          .ms-tb-field label { font-size: 10px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: block; }
+          .ms-tb-field input[type="date"] { width: 100%; height: 38px; font-size: 13px; }
+          .ms-tb-field input[type="range"] { width: 100%; min-width: 0; }
+          .ms-tb-field .ms-tb-pct-wrap { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+          .ms-tb-field .ms-tb-pct-val { font-size: 12px; font-weight: 700; color: #0f2d4a; white-space: nowrap; }
+          .ms-tb-field .ms-tb-stat { display: inline-block; margin-top: 4px; font-size: 11px; white-space: nowrap; }
+        }
+        @media (max-width: 767px) {
+          .ms-tb-fields { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+          .ms-tb-field input[type="date"] { height: 40px; font-size: 14px; }
         }
 
-        /* ─── MOBILE LANDSCAPE: force card layout, hide desktop table ─── */
-        @media (orientation: landscape) and (max-height: 520px) and (max-width: 950px) {
-          .ms-desk-table { table-layout: auto !important; }
-          .ms-desk-table thead { display: none !important; }
-          .ms-desk-table tbody { display: block !important; }
-          .ms-desk-table tr { display: block !important; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 8px; }
-          .ms-desk-table td.ms-card-td { display: block !important; border: none !important; padding: 12px 14px !important; }
-          .ms-desk-table td.ms-desk-td { display: none !important; }
-          .ms-tablet-wrap { overflow-x: visible !important; }
-          .ms-tb-fields { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 10px !important; }
+        /* ─── DESKTOP >=1024px: clean table with fixed columns ─── */
+        @media (min-width: 1024px) {
+          .ms-desk-table { table-layout: fixed; width: 100%; }
+          .ms-desk-table th, .ms-desk-table td { padding: 12px 10px; vertical-align: middle; overflow: visible; }
+          .ms-desk-table th { font-size: 10px; letter-spacing: 0.5px; }
+          .ms-desk-table td { font-size: 13px; }
+          .ms-desk-col-title { width: auto; }
+          .ms-desk-col-tgt   { width: 110px; }
+          .ms-desk-col-comp  { width: 175px; }
+          .ms-desk-col-pct   { width: 95px; }
+          .ms-desk-col-stat  { width: 115px; }
+          .ms-desk-table td input[type="date"] { width: 155px !important; min-width: 155px !important; max-width: 155px !important; height: 36px; font-size: 12px; }
+          .ms-desk-table td input[type="range"] { width: 55px; }
+          .ms-desk-table td .ms-pct-val { font-size: 11px; font-weight: 700; white-space: nowrap; }
+          .ms-desk-table td .ms-badge-stat { white-space: nowrap; font-size: 10px; padding: 3px 8px; }
         }
       `}</style>
 
