@@ -869,7 +869,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       var checked=ev.target.checked;
       if(checked===!!dbCompleted){if(PENDING[f])delete PENDING[f].ms[mid];updateEditButtons();ALL();return;}
       if(!PENDING[f])PENDING[f]={ms:{}};
-      if(checked){var dt=cd(c.pp,d.o);PENDING[f].ms[mid]={compDate:dt};}
+      if(checked){var dt=cd((ST[f]&&ST[f].pp)||'',MSD[mid].o);PENDING[f].ms[mid]={compDate:dt};}
       else{PENDING[f].ms[mid]={compDate:null};}
       updateEditButtons();ALL();
     });
