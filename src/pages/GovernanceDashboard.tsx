@@ -237,7 +237,6 @@ export default function GovernanceDashboard() {
     },
     onError: (err) => {
       console.error("[GOV] addUpload error:", err);
-      alert("Upload failed: " + (err.message || "Server error"));
     },
   });
 
@@ -334,52 +333,97 @@ export default function GovernanceDashboard() {
     setPendingMilestones(prev => ({ ...prev, [mId]: { ...prev[mId], [field]: value } }));
   };
 
-  // Upload handler
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadTarget, setUploadTarget] = useState<{ mId: string; cat: string; tocItem?: string } | null>(null);
+  // ─── Upload status feedback ───
+  const [uploadStatus, setUploadStatus] = useState<{ text: string; ts: number } | null>(null);
 
-  const handleFileSelect = (mId: string, cat: string, tocItem?: string) => {
-    setUploadTarget({ mId, cat, tocItem });
-    // Small delay ensures state is set before click (iOS Safari needs this)
-    setTimeout(() => {
-      if (fileInputRef.current) {
-        fileInputRef.current.click();
-      } else {
-        alert("Upload not ready. Please try again.");
-      }
-    }, 50);
-  };
+  const showStatus = (text: string) => setUploadStatus({ text, ts: Date.now() });
 
-  const handleFileUpload = async (file: File) => {
-    if (!uploadTarget) return;
+  // Dismiss status after 4s
+  useEffect(() => {
+    if (!uploadStatus) return;
+    const t = setTimeout(() => setUploadStatus(null), 4000);
+    return () => clearTimeout(t);
+  }, [uploadStatus?.ts]);
 
-    // File size check: warn if > 5MB (base64 inflates by ~33%)
+  // ─── Upload handler — receives all params directly (no shared state) ───
+  const handleFileUpload = async (
+    file: File,
+    mId: string,
+    cat: string,
+    tocItem?: string
+  ) => {
+    console.log("[UPLOAD] File selected:", file.name, "mId:", mId, "cat:", cat, "tocItem:", tocItem);
+    showStatus(`Uploading ${file.name}...`);
+
+    // File size check
     const MAX_SIZE_MB = 5;
     if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+      showStatus(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max ${MAX_SIZE_MB}MB.`);
       alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is ${MAX_SIZE_MB}MB.`);
-      setUploadTarget(null);
       return;
     }
 
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = reader.result as string;
-      console.log("[GOV CLIENT] Uploading file:", file.name, "size:", (base64.length / 1024).toFixed(1), "KB", "tocItem:", uploadTarget.tocItem || "null");
-      addUpload.mutate({
-        facilitySlug: activeFacility,
-        milestoneId: uploadTarget.mId,
-        category: uploadTarget.cat,
-        tocItem: uploadTarget.tocItem || null,
-        fileName: file.name,
-        fileUrl: base64,
-      });
-      setUploadTarget(null);
+      console.log("[UPLOAD] Sending:", file.name, "size:", (base64.length / 1024).toFixed(1), "KB");
+      addUpload.mutate(
+        {
+          facilitySlug: activeFacility,
+          milestoneId: mId,
+          category: cat,
+          tocItem: tocItem || null,
+          fileName: file.name,
+          fileUrl: base64,
+        },
+        {
+          onSuccess: () => {
+            console.log("[UPLOAD] Success:", file.name);
+            showStatus(`Uploaded: ${file.name}`);
+          },
+          onError: (err) => {
+            console.error("[UPLOAD] Failed:", err);
+            showStatus(`Upload failed: ${err.message || "Server error"}`);
+          },
+        }
+      );
     };
     reader.onerror = () => {
+      console.error("[UPLOAD] FileReader error");
+      showStatus("Failed to read file");
       alert("Failed to read file. Please try again.");
-      setUploadTarget(null);
     };
     reader.readAsDataURL(file);
+  };
+
+  // Reusable file input + label button
+  const FileUploadButton = ({
+    mId, cat, tocItem, label = "📎 Upload", className = "",
+  }: {
+    mId: string; cat: string; tocItem?: string; label?: string; className?: string;
+  }) => {
+    const inputId = `up-${mId}-${cat}-${tocItem || "x"}-${Math.random().toString(36).slice(2, 6)}`;
+    return (
+      <>
+        <input
+          id={inputId}
+          type="file"
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.rar,.txt,.csv,.ppt,.pptx"
+          className="sr-only"
+          onChange={e => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) handleFileUpload(file, mId, cat, tocItem);
+          }}
+        />
+        <label
+          htmlFor={inputId}
+          className={`inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 active:bg-blue-800 cursor-pointer select-none ${className}`}
+        >
+          {label}
+        </label>
+      </>
+    );
   };
 
   // Get uploads for a milestone
@@ -496,18 +540,18 @@ export default function GovernanceDashboard() {
           ))}
         </div>
 
-        {/* File input — opacity:0 instead of display:none so iOS Safari allows programmatic click */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.rar,.txt,.csv,.ppt,.pptx"
-          style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 0, height: 0 }}
-          onChange={e => {
-            const file = e.target.files?.[0];
-            if (file) handleFileUpload(file);
-            e.target.value = "";
-          }}
-        />
+        {/* Upload status banner */}
+        {uploadStatus && (
+          <div className={`mb-3 px-3 py-2 rounded-lg text-sm font-semibold text-center transition-opacity ${
+            uploadStatus.text.includes("failed") || uploadStatus.text.includes("too large")
+              ? "bg-red-100 text-red-700"
+              : uploadStatus.text.includes("Uploading")
+              ? "bg-yellow-100 text-yellow-700"
+              : "bg-green-100 text-green-700"
+          }`}>
+            {uploadStatus.text}
+          </div>
+        )}
 
         {/* ──── PROGRESS TAB ──── */}
         {activeTab === "progress" && (
@@ -641,12 +685,12 @@ export default function GovernanceDashboard() {
                         {tocUploads.length > 0 && (
                           <span className="text-xs text-green-600 font-semibold">{tocUploads.length} uploaded</span>
                         )}
-                        <button
-                          onClick={() => handleFileSelect(msIds[0] || "M1", "toc", toc.id)}
-                          className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700"
-                        >
-                          📎 Upload
-                        </button>
+                        <FileUploadButton
+                          mId={msIds[0] || "M1"}
+                          cat="toc"
+                          tocItem={toc.id}
+                          label="📎 Upload"
+                        />
                       </div>
                     </div>
                   );
@@ -696,12 +740,12 @@ export default function GovernanceDashboard() {
                         )}
                       </td>
                       <td className="px-4 py-3 border-b border-gray-100">
-                        <button
-                          onClick={() => handleFileSelect(msIds[0] || "M1", "deliverable", toc.id)}
-                          className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700"
-                        >
-                          📎 Upload
-                        </button>
+                        <FileUploadButton
+                          mId={msIds[0] || "M1"}
+                          cat="deliverable"
+                          tocItem={toc.id}
+                          label="📎 Upload"
+                        />
                       </td>
                     </tr>
                   );
