@@ -512,13 +512,15 @@ export default function GovernanceDashboard() {
           }
           /* Plan percent */
           .ms-desk-table td input[type="range"] { width: 55px; }
-          .ms-desk-table td .ms-pct-val { font-size: 11px; font-weight: 700; }
+          .ms-desk-table td .ms-pct-val { font-size: 11px; font-weight: 700; white-space: nowrap; }
           /* Status badge */
           .ms-desk-table td .ms-badge-stat {
             white-space: nowrap;
             font-size: 10px;
             padding: 3px 8px;
           }
+          /* Completed date */
+          .ms-desk-table td input[type="date"] { white-space: nowrap; }
         }
 
         /* ─── TABLET 768–1199px: card layout ─── */
@@ -852,7 +854,7 @@ export default function GovernanceDashboard() {
             {/* Milestone Tracker */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
               <div className="overflow-x-auto ms-tablet-wrap">
-                <table className="w-full text-sm min-w-[640px] ms-tablet-table ms-desk-table">
+                <table className="w-full text-sm ms-tablet-table ms-desk-table">
                   <thead>
                     <tr className="bg-gray-50">
                       <th className="ms-desk-col-title px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Milestone</th>
