@@ -530,18 +530,30 @@ export default function GovernanceDashboard() {
         /* ─── DESKTOP >=1024px: clean table with fixed columns ─── */
         @media (min-width: 1024px) {
           .ms-desk-table { table-layout: fixed; width: 100%; }
-          .ms-desk-table th, .ms-desk-table td { padding: 12px 10px; vertical-align: middle; overflow: visible; }
-          .ms-desk-table th { font-size: 10px; letter-spacing: 0.5px; }
-          .ms-desk-table td { font-size: 13px; }
+          .ms-desk-table th, .ms-desk-table td { padding: 10px 8px; vertical-align: middle; overflow: visible; }
+          .ms-desk-table th { font-size: 9px; letter-spacing: 0.5px; }
+          .ms-desk-table td { font-size: 12px; }
           .ms-desk-col-title { width: auto; }
-          .ms-desk-col-tgt   { width: 110px; }
-          .ms-desk-col-comp  { width: 175px; }
-          .ms-desk-col-pct   { width: 95px; }
-          .ms-desk-col-stat  { width: 115px; }
+          .ms-desk-col-tgt   { width: 100px; }
+          .ms-desk-col-comp  { width: 155px; }
+          .ms-desk-col-pct   { width: 110px; }
+          .ms-desk-col-stat  { width: 100px; }
+          .ms-desk-table td input[type="date"] { width: 140px !important; min-width: 140px !important; max-width: 140px !important; height: 34px; font-size: 11px; padding: 4px 6px; }
+          .ms-desk-table td input[type="range"] { width: 48px; min-width: 48px; }
+          .ms-desk-table td .ms-pct-val { font-size: 10px; font-weight: 700; white-space: nowrap; min-width: 24px; }
+          .ms-desk-table td .ms-badge-stat { white-space: nowrap; font-size: 9px; padding: 2px 6px; display: inline-block; }
+        }
+        /* Wider desktop */
+        @media (min-width: 1280px) {
+          .ms-desk-table th, .ms-desk-table td { padding: 12px 10px; }
+          .ms-desk-table td { font-size: 13px; }
+          .ms-desk-col-comp { width: 175px; }
+          .ms-desk-col-pct  { width: 120px; }
+          .ms-desk-col-stat { width: 115px; }
           .ms-desk-table td input[type="date"] { width: 155px !important; min-width: 155px !important; max-width: 155px !important; height: 36px; font-size: 12px; }
-          .ms-desk-table td input[type="range"] { width: 55px; }
-          .ms-desk-table td .ms-pct-val { font-size: 11px; font-weight: 700; white-space: nowrap; }
-          .ms-desk-table td .ms-badge-stat { white-space: nowrap; font-size: 10px; padding: 3px 8px; }
+          .ms-desk-table td input[type="range"] { width: 55px; min-width: 55px; }
+          .ms-desk-table td .ms-pct-val { font-size: 11px; min-width: 28px; }
+          .ms-desk-table td .ms-badge-stat { font-size: 10px; padding: 3px 8px; }
         }
       `}</style>
 
