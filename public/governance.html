@@ -781,7 +781,7 @@ function LD(){let s=null;
 function SV(){localStorage.setItem('omg5',JSON.stringify(ST))}
 
 // INIT
-function INIT(){LD();document.getElementById('fs').addEventListener('change',e=>{EDIT_MODE=false;PENDING={};updateEditButtons();document.getElementById('fl').textContent=e.target.value;document.getElementById('pp').value=ST[e.target.value].pp;document.getElementById('dlf').textContent=e.target.value;loadFilesFromDB(e.target.value);ALL()syncEditMode();});document.getElementById('pp').addEventListener('change',e=>{CU().pp=e.target.value;SV();ALL()});const f=document.getElementById('fs').value;document.getElementById('fl').textContent=f;document.getElementById('dlf').textContent=f;document.getElementById('pp').value=ST[f].pp;loadFilesFromDB(f);ALL()}
+function INIT(){LD();document.getElementById('fs').addEventListener('change',e=>{EDIT_MODE=false;PENDING={};updateEditButtons();document.getElementById('fl').textContent=e.target.value;document.getElementById('pp').value=ST[e.target.value].pp;document.getElementById('dlf').textContent=e.target.value;loadFilesFromDB(e.target.value);ALL();syncEditMode();});document.getElementById('pp').addEventListener('change',e=>{CU().pp=e.target.value;SV();ALL()});const f=document.getElementById('fs').value;document.getElementById('fl').textContent=f;document.getElementById('dlf').textContent=f;document.getElementById('pp').value=ST[f].pp;loadFilesFromDB(f);ALL()}
 function ALL(){RM();RS();RD();RAC();syncEditMode();}
 
 // TABS
