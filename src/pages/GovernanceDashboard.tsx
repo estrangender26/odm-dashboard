@@ -284,7 +284,12 @@ export default function GovernanceDashboard() {
     return msStateMap[mId]?.customPct ?? 0;
   };
 
-  // Checkbox simulation state — local only, not saved to DB, resets on refresh
+  // Checkbox simulation state — persisted in localStorage for chart preview
+  // On page refresh, localStorage is cleared so chart reverts to DB value
+  useEffect(() => {
+    localStorage.removeItem("gov_checkbox_sim");
+  }, []);
+
   const [checkboxSim, setCheckboxSim] = useState<Record<string, boolean | undefined>>({});
 
   // Merged state for S-Curve: DB + pending changes + checkbox simulation
@@ -375,6 +380,13 @@ export default function GovernanceDashboard() {
   const [uploadStatus, setUploadStatus] = useState<{ text: string; ts: number } | null>(null);
 
   const showStatus = (text: string) => setUploadStatus({ text, ts: Date.now() });
+
+  // Persist checkbox simulation to localStorage (for chart reaction within session)
+  useEffect(() => {
+    if (Object.keys(checkboxSim).length > 0) {
+      localStorage.setItem("gov_checkbox_sim", JSON.stringify(checkboxSim));
+    }
+  }, [checkboxSim]);
 
   // Dismiss status after 4s
   useEffect(() => {
