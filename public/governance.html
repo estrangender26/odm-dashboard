@@ -848,10 +848,12 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var compIn=document.createElement('input');compIn.type='date';compIn.value=st.compDate||'';
     compIn.disabled=!EDIT_MODE;compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
     compIn.dataset.tip='Completion date';compIn.addEventListener('change',function(ev){
-      if(!EDIT_MODE)return;
+      console.log('[DATE] change fired, EDIT_MODE='+EDIT_MODE+', value='+ev.target.value);
+      if(!EDIT_MODE){console.log('[DATE] Ignored - not edit mode');return;}
       var f=document.getElementById('fs').value;
       if(!PENDING[f])PENDING[f]={ms:{}};
       PENDING[f].ms[mid]={compDate:ev.target.value||null};
+      console.log('[DATE] PENDING updated:',PENDING);
       updateEditButtons();ALL();
     });c5.appendChild(compIn);row.appendChild(c5);
     // Column 6: Plan% input
@@ -863,7 +865,8 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var c8=document.createElement('div');c8.className='msc';
     var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';cb.style.cssText='cursor:pointer;width:16px;height:16px';
     cb.disabled=!EDIT_MODE;cb.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:16px;height:16px;opacity:'+(EDIT_MODE?'1':'.5');cb.addEventListener('change',function(ev){
-      if(!EDIT_MODE)return;
+      console.log('[CHK] change fired, EDIT_MODE='+EDIT_MODE);
+      if(!EDIT_MODE){console.log('[CHK] Ignored - not edit mode');return;}
       var f=document.getElementById('fs').value;
       var dbCompleted=ST[f]&&ST[f].ms&&ST[f].ms[mid]&&ST[f].ms[mid].compDate;
       var checked=ev.target.checked;
@@ -1031,9 +1034,9 @@ function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
 
 // EDIT / SAVE / CANCEL
 function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';}
-function startEdit(){EDIT_MODE=true;updateEditButtons();ALL();}
-function saveAll(){var f=document.getElementById('fs').value;if(!PENDING[f]){EDIT_MODE=false;updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
-function cancelEdit(){PENDING={};EDIT_MODE=false;updateEditButtons();ALL();}
+function startEdit(){EDIT_MODE=true;console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
+function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;if(!PENDING[f]){EDIT_MODE=false;updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
+function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};EDIT_MODE=false;updateEditButtons();ALL();}
 
 // S-CURVE (same as working version)
 function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
