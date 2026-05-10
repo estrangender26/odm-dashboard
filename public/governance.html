@@ -821,7 +821,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
   ['M#','Milestone','Offset','Target Date','Completed','Status','Done'].forEach(function(h,i){var d=document.createElement('div');d.textContent=h;if(i===0||i===1)d.style.textAlign='left';hdr.appendChild(d)});
   b.appendChild(hdr);
   pv.m.forEach(function(mid){
-    var d=MSD[mid],st=c.ms[mid];
+    var d=MSD[mid],st=c.ms[mid]||{};
     var isComp=st.compDate&&st.compDate.length>0;if(isComp)cp++;
     var dt=cd(c.pp,d.o);
     // Count required uploads vs actual uploads for this milestone
@@ -869,18 +869,19 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var badge=document.createElement('span');badge.className='badge '+rc;badge.dataset.tip='Completion: '+effPct+'%'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?' (manual)':' (auto from uploads)');badge.textContent=effPct+'%';c7.appendChild(badge);row.appendChild(c7);
     // Column 8: Checkbox
     var c8=document.createElement('div');c8.className='msc';
-    var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';cb.style.cssText='cursor:pointer;width:16px;height:16px';
+    var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';console.log('[RENDER] '+mid+' isComp='+isComp+' compDate='+st.compDate);cb.style.cssText='cursor:pointer;width:16px;height:16px';
     cb.disabled=!EDIT_MODE;cb.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:16px;height:16px;opacity:'+(EDIT_MODE?'1':'.5');cb.addEventListener('change',function(ev){
-      console.log('[CHK] change fired, EDIT_MODE='+EDIT_MODE);
+      console.log('[CHK] change fired, EDIT_MODE='+EDIT_MODE+', checked='+ev.target.checked);
       if(!EDIT_MODE){console.log('[CHK] Ignored - not edit mode');return;}
       var f=document.getElementById('fs').value;
       var dbCompleted=ST[f]&&ST[f].ms&&ST[f].ms[mid]&&ST[f].ms[mid].compDate;
       var checked=ev.target.checked;
-      if(checked===!!dbCompleted){if(PENDING[f])delete PENDING[f].ms[mid];updateEditButtons();ALL();return;}
+      console.log('[CHK] dbCompleted='+dbCompleted+', checked='+checked+', match='+(checked===!!dbCompleted));
+      if(checked===!!dbCompleted){console.log('[CHK] Reverting to DB');if(PENDING[f])delete PENDING[f].ms[mid];updateEditButtons();ALL();return;}
       if(!PENDING[f])PENDING[f]={ms:{}};
-      if(checked){var dt=cd((ST[f]&&ST[f].pp)||'',MSD[mid].o);PENDING[f].ms[mid]={compDate:dt};}
-      else{PENDING[f].ms[mid]={compDate:null};}
-      updateEditButtons();ALL();
+      if(checked){var dt=cd((ST[f]&&ST[f].pp)||'',MSD[mid].o);PENDING[f].ms[mid]={compDate:dt};console.log('[CHK] Set complete: '+dt);}
+      else{PENDING[f].ms[mid]={compDate:null};console.log('[CHK] Set incomplete (null)');}
+      console.log('[CHK] PENDING now:',JSON.stringify(PENDING));updateEditButtons();ALL();
     });
     c8.appendChild(cb);row.appendChild(c8);
     b.appendChild(row);
