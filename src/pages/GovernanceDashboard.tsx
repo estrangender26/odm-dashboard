@@ -89,7 +89,7 @@ function SCurve({
   msState,
   color,
 }: {
-  msState: Record<string, { compDate?: string | null; customPct?: number | null }>;
+  msState: Record<string, { compDate?: string | null; customPct?: number | null; pppDate?: string | null }>;
   color: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -519,7 +519,8 @@ export default function GovernanceDashboard() {
                     type="date"
                     value={pppDate || msStateMap["M1"]?.pppDate || ""}
                     onChange={e => setPppDate(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 opacity-100"
+                    style={{ minWidth: 140, height: 40, WebkitAppearance: 'none' }}
                   />
                 ) : (
                   <span className="text-sm font-semibold text-blue-700">
@@ -561,7 +562,8 @@ export default function GovernanceDashboard() {
                                 type="date"
                                 value={comp}
                                 onChange={e => onMsChange(m.id, "compDate", e.target.value)}
-                                className="px-2 py-1 border border-gray-300 rounded text-xs w-full sm:w-32"
+                                className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
+                                style={{ minWidth: 130, maxWidth: 150, height: 38, WebkitAppearance: 'none' }}
                               />
                             ) : (
                               <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>
@@ -719,7 +721,8 @@ export default function GovernanceDashboard() {
                             type="date"
                             value={getCompDate(m.id)}
                             onChange={e => onMsChange(m.id, "compDate", e.target.value)}
-                            className="px-2 py-1 border border-gray-300 rounded text-xs"
+                            className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
+                            style={{ minWidth: 130, height: 38, WebkitAppearance: 'none' }}
                           />
                         ) : (
                           <span className="text-sm font-semibold text-green-700">{fmtDate(getCompDate(m.id))}</span>

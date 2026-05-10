@@ -2,8 +2,32 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Program Oversight Center</title>
+    <style>
+      /* Safari mobile date input fix */
+      input[type="date"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background-color: #ffffff;
+        color: #0f2d4a;
+        opacity: 1;
+        min-height: 38px;
+        font-size: 14px;
+      }
+      input[type="date"]::-webkit-date-and-time-value {
+        text-align: left;
+      }
+      input[type="date"]:disabled {
+        background-color: #f3f4f6;
+        opacity: 0.6;
+      }
+      /* Prevent iOS zoom on focus */
+      @supports (-webkit-touch-callout: none) {
+        input, select, textarea { font-size: 16px; }
+        input[type="date"] { font-size: 14px; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
