@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { governanceFacilities, governanceMilestoneState, governanceUploads } from "@db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 export const governanceRouter = createRouter({
   // Get all facilities
@@ -22,7 +22,7 @@ export const governanceRouter = createRouter({
         .where(eq(governanceMilestoneState.facilitySlug, input.facilitySlug));
     }),
 
-  // Save milestone state
+  // Save milestone state (with all fields)
   saveMilestone: publicQuery
     .input(
       z.object({
@@ -31,48 +31,59 @@ export const governanceRouter = createRouter({
         pppDate: z.string().nullable().optional(),
         compDate: z.string().nullable().optional(),
         customPct: z.number().nullable().optional(),
+        readyStatus: z.string().nullable().optional(),
+        remarks: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      // db is already imported
       const user = ctx.user;
-
-      // Check if record exists
-      const existing = await db
-        .select()
-        .from(governanceMilestoneState)
-        .where(
-          and(
-            eq(governanceMilestoneState.facilitySlug, input.facilitySlug),
-            eq(governanceMilestoneState.milestoneId, input.milestoneId)
-          )
-        )
-        .limit(1);
 
       const updateData: Record<string, unknown> = {
         updatedBy: user?.name || null,
+        updatedAt: new Date(),
       };
       if (input.pppDate !== undefined) updateData.pppDate = input.pppDate;
       if (input.compDate !== undefined) updateData.compDate = input.compDate;
       if (input.customPct !== undefined) updateData.customPct = input.customPct;
+      if (input.readyStatus !== undefined) updateData.readyStatus = input.readyStatus;
+      if (input.remarks !== undefined) updateData.remarks = input.remarks;
 
-      if (existing.length > 0) {
-        await db
-          .update(governanceMilestoneState)
-          .set(updateData)
-          .where(eq(governanceMilestoneState.id, existing[0].id));
-        return { success: true, id: existing[0].id };
-      } else {
-        const result = await db.insert(governanceMilestoneState).values({
+      // Use ON CONFLICT for upsert — prevents duplicate rows
+      await db
+        .insert(governanceMilestoneState)
+        .values({
           facilitySlug: input.facilitySlug,
           milestoneId: input.milestoneId,
           pppDate: input.pppDate || null,
           compDate: input.compDate || null,
           customPct: input.customPct || null,
+          readyStatus: input.readyStatus || null,
+          remarks: input.remarks || null,
           updatedBy: user?.name || null,
+        })
+        .onConflictDoUpdate({
+          target: [governanceMilestoneState.facilitySlug, governanceMilestoneState.milestoneId],
+          set: updateData,
         });
-        return { success: true, id: Number(result[0].insertId) };
-      }
+
+      return { success: true };
+    }),
+
+  // Get upload count per milestone
+  uploadCounts: publicQuery
+    .input(z.object({ facilitySlug: z.string() }))
+    .query(async ({ input }) => {
+      const rows = await db
+        .select({
+          milestoneId: governanceUploads.milestoneId,
+          tocItem: governanceUploads.tocItem,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(governanceUploads)
+        .where(eq(governanceUploads.facilitySlug, input.facilitySlug))
+        .groupBy(governanceUploads.milestoneId, governanceUploads.tocItem);
+
+      return rows;
     }),
 
   // Get uploads for a facility

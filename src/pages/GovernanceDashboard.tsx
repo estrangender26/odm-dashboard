@@ -196,14 +196,33 @@ export default function GovernanceDashboard() {
     { facilitySlug: activeFacility },
     { enabled: !!activeFacility, refetchInterval: 15000, refetchIntervalInBackground: true }
   );
+  const { data: uploadCounts } = trpc.governance.uploadCounts.useQuery(
+    { facilitySlug: activeFacility },
+    { enabled: !!activeFacility, refetchInterval: 15000, refetchIntervalInBackground: true }
+  );
 
   // Show query errors in console
   if (msError) console.error("[GOV] milestoneState error:", msError);
   if (uploadsError) console.error("[GOV] uploads error:", uploadsError);
 
+  // Sync status feedback
+  const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<string>("");
+
   const saveMilestone = trpc.governance.saveMilestone.useMutation({
+    onMutate: () => setSyncStatus("saving"),
     onSuccess: () => {
+      setSyncStatus("saved");
+      setLastSavedAt(new Date().toLocaleTimeString());
       utils.governance.milestoneState.invalidate();
+      utils.governance.uploadCounts.invalidate();
+      setTimeout(() => setSyncStatus("idle"), 2000);
+    },
+    onError: (err) => {
+      setSyncStatus("error");
+      console.error("[GOV] Save failed:", err);
+      alert("Save failed: " + (err.message || "Server error"));
+      setTimeout(() => setSyncStatus("idle"), 3000);
     },
   });
 
@@ -222,15 +241,27 @@ export default function GovernanceDashboard() {
     },
   });
 
-  // Build state map from DB
+  // Build state map from DB (includes all persisted fields)
   const msStateMap = useMemo(() => {
-    const map: Record<string, { compDate?: string | null; customPct?: number | null; pppDate?: string | null }> = {};
+    const map: Record<string, {
+      compDate?: string | null;
+      customPct?: number | null;
+      pppDate?: string | null;
+      readyStatus?: string | null;
+      remarks?: string | null;
+      updatedBy?: string | null;
+      updatedAt?: Date | null;
+    }> = {};
     if (milestoneState) {
       for (const s of milestoneState) {
         map[s.milestoneId] = {
           compDate: s.compDate,
           customPct: s.customPct,
           pppDate: s.pppDate,
+          readyStatus: s.readyStatus,
+          remarks: s.remarks,
+          updatedBy: s.updatedBy,
+          updatedAt: s.updatedAt,
         };
       }
     }
@@ -386,13 +417,25 @@ export default function GovernanceDashboard() {
               {f.short}
             </button>
           ))}
+          {/* Sync status indicator */}
+          {syncStatus !== "idle" && (
+            <span className={`text-xs font-semibold px-2 py-1 rounded ${
+              syncStatus === "saving" ? "bg-yellow-100 text-yellow-700" :
+              syncStatus === "saved" ? "bg-green-100 text-green-700" :
+              "bg-red-100 text-red-700"
+            }`}>
+              {syncStatus === "saving" && "⏳ Saving..."}
+              {syncStatus === "saved" && "✓ Saved"}
+              {syncStatus === "error" && "✗ Save failed"}
+              {lastSavedAt && syncStatus === "saved" ? ` at ${lastSavedAt}` : ""}
+            </span>
+          )}
           <button
             onClick={() => {
-              utils.governance.uploads.invalidate().then(() => {
-                utils.governance.milestoneState.invalidate().then(() => {
-                  console.log("[GOV] Manual refresh complete");
-                });
-              });
+              utils.governance.milestoneState.invalidate();
+              utils.governance.uploads.invalidate();
+              utils.governance.uploadCounts.invalidate();
+              console.log("[GOV] Manual refresh complete");
             }}
             className="ml-auto px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 flex items-center gap-1"
             title="Force refresh for multi-user sync"

@@ -46,9 +46,13 @@ export const governanceMilestoneState = pgTable("governance_milestone_state", {
   pppDate: varchar("ppp_date", { length: 20 }),
   compDate: varchar("comp_date", { length: 20 }),
   customPct: integer("custom_pct"),
+  readyStatus: varchar("ready_status", { length: 20 }),
+  remarks: text("remarks"),
   updatedAt: timestamp("updated_at").defaultNow(),
   updatedBy: varchar("updated_by", { length: 255 }),
-});
+}, (table) => [
+  unique("governance_ms_unique").on(table.facilitySlug, table.milestoneId),
+]);
 
 export const governanceUploads = pgTable("governance_uploads", {
   id: serial("id").primaryKey(),

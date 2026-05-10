@@ -55,8 +55,11 @@ async function setup() {
     "ppp_date" varchar(20),
     "comp_date" varchar(20),
     "custom_pct" integer,
+    "ready_status" varchar(20),
+    "remarks" text,
     "updated_at" timestamp DEFAULT now(),
-    "updated_by" varchar(255)
+    "updated_by" varchar(255),
+    UNIQUE("facility_slug", "milestone_id")
   )`;
   console.log("governance_milestone_state table created");
 
