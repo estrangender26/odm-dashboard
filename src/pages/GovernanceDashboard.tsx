@@ -340,7 +340,14 @@ export default function GovernanceDashboard() {
 
   const handleFileSelect = (mId: string, cat: string, tocItem?: string) => {
     setUploadTarget({ mId, cat, tocItem });
-    fileInputRef.current?.click();
+    // Small delay ensures state is set before click (iOS Safari needs this)
+    setTimeout(() => {
+      if (fileInputRef.current) {
+        fileInputRef.current.click();
+      } else {
+        alert("Upload not ready. Please try again.");
+      }
+    }, 50);
   };
 
   const handleFileUpload = async (file: File) => {
@@ -489,11 +496,12 @@ export default function GovernanceDashboard() {
           ))}
         </div>
 
-        {/* Hidden file input */}
+        {/* File input — opacity:0 instead of display:none so iOS Safari allows programmatic click */}
         <input
           ref={fileInputRef}
           type="file"
-          className="hidden"
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.rar,.txt,.csv,.ppt,.pptx"
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 0, height: 0 }}
           onChange={e => {
             const file = e.target.files?.[0];
             if (file) handleFileUpload(file);
