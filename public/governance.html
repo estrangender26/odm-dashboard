@@ -781,8 +781,8 @@ function LD(){let s=null;
 function SV(){localStorage.setItem('omg5',JSON.stringify(ST))}
 
 // INIT
-function INIT(){LD();document.getElementById('fs').addEventListener('change',e=>{EDIT_MODE=false;PENDING={};updateEditButtons();document.getElementById('fl').textContent=e.target.value;document.getElementById('pp').value=ST[e.target.value].pp;document.getElementById('dlf').textContent=e.target.value;loadFilesFromDB(e.target.value);ALL()});document.getElementById('pp').addEventListener('change',e=>{CU().pp=e.target.value;SV();ALL()});const f=document.getElementById('fs').value;document.getElementById('fl').textContent=f;document.getElementById('dlf').textContent=f;document.getElementById('pp').value=ST[f].pp;loadFilesFromDB(f);ALL()}
-function ALL(){RM();RS();RD();RAC()}
+function INIT(){LD();document.getElementById('fs').addEventListener('change',e=>{EDIT_MODE=false;PENDING={};updateEditButtons();document.getElementById('fl').textContent=e.target.value;document.getElementById('pp').value=ST[e.target.value].pp;document.getElementById('dlf').textContent=e.target.value;loadFilesFromDB(e.target.value);ALL()syncEditMode();});document.getElementById('pp').addEventListener('change',e=>{CU().pp=e.target.value;SV();ALL()});const f=document.getElementById('fs').value;document.getElementById('fl').textContent=f;document.getElementById('dlf').textContent=f;document.getElementById('pp').value=ST[f].pp;loadFilesFromDB(f);ALL()}
+function ALL(){RM();RS();RD();RAC();syncEditMode();}
 
 // TABS
 function sw(id,btn){document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('a')});document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});document.getElementById('t-'+id).classList.add('a');btn.classList.add('a');if(id==='p')RS();if(id==='r')RREF()}
@@ -852,7 +852,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     // Column 5: Completion date input
     var c5=document.createElement('div');c5.className='comp-date';c5.style.cssText='text-align:center';
     var compIn=document.createElement('input');compIn.type='date';compIn.value=st.compDate||'';
-    compIn.disabled=!EDIT_MODE;compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
+    compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
     compIn.dataset.tip='Completion date';compIn.addEventListener('change',function(ev){
       console.log('[DATE] change fired, EDIT_MODE='+EDIT_MODE+', value='+ev.target.value);
       if(!EDIT_MODE){console.log('[DATE] Ignored - not edit mode');return;}
@@ -869,8 +869,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var badge=document.createElement('span');badge.className='badge '+rc;badge.dataset.tip='Completion: '+effPct+'%'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?' (manual)':' (auto from uploads)');badge.textContent=effPct+'%';c7.appendChild(badge);row.appendChild(c7);
     // Column 8: Checkbox
     var c8=document.createElement('div');c8.className='msc';
-    var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';console.log('[RENDER] '+mid+' isComp='+isComp+' compDate='+st.compDate);cb.style.cssText='cursor:pointer;width:16px;height:16px';
-    cb.disabled=!EDIT_MODE;cb.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:16px;height:16px;opacity:'+(EDIT_MODE?'1':'.5');cb.addEventListener('change',function(ev){
+    var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';console.log('[RENDER] '+mid+' isComp='+isComp+' compDate='+st.compDate);cb.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:16px;height:16px;opacity:'+(EDIT_MODE?'1':'.5');cb.addEventListener('change',function(ev){
       console.log('[CHK] change fired, EDIT_MODE='+EDIT_MODE+', checked='+ev.target.checked);
       if(!EDIT_MODE){console.log('[CHK] Ignored - not edit mode');return;}
       var f=document.getElementById('fs').value;
@@ -926,8 +925,8 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       upDiv.className='up '+(files.length?'hf':'');
       upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload '+tkey);
       var fileIn=document.createElement('input');
-      fileIn.type='file';fileIn.multiple=true;fileIn.disabled=!EDIT_MODE;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';z-index:10';
-      fileIn.disabled=!EDIT_MODE;fileIn.style.cursor=EDIT_MODE?'pointer':'not-allowed';fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,tkey,ev)});
+      fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';z-index:10';
+      fileIn.style.cursor=EDIT_MODE?'pointer':'not-allowed';fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,tkey,ev)});
       upDiv.appendChild(fileIn);
       rDiv.appendChild(upDiv);
       // File list
@@ -974,8 +973,8 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       upDiv.className='up '+(files.length?'hf':'');
       upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload ANNEX '+aid);
       var fileIn=document.createElement('input');
-      fileIn.type='file';fileIn.multiple=true;fileIn.disabled=!EDIT_MODE;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';z-index:10';
-      fileIn.disabled=!EDIT_MODE;fileIn.style.cursor=EDIT_MODE?'pointer':'not-allowed';fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,akey,ev)});
+      fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';z-index:10';
+      fileIn.style.cursor=EDIT_MODE?'pointer':'not-allowed';fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,akey,ev)});
       upDiv.appendChild(fileIn);
       rDiv.appendChild(upDiv);
       // File list
@@ -1052,11 +1051,11 @@ function syncEditMode(){
   // Remove buttons
   document.querySelectorAll('.fl button, button').forEach(function(b){if(b.textContent==='Remove'){b.disabled=!EDIT_MODE;b.style.cursor=EDIT_MODE?'pointer':'not-allowed';b.style.opacity=EDIT_MODE?'1':'.3';}});
   // Select all checkbox
-  var selAll=document.getElementById('sel-all');if(selAll){selAll.disabled=!EDIT_MODE;selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
+  var selAll=document.getElementById('sel-all');if(selAll){selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
 }
-function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();syncEditMode();ALL();}
+function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
 function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;syncEditMode();updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
-function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();syncEditMode();ALL();}
+function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();ALL();}
 
 // S-CURVE (same as working version)
 function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
@@ -1247,7 +1246,7 @@ function RD(){const c=CU();const f=document.getElementById('fs').value;document.
 var el=document.getElementById('dl');el.innerHTML='';
 // Batch download button bar
 var batchBar=document.createElement('div');batchBar.style.cssText='display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;padding:10px 14px;background:#F1F5F9;border-radius:var(--r-md);border:1px solid var(--mw-border)';
-var selAll=document.createElement('input');selAll.type='checkbox';selAll.id='sel-all';selAll.disabled=!EDIT_MODE;selAll.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:16px;height:16px;opacity:'+(EDIT_MODE?'1':'0.3');
+var selAll=document.createElement('input');selAll.type='checkbox';selAll.id='sel-all';selAll.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:16px;height:16px;opacity:'+(EDIT_MODE?'1':'0.3');
 selAll.addEventListener('change',function(ev){document.querySelectorAll('.dld-cb').forEach(function(cb){cb.checked=ev.target.checked})});
 batchBar.appendChild(selAll);
 var selAllLbl=document.createElement('label');selAllLbl.htmlFor='sel-all';selAllLbl.style.cssText='font-size:12px;color:var(--t2);cursor:pointer;margin-right:8px';selAllLbl.textContent='Select all';
@@ -1305,7 +1304,7 @@ if(allFiles.length>0){
 }else{
   var upDiv=document.createElement('div');upDiv.className='up';upDiv.style.cssText='padding:4px 8px;font-size:10px;width:auto;border-style:dashed;border-width:1px;position:relative;overflow:hidden';
   upDiv.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload '+tnum;
-  var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.disabled=!EDIT_MODE;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';z-index:10';
+  var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';z-index:10';
   fileIn.addEventListener('change',function(ev){hDlvUp(tnum,ev)});
   upDiv.appendChild(fileIn);
   c4.appendChild(upDiv);
