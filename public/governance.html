@@ -1041,11 +1041,11 @@ function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
 // EDIT / SAVE / CANCEL
 function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';}
 // Sync ALL existing interactive controls with current EDIT_MODE
-function syncEditMode(){
+function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   // Checkboxes (Done)
-  document.querySelectorAll('.msc input[type="checkbox"]').forEach(function(cb){cb.disabled=!EDIT_MODE;cb.style.cursor=EDIT_MODE?'pointer':'not-allowed';cb.style.opacity=EDIT_MODE?'1':'.5';});
+  var cbEls=document.querySelectorAll('.msc input[type="checkbox"]');console.log('[syncEditMode] checkboxes='+cbEls.length);cbEls.forEach(function(cb){cb.disabled=!EDIT_MODE;cb.style.cursor=EDIT_MODE?'pointer':'not-allowed';cb.style.opacity=EDIT_MODE?'1':'.5';});
   // Date inputs (completion date)
-  document.querySelectorAll('.comp-date input[type="date"]').forEach(function(inp){inp.disabled=!EDIT_MODE;inp.style.cursor=EDIT_MODE?'pointer':'not-allowed';inp.style.opacity=EDIT_MODE?'1':'.5';});
+  var diEls=document.querySelectorAll('.comp-date input[type="date"]');console.log('[syncEditMode] dateInputs='+diEls.length);diEls.forEach(function(inp){inp.disabled=!EDIT_MODE;inp.style.cursor=EDIT_MODE?'pointer':'not-allowed';inp.style.opacity=EDIT_MODE?'1':'.5';});
   // File inputs
   document.querySelectorAll('input[type="file"]').forEach(function(fi){fi.disabled=!EDIT_MODE;fi.style.cursor=EDIT_MODE?'pointer':'not-allowed';fi.style.opacity=EDIT_MODE?'1':'.5';});
   // Remove buttons
