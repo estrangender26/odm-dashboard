@@ -447,6 +447,12 @@ export default function GovernanceDashboard() {
               responseJson: data,
               dbUploadId: data?.id || data?.[0]?.id,
             }));
+            // Auto-set completion date to target date (user can revise before saving)
+            const target = getPlannedDate(mId);
+            if (target && !getCompDate(mId)) {
+              onMsChange(mId, "compDate", target);
+              showStatus(`Completion set to ${fmtDate(target)} — click Save to confirm`);
+            }
           },
           onError: (err) => {
             console.error("[UPLOAD] Failed:", err);
