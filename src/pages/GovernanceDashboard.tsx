@@ -494,17 +494,31 @@ export default function GovernanceDashboard() {
         @media (min-width: 1200px) {
           .ms-desk-table { table-layout: fixed; width: 100%; }
           .ms-desk-table th,
-          .ms-desk-table td { padding: 14px 12px; vertical-align: top; }
-          .ms-desk-table th { font-size: 11px; letter-spacing: 0.5px; }
+          .ms-desk-table td { padding: 12px 10px; vertical-align: middle; overflow: visible; }
+          .ms-desk-table th { font-size: 10px; letter-spacing: 0.5px; }
           .ms-desk-table td { font-size: 13px; }
-          .ms-desk-col-id    { width: 56px; }
-          .ms-desk-col-title { width: auto; min-width: 280px; }
-          .ms-desk-col-off   { width: 80px; }
-          .ms-desk-col-tgt   { width: 120px; }
-          .ms-desk-col-comp  { width: 160px; }
-          .ms-desk-col-pct   { width: 100px; }
-          .ms-desk-col-stat  { width: 110px; }
-          .ms-desk-col-done  { width: 60px; text-align: center; }
+          .ms-desk-col-title { width: auto; }
+          .ms-desk-col-tgt   { width: 110px; }
+          .ms-desk-col-comp  { width: 175px; }
+          .ms-desk-col-pct   { width: 95px; }
+          .ms-desk-col-stat  { width: 115px; }
+          /* Completed date input */
+          .ms-desk-table td input[type="date"] {
+            width: 155px !important;
+            min-width: 155px !important;
+            max-width: 155px !important;
+            height: 36px;
+            font-size: 12px;
+          }
+          /* Plan percent */
+          .ms-desk-table td input[type="range"] { width: 55px; }
+          .ms-desk-table td .ms-pct-val { font-size: 11px; font-weight: 700; }
+          /* Status badge */
+          .ms-desk-table td .ms-badge-stat {
+            white-space: nowrap;
+            font-size: 10px;
+            padding: 3px 8px;
+          }
         }
 
         /* ─── TABLET 768–1199px: card layout ─── */
@@ -822,11 +836,11 @@ export default function GovernanceDashboard() {
                 <table className="w-full text-sm min-w-[640px] ms-tablet-table ms-desk-table">
                   <thead>
                     <tr className="bg-gray-50">
-                      <th className="ms-desk-col-title px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Milestone</th>
-                      <th className="ms-desk-col-tgt px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Planned</th>
-                      <th className="ms-desk-col-comp px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Completion</th>
-                      <th className="ms-desk-col-pct px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Progress</th>
-                      <th className="ms-desk-col-stat px-3 sm:px-4 py-3 text-left font-semibold text-gray-600 text-xs uppercase">Status</th>
+                      <th className="ms-desk-col-title px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Milestone</th>
+                      <th className="ms-desk-col-tgt px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Target</th>
+                      <th className="ms-desk-col-comp px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Completed</th>
+                      <th className="ms-desk-col-pct px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Plan %</th>
+                      <th className="ms-desk-col-stat px-3 py-2 text-left font-semibold text-gray-600 text-[10px] uppercase tracking-wider">Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -897,34 +911,34 @@ export default function GovernanceDashboard() {
                           <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-desk-td">
                             {editMode ? (
                               <input type="date" value={comp} onChange={e => onMsChange(m.id, "compDate", e.target.value)}
-                                className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
-                                style={{ minWidth: 130, maxWidth: 150, height: 38, WebkitAppearance: 'none' }} />
+                                className="px-2 py-1 border border-gray-300 rounded text-sm bg-white text-gray-900 opacity-100"
+                                style={{ width: 155, minWidth: 155, height: 36, WebkitAppearance: 'none', fontSize: 12 }} />
                             ) : (
                               <span className={isComplete ? "text-green-700 font-semibold text-xs sm:text-sm" : "text-gray-400 text-xs sm:text-sm"}>{fmtDate(comp)}</span>
                             )}
                           </td>
                           <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-desk-td">
                             {editMode ? (
-                              <div className="flex items-center gap-2">
-                                <input type="range" min={0} max={100} value={pct} onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))} className="w-16 sm:w-24" />
-                                <span className="text-xs font-semibold w-8">{pct}%</span>
+                              <div className="flex items-center gap-1.5">
+                                <input type="range" min={0} max={100} value={pct} onChange={e => onMsChange(m.id, "customPct", Number(e.target.value))} className="w-14" />
+                                <span className="ms-pct-val">{pct}%</span>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2">
-                                <div className="w-16 sm:w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
                                   <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: currentFacility.color }} />
                                 </div>
-                                <span className="text-xs font-semibold">{pct}%</span>
+                                <span className="ms-pct-val">{pct}%</span>
                               </div>
                             )}
                           </td>
                           <td className="px-3 sm:px-4 py-3 border-b border-gray-100 ms-desk-td">
                             {isComplete ? (
-                              <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">Completed</span>
+                              <span className="ms-badge-stat px-2 py-1 bg-green-100 text-green-700 rounded font-semibold">Completed</span>
                             ) : pct > 0 ? (
-                              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">In Progress</span>
+                              <span className="ms-badge-stat px-2 py-1 bg-yellow-100 text-yellow-700 rounded font-semibold">In Progress</span>
                             ) : (
-                              <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs font-semibold">Pending</span>
+                              <span className="ms-badge-stat px-2 py-1 bg-gray-100 text-gray-500 rounded font-semibold">Pending</span>
                             )}
                           </td>
                         </tr>
