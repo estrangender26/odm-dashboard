@@ -811,7 +811,7 @@ var tocOwner={};
 Object.entries(MSD).forEach(function(e){var mid=e[0],d=e[1];d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(!tocOwner[tkey])tocOwner[tkey]=mid})});
 
 // PROGRESS TAB: Milestones with TOC-specific uploads
-function RM(){const c=CU();if(!c)return;const el=document.getElementById('ph');if(!el)return;el.innerHTML='';let cp=0;
+function RM(){const c=DF();if(!c)return;const el=document.getElementById('ph');if(!el)return;el.innerHTML='';let cp=0;
 Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
   var pd=document.createElement('div');pd.style.marginBottom='16px';
   var h=document.createElement('div');h.className='ph '+pv.c;h.textContent=pv.l+' Phase';pd.appendChild(h);
