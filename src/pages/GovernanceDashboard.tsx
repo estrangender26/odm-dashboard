@@ -184,6 +184,9 @@ export default function GovernanceDashboard() {
   // Pending state for edit mode
   const [pendingMilestones, setPendingMilestones] = useState<Record<string, { compDate?: string; customPct?: number }>>({});
 
+  // Date input refs for focus after upload completion
+  const dateInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
   const utils = trpc.useUtils();
 
   // tRPC queries with aggressive multi-user sync
@@ -223,6 +226,17 @@ export default function GovernanceDashboard() {
       console.error("[GOV] Save failed:", err);
       alert("Save failed: " + (err.message || "Server error"));
       setTimeout(() => setSyncStatus("idle"), 3000);
+    },
+  });
+
+  const deleteUpload = trpc.governance.deleteUpload.useMutation({
+    onSuccess: () => {
+      utils.governance.uploads.invalidate();
+      utils.governance.milestoneState.invalidate();
+      showStatus("File removed — milestone completion updated");
+    },
+    onError: (err) => {
+      showStatus(`Remove failed: ${err.message}`);
     },
   });
 
@@ -319,6 +333,20 @@ export default function GovernanceDashboard() {
     const m = MSD.find(x => x.id === mId);
     if (!m || !effectivePpp) return "";
     return addMonths(effectivePpp, m.offset);
+  };
+
+  // Upload completion: are ALL required TOC items for this milestone uploaded?
+  const isMilestoneUploadComplete = (mId: string) => {
+    const m = MSD.find(x => x.id === mId);
+    if (!m || m.toc.length === 0 || !uploads) return false;
+    return m.toc.every(tocId => uploads.some(u => u.tocItem === tocId));
+  };
+
+  const getUploadProgress = (mId: string) => {
+    const m = MSD.find(x => x.id === mId);
+    if (!m || m.toc.length === 0 || !uploads) return { complete: 0, total: 0 };
+    const complete = m.toc.filter(tocId => uploads.some(u => u.tocItem === tocId)).length;
+    return { complete, total: m.toc.length };
   };
 
   const currentFacility = FACILITIES.find(f => f.slug === activeFacility) || FACILITIES[0];
@@ -447,12 +475,24 @@ export default function GovernanceDashboard() {
               responseJson: data,
               dbUploadId: data?.id || data?.[0]?.id,
             }));
-            // Auto-set completion date to target date (user can revise before saving)
-            const target = getPlannedDate(mId);
-            if (target && !getCompDate(mId)) {
-              onMsChange(mId, "compDate", target);
-              showStatus(`Completion set to ${fmtDate(target)} — click Save to confirm`);
-            }
+            // Check if milestone is now upload-complete
+            utils.governance.uploads.invalidate().then(() => {
+              // After refetch, check completion status
+              const nowComplete = isMilestoneUploadComplete(mId);
+              if (nowComplete) {
+                // Auto-set completion date to target date if not already set
+                const target = getPlannedDate(mId);
+                if (target && !getCompDate(mId)) {
+                  onMsChange(mId, "compDate", target);
+                  showStatus(`All required files uploaded — completion set to ${fmtDate(target)}. Click Save.`);
+                  // Focus the date input
+                  setTimeout(() => {
+                    const input = dateInputRefs.current[mId];
+                    if (input) input.focus();
+                  }, 100);
+                }
+              }
+            });
           },
           onError: (err) => {
             console.error("[UPLOAD] Failed:", err);
@@ -805,6 +845,16 @@ export default function GovernanceDashboard() {
                               <div>
                                 <div className="title">{m.label}</div>
                                 <div className="subtitle">Target: {fmtDate(planned)}</div>
+                                {(() => {
+                                  const { complete, total } = getUploadProgress(m.id);
+                                  if (total === 0) return null;
+                                  const allDone = complete === total;
+                                  return (
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${allDone ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                                      {complete}/{total} files{allDone ? " ✓" : ""}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                             </div>
                             <div className="ms-card-fields">
@@ -851,6 +901,16 @@ export default function GovernanceDashboard() {
                           </td>
                           <td className="ms-col-info ms-hide-below-1100">
                             <div className="font-semibold text-gray-800">{m.label}</div>
+                            {(() => {
+                              const { complete, total } = getUploadProgress(m.id);
+                              if (total === 0) return null;
+                              const allDone = complete === total;
+                              return (
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded mt-1 inline-block ${allDone ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                                  {complete}/{total} uploads{allDone ? " ✓" : ""}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="ms-col-schedule ms-hide-below-1100">
                             <div className="text-gray-600 text-sm whitespace-nowrap">{fmtDate(planned)}</div>
@@ -910,8 +970,19 @@ export default function GovernanceDashboard() {
                         {tocUploads.length > 0 && (
                           <div className="flex flex-col gap-1">
                             {tocUploads.map(u => (
-                              <span key={u.id} className="text-xs text-green-700 font-medium flex items-center gap-1">
+                              <span key={u.id} className="text-xs text-green-700 font-medium flex items-center gap-2">
                                 ✓ {u.fileName}
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Remove "${u.fileName}"?\n\nThis will update milestone completion and the S-Curve.`)) {
+                                      deleteUpload.mutate({ id: u.id });
+                                    }
+                                  }}
+                                  className="text-red-400 hover:text-red-600 text-xs px-1"
+                                  title="Remove file"
+                                >
+                                  ✕
+                                </button>
                               </span>
                             ))}
                           </div>
@@ -963,6 +1034,17 @@ export default function GovernanceDashboard() {
                             {tocUploads.map(u => (
                               <div key={u.id} className="flex items-center gap-2">
                                 <span className="text-xs text-green-600">✓ {u.fileName}</span>
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Remove "${u.fileName}"?\n\nThis will update milestone completion and the S-Curve.`)) {
+                                      deleteUpload.mutate({ id: u.id });
+                                    }
+                                  }}
+                                  className="text-red-400 hover:text-red-600 text-xs px-1"
+                                  title="Remove file"
+                                >
+                                  ✕
+                                </button>
                               </div>
                             ))}
                           </div>
