@@ -850,7 +850,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     // Column 4: Target date
     var c4=document.createElement('div');c4.style.cssText='text-align:center;font-size:11px;font-weight:600';c4.dataset.tip='Planned target date';c4.textContent=dt?fmtDate(dt):'—';row.appendChild(c4);
     // Column 5: Completion date input
-    var c5=document.createElement('div');c5.style.cssText='text-align:center';
+    var c5=document.createElement('div');c5.className='comp-date';c5.style.cssText='text-align:center';
     var compIn=document.createElement('input');compIn.type='date';compIn.value=st.compDate||'';
     compIn.disabled=!EDIT_MODE;compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
     compIn.dataset.tip='Completion date';compIn.addEventListener('change',function(ev){
@@ -1041,9 +1041,22 @@ function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
 
 // EDIT / SAVE / CANCEL
 function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';}
-function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
-function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
-function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();ALL();}
+// Sync ALL existing interactive controls with current EDIT_MODE
+function syncEditMode(){
+  // Checkboxes (Done)
+  document.querySelectorAll('.msc input[type="checkbox"]').forEach(function(cb){cb.disabled=!EDIT_MODE;cb.style.cursor=EDIT_MODE?'pointer':'not-allowed';cb.style.opacity=EDIT_MODE?'1':'.5';});
+  // Date inputs (completion date)
+  document.querySelectorAll('.comp-date input[type="date"]').forEach(function(inp){inp.disabled=!EDIT_MODE;inp.style.cursor=EDIT_MODE?'pointer':'not-allowed';inp.style.opacity=EDIT_MODE?'1':'.5';});
+  // File inputs
+  document.querySelectorAll('input[type="file"]').forEach(function(fi){fi.disabled=!EDIT_MODE;fi.style.cursor=EDIT_MODE?'pointer':'not-allowed';fi.style.opacity=EDIT_MODE?'1':'.5';});
+  // Remove buttons
+  document.querySelectorAll('.fl button, button').forEach(function(b){if(b.textContent==='Remove'){b.disabled=!EDIT_MODE;b.style.cursor=EDIT_MODE?'pointer':'not-allowed';b.style.opacity=EDIT_MODE?'1':'.3';}});
+  // Select all checkbox
+  var selAll=document.getElementById('sel-all');if(selAll){selAll.disabled=!EDIT_MODE;selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
+}
+function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();syncEditMode();ALL();}
+function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;syncEditMode();updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
+function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();syncEditMode();ALL();}
 
 // S-CURVE (same as working version)
 function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
