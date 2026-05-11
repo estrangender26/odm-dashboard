@@ -207,14 +207,16 @@ app.get("/api/governance/references", async (c) => {
   }
 });
 
-// DELETE /api/governance/files/:id - delete a file
+// DELETE /api/governance/files/:id - delete a file from either table
 app.delete("/api/governance/files/:id", async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
     if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
+    // Try both tables — one will succeed
     await db.execute(sql`DELETE FROM governance_uploads WHERE id = ${id}`);
+    await db.execute(sql`DELETE FROM governance_files WHERE id = ${id}`);
     return c.json({ success: true });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -222,18 +224,30 @@ app.delete("/api/governance/files/:id", async (c) => {
 });
 
 // GET /api/governance/files/:id/view - stream file inline
+// Helper: fetch file from either governance_uploads or governance_files table
+async function getFileFromEitherTable(db: any, id: number) {
+  // Try governance_uploads first (REST uploads)
+  let rows = await db.execute(sql`
+    SELECT id, file_name, file_url FROM governance_uploads WHERE id = ${id} LIMIT 1
+  `);
+  let fileRows = rows.rows || rows;
+  if (fileRows.length > 0) return fileRows[0];
+  // Fallback to governance_files (tRPC uploads)
+  rows = await db.execute(sql`
+    SELECT id, file_name, file_data AS file_url FROM governance_files WHERE id = ${id} LIMIT 1
+  `);
+  fileRows = rows.rows || rows;
+  return fileRows.length > 0 ? fileRows[0] : null;
+}
+
 app.get("/api/governance/files/:id/view", async (c) => {
   try {
     const id = parseInt(c.req.param("id"));
     if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const rows = await db.execute(sql`
-      SELECT id, file_name, file_url FROM governance_uploads WHERE id = ${id} LIMIT 1
-    `);
-    const fileRows = rows.rows || rows;
-    if (fileRows.length === 0) return c.json({ error: "File not found" }, 404);
-    const file = fileRows[0];
+    const file = await getFileFromEitherTable(db, id);
+    if (!file) return c.json({ error: "File not found" }, 404);
     const fileName = file.file_name || "file";
     const fileUrl = file.file_url || "";
     // Parse data URI: data:<mime>;base64,<data>
@@ -282,12 +296,8 @@ app.get("/api/governance/files/:id/download", async (c) => {
     if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const rows = await db.execute(sql`
-      SELECT id, file_name, file_url FROM governance_uploads WHERE id = ${id} LIMIT 1
-    `);
-    const fileRows = rows.rows || rows;
-    if (fileRows.length === 0) return c.json({ error: "File not found" }, 404);
-    const file = fileRows[0];
+    const file = await getFileFromEitherTable(db, id);
+    if (!file) return c.json({ error: "File not found" }, 404);
     const fileName = file.file_name || "file";
     const fileUrl = file.file_url || "";
     let mimeType = "application/octet-stream";

@@ -410,15 +410,15 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .up-btn svg{flex-shrink:0}
 .up-area{display:flex;align-items:center;justify-content:center;gap:8px;padding:6px}
 /* File row action buttons: View, Download, Remove */
-.fv-btn,.fd-btn,.fr-rm{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;font-weight:600;font-family:Inter,sans-serif;border:none;border-radius:var(--r-sm);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
-.fv-btn{background:#E8F4FD;color:#0066A6}
-.fv-btn:hover{background:#D0EBFF}
-.fd-btn{background:#E6F5EF;color:#0A9B6E}
-.fd-btn:hover{background:#C8EBD8}
-.fr-rm{background:var(--mw-danger-bg);color:var(--mw-danger)}
-.fr-rm:hover{background:#FECACA}
-.fr-rm:disabled{background:#F3F4F6;color:#9CA3AF;cursor:not-allowed}
-.fr-name{font-weight:500;word-break:break-all;min-width:0;font-size:12px;color:var(--mw-text);flex:1}
+.fv-btn,.fd-btn,.fr-rm{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 12px;font-size:12px;font-weight:600;font-family:Inter,sans-serif;border:1px solid transparent;border-radius:var(--r-sm);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0;min-width:52px}
+.fv-btn{background:#E8F4FD;color:#0066A6;border-color:#B8D5F0}
+.fv-btn:hover{background:#0066A6;color:#fff}
+.fd-btn{background:#E6F5EF;color:#0A9B6E;border-color:#A8D5C0}
+.fd-btn:hover{background:#0A9B6E;color:#fff}
+.fr-rm{background:#FEE2E2;color:#DC2626;border-color:#F5A0A0}
+.fr-rm:hover{background:#DC2626;color:#fff}
+.fr-rm:disabled{background:#F3F4F6;color:#9CA3AF;border-color:#E5E7EB;cursor:not-allowed}
+.fr-name{font-weight:500;word-break:break-all;min-width:0;font-size:13px;color:var(--mw-text);flex:1;line-height:1.4}
 /* File action row layout */
 .file-action-row{display:grid;grid-template-columns:minmax(200px,1fr) auto auto auto;gap:8px;align-items:center;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:var(--r-sm);margin-top:6px;transition:all .15s}
 .file-action-row:hover{background:#F0F7FF;border-color:#B8D5F0}
