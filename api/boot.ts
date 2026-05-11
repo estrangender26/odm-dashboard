@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { sql } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
@@ -10,6 +10,7 @@ import { createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import fs from "fs";
 import path from "path";
+import { governanceMilestoneState, governanceUploads } from "../db/schema";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -93,7 +94,7 @@ app.get("/_health", async (c) => {
     // Test actual database query
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const result = await db.select({ count: sql<number>`count(*)` }).from(sql`mw_inspections`);
+    const result = await db.select({ count: sql`count(*)` }).from(sql`mw_inspections`);
     const dbRecords = result[0]?.count || 0;
     
     return c.json({ 
@@ -123,11 +124,7 @@ app.get("/api/debug/uploads", async (c) => {
   try {
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const rows = await db
-      .select()
-      .from(sql.raw('"governance_uploads"'))
-      .orderBy(sql.raw('"id" DESC'))
-      .limit(20);
+    const rows = await db.select().from(governanceUploads).orderBy(sql`id DESC`).limit(20);
     return c.json({ count: rows.length, uploads: rows });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -142,11 +139,7 @@ app.get("/api/governance/files/:facilitySlug", async (c) => {
     const facilitySlug = c.req.param("facilitySlug").toLowerCase();
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const rows = await db
-      .select()
-      .from(sql.raw('"governance_uploads"'))
-      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`))
-      .orderBy(sql.raw('"id" DESC'));
+    const rows = await db.select().from(governanceUploads).where(eq(governanceUploads.facilitySlug, facilitySlug)).orderBy(sql`id DESC`);
     return c.json({ files: rows });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -163,26 +156,17 @@ app.post("/api/governance/files", async (c) => {
     }
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    // Check if file already exists (dedup by filename + milestone)
-    const existing = await db
-      .select()
-      .from(sql.raw('"governance_uploads"'))
-      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug.toLowerCase()}' AND "milestoneId" = '${milestoneId}' AND "filename" = '${filename.replace(/'/g, "''")}'`))
-      .limit(1);
-    if (existing.length > 0) {
-      return c.json({ file: existing[0], existing: true });
-    }
-    const result = await db
-      .insert(sql.raw('"governance_uploads"'))
-      .values({
-        facilitySlug: facilitySlug.toLowerCase(),
-        milestoneId,
-        filename,
-        fileUrl: fileUrl || filename,
-        fileSize: fileSize || 0,
-        uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(),
-      })
-      .returning();
+    // Check for existing
+    const existing = await db.select().from(governanceUploads).where(
+      and(eq(governanceUploads.facilitySlug, facilitySlug.toLowerCase()), eq(governanceUploads.milestoneId, milestoneId), eq(governanceUploads.filename, filename))
+    ).limit(1);
+    if (existing.length > 0) return c.json({ file: existing[0], existing: true });
+    // Insert
+    const result = await db.insert(governanceUploads).values({
+      facilitySlug: facilitySlug.toLowerCase(), milestoneId, filename,
+      fileUrl: fileUrl || filename, fileSize: fileSize || 0,
+      uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(),
+    }).returning();
     return c.json({ file: result[0] });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -196,7 +180,7 @@ app.delete("/api/governance/files/:id", async (c) => {
     if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    await db.delete(sql.raw('"governance_uploads"')).where(sql.raw(`"id" = ${id}`));
+    await db.delete(governanceUploads).where(eq(governanceUploads.id, id));
     return c.json({ success: true });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -213,18 +197,9 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     console.log("[API] DB connection OK");
-    // Get milestone states
-    const states = await db
-      .select()
-      .from(sql.raw('"governance_milestone_state"'))
-      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`));
+    const states = await db.select().from(governanceMilestoneState).where(eq(governanceMilestoneState.facilitySlug, facilitySlug));
     console.log("[API] States:", states.length);
-    // Get files
-    const files = await db
-      .select()
-      .from(sql.raw('"governance_uploads"'))
-      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`))
-      .orderBy(sql.raw('"id" DESC'));
+    const files = await db.select().from(governanceUploads).where(eq(governanceUploads.facilitySlug, facilitySlug)).orderBy(sql`id DESC`);
     console.log("[API] Files:", files.length);
     return c.json({ states, files });
   } catch (e: any) {
@@ -243,30 +218,32 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     const now = new Date().toISOString();
-    // Upsert: insert or update
-    await db
-      .insert(sql.raw('"governance_milestone_state"'))
-      .values({
-        facilitySlug,
-        milestoneId,
+    // Check for existing
+    const existing = await db.select().from(governanceMilestoneState).where(
+      and(eq(governanceMilestoneState.facilitySlug, facilitySlug), eq(governanceMilestoneState.milestoneId, milestoneId))
+    ).limit(1);
+    if (existing.length > 0) {
+      // Update
+      await db.update(governanceMilestoneState).set({
+        compDate: compDate !== undefined ? compDate : existing[0].compDate,
+        customPct: customPct !== undefined ? customPct : existing[0].customPct,
+        pppDate: pppDate !== undefined ? pppDate : existing[0].pppDate,
+        readyStatus: readyStatus !== undefined ? readyStatus : existing[0].readyStatus,
+        remarks: remarks !== undefined ? remarks : existing[0].remarks,
+        updatedAt: now,
+      }).where(and(eq(governanceMilestoneState.facilitySlug, facilitySlug), eq(governanceMilestoneState.milestoneId, milestoneId)));
+    } else {
+      // Insert
+      await db.insert(governanceMilestoneState).values({
+        facilitySlug, milestoneId,
         compDate: compDate || null,
-        customPct: customPct != null ? customPct : null,
+        customPct: customPct !== undefined ? customPct : null,
         pppDate: pppDate || null,
         readyStatus: readyStatus || null,
         remarks: remarks || null,
         updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [sql.raw('"facilitySlug"'), sql.raw('"milestoneId"')],
-        set: {
-          compDate: compDate != null ? compDate : sql.raw('"governance_milestone_state"."compDate"'),
-          customPct: customPct != null ? customPct : sql.raw('"governance_milestone_state"."customPct"'),
-          pppDate: pppDate != null ? pppDate : sql.raw('"governance_milestone_state"."pppDate"'),
-          readyStatus: readyStatus != null ? readyStatus : sql.raw('"governance_milestone_state"."readyStatus"'),
-          remarks: remarks != null ? remarks : sql.raw('"governance_milestone_state"."remarks"'),
-          updatedAt: now,
-        },
       });
+    }
     return c.json({ success: true, milestoneId });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -320,6 +297,5 @@ if (env.isProduction) {
     console.log(`Server running on http://localhost:${port}/`);
     console.log(`[BOOT] Static files served from: ${dp}`);
     console.log(`[BOOT] Health check: http://localhost:${port}/_health`);
-    console.log(`[BOOT] Debug endpoint: http://localhost:${port}/_debug/static`);
   });
 }
