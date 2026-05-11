@@ -985,7 +985,7 @@ async function INIT(){
 function ALL(){RM();RS();RD();RAC();syncEditMode();}
 
 // TABS
-function sw(id,btn){document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('a')});document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});document.getElementById('t-'+id).classList.add('a');btn.classList.add('a');if(id==='p')RS();if(id==='r')RREF()}
+function sw(id,btn){document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('a')});document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});document.getElementById('t-'+id).classList.add('a');btn.classList.add('a');if(id==='p')RS();if(id==='r'){RREF();/* async, no await needed */}}
 
 // DATE
 function cd(pp,o){if(!pp)return'';var p=pp.split('-').map(Number);var nd=new Date(p[0],p[1]-1+o,p[2]);var yy=nd.getFullYear(),mm=String(nd.getMonth()+1).padStart(2,'0'),dd=String(nd.getDate()).padStart(2,'0');return yy+'-'+mm+'-'+dd}
@@ -1890,7 +1890,8 @@ async function deleteRefDoc(fileId){
   }
 }
 
-function RREF(){
+async function RREF(){
+await fetchReferenceDocs();
 RREFDOCS();RREFTAB();}
 
 function RREFDOCS(){renderRefDocs();}
