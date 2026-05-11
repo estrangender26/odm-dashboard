@@ -124,7 +124,12 @@ app.get("/api/debug/uploads", async (c) => {
   try {
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const rows = await db.select().from(governanceUploads).orderBy(sql`id DESC`).limit(20);
+    const rows = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, file_name, file_url, uploaded_at
+      FROM governance_uploads
+      ORDER BY id DESC
+      LIMIT 20
+    `);
     return c.json({ count: rows.length, uploads: rows });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -139,8 +144,13 @@ app.get("/api/governance/files/:facilitySlug", async (c) => {
     const facilitySlug = c.req.param("facilitySlug").toLowerCase();
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const rows = await db.select().from(governanceUploads).where(eq(governanceUploads.facilitySlug, facilitySlug)).orderBy(sql`id DESC`);
-    return c.json({ files: rows });
+    const rows = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+      FROM governance_uploads
+      WHERE facility_slug = ${facilitySlug}
+      ORDER BY id DESC
+    `);
+    return c.json({ files: rows.rows || rows });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
@@ -157,16 +167,23 @@ app.post("/api/governance/files", async (c) => {
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     // Check for existing
-    const existing = await db.select().from(governanceUploads).where(
-      and(eq(governanceUploads.facilitySlug, facilitySlug.toLowerCase()), eq(governanceUploads.milestoneId, milestoneId), eq(governanceUploads.filename, filename))
-    ).limit(1);
-    if (existing.length > 0) return c.json({ file: existing[0], existing: true });
+    const existing = await db.execute(sql`
+      SELECT id, file_name, file_url FROM governance_uploads
+      WHERE facility_slug = ${facilitySlug.toLowerCase()}
+        AND milestone_id = ${milestoneId}
+        AND file_name = ${filename}
+      LIMIT 1
+    `);
+    const existingRows = existing.rows || existing;
+    if (existingRows.length > 0) return c.json({ file: existingRows[0], existing: true });
     // Insert
-    const result = await db.insert(governanceUploads).values({
-      facilitySlug: facilitySlug.toLowerCase(), milestoneId, filename,
-      fileUrl: fileUrl || filename, fileSize: fileSize || 0,
-      uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(),
-    }).returning();
+    const result = await db.execute(sql`
+      INSERT INTO governance_uploads
+        (facility_slug, milestone_id, file_name, file_url, uploaded_at)
+      VALUES
+        (${facilitySlug.toLowerCase()}, ${milestoneId}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
+      RETURNING id, facility_slug, milestone_id, file_name, file_url, uploaded_at
+    `);
     return c.json({ file: result[0] });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -180,7 +197,7 @@ app.delete("/api/governance/files/:id", async (c) => {
     if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    await db.delete(governanceUploads).where(eq(governanceUploads.id, id));
+    await db.execute(sql`DELETE FROM governance_uploads WHERE id = ${id}`);
     return c.json({ success: true });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -197,11 +214,25 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     console.log("[API] DB connection OK");
-    const states = await db.select().from(governanceMilestoneState).where(eq(governanceMilestoneState.facilitySlug, facilitySlug));
-    console.log("[API] States:", states.length);
-    const files = await db.select().from(governanceUploads).where(eq(governanceUploads.facilitySlug, facilitySlug)).orderBy(sql`id DESC`);
-    console.log("[API] Files:", files.length);
-    return c.json({ states, files });
+    // Raw SQL matching actual migration columns (avoid schema drift)
+    const states = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, ppp_date, comp_date, custom_pct, updated_at, updated_by
+      FROM governance_milestone_state
+      WHERE facility_slug = ${facilitySlug}
+    `);
+    console.log("[API] States:", states.rows ? states.rows.length : states.length);
+    const files = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+      FROM governance_uploads
+      WHERE facility_slug = ${facilitySlug}
+      ORDER BY id DESC
+    `);
+    console.log("[API] Files:", files.rows ? files.rows.length : files.length);
+    // Normalize response shape: always return .rows or the array
+    return c.json({
+      states: states.rows || states,
+      files: files.rows || files
+    });
   } catch (e: any) {
     console.error("[API] GET state ERROR:", e.message, e.stack);
     return c.json({ error: e.message, stack: e.stack }, 500);
@@ -219,30 +250,30 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     const db = getDb();
     const now = new Date().toISOString();
     // Check for existing
-    const existing = await db.select().from(governanceMilestoneState).where(
-      and(eq(governanceMilestoneState.facilitySlug, facilitySlug), eq(governanceMilestoneState.milestoneId, milestoneId))
-    ).limit(1);
-    if (existing.length > 0) {
+    const existing = await db.execute(sql`
+      SELECT id FROM governance_milestone_state
+      WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
+      LIMIT 1
+    `);
+    const existingRows = existing.rows || existing;
+    if (existingRows.length > 0) {
       // Update
-      await db.update(governanceMilestoneState).set({
-        compDate: compDate !== undefined ? compDate : existing[0].compDate,
-        customPct: customPct !== undefined ? customPct : existing[0].customPct,
-        pppDate: pppDate !== undefined ? pppDate : existing[0].pppDate,
-        readyStatus: readyStatus !== undefined ? readyStatus : existing[0].readyStatus,
-        remarks: remarks !== undefined ? remarks : existing[0].remarks,
-        updatedAt: now,
-      }).where(and(eq(governanceMilestoneState.facilitySlug, facilitySlug), eq(governanceMilestoneState.milestoneId, milestoneId)));
+      await db.execute(sql`
+        UPDATE governance_milestone_state
+        SET comp_date = ${compDate !== undefined ? compDate : null},
+            custom_pct = ${customPct !== undefined ? customPct : null},
+            ppp_date = ${pppDate !== undefined ? pppDate : null},
+            updated_at = ${now}
+        WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
+      `);
     } else {
       // Insert
-      await db.insert(governanceMilestoneState).values({
-        facilitySlug, milestoneId,
-        compDate: compDate || null,
-        customPct: customPct !== undefined ? customPct : null,
-        pppDate: pppDate || null,
-        readyStatus: readyStatus || null,
-        remarks: remarks || null,
-        updatedAt: now,
-      });
+      await db.execute(sql`
+        INSERT INTO governance_milestone_state
+          (facility_slug, milestone_id, comp_date, custom_pct, ppp_date, updated_at)
+        VALUES
+          (${facilitySlug}, ${milestoneId}, ${compDate || null}, ${customPct !== undefined ? customPct : null}, ${pppDate || null}, ${now})
+      `);
     }
     return c.json({ success: true, milestoneId });
   } catch (e: any) {
