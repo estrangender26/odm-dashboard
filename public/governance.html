@@ -706,6 +706,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 <!-- TAB 4: REFERENCES -->
 <div id="t-r" class="tc">
   <div class="card"><div class="ch"><h2>Reference Documents</h2><span style="font-size:12px;color:var(--mw-muted)">Standard governance framework documents</span></div><div id="ref-doc-list"></div><div id="ref-doc-upload" style="display:none;margin-top:10px"></div></div>
+  <div id="init-debug" style="font-size:11px;color:#666;padding:8px;background:#f5f5f5;border-radius:4px;margin-top:8px;font-family:monospace;white-space:pre-wrap"></div>
   <div class="card"><div class="ch"><h2>TOC-to-Annex Mapping</h2></div><div id="ref2"></div></div>
   <div class="card"><div class="ch"><h2>Annexes Reference</h2></div><div id="ref"></div></div>
 </div>
@@ -988,13 +989,19 @@ async function INIT(){
   });
   
   // Initial load: fetch from DB then render
+  var initDbg=document.getElementById('init-debug');
+  function idbg(msg){console.log('[INIT]',msg);if(initDbg)initDbg.textContent+=(initDbg.textContent?'\n':'')+msg;}
   document.getElementById('fl').textContent=f;
   document.getElementById('dlf').textContent=f;
-  try{await fetchStateFromDB(f);}catch(err){console.error('[INIT] fetchStateFromDB failed:',err);}
-  // Load reference documents (facility-independent)
-  await fetchReferenceDocs();
+  idbg('1: LD() done');
+  try{await fetchStateFromDB(f);idbg('2: fetchState OK, states='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).length:0));}catch(err){idbg('2: fetchState ERR: '+err.message);}
+  try{await fetchReferenceDocs();idbg('3: fetchRef OK, refs='+REFERENCE_DOCS.length);}catch(err){idbg('3: fetchRef ERR: '+err.message);}
+  idbg('4: ST.ms keys='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
+  idbg('5: ST.up keys='+(ST[f]&&ST[f].up?Object.keys(ST[f].up).join(','):'none'));
   document.getElementById('pp').value=ST[f]?ST[f].pp:'';
+  idbg('6: Calling ALL()...');
   ALL();
+  idbg('7: ALL() done');
 }
 function ALL(){RM();RS();RD();RAC();syncEditMode();}
 
