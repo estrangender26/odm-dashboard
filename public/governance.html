@@ -677,12 +677,12 @@ const ALM=[
 const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
 
 // STATE — DB-backed (no localStorage)
-let DB_STATE={},CH=null,PENDING={},EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={};
-const CU=()=>DB_STATE[document.getElementById('fs').value];
+let ST={},CH=null,PENDING={},EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={};
+const CU=()=>ST[document.getElementById('fs').value];
 const DF=()=>{
   var f=document.getElementById('fs').value;
   var d={pp:'',ms:{},up:{}};
-  if(DB_STATE[f]){d.pp=DB_STATE[f].pp;d.ms=JSON.parse(JSON.stringify(DB_STATE[f].ms));d.up=DB_STATE[f].up?JSON.parse(JSON.stringify(DB_STATE[f].up)):{};}
+  if(ST[f]){d.pp=ST[f].pp;d.ms=JSON.parse(JSON.stringify(ST[f].ms));d.up=ST[f].up?JSON.parse(JSON.stringify(ST[f].up)):{};}
   if(PENDING[f]&&PENDING[f].ms){
     Object.entries(PENDING[f].ms).forEach(function(e){
       var k=e[0],v=e[1];
@@ -696,9 +696,18 @@ const DF=()=>{
 // STORAGE (DEPRECATED — data now comes from API)
 // Only facility preference is saved in localStorage
 function LD(){
-  // ST starts empty — data will be fetched from API
+  // Initialize ST with empty structure for all facilities
+  // (data will be merged from DB via fetchStateFromDB)
   ST={};
-  // Load default facility from localStorage if available
+  FAC.forEach(function(f){
+    ST[f]={pp:'',ms:{},up:{}};
+    Object.keys(MSD).forEach(function(m){
+      ST[f].ms[m]={subDate:'',compDate:'',pct:null};
+    });
+  });
+  // Default PPP dates (critical for target date calculations)
+  ST.AGLIPAY.pp='2026-01-01';ST.HTT.pp='2026-02-01';ST.EASTBAY.pp='2026-03-01';ST.KAYSAKAT.pp='2026-04-01';
+  // Load facility preference from localStorage only
   var savedFac=null;
   try{savedFac=localStorage.getItem('omg5_facility');}catch(e){}
   if(savedFac&&FAC.includes(savedFac)){
