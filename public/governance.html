@@ -1807,24 +1807,24 @@ let REFERENCE_DOCS=[];
 
 async function fetchReferenceDocs(){
   var el=document.getElementById('ref-doc-list');
-  var dbg=document.getElementById('ref-debug');
-  if(el)el.innerHTML='<div class="ref-doc-empty">Loading reference documents...</div>';
-  if(dbg){dbg.style.display='block';dbg.textContent='Fetching /api/governance/references...';}
+  if(el)el.innerHTML='<div class="ref-doc-empty">Loading...</div>';
   try{
-    var resp=await fetch(API_BASE+'/api/governance/references');
+    var url=API_BASE+'/api/governance/references';
+    var resp=await fetch(url);
     var txt=await resp.text();
+    var info='URL: '+url+'<br>Status: '+resp.status+'<br>Response: '+txt.substring(0,200);
     try{var data=JSON.parse(txt);REFERENCE_DOCS=data.files||[];
-      if(dbg)dbg.textContent='API OK. Files: '+(REFERENCE_DOCS.length)+' | First: '+(REFERENCE_DOCS[0]?REFERENCE_DOCS[0].file_name:'none');
-      if(el&&REFERENCE_DOCS.length===0)el.innerHTML='<div class="ref-doc-empty">No reference documents in database.</div>';
+      if(REFERENCE_DOCS.length===0){
+        if(el)el.innerHTML='<div class="ref-doc-empty">No docs in DB.<br><span style="font-size:10px;color:#999">'+info+'</span></div>';
+      }
     }catch(parseErr){
-      if(dbg)dbg.textContent='API returned non-JSON: '+txt.substring(0,100);
       REFERENCE_DOCS=[];
+      if(el)el.innerHTML='<div class="ref-doc-empty" style="color:var(--mw-danger)">API error<br><span style="font-size:10px">'+info+'</span></div>';
     }
   }catch(err){
     var errMsg=err&&err.message?err.message:String(err);
-    if(dbg)dbg.textContent='Fetch error: '+errMsg;
     REFERENCE_DOCS=[];
-    if(el)el.innerHTML='<div class="ref-doc-empty" style="color:var(--mw-danger)">Error: '+errMsg+'</div>';
+    if(el)el.innerHTML='<div class="ref-doc-empty" style="color:var(--mw-danger)">Fetch failed: '+errMsg+'</div>';
   }
 }
 
