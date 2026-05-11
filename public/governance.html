@@ -272,20 +272,21 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .toc-lbl strong{font-size:13px;color:var(--mw-navy)}
 .toc-lbl span{font-size:11px;color:var(--mw-muted);display:block;margin-top:2px}
 .toc-files{grid-column:1 / -1;margin-top:8px;padding:0}
-/* File action row — full-width spanning all columns */
-.file-action-row{display:grid;grid-template-columns:minmax(200px,1fr) auto auto auto;gap:8px;align-items:center;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:var(--r-sm);margin-top:6px}
+/* File action row — flex layout, always shows all buttons */
+.file-action-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-top:6px;flex-wrap:nowrap}
 .file-action-row:hover{background:#F0F7FF;border-color:#B8D5F0}
-.file-action-row .fr-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--mw-text)}
+.file-action-row .fr-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--mw-text)}
+.file-action-row .fr-actions{display:flex;gap:8px;flex-shrink:0}
 .file-action-row .pending-tag{font-size:10px;color:var(--mw-warning);font-style:italic;margin-left:6px}
 /* Action buttons */
-.fv-btn,.fd-btn,.fr-rm{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:6px 14px;font-size:12px;font-weight:600;font-family:Inter,sans-serif;border:1px solid transparent;border-radius:var(--r-sm);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0;min-width:72px;height:34px}
+.fv-btn,.fd-btn,.fr-rm{display:inline-flex;align-items:center;justify-content:center;padding:6px 16px;font-size:12px;font-weight:600;font-family:Inter,sans-serif;border-radius:6px;cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0;border:1px solid;height:34px;min-width:80px}
 .fv-btn{background:#E8F4FD;color:#0066A6;border-color:#B8D5F0}
 .fv-btn:hover{background:#0066A6;color:#fff}
 .fd-btn{background:#E6F5EF;color:#0A9B6E;border-color:#A8D5C0}
 .fd-btn:hover{background:#0A9B6E;color:#fff}
 .fr-rm{background:#FEE2E2;color:#DC2626;border-color:#F5A0A0}
 .fr-rm:hover{background:#DC2626;color:#fff}
-.fr-rm:disabled{background:#F3F4F6;color:#9CA3AF;border-color:#E5E7EB;cursor:not-allowed}
+.fr-rm:disabled{background:#F3F4F6!important;color:#9CA3AF!important;border-color:#E5E7EB!important;cursor:not-allowed!important}
 .comp-row{display:flex;gap:10px;align-items:center;padding:8px 16px 8px 76px;background:#F8FAFB;border-bottom:1px solid #EDF1F4;flex-wrap:wrap;font-size:12px;color:var(--mw-muted)}
 .dlv-g{display:grid;grid-template-columns:1fr 90px 75px 1fr;gap:1px;background:var(--mw-border);border-radius:var(--r-md);overflow:hidden;font-size:11px}
 .dlv-g>div{background:#fff;padding:6px 8px;display:flex;align-items:center}
@@ -1130,20 +1131,22 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           nameWrap.textContent=fi.name||fi.n||'File';
           if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
           frDiv.appendChild(nameWrap);
-          // View button (only for saved files with id)
+          // Action buttons container
+          var actDiv=document.createElement('div');actDiv.className='fr-actions';
           var fid=fi.id||fi.dbId;
           if(fid&&!fi.isPending){
             var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
             viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
-            frDiv.appendChild(viewBtn);
+            actDiv.appendChild(viewBtn);
             var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
             dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
-            frDiv.appendChild(dldBtn);
+            actDiv.appendChild(dldBtn);
           }
           // Remove button (edit mode only)
           var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
           rmBtn.addEventListener('click',function(ev){ev.stopPropagation();rTocUp(mid,tkey,ix)});
-          frDiv.appendChild(rmBtn);
+          actDiv.appendChild(rmBtn);
+          frDiv.appendChild(actDiv);
           flDiv.appendChild(frDiv);
         });
         // Move file list OUT of upload column — span full row width
@@ -1195,17 +1198,19 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
           frDiv.appendChild(nameWrap);
           var fid=fi.id||fi.dbId;
+          var actDiv=document.createElement('div');actDiv.className='fr-actions';
           if(fid&&!fi.isPending){
             var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
             viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
-            frDiv.appendChild(viewBtn);
+            actDiv.appendChild(viewBtn);
             var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
             dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
-            frDiv.appendChild(dldBtn);
+            actDiv.appendChild(dldBtn);
           }
           var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
           rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
-          frDiv.appendChild(rmBtn);
+          actDiv.appendChild(rmBtn);
+          frDiv.appendChild(actDiv);
           flDiv.appendChild(frDiv);
         });
         flDiv.className='fl toc-files';
@@ -1244,18 +1249,20 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         nameWrap.textContent=fi.name||fi.n||'File';
         if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
         otherFr.appendChild(nameWrap);
+        var actDiv=document.createElement('div');actDiv.className='fr-actions';
         var fid=fi.id||fi.dbId;
         if(fid&&!fi.isPending){
           var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
           viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
-          otherFr.appendChild(viewBtn);
+          actDiv.appendChild(viewBtn);
           var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
           dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
-          otherFr.appendChild(dldBtn);
+          actDiv.appendChild(dldBtn);
         }
         var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
         rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
-        otherFr.appendChild(rmBtn);
+        actDiv.appendChild(rmBtn);
+        otherFr.appendChild(actDiv);
         otherFl.appendChild(otherFr);
       });
       otherFl.className='fl toc-files';
