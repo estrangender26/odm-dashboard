@@ -1834,10 +1834,16 @@ function renderRefDocs(){
     else if(['pptx','ppt'].includes(fileExt)){typeLabel='Presentation';typeIcon='📽';}
     else if(['png','jpg','jpeg','gif','svg','webp'].includes(fileExt)){typeLabel='Image';typeIcon='🖼';}
     else if(['zip','rar','7z'].includes(fileExt)){typeLabel='Archive';typeIcon='🗜';}
+    // Description for known reference documents
+    var descriptions={
+      'IOM for O&M Manual Table of Contents Structure.pdf':'Interoffice Memorandum establishing the Standard O&M Manual Governance Framework — defines the required Table of Contents structure, ANNEX requirements, and compliance rules for facility acceptance.'
+    };
+    var docDesc=descriptions[fileName]||'';
     h+='<div class="ref-doc-card">';
     h+='<div class="ref-doc-icon">'+typeIcon+'</div>';
     h+='<div class="ref-doc-info">';
     h+='<div class="ref-doc-name" title="'+fileName+'">'+fileName+'</div>';
+    if(docDesc)h+='<div class="ref-doc-desc">'+docDesc+'</div>';
     h+='<div class="ref-doc-meta">'+typeLabel+' &middot; Uploaded '+uploadedAt+(uploadedBy!=='—'?' by '+uploadedBy:'')+'</div>';
     h+='</div>';
     h+='<div class="ref-doc-actions">';
