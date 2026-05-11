@@ -595,11 +595,6 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 </div>
 </header>
 
-  <div>Facility: <span id="dbg-fac"></span></div>
-  <div>Loading...</div>
-</div>
-
-
 <main class="main">
 <div class="tabs-wrap">
   <div class="tabs">
@@ -895,10 +890,7 @@ async function INIT(){
   // Initial load: fetch from DB then render
   document.getElementById('fl').textContent=f;
   document.getElementById('dlf').textContent=f;
-  var dbg=document.getElementById('api-debug');
-  if(dbg){dbg.querySelector('#dbg-fac').textContent=f;dbg.innerHTML+='<div>Starting fetchStateFromDB...</div>';}
-  var result=await fetchStateFromDB(f);
-  if(dbg){dbg.innerHTML+='<div>fetchStateFromDB returned: '+(result?JSON.stringify(result):'null')+'</div>';}
+  try{await fetchStateFromDB(f);}catch(err){console.error('[INIT] fetchStateFromDB failed:',err);}
   document.getElementById('pp').value=ST[f]?ST[f].pp:'';
   ALL();
 }
