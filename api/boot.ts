@@ -379,13 +379,15 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     `);
     console.log("[API] States:", states.rows ? states.rows.length : states.length);
     // Use raw MySQL2 for TiDB (postgres-js driver returns wrong format)
-    const { query } = await import("./queries/mysql-connection");
-    const fileRows = await query(
+    const mysql = await import("mysql2/promise");
+    const pool = mysql.createPool(c.env.DATABASE_URL);
+    const [fileRows] = await pool.query(
       `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
        FROM governance_uploads WHERE facility_slug = ? OR facility_slug = 'all' ORDER BY id DESC`,
       [facilitySlug]
     );
-    console.log("[API] MySQL files:", fileRows.length);
+    await pool.end();
+    console.log("[API] MySQL files:", (fileRows as any[]).length);
     const allFiles = fileRows;
     // Separate reference documents (milestone_id = '__ref')
     const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
