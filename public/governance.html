@@ -567,6 +567,13 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
   </div>
 </div>
 </header>
+<!-- ═══ API DEBUG PANEL (temporary) ═══ -->
+<div id="api-debug" style="background:#1e1e1e;color:#00ff00;font-family:monospace;font-size:11px;padding:8px 12px;border:2px solid #00ff00;max-height:200px;overflow-y:auto;position:sticky;top:0;z-index:9999;">
+  <div style="font-weight:bold;margin-bottom:4px;">🔍 API Debug Panel (will be removed after fix)</div>
+  <div>Facility: <span id="dbg-fac"></span></div>
+  <div>Loading...</div>
+</div>
+
 
 <main class="main">
 <div class="tabs-wrap">
@@ -693,6 +700,127 @@ const DF=()=>{
   return d;
 };
 
+
+// ═══ DB API FUNCTIONS (source of truth) ═══
+const API_BASE='';
+
+// Fetch ALL state from DB — this is the ONLY source of milestone data
+async function fetchStateFromDB(facility){
+  console.log('[API] fetchStateFromDB('+facility+')');
+  var debugEl=document.getElementById('api-debug');
+  try{
+    var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility);
+    console.log('[API] GET',url);
+    if(debugEl)debugEl.innerHTML+='<div>GET '+url+'</div>';
+
+    var resp=await fetch(url);
+    console.log('[API] HTTP',resp.status);
+    if(debugEl)debugEl.innerHTML+='<div>HTTP '+resp.status+'</div>';
+
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    var data=await resp.json();
+    console.log('[API] Response keys:',Object.keys(data));
+    if(debugEl)debugEl.innerHTML+='<div>Response keys: '+Object.keys(data).join(', ')+'</div>';
+
+    if(data.error){if(debugEl)debugEl.innerHTML+='<div style="color:red">Error: '+data.error+'</div>';throw new Error(data.error);}
+
+    // Apply milestone states from DB
+    var mCount=0;
+    if(data.states){
+      data.states.forEach(function(s){
+        if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
+        if(!ST[facility].ms)ST[facility].ms={};
+        ST[facility].ms[s.milestoneId]={subDate:s.subDate||'',compDate:s.compDate||'',pct:s.customPct};
+        mCount++;
+      });
+    }
+    console.log('[API] Milestones loaded:',mCount);
+    if(debugEl)debugEl.innerHTML+='<div>Milestones from DB: '+mCount+'</div>';
+
+    // Apply files from DB
+    var fCount=0;
+    if(data.files){
+      if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
+      ST[facility].up={};
+      data.files.forEach(function(f){
+        var key=f.milestoneId;
+        if(!ST[facility].up[key])ST[facility].up[key]=[];
+        ST[facility].up[key].push({id:f.id,name:f.filename,url:f.fileUrl,size:f.fileSize||0,date:f.uploadedAt,fromDB:true});
+        fCount++;
+      });
+    }
+    console.log('[API] Files loaded:',fCount);
+    if(debugEl)debugEl.innerHTML+='<div>Files from DB: '+fCount+'</div>';
+
+    // Show first milestone
+    if(data.states&&data.states[0]){
+      var m0=data.states[0];
+      console.log('[API] First milestone:',m0);
+      if(debugEl)debugEl.innerHTML+='<div>First: '+m0.milestoneId+' compDate='+m0.compDate+'</div>';
+    }
+
+    return {milestones:mCount,files:fCount};
+  }catch(e){
+    console.error('[API] fetchStateFromDB FAILED:',e.message);
+    if(debugEl)debugEl.innerHTML+='<div style="color:red">FETCH FAILED: '+e.message+'</div>';
+    return null;
+  }
+}
+
+// Save milestone state to DB
+async function saveMilestoneToDB(facility,mId,changes){
+  try{
+    var resp=await fetch(API_BASE+'/api/governance/state/'+encodeURIComponent(facility),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({milestoneId:mId,compDate:changes.compDate!==undefined?changes.compDate:undefined,customPct:changes.pct!==undefined?changes.pct:undefined,pppDate:changes.ppp!==undefined?changes.ppp:undefined})
+    });
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    var data=await resp.json();
+    console.log('[API] Saved milestone',mId,':',data.success);
+    return data.success;
+  }catch(e){
+    console.error('[API] saveMilestoneToDB failed:',e.message);
+    return false;
+  }
+}
+
+// Save file record to DB
+async function saveFileToDB(facility,milestoneId,fileData){
+  try{
+    var resp=await fetch(API_BASE+'/api/governance/files',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({facilitySlug:facility,milestoneId:milestoneId,filename:fileData.name,fileUrl:fileData.url,fileSize:fileData.size||0,uploadedAt:fileData.date||new Date().toISOString()})
+    });
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    var data=await resp.json();
+    if(data.file&&ST[facility]&&ST[facility].up&&ST[facility].up[milestoneId]){
+      var localFile=ST[facility].up[milestoneId].find(function(u){return u.name===fileData.name&&!u.id;});
+      if(localFile)localFile.id=data.file.id;
+    }
+    return data.file;
+  }catch(e){console.log('[API] saveFileToDB failed:',e.message);return null;}
+}
+
+// Delete file from DB
+async function deleteFileFromDB(fileId){
+  try{
+    var resp=await fetch(API_BASE+'/api/governance/files/'+fileId,{method:'DELETE'});
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    console.log('[API] Deleted file',fileId);return true;
+  }catch(e){console.log('[API] deleteFileFromDB failed:',e.message);return false;}
+}
+
+// Get total file count from ST
+function getTotalFileCount(){
+  var f=document.getElementById('fs').value;
+  if(!ST[f]||!ST[f].up)return 0;
+  var count=0;
+  Object.values(ST[f].up).forEach(function(arr){count+=(arr||[]).length;});
+  return count;
+}
+
 // STORAGE (DEPRECATED — data now comes from API)
 // Only facility preference is saved in localStorage
 function LD(){
@@ -751,7 +879,10 @@ async function INIT(){
   // Initial load: fetch from DB then render
   document.getElementById('fl').textContent=f;
   document.getElementById('dlf').textContent=f;
-  await fetchStateFromDB(f);
+  var dbg=document.getElementById('api-debug');
+  if(dbg){dbg.querySelector('#dbg-fac').textContent=f;dbg.innerHTML+='<div>Starting fetchStateFromDB...</div>';}
+  var result=await fetchStateFromDB(f);
+  if(dbg){dbg.innerHTML+='<div>fetchStateFromDB returned: '+(result?JSON.stringify(result):'null')+'</div>';}
   document.getElementById('pp').value=ST[f]?ST[f].pp:'';
   ALL();
 }
