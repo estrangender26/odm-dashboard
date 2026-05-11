@@ -378,29 +378,15 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug}
     `);
     console.log("[API] States:", states.rows ? states.rows.length : states.length);
-    // Query uploads table (governance_files is separate, may not exist)
-    const files1 = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
-      FROM governance_uploads
-      WHERE facility_slug = ${facilitySlug} OR facility_slug = 'all'
-      ORDER BY id DESC
-    `);
-    const upRows = files1.rows || files1;
-    console.log("[API] files1 type:", typeof files1, "rows?" , !!files1.rows, "upRows.length:", upRows.length, "upRows[0]?:", upRows[0] ? Object.keys(upRows[0]).join(",") : "none");
-    // Try governance_files separately (may not exist in migration)
-    let gfRows: any[] = [];
-    try {
-      const files2 = await db.execute(sql`
-        SELECT id, facility_slug, milestone_id, toc_item, file_name, file_data AS file_url, uploaded_by, uploaded_at, NULL AS category
-        FROM governance_files
-        WHERE LOWER(facility_slug) = LOWER(${facilitySlug}) OR facility_slug = 'all'
-        ORDER BY id DESC
-      `);
-      gfRows = files2.rows || files2;
-    } catch (gfErr: any) {
-      console.log("[API] governance_files table not available:", gfErr.message);
-    }
-    const allFiles = upRows.concat(gfRows);
+    // Use raw MySQL2 for TiDB (postgres-js driver returns wrong format)
+    const { query } = await import("./queries/mysql-connection");
+    const fileRows = await query(
+      `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+       FROM governance_uploads WHERE facility_slug = ? OR facility_slug = 'all' ORDER BY id DESC`,
+      [facilitySlug]
+    );
+    console.log("[API] MySQL files:", fileRows.length);
+    const allFiles = fileRows;
     // Separate reference documents (milestone_id = '__ref')
     const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
     const msFiles = allFiles.filter((f: any) => f.milestone_id !== '__ref' && f.category !== 'references');
