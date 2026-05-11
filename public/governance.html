@@ -707,89 +707,53 @@ const API_BASE='';
 // Fetch ALL state from DB — this is the ONLY source of milestone data
 async function fetchStateFromDB(facility){
   console.log('[API] fetchStateFromDB('+facility+')');
-  var debugEl=document.getElementById('api-debug');
   try{
-    var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility);
-    console.log('[API] GET',url);
-    if(debugEl)debugEl.innerHTML+='<div>GET '+url+'</div>';
-
-    var resp=await fetch(url);
+    var resp=await fetch(API_BASE+'/api/governance/state/'+encodeURIComponent(facility));
     console.log('[API] HTTP',resp.status);
-    if(debugEl)debugEl.innerHTML+='<div>HTTP '+resp.status+'</div>';
-
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     var data=await resp.json();
-    console.log('[API] Response keys:',Object.keys(data));
-    if(debugEl)debugEl.innerHTML+='<div>Response keys: '+Object.keys(data).join(', ')+'</div>';
+    if(data.error)throw new Error(data.error);
 
-    if(data.error){if(debugEl)debugEl.innerHTML+='<div style="color:red">Error: '+data.error+'</div><div style="color:#ff6600">Stack: '+(data.stack||'N/A').substring(0,200)+'</div>';throw new Error(data.error);}
-
-    // Ensure facility exists with all 9 milestones (from LD or fresh)
+    // Ensure facility exists with all 9 milestones
     if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
     if(!ST[facility].ms)ST[facility].ms={};
-    // Ensure all 9 milestones exist (even if DB is empty)
     Object.keys(MSD).forEach(function(m){
       if(!ST[facility].ms[m])ST[facility].ms[m]={subDate:'',compDate:'',pct:null};
     });
-    // Normalize DB response: map snake_case → camelCase
-    var normStates=(data.states||[]).map(function(s){
-      return{
-        milestoneId:s.milestone_id||s.milestoneId,
-        subDate:s.ppp_date||s.subDate||'',
-        compDate:s.comp_date||s.compDate||'',
-        pct:s.custom_pct!=null?s.custom_pct:(s.pct!=null?s.pct:null),
-        pppDate:s.ppp_date||s.pppDate||''
-      };
-    });
-    // Merge normalized states into ST
+
+    // Overlay DB state (exact TiDB field names)
     var mCount=0;
-    normStates.forEach(function(s){
-      if(s.milestoneId&&ST[facility].ms[s.milestoneId]){
-        ST[facility].ms[s.milestoneId].subDate=s.subDate;
-        ST[facility].ms[s.milestoneId].compDate=s.compDate;
-        ST[facility].ms[s.milestoneId].pct=s.pct;
+    (data.states||[]).forEach(function(s){
+      var mid=s.milestone_id;
+      if(mid&&ST[facility].ms[mid]){
+        ST[facility].ms[mid].subDate=s.ppp_date||'';
+        ST[facility].ms[mid].compDate=s.comp_date||'';
+        ST[facility].ms[mid].pct=s.custom_pct;
         mCount++;
       }
     });
-    console.log('[API] Milestones loaded:',mCount);
-    if(debugEl)debugEl.innerHTML+='<div>Milestones from DB: '+mCount+'</div>';
+    console.log('[API] Milestones merged:',mCount);
 
-    // Normalize files
-    var normFiles=(data.files||[]).map(function(f){
-      return{
-        id:f.id,
-        milestoneId:f.milestone_id||f.milestoneId,
-        name:f.file_name||f.filename,
-        url:f.file_url||f.fileUrl,
-        size:f.file_size||0,
-        date:f.uploaded_at||f.uploadedAt
-      };
-    });
-    // Merge files into ST (don't wipe existing)
+    // Merge files
     var fCount=0;
-    normFiles.forEach(function(f){
-      if(!f.milestoneId)return;
-      if(!ST[facility].up[f.milestoneId])ST[facility].up[f.milestoneId]=[];
-      var exists=ST[facility].up[f.milestoneId].some(function(u){return u.id===f.id;});
-      if(!exists){
-        ST[facility].up[f.milestoneId].push({id:f.id,name:f.name,url:f.url,size:f.size,date:f.date,fromDB:true});
-        fCount++;
-      }
-    });
-    console.log('[API] Files loaded:',fCount);
-    if(debugEl)debugEl.innerHTML+='<div>Files from DB: '+fCount+'</div>';
-
-    // Show first raw DB object for debugging
-    if(data.states&&data.states[0]){
-      var raw0=data.states[0];
-      console.log('[API] FIRST RAW STATE OBJECT:',JSON.stringify(raw0));
-      if(debugEl)debugEl.innerHTML+='<div style="font-size:9px;color:#ff0">RAW: '+JSON.stringify(raw0).substring(0,200)+'</div>';
+    if(data.files){
+      if(!ST[facility].up)ST[facility].up={};
+      data.files.forEach(function(f){
+        var mid=f.milestone_id;
+        if(!mid)return;
+        if(!ST[facility].up[mid])ST[facility].up[mid]=[];
+        var exists=ST[facility].up[mid].some(function(u){return u.id===f.id;});
+        if(!exists){
+          ST[facility].up[mid].push({id:f.id,name:f.file_name||'',url:f.file_url||'',size:0,date:f.uploaded_at,fromDB:true});
+          fCount++;
+        }
+      });
     }
+    console.log('[API] Files merged:',fCount);
 
     return {milestones:mCount,files:fCount};
   }catch(e){
     console.error('[API] fetchStateFromDB FAILED:',e.message);
-    if(debugEl)debugEl.innerHTML+='<div style="color:red">FETCH FAILED: '+e.message+'</div>';
     return null;
   }
 }
