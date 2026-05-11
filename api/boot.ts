@@ -216,13 +216,15 @@ app.post("/api/governance/files", async (c) => {
 // GET /api/governance/references - list reference documents (milestone_id = '__ref')
 app.get("/api/governance/references", async (c) => {
   try {
-    const { query } = await import("./queries/mysql-connection");
-    const rows = await query(
-      `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at
-       FROM governance_uploads
-       WHERE milestone_id = '__ref' OR category = 'references'
-       ORDER BY uploaded_at DESC`
-    );
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    const result = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at
+      FROM governance_uploads
+      WHERE milestone_id = '__ref' OR category = 'references'
+      ORDER BY uploaded_at DESC
+    `);
+    const rows = (result as any).rows || (result as any) || [];
     return c.json({ files: rows });
   } catch (e: any) {
     console.error("[API] /references error:", e.message);
