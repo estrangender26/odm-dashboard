@@ -378,17 +378,16 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug}
     `);
     console.log("[API] States:", states.rows ? states.rows.length : states.length);
-    // Use raw MySQL2 for TiDB (postgres-js driver returns wrong format)
-    const mysql = await import("mysql2/promise");
-    const pool = mysql.createPool(c.env.DATABASE_URL);
-    const [fileRows] = await pool.query(
-      `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
-       FROM governance_uploads WHERE facility_slug = ? OR facility_slug = 'all' ORDER BY id DESC`,
-      [facilitySlug]
-    );
-    await pool.end();
-    console.log("[API] MySQL files:", (fileRows as any[]).length);
-    const allFiles = fileRows;
+    // Query uploads table
+    const files1 = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+      FROM governance_uploads
+      WHERE facility_slug = ${facilitySlug} OR facility_slug = 'all'
+      ORDER BY id DESC
+    `);
+    const upRows = files1.rows || files1 || [];
+    console.log("[API] uploads query type:", typeof files1, "rows?" , !!files1.rows, "upRows:", upRows.length);
+    const allFiles = upRows;
     // Separate reference documents (milestone_id = '__ref')
     const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
     const msFiles = allFiles.filter((f: any) => f.milestone_id !== '__ref' && f.category !== 'references');
