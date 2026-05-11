@@ -203,6 +203,77 @@ app.delete("/api/governance/files/:id", async (c) => {
   }
 });
 
+// ═══ Governance Milestone State CRUD (DB-only, no localStorage) ═══
+
+// GET /api/governance/state/:facilitySlug — returns all milestone states
+app.get("/api/governance/state/:facilitySlug", async (c) => {
+  try {
+    const facilitySlug = c.req.param("facilitySlug").toLowerCase();
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    // Get milestone states
+    const states = await db
+      .select()
+      .from(sql.raw('"governance_milestone_state"'))
+      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`));
+    // Get files
+    const files = await db
+      .select()
+      .from(sql.raw('"governance_uploads"'))
+      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`))
+      .orderBy(sql.raw('"id" DESC'));
+    // Get upload counts per milestone
+    const counts = await db
+      .select({ milestoneId: sql.raw('"milestoneId"'), count: sql<number>`count(*)::int` })
+      .from(sql.raw('"governance_uploads"'))
+      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`))
+      .groupBy(sql.raw('"milestoneId"'));
+    return c.json({ states, files, counts });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// POST /api/governance/state/:facilitySlug — save a milestone state
+app.post("/api/governance/state/:facilitySlug", async (c) => {
+  try {
+    const facilitySlug = c.req.param("facilitySlug").toLowerCase();
+    const body = await c.req.json();
+    const { milestoneId, compDate, customPct, pppDate, readyStatus, remarks } = body;
+    if (!milestoneId) return c.json({ error: "milestoneId required" }, 400);
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    const now = new Date().toISOString();
+    // Upsert: insert or update
+    await db
+      .insert(sql.raw('"governance_milestone_state"'))
+      .values({
+        facilitySlug,
+        milestoneId,
+        compDate: compDate || null,
+        customPct: customPct != null ? customPct : null,
+        pppDate: pppDate || null,
+        readyStatus: readyStatus || null,
+        remarks: remarks || null,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [sql.raw('"facilitySlug"'), sql.raw('"milestoneId"')],
+        set: {
+          compDate: compDate != null ? compDate : sql.raw('"governance_milestone_state"."compDate"'),
+          customPct: customPct != null ? customPct : sql.raw('"governance_milestone_state"."customPct"'),
+          pppDate: pppDate != null ? pppDate : sql.raw('"governance_milestone_state"."pppDate"'),
+          readyStatus: readyStatus != null ? readyStatus : sql.raw('"governance_milestone_state"."readyStatus"'),
+          remarks: remarks != null ? remarks : sql.raw('"governance_milestone_state"."remarks"'),
+          updatedAt: now,
+        },
+      });
+    return c.json({ success: true, milestoneId });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

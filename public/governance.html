@@ -81,65 +81,14 @@ function pbHide() {
 
 // Load files from DB with retry — source of truth for UI
 var __lfRetryCount = 0;
-function loadFilesFromDB(facilitySlug) {
-  if (!facilitySlug) return;
-  var dbSlug = facilitySlug.toLowerCase();
-  console.log('[GOV] loadFilesFromDB #' + (__lfRetryCount+1) + ' for:', facilitySlug);
-  var c = ST[facilitySlug];
-  if (!c) { console.error('[GOV] No ST for', facilitySlug); return; }
-  if (!c.up) c.up = {};
-  
-  govListByFacility(dbSlug).then(function(data) {
-    var files = (data && data.result && data.result.data && data.result.data.json) || [];
-    console.log('[GOV] DB returned', files.length, 'files');
-    
-    // Build state from DB
-    var newUp = {};
-    files.forEach(function(f) {
-      var mid = f.milestoneId;
-      var key = f.tocItem || 'TOC-DB';
-      if (!newUp[mid]) newUp[mid] = {};
-      if (!newUp[mid][key]) newUp[mid][key] = [];
-      newUp[mid][key].push({ n: f.fileName, d: f.fileData, dbId: f.id });
-    });
-    
-    // Keep local-only files (no dbId) not in DB
-    Object.keys(c.up).forEach(function(mid) {
-      if (!newUp[mid]) newUp[mid] = {};
-      Object.keys(c.up[mid]).forEach(function(key) {
-        if (!newUp[mid][key]) newUp[mid][key] = [];
-        c.up[mid][key].forEach(function(lf) {
-          if (lf.dbId) return;
-          var inDb = newUp[mid][key].some(function(df) { return df.n === lf.n; });
-          if (!inDb) newUp[mid][key].push(lf);
-        });
-      });
-    });
-    
-    c.up = newUp;
-    console.log('[GOV] c.up keys after load:', Object.keys(c.up));
-    SV(); RD(); RM(); RS();
-    
-    // Retry if DB empty but we just uploaded (replication lag)
-    if (files.length === 0 && __lfRetryCount < 3) {
-      __lfRetryCount++;
-      console.log('[GOV] DB empty, retry #' + __lfRetryCount + ' in 1s');
-      updateSyncStatus('Waiting for DB...');
-      setTimeout(function() { loadFilesFromDB(facilitySlug); }, 1000);
-      return;
-    }
-    __lfRetryCount = 0;
-    
-    // Count unique
-    var seen = new Set(), ucnt = 0;
-    Object.keys(c.up).forEach(function(m) {
-      Object.keys(c.up[m]).forEach(function(k) {
-        (c.up[m][k] || []).forEach(function(f) { if (f.dbId) { if (!seen.has(f.dbId)) { seen.add(f.dbId); ucnt++; } } else { ucnt++; } });
-      });
-    });
-    updateSyncStatus('Synced: ' + ucnt + ' files');
-    console.log('[GOV] loadFilesFromDB DONE. Files:', ucnt);
-  }).catch(function(err) { console.error('[GOV] loadFilesFromDB error:', err); });
+function loadFilesFromDB(facility){
+  // DEPRECATED: replaced by fetchStateFromDB
+  // All calls now trigger a full DB refresh
+  var f = facility || document.getElementById('fs').value;
+  fetchStateFromDB(f).then(function(){
+    updateSyncStatus('Synced: ' + getTotalFileCount() + ' files');
+    ALL();
+  });
 }
 
 // Console debug helpers
@@ -727,14 +676,13 @@ const ALM=[
 ];
 const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
 
-// STATE
-let ST={},CH=null,PENDING={},EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={};
-const CU=()=>ST[document.getElementById('fs').value];
-// DF = Display resolver: ST + PENDING merged for UI/chart
+// STATE — DB-backed (no localStorage)
+let DB_STATE={},CH=null,PENDING={},EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={};
+const CU=()=>DB_STATE[document.getElementById('fs').value];
 const DF=()=>{
   var f=document.getElementById('fs').value;
   var d={pp:'',ms:{},up:{}};
-  if(ST[f]){d.pp=ST[f].pp;d.ms=JSON.parse(JSON.stringify(ST[f].ms));d.up=ST[f].up?JSON.parse(JSON.stringify(ST[f].up)):{};}
+  if(DB_STATE[f]){d.pp=DB_STATE[f].pp;d.ms=JSON.parse(JSON.stringify(DB_STATE[f].ms));d.up=DB_STATE[f].up?JSON.parse(JSON.stringify(DB_STATE[f].up)):{};}
   if(PENDING[f]&&PENDING[f].ms){
     Object.entries(PENDING[f].ms).forEach(function(e){
       var k=e[0],v=e[1];
@@ -745,43 +693,59 @@ const DF=()=>{
   return d;
 };
 
-// STORAGE
-function LD(){let s=null;
-  try{s=localStorage.getItem('omg5')}catch(e){}
-  if(s){
-    try{
-      const t=JSON.parse(s);
-      if(t&&typeof t==='object'&&!Array.isArray(t)){
-        ST=t;
-        let mig=false;
-        FAC.forEach(function(f){
-          if(!ST[f]||typeof ST[f]!=='object')ST[f]={pp:'',ms:{},up:{}};
-          if(!ST[f].ms)ST[f].ms={};
-          if(!ST[f].up)ST[f].up={};
-          Object.keys(MSD).forEach(function(m){
-            if(!ST[f].ms[m])ST[f].ms[m]={subDate:'',compDate:'',pct:null};
-            if(ST[f].ms[m].subDate===undefined){ST[f].ms[m].subDate='';mig=true}
-            if(ST[f].ms[m].compDate===undefined){ST[f].ms[m].compDate='';mig=true}
-            if(ST[f].ms[m].pct===undefined){ST[f].ms[m].pct=null;mig=true}
-          });
-        });
-        if(mig)SV();
-        return;
-      }
-    }catch(e){console.error('LD parse error:',e)}
-  }
+// STORAGE (DEPRECATED — data now comes from API)
+// Only facility preference is saved in localStorage
+function LD(){
+  // ST starts empty — data will be fetched from API
   ST={};
-  FAC.forEach(function(f){
-    ST[f]={pp:'',ms:{},up:{}};
-    Object.keys(MSD).forEach(function(m){ST[f].ms[m]={subDate:'',compDate:'',pct:null}});
-  });
-  ST.AGLIPAY.pp='2026-01-01';ST.HTT.pp='2026-02-01';ST.EASTBAY.pp='2026-03-01';ST.KAYSAKAT.pp='2026-04-01';
-  SV();
+  // Load default facility from localStorage if available
+  var savedFac=null;
+  try{savedFac=localStorage.getItem('omg5_facility');}catch(e){}
+  if(savedFac&&FAC.includes(savedFac)){
+    document.getElementById('fs').value=savedFac;
+  }
 }
-function SV(){localStorage.setItem('omg5',JSON.stringify(ST))}
+function SV(){
+  // Only save facility preference, NOT data
+  try{localStorage.setItem('omg5_facility',document.getElementById('fs').value);}catch(e){}
+}
+function saveFacilityPreference(){SV();}
 
 // INIT
-function INIT(){LD();document.getElementById('fs').addEventListener('change',e=>{EDIT_MODE=false;PENDING={};updateEditButtons();document.getElementById('fl').textContent=e.target.value;document.getElementById('pp').value=ST[e.target.value].pp;document.getElementById('dlf').textContent=e.target.value;loadFilesFromDB(e.target.value);ALL();syncEditMode();});document.getElementById('pp').addEventListener('change',e=>{CU().pp=e.target.value;SV();ALL()});const f=document.getElementById('fs').value;document.getElementById('fl').textContent=f;document.getElementById('dlf').textContent=f;document.getElementById('pp').value=ST[f].pp;loadFilesFromDB(f);ALL()}
+async function INIT(){
+  LD(); // Load facility preference only
+  var f=document.getElementById('fs').value;
+  
+  // Facility change listener
+  document.getElementById('fs').addEventListener('change',async function(e){
+    EDIT_MODE=false;PENDING={};updateEditButtons();
+    document.getElementById('fl').textContent=e.target.value;
+    document.getElementById('dlf').textContent=e.target.value;
+    SV(); // Save facility preference
+    // Fetch from DB before rendering
+    await fetchStateFromDB(e.target.value);
+    document.getElementById('pp').value=ST[e.target.value]?ST[e.target.value].pp:'';
+    ALL();
+    syncEditMode();
+  });
+  
+  // PPP date change
+  document.getElementById('pp').addEventListener('change',function(e){
+    var f=document.getElementById('fs').value;
+    if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
+    ST[f].pp=e.target.value;
+    // Also save PPP to DB for M1
+    saveMilestoneToDB(f,'M1',{ppp:e.target.value});
+    ALL();
+  });
+  
+  // Initial load: fetch from DB then render
+  document.getElementById('fl').textContent=f;
+  document.getElementById('dlf').textContent=f;
+  await fetchStateFromDB(f);
+  document.getElementById('pp').value=ST[f]?ST[f].pp:'';
+  ALL();
+}
 function ALL(){RM();RS();RD();RAC();syncEditMode();}
 
 // TABS
@@ -1054,104 +1018,9 @@ function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   var selAll=document.getElementById('sel-all');if(selAll){selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
 }
 function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
-function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;syncEditMode();updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
+function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;syncEditMode();updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate});}});}PENDING={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();syncEditMode();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
 function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={}
-// ═══ MULTI-USER FILE SYNC via API ═══
-const API_BASE = '';
 
-// Fetch files from DB and merge with localStorage
-async function syncFilesFromDB(facility) {
-  if (!facility) facility = document.getElementById('fs').value;
-  try {
-    const resp = await fetch(API_BASE + '/api/governance/files/' + encodeURIComponent(facility));
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
-    
-    // Merge DB files into ST
-    if (!ST[facility]) ST[facility] = { pp: '', ms: {}, up: {} };
-    if (!ST[facility].up) ST[facility].up = {};
-    
-    var merged = 0;
-    (data.files || []).forEach(function(f) {
-      var key = f.milestoneId;
-      if (!ST[facility].up[key]) ST[facility].up[key] = [];
-      // Check if already in localStorage (avoid duplicates)
-      var exists = ST[facility].up[key].some(function(u) { return u.id === f.id; });
-      if (!exists) {
-        ST[facility].up[key].push({
-          id: f.id,
-          name: f.filename,
-          url: f.fileUrl,
-          size: f.fileSize || 0,
-          date: f.uploadedAt,
-          fromDB: true
-        });
-        merged++;
-      }
-    });
-    
-    if (merged > 0) {
-      console.log('[SYNC] Merged ' + merged + ' files from DB');
-      SV(); // Save to localStorage
-      ALL(); // Re-render
-    }
-    
-    updateSyncStatus(merged > 0 ? 'Synced: ' + getTotalFileCount() + ' files (+' + merged + ' new)' : 'Synced: ' + getTotalFileCount() + ' files');
-  } catch (e) {
-    console.log('[SYNC] DB fetch failed:', e.message);
-    // Fall back to localStorage count
-    updateSyncStatus('Synced: ' + getTotalFileCount() + ' files (local)');
-  }
-}
-
-// Save a file record to the DB
-async function saveFileToDB(facility, milestoneId, fileData) {
-  try {
-    const resp = await fetch(API_BASE + '/api/governance/files', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        facilitySlug: facility,
-        milestoneId: milestoneId,
-        filename: fileData.name,
-        fileUrl: fileData.url,
-        fileSize: fileData.size || 0,
-        uploadedAt: fileData.date || new Date().toISOString()
-      })
-    });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    if (data.file) {
-      // Update local record with DB ID
-      if (ST[facility] && ST[facility].up && ST[facility].up[milestoneId]) {
-        var localFile = ST[facility].up[milestoneId].find(function(u) { return u.name === fileData.name && !u.id; });
-        if (localFile) localFile.id = data.file.id;
-        SV();
-      }
-      console.log('[SYNC] Saved to DB:', data.file.id);
-    }
-    return data.file;
-  } catch (e) {
-    console.log('[SYNC] DB save failed:', e.message);
-    return null;
-  }
-}
-
-// Delete a file from the DB
-async function deleteFileFromDB(fileId) {
-  try {
-    const resp = await fetch(API_BASE + '/api/governance/files/' + fileId, { method: 'DELETE' });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    console.log('[SYNC] Deleted from DB:', fileId);
-    return true;
-  } catch (e) {
-    console.log('[SYNC] DB delete failed:', e.message);
-    return false;
-  }
-}
-
-// Get total file count from localStorage
 function getTotalFileCount() {
   var f = document.getElementById('fs').value;
   if (!ST[f] || !ST[f].up) return 0;
