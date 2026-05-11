@@ -982,12 +982,16 @@ function fM(n){var m=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includ
 function fMA(id){var m=[];Object.entries(MSD).forEach(function(e){if(e[1].a.includes(id))m.push(e[0])});return m}
 
 function gMPct(mid,c){
+  // Completed milestone = 100% always
+  if(c.ms[mid].compDate&&c.ms[mid].compDate.length>0)return 100;
+  // If custom pct is set, use it
+  if(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined)return c.ms[mid].pct;
+  // Otherwise calculate from upload coverage
   var d=MSD[mid],reqUploads=0,hasUploads=0;
   d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(tocOwner[tkey]!==mid)return;reqUploads++;if(c.up[mid]&&c.up[mid][tkey]&&c.up[mid][tkey].length>0)hasUploads++});
   var coveredA=new Set();d.t.forEach(function(tnum){var ti=TOC.find(function(x){return x.num===tnum});if(ti&&ti.ax){var m2=ti.ax.match(/ANNEX\s*(\d+)/i);if(m2)coveredA.add(m2[1])}});
   d.a.forEach(function(aid){if(coveredA.has(aid))return;reqUploads++;var akey='A'+aid;if(c.up[mid]&&c.up[mid][akey]&&c.up[mid][akey].length>0)hasUploads++});
-  var autoPct=reqUploads>0?Math.round((hasUploads/reqUploads)*100):0;
-  return(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined)?c.ms[mid].pct:autoPct;
+  return reqUploads>0?Math.round((hasUploads/reqUploads)*100):0;
 }
 
 // Build map: TOC item -> first milestone that links to it
