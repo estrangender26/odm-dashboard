@@ -343,17 +343,27 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug}
     `);
     console.log("[API] States:", states.rows ? states.rows.length : states.length);
-    const files = await db.execute(sql`
+    // Query BOTH tables: governance_uploads (REST uploads) + governance_files (tRPC uploads)
+    const files1 = await db.execute(sql`
       SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
       FROM governance_uploads
       WHERE facility_slug = ${facilitySlug}
       ORDER BY id DESC
     `);
-    console.log("[API] Files:", files.rows ? files.rows.length : files.length);
+    const files2 = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, toc_item, file_name, file_data AS file_url, uploaded_by, uploaded_at
+      FROM governance_files
+      WHERE LOWER(facility_slug) = LOWER(${facilitySlug})
+      ORDER BY id DESC
+    `);
+    const allFiles = (files1.rows || files1).concat(files2.rows || files2);
+    console.log("[API] Files from uploads:", files1.rows ? files1.rows.length : files1.length,
+      "| Files from govFiles:", files2.rows ? files2.rows.length : files2.length,
+      "| Total:", allFiles.length);
     // Normalize response shape: always return .rows or the array
     return c.json({
       states: states.rows || states,
-      files: files.rows || files
+      files: allFiles
     });
   } catch (e: any) {
     console.error("[API] GET state ERROR:", e.message, e.stack);
