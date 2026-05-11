@@ -885,6 +885,7 @@ async function saveFileToDB(facility,milestoneId,tocItem,fileData){
     });
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     var data=await resp.json();
+    console.log('[API] saveFileToDB response:',data?'has data':'null','file=',data&&data.file?JSON.stringify(data.file).substring(0,80):'none');
     // Update local milestone state with DB id
     if(data.file&&data.file.id&&ST[facility]&&ST[facility].up&&ST[facility].up[milestoneId]){
       var tkey=tocItem||'OTHER';
@@ -994,7 +995,7 @@ async function INIT(){
   setTimeout(function(){if(!window.__INIT_DONE){window.__INIT_DONE=true;console.log('[INIT] Safety timer fired');ALL();}},6000);
   window.__INIT_DONE=true;
 }
-function ALL(){RM();RS();RD();RAC();syncEditMode();}
+function ALL(){RM();RS();RD();RAC();syncEditMode();renderRefDocs();}
 
 // TABS
 function sw(id,btn){document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('a')});document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});document.getElementById('t-'+id).classList.add('a');btn.classList.add('a');if(id==='p')RS();if(id==='r'){RREF();/* async, no await needed */}}
@@ -1372,6 +1373,8 @@ async function saveAll(){
       }
     }
     PENDING_REF=[];
+    console.log('[EDIT] Ref save done, REFERENCE_DOCS now has',REFERENCE_DOCS.length,'items');
+    renderRefDocs();
   }
   PENDING={};
   EDIT_MODE=false;
