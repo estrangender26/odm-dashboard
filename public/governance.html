@@ -1938,14 +1938,13 @@ function renderRefDocs(){
       if(fileId){
         var isViewable=['pdf','png','jpg','jpeg','gif','svg','webp','txt','csv'].includes(fileExt);
         if(isViewable){
-          h+='<button class="fv-btn" onclick="window.open('/api/governance/files/'+fileId+'/view','_blank')">View</button>';
+          h+='<button class="fv-btn" onclick="window.open(\u0027/api/governance/files/'+fileId+'/view\u0027,\u0027_blank\u0027)">View</button>';
         }else{
-          h+='<button class="fv-btn" onclick="window.open('/api/governance/files/'+fileId+'/download','_blank')">View</button>';
+          h+='<button class="fv-btn" onclick="window.open(\u0027/api/governance/files/'+fileId+'/download\u0027,\u0027_blank\u0027)">View</button>';
         }
-        h+='<button class="fd-btn" onclick="window.open('/api/governance/files/'+fileId+'/download','_blank')">Download</button>';
-        h+='<button class="fr-rm" '+(EDIT_MODE?'':'disabled')+' onclick="if(!EDIT_MODE){alert('Press Edit to remove');return;}if(confirm('Delete?')){deleteRefDoc('+fileId+')}">Remove</button>';
-      }
-      h+='</div></div>';
+        h+='<button class="fd-btn" onclick="window.open(\u0027/api/governance/files/'+fileId+'/download\u0027,\u0027_blank\u0027)">Download</button>';
+        h+='<button class="fr-rm" '+(EDIT_MODE?'':'disabled')+' onclick="if(!EDIT_MODE){alert(\u0027Press Edit to remove\u0027);return;}if(confirm(\u0027Delete?\u0027)){deleteRefDoc('+fileId+')}">Remove</button>';
+    }
     }
   });
   if(EDIT_MODE){
