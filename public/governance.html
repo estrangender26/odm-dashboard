@@ -376,6 +376,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
   .ms .msd{font-size:8px}
   input[type="date"]{width:64px;font-size:8px}input[type="number"]{width:26px;font-size:8px}
   .badge{font-size:7px;padding:1px 3px;position:relative}.tag{font-size:7px;padding:1px 3px;position:relative}
+  .fv-btn,.fd-btn,.fr-rm{padding:3px 6px;font-size:9px}
 }
 
 /* Desktop milestone table scroll wrapper */
@@ -387,6 +388,16 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .up-btn:disabled,.up-btn.disabled{background:#c5d1db;color:#8a9bb0;cursor:not-allowed;box-shadow:none}
 .up-btn svg{flex-shrink:0}
 .up-area{display:flex;align-items:center;justify-content:center;gap:8px;padding:6px}
+/* File row action buttons: View, Download, Remove */
+.fv-btn,.fd-btn,.fr-rm{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;font-weight:600;font-family:Inter,sans-serif;border:none;border-radius:var(--r-sm);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.fv-btn{background:#E8F4FD;color:#0066A6}
+.fv-btn:hover{background:#D0EBFF}
+.fd-btn{background:#E6F5EF;color:#0A9B6E}
+.fd-btn:hover{background:#C8EBD8}
+.fr-rm{background:var(--mw-danger-bg);color:var(--mw-danger)}
+.fr-rm:hover{background:#FECACA}
+.fr-rm:disabled{background:#F3F4F6;color:#9CA3AF;cursor:not-allowed}
+.fr-name{font-weight:500;word-break:break-all;min-width:0;font-size:12px;color:var(--mw-text);flex:1}
 .nav-home{display:flex;align-items:center;margin-left:auto;margin-right:12px}
 .nav-home a{color:#fff;text-decoration:none;font-size:13px;font-weight:500;padding:6px 14px;border-radius:5px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);transition:all .2s;white-space:nowrap}
 .nav-home a:hover{background:rgba(255,255,255,0.25)}
@@ -1050,11 +1061,21 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         var flDiv=document.createElement('div');flDiv.className='fl';
         files.forEach(function(fi,ix){
           var frDiv=document.createElement('div');frDiv.className='fr';
-          var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
-          frDiv.appendChild(a);
-          var btn=document.createElement('button');btn.textContent='Remove';btn.disabled=!EDIT_MODE;btn.style.opacity=EDIT_MODE?'1':'0.3';btn.style.cursor=EDIT_MODE?'pointer':'not-allowed';
-          btn.addEventListener('click',function(ev){ev.stopPropagation();rTocUp(mid,tkey,ix)});
-          frDiv.appendChild(btn);
+          // File name
+          var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.name||fi.n||'File';
+          frDiv.appendChild(nameSpan);
+          // View button (always enabled)
+          var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+          viewBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/view','_blank');});
+          frDiv.appendChild(viewBtn);
+          // Download button (always enabled)
+          var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+          dldBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/download','_blank');});
+          frDiv.appendChild(dldBtn);
+          // Remove button (edit mode only)
+          var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
+          rmBtn.addEventListener('click',function(ev){ev.stopPropagation();rTocUp(mid,tkey,ix)});
+          frDiv.appendChild(rmBtn);
           flDiv.appendChild(frDiv);
         });
         rDiv.appendChild(flDiv);
@@ -1099,11 +1120,17 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         var flDiv=document.createElement('div');flDiv.className='fl';
         files.forEach(function(fi,ix){
           var frDiv=document.createElement('div');frDiv.className='fr';
-          var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
-          frDiv.appendChild(a);
-          var btn=document.createElement('button');btn.textContent='Remove';btn.disabled=!EDIT_MODE;btn.style.opacity=EDIT_MODE?'1':'0.3';btn.style.cursor=EDIT_MODE?'pointer':'not-allowed';
-          btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
-          frDiv.appendChild(btn);
+          var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.name||fi.n||'File';
+          frDiv.appendChild(nameSpan);
+          var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+          viewBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/view','_blank');});
+          frDiv.appendChild(viewBtn);
+          var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+          dldBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/download','_blank');});
+          frDiv.appendChild(dldBtn);
+          var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
+          rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
+          frDiv.appendChild(rmBtn);
           flDiv.appendChild(frDiv);
         });
         rDiv.appendChild(flDiv);
@@ -1137,11 +1164,17 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       var otherFl=document.createElement('div');otherFl.className='fl';
       otherFiles.forEach(function(fi,ix){
         var otherFr=document.createElement('div');otherFr.className='fr';
-        var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;
-        otherFr.appendChild(a);
-        var btn=document.createElement('button');btn.textContent='Remove';btn.disabled=!EDIT_MODE;btn.style.opacity=EDIT_MODE?'1':'0.3';btn.style.cursor=EDIT_MODE?'pointer':'not-allowed';
-        btn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
-        otherFr.appendChild(btn);
+        var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.name||fi.n||'File';
+        otherFr.appendChild(nameSpan);
+        var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+        viewBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/view','_blank');});
+        otherFr.appendChild(viewBtn);
+        var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+        dldBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/download','_blank');});
+        otherFr.appendChild(dldBtn);
+        var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
+        rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
+        otherFr.appendChild(rmBtn);
         otherFl.appendChild(otherFr);
       });
       otherR.appendChild(otherFl);
@@ -1170,8 +1203,10 @@ function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   document.querySelectorAll('.up-btn').forEach(function(lbl){var disabled=!EDIT_MODE;lbl.classList.toggle('disabled',disabled);lbl.style.cursor=disabled?'not-allowed':'pointer';lbl.style.opacity=disabled?'0.4':'1';});
   // Legacy file inputs (if any remain)
   document.querySelectorAll('input[type="file"]:not(.hidden-fi)').forEach(function(fi){fi.disabled=!EDIT_MODE;fi.style.cursor=EDIT_MODE?'pointer':'not-allowed';fi.style.opacity=EDIT_MODE?'1':'.5';});
-  // Remove buttons
-  document.querySelectorAll('.fl button, button').forEach(function(b){if(b.textContent==='Remove'){b.disabled=!EDIT_MODE;b.style.cursor=EDIT_MODE?'pointer':'not-allowed';b.style.opacity=EDIT_MODE?'1':'.3';}});
+  // Remove buttons (.fr-rm class)
+  document.querySelectorAll('.fr-rm').forEach(function(b){b.disabled=!EDIT_MODE;b.style.cursor=EDIT_MODE?'pointer':'not-allowed';b.style.opacity=EDIT_MODE?'1':'0.3';});
+  // Legacy Remove buttons (deliverables tab without .fr-rm class)
+  document.querySelectorAll('.fl button, button').forEach(function(b){if(b.textContent==='Remove'&&!b.classList.contains('fr-rm')){b.disabled=!EDIT_MODE;b.style.cursor=EDIT_MODE?'pointer':'not-allowed';b.style.opacity=EDIT_MODE?'1':'.3';}});
   // Select all checkbox
   var selAll=document.getElementById('sel-all');if(selAll){selAll.disabled=!EDIT_MODE;selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
 }
@@ -1397,8 +1432,8 @@ TOC.forEach(function(t){var tnum=t.num;
 // Collect all files for this TOC across all sources
 var allFiles=[];
 var linkedMs=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(tnum))linkedMs.push(e[0])});
-linkedMs.forEach(function(mid){var key='TOC-'+tnum;if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].forEach(function(fi,ix){allFiles.push({n:fi.n,d:fi.d,dbId:fi.dbId||null,src:mid,loc:'up',mid:mid,key:key,ix:ix})})}});
-if(c.up['__deliv']&&c.up['__deliv']['TOC-'+tnum]){c.up['__deliv']['TOC-'+tnum].forEach(function(fi,ix){allFiles.push({n:fi.n,d:fi.d,dbId:fi.dbId||null,src:'general',loc:'__deliv',mid:'__deliv',key:'TOC-'+tnum,ix:ix})})}
+linkedMs.forEach(function(mid){var key='TOC-'+tnum;if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].forEach(function(fi,ix){allFiles.push({n:fi.name||fi.n||'File',d:fi.url||fi.d||'',id:fi.id||fi.dbId||null,src:mid,loc:'up',mid:mid,key:key,ix:ix})})}});
+if(c.up['__deliv']&&c.up['__deliv']['TOC-'+tnum]){c.up['__deliv']['TOC-'+tnum].forEach(function(fi,ix){allFiles.push({n:fi.name||fi.n||'File',d:fi.url||fi.d||'',id:fi.id||fi.dbId||null,src:'general',loc:'__deliv',mid:'__deliv',key:'TOC-'+tnum,ix:ix})})}
 // DEDUPLICATE: same file may appear in multiple milestone buckets + __deliv
 var seenDbIds=new Set();var uniqueFiles=[];
 allFiles.forEach(function(fi){if(fi.dbId&&seenDbIds.has(fi.dbId))return;if(fi.dbId)seenDbIds.add(fi.dbId);uniqueFiles.push(fi)});
@@ -1423,12 +1458,22 @@ if(allFiles.length>0){
     var fr=document.createElement('div');fr.className='fr';fr.style.padding='4px 8px';fr.style.gap='8px';
     var cb=document.createElement('input');cb.type='checkbox';cb.className='dld-cb';cb.dataset.fname=fi.n;cb.dataset.fdata=fi.d;cb.style.cssText='cursor:pointer;width:14px;height:14px;margin:0';
     fr.appendChild(cb);
-    var a=document.createElement('a');a.href=fi.d;a.download=fi.n;a.textContent=fi.n;a.style.color='var(--blue)';a.style.fontWeight='500';a.style.textDecoration='none';
-    fr.appendChild(a);
-    var sp=document.createElement('span');sp.style.cssText='font-size:10px;color:var(--t2)';sp.textContent=' from '+fi.src;
+    // File name
+    var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.n||'File';
+    fr.appendChild(nameSpan);
+    var sp=document.createElement('span');sp.style.cssText='font-size:10px;color:var(--t2);flex-shrink:0';sp.textContent='from '+fi.src;
     fr.appendChild(sp);
-    var rm=document.createElement('button');rm.textContent='Remove';rm.disabled=!EDIT_MODE;rm.style.cssText='background:none;border:none;color:var(--red);cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';font-size:11px;font-weight:600;margin-left:auto;opacity:'+(EDIT_MODE?'1':'0.3');
-    rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
+    // View button
+    var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+    viewBtn.addEventListener('click',function(){if(fi.id)window.open('/api/governance/files/'+fi.id+'/view','_blank');});
+    fr.appendChild(viewBtn);
+    // Download button
+    var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+    dldBtn.addEventListener('click',function(){if(fi.id)window.open('/api/governance/files/'+fi.id+'/download','_blank');});
+    fr.appendChild(dldBtn);
+    // Remove button (edit mode only)
+    var rm=document.createElement('button');rm.textContent='Remove';rm.className='fr-rm';rm.disabled=!EDIT_MODE;
+    rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.id){govDeleteFile(fi.id).then(function(){console.log('Deleted from DB:',fi.id)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
     fr.appendChild(rm);
     c4.appendChild(fr);
   });

@@ -204,6 +204,111 @@ app.delete("/api/governance/files/:id", async (c) => {
   }
 });
 
+// GET /api/governance/files/:id/view - stream file inline
+app.get("/api/governance/files/:id/view", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    const rows = await db.execute(sql`
+      SELECT id, file_name, file_url FROM governance_uploads WHERE id = ${id} LIMIT 1
+    `);
+    const fileRows = rows.rows || rows;
+    if (fileRows.length === 0) return c.json({ error: "File not found" }, 404);
+    const file = fileRows[0];
+    const fileName = file.file_name || "file";
+    const fileUrl = file.file_url || "";
+    // Parse data URI: data:<mime>;base64,<data>
+    let mimeType = "application/octet-stream";
+    let base64Data = "";
+    if (fileUrl.startsWith("data:")) {
+      const commaIdx = fileUrl.indexOf(",");
+      if (commaIdx > -1) {
+        const header = fileUrl.slice(0, commaIdx);
+        base64Data = fileUrl.slice(commaIdx + 1);
+        const semiIdx = header.indexOf(";");
+        mimeType = semiIdx > -1 ? header.slice(5, semiIdx) : header.slice(5);
+      }
+    } else {
+      base64Data = fileUrl;
+    }
+    // Fallback mime type from file extension
+    if (mimeType === "application/octet-stream") {
+      const ext = fileName.split(".").pop()?.toLowerCase();
+      const mimeMap: Record<string, string> = {
+        pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+        gif: "image/gif", svg: "image/svg+xml", webp: "image/webp", txt: "text/plain",
+        csv: "text/csv", json: "application/json", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        xls: "application/vnd.ms-excel", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        doc: "application/msword", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ppt: "application/vnd.ms-powerpoint", zip: "application/zip", mp4: "video/mp4", mp3: "audio/mpeg",
+      };
+      if (ext && mimeMap[ext]) mimeType = mimeMap[ext];
+    }
+    const buffer = Buffer.from(base64Data, "base64");
+    c.header("Content-Type", mimeType);
+    c.header("Content-Disposition", `inline; filename="${fileName}"`);
+    c.header("Content-Length", String(buffer.length));
+    c.header("Cache-Control", "public, max-age=3600");
+    return c.body(buffer);
+  } catch (e: any) {
+    console.error("[VIEW] Error:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// GET /api/governance/files/:id/download - stream file as attachment
+app.get("/api/governance/files/:id/download", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    const rows = await db.execute(sql`
+      SELECT id, file_name, file_url FROM governance_uploads WHERE id = ${id} LIMIT 1
+    `);
+    const fileRows = rows.rows || rows;
+    if (fileRows.length === 0) return c.json({ error: "File not found" }, 404);
+    const file = fileRows[0];
+    const fileName = file.file_name || "file";
+    const fileUrl = file.file_url || "";
+    let mimeType = "application/octet-stream";
+    let base64Data = "";
+    if (fileUrl.startsWith("data:")) {
+      const commaIdx = fileUrl.indexOf(",");
+      if (commaIdx > -1) {
+        const header = fileUrl.slice(0, commaIdx);
+        base64Data = fileUrl.slice(commaIdx + 1);
+        const semiIdx = header.indexOf(";");
+        mimeType = semiIdx > -1 ? header.slice(5, semiIdx) : header.slice(5);
+      }
+    } else {
+      base64Data = fileUrl;
+    }
+    if (mimeType === "application/octet-stream") {
+      const ext = fileName.split(".").pop()?.toLowerCase();
+      const mimeMap: Record<string, string> = {
+        pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+        gif: "image/gif", svg: "image/svg+xml", webp: "image/webp", txt: "text/plain",
+        csv: "text/csv", json: "application/json", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        xls: "application/vnd.ms-excel", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        doc: "application/msword", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ppt: "application/vnd.ms-powerpoint", zip: "application/zip", mp4: "video/mp4", mp3: "audio/mpeg",
+      };
+      if (ext && mimeMap[ext]) mimeType = mimeMap[ext];
+    }
+    const buffer = Buffer.from(base64Data, "base64");
+    c.header("Content-Type", mimeType);
+    c.header("Content-Disposition", `attachment; filename="${fileName}"`);
+    c.header("Content-Length", String(buffer.length));
+    return c.body(buffer);
+  } catch (e: any) {
+    console.error("[DOWNLOAD] Error:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // ═══ Governance Milestone State CRUD (DB-only, no localStorage) ═══
 
 // GET /api/governance/state/:facilitySlug — returns all milestone states
