@@ -386,6 +386,7 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       ORDER BY id DESC
     `);
     const upRows = files1.rows || files1;
+    console.log("[API] files1 type:", typeof files1, "rows?" , !!files1.rows, "upRows.length:", upRows.length, "upRows[0]?:", upRows[0] ? Object.keys(upRows[0]).join(",") : "none");
     // Try governance_files separately (may not exist in migration)
     let gfRows: any[] = [];
     try {
