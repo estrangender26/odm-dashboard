@@ -823,6 +823,15 @@ async function fetchStateFromDB(facility){
     });
     console.log('[API] Milestones merged:',mCount);
 
+    // Extract reference documents (separate from milestone files)
+    REFERENCE_DOCS=[];
+    if(data.referenceFiles){
+      REFERENCE_DOCS=data.referenceFiles.map(function(f){
+        return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
+      });
+      console.log('[API] Reference files loaded:',REFERENCE_DOCS.length);
+    }
+
     // Merge files — keyed by toc_item for milestone lookup
     var fCount=0;
     if(data.files){
@@ -1806,12 +1815,17 @@ function rsA(){if(!confirm('Reset all data?'))return;localStorage.removeItem('om
 let REFERENCE_DOCS=[];
 
 async function fetchReferenceDocs(){
+  // If already loaded from fetchStateFromDB, don't re-fetch
+  if(REFERENCE_DOCS&&REFERENCE_DOCS.length>0)return;
+  // Fallback: try standalone endpoint
   var el=document.getElementById('ref-doc-list');
   if(el)el.innerHTML='<div class="ref-doc-empty">Loading...</div>';
   try{
     var resp=await fetch(API_BASE+'/api/governance/references');
     var data=await resp.json();
-    REFERENCE_DOCS=data.files||[];
+    REFERENCE_DOCS=(data.files||[]).map(function(f){
+      return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
+    });
     if(el&&REFERENCE_DOCS.length===0){
       el.innerHTML='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
     }
@@ -1885,7 +1899,7 @@ async function deleteRefDoc(fileId){
 }
 
 async function RREF(){
-await fetchReferenceDocs();
+if(!REFERENCE_DOCS||REFERENCE_DOCS.length===0){await fetchReferenceDocs();}
 RREFDOCS();RREFTAB();}
 
 function RREFDOCS(){renderRefDocs();}

@@ -392,13 +392,18 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       ORDER BY id DESC
     `);
     const allFiles = (files1.rows || files1).concat(files2.rows || files2);
-    console.log("[API] Files from uploads:", files1.rows ? files1.rows.length : files1.length,
-      "| Files from govFiles:", files2.rows ? files2.rows.length : files2.length,
-      "| Total:", allFiles.length);
-    // Normalize response shape: always return .rows or the array
+    // Separate reference documents (milestone_id = '__ref')
+    const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
+    // Milestone files exclude reference docs
+    const msFiles = allFiles.filter((f: any) => f.milestone_id !== '__ref' && f.category !== 'references');
+    console.log("[API] Files: uploads=" + (files1.rows ? files1.rows.length : files1.length)
+      + " govFiles=" + (files2.rows ? files2.rows.length : files2.length)
+      + " refs=" + refFiles.length
+      + " ms=" + msFiles.length);
     return c.json({
       states: states.rows || states,
-      files: allFiles
+      files: msFiles,
+      referenceFiles: refFiles
     });
   } catch (e: any) {
     console.error("[API] GET state ERROR:", e.message, e.stack);
