@@ -654,7 +654,6 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
       <input type="date" id="pp">
     </div>
     <button class="btn-g" onclick="forceRefresh()" title="Refresh uploads from server">🔄 Refresh</button>
-    <button class="btn-g" onclick="var d=document.getElementById('debug-panel');d.style.display=d.style.display==='none'?'block':'none';this.textContent=d.style.display==='none'?'🔍 Debug':'🔍 Hide';" title="Toggle debug panel">🔍 Debug</button>
     <button class="btn-r" onclick="rsA()">Reset</button>
     <button class="btn-g" id="btn-edit" onclick="startEdit()" style="display:inline-block">✏️ Edit</button>
     <button class="btn-p" id="btn-save" onclick="saveAll()" style="display:none;background:#059669">💾 Save</button>
@@ -677,7 +676,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 
 <!-- TAB 1: PROGRESS -->
 <div id="t-p" class="tc a">
-  <div id="debug-panel" style="display:none;background:#1a1a2e;color:#00ff88;padding:12px 16px;font-family:monospace;font-size:12px;border-radius:8px;margin-bottom:12px;white-space:pre-wrap;line-height:1.6;max-height:400px;overflow-y:auto"></div>
+  <div id="fetch-status" style="background:#1a1a2e;color:#00ff88;padding:8px 12px;font-family:monospace;font-size:11px;border-radius:6px;margin-bottom:10px">Loading data...</div>
   <!-- S-Curve Card -->
   <div class="card">
     <div class="ch"><h2>S-Curve Progress — Logistic Model</h2><span class="badge" style="background:var(--bg);color:var(--t2)" data-tip="30-month view showing Pre-PPP (-8 to 0), PPP (0 to +12), and Post-PPP (+12 to +20) phases">28-Month Project | 30-Month Curve View</span></div>
@@ -800,71 +799,55 @@ const API_BASE='';
 // Fetch ALL state from DB — this is the ONLY source of milestone data
 async function fetchStateFromDB(facility){
   if(!facility)return;
-  var dpanel=document.getElementById('debug-panel');
-  function dlog(msg){console.log('[API]',msg);if(dpanel){dpanel.style.display='block';dpanel.textContent+=(dpanel.textContent?'\n':'')+msg;}}
+  var statusEl=document.getElementById('fetch-status');
+  function setStatus(msg){console.log('[API]',msg);if(statusEl)statusEl.textContent=msg;}
   try{
-    dlog('=== fetchStateFromDB START ===');
-    dlog('Facility: '+facility);
-    dlog('MSD count: '+Object.keys(MSD).length);
+    setStatus('Fetching '+facility+'...');
     var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility);
-    dlog('URL: '+url);
     var resp=await fetch(url);
-    dlog('HTTP status: '+resp.status);
-    if(!resp.ok){dlog('HTTP ERROR '+resp.status);return;}
-    var data=await resp.json();
-    dlog('Response keys: '+Object.keys(data).join(','));
-    dlog('states type: '+(Array.isArray(data.states)?'array['+data.states.length+']':typeof data.states));
-    dlog('files type: '+(Array.isArray(data.files)?'array['+data.files.length+']':typeof data.files));
-    dlog('referenceFiles type: '+(Array.isArray(data.referenceFiles)?'array['+data.referenceFiles.length+']':typeof data.referenceFiles));
+    if(!resp.ok){setStatus('HTTP '+resp.status);return;}
+    var raw=await resp.text();
+    var data;
+    try{data=JSON.parse(raw);}catch(pe){setStatus('JSON parse error: '+pe.message);return;}
+    var states=Array.isArray(data.states)?data.states:[];
+    var files=Array.isArray(data.files)?data.files:[];
+    var refFiles=Array.isArray(data.referenceFiles)?data.referenceFiles:[];
+    setStatus('HTTP 200 | states='+states.length+' files='+files.length+' refs='+refFiles.length);
+
     if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
-    dlog('ST initialized');
 
     var mCount=0;
-    if(data.states&&Array.isArray(data.states)){
-      data.states.forEach(function(s){
-        var mid=s.milestone_id;
-        if(!mid)return;
-        if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
-        if(s.ppp_date)ST[facility].ms[mid].pppDate=s.ppp_date;
-        if(s.comp_date){ST[facility].ms[mid].compDate=s.comp_date;ST[facility].ms[mid].done=true;}
-        if(s.custom_pct!==null&&s.custom_pct!==undefined)ST[facility].ms[mid].pct=s.custom_pct;
-        mCount++;
-      });
-    }
-    dlog('Milestones merged: '+mCount);
-    dlog('ST.ms keys: '+(ST[facility]&&ST[facility].ms?Object.keys(ST[facility].ms).join(','):'NONE'));
+    states.forEach(function(s){
+      var mid=s.milestone_id;if(!mid)return;
+      if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
+      if(s.ppp_date)ST[facility].ms[mid].pppDate=s.ppp_date;
+      if(s.comp_date){ST[facility].ms[mid].compDate=s.comp_date;ST[facility].ms[mid].done=true;}
+      if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
+      mCount++;
+    });
 
-    REFERENCE_DOCS=[];
-    if(data.referenceFiles&&Array.isArray(data.referenceFiles)){
-      REFERENCE_DOCS=data.referenceFiles.map(function(f){
-        return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
-      });
-      dlog('Reference files: '+REFERENCE_DOCS.length);
-    }
+    REFERENCE_DOCS=refFiles.map(function(f){return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};});
 
     var fCount=0;
-    if(data.files&&Array.isArray(data.files)){
-      if(!ST[facility].up)ST[facility].up={};
-      data.files.forEach(function(f){
-        var mid=f.milestone_id;
-        if(!mid||mid==='__ref')return;
-        if(!ST[facility].up[mid])ST[facility].up[mid]={};
-        var tkey=f.toc_item||f.category||null;
-        if(!tkey&&MSD[mid]&&MSD[mid].t&&MSD[mid].t.length===1){tkey='TOC-'+MSD[mid].t[0];}
-        if(!tkey)tkey='OTHER';
-        if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
-        var exists=ST[facility].up[mid][tkey].some(function(u){return(u.id||u.dbId)===f.id;});
-        if(!exists){ST[facility].up[mid][tkey].push({id:f.id,name:f.file_name||'',url:f.file_url||'',size:0,date:f.uploaded_at,fromDB:true});fCount++;}
-      });
-    }
-    dlog('Files merged: '+fCount);
-    dlog('=== fetchStateFromDB END ===');
+    if(!ST[facility].up)ST[facility].up={};
+    files.forEach(function(f){
+      var mid=f.milestone_id;if(!mid||mid==='__ref')return;
+      if(!ST[facility].up[mid])ST[facility].up[mid]={};
+      var tkey=f.toc_item||f.category||null;
+      if(!tkey&&MSD[mid]&&MSD[mid].t&&MSD[mid].t.length===1)tkey='TOC-'+MSD[mid].t[0];
+      if(!tkey)tkey='OTHER';
+      if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
+      if(!ST[facility].up[mid][tkey].some(function(u){return(u.id||u.dbId)===f.id;})){
+        ST[facility].up[mid][tkey].push({id:f.id,name:f.file_name||'',url:f.file_url||'',size:0,date:f.uploaded_at,fromDB:true});fCount++;
+      }
+    });
+
+    setStatus('Done: '+mCount+' milestones, '+fCount+' files, '+REFERENCE_DOCS.length+' refs');
     return {milestones:mCount,files:fCount};
   }catch(e){
-    if(dpanel){dpanel.style.display='block';dpanel.textContent='ERROR: '+e.message+'\n'+e.stack;}
+    setStatus('Error: '+(e&&e.message?e.message:String(e)));
     console.error('[API] fetchStateFromDB FAILED:',e);
-    return null;
-  }
+}
 }
 
   try{
