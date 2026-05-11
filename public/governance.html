@@ -765,17 +765,19 @@ async function fetchStateFromDB(facility){
     });
     console.log('[API] Milestones merged:',mCount);
 
-    // Merge files
+    // Merge files — keyed by toc_item for milestone lookup
     var fCount=0;
     if(data.files){
       if(!ST[facility].up)ST[facility].up={};
       data.files.forEach(function(f){
         var mid=f.milestone_id;
         if(!mid)return;
-        if(!ST[facility].up[mid])ST[facility].up[mid]=[];
-        var exists=ST[facility].up[mid].some(function(u){return u.id===f.id;});
+        if(!ST[facility].up[mid])ST[facility].up[mid]={};
+        var tkey=f.toc_item||(f.category?String(f.category).toUpperCase():'OTHER');
+        if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
+        var exists=ST[facility].up[mid][tkey].some(function(u){return u.id===f.id;});
         if(!exists){
-          ST[facility].up[mid].push({id:f.id,name:f.file_name||'',url:f.file_url||'',size:0,date:f.uploaded_at,fromDB:true});
+          ST[facility].up[mid][tkey].push({id:f.id,name:f.file_name||'',url:f.file_url||'',size:0,date:f.uploaded_at,fromDB:true});
           fCount++;
         }
       });
@@ -1668,9 +1670,11 @@ function rTocUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');r
   if(!c.up[mid]||!c.up[mid][key])return;
   var fi=c.up[mid][key][ix];
   if(!fi)return;
-  if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;
-  if(fi.dbId){
-    govDeleteFile(fi.dbId).then(function(){console.log('[GOV] Deleted from DB:',fi.dbId);})
+  var fName=fi.name||fi.n||'File';
+  if(!confirm('Delete "'+fName+'"?\n\nThe completion date for this milestone will also be cleared.'))return;
+  var fileId=fi.id||fi.dbId;
+  if(fileId){
+    govDeleteFile(fileId).then(function(){console.log('[GOV] Deleted from DB:',fileId);})
     .catch(function(err){console.error('[GOV] DB delete failed:',err);});
   }
   c.up[mid][key].splice(ix,1);
