@@ -1055,7 +1055,111 @@ function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
 }
 function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
 function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;syncEditMode();updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;}});}SV();PENDING={};EDIT_MODE=false;updateEditButtons();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
-function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={};DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();ALL();}
+function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={}
+// ═══ MULTI-USER FILE SYNC via API ═══
+const API_BASE = '';
+
+// Fetch files from DB and merge with localStorage
+async function syncFilesFromDB(facility) {
+  if (!facility) facility = document.getElementById('fs').value;
+  try {
+    const resp = await fetch(API_BASE + '/api/governance/files/' + encodeURIComponent(facility));
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    
+    // Merge DB files into ST
+    if (!ST[facility]) ST[facility] = { pp: '', ms: {}, up: {} };
+    if (!ST[facility].up) ST[facility].up = {};
+    
+    var merged = 0;
+    (data.files || []).forEach(function(f) {
+      var key = f.milestoneId;
+      if (!ST[facility].up[key]) ST[facility].up[key] = [];
+      // Check if already in localStorage (avoid duplicates)
+      var exists = ST[facility].up[key].some(function(u) { return u.id === f.id; });
+      if (!exists) {
+        ST[facility].up[key].push({
+          id: f.id,
+          name: f.filename,
+          url: f.fileUrl,
+          size: f.fileSize || 0,
+          date: f.uploadedAt,
+          fromDB: true
+        });
+        merged++;
+      }
+    });
+    
+    if (merged > 0) {
+      console.log('[SYNC] Merged ' + merged + ' files from DB');
+      SV(); // Save to localStorage
+      ALL(); // Re-render
+    }
+    
+    updateSyncStatus(merged > 0 ? 'Synced: ' + getTotalFileCount() + ' files (+' + merged + ' new)' : 'Synced: ' + getTotalFileCount() + ' files');
+  } catch (e) {
+    console.log('[SYNC] DB fetch failed:', e.message);
+    // Fall back to localStorage count
+    updateSyncStatus('Synced: ' + getTotalFileCount() + ' files (local)');
+  }
+}
+
+// Save a file record to the DB
+async function saveFileToDB(facility, milestoneId, fileData) {
+  try {
+    const resp = await fetch(API_BASE + '/api/governance/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        facilitySlug: facility,
+        milestoneId: milestoneId,
+        filename: fileData.name,
+        fileUrl: fileData.url,
+        fileSize: fileData.size || 0,
+        uploadedAt: fileData.date || new Date().toISOString()
+      })
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (data.file) {
+      // Update local record with DB ID
+      if (ST[facility] && ST[facility].up && ST[facility].up[milestoneId]) {
+        var localFile = ST[facility].up[milestoneId].find(function(u) { return u.name === fileData.name && !u.id; });
+        if (localFile) localFile.id = data.file.id;
+        SV();
+      }
+      console.log('[SYNC] Saved to DB:', data.file.id);
+    }
+    return data.file;
+  } catch (e) {
+    console.log('[SYNC] DB save failed:', e.message);
+    return null;
+  }
+}
+
+// Delete a file from the DB
+async function deleteFileFromDB(fileId) {
+  try {
+    const resp = await fetch(API_BASE + '/api/governance/files/' + fileId, { method: 'DELETE' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    console.log('[SYNC] Deleted from DB:', fileId);
+    return true;
+  } catch (e) {
+    console.log('[SYNC] DB delete failed:', e.message);
+    return false;
+  }
+}
+
+// Get total file count from localStorage
+function getTotalFileCount() {
+  var f = document.getElementById('fs').value;
+  if (!ST[f] || !ST[f].up) return 0;
+  var count = 0;
+  Object.values(ST[f].up).forEach(function(arr) { count += (arr || []).length; });
+  return count;
+}
+;DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();ALL();}
 
 // S-CURVE (same as working version)
 function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}

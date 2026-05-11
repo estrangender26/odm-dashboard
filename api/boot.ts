@@ -134,6 +134,75 @@ app.get("/api/debug/uploads", async (c) => {
   }
 });
 
+// ═══ Governance File CRUD (for standalone HTML multi-user sync) ═══
+
+// GET /api/governance/files/:facilitySlug - list files for a facility
+app.get("/api/governance/files/:facilitySlug", async (c) => {
+  try {
+    const facilitySlug = c.req.param("facilitySlug").toLowerCase();
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(sql.raw('"governance_uploads"'))
+      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`))
+      .orderBy(sql.raw('"id" DESC'));
+    return c.json({ files: rows });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// POST /api/governance/files - create a file record
+app.post("/api/governance/files", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { facilitySlug, milestoneId, filename, fileUrl, fileSize, uploadedAt } = body;
+    if (!facilitySlug || !milestoneId || !filename) {
+      return c.json({ error: "facilitySlug, milestoneId, filename required" }, 400);
+    }
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    // Check if file already exists (dedup by filename + milestone)
+    const existing = await db
+      .select()
+      .from(sql.raw('"governance_uploads"'))
+      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug.toLowerCase()}' AND "milestoneId" = '${milestoneId}' AND "filename" = '${filename.replace(/'/g, "''")}'`))
+      .limit(1);
+    if (existing.length > 0) {
+      return c.json({ file: existing[0], existing: true });
+    }
+    const result = await db
+      .insert(sql.raw('"governance_uploads"'))
+      .values({
+        facilitySlug: facilitySlug.toLowerCase(),
+        milestoneId,
+        filename,
+        fileUrl: fileUrl || filename,
+        fileSize: fileSize || 0,
+        uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(),
+      })
+      .returning();
+    return c.json({ file: result[0] });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// DELETE /api/governance/files/:id - delete a file
+app.delete("/api/governance/files/:id", async (c) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    await db.delete(sql.raw('"governance_uploads"')).where(sql.raw(`"id" = ${id}`));
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",
