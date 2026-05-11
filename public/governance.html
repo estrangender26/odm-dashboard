@@ -827,7 +827,6 @@ async function fetchStateFromDB(facility){
     REFERENCE_DOCS=refFiles.map(function(f){
       return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
     });
-    }
 
     var fCount=0;
     if(!ST[facility].up)ST[facility].up={};
@@ -957,8 +956,8 @@ async function INIT(){
     SV(); // Save facility preference
     // Fetch from DB before rendering
     await fetchStateFromDB(e.target.value);
-    // Refresh reference documents
-    await fetchReferenceDocs();
+    // Refresh reference documents (fire-and-forget, never block)
+    fetchReferenceDocs().catch(function(e){console.error('[REF] Facility change ref fetch:',e.message);});
     document.getElementById('pp').value=ST[e.target.value]?ST[e.target.value].pp:'';
     ALL();
     syncEditMode();
@@ -981,7 +980,7 @@ async function INIT(){
   document.getElementById('dlf').textContent=f;
   idbg('1: LD() done');
   try{await fetchStateFromDB(f);idbg('2: fetchState OK, states='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).length:0));}catch(err){idbg('2: fetchState ERR: '+err.message);}
-  try{await fetchReferenceDocs();idbg('3: fetchRef OK, refs='+REFERENCE_DOCS.length);}catch(err){idbg('3: fetchRef ERR: '+err.message);}
+  fetchReferenceDocs().then(function(){idbg('3: fetchRef OK, refs='+REFERENCE_DOCS.length);}).catch(function(err){idbg('3: fetchRef ERR: '+err.message);});
   idbg('4: ST.ms keys='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
   idbg('5: ST.up keys='+(ST[f]&&ST[f].up?Object.keys(ST[f].up).join(','):'none'));
   document.getElementById('pp').value=ST[f]?ST[f].pp:'';
@@ -1973,8 +1972,7 @@ async function deleteRefDoc(fileId){
   try{
     var resp=await fetch(API_BASE+'/api/governance/files/'+fileId,{method:'DELETE'});
     if(!resp.ok)throw new Error('HTTP '+resp.status);
-    await fetchReferenceDocs();
-    renderRefDocs();
+    fetchReferenceDocs().then(function(){renderRefDocs();}).catch(function(e){console.error('[REF] Refetch after delete:',e.message);});
   }catch(err){
     console.error('[REF] Delete failed:',err.message);
     alert('Failed to delete reference document.');
@@ -1982,7 +1980,7 @@ async function deleteRefDoc(fileId){
 }
 
 async function RREF(){
-if(!REFERENCE_DOCS||REFERENCE_DOCS.length===0){await fetchReferenceDocs();}
+if(!REFERENCE_DOCS||REFERENCE_DOCS.length===0){fetchReferenceDocs().then(function(){RREFDOCS();RREFTAB();}).catch(function(e){console.error('[REF] RREF fetch:',e.message);});return;}
 RREFDOCS();RREFTAB();}
 
 function RREFDOCS(){renderRefDocs();}
