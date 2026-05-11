@@ -849,6 +849,8 @@ async function fetchStateFromDB(facility){
 }
 }
 
+// Save milestone state to DB
+async function saveMilestoneToDB(facility,mId,changes){
   try{
     var resp=await fetch(API_BASE+'/api/governance/state/'+encodeURIComponent(facility),{
       method:'POST',
