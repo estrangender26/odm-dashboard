@@ -883,7 +883,7 @@ async function saveFileToDB(facility,milestoneId,tocItem,fileData){
     var fileUrl=fileData.d||fileData.data||'';
     var fileSize=fileData.s||fileData.size||0;
     var reqBody={facilitySlug:facility,milestoneId:milestoneId,tocItem:tocItem||'',filename:fileName,fileUrl:fileUrl,fileSize:fileSize,uploadedAt:new Date().toISOString()};
-    console.log('[API] saveFileToDB POST',API_BASE+'/api/governance/files','body=',JSON.stringify({...reqBody,fileUrl:reqBody.fileUrl.substring(0,50)+'...'}));
+    console.log('[API] saveFileToDB POST',API_BASE+'/api/governance/files');
     var resp=await fetch(API_BASE+'/api/governance/files',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -892,18 +892,16 @@ async function saveFileToDB(facility,milestoneId,tocItem,fileData){
     console.log('[API] saveFileToDB HTTP status:',resp.status);
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     var data=await resp.json();
-    console.log('[API] saveFileToDB response JSON:',JSON.stringify(data).substring(0,200));
+    console.log('[API] saveFileToDB full response:',JSON.stringify(data));
     var dbg=document.getElementById('ref-debug');
-    if(dbg)dbg.dataset.lastApiStatus=resp.status+' '+JSON.stringify(data).substring(0,100);
-    // Update local milestone state with DB id
-    if(data.file&&data.file.id&&ST[facility]&&ST[facility].up&&ST[facility].up[milestoneId]){
-      var tkey=tocItem||'OTHER';
-      if(ST[facility].up[milestoneId][tkey]){
-        var localFile=ST[facility].up[milestoneId][tkey].find(function(u){return u.n===fileName&&!u.id;});
-        if(localFile)localFile.id=data.file.id;
-      }
+    if(dbg)dbg.dataset.lastApiStatus=resp.status+' '+JSON.stringify(data).substring(0,150);
+    // Extract ID from any possible response shape
+    var insertedId=data&&data.file&&data.file.id?data.file.id:(data&&data.id?data.id:(data&&data.insertedId?data.insertedId:null));
+    console.log('[API] saveFileToDB extracted id:',insertedId);
+    if(insertedId){
+      return {id:insertedId,name:fileName,url:fileUrl,facility:facility,milestone:milestoneId};
     }
-    return data.file;
+    return data&&data.file?data.file:data;
   }catch(e){console.log('[API] saveFileToDB failed:',e.message);return null;}
 }
 
@@ -1396,6 +1394,17 @@ async function saveAll(){
     console.log('[EDIT] Ref save loop done, REFERENCE_DOCS now has',REFERENCE_DOCS.length,'items');
   }else{
     console.log('[EDIT] No pending reference files to save');
+  }
+  // After saving, explicitly refetch from DB to confirm persistence
+  if(REFERENCE_DOCS.length>0){
+    console.log('[EDIT] Refetching from DB after save...');
+    var dbg2=document.getElementById('ref-debug');
+    if(dbg2)dbg2.dataset.saveStatus='refetching after save';
+    fetchStateFromDB(f).then(function(r){
+      console.log('[EDIT] Refetch done, REFERENCE_DOCS now:',REFERENCE_DOCS.length);
+      if(dbg2)dbg2.dataset.fetchResult='refs='+REFERENCE_DOCS.length;
+      renderRefDocs();
+    }).catch(function(e){console.error('[EDIT] Refetch failed:',e.message);});
   }
   PENDING={};
   EDIT_MODE=false;

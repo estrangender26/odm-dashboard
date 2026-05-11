@@ -165,38 +165,52 @@ app.post("/api/governance/files", async (c) => {
     const body = await c.req.json();
     const { facilitySlug, milestoneId, tocItem, filename, fileUrl, fileSize, uploadedAt } = body;
     console.log("[API] POST /api/governance/files body:", JSON.stringify({ facilitySlug, milestoneId, tocItem, filename, fileSize, hasUrl: !!fileUrl }));
-    if (!facilitySlug || !milestoneId || !filename) {
+    if (!facilitySlug || !filename) {
       console.log("[API] POST files missing fields:", { facilitySlug, milestoneId, filename });
-      return c.json({ error: "facilitySlug, milestoneId, filename required" }, 400);
+      return c.json({ error: "facilitySlug, filename required" }, 400);
     }
     const { getDb } = await import("./queries/connection");
     const db = getDb();
+    const slug = facilitySlug.toLowerCase();
+    const mid = milestoneId || "__ref";
     // Check for existing
     const existing = await db.execute(sql`
       SELECT id, file_name, file_url FROM governance_uploads
-      WHERE facility_slug = ${facilitySlug.toLowerCase()}
-        AND milestone_id = ${milestoneId}
+      WHERE facility_slug = ${slug}
+        AND milestone_id = ${mid}
         AND file_name = ${filename}
       LIMIT 1
     `);
     const existingRows = existing.rows || existing;
     if (existingRows.length > 0) {
       console.log("[API] POST files existing found:", existingRows[0]);
-      return c.json({ file: existingRows[0], existing: true });
+      return c.json({ id: existingRows[0].id, file: existingRows[0], existing: true });
     }
-    // Insert with category/toc_item so frontend can key files correctly
-    console.log("[API] POST files inserting:", facilitySlug.toLowerCase(), milestoneId, filename);
-    const result = await db.execute(sql`
+    // Insert — do a follow-up SELECT to reliably get the generated id
+    console.log("[API] POST files inserting:", slug, mid, filename);
+    await db.execute(sql`
       INSERT INTO governance_uploads
         (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at)
       VALUES
-        (${facilitySlug.toLowerCase()}, ${milestoneId}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
-      RETURNING id, facility_slug, milestone_id, file_name, file_url, uploaded_at
+        (${slug}, ${mid}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
     `);
-    console.log("[API] POST files insert result type:", typeof result, "isArray:", Array.isArray(result), "hasRows:", !!result.rows);
-    const insertRows = result.rows || result;
-    console.log("[API] POST files insert rows:", Array.isArray(insertRows) ? insertRows.length : "not-array", "first:", insertRows[0] ? JSON.stringify(insertRows[0]).substring(0,100) : "none");
-    return c.json({ file: insertRows[0] });
+    // SELECT back the inserted row to get the generated id
+    const inserted = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at
+      FROM governance_uploads
+      WHERE facility_slug = ${slug}
+        AND milestone_id = ${mid}
+        AND file_name = ${filename}
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+    const rows = inserted.rows || inserted;
+    console.log("[API] POST files inserted row:", rows[0] ? JSON.stringify(rows[0]).substring(0,100) : "none");
+    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    if (!row || !row.id) {
+      return c.json({ error: "insert succeeded but row not found" }, 500);
+    }
+    return c.json({ id: row.id, file: row, success: true });
   } catch (e: any) {
     console.error("[API] POST files ERROR:", e.message);
     return c.json({ error: e.message }, 500);
