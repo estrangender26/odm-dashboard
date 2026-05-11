@@ -307,6 +307,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 /* Reference document cards */
 .ref-doc-card{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--mw-bg);border:1px solid var(--mw-border);border-radius:var(--r-md);margin-bottom:8px;transition:all .15s}
 .ref-doc-card:hover{background:#F0F7FF;border-color:#B8D5F0}
+.ref-doc-card.pending{background:#FFFBEB;border-color:#FCD34D}
 .ref-doc-icon{flex-shrink:0;width:40px;height:40px;border-radius:var(--r-sm);background:#E8F4FD;display:flex;align-items:center;justify-content:center;font-size:18px}
 .ref-doc-info{flex:1;min-width:0}
 .ref-doc-name{font-size:13px;font-weight:600;color:var(--mw-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -773,7 +774,7 @@ const ALM=[
 const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
 
 // STATE — DB-backed (no localStorage)
-let ST={},CH=null,PENDING={},EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={};
+let ST={},CH=null,PENDING={},PENDING_REF=[],EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={};
 const CU=()=>ST[document.getElementById('fs').value];
 const DF=()=>{
   var f=document.getElementById('fs').value;
@@ -882,20 +883,24 @@ async function saveMilestoneToDB(facility,mId,changes){
 }
 
 // Save file record to DB via REST endpoint (governance_uploads table)
+// fileData can be: {n,d,s} (milestone) or {name,data,size,type} (reference)
 async function saveFileToDB(facility,milestoneId,tocItem,fileData){
   try{
+    var fileName=fileData.n||fileData.name||'file';
+    var fileUrl=fileData.d||fileData.data||'';
+    var fileSize=fileData.s||fileData.size||0;
     var resp=await fetch(API_BASE+'/api/governance/files',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({facilitySlug:facility,milestoneId:milestoneId,tocItem:tocItem||'',filename:fileData.n,fileUrl:fileData.d,fileSize:fileData.s||0,uploadedAt:new Date().toISOString()})
+      body:JSON.stringify({facilitySlug:facility,milestoneId:milestoneId,tocItem:tocItem||'',filename:fileName,fileUrl:fileUrl,fileSize:fileSize,uploadedAt:new Date().toISOString()})
     });
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     var data=await resp.json();
-    // Update local state with DB id
+    // Update local milestone state with DB id
     if(data.file&&data.file.id&&ST[facility]&&ST[facility].up&&ST[facility].up[milestoneId]){
       var tkey=tocItem||'OTHER';
       if(ST[facility].up[milestoneId][tkey]){
-        var localFile=ST[facility].up[milestoneId][tkey].find(function(u){return u.n===fileData.n&&!u.id;});
+        var localFile=ST[facility].up[milestoneId][tkey].find(function(u){return u.n===fileName&&!u.id;});
         if(localFile)localFile.id=data.file.id;
       }
     }
@@ -1331,8 +1336,51 @@ function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   var selAll=document.getElementById('sel-all');if(selAll){selAll.disabled=!EDIT_MODE;selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
 }
 function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
-function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;syncEditMode();updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate});}});}PENDING={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();syncEditMode();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
-function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={}
+function saveAll(){
+  console.log('[EDIT] Save clicked');
+  var f=document.getElementById('fs').value;
+  DRAFT_UP={};DRAFT_RM={};
+  // Save milestone changes
+  if(PENDING[f]&&PENDING[f].ms){
+    if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
+    Object.entries(PENDING[f].ms).forEach(function(e){
+      var mId=e[0],v=e[1];
+      if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};
+      if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate});}
+    });
+  }
+  // Save pending reference uploads
+  if(PENDING_REF.length>0){
+    console.log('[EDIT] Saving',PENDING_REF.length,'pending reference file(s)');
+    PENDING_REF.forEach(function(pf){
+      if(pf.data){
+        saveFileToDB('all','__ref','references',pf.name,pf.data);
+      }
+    });
+    PENDING_REF=[];
+  }
+  PENDING={};
+  EDIT_MODE=false;
+  document.body.classList.remove('editing');
+  updateEditButtons();
+  syncEditMode();
+  ALL();
+  var el=document.getElementById('edit-status');
+  if(el)el.textContent='✓ Saved';
+  setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);
+}
+
+function cancelEdit(){
+  console.log('[EDIT] Cancelled');
+  PENDING={};
+  PENDING_REF=[];
+  DRAFT_UP={};DRAFT_RM={};
+  EDIT_MODE=false;
+  document.body.classList.remove('editing');
+  updateEditButtons();
+  syncEditMode();
+  ALL();
+}
 
 function getTotalFileCount(){
   var f=document.getElementById('fs').value;
@@ -1344,7 +1392,6 @@ function getTotalFileCount(){
     Object.values(mVal).forEach(function(arr){if(Array.isArray(arr))count+=arr.length;});});
   return count;
 }
-;DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();ALL();}
 
 // S-CURVE (same as working version)
 function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
@@ -1838,52 +1885,95 @@ async function fetchReferenceDocs(){
 function renderRefDocs(){
   var el=document.getElementById('ref-doc-list');
   if(!el)return;
-  if(REFERENCE_DOCS.length===0){
-    el.innerHTML='<div class="ref-doc-empty">No reference documents found. <button class="fv-btn" style="margin-top:8px" onclick="location.reload()">Refresh Page</button></div>';
-    return;
+  var allRefs=[];
+  REFERENCE_DOCS.forEach(function(f){allRefs.push({db:true,rec:f});});
+  PENDING_REF.forEach(function(pf,ix){allRefs.push({pending:true,ix:ix,data:pf});});
+  if(allRefs.length===0){
+    var h='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
+    if(EDIT_MODE){
+      h+='<div style="margin-top:10px"><input type="file" id="ref-fi" class="hidden-fi" accept=".pdf,.docx,.doc,.xlsx,.xls" onchange="hRefUp(event)"><label for="ref-fi" class="up-btn">+ Upload Reference File</label></div>';
+    }
+    el.innerHTML=h;return;
   }
   var h='';
-  REFERENCE_DOCS.forEach(function(f){
-    var fileName=f.file_name||'Unnamed file';
-    var uploadedAt=f.uploaded_at?new Date(f.uploaded_at).toLocaleDateString():'—';
-    var uploadedBy=f.uploaded_by||'—';
-    var fileId=f.id;
-    // Determine file type label and icon
-    var fileExt=fileName.split('.').pop()?.toLowerCase()||'';
-    var typeLabel='Document',typeIcon='📄';
-    if(fileExt==='pdf'){typeLabel='PDF';typeIcon='📕';}
-    else if(['xlsx','xls','csv'].includes(fileExt)){typeLabel='Spreadsheet';typeIcon='📊';}
-    else if(['docx','doc','rtf'].includes(fileExt)){typeLabel='Word Document';typeIcon='📝';}
-    else if(['pptx','ppt'].includes(fileExt)){typeLabel='Presentation';typeIcon='📽';}
-    else if(['png','jpg','jpeg','gif','svg','webp'].includes(fileExt)){typeLabel='Image';typeIcon='🖼';}
-    else if(['zip','rar','7z'].includes(fileExt)){typeLabel='Archive';typeIcon='🗜';}
-    // Description for known reference documents
-    var descriptions={
-      'IOM for O&M Manual Table of Contents Structure.pdf':'Interoffice Memorandum establishing the Standard O&M Manual Governance Framework — defines the required Table of Contents structure, ANNEX requirements, and compliance rules for facility acceptance.'
-    };
-    var docDesc=descriptions[fileName]||'';
-    h+='<div class="ref-doc-card">';
-    h+='<div class="ref-doc-icon">'+typeIcon+'</div>';
-    h+='<div class="ref-doc-info">';
-    h+='<div class="ref-doc-name" title="'+fileName+'">'+fileName+'</div>';
-    if(docDesc)h+='<div class="ref-doc-desc">'+docDesc+'</div>';
-    h+='<div class="ref-doc-meta">'+typeLabel+' &middot; Uploaded '+uploadedAt+(uploadedBy!=='—'?' by '+uploadedBy:'')+'</div>';
-    h+='</div>';
-    h+='<div class="ref-doc-actions">';
-    if(fileId){
-      // For PDF/image/txt: view inline; For others: download
-      var isViewable=['pdf','png','jpg','jpeg','gif','svg','webp','txt','csv','json'].includes(fileExt);
-      if(isViewable){
-        h+='<button class="fv-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/view\',\'_blank\')">View</button>';
-      }else{
-        h+='<button class="fv-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/download\',\'_blank\')">View</button>';
+  allRefs.forEach(function(item){
+    if(item.pending){
+      var pf=item.data;
+      var ext=pf.name.split('.').pop().toLowerCase();
+      var icon='&#128196;';if(ext==='pdf')icon='&#128213;';
+      h+='<div class="ref-doc-card pending">';
+      h+='<div class="ref-doc-icon">'+icon+'</div>';
+      h+='<div class="ref-doc-info">';
+      h+='<div class="ref-doc-name">'+pf.name+' <em style="color:var(--mw-warning)">(Pending save)</em></div>';
+      h+='<div class="ref-doc-meta">'+(pf.type||'Document')+' &middot; Pending</div>';
+      h+='</div>';
+      h+='<div class="ref-doc-actions">';
+      h+='<button class="fr-rm" onclick="rRefUp('+item.ix+')">Remove</button>';
+      h+='</div></div>';
+    }else{
+      var f=item.rec;
+      var fileName=f.file_name||'Unnamed file';
+      var uploadedAt=f.uploaded_at?new Date(f.uploaded_at).toLocaleDateString():'&mdash;';
+      var uploadedBy=f.uploaded_by||'';
+      var fileId=f.id;
+      var fileExt=fileName.split('.').pop().toLowerCase()||'';
+      var typeLabel='Document',typeIcon='&#128196;';
+      if(fileExt==='pdf'){typeLabel='PDF';typeIcon='&#128213;';}
+      else if(['xlsx','xls','csv'].includes(fileExt)){typeLabel='Spreadsheet';typeIcon='&#128202;';}
+      else if(['docx','doc'].includes(fileExt)){typeLabel='Word';typeIcon='&#128221;';}
+      h+='<div class="ref-doc-card">';
+      h+='<div class="ref-doc-icon">'+typeIcon+'</div>';
+      h+='<div class="ref-doc-info">';
+      h+='<div class="ref-doc-name">'+fileName+'</div>';
+      h+='<div class="ref-doc-meta">'+typeLabel+(uploadedBy?' &middot; '+uploadedBy:'')+' &middot; '+uploadedAt+'</div>';
+      h+='</div>';
+      h+='<div class="ref-doc-actions">';
+      if(fileId){
+        var isViewable=['pdf','png','jpg','jpeg','gif','svg','webp','txt','csv'].includes(fileExt);
+        if(isViewable){
+          h+='<button class="fv-btn" onclick="window.open('/api/governance/files/'+fileId+'/view','_blank')">View</button>';
+        }else{
+          h+='<button class="fv-btn" onclick="window.open('/api/governance/files/'+fileId+'/download','_blank')">View</button>';
+        }
+        h+='<button class="fd-btn" onclick="window.open('/api/governance/files/'+fileId+'/download','_blank')">Download</button>';
+        h+='<button class="fr-rm" '+(EDIT_MODE?'':'disabled')+' onclick="if(!EDIT_MODE){alert('Press Edit to remove');return;}if(confirm('Delete?')){deleteRefDoc('+fileId+')}">Remove</button>';
       }
-      h+='<button class="fd-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/download\',\'_blank\')">Download</button>';
+      h+='</div></div>';
     }
-    h+='<button class="fr-rm" '+(EDIT_MODE?'':'disabled')+' style="'+(EDIT_MODE?'':'opacity:0.3;cursor:not-allowed')+'" onclick="if(!EDIT_MODE){alert(\'Press Edit to remove files\');return;}if(confirm(\'Delete this reference document?\')){deleteRefDoc('+fileId+')}">Remove</button>';
-    h+='</div></div>';
   });
+  if(EDIT_MODE){
+    h+='<div style="margin-top:10px"><input type="file" id="ref-fi" class="hidden-fi" accept=".pdf,.docx,.doc,.xlsx,.xls" onchange="hRefUp(event)"><label for="ref-fi" class="up-btn">+ Upload Reference File</label></div>';
+  }
   el.innerHTML=h;
+}
+
+// Handle reference file upload (from file input change)
+function hRefUp(ev){
+  if(!EDIT_MODE){alert('Press Edit to upload reference files');return;}
+  var files=ev.target.files;if(!files||!files.length)return;
+  Array.from(files).forEach(function(file){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      PENDING_REF.push({
+        name:file.name,
+        data:e.target.result,
+        size:file.size,
+        type:file.type||'application/octet-stream',
+        isPending:true
+      });
+      console.log('[REF] Pending upload:',file.name);
+      renderRefDocs(); // Re-render to show pending file
+    };
+    reader.readAsDataURL(file);
+  });
+  ev.target.value=''; // Clear input for re-upload
+}
+
+// Remove a pending reference upload
+function rRefUp(ix){
+  if(!EDIT_MODE){alert('Press Edit to remove files');return;}
+  PENDING_REF.splice(ix,1);
+  renderRefDocs();
 }
 
 async function deleteRefDoc(fileId){
