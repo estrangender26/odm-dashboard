@@ -250,6 +250,7 @@ app.get("/api/governance/files/:id/view", async (c) => {
     if (!file) return c.json({ error: "File not found" }, 404);
     const fileName = file.file_name || "file";
     const fileUrl = file.file_url || "";
+    console.log("[VIEW] id=", id, "name=", fileName, "urlLen=", fileUrl.length, "urlPrefix=", fileUrl.substring(0, 50));
     // Parse data URI: data:<mime>;base64,<data>
     let mimeType = "application/octet-stream";
     let base64Data = "";
@@ -260,9 +261,13 @@ app.get("/api/governance/files/:id/view", async (c) => {
         base64Data = fileUrl.slice(commaIdx + 1);
         const semiIdx = header.indexOf(";");
         mimeType = semiIdx > -1 ? header.slice(5, semiIdx) : header.slice(5);
+        console.log("[VIEW] data URI header=", header, "mime=", mimeType, "b64len=", base64Data.length);
+      } else {
+        console.log("[VIEW] data URI has no comma!");
       }
     } else {
       base64Data = fileUrl;
+      console.log("[VIEW] not a data URI, raw length=", fileUrl.length);
     }
     // Fallback mime type from file extension
     if (mimeType === "application/octet-stream") {
@@ -277,14 +282,29 @@ app.get("/api/governance/files/:id/view", async (c) => {
       };
       if (ext && mimeMap[ext]) mimeType = mimeMap[ext];
     }
-    const buffer = Buffer.from(base64Data, "base64");
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(base64Data, "base64");
+      console.log("[VIEW] decoded buffer size=", buffer.length);
+    } catch (decErr: any) {
+      console.error("[VIEW] Base64 decode failed:", decErr.message);
+      return c.json({ error: "Invalid file data encoding" }, 500);
+    }
+    if (buffer.length === 0) {
+      console.error("[VIEW] Empty buffer!");
+      return c.json({ error: "Empty file data" }, 500);
+    }
+    // For non-viewable types (docx, xlsx), force download instead
+    const isViewable = ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/svg+xml", "image/webp", "text/plain", "text/csv"].includes(mimeType);
+    const disposition = isViewable ? "inline" : "attachment";
     c.header("Content-Type", mimeType);
-    c.header("Content-Disposition", `inline; filename="${fileName}"`);
+    c.header("Content-Disposition", `${disposition}; filename="${fileName}"`);
     c.header("Content-Length", String(buffer.length));
     c.header("Cache-Control", "public, max-age=3600");
+    console.log("[VIEW] serving", disposition, "type=", mimeType, "size=", buffer.length);
     return c.body(buffer);
   } catch (e: any) {
-    console.error("[VIEW] Error:", e.message);
+    console.error("[VIEW] Error:", e.message, e.stack);
     return c.json({ error: e.message }, 500);
   }
 });
@@ -300,6 +320,7 @@ app.get("/api/governance/files/:id/download", async (c) => {
     if (!file) return c.json({ error: "File not found" }, 404);
     const fileName = file.file_name || "file";
     const fileUrl = file.file_url || "";
+    console.log("[DL] id=", id, "name=", fileName, "urlLen=", fileUrl.length);
     let mimeType = "application/octet-stream";
     let base64Data = "";
     if (fileUrl.startsWith("data:")) {
@@ -326,12 +347,13 @@ app.get("/api/governance/files/:id/download", async (c) => {
       if (ext && mimeMap[ext]) mimeType = mimeMap[ext];
     }
     const buffer = Buffer.from(base64Data, "base64");
+    console.log("[DL] mime=", mimeType, "bufSize=", buffer.length);
     c.header("Content-Type", mimeType);
     c.header("Content-Disposition", `attachment; filename="${fileName}"`);
     c.header("Content-Length", String(buffer.length));
     return c.body(buffer);
   } catch (e: any) {
-    console.error("[DOWNLOAD] Error:", e.message);
+    console.error("[DL] Error:", e.message, e.stack);
     return c.json({ error: e.message }, 500);
   }
 });
