@@ -402,15 +402,16 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug}
     `);
     console.log("[API] States:", states.rows ? states.rows.length : states.length);
-    // Query uploads table
-    const files1 = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
-      FROM governance_uploads
-      WHERE facility_slug = ${facilitySlug} OR facility_slug = 'all'
-      ORDER BY id DESC
-    `);
-    const upRows = files1.rows || files1 || [];
-    console.log("[API] uploads query type:", typeof files1, "rows?" , !!files1.rows, "upRows:", upRows.length);
+    // Query uploads table via mysql2 (proven working driver)
+    const { query: mysqlQuery } = await import("./queries/mysql-connection");
+    const upRows = await mysqlQuery(
+      `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+       FROM governance_uploads
+       WHERE facility_slug = ? OR facility_slug = 'all'
+       ORDER BY id DESC`,
+      [facilitySlug]
+    );
+    console.log("[API] uploads via mysql2:", upRows.length, "rows");
     const allFiles = upRows;
     // Separate reference documents (milestone_id = '__ref')
     const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
