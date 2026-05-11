@@ -1897,6 +1897,8 @@ function renderRefDocs(){
     var h='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
     if(EDIT_MODE){
       h+='<div style="margin-top:10px"><input type="file" id="ref-fi" class="hidden-fi" accept=".pdf,.docx,.doc,.xlsx,.xls" onchange="hRefUp(event)"><label for="ref-fi" class="up-btn">+ Upload Reference File</label></div>';
+    }else{
+      h+='<div style="margin-top:8px;font-size:12px;color:var(--mw-muted)">Click <strong>Edit</strong> to upload a reference document.</div>';
     }
     el.innerHTML=h;return;
   }
