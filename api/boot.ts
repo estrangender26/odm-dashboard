@@ -378,28 +378,32 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug}
     `);
     console.log("[API] States:", states.rows ? states.rows.length : states.length);
-    // Query BOTH tables: governance_uploads (REST uploads) + governance_files (tRPC uploads)
+    // Query uploads table (governance_files is separate, may not exist)
     const files1 = await db.execute(sql`
       SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
       FROM governance_uploads
       WHERE facility_slug = ${facilitySlug} OR facility_slug = 'all'
       ORDER BY id DESC
     `);
-    const files2 = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, toc_item, file_name, file_data AS file_url, uploaded_by, uploaded_at, NULL AS category
-      FROM governance_files
-      WHERE LOWER(facility_slug) = LOWER(${facilitySlug}) OR facility_slug = 'all'
-      ORDER BY id DESC
-    `);
-    const allFiles = (files1.rows || files1).concat(files2.rows || files2);
+    const upRows = files1.rows || files1;
+    // Try governance_files separately (may not exist in migration)
+    let gfRows: any[] = [];
+    try {
+      const files2 = await db.execute(sql`
+        SELECT id, facility_slug, milestone_id, toc_item, file_name, file_data AS file_url, uploaded_by, uploaded_at, NULL AS category
+        FROM governance_files
+        WHERE LOWER(facility_slug) = LOWER(${facilitySlug}) OR facility_slug = 'all'
+        ORDER BY id DESC
+      `);
+      gfRows = files2.rows || files2;
+    } catch (gfErr: any) {
+      console.log("[API] governance_files table not available:", gfErr.message);
+    }
+    const allFiles = upRows.concat(gfRows);
     // Separate reference documents (milestone_id = '__ref')
     const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
-    // Milestone files exclude reference docs
     const msFiles = allFiles.filter((f: any) => f.milestone_id !== '__ref' && f.category !== 'references');
-    console.log("[API] Files: uploads=" + (files1.rows ? files1.rows.length : files1.length)
-      + " govFiles=" + (files2.rows ? files2.rows.length : files2.length)
-      + " refs=" + refFiles.length
-      + " ms=" + msFiles.length);
+    console.log("[API] uploads=" + upRows.length + " govFiles=" + gfRows.length + " refs=" + refFiles.length + " ms=" + msFiles.length);
     return c.json({
       states: states.rows || states,
       files: msFiles,
