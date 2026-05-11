@@ -169,42 +169,29 @@ app.post("/api/governance/files", async (c) => {
       console.log("[API] POST files missing fields:", { facilitySlug, milestoneId, filename });
       return c.json({ error: "facilitySlug, filename required" }, 400);
     }
-    const { getDb } = await import("./queries/connection");
-    const db = getDb();
+    const { query: mysqlQuery } = await import("./queries/mysql-connection");
     const slug = facilitySlug.toLowerCase();
     const mid = milestoneId || "__ref";
     // Check for existing
-    const existing = await db.execute(sql`
-      SELECT id, file_name, file_url FROM governance_uploads
-      WHERE facility_slug = ${slug}
-        AND milestone_id = ${mid}
-        AND file_name = ${filename}
-      LIMIT 1
-    `);
-    const existingRows = existing.rows || existing;
+    const existingRows = await mysqlQuery(
+      `SELECT id, file_name, file_url FROM governance_uploads WHERE facility_slug = ? AND milestone_id = ? AND file_name = ? LIMIT 1`,
+      [slug, mid, filename]
+    );
     if (existingRows.length > 0) {
       console.log("[API] POST files existing found:", existingRows[0]);
       return c.json({ id: existingRows[0].id, file: existingRows[0], existing: true });
     }
-    // Insert — do a follow-up SELECT to reliably get the generated id
-    console.log("[API] POST files inserting:", slug, mid, filename);
-    await db.execute(sql`
-      INSERT INTO governance_uploads
-        (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at)
-      VALUES
-        (${slug}, ${mid}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
-    `);
+    // Insert
+    console.log("[API] POST files inserting via mysql2:", slug, mid, filename);
+    await mysqlQuery(
+      `INSERT INTO governance_uploads (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [slug, mid, tocItem || null, tocItem || null, filename, fileUrl || filename, uploadedAt ? new Date(uploadedAt) : new Date()]
+    );
     // SELECT back the inserted row to get the generated id
-    const inserted = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at
-      FROM governance_uploads
-      WHERE facility_slug = ${slug}
-        AND milestone_id = ${mid}
-        AND file_name = ${filename}
-      ORDER BY id DESC
-      LIMIT 1
-    `);
-    const rows = inserted.rows || inserted;
+    const rows = await mysqlQuery(
+      `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at FROM governance_uploads WHERE facility_slug = ? AND milestone_id = ? AND file_name = ? ORDER BY id DESC LIMIT 1`,
+      [slug, mid, filename]
+    );
     console.log("[API] POST files inserted row:", rows[0] ? JSON.stringify(rows[0]).substring(0,100) : "none");
     const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
     if (!row || !row.id) {
