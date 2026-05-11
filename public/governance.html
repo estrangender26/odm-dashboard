@@ -704,7 +704,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 
 <!-- TAB 4: REFERENCES -->
 <div id="t-r" class="tc">
-  <div class="card"><div class="ch"><h2>Reference Documents</h2><span style="font-size:12px;color:var(--mw-muted)">Standard governance framework documents</span></div><div id="ref-doc-list"></div><div id="ref-debug" style="font-size:10px;color:#999;padding:8px;border:1px dashed #ddd;border-radius:4px;margin-top:8px;display:none"></div><div id="ref-doc-upload" style="display:none;margin-top:10px"></div></div>
+  <div class="card"><div class="ch"><h2>Reference Documents</h2><span style="font-size:12px;color:var(--mw-muted)">Standard governance framework documents</span></div><div id="ref-doc-list"></div><div id="ref-doc-upload" style="display:none;margin-top:10px"></div></div>
   <div class="card"><div class="ch"><h2>TOC-to-Annex Mapping</h2></div><div id="ref2"></div></div>
   <div class="card"><div class="ch"><h2>Annexes Reference</h2></div><div id="ref"></div></div>
 </div>
@@ -1809,22 +1809,15 @@ async function fetchReferenceDocs(){
   var el=document.getElementById('ref-doc-list');
   if(el)el.innerHTML='<div class="ref-doc-empty">Loading...</div>';
   try{
-    var url=API_BASE+'/api/governance/references';
-    var resp=await fetch(url);
-    var txt=await resp.text();
-    var info='URL: '+url+'<br>Status: '+resp.status+'<br>Response: '+txt.substring(0,200);
-    try{var data=JSON.parse(txt);REFERENCE_DOCS=data.files||[];
-      if(REFERENCE_DOCS.length===0){
-        if(el)el.innerHTML='<div class="ref-doc-empty">No docs in DB.<br><span style="font-size:10px;color:#999">'+info+'</span></div>';
-      }
-    }catch(parseErr){
-      REFERENCE_DOCS=[];
-      if(el)el.innerHTML='<div class="ref-doc-empty" style="color:var(--mw-danger)">API error<br><span style="font-size:10px">'+info+'</span></div>';
+    var resp=await fetch(API_BASE+'/api/governance/references');
+    var data=await resp.json();
+    REFERENCE_DOCS=data.files||[];
+    if(el&&REFERENCE_DOCS.length===0){
+      el.innerHTML='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
     }
   }catch(err){
-    var errMsg=err&&err.message?err.message:String(err);
     REFERENCE_DOCS=[];
-    if(el)el.innerHTML='<div class="ref-doc-empty" style="color:var(--mw-danger)">Fetch failed: '+errMsg+'</div>';
+    if(el)el.innerHTML='<div class="ref-doc-empty">Failed to load reference documents.</div>';
   }
 }
 
