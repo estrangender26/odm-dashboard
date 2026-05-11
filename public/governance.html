@@ -1025,7 +1025,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     d.a.forEach(function(aid){if(coveredA.has(aid))return;reqUploads++;var akey='A'+aid;if(c.up[mid]&&c.up[mid][akey]&&c.up[mid][akey].length>0)hasUploads++});
     var allUp=reqUploads>0&&hasUploads>=reqUploads;
     // Effective %: manual override if set, else auto-computed from upload ratio
-    var effPct=gMPct(mid,c);
+    // If all uploads present → 100%; If compDate set → 100%; Else compute from uploads
+    var effPct=allUp?100:gMPct(mid,c);
+    console.log('[STATUS]',mid,'reqUp=',reqUploads,'hasUp=',hasUploads,'allUp=',allUp,'effPct=',effPct,'compDate=',c.ms[mid].compDate);
     var rc=effPct>=100?'rg':effPct>=50?'ra':'rr';
     // Milestone header row
     var row=document.createElement('div');row.className='ms';
