@@ -802,7 +802,10 @@ async function fetchStateFromDB(facility){
   try{
     setStatus('Fetching '+facility+'...');
     var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility);
-    var resp=await fetch(url);
+    var ctrl=new AbortController();
+    var tmr=setTimeout(function(){ctrl.abort();},5000);
+    var resp=await fetch(url,{signal:ctrl.signal});
+    clearTimeout(tmr);
     if(!resp.ok){setStatus('HTTP '+resp.status);return;}
     var raw=await resp.text();
     var data;
@@ -987,6 +990,9 @@ async function INIT(){
   idbg('6: Calling ALL()...');
   ALL();
   idbg('7: ALL() done');
+  // Hard safety: ensure render happens even if all fetches hung
+  setTimeout(function(){if(!window.__INIT_DONE){window.__INIT_DONE=true;console.log('[INIT] Safety timer fired');ALL();}},6000);
+  window.__INIT_DONE=true;
 }
 function ALL(){RM();RS();RD();RAC();syncEditMode();}
 
@@ -1876,7 +1882,10 @@ async function fetchReferenceDocs(){
   var el=document.getElementById('ref-doc-list');
   if(el)el.innerHTML='<div class="ref-doc-empty">Loading...</div>';
   try{
-    var resp=await fetch(API_BASE+'/api/governance/references');
+    var ctrl=new AbortController();
+    var tmr=setTimeout(function(){ctrl.abort();},5000);
+    var resp=await fetch(API_BASE+'/api/governance/references',{signal:ctrl.signal});
+    clearTimeout(tmr);
     var data=await resp.json();
     REFERENCE_DOCS=(data.files||[]).map(function(f){
       return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
