@@ -196,16 +196,21 @@ app.post("/api/governance/files", async (c) => {
 // GET /api/governance/references - list reference documents (milestone_id = '__ref')
 app.get("/api/governance/references", async (c) => {
   try {
-    const { getDb } = await import("./queries/connection");
-    const db = getDb();
-    const rows = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at
-      FROM governance_uploads
-      WHERE milestone_id = '__ref' OR category = 'references'
-      ORDER BY uploaded_at DESC
-    `);
-    return c.json({ files: rows.rows || rows });
+    // Use raw mysql2 pool directly (TiDB is MySQL-compatible)
+    const mysql = await import("mysql2/promise");
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) return c.json({ error: "DATABASE_URL not configured" }, 500);
+    const pool = mysql.createPool(dbUrl);
+    const [rows] = await pool.query(
+      `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at
+       FROM governance_uploads
+       WHERE milestone_id = '__ref' OR category = 'references'
+       ORDER BY uploaded_at DESC`
+    );
+    await pool.end();
+    return c.json({ files: rows as any[] });
   } catch (e: any) {
+    console.error("[API] /references error:", e.message);
     return c.json({ error: e.message }, 500);
   }
 });
