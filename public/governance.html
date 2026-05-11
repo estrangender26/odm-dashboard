@@ -1084,18 +1084,18 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     // Disable checkbox in row if uploads incomplete
     var cbEl=row.querySelector('input[type=checkbox]');
     if(cbEl){cbEl.disabled=!allUp&&!isComp;cbEl.title=allUp?(isComp?'Click to uncheck':'All uploads complete — click to mark done'):'Upload all required documents first';if(!allUp&&!isComp){cbEl.style.opacity='0.4';cbEl.style.cursor='not-allowed'}}
-    // Upload progress indicator
-    var upInd=document.createElement('div');upInd.style.cssText='padding:6px 16px 6px 78px;font-size:11px;color:var(--mw-muted);background:#F8FAFC;border-bottom:1px solid #EDF1F4;display:flex;align-items:center;gap:8px';
+    // Upload progress indicator — placed directly after milestone row in track
+    var upInd=document.createElement('div');upInd.style.cssText='padding:6px 16px 6px 78px;font-size:11px;color:var(--mw-muted);background:#F8FAFC;border-bottom:1px solid #EDF1F4;display:flex;align-items:center;gap:8px;min-width:1180px';
     upInd.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span data-tip="Required uploads: '+reqUploads+' | Completed: '+hasUploads+'">'+hasUploads+' / '+reqUploads+' uploads</span>'+(allUp?' <span class="badge rg" style="font-size:10px;padding:2px 8px;margin-left:auto">READY</span>':' <span class="badge rr" style="font-size:10px;padding:2px 8px;margin-left:auto">INCOMPLETE</span>');
-    b.appendChild(upInd);
+    track.appendChild(upInd);
     // Modified badge when pending
     var fSlug2=document.getElementById('fs').value;
     if(PENDING[fSlug2]&&PENDING[fSlug2].ms&&PENDING[fSlug2].ms[mid]){
-      var modRow=document.createElement('div');modRow.style.cssText='margin-top:4px;text-align:center;';
+      var modRow=document.createElement('div');modRow.style.cssText='padding:4px 16px;text-align:center;background:#FFFBEB;border-bottom:1px solid #FEF3C7;min-width:1180px';
       var modBadge=document.createElement('span');
       modBadge.style.cssText='background:#FEF3C7;color:#D97706;font-size:9px;padding:2px 8px;border-radius:12px;font-weight:600;';
       modBadge.textContent='Modified';
-      modRow.appendChild(modBadge);b.appendChild(modRow);
+      modRow.appendChild(modBadge);track.appendChild(modRow);
     }
     // TOC upload slots - using DOM methods (deduplicated: only first milestone shows each TOC item)
     d.t.forEach(function(tnum){
@@ -1160,7 +1160,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         tr.appendChild(flDiv);
       }
       tr.appendChild(rDiv);
-      b.appendChild(tr);
+      track.appendChild(tr);
     });
     // Annex upload slots - SKIP if covered by a TOC item in this milestone
     // Build set of annex IDs already referenced by this milestone's TOC items
@@ -1223,7 +1223,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         tr.appendChild(flDiv);
       }
       tr.appendChild(rDiv);
-      b.appendChild(tr);
+      track.appendChild(tr);
     });
     // OTHER upload slot — generic catch-all for additional files
     var otherKey='OTHER';
@@ -1275,7 +1275,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       otherRow.appendChild(otherFl);
     }
     otherRow.appendChild(otherR);
-    b.appendChild(otherRow);
+    track.appendChild(otherRow);
   });
   pd.appendChild(b);el.appendChild(pd);
 });
