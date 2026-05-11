@@ -1901,10 +1901,10 @@ function renderRefDocs(){
   var dbg=document.getElementById('ref-debug');
   if(dbg)dbg.textContent='Edit:'+EDIT_MODE+' | DB:'+REFERENCE_DOCS.length+' | Pending:'+PENDING_REF.length;
   if(!el)return;
-  var allRefs=[];
-  REFERENCE_DOCS.forEach(function(f){allRefs.push({db:true,rec:f});});
-  PENDING_REF.forEach(function(pf,ix){allRefs.push({pending:true,ix:ix,data:pf});});
-  if(allRefs.length===0){
+  var allFiles=[];
+  REFERENCE_DOCS.forEach(function(f){allFiles.push({id:f.id,name:f.name||f.file_name||'File',url:f.url||f.file_url,date:f.date||f.uploaded_at,fromDB:true});});
+  PENDING_REF.forEach(function(pf){allFiles.push({name:pf.name,url:pf.data,pending:true});});
+  if(allFiles.length===0){
     var h='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
     if(EDIT_MODE){
       h+='<div style="margin-top:10px"><input type="file" id="ref-fi" class="hidden-fi" accept=".pdf,.docx,.doc,.xlsx,.xls" onchange="hRefUp(event)"><label for="ref-fi" class="up-btn">+ Upload Reference File</label></div>';
@@ -1913,56 +1913,38 @@ function renderRefDocs(){
     }
     el.innerHTML=h;return;
   }
-  var h='';
-  allRefs.forEach(function(item){
-    if(item.pending){
-      var pf=item.data;
-      var ext=pf.name.split('.').pop().toLowerCase();
-      var icon='&#128196;';if(ext==='pdf')icon='&#128213;';
-      h+='<div class="ref-doc-card pending">';
-      h+='<div class="ref-doc-icon">'+icon+'</div>';
-      h+='<div class="ref-doc-info">';
-      h+='<div class="ref-doc-name">'+pf.name+' <em style="color:var(--mw-warning)">(Pending save)</em></div>';
-      h+='<div class="ref-doc-meta">'+(pf.type||'Document')+' &middot; Pending</div>';
-      h+='</div>';
-      h+='<div class="ref-doc-actions">';
-      h+='<button class="fr-rm" onclick="rRefUp('+item.ix+')">Remove</button>';
-      h+='</div></div>';
-    }else{
-      var f=item.rec;
-      var fileName=f.file_name||'Unnamed file';
-      var uploadedAt=f.uploaded_at?new Date(f.uploaded_at).toLocaleDateString():'&mdash;';
-      var uploadedBy=f.uploaded_by||'';
-      var fileId=f.id;
-      var fileExt=fileName.split('.').pop().toLowerCase()||'';
-      var typeLabel='Document',typeIcon='&#128196;';
-      if(fileExt==='pdf'){typeLabel='PDF';typeIcon='&#128213;';}
-      else if(['xlsx','xls','csv'].includes(fileExt)){typeLabel='Spreadsheet';typeIcon='&#128202;';}
-      else if(['docx','doc'].includes(fileExt)){typeLabel='Word';typeIcon='&#128221;';}
-      h+='<div class="ref-doc-card">';
-      h+='<div class="ref-doc-icon">'+typeIcon+'</div>';
-      h+='<div class="ref-doc-info">';
-      h+='<div class="ref-doc-name">'+fileName+'</div>';
-      h+='<div class="ref-doc-meta">'+typeLabel+(uploadedBy?' &middot; '+uploadedBy:'')+' &middot; '+uploadedAt+'</div>';
-      h+='</div>';
-      h+='<div class="ref-doc-actions">';
-      if(fileId){
-        var isViewable=['pdf','png','jpg','jpeg','gif','svg','webp','txt','csv'].includes(fileExt);
-        if(isViewable){
-          h+='<button class="fv-btn" onclick="window.open(\u0027/api/governance/files/'+fileId+'/view\u0027,\u0027_blank\u0027)">View</button>';
-        }else{
-          h+='<button class="fv-btn" onclick="window.open(\u0027/api/governance/files/'+fileId+'/download\u0027,\u0027_blank\u0027)">View</button>';
-        }
-        h+='<button class="fd-btn" onclick="window.open(\u0027/api/governance/files/'+fileId+'/download\u0027,\u0027_blank\u0027)">Download</button>';
-        h+='<button class="fr-rm" '+(EDIT_MODE?'':'disabled')+' onclick="if(!EDIT_MODE){alert(\u0027Press Edit to remove\u0027);return;}if(confirm(\u0027Delete?\u0027)){deleteRefDoc('+fileId+')}">Remove</button>';
+  var flDiv=document.createElement('div');flDiv.className='fl toc-files';
+  allFiles.forEach(function(fi,ix){
+    var frDiv=document.createElement('div');frDiv.className='file-action-row';
+    var nameWrap=document.createElement('span');nameWrap.className='fr-name';
+    nameWrap.textContent=fi.name;
+    if(fi.pending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
+    frDiv.appendChild(nameWrap);
+    var actDiv=document.createElement('div');actDiv.className='fr-actions';
+    var fid=fi.id;
+    if(fid&&!fi.pending){
+      var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+      viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+      actDiv.appendChild(viewBtn);
+      var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+      dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+      actDiv.appendChild(dldBtn);
     }
-    }
+    var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
+    if(fi.pending){rmBtn.addEventListener('click',function(){rRefUp(ix);});}
+    else if(fid){rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!EDIT_MODE){alert('Press Edit to remove');return;}if(confirm('Delete?')){deleteRefDoc(fid);}});}
+    actDiv.appendChild(rmBtn);
+    frDiv.appendChild(actDiv);
+    flDiv.appendChild(frDiv);
   });
+  el.innerHTML='';el.appendChild(flDiv);
   if(EDIT_MODE){
-    h+='<div style="margin-top:10px"><input type="file" id="ref-fi" class="hidden-fi" accept=".pdf,.docx,.doc,.xlsx,.xls" onchange="hRefUp(event)"><label for="ref-fi" class="up-btn">+ Upload Reference File</label></div>';
+    var upWrap=document.createElement('div');upWrap.style.marginTop='10px';
+    upWrap.innerHTML='<input type="file" id="ref-fi" class="hidden-fi" accept=".pdf,.docx,.doc,.xlsx,.xls" onchange="hRefUp(event)"><label for="ref-fi" class="up-btn">+ Upload Reference File</label>';
+    el.appendChild(upWrap);
   }
-  el.innerHTML=h;
 }
+
 
 // Handle reference file upload (from file input change)
 function hRefUp(ev){
