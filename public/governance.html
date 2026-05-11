@@ -724,29 +724,43 @@ async function fetchStateFromDB(facility){
 
     if(data.error){if(debugEl)debugEl.innerHTML+='<div style="color:red">Error: '+data.error+'</div><div style="color:#ff6600">Stack: '+(data.stack||'N/A').substring(0,200)+'</div>';throw new Error(data.error);}
 
-    // Apply milestone states from DB
+    // Ensure facility exists with all 9 milestones (from LD or fresh)
+    if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
+    if(!ST[facility].ms)ST[facility].ms={};
+    // Ensure all 9 milestones exist (even if DB is empty)
+    Object.keys(MSD).forEach(function(m){
+      if(!ST[facility].ms[m])ST[facility].ms[m]={subDate:'',compDate:'',pct:null};
+    });
+    // Merge DB data into existing milestones
     var mCount=0;
     if(data.states){
       data.states.forEach(function(s){
-        if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
-        if(!ST[facility].ms)ST[facility].ms={};
-        ST[facility].ms[s.milestoneId]={subDate:s.subDate||'',compDate:s.compDate||'',pct:s.customPct};
-        mCount++;
+        var mid=s.milestone_id||s.milestoneId;
+        if(mid&&ST[facility].ms[mid]){
+          ST[facility].ms[mid].subDate=s.ppp_date||s.subDate||'';
+          ST[facility].ms[mid].compDate=s.comp_date||s.compDate||'';
+          ST[facility].ms[mid].pct=s.custom_pct!=null?s.custom_pct:s.pct;
+          mCount++;
+        }
       });
     }
     console.log('[API] Milestones loaded:',mCount);
     if(debugEl)debugEl.innerHTML+='<div>Milestones from DB: '+mCount+'</div>';
 
-    // Apply files from DB
+    // Merge files from DB (don't wipe existing)
     var fCount=0;
     if(data.files){
-      if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
-      ST[facility].up={};
+      if(!ST[facility].up)ST[facility].up={};
       data.files.forEach(function(f){
-        var key=f.milestoneId;
+        var key=f.milestone_id||f.milestoneId;
+        if(!key)return;
         if(!ST[facility].up[key])ST[facility].up[key]=[];
-        ST[facility].up[key].push({id:f.id,name:f.filename,url:f.fileUrl,size:f.fileSize||0,date:f.uploadedAt,fromDB:true});
-        fCount++;
+        // Check for duplicate
+        var exists=ST[facility].up[key].some(function(u){return u.id===f.id;});
+        if(!exists){
+          ST[facility].up[key].push({id:f.id,name:f.file_name||f.filename,url:f.file_url||f.fileUrl,size:f.file_size||0,date:f.uploaded_at||f.uploadedAt,fromDB:true});
+          fCount++;
+        }
       });
     }
     console.log('[API] Files loaded:',fCount);
