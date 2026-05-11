@@ -824,14 +824,9 @@ async function fetchStateFromDB(facility){
       mCount++;
     });
 
-    REFERENCE_DOCS=refFiles.map(function(f){return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};});
-
-    // Extract reference documents
-    REFERENCE_DOCS=[];
-    if(data.referenceFiles&&Array.isArray(data.referenceFiles)){
-      REFERENCE_DOCS=data.referenceFiles.map(function(f){
-        return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
-      });
+    REFERENCE_DOCS=refFiles.map(function(f){
+      return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
+    });
     }
 
     var fCount=0;
