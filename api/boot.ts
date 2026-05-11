@@ -169,31 +169,40 @@ app.post("/api/governance/files", async (c) => {
       console.log("[API] POST files missing fields:", { facilitySlug, milestoneId, filename });
       return c.json({ error: "facilitySlug, filename required" }, 400);
     }
-    const { query: mysqlQuery } = await import("./queries/mysql-connection");
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
     const slug = facilitySlug.toLowerCase();
     const mid = milestoneId || "__ref";
     // Check for existing
-    const existingRows = await mysqlQuery(
-      `SELECT id, file_name, file_url FROM governance_uploads WHERE facility_slug = ? AND milestone_id = ? AND file_name = ? LIMIT 1`,
-      [slug, mid, filename]
-    );
+    const existing = await db.execute(sql`
+      SELECT id, file_name, file_url FROM governance_uploads
+      WHERE facility_slug = ${slug} AND milestone_id = ${mid} AND file_name = ${filename}
+      LIMIT 1
+    `);
+    const existingRows = (existing as any).rows || (existing as any) || [];
     if (existingRows.length > 0) {
       console.log("[API] POST files existing found:", existingRows[0]);
       return c.json({ id: existingRows[0].id, file: existingRows[0], existing: true });
     }
     // Insert
-    console.log("[API] POST files inserting via mysql2:", slug, mid, filename);
-    await mysqlQuery(
-      `INSERT INTO governance_uploads (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [slug, mid, tocItem || null, tocItem || null, filename, fileUrl || filename, uploadedAt ? new Date(uploadedAt) : new Date()]
-    );
+    console.log("[API] POST files inserting:", slug, mid, filename);
+    await db.execute(sql`
+      INSERT INTO governance_uploads
+        (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at)
+      VALUES
+        (${slug}, ${mid}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
+    `);
     // SELECT back the inserted row to get the generated id
-    const rows = await mysqlQuery(
-      `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at FROM governance_uploads WHERE facility_slug = ? AND milestone_id = ? AND file_name = ? ORDER BY id DESC LIMIT 1`,
-      [slug, mid, filename]
-    );
-    console.log("[API] POST files inserted row:", rows[0] ? JSON.stringify(rows[0]).substring(0,100) : "none");
-    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    const inserted = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at
+      FROM governance_uploads
+      WHERE facility_slug = ${slug} AND milestone_id = ${mid} AND file_name = ${filename}
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+    const insRows = (inserted as any).rows || (inserted as any) || [];
+    console.log("[API] POST files inserted row:", insRows[0] ? JSON.stringify(insRows[0]).substring(0,100) : "none");
+    const row = Array.isArray(insRows) && insRows.length > 0 ? insRows[0] : null;
     if (!row || !row.id) {
       return c.json({ error: "insert succeeded but row not found" }, 500);
     }
@@ -389,16 +398,27 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug}
     `);
     console.log("[API] States:", states.rows ? states.rows.length : states.length);
-    // Query uploads table via mysql2 (proven working driver)
-    const { query: mysqlQuery } = await import("./queries/mysql-connection");
-    const upRows = await mysqlQuery(
-      `SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
-       FROM governance_uploads
-       WHERE facility_slug = ? OR facility_slug = 'all'
-       ORDER BY id DESC`,
-      [facilitySlug]
-    );
-    console.log("[API] uploads via mysql2:", upRows.length, "rows");
+    // Query uploads table via postgres-js (matching production DATABASE_URL)
+    const files1 = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+      FROM governance_uploads
+      WHERE facility_slug = ${facilitySlug} OR facility_slug = 'all'
+      ORDER BY id DESC
+    `);
+    console.log("[API] uploads query raw type:", typeof files1, "isArray:", Array.isArray(files1), "keys:", Object.keys(files1));
+    // Handle multiple possible response formats from postgres-js
+    let upRows: any[] = [];
+    if (Array.isArray(files1)) {
+      upRows = files1;
+    } else if (files1 && Array.isArray((files1 as any).rows)) {
+      upRows = (files1 as any).rows;
+    } else if (files1 && typeof files1 === 'object') {
+      // May be a Result object with row data in various forms
+      const f = files1 as any;
+      if (f.rows) upRows = f.rows;
+      else if (f.length) upRows = f;
+    }
+    console.log("[API] uploads extracted rows:", upRows.length);
     const allFiles = upRows;
     // Separate reference documents (milestone_id = '__ref')
     const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
