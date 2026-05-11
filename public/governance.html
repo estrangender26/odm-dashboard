@@ -1821,9 +1821,10 @@ async function fetchReferenceDocs(){
       REFERENCE_DOCS=[];
     }
   }catch(err){
-    if(dbg)dbg.textContent='Fetch error: '+(err as Error).message;
+    var errMsg=err&&err.message?err.message:String(err);
+    if(dbg)dbg.textContent='Fetch error: '+errMsg;
     REFERENCE_DOCS=[];
-    if(el)el.innerHTML='<div class="ref-doc-empty" style="color:var(--mw-danger)">Error: '+(err as Error).message+'</div>';
+    if(el)el.innerHTML='<div class="ref-doc-empty" style="color:var(--mw-danger)">Error: '+errMsg+'</div>';
   }
 }
 
