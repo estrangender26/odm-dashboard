@@ -794,28 +794,22 @@ async function fetchStateFromDB(facility){
 
     // Merge files — keyed by toc_item for milestone lookup
     var fCount=0;
-    console.log('[API] RAW files from DB:',data.files?data.files.length:0,'items');
     if(data.files){
       if(!ST[facility].up)ST[facility].up={};
-      data.files.forEach(function(f,idx){
+      data.files.forEach(function(f){
         var mid=f.milestone_id;
-        var tkey=f.toc_item||(f.category?String(f.category).toUpperCase():'OTHER');
-        console.log('[API] File',idx,': mid='+mid,'tkey='+tkey,'name='+(f.file_name||'?'),'id='+(f.id||'?'),'url_len='+(f.file_url?f.file_url.length:0));
         if(!mid)return;
         if(!ST[facility].up[mid])ST[facility].up[mid]={};
+        var tkey=f.toc_item||(f.category?String(f.category).toUpperCase():'OTHER');
         if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
-        // Dedup: check by DB id (covers both pending dbId and loaded id)
         var exists=ST[facility].up[mid][tkey].some(function(u){return(u.id||u.dbId)===f.id;});
         if(!exists){
           ST[facility].up[mid][tkey].push({id:f.id,name:f.file_name||'',url:f.file_url||'',size:0,date:f.uploaded_at,fromDB:true});
           fCount++;
-          console.log('[API]   -> merged into',mid+'/'+tkey);
-        }else{
-          console.log('[API]   -> skipped (duplicate)');
         }
       });
     }
-    console.log('[API] Files merged:',fCount);
+    console.log('[API] Files merged:',fCount,'from',data.files?data.files.length:0,'total');
 
     return {milestones:mCount,files:fCount};
   }catch(e){
@@ -997,10 +991,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var d=MSD[mid],st=c.ms[mid]||{};
     var isComp=st.compDate&&st.compDate.length>0;if(isComp)cp++;
     var dt=cd(c.pp,d.o);
-    // Debug: count total files for this milestone
+    // Count total files for this milestone
     var mFileCount=0;
     if(c.up[mid]){Object.values(c.up[mid]).forEach(function(v){if(Array.isArray(v))mFileCount+=v.length;});}
-    console.log('[RENDER] '+mid+' files:',mFileCount,'up keys:',c.up[mid]?Object.keys(c.up[mid]):'none');
     // Count required uploads vs actual uploads for this milestone
     var reqUploads=0,hasUploads=0;
     d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(tocOwner[tkey]!==mid)return;reqUploads++;if(c.up[mid]&&c.up[mid][tkey]&&c.up[mid][tkey].length>0)hasUploads++});
@@ -1087,7 +1080,6 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       var msFiles=(c.up[mid]&&c.up[mid][tkey])||[];
       var delivFiles=(c.up['__deliv']&&c.up['__deliv'][tkey])||[];
       var files=msFiles.concat(delivFiles);
-      console.log('[RENDER] '+mid+'/'+tkey+': msFiles='+msFiles.length+', delivFiles='+delivFiles.length+', total='+files.length,'| c.up['+mid+'] keys:',c.up[mid]?Object.keys(c.up[mid]):'none');
       var tr=document.createElement('div');tr.className='toc-up';
       var tinfo=TOC.find(function(x){return x.num===tnum});
       // Left: label
