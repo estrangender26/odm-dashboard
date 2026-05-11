@@ -706,7 +706,6 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 <!-- TAB 4: REFERENCES -->
 <div id="t-r" class="tc">
   <div class="card"><div class="ch"><h2>Reference Documents</h2><span style="font-size:12px;color:var(--mw-muted)">Standard governance framework documents</span></div><div id="ref-doc-list"></div><div id="ref-doc-upload" style="display:none;margin-top:10px"></div></div>
-  <div id="init-debug" style="font-size:11px;color:#666;padding:8px;background:#f5f5f5;border-radius:4px;margin-top:8px;font-family:monospace;white-space:pre-wrap"></div>
   <div class="card"><div class="ch"><h2>TOC-to-Annex Mapping</h2></div><div id="ref2"></div></div>
   <div class="card"><div class="ch"><h2>Annexes Reference</h2></div><div id="ref"></div></div>
 </div>
@@ -826,6 +825,15 @@ async function fetchStateFromDB(facility){
     });
 
     REFERENCE_DOCS=refFiles.map(function(f){return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};});
+
+    // Extract reference documents
+    REFERENCE_DOCS=[];
+    if(data.referenceFiles&&Array.isArray(data.referenceFiles)){
+      REFERENCE_DOCS=data.referenceFiles.map(function(f){
+        return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
+      });
+      setStatus('Done: '+mCount+' milestones, '+fCount+' files, '+REFERENCE_DOCS.length+' refs');
+    }
 
     var fCount=0;
     if(!ST[facility].up)ST[facility].up={};

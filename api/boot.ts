@@ -390,7 +390,7 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     // Separate reference documents (milestone_id = '__ref')
     const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
     const msFiles = allFiles.filter((f: any) => f.milestone_id !== '__ref' && f.category !== 'references');
-    console.log("[API] uploads=" + upRows.length + " govFiles=" + gfRows.length + " refs=" + refFiles.length + " ms=" + msFiles.length);
+    console.log("[API] files=" + allFiles.length + " refs=" + refFiles.length + " ms=" + msFiles.length);
     return c.json({
       states: states.rows || states,
       files: msFiles,
