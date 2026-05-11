@@ -160,7 +160,7 @@ app.get("/api/governance/files/:facilitySlug", async (c) => {
 app.post("/api/governance/files", async (c) => {
   try {
     const body = await c.req.json();
-    const { facilitySlug, milestoneId, filename, fileUrl, fileSize, uploadedAt } = body;
+    const { facilitySlug, milestoneId, tocItem, filename, fileUrl, fileSize, uploadedAt } = body;
     if (!facilitySlug || !milestoneId || !filename) {
       return c.json({ error: "facilitySlug, milestoneId, filename required" }, 400);
     }
@@ -176,12 +176,12 @@ app.post("/api/governance/files", async (c) => {
     `);
     const existingRows = existing.rows || existing;
     if (existingRows.length > 0) return c.json({ file: existingRows[0], existing: true });
-    // Insert
+    // Insert with category/toc_item so frontend can key files correctly
     const result = await db.execute(sql`
       INSERT INTO governance_uploads
-        (facility_slug, milestone_id, file_name, file_url, uploaded_at)
+        (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at)
       VALUES
-        (${facilitySlug.toLowerCase()}, ${milestoneId}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
+        (${facilitySlug.toLowerCase()}, ${milestoneId}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
       RETURNING id, facility_slug, milestone_id, file_name, file_url, uploaded_at
     `);
     return c.json({ file: result[0] });
@@ -357,13 +357,13 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     const files1 = await db.execute(sql`
       SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
       FROM governance_uploads
-      WHERE facility_slug = ${facilitySlug}
+      WHERE facility_slug = ${facilitySlug} OR facility_slug = 'all'
       ORDER BY id DESC
     `);
     const files2 = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, toc_item, file_name, file_data AS file_url, uploaded_by, uploaded_at
+      SELECT id, facility_slug, milestone_id, toc_item, file_name, file_data AS file_url, uploaded_by, uploaded_at, NULL AS category
       FROM governance_files
-      WHERE LOWER(facility_slug) = LOWER(${facilitySlug})
+      WHERE LOWER(facility_slug) = LOWER(${facilitySlug}) OR facility_slug = 'all'
       ORDER BY id DESC
     `);
     const allFiles = (files1.rows || files1).concat(files2.rows || files2);

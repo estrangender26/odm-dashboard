@@ -800,7 +800,12 @@ async function fetchStateFromDB(facility){
         var mid=f.milestone_id;
         if(!mid)return;
         if(!ST[facility].up[mid])ST[facility].up[mid]={};
-        var tkey=f.toc_item||(f.category?String(f.category).toUpperCase():'OTHER');
+        // Use toc_item, then category, then infer from milestone's TOC mapping, then 'OTHER'
+        var tkey=f.toc_item||f.category||null;
+        if(!tkey&&mid!=='__ref'&&MSD[mid]&&MSD[mid].t&&MSD[mid].t.length===1){
+          tkey='TOC-'+MSD[mid].t[0]; // Infer from milestone's single TOC item
+        }
+        if(!tkey)tkey='OTHER';
         if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
         var exists=ST[facility].up[mid][tkey].some(function(u){return(u.id||u.dbId)===f.id;});
         if(!exists){
