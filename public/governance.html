@@ -704,7 +704,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 
 <!-- TAB 4: REFERENCES -->
 <div id="t-r" class="tc">
-  <div class="card"><div class="ch"><h2>Reference Documents</h2><span style="font-size:12px;color:var(--mw-muted)">Standard governance framework documents</span></div><div id="ref-doc-list"></div><div id="ref-doc-upload" style="display:none;margin-top:10px"></div></div>
+  <div class="card"><div class="ch"><h2>Reference Documents</h2><span style="font-size:12px;color:var(--mw-muted)">Standard governance framework documents</span></div><div id="ref-doc-list"></div><div id="ref-debug" style="font-size:10px;color:#999;padding:8px;border:1px dashed #ddd;border-radius:4px;margin-top:8px;display:none"></div><div id="ref-doc-upload" style="display:none;margin-top:10px"></div></div>
   <div class="card"><div class="ch"><h2>TOC-to-Annex Mapping</h2></div><div id="ref2"></div></div>
   <div class="card"><div class="ch"><h2>Annexes Reference</h2></div><div id="ref"></div></div>
 </div>
@@ -1806,32 +1806,32 @@ function rsA(){if(!confirm('Reset all data?'))return;localStorage.removeItem('om
 let REFERENCE_DOCS=[];
 
 async function fetchReferenceDocs(){
+  var el=document.getElementById('ref-doc-list');
+  var dbg=document.getElementById('ref-debug');
+  if(el)el.innerHTML='<div class="ref-doc-empty">Loading reference documents...</div>';
+  if(dbg){dbg.style.display='block';dbg.textContent='Fetching /api/governance/references...';}
   try{
-    console.log('[REF] Fetching from /api/governance/references...');
     var resp=await fetch(API_BASE+'/api/governance/references');
-    console.log('[REF] HTTP status:',resp.status);
-    if(!resp.ok)throw new Error('HTTP '+resp.status);
-    var data=await resp.json();
-    console.log('[REF] Response keys:',Object.keys(data));
-    console.log('[REF] Raw files count:',data.files?data.files.length:'no files key');
-    if(data.files&&data.files.length>0){
-      console.log('[REF] First file:',JSON.stringify(data.files[0]).substring(0,200));
+    var txt=await resp.text();
+    try{var data=JSON.parse(txt);REFERENCE_DOCS=data.files||[];
+      if(dbg)dbg.textContent='API OK. Files: '+(REFERENCE_DOCS.length)+' | First: '+(REFERENCE_DOCS[0]?REFERENCE_DOCS[0].file_name:'none');
+      if(el&&REFERENCE_DOCS.length===0)el.innerHTML='<div class="ref-doc-empty">No reference documents in database.</div>';
+    }catch(parseErr){
+      if(dbg)dbg.textContent='API returned non-JSON: '+txt.substring(0,100);
+      REFERENCE_DOCS=[];
     }
-    REFERENCE_DOCS=data.files||[];
-    console.log('[REF] Loaded',REFERENCE_DOCS.length,'reference document(s)');
   }catch(err){
-    console.error('[REF] Failed to load reference docs:',err.message);
+    if(dbg)dbg.textContent='Fetch error: '+(err as Error).message;
     REFERENCE_DOCS=[];
+    if(el)el.innerHTML='<div class="ref-doc-empty" style="color:var(--mw-danger)">Error: '+(err as Error).message+'</div>';
   }
 }
 
 function renderRefDocs(){
-  console.log('[REF] renderRefDocs called, REFERENCE_DOCS.length=',REFERENCE_DOCS.length);
   var el=document.getElementById('ref-doc-list');
-  if(!el){console.log('[REF] ref-doc-list element not found');return;}
+  if(!el)return;
   if(REFERENCE_DOCS.length===0){
-    console.log('[REF] No docs to render, showing empty state');
-    el.innerHTML='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
+    el.innerHTML='<div class="ref-doc-empty">No reference documents found. <button class="fv-btn" style="margin-top:8px" onclick="location.reload()">Refresh Page</button></div>';
     return;
   }
   var h='';
