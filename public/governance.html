@@ -175,7 +175,7 @@ function forceRefresh() {
   console.log('[GOV] Manual refresh for facility:', facility);
   updateSyncStatus('Refreshing...');
   loadFilesFromDB(facility);
-  if (typeof loadFromServer === 'function') loadFromServer();
+  INIT();
   var btn = document.querySelector('button[onclick="forceRefresh()"]');
   if (btn) { var orig = btn.textContent; btn.textContent = '✓ Refreshed'; setTimeout(function(){ btn.textContent = orig; }, 1200); }
 }
@@ -611,9 +611,9 @@ body.editing .up{opacity:1;pointer-events:auto}
   };
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadFromServer);
+    document.addEventListener('DOMContentLoaded', function(){INIT();});
   } else {
-    setTimeout(loadFromServer, 500);
+    setTimeout(function(){INIT();}, 500);
   }
 })();
 </script>
