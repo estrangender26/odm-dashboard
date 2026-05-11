@@ -340,6 +340,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
   .ms .mst,.ms .msc{display:inline-flex;align-items:center;gap:3px;text-align:left}
   .ms .mst .badge{font-size:9px;padding:1px 5px}
   .up-btn{padding:5px 10px;font-size:11px}
+  .file-action-row{grid-template-columns:1fr}
   .toc-up{display:block;padding:6px 12px;border-bottom:1px solid #EDF1F4;background:transparent}
   .toc-up:last-child{border-bottom:none}
   .toc-lbl{font-size:11px}
@@ -398,6 +399,10 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .fr-rm:hover{background:#FECACA}
 .fr-rm:disabled{background:#F3F4F6;color:#9CA3AF;cursor:not-allowed}
 .fr-name{font-weight:500;word-break:break-all;min-width:0;font-size:12px;color:var(--mw-text);flex:1}
+/* File action row layout */
+.file-action-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:8px;align-items:center;padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:var(--r-sm);margin-top:6px}
+.file-action-row .fr-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-action-row .pending-tag{font-size:10px;color:var(--mw-warning);font-style:italic;margin-left:6px}
 .nav-home{display:flex;align-items:center;margin-left:auto;margin-right:12px}
 .nav-home a{color:#fff;text-decoration:none;font-size:13px;font-weight:500;padding:6px 14px;border-radius:5px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);transition:all .2s;white-space:nowrap}
 .nav-home a:hover{background:rgba(255,255,255,0.25)}
@@ -836,12 +841,16 @@ async function deleteFileFromDB(fileId){
   }catch(e){console.log('[API] deleteFileFromDB failed:',e.message);return false;}
 }
 
-// Get total file count from ST
+// Get total file count from ST (handles nested keyed objects)
 function getTotalFileCount(){
   var f=document.getElementById('fs').value;
   if(!ST[f]||!ST[f].up)return 0;
   var count=0;
-  Object.values(ST[f].up).forEach(function(arr){count+=(arr||[]).length;});
+  Object.values(ST[f].up).forEach(function(mVal){
+    if(!mVal)return;
+    if(Array.isArray(mVal)){count+=mVal.length;return;}
+    // mVal is an object keyed by toc_item/annex
+    Object.values(mVal).forEach(function(arr){if(Array.isArray(arr))count+=arr.length;});});
   return count;
 }
 
@@ -952,6 +961,10 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var d=MSD[mid],st=c.ms[mid]||{};
     var isComp=st.compDate&&st.compDate.length>0;if(isComp)cp++;
     var dt=cd(c.pp,d.o);
+    // Debug: count total files for this milestone
+    var mFileCount=0;
+    if(c.up[mid]){Object.values(c.up[mid]).forEach(function(v){if(Array.isArray(v))mFileCount+=v.length;});}
+    console.log('[RENDER] '+mid+' files:',mFileCount,'up keys:',c.up[mid]?Object.keys(c.up[mid]):'none');
     // Count required uploads vs actual uploads for this milestone
     var reqUploads=0,hasUploads=0;
     d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(tocOwner[tkey]!==mid)return;reqUploads++;if(c.up[mid]&&c.up[mid][tkey]&&c.up[mid][tkey].length>0)hasUploads++});
@@ -965,10 +978,11 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var row=document.createElement('div');row.className='ms';
     // Column 1: Milestone code
     var c1=document.createElement('div');c1.className='msi';c1.textContent=mid;row.appendChild(c1);
-    // Column 2: Name + description + tags
+    // Column 2: Name + description + tags + file count
     var c2=document.createElement('div');
     var nameDiv=document.createElement('div');nameDiv.className='msn';nameDiv.textContent=d.n;c2.appendChild(nameDiv);
     var descDiv=document.createElement('div');descDiv.className='msd';descDiv.textContent=d.d;c2.appendChild(descDiv);
+    if(mFileCount>0){var fcDiv=document.createElement('div');fcDiv.style.cssText='font-size:11px;color:var(--mw-blue);font-weight:600;margin-top:2px;';fcDiv.textContent=mFileCount+' file'+(mFileCount>1?'s':'')+' uploaded';c2.appendChild(fcDiv);}
     var tagsDiv=document.createElement('div');tagsDiv.style.cssText='grid-column:2;margin-top:3px';
     d.t.forEach(function(t){var ti=TOC.find(function(x){return x.num===t});var s=document.createElement('span');s.className='tag tg';s.dataset.tip=ti?ti.ti:'';s.textContent='TOC-'+t;tagsDiv.appendChild(s)});
     d.a.forEach(function(a){var ai=ANX.find(function(x){return x.id===a});var s=document.createElement('span');s.className='tag og';s.dataset.tip=ai?ai.ti+' | '+ai.cr:'';s.textContent='A'+a;tagsDiv.appendChild(s)});
@@ -1062,18 +1076,22 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       if(files.length>0){
         var flDiv=document.createElement('div');flDiv.className='fl';
         files.forEach(function(fi,ix){
-          var frDiv=document.createElement('div');frDiv.className='fr';
-          // File name
-          var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.name||fi.n||'File';
-          frDiv.appendChild(nameSpan);
-          // View button (always enabled)
-          var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-          viewBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/view','_blank');});
-          frDiv.appendChild(viewBtn);
-          // Download button (always enabled)
-          var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-          dldBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/download','_blank');});
-          frDiv.appendChild(dldBtn);
+          var frDiv=document.createElement('div');frDiv.className='file-action-row';
+          // File name + pending tag
+          var nameWrap=document.createElement('span');nameWrap.className='fr-name';
+          nameWrap.textContent=fi.name||fi.n||'File';
+          if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
+          frDiv.appendChild(nameWrap);
+          // View button (only for saved files with id)
+          var fid=fi.id||fi.dbId;
+          if(fid&&!fi.isPending){
+            var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+            viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+            frDiv.appendChild(viewBtn);
+            var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+            dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+            frDiv.appendChild(dldBtn);
+          }
           // Remove button (edit mode only)
           var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
           rmBtn.addEventListener('click',function(ev){ev.stopPropagation();rTocUp(mid,tkey,ix)});
@@ -1121,17 +1139,22 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       if(files.length>0){
         var flDiv=document.createElement('div');flDiv.className='fl';
         files.forEach(function(fi,ix){
-          var frDiv=document.createElement('div');frDiv.className='fr';
-          var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.name||fi.n||'File';
-          frDiv.appendChild(nameSpan);
-          var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-          viewBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/view','_blank');});
-          frDiv.appendChild(viewBtn);
-          var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-          dldBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/download','_blank');});
-          frDiv.appendChild(dldBtn);
+          var frDiv=document.createElement('div');frDiv.className='file-action-row';
+          var nameWrap=document.createElement('span');nameWrap.className='fr-name';
+          nameWrap.textContent=fi.name||fi.n||'File';
+          if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
+          frDiv.appendChild(nameWrap);
+          var fid=fi.id||fi.dbId;
+          if(fid&&!fi.isPending){
+            var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+            viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+            frDiv.appendChild(viewBtn);
+            var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+            dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+            frDiv.appendChild(dldBtn);
+          }
           var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
-          rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
+          rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
           frDiv.appendChild(rmBtn);
           flDiv.appendChild(frDiv);
         });
@@ -1165,17 +1188,22 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     if(otherFiles.length>0){
       var otherFl=document.createElement('div');otherFl.className='fl';
       otherFiles.forEach(function(fi,ix){
-        var otherFr=document.createElement('div');otherFr.className='fr';
-        var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.name||fi.n||'File';
-        otherFr.appendChild(nameSpan);
-        var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-        viewBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/view','_blank');});
-        otherFr.appendChild(viewBtn);
-        var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-        dldBtn.addEventListener('click',function(){var fid=fi.id||fi.dbId;if(fid)window.open('/api/governance/files/'+fid+'/download','_blank');});
-        otherFr.appendChild(dldBtn);
+        var otherFr=document.createElement('div');otherFr.className='file-action-row';
+        var nameWrap=document.createElement('span');nameWrap.className='fr-name';
+        nameWrap.textContent=fi.name||fi.n||'File';
+        if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
+        otherFr.appendChild(nameWrap);
+        var fid=fi.id||fi.dbId;
+        if(fid&&!fi.isPending){
+          var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+          viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+          otherFr.appendChild(viewBtn);
+          var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+          dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+          otherFr.appendChild(dldBtn);
+        }
         var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
-        rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.dbId){govDeleteFile(fi.dbId).then(function(){console.log('Deleted from DB:',fi.dbId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
+        rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
         otherFr.appendChild(rmBtn);
         otherFl.appendChild(otherFr);
       });
@@ -1216,11 +1244,14 @@ function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT
 function saveAll(){console.log('[EDIT] Save clicked');var f=document.getElementById('fs').value;DRAFT_UP={};DRAFT_RM={};if(!PENDING[f]){document.body.classList.remove('editing');EDIT_MODE=false;syncEditMode();updateEditButtons();ALL();return;}if(!ST[f])ST[f]={pp:'',ms:{},up:{}};if(PENDING[f].ms){Object.entries(PENDING[f].ms).forEach(function(e){var mId=e[0],v=e[1];if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate});}});}PENDING={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();syncEditMode();ALL();var el=document.getElementById('edit-status');if(el)el.textContent='✓ Saved';setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);}
 function cancelEdit(){console.log('[EDIT] Cancelled');PENDING={}
 
-function getTotalFileCount() {
-  var f = document.getElementById('fs').value;
-  if (!ST[f] || !ST[f].up) return 0;
-  var count = 0;
-  Object.values(ST[f].up).forEach(function(arr) { count += (arr || []).length; });
+function getTotalFileCount(){
+  var f=document.getElementById('fs').value;
+  if(!ST[f]||!ST[f].up)return 0;
+  var count=0;
+  Object.values(ST[f].up).forEach(function(mVal){
+    if(!mVal)return;
+    if(Array.isArray(mVal)){count+=mVal.length;return;}
+    Object.values(mVal).forEach(function(arr){if(Array.isArray(arr))count+=arr.length;});});
   return count;
 }
 ;DRAFT_UP={};DRAFT_RM={};EDIT_MODE=false;document.body.classList.remove('editing');updateEditButtons();ALL();}
@@ -1457,7 +1488,7 @@ grid.appendChild(c3);
 var c4=document.createElement('div');c4.className='dlv-c';c4.style.flexDirection='column';c4.style.alignItems='flex-start';
 if(allFiles.length>0){
   allFiles.forEach(function(fi,idx){
-    var fr=document.createElement('div');fr.className='fr';fr.style.padding='4px 8px';fr.style.gap='8px';
+    var fr=document.createElement('div');fr.className='file-action-row';
     var cb=document.createElement('input');cb.type='checkbox';cb.className='dld-cb';cb.dataset.fname=fi.n;cb.dataset.fdata=fi.d;cb.style.cssText='cursor:pointer;width:14px;height:14px;margin:0';
     fr.appendChild(cb);
     // File name
@@ -1466,13 +1497,14 @@ if(allFiles.length>0){
     var sp=document.createElement('span');sp.style.cssText='font-size:10px;color:var(--t2);flex-shrink:0';sp.textContent='from '+fi.src;
     fr.appendChild(sp);
     // View button
-    var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-    viewBtn.addEventListener('click',function(){if(fi.id)window.open('/api/governance/files/'+fi.id+'/view','_blank');});
-    fr.appendChild(viewBtn);
-    // Download button
-    var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-    dldBtn.addEventListener('click',function(){if(fi.id)window.open('/api/governance/files/'+fi.id+'/download','_blank');});
-    fr.appendChild(dldBtn);
+    if(fi.id){
+      var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+      viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fi.id+'/view','_blank');});
+      fr.appendChild(viewBtn);
+      var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+      dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fi.id+'/download','_blank');});
+      fr.appendChild(dldBtn);
+    }
     // Remove button (edit mode only)
     var rm=document.createElement('button');rm.textContent='Remove';rm.className='fr-rm';rm.disabled=!EDIT_MODE;
     rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.id){govDeleteFile(fi.id).then(function(){console.log('Deleted from DB:',fi.id)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
