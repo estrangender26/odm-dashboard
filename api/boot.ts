@@ -68,6 +68,9 @@ app.get("/governance", async (c) => {
   const governancePath = path.join(dp, "governance.html");
   if (fs.existsSync(governancePath)) {
     const content = fs.readFileSync(governancePath, "utf-8");
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
+    c.header("Pragma", "no-cache");
+    c.header("Expires", "0");
     return c.html(content);
   }
   return c.json({ error: "Governance dashboard not found", path: governancePath }, 404);
