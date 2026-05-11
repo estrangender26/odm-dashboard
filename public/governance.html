@@ -1900,21 +1900,33 @@ async function fetchReferenceDocs(){
 }
 
 function renderRefDocs(){
+  console.log('[renderRefDocs] EDIT_MODE='+EDIT_MODE+' DB='+REFERENCE_DOCS.length+' Pending='+PENDING_REF.length);
   var el=document.getElementById('ref-doc-list');
   var dbg=document.getElementById('ref-debug');
   if(dbg)dbg.textContent='Edit:'+EDIT_MODE+' | DB:'+REFERENCE_DOCS.length+' | Pending:'+PENDING_REF.length;
-  if(!el)return;
+  if(!el){console.log('[renderRefDocs] No ref-doc-list element');return;}
   var allFiles=[];
   REFERENCE_DOCS.forEach(function(f){allFiles.push({id:f.id,name:f.name||f.file_name||'File',url:f.url||f.file_url,date:f.date||f.uploaded_at,fromDB:true});});
   PENDING_REF.forEach(function(pf){allFiles.push({name:pf.name,url:pf.data,pending:true});});
+  console.log('[renderRefDocs] allFiles.length='+allFiles.length);
   if(allFiles.length===0){
-    var h='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
+    el.innerHTML='';
+    var emptyDiv=document.createElement('div');emptyDiv.className='ref-doc-empty';emptyDiv.textContent='No reference documents uploaded yet.';
+    el.appendChild(emptyDiv);
     if(EDIT_MODE){
-      h+='<div style="margin-top:10px"><input type="file" id="ref-fi" class="hidden-fi" accept=".pdf,.docx,.doc,.xlsx,.xls" onchange="hRefUp(event)"><label for="ref-fi" class="up-btn">+ Upload Reference File</label></div>';
+      var upDiv=document.createElement('div');upDiv.style.marginTop='10px';
+      var fi=document.createElement('input');fi.type='file';fi.id='ref-fi';fi.className='hidden-fi';fi.accept='.pdf,.docx,.doc,.xlsx,.xls';
+      fi.addEventListener('change',function(ev){console.log('[REF] File input change fired');hRefUp(ev);});
+      var lbl=document.createElement('label');lbl.htmlFor='ref-fi';lbl.className='up-btn';lbl.textContent='+ Upload Reference File';
+      upDiv.appendChild(fi);upDiv.appendChild(lbl);
+      el.appendChild(upDiv);
+      console.log('[renderRefDocs] Upload button created with addEventListener');
     }else{
-      h+='<div style="margin-top:8px;font-size:12px;color:var(--mw-muted)">Click <strong>Edit</strong> to upload a reference document.</div>';
+      var hintDiv=document.createElement('div');hintDiv.style.marginTop='8px';hintDiv.style.fontSize='12px';hintDiv.style.color='var(--mw-muted)';
+      hintDiv.innerHTML='Click <strong>Edit</strong> to upload a reference document.';
+      el.appendChild(hintDiv);
     }
-    el.innerHTML=h;return;
+    return;
   }
   var flDiv=document.createElement('div');flDiv.className='fl toc-files';
   allFiles.forEach(function(fi,ix){
@@ -1943,8 +1955,12 @@ function renderRefDocs(){
   el.innerHTML='';el.appendChild(flDiv);
   if(EDIT_MODE){
     var upWrap=document.createElement('div');upWrap.style.marginTop='10px';
-    upWrap.innerHTML='<input type="file" id="ref-fi" class="hidden-fi" accept=".pdf,.docx,.doc,.xlsx,.xls" onchange="hRefUp(event)"><label for="ref-fi" class="up-btn">+ Upload Reference File</label>';
+    var fi2=document.createElement('input');fi2.type='file';fi2.id='ref-fi';fi2.className='hidden-fi';fi2.accept='.pdf,.docx,.doc,.xlsx,.xls';
+    fi2.addEventListener('change',function(ev){console.log('[REF] File input change fired');hRefUp(ev);});
+    var lbl2=document.createElement('label');lbl2.htmlFor='ref-fi';lbl2.className='up-btn';lbl2.textContent='+ Upload Reference File';
+    upWrap.appendChild(fi2);upWrap.appendChild(lbl2);
     el.appendChild(upWrap);
+    console.log('[renderRefDocs] Upload button (non-empty) created with addEventListener');
   }
 }
 
