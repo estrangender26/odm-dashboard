@@ -1353,10 +1353,14 @@ async function saveAll(){
     for(var i=0;i<PENDING_REF.length;i++){
       var pf=PENDING_REF[i];
       if(pf.data){
+        console.log('[EDIT] Uploading ref file:',pf.name);
         var savedFile=await saveFileToDB('all','__ref','references',{n:pf.name,d:pf.data,s:pf.size});
+        console.log('[EDIT] saveFileToDB returned:',savedFile?JSON.stringify(savedFile).substring(0,100):'null');
         if(savedFile&&savedFile.id){
           REFERENCE_DOCS.push({id:savedFile.id,name:pf.name,url:pf.data,date:new Date().toISOString(),by:''});
           console.log('[EDIT] Ref file saved, ID:',savedFile.id);
+        }else{
+          console.error('[EDIT] saveFileToDB failed for',pf.name);
         }
       }
     }
@@ -1955,11 +1959,15 @@ function renderRefDocs(){
 
 // Handle reference file upload (from file input change)
 function hRefUp(ev){
+  console.log('[REF UP] hRefUp called, EDIT_MODE='+EDIT_MODE);
   if(!EDIT_MODE){alert('Press Edit to upload reference files');return;}
-  var files=ev.target.files;if(!files||!files.length)return;
+  var files=ev.target.files;if(!files||!files.length){console.log('[REF UP] No files selected');return;}
+  console.log('[REF UP] Files selected:',files.length);
   Array.from(files).forEach(function(file){
+    console.log('[REF UP] Reading file:',file.name,'size:',file.size);
     var reader=new FileReader();
     reader.onload=function(e){
+      console.log('[REF UP] File read complete:',file.name,'data length:',e.target.result.length);
       PENDING_REF.push({
         name:file.name,
         data:e.target.result,
@@ -1967,9 +1975,10 @@ function hRefUp(ev){
         type:file.type||'application/octet-stream',
         isPending:true
       });
-      console.log('[REF] Pending upload:',file.name);
+      console.log('[REF UP] PENDING_REF now has',PENDING_REF.length,'items');
       renderRefDocs(); // Re-render to show pending file
     };
+    reader.onerror=function(e){console.error('[REF UP] File read error:',e);};
     reader.readAsDataURL(file);
   });
   ev.target.value=''; // Clear input for re-upload
