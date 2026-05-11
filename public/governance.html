@@ -285,6 +285,18 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .rj-item{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;padding:8px 10px;background:#fff;border-radius:var(--r-md);border:1px solid var(--mw-border)}
 .rj-num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--mw-danger);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
 .rj-text{font-size:11px;color:var(--mw-muted);line-height:1.5}
+/* Reference document cards */
+.ref-doc-card{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--mw-bg);border:1px solid var(--mw-border);border-radius:var(--r-md);margin-bottom:8px;transition:all .15s}
+.ref-doc-card:hover{background:#F0F7FF;border-color:#B8D5F0}
+.ref-doc-icon{flex-shrink:0;width:40px;height:40px;border-radius:var(--r-sm);background:#E8F4FD;display:flex;align-items:center;justify-content:center;font-size:18px}
+.ref-doc-info{flex:1;min-width:0}
+.ref-doc-name{font-size:13px;font-weight:600;color:var(--mw-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ref-doc-meta{font-size:11px;color:var(--mw-muted);margin-top:2px}
+.ref-doc-desc{font-size:12px;color:var(--mw-text);margin-top:2px;line-height:1.4}
+.ref-doc-actions{display:flex;gap:6px;flex-shrink:0}
+.ref-doc-empty{font-size:13px;color:var(--mw-muted);text-align:center;padding:20px;font-style:italic}
+.ref-doc-upload-area{display:flex;align-items:center;gap:10px;padding:10px;background:#FAFBFC;border:2px dashed var(--mw-border);border-radius:var(--r-md);cursor:pointer;transition:all .15s}
+.ref-doc-upload-area:hover{border-color:var(--mw-blue);background:#F0F7FF}
 .ref-table{width:100%;border-collapse:collapse;font-size:11px}
 .ref-table th{padding:6px 8px;text-align:left;background:#F1F5F9;color:var(--mw-muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--mw-border)}
 .ref-table td{padding:6px 8px;border-bottom:1px solid #EDF1F4;vertical-align:top}
@@ -353,6 +365,8 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
   .dlv-h{justify-content:flex-start!important;padding-left:8px!important}
   .ra-title{font-size:11px}.ra-text{font-size:10px}
   .rj-num{width:20px;height:20px;font-size:10px}.rj-text{font-size:10px}
+  .ref-doc-card{flex-direction:column;align-items:flex-start;gap:8px;padding:10px 12px}
+  .ref-doc-actions{width:100%;justify-content:flex-end}
   .ref-table{font-size:10px}.ref-table th,.ref-table td{padding:4px 6px}
 }
 @media(max-width:480px){
@@ -652,6 +666,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 
 <!-- TAB 4: REFERENCES -->
 <div id="t-r" class="tc">
+  <div class="card"><div class="ch"><h2>Reference Documents</h2><span style="font-size:12px;color:var(--mw-muted)">Standard governance framework documents</span></div><div id="ref-doc-list"></div><div id="ref-doc-upload" style="display:none;margin-top:10px"></div></div>
   <div class="card"><div class="ch"><h2>TOC-to-Annex Mapping</h2></div><div id="ref2"></div></div>
   <div class="card"><div class="ch"><h2>Annexes Reference</h2></div><div id="ref"></div></div>
 </div>
@@ -894,6 +909,8 @@ async function INIT(){
     SV(); // Save facility preference
     // Fetch from DB before rendering
     await fetchStateFromDB(e.target.value);
+    // Refresh reference documents
+    await fetchReferenceDocs();
     document.getElementById('pp').value=ST[e.target.value]?ST[e.target.value].pp:'';
     ALL();
     syncEditMode();
@@ -913,6 +930,8 @@ async function INIT(){
   document.getElementById('fl').textContent=f;
   document.getElementById('dlf').textContent=f;
   try{await fetchStateFromDB(f);}catch(err){console.error('[INIT] fetchStateFromDB failed:',err);}
+  // Load reference documents (facility-independent)
+  await fetchReferenceDocs();
   document.getElementById('pp').value=ST[f]?ST[f].pp:'';
   ALL();
 }
@@ -1721,7 +1740,79 @@ function rTocUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');r
 function rsA(){if(!confirm('Reset all data?'))return;localStorage.removeItem('omg5');LD();ALL()}
 
 // REFERENCES TAB
+// ═══ Reference Documents (milestone_id = '__ref') ═══
+let REFERENCE_DOCS=[];
+
+async function fetchReferenceDocs(){
+  try{
+    var resp=await fetch(API_BASE+'/api/governance/references');
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    var data=await resp.json();
+    REFERENCE_DOCS=data.files||[];
+    console.log('[REF] Loaded',REFERENCE_DOCS.length,'reference document(s)');
+  }catch(err){
+    console.error('[REF] Failed to load reference docs:',err.message);
+    REFERENCE_DOCS=[];
+  }
+}
+
+function renderRefDocs(){
+  var el=document.getElementById('ref-doc-list');
+  if(!el)return;
+  if(REFERENCE_DOCS.length===0){
+    el.innerHTML='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
+    return;
+  }
+  var h='';
+  REFERENCE_DOCS.forEach(function(f){
+    var fileName=f.file_name||'Unnamed file';
+    var uploadedAt=f.uploaded_at?new Date(f.uploaded_at).toLocaleDateString():'—';
+    var uploadedBy=f.uploaded_by||'—';
+    var fileId=f.id;
+    // Determine file type label and icon
+    var fileExt=fileName.split('.').pop()?.toLowerCase()||'';
+    var typeLabel='Document',typeIcon='📄';
+    if(fileExt==='pdf'){typeLabel='PDF';typeIcon='📕';}
+    else if(['xlsx','xls','csv'].includes(fileExt)){typeLabel='Spreadsheet';typeIcon='📊';}
+    else if(['docx','doc','rtf'].includes(fileExt)){typeLabel='Word Document';typeIcon='📝';}
+    else if(['pptx','ppt'].includes(fileExt)){typeLabel='Presentation';typeIcon='📽';}
+    else if(['png','jpg','jpeg','gif','svg','webp'].includes(fileExt)){typeLabel='Image';typeIcon='🖼';}
+    else if(['zip','rar','7z'].includes(fileExt)){typeLabel='Archive';typeIcon='🗜';}
+    h+='<div class="ref-doc-card">';
+    h+='<div class="ref-doc-icon">'+typeIcon+'</div>';
+    h+='<div class="ref-doc-info">';
+    h+='<div class="ref-doc-name" title="'+fileName+'">'+fileName+'</div>';
+    h+='<div class="ref-doc-meta">'+typeLabel+' &middot; Uploaded '+uploadedAt+(uploadedBy!=='—'?' by '+uploadedBy:'')+'</div>';
+    h+='</div>';
+    h+='<div class="ref-doc-actions">';
+    if(fileId){
+      h+='<button class="fv-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/view\',\'_blank\')">View</button>';
+      h+='<button class="fd-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/download\',\'_blank\')">Download</button>';
+    }
+    h+='<button class="fr-rm" '+(EDIT_MODE?'':'disabled')+' style="'+(EDIT_MODE?'':'opacity:0.3;cursor:not-allowed')+'" onclick="if(!EDIT_MODE){alert(\'Press Edit to remove files\');return;}if(confirm(\'Delete this reference document?\')){deleteRefDoc('+fileId+')}">Remove</button>';
+    h+='</div></div>';
+  });
+  el.innerHTML=h;
+}
+
+async function deleteRefDoc(fileId){
+  try{
+    var resp=await fetch(API_BASE+'/api/governance/files/'+fileId,{method:'DELETE'});
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    await fetchReferenceDocs();
+    renderRefDocs();
+  }catch(err){
+    console.error('[REF] Delete failed:',err.message);
+    alert('Failed to delete reference document.');
+  }
+}
+
 function RREF(){
+RREFDOCS();RREFTAB();}
+
+function RREFDOCS(){renderRefDocs();}
+
+function RREFTAB(){
 var el1=document.getElementById('ref');
 var h='<table class="ref-table"><thead><tr style="background:#f0f3f5"><th style="padding:8px;text-align:left;width:80px;white-space:nowrap">Annex</th><th style="padding:8px;text-align:left">Title</th><th style="padding:8px;text-align:left">Criteria</th><th style="padding:8px;text-align:center">Linked TOC</th></tr></thead><tbody>';
 ANX.forEach(function(a){var linkedToc=TOC.filter(function(t){return t.ax&&t.ax.includes(a.id)}).map(function(t){return '<span class="tag tg" data-tip="'+t.ti+'">'+t.num+'</span>'}).join('')||'<span style="color:var(--t2);font-size:11px">\u2014</span>';h+='<tr style="border-bottom:1px solid #edf1f4"><td style="padding:8px;font-weight:700;color:var(--orange);white-space:nowrap">ANNEX '+a.id+'</td><td style="padding:8px;font-weight:500">'+a.ti+'</td><td style="padding:8px;color:var(--t2)">'+a.cr+'</td><td style="padding:8px;text-align:center">'+linkedToc+'</td></tr>'});

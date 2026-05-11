@@ -190,6 +190,23 @@ app.post("/api/governance/files", async (c) => {
   }
 });
 
+// GET /api/governance/references - list reference documents (milestone_id = '__ref')
+app.get("/api/governance/references", async (c) => {
+  try {
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    const rows = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+      FROM governance_uploads
+      WHERE milestone_id = '__ref' OR category = 'references'
+      ORDER BY uploaded_at DESC
+    `);
+    return c.json({ files: rows.rows || rows });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // DELETE /api/governance/files/:id - delete a file
 app.delete("/api/governance/files/:id", async (c) => {
   try {
