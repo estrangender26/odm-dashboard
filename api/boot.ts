@@ -187,7 +187,8 @@ app.post("/api/governance/files", async (c) => {
         (${facilitySlug.toLowerCase()}, ${milestoneId}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
       RETURNING id, facility_slug, milestone_id, file_name, file_url, uploaded_at
     `);
-    return c.json({ file: result[0] });
+    const insertRows = result.rows || result;
+    return c.json({ file: insertRows[0] });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
