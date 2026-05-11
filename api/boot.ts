@@ -209,28 +209,27 @@ app.delete("/api/governance/files/:id", async (c) => {
 app.get("/api/governance/state/:facilitySlug", async (c) => {
   try {
     const facilitySlug = c.req.param("facilitySlug").toLowerCase();
+    console.log("[API] GET /api/governance/state/" + facilitySlug);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
+    console.log("[API] DB connection OK");
     // Get milestone states
     const states = await db
       .select()
       .from(sql.raw('"governance_milestone_state"'))
       .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`));
+    console.log("[API] States:", states.length);
     // Get files
     const files = await db
       .select()
       .from(sql.raw('"governance_uploads"'))
       .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`))
       .orderBy(sql.raw('"id" DESC'));
-    // Get upload counts per milestone
-    const counts = await db
-      .select({ milestoneId: sql.raw('"milestoneId"'), count: sql<number>`count(*)::int` })
-      .from(sql.raw('"governance_uploads"'))
-      .where(sql.raw(`LOWER("facilitySlug") = '${facilitySlug}'`))
-      .groupBy(sql.raw('"milestoneId"'));
-    return c.json({ states, files, counts });
+    console.log("[API] Files:", files.length);
+    return c.json({ states, files });
   } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    console.error("[API] GET state ERROR:", e.message, e.stack);
+    return c.json({ error: e.message, stack: e.stack }, 500);
   }
 });
 

@@ -722,7 +722,7 @@ async function fetchStateFromDB(facility){
     console.log('[API] Response keys:',Object.keys(data));
     if(debugEl)debugEl.innerHTML+='<div>Response keys: '+Object.keys(data).join(', ')+'</div>';
 
-    if(data.error){if(debugEl)debugEl.innerHTML+='<div style="color:red">Error: '+data.error+'</div>';throw new Error(data.error);}
+    if(data.error){if(debugEl)debugEl.innerHTML+='<div style="color:red">Error: '+data.error+'</div><div style="color:#ff6600">Stack: '+(data.stack||'N/A').substring(0,200)+'</div>';throw new Error(data.error);}
 
     // Apply milestone states from DB
     var mCount=0;
