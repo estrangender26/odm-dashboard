@@ -827,9 +827,13 @@ async function fetchStateFromDB(facility){
       mCount++;
     });
 
+    console.log('[API] refFiles raw:',JSON.stringify(refFiles).substring(0,300));
     REFERENCE_DOCS=refFiles.map(function(f){
       return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
     });
+    console.log('[API] REFERENCE_DOCS mapped:',REFERENCE_DOCS.length,'items');
+    var refDbg=document.getElementById('ref-debug');
+    if(refDbg)refDbg.dataset.fetchResult='refs='+REFERENCE_DOCS.length;
 
     var fCount=0;
     if(!ST[facility].up)ST[facility].up={};
@@ -878,14 +882,19 @@ async function saveFileToDB(facility,milestoneId,tocItem,fileData){
     var fileName=fileData.n||fileData.name||'file';
     var fileUrl=fileData.d||fileData.data||'';
     var fileSize=fileData.s||fileData.size||0;
+    var reqBody={facilitySlug:facility,milestoneId:milestoneId,tocItem:tocItem||'',filename:fileName,fileUrl:fileUrl,fileSize:fileSize,uploadedAt:new Date().toISOString()};
+    console.log('[API] saveFileToDB POST',API_BASE+'/api/governance/files','body=',JSON.stringify({...reqBody,fileUrl:reqBody.fileUrl.substring(0,50)+'...'}));
     var resp=await fetch(API_BASE+'/api/governance/files',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({facilitySlug:facility,milestoneId:milestoneId,tocItem:tocItem||'',filename:fileName,fileUrl:fileUrl,fileSize:fileSize,uploadedAt:new Date().toISOString()})
+      body:JSON.stringify(reqBody)
     });
+    console.log('[API] saveFileToDB HTTP status:',resp.status);
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     var data=await resp.json();
-    console.log('[API] saveFileToDB response:',data?'has data':'null','file=',data&&data.file?JSON.stringify(data.file).substring(0,80):'none');
+    console.log('[API] saveFileToDB response JSON:',JSON.stringify(data).substring(0,200));
+    var dbg=document.getElementById('ref-debug');
+    if(dbg)dbg.dataset.lastApiStatus=resp.status+' '+JSON.stringify(data).substring(0,100);
     // Update local milestone state with DB id
     if(data.file&&data.file.id&&ST[facility]&&ST[facility].up&&ST[facility].up[milestoneId]){
       var tkey=tocItem||'OTHER';
@@ -1339,6 +1348,7 @@ async function saveAll(){
   console.log('[EDIT] Save clicked');
   var f=document.getElementById('fs').value;
   DRAFT_UP={};DRAFT_RM={};
+  var dbg=document.getElementById('ref-debug');
   // Save milestone changes
   if(PENDING[f]&&PENDING[f].ms){
     if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
@@ -1349,32 +1359,43 @@ async function saveAll(){
     });
   }
   // Save pending reference uploads — must await each one
+  console.log('[EDIT] PENDING_REF.length before save:',PENDING_REF.length);
+  if(dbg)dbg.dataset.saveStatus='PENDING_REF='+PENDING_REF.length;
   if(PENDING_REF.length>0){
     console.log('[EDIT] Saving',PENDING_REF.length,'pending reference file(s)');
+    if(dbg)dbg.dataset.saveStatus='saving '+PENDING_REF.length+' files';
     for(var i=0;i<PENDING_REF.length;i++){
       var pf=PENDING_REF[i];
-      if(pf.file){
+      console.log('[EDIT] Processing pending ref',i,'name:',pf?pf.name:'undefined','hasFile:',!!(pf&&pf.file));
+      if(pf&&pf.file){
         console.log('[EDIT] Reading ref file as base64:',pf.name);
         try{
           var reader=new FileReader();
           var data=await new Promise(function(res,rej){reader.onload=function(e){res(e.target.result);};reader.onerror=function(e){rej(e);};reader.readAsDataURL(pf.file);});
-          console.log('[EDIT] Uploading ref file:',pf.name,'size:',data.length);
+          console.log('[EDIT] base64 read done, length:',data.length);
           var savedFile=await saveFileToDB('all','__ref','references',{n:pf.name,d:data,s:pf.size});
-          console.log('[EDIT] saveFileToDB returned:',savedFile?JSON.stringify(savedFile).substring(0,100):'null');
+          console.log('[EDIT] saveFileToDB returned:',savedFile?JSON.stringify(savedFile).substring(0,200):'null');
+          if(dbg)dbg.dataset.saveStatus='upload returned: '+(savedFile?JSON.stringify(savedFile).substring(0,100):'null');
           if(savedFile&&savedFile.id){
             REFERENCE_DOCS.push({id:savedFile.id,name:pf.name,url:data,date:new Date().toISOString(),by:''});
-            console.log('[EDIT] Ref file saved, ID:',savedFile.id);
+            console.log('[EDIT] Ref file saved OK, ID:',savedFile.id);
+            if(dbg)dbg.dataset.saveStatus='saved id='+savedFile.id;
           }else{
-            console.error('[EDIT] saveFileToDB failed for',pf.name);
+            console.error('[EDIT] saveFileToDB returned no id for',pf.name,'response:',savedFile);
+            if(dbg)dbg.dataset.saveStatus='FAIL: no id in response';
           }
         }catch(readErr){
-          console.error('[EDIT] File read error:',readErr);
+          console.error('[EDIT] File read/upload error:',readErr);
+          if(dbg)dbg.dataset.saveStatus='ERROR: '+readErr.message;
         }
+      }else{
+        console.error('[EDIT] Pending ref',i,'has no file object');
       }
     }
     PENDING_REF=[];
-    console.log('[EDIT] Ref save done, REFERENCE_DOCS now has',REFERENCE_DOCS.length,'items');
-    renderRefDocs();
+    console.log('[EDIT] Ref save loop done, REFERENCE_DOCS now has',REFERENCE_DOCS.length,'items');
+  }else{
+    console.log('[EDIT] No pending reference files to save');
   }
   PENDING={};
   EDIT_MODE=false;
@@ -1906,7 +1927,14 @@ function renderRefDocs(){
   console.log('[renderRefDocs] EDIT_MODE='+EDIT_MODE+' DB='+REFERENCE_DOCS.length+' Pending='+PENDING_REF.length);
   var el=document.getElementById('ref-doc-list');
   var dbg=document.getElementById('ref-debug');
-  if(dbg)dbg.textContent='Edit:'+EDIT_MODE+' | DB:'+REFERENCE_DOCS.length+' | Pending:'+PENDING_REF.length;
+  if(dbg){
+    var d='Edit:'+EDIT_MODE+' | DB:'+REFERENCE_DOCS.length+' | Pending:'+PENDING_REF.length;
+    if(dbg.dataset.lastSelected)d+=' | Sel:'+dbg.dataset.lastSelected;
+    if(dbg.dataset.saveStatus)d+=' | Save:'+dbg.dataset.saveStatus;
+    if(dbg.dataset.lastApiStatus)d+=' | API:'+dbg.dataset.lastApiStatus;
+    if(dbg.dataset.fetchResult)d+=' | Fetch:'+dbg.dataset.fetchResult;
+    dbg.textContent=d;
+  }
   if(!el){console.log('[renderRefDocs] No ref-doc-list element');return;}
   var allFiles=[];
   REFERENCE_DOCS.forEach(function(f){allFiles.push({id:f.id,name:f.name||f.file_name||'File',url:f.url||f.file_url,date:f.date||f.uploaded_at,fromDB:true});});
@@ -1974,8 +2002,10 @@ function hRefUp(ev){
   if(!EDIT_MODE){alert('Press Edit to upload reference files');return;}
   var files=ev.target.files;if(!files||!files.length){console.log('[REF UP] No files selected');return;}
   console.log('[REF UP] Files selected:',files.length);
+  var lastName='';
   Array.from(files).forEach(function(file){
-    console.log('[REF UP] Storing file:',file.name,'size:',file.size);
+    lastName=file.name;
+    console.log('[REF UP] Pushing to PENDING_REF:',file.name,'size:',file.size,'type:',file.type);
     PENDING_REF.push({
       name:file.name,
       file:file,
@@ -1985,8 +2015,10 @@ function hRefUp(ev){
     });
     console.log('[REF UP] PENDING_REF now has',PENDING_REF.length,'items');
   });
-  renderRefDocs(); // Re-render to show pending files
-  ev.target.value=''; // Clear input for re-upload
+  var dbg=document.getElementById('ref-debug');
+  if(dbg)dbg.dataset.lastSelected=lastName;
+  renderRefDocs();
+  ev.target.value='';
 }
 
 // Remove a pending reference upload

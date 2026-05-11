@@ -164,7 +164,9 @@ app.post("/api/governance/files", async (c) => {
   try {
     const body = await c.req.json();
     const { facilitySlug, milestoneId, tocItem, filename, fileUrl, fileSize, uploadedAt } = body;
+    console.log("[API] POST /api/governance/files body:", JSON.stringify({ facilitySlug, milestoneId, tocItem, filename, fileSize, hasUrl: !!fileUrl }));
     if (!facilitySlug || !milestoneId || !filename) {
+      console.log("[API] POST files missing fields:", { facilitySlug, milestoneId, filename });
       return c.json({ error: "facilitySlug, milestoneId, filename required" }, 400);
     }
     const { getDb } = await import("./queries/connection");
@@ -178,8 +180,12 @@ app.post("/api/governance/files", async (c) => {
       LIMIT 1
     `);
     const existingRows = existing.rows || existing;
-    if (existingRows.length > 0) return c.json({ file: existingRows[0], existing: true });
+    if (existingRows.length > 0) {
+      console.log("[API] POST files existing found:", existingRows[0]);
+      return c.json({ file: existingRows[0], existing: true });
+    }
     // Insert with category/toc_item so frontend can key files correctly
+    console.log("[API] POST files inserting:", facilitySlug.toLowerCase(), milestoneId, filename);
     const result = await db.execute(sql`
       INSERT INTO governance_uploads
         (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at)
@@ -187,9 +193,12 @@ app.post("/api/governance/files", async (c) => {
         (${facilitySlug.toLowerCase()}, ${milestoneId}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
       RETURNING id, facility_slug, milestone_id, file_name, file_url, uploaded_at
     `);
+    console.log("[API] POST files insert result type:", typeof result, "isArray:", Array.isArray(result), "hasRows:", !!result.rows);
     const insertRows = result.rows || result;
+    console.log("[API] POST files insert rows:", Array.isArray(insertRows) ? insertRows.length : "not-array", "first:", insertRows[0] ? JSON.stringify(insertRows[0]).substring(0,100) : "none");
     return c.json({ file: insertRows[0] });
   } catch (e: any) {
+    console.error("[API] POST files ERROR:", e.message);
     return c.json({ error: e.message }, 500);
   }
 });
