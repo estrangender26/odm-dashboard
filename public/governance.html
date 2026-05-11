@@ -1755,9 +1755,16 @@ let REFERENCE_DOCS=[];
 
 async function fetchReferenceDocs(){
   try{
+    console.log('[REF] Fetching from /api/governance/references...');
     var resp=await fetch(API_BASE+'/api/governance/references');
+    console.log('[REF] HTTP status:',resp.status);
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     var data=await resp.json();
+    console.log('[REF] Response keys:',Object.keys(data));
+    console.log('[REF] Raw files count:',data.files?data.files.length:'no files key');
+    if(data.files&&data.files.length>0){
+      console.log('[REF] First file:',JSON.stringify(data.files[0]).substring(0,200));
+    }
     REFERENCE_DOCS=data.files||[];
     console.log('[REF] Loaded',REFERENCE_DOCS.length,'reference document(s)');
   }catch(err){
@@ -1767,9 +1774,11 @@ async function fetchReferenceDocs(){
 }
 
 function renderRefDocs(){
+  console.log('[REF] renderRefDocs called, REFERENCE_DOCS.length=',REFERENCE_DOCS.length);
   var el=document.getElementById('ref-doc-list');
-  if(!el)return;
+  if(!el){console.log('[REF] ref-doc-list element not found');return;}
   if(REFERENCE_DOCS.length===0){
+    console.log('[REF] No docs to render, showing empty state');
     el.innerHTML='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
     return;
   }
@@ -1796,7 +1805,13 @@ function renderRefDocs(){
     h+='</div>';
     h+='<div class="ref-doc-actions">';
     if(fileId){
-      h+='<button class="fv-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/view\',\'_blank\')">View</button>';
+      // For PDF/image/txt: view inline; For others: download
+      var isViewable=['pdf','png','jpg','jpeg','gif','svg','webp','txt','csv','json'].includes(fileExt);
+      if(isViewable){
+        h+='<button class="fv-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/view\',\'_blank\')">View</button>';
+      }else{
+        h+='<button class="fv-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/download\',\'_blank\')">View</button>';
+      }
       h+='<button class="fd-btn" onclick="window.open(\'/api/governance/files/'+fileId+'/download\',\'_blank\')">Download</button>';
     }
     h+='<button class="fr-rm" '+(EDIT_MODE?'':'disabled')+' style="'+(EDIT_MODE?'':'opacity:0.3;cursor:not-allowed')+'" onclick="if(!EDIT_MODE){alert(\'Press Edit to remove files\');return;}if(confirm(\'Delete this reference document?\')){deleteRefDoc('+fileId+')}">Remove</button>';
