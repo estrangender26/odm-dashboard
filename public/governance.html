@@ -1313,7 +1313,7 @@ function tMComp(m,d){var st=CU().ms[m];st.compDate=d;st.done=d&&d.length>0;SV();
 function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
 
 // EDIT / SAVE / CANCEL
-function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';}
+function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';;renderRefDocs()}
 // Sync ALL existing interactive controls with current EDIT_MODE
 function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   // Checkboxes (Done)
