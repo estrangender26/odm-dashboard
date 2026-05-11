@@ -832,7 +832,6 @@ async function fetchStateFromDB(facility){
       REFERENCE_DOCS=data.referenceFiles.map(function(f){
         return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
       });
-      setStatus('Done: '+mCount+' milestones, '+fCount+' files, '+REFERENCE_DOCS.length+' refs');
     }
 
     var fCount=0;
@@ -1353,7 +1352,7 @@ function saveAll(){
     console.log('[EDIT] Saving',PENDING_REF.length,'pending reference file(s)');
     PENDING_REF.forEach(function(pf){
       if(pf.data){
-        saveFileToDB('all','__ref','references',pf.name,pf.data);
+        saveFileToDB('all','__ref','references',{n:pf.name,d:pf.data,s:pf.size});
       }
     });
     PENDING_REF=[];
