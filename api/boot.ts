@@ -10,7 +10,7 @@ import { createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import fs from "fs";
 import path from "path";
-import { governanceMilestoneState, governanceUploads } from "../db/schema";
+import { governanceMilestoneState, governanceUploads, kpiScorecard } from "../db/schema";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -518,6 +518,99 @@ if (env.isProduction) {
     });
   });
   
+  // ===== MONTHLY KPI SCORECARD API =====
+  
+  // GET /api/scorecard/business-units — list all BUs
+  app.get("/api/scorecard/business-units", async (c) => {
+    return c.json({
+      units: [
+        { id: "amd-ez", name: "AMD-EZ" },
+        { id: "laguna", name: "Laguna Water" },
+        { id: "clark", name: "Clark Water" },
+        { id: "tagum", name: "Tagum Water" },
+        { id: "estate", name: "Estate Water" },
+      ],
+      kpis: [
+        { key: "pm_compliance", name: "PM Compliance", unit: "%", benchmark: 95, icon: "bx-wrench" },
+        { key: "schedule_compliance", name: "Schedule Compliance", unit: "%", benchmark: 90, icon: "bx-calendar-check" },
+        { key: "budget_spend_pct", name: "Budget Spend", unit: "%", benchmark: 100, icon: "bx-dollar-circle" },
+        { key: "pmcm_wo_ratio", name: "PM:CM Ratio (WO)", unit: "%", benchmark: 86, icon: "bx-wrench" },
+        { key: "pmcm_cost_ratio", name: "PM:CM Ratio (Cost)", unit: "%", benchmark: 60, icon: "bx-money" },
+        { key: "mtbf", name: "MTBF", unit: "days", benchmark: 0, icon: "bx-time" },
+        { key: "mttr", name: "MTTR", unit: "days", benchmark: 0, icon: "bx-stopwatch" },
+        { key: "facility_uptime", name: "Facility Uptime", unit: "%", benchmark: 99.97, icon: "bx-building" },
+      ]
+    });
+  });
+
+  // GET /api/scorecard/records — list all scorecard records
+  app.get("/api/scorecard/records", async (c) => {
+    try {
+      const db = getDb();
+      const year = parseInt(c.req.query("year") || "2026");
+      const rows = await db.select().from(kpiScorecard).where(sql`${kpiScorecard.year} = ${year}`).orderBy(kpiScorecard.month, kpiScorecard.businessUnit);
+      return c.json({ records: rows });
+    } catch (e: any) {
+      return c.json({ error: e.message, records: [] }, 500);
+    }
+  });
+
+  // POST /api/scorecard/records — create a new scorecard record
+  app.post("/api/scorecard/records", async (c) => {
+    try {
+      const db = getDb();
+      const body = await c.req.json();
+      const result = await db.insert(kpiScorecard).values({
+        businessUnit: body.businessUnit,
+        month: body.month,
+        year: body.year,
+        plannedBudget: body.plannedBudget || 0,
+        actualBudget: body.actualBudget || 0,
+        pmPlanned: body.pmPlanned || 0,
+        pmActual: body.pmActual || 0,
+        pmOngoing: body.pmOngoing || 0,
+        pmScheduled: body.pmScheduled || 0,
+        cmInprogress: body.cmInprogress || 0,
+        recovery: body.recovery || 0,
+        pmCompliance: body.pmCompliance || 0,
+        scheduleCompliance: body.scheduleCompliance || 0,
+        budgetSpendPct: body.budgetSpendPct || 0,
+        pmcmWoRatio: body.pmcmWoRatio || 0,
+        pmcmCostRatio: body.pmcmCostRatio || 0,
+        mtbf: body.mtbf || 0,
+        mttr: body.mttr || 0,
+        facilityUptime: body.facilityUptime || 0,
+      }).returning();
+      return c.json({ record: result[0] });
+    } catch (e: any) {
+      return c.json({ error: e.message }, 500);
+    }
+  });
+
+  // DELETE /api/scorecard/records/:id
+  app.delete("/api/scorecard/records/:id", async (c) => {
+    try {
+      const db = getDb();
+      const id = parseInt(c.req.param("id"));
+      await db.delete(kpiScorecard).where(eq(kpiScorecard.id, id));
+      return c.json({ success: true });
+    } catch (e: any) {
+      return c.json({ error: e.message }, 500);
+    }
+  });
+
+  // GET /api/scorecard/summary — get summary heatmap data
+  app.get("/api/scorecard/summary", async (c) => {
+    try {
+      const db = getDb();
+      const year = parseInt(c.req.query("year") || "2026");
+      const rows = await db.select().from(kpiScorecard).where(sql`${kpiScorecard.year} = ${year}`).orderBy(kpiScorecard.month);
+      return c.json({ records: rows, year });
+    } catch (e: any) {
+      return c.json({ error: e.message, records: [] }, 500);
+    }
+  });
+
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);
 
