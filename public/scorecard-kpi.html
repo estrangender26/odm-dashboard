@@ -122,24 +122,117 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 /* FOOTER */
 .footer{text-align:center;padding:20px;color:var(--muted);font-size:11px;border-top:1px solid var(--border);margin-top:20px}
 
-/* RESPONSIVE */
-@media(max-width:768px){
-  .hdr-in{padding:8px 12px}
+/* ===== RESPONSIVE ===== */
+
+/* LAPTOP: 1024px-1279px */
+@media(max-width:1279px){
+  .hdr-in{padding:8px 16px}
+  .brand img{width:56px;height:56px}
+  .main{padding:14px 16px 32px}
+  .chart-row{grid-template-columns:repeat(auto-fit,minmax(350px,1fr))}
+  .chart-wrap{height:260px}
+}
+
+/* TABLET: 768px-1023px */
+@media(max-width:1023px){
+  .hdr-in{padding:8px 12px;gap:8px}
   .brand img{width:48px;height:48px}
-  .main{padding:10px 12px 30px}
-  .gauge-grid{grid-template-columns:repeat(2,1fr)}
+  .brand h1{font-size:13px}
+  .brand span{font-size:9px}
+  .main{padding:12px 12px 30px}
+  .controls{gap:8px}
+  .ctrl-btn{padding:7px 12px;font-size:11px}
+  .tabs{padding:3px}
+  .tab{padding:7px 14px;font-size:11px}
+  .matrix-card{padding:16px}
+  .matrix-title{font-size:14px}
+  .matrix-table{font-size:12px}
+  .matrix-table th,.matrix-table td{padding:8px 6px}
+  .gauge-grid{grid-template-columns:repeat(2,1fr);gap:10px}
+  .gauge-card{padding:14px}
+  .gauge-value{font-size:24px}
   .chart-row{grid-template-columns:1fr}
   .chart-wrap{height:240px}
-  .matrix-table{font-size:11px}
+  .chart-card{padding:14px}
+  .modal{max-width:95vw;padding:20px}
+  .form-table{font-size:12px}
+  .form-table th,.form-table td{padding:7px 6px}
+}
+
+/* MOBILE: 640px-767px */
+@media(max-width:767px){
+  .hdr-in{flex-direction:column;align-items:flex-start;gap:6px;padding:8px}
+  .brand img{width:40px;height:40px}
+  .brand h1{font-size:12px}
+  .main{padding:10px 10px 30px}
+  .controls{flex-direction:column;align-items:stretch;width:100%}
+  .controls>*{width:100%;justify-content:center}
+  .ctrl-btn{width:100%;justify-content:center}
+  select.ctrl-gray{width:100%}
+  .tabs{gap:1px;padding:2px}
+  .tab{padding:6px 10px;font-size:10px}
+  .matrix-card{padding:12px}
+  .matrix-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;font-size:11px}
   .matrix-table th,.matrix-table td{padding:6px 4px}
-  .modal{padding:16px}
+  .gauge-grid{grid-template-columns:1fr 1fr;gap:8px}
+  .gauge-card{padding:12px}
+  .gauge-value{font-size:22px}
+  .gauge-benchmark{font-size:11px}
+  .chart-wrap{height:220px}
+  .legend{gap:10px}
+  .legend-item{font-size:11px}
+  .modal{max-width:100vw;max-height:100vh;border-radius:0;padding:16px}
+  .modal-overlay{padding:0}
+  .modal-title{font-size:16px}
+  .form-table input{padding:7px;font-size:12px}
+}
+
+/* SMALL MOBILE: 480px-639px */
+@media(max-width:639px){
+  .hdr-in{padding:6px 8px}
+  .brand h1{font-size:11px}
+  .main{padding:8px 8px 24px}
+  .ctrl-btn{padding:6px 10px;font-size:10px}
+  .matrix-title{font-size:13px}
+  .matrix-table th{font-size:9px;padding:5px 3px}
+  .matrix-table td{padding:5px 3px;font-size:10px}
+  .gauge-grid{grid-template-columns:1fr}
+  .gauge-value{font-size:20px}
+  .chart-wrap{height:200px}
+  .chart-title{font-size:12px}
   .form-table{font-size:11px}
   .form-table input{padding:6px;font-size:11px}
 }
-@media(max-width:480px){
-  .gauge-grid{grid-template-columns:1fr}
-  .matrix-table{display:block;overflow-x:auto;white-space:nowrap}
-  .tabs{overflow-x:auto}
+
+/* TINY: 360px-479px */
+@media(max-width:479px){
+  .brand img{width:36px;height:36px}
+  .brand h1{font-size:10px}
+  .brand span{font-size:8px}
+  .main{padding:6px 6px 20px}
+  .tabs{padding:2px}
+  .tab{padding:5px 8px;font-size:9px}
+  .gauge-value{font-size:18px}
+  .gauge-title{font-size:10px}
+  .chart-wrap{height:180px}
+  .modal{padding:12px}
+  .modal-title{font-size:14px}
+  .modal-close{font-size:20px}
+  .form-table{font-size:10px}
+  .form-table input{padding:5px;font-size:10px}
+  .footer{padding:14px;font-size:10px}
+}
+
+/* EXTRA TINY: below 360px */
+@media(max-width:359px){
+  .brand h1{font-size:9px}
+  .main{padding:4px}
+  .ctrl-btn{font-size:9px;padding:5px 8px}
+  .tab{padding:4px 6px;font-size:8px}
+  .gauge-value{font-size:16px}
+  .chart-wrap{height:160px}
+  .matrix-table{font-size:9px}
+  .form-table{font-size:9px}
 }
 </style>
 </head>
