@@ -18,6 +18,8 @@
     coverageGapDays: 14,          // days since inspection = gap
     topNAssets: 5,                // top recurring assets to highlight
     rollingWindow: 3,             // days for rolling average
+    minNegFindingsForRisk: 10,    // min total negative findings before risk insights fire
+    minDistinctAssetsForRisk: 5,  // min distinct assets before dominance insights fire
   };
 
   const SEVERITY = { INFO: 'info', LOW: 'low', MEDIUM: 'medium', HIGH: 'high', CRITICAL: 'critical' };
@@ -81,10 +83,14 @@
     });
 
     const dates = Array.from(dailyMap.keys()).sort();
-    if (dates.length < 2) return insights;
+    if (dates.length < 4) return insights; // need at least 4 days for meaningful trends
 
     const distinctArr = dates.map(d => dailyMap.get(d).assets.size);
     const totalArr = dates.map(d => dailyMap.get(d).total);
+
+    // Minimum total negative findings before trend insights fire
+    const totalNegFindings = distinctArr.reduce((a, b) => a + b, 0);
+    if (totalNegFindings < 5) return insights;
 
     // Compare latest vs previous period
     const half = Math.floor(dates.length / 2);
@@ -163,36 +169,42 @@
       .sort((a, b) => b.distinct - a.distinct);
 
     const totalDistinct = sorted.reduce((s, d) => s + d.distinct, 0);
+    const totalNegRecords = sorted.reduce((s, d) => s + d.total, 0);
 
-    // Top category dominance
-    if (sorted.length > 0 && totalDistinct > 0) {
-      const topPct = Math.round((sorted[0].distinct / totalDistinct) * 100);
-      if (topPct >= 40) {
-        insights.push({
-          type: TYPE.RISK, severity: topPct >= 60 ? SEVERITY.CRITICAL : SEVERITY.HIGH,
-          title: `${sorted[0].category} Systems Dominate Negative Findings`,
-          description: `${sorted[0].category} accounts for ${topPct}% of distinct equipment with negative findings (${sorted[0].distinct} assets).`,
-          metric: `${topPct}% of total`,
-          recommendation: `Prioritize preventive maintenance planning for ${sorted[0].category.toLowerCase()} systems. Review recurring failure patterns.`
-        });
-      }
+    // Skip risk insights if data is too sparse to be meaningful
+    if (totalNegRecords < config.minNegFindingsForRisk || totalDistinct < config.minDistinctAssetsForRisk) {
+      // Still check for recurring individual assets
+    } else {
+      // Top category dominance
+      if (sorted.length > 0 && totalDistinct > 0) {
+        const topPct = Math.round((sorted[0].distinct / totalDistinct) * 100);
+        if (topPct >= 40) {
+          insights.push({
+            type: TYPE.RISK, severity: topPct >= 60 ? SEVERITY.CRITICAL : SEVERITY.HIGH,
+            title: `${sorted[0].category} Systems Dominate Negative Findings`,
+            description: `${sorted[0].category} accounts for ${topPct}% of distinct equipment with negative findings (${sorted[0].distinct} of ${totalDistinct} assets, ${sorted[0].total} records).`,
+            metric: `${topPct}% of ${totalDistinct} assets`,
+            recommendation: `Prioritize preventive maintenance planning for ${sorted[0].category.toLowerCase()} systems. Review recurring failure patterns.`
+          });
+        }
 
-      // Pareto insight
-      let cum = 0;
-      let paretoCount = 0;
-      for (const s of sorted) {
-        cum += s.distinct;
-        paretoCount++;
-        if ((cum / totalDistinct) * 100 >= config.paretoThreshold) break;
-      }
-      if (paretoCount < sorted.length) {
-        insights.push({
-          type: TYPE.RISK, severity: SEVERITY.MEDIUM,
-          title: 'Pareto Concentration Detected',
-          description: `${paretoCount} of ${sorted.length} equipment categories account for 80% of distinct negative findings.`,
-          metric: `${paretoCount}/${sorted.length} categories`,
-          recommendation: 'Focus corrective efforts on the top equipment categories for maximum impact.'
-        });
+        // Pareto insight
+        let cum = 0;
+        let paretoCount = 0;
+        for (const s of sorted) {
+          cum += s.distinct;
+          paretoCount++;
+          if ((cum / totalDistinct) * 100 >= config.paretoThreshold) break;
+        }
+        if (paretoCount < sorted.length && sorted.length >= 3) {
+          insights.push({
+            type: TYPE.RISK, severity: SEVERITY.MEDIUM,
+            title: 'Pareto Concentration Detected',
+            description: `${paretoCount} of ${sorted.length} equipment categories account for 80% of distinct negative findings.`,
+            metric: `${paretoCount}/${sorted.length} categories`,
+            recommendation: 'Focus corrective efforts on the top equipment categories for maximum impact.'
+          });
+        }
       }
     }
 
@@ -353,11 +365,11 @@
   function generateRecommendations(insights, rows) {
     const recs = [];
 
-    // If many negative findings overall
+    // If many negative findings overall (threshold: at least 10 negative records)
     const negCount = rows.filter(r => hasNegativeFindings(r)).length;
     const negPct = rows.length > 0 ? Math.round((negCount / rows.length) * 100) : 0;
 
-    if (negPct >= 10) {
+    if (negCount >= 10 && negPct >= 10) {
       recs.push({
         type: TYPE.RECOMMENDATION, severity: SEVERITY.HIGH,
         title: 'High Negative Finding Rate',
@@ -365,7 +377,7 @@
         metric: `${negPct}% negative rate`,
         recommendation: 'Initiate a focused maintenance campaign. Use the Pareto chart to target the highest-impact equipment categories first.'
       });
-    } else if (negPct > 0) {
+    } else if (negCount >= 10 && negPct > 0) {
       recs.push({
         type: TYPE.RECOMMENDATION, severity: SEVERITY.INFO,
         title: 'Negative Finding Rate Within Normal Range',
