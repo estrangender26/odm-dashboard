@@ -1290,9 +1290,9 @@
                 <path d="M3 3v18h18"/><path d="M7 16v-3"/><path d="M11 16V8"/><path d="M15 16v-5"/><path d="M19 16v-9"/>
               </svg>
             </span>
-            Pareto Analysis of Negative Findings
+            Pareto Analysis of Repetitive Equipment Issues
           </h3>
-          <span class="card-badge">Operational Analytics</span>
+          <span class="card-badge">Distinct Asset-Based Negative Findings</span>
         </div>
         <div class="cumulative-box" style="background:linear-gradient(135deg,#FFFBEB,#FEF3C7);border-color:#FDE68A">
           <div class="cumulative-icon" style="background:#FEF3C7;color:#D97706">
@@ -1301,7 +1301,7 @@
             </svg>
           </div>
           <div>
-            <div class="cumulative-label">Categories at 80%</div>
+            <div class="cumulative-label">Equipment Types at 80%</div>
             <div class="cumulative-value" id="pareto80Value">—</div>
           </div>
         </div>
@@ -1987,50 +1987,68 @@ function updateEscalationChart(rows) {
 }
 
 /* ============================================================
-   CHART: Pareto Analysis of Negative Findings
+   CHART: Pareto Analysis of Repetitive Equipment Issues
    ============================================================ */
 
 function updateParetoChart(rows) {
   const ctx = document.getElementById('chartPareto').getContext('2d');
 
-  // Group negative findings by EquipmentType (fallback to AssetTag/AssetName)
-  const catMap = new Map();
+  // Deduplication: group by EquipmentType, track UNIQUE assets + total inspections
+  // catData: Map<category, { assets: Set<string>, total: number }>
+  const catData = new Map();
   rows.forEach(r => {
     if (!hasNegativeFindings(r)) return;
-    const cat = r.EquipmentType || r.AssetTag || r.AssetName || 'Unknown';
-    catMap.set(cat, (catMap.get(cat) || 0) + 1);
+
+    const category = r.EquipmentType || 'Unknown';
+    // Unique equipment identifier priority: AssetTag > AssetName > composite
+    const assetId = r.AssetTag || r.AssetName || (r.Plant + '|' + category) || 'Unknown';
+
+    if (!catData.has(category)) {
+      catData.set(category, { assets: new Set(), total: 0 });
+    }
+    const data = catData.get(category);
+    data.assets.add(assetId);   // unique equipment per category
+    data.total++;                // total repeated inspections
   });
 
-  // Sort descending by count
-  const sorted = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
+  // Sort by distinct unique equipment count (descending)
+  const sorted = Array.from(catData.entries())
+    .map(([cat, data]) => ({
+      category: cat,
+      distinct: data.assets.size,
+      total: data.total
+    }))
+    .sort((a, b) => b.distinct - a.distinct);
+
   if (sorted.length === 0) {
     document.getElementById('pareto80Value').textContent = '—';
     if (chartPareto) { chartPareto.destroy(); chartPareto = null; }
     return;
   }
 
-  // Limit to top 15 for readability
+  // Top 15 for readability
   const top = sorted.slice(0, 15);
-  const labels = top.map(([cat]) => cat);
-  const counts = top.map(([, c]) => c);
-  const total = counts.reduce((a, b) => a + b, 0);
+  const labels = top.map(d => d.category);
+  const distinctCounts = top.map(d => d.distinct);
+  const totalInspections = top.map(d => d.total);
+  const totalDistinct = distinctCounts.reduce((a, b) => a + b, 0);
 
-  // Compute cumulative percentage
+  // Cumulative percentage (based on DISTINCT counts)
   let cum = 0;
-  const cumPct = counts.map(c => {
+  const cumPct = distinctCounts.map(c => {
     cum += c;
-    return parseFloat(((cum / total) * 100).toFixed(1));
+    return parseFloat(((cum / totalDistinct) * 100).toFixed(1));
   });
 
   // Find how many categories hit 80%
   let catsAt80 = cumPct.findIndex(p => p >= 80);
-  if (catsAt80 === -1) catsAt80 = counts.length - 1;
-  else catsAt80 += 1; // convert to 1-based count
-  const pctOfTotal = Math.round((catsAt80 / counts.length) * 100);
+  if (catsAt80 === -1) catsAt80 = distinctCounts.length - 1;
+  else catsAt80 += 1;
+  const pctOfTotal = Math.round((catsAt80 / distinctCounts.length) * 100);
   document.getElementById('pareto80Value').textContent =
-    catsAt80 + ' of ' + counts.length + ' (' + pctOfTotal + '%)';
+    catsAt80 + ' of ' + distinctCounts.length + ' (' + pctOfTotal + '%)';
 
-  // Truncate long labels for display
+  // Truncate labels for display
   const displayLabels = labels.map(l => l.length > 18 ? l.slice(0, 16) + '…' : l);
 
   if (chartPareto) chartPareto.destroy();
@@ -2069,8 +2087,8 @@ function updateParetoChart(rows) {
         },
         {
           type: 'bar',
-          label: 'Negative Findings',
-          data: counts,
+          label: 'Distinct Equipment',
+          data: distinctCounts,
           backgroundColor: 'rgba(220,38,38,0.55)',
           borderColor: '#DC2626',
           borderWidth: 1,
@@ -2104,13 +2122,15 @@ function updateParetoChart(rows) {
           padding: 12,
           cornerRadius: 8,
           callbacks: {
-            title: (items) => {
-              const idx = items[0].dataIndex;
-              return labels[idx]; // full label in tooltip
-            },
+            title: (items) => labels[items[0].dataIndex],
             label: (item) => {
-              if (item.dataset.label === 'Negative Findings') {
-                return item.dataset.label + ': ' + item.raw.toLocaleString();
+              const idx = item.dataIndex;
+              if (item.dataset.label === 'Distinct Equipment') {
+                return [
+                  'Distinct equipment: ' + distinctCounts[idx],
+                  'Total inspections: ' + totalInspections[idx],
+                  'Cumulative: ' + cumPct[idx] + '%'
+                ];
               }
               return item.dataset.label + ': ' + item.raw + '%';
             }
@@ -2135,7 +2155,7 @@ function updateParetoChart(rows) {
           grid: { color: 'rgba(0,91,172,0.04)', drawBorder: false },
           ticks: { font: { family: 'Inter', size: 10 }, color: '#8BA3B8', precision: 0 },
           beginAtZero: true,
-          title: { display: true, text: 'Count', font: { size: 10, family: 'Inter' }, color: '#8BA3B8' }
+          title: { display: true, text: 'Distinct Count', font: { size: 10, family: 'Inter' }, color: '#8BA3B8' }
         },
         y1: {
           type: 'linear',
