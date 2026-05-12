@@ -179,7 +179,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'center', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
-        <span style={{ fontWeight: 600, color: '#16324F' }}>Programs</span> — Program Oversight Center
+        Programs © 2026
       </footer>
     </div>
   );

@@ -1237,7 +1237,7 @@ export default function GovernanceDashboard() {
       </main>
 
       <footer className="text-center py-5 text-sm text-gray-500 border-t border-gray-200 mt-6">
-        OM Governance Dashboard — Multi-User Facility Tracking
+        Programs © 2026
       </footer>
     </div>
   );

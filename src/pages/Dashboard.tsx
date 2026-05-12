@@ -647,7 +647,7 @@ export default function Dashboard() {
       </main>
 
       <footer className="text-center py-5 text-sm text-gray-500 border-t border-gray-200 mt-4">
-        Maintenance Planning (Post-PPP) &#8212; Programs
+        Programs © 2026
       </footer>
 
 
