@@ -173,38 +173,20 @@ app.post("/api/governance/files", async (c) => {
     const db = getDb();
     const slug = facilitySlug.toLowerCase();
     const mid = milestoneId || "__ref";
-    // Check for existing
-    const existing = await db.execute(sql`
-      SELECT id, file_name, file_url FROM governance_uploads
-      WHERE facility_slug = ${slug} AND milestone_id = ${mid} AND file_name = ${filename}
-      LIMIT 1
-    `);
-    const existingRows = (existing as any).rows || (existing as any) || [];
-    if (existingRows.length > 0) {
-      console.log("[API] POST files existing found:", existingRows[0]);
-      return c.json({ id: existingRows[0].id, file: existingRows[0], existing: true });
-    }
-    // Insert
+    // Single INSERT with RETURNING — replaces 3 round-trips (check + insert + select)
     console.log("[API] POST files inserting:", slug, mid, filename);
-    await db.execute(sql`
+    const result = await db.execute(sql`
       INSERT INTO governance_uploads
         (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at)
       VALUES
         (${slug}, ${mid}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt).toISOString() : new Date().toISOString()})
+      RETURNING id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at
     `);
-    // SELECT back the inserted row to get the generated id
-    const inserted = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at
-      FROM governance_uploads
-      WHERE facility_slug = ${slug} AND milestone_id = ${mid} AND file_name = ${filename}
-      ORDER BY id DESC
-      LIMIT 1
-    `);
-    const insRows = (inserted as any).rows || (inserted as any) || [];
-    console.log("[API] POST files inserted row:", insRows[0] ? JSON.stringify(insRows[0]).substring(0,100) : "none");
-    const row = Array.isArray(insRows) && insRows.length > 0 ? insRows[0] : null;
+    const rows = (result as any).rows || (result as any) || [];
+    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    console.log("[API] POST files row:", row ? JSON.stringify(row).substring(0,100) : "none");
     if (!row || !row.id) {
-      return c.json({ error: "insert succeeded but row not found" }, 500);
+      return c.json({ error: "insert returned no row" }, 500);
     }
     return c.json({ id: row.id, file: row, success: true });
   } catch (e: any) {
