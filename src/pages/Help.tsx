@@ -99,6 +99,31 @@ export default function Help() {
             </div>
           </div>
 
+          {/* Monthly KPI Scorecard */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#F0F9FF' }}>📈</div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Monthly KPI Scorecard</h3>
+                <p className="text-xs text-gray-500">/scorecard-kpi.html (standalone)</p>
+              </div>
+            </div>
+            <div className="space-y-3 text-sm text-gray-700">
+              <p><strong>What it does:</strong> Track 8 KPIs across 5 business units with color-coded performance, Excel import, and budget analytics.</p>
+              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                <p className="font-semibold text-gray-900 text-xs uppercase tracking-wide">How to use</p>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                  <li><strong>Select Year/Month:</strong> Choose the year and month from the dropdowns, then click Load.</li>
+                  <li><strong>Input Manually:</strong> Click Input Data Manually to enter KPI values per business unit.</li>
+                  <li><strong>Import Excel:</strong> Upload a pre-formatted Excel file with KPI data. Use the Import Excel button.</li>
+                  <li><strong>Color Codes:</strong> Green = passed benchmark, Yellow = missing data, Red = below benchmark.</li>
+                  <li><strong>Business Units:</strong> Manila Water / EZ, Laguna Water, Clark Water, Tagum Water.</li>
+                  <li><strong>Clear:</strong> Click Clear to remove all data for the selected period.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
           {/* General Tips */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
             <div className="flex items-center gap-3 mb-4">
@@ -119,6 +144,10 @@ export default function Help() {
 
         </div>
       </main>
+
+      <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'right', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
+        Program Oversight Center &copy; 2026
+      </footer>
     </div>
   );
 }
