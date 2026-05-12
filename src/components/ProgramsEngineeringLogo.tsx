@@ -20,7 +20,7 @@ interface Props {
 }
 
 const ProgramsEngineeringLogo: React.FC<Props> = ({
-  size = 36,
+  size = 56,
   borderRadius = 8,
   className = "",
   style,
