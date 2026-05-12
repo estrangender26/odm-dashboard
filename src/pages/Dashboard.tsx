@@ -383,7 +383,7 @@ export default function Dashboard() {
         <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-3 sm:py-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
             <Link to="/" className="flex items-center gap-2 sm:gap-3 no-underline text-white min-w-0">
-              <ProgramsEngineeringLogo size={0} borderRadius={8} className="w-7 h-7 sm:w-10 sm:h-10" />
+              <ProgramsEngineeringLogo size={72} borderRadius={8} />
               <div className="min-w-0">
                 <h1 className="text-sm sm:text-xl font-bold leading-tight truncate">Maintenance Planning (Post-PPP)</h1>
                 <p className="text-[10px] sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Programs</p>
