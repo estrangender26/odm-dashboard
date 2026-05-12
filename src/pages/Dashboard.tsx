@@ -650,8 +650,7 @@ export default function Dashboard() {
         Maintenance Planning (Post-PPP) &#8212; Programs
       </footer>
 
-      {/* Floating home button for mobile */}
-      <a href="/" className="fixed bottom-4 left-4 z-50 w-11 h-11 text-white rounded-full flex items-center justify-center shadow-lg text-lg hover:opacity-90 transition-transform active:scale-95 sm:hidden" style={{ background: '#0066A6' }} title="Back to Home">&#8592;</a>
+
     </div>
   );
 }

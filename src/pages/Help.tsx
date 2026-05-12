@@ -14,7 +14,7 @@ export default function Help() {
               <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Programs</span>
             </div>
           </Link>
-          <Link to="/" className="text-xs sm:text-sm font-medium px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition">Back to Home</Link>
+
         </div>
       </header>
 

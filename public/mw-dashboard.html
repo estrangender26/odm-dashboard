@@ -290,17 +290,8 @@
       width: 100%;
     }
 
-    .nav-home a {
-      color: rgba(255,255,255,0.65);
-      text-decoration: none;
-      font-size: 12px;
-      font-weight: 500;
-      padding: 6px 12px;
-      border-radius: var(--radius-sm);
-      transition: all var(--transition-fast);
-      display: flex; align-items: center; gap: 6px;
-    }
-    .nav-home a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+    
+    
 
     /* ============================================================
        MAIN LAYOUT
@@ -849,32 +840,11 @@
     /* ============================================================
        FLOATING HOME BUTTON (Mobile)
        ============================================================ */
-    .float-home {
-      position: fixed;
-      bottom: 20px;
-      left: 20px;
-      z-index: 9999;
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--mw-navy), var(--mw-navy-dark));
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      text-decoration: none;
-      box-shadow: var(--shadow-lg);
-      transition: all var(--transition-base);
-      border: 1px solid rgba(255,255,255,0.1);
-    }
+    
 
-    .float-home:hover {
-      transform: translateY(-3px) scale(1.05);
-      box-shadow: var(--shadow-xl);
-    }
+    
 
-    .float-home:active { transform: scale(0.95); }
+    
 
     /* ============================================================
        SECTION HEADER
@@ -977,8 +947,8 @@
       .brand-logo { width: 72px; height: 72px; }
       .brand-logo img { width: 72px; height: 72px; }
       .brand-text h1 { font-size: 14px; }
-      .brand-text span { display: none; }
-      .header-center { display: none; }
+      .brand-text span
+      .header-center
       .header-actions {
         flex: 1 1 100%;
         justify-content: flex-end;
@@ -992,7 +962,7 @@
         gap: 4px;
       }
       .header-actions .btn svg { width: 12px; height: 12px; }
-      .nav-home { display: none; }
+      
       .main { padding: var(--space-3); padding-bottom: calc(var(--space-3) + 60px); }
 
       /* --- Filters: 2-column compact grid --- */
@@ -1043,13 +1013,7 @@
       .tab-content { padding: var(--space-3); }
 
       /* --- Floating home button --- */
-      .float-home {
-        display: flex;
-        width: 44px; height: 44px;
-        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-        right: 12px; left: auto;
-        font-size: 16px;
-      }
+      
       .section-divider { margin: var(--space-4) 0 var(--space-3); }
       .alert { padding: 10px 14px; font-size: 12px; margin-bottom: var(--space-4); }
       .empty-state { padding: 60px 16px; }
@@ -1065,7 +1029,7 @@
     }
 
     @media (min-width: 769px) {
-      .float-home { display: none; }
+      
     }
 
     /* ============================================================
@@ -1099,14 +1063,7 @@
     </div>
 
     <div class="header-actions">
-      <div class="nav-home">
-        <a href="/">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-          </svg>
-          Home
-        </a>
-      </div>
+
 
       <button class="btn btn-ghost" id="refreshBtn" style="display:none">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -1484,12 +1441,7 @@
   </main>
 </div>
 
-<!-- Floating Home Button -->
-<a href="/" class="float-home" title="Back to Home">
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-  </svg>
-</a>
+
 
 <script>
 /* ============================================================
