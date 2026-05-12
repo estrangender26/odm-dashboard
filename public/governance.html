@@ -491,7 +491,7 @@ async function fetchStateFromDB(facility,opts){
     if(m1State&&m1State.pppDate){
       ST[facility].pp=m1State.pppDate;
       var ppInp=document.getElementById('pp');
-      if(ppInp){ppInp.value=fmtDate(ST[facility].pp);}
+      if(ppInp){ppInp.value=ST[facility].pp||'';}
     }
     if(which==='all'||which==='references'){
       REFERENCE_DOCS=refFiles.map(function(f){
@@ -661,7 +661,7 @@ async function INIT(){
     SV();
     // Fetch all data for new facility
     await fetchStateFromDB(e.target.value,{which:'all'});
-    document.getElementById('pp').value=fmtDate(ST[e.target.value]?ST[e.target.value].pp:'');
+    document.getElementById('pp').value=ST[e.target.value]?ST[e.target.value].pp||'':'';
     ALL();
     syncEditMode();
   });
@@ -692,7 +692,7 @@ async function INIT(){
   var m1s=ST[f]&&ST[f].ms&&ST[f].ms['M1'];
   if(m1s&&m1s.pppDate&&ST[f].pp!==m1s.pppDate){ST[f].pp=m1s.pppDate;}
   var ppVal=ST[f]?ST[f].pp:'';
-  document.getElementById('pp').value=fmtDate(ppVal);
+  document.getElementById('pp').value=ppVal||'';
   idbg('6: pp='+ppVal);
   ALL();
   idbg('7: done');
@@ -1122,7 +1122,7 @@ function cancelEdit(){
     var f=document.getElementById('fs').value;
     if(ST[f])ST[f].pp=DRAFT_PP;
     var ppInp=document.getElementById('pp');
-    if(ppInp)ppInp.value=fmtDate(DRAFT_PP);
+    if(ppInp)ppInp.value=DRAFT_PP||'';
     console.log('[EDIT] PPP reverted to:',DRAFT_PP);
   }
   DRAFT_PP=null;
