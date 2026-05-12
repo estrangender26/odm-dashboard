@@ -478,6 +478,12 @@ async function fetchStateFromDB(facility){
       if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
       mCount++;
     });
+    // Sync PPP start date from M1 (or default milestone) to facility top-level
+    var m1State=ST[facility].ms['M1'];
+    if(m1State&&m1State.pppDate){
+      ST[facility].pp=m1State.pppDate;
+      console.log('[API] Synced PPP date for',facility,':',m1State.pppDate);
+    }
 
     console.log('[API] refFiles raw:',JSON.stringify(refFiles).substring(0,300));
     REFERENCE_DOCS=refFiles.map(function(f){
@@ -502,6 +508,9 @@ async function fetchStateFromDB(facility){
     });
 
     setStatus('Done: '+mCount+' milestones, '+fCount+' files, '+REFERENCE_DOCS.length+' refs');
+    // Update PPP date input after fetch
+    var ppInput=document.getElementById('pp');
+    if(ppInput&&ST[facility]&&ST[facility].pp){ppInput.value=ST[facility].pp;}
     return {milestones:mCount,files:fCount};
   }catch(e){
     setStatus('Error: '+(e&&e.message?e.message:String(e)));
