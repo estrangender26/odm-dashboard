@@ -302,7 +302,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
     </div>
     <div class="hdr-chip">
       <label>PPP Start</label>
-      <input type="text" id="pp" disabled placeholder="JAN-01-2026" style="width:110px;text-align:center;font-weight:600;color:var(--mw-navy);">
+      <input type="date" id="pp" disabled placeholder="--" style="width:110px;text-align:center;font-weight:600;color:var(--mw-navy);">
     </div>
     <button class="btn-g" onclick="forceRefresh()" title="Refresh uploads from server">🔄 Refresh</button>
     <button class="btn-r" onclick="rsA()">Reset</button>
@@ -666,32 +666,15 @@ async function INIT(){
     syncEditMode();
   });
 
-  // PPP date: text display (JAN-01-2026), date picker on focus
-  var ppInp=document.getElementById('pp');
-  ppInp.addEventListener('focus',function(){
-    if(!EDIT_MODE)return;
-    var f=document.getElementById('fs').value;
-    var isoVal=parseDate(this.value)||(ST[f]&&ST[f].pp)||'';
-    this.type='date';
-    this.value=isoVal;
-  });
-  ppInp.addEventListener('change',function(e){
-    if(!EDIT_MODE)return;
-    var isoDate=e.target.value;
-    this.type='text';
-    this.value=isoDate?fmtDate(isoDate):'';
+  // PPP date change
+  document.getElementById('pp').addEventListener('change',function(e){
+    if(!EDIT_MODE){return;}
     var f=document.getElementById('fs').value;
     if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
-    ST[f].pp=isoDate;
-    DRAFT_PP=isoDate;
-    console.log('[PPP] Changed to',isoDate,'(pending save)');
+    ST[f].pp=e.target.value;
+    DRAFT_PP=e.target.value;
+    console.log('[PPP] Changed to',e.target.value,'(pending save)');
     ALL();
-  });
-  ppInp.addEventListener('blur',function(){
-    if(!EDIT_MODE)return;
-    var isoVal=this.value;
-    this.type='text';
-    this.value=isoVal?fmtDate(isoVal):'';
   });
 
   // Initial load: fetch ONLY progress data for fast first render
@@ -825,15 +808,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var c4=document.createElement('div');c4.style.cssText='text-align:center;font-size:11px;font-weight:600';c4.dataset.tip='Planned target date';c4.textContent=dt?fmtDate(dt):'—';metaWrap.appendChild(c4);
     // Column 5: Completion date input
     var c5=document.createElement('div');c5.className='comp-date';c5.style.cssText='text-align:center';
-    var compIn=document.createElement('input');compIn.type='text';compIn.value=fmtDate(st.compDate)||'';compIn.disabled=!EDIT_MODE;compIn.placeholder='JAN-01-2026';
+    var compIn=document.createElement('input');compIn.type='date';compIn.value=st.compDate||'';compIn.disabled=!EDIT_MODE;
     compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
     compIn.dataset.tip='Completion date';
-    compIn.addEventListener('focus',function(){
-      if(!EDIT_MODE)return;
-      var isoVal=parseDate(this.value)||st.compDate||'';
-      this.type='date';
-      this.value=isoVal;
-    });
     compIn.addEventListener('change',function(ev){
       console.log('[DATE] change fired, EDIT_MODE='+EDIT_MODE+', value='+ev.target.value);
       if(!EDIT_MODE){console.log('[DATE] Ignored - not edit mode');return;}
@@ -842,12 +819,6 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       PENDING[f].ms[mid]={compDate:ev.target.value||null};
       console.log('[DATE] PENDING updated:',PENDING);
       updateEditButtons();ALL();
-    });
-    compIn.addEventListener('blur',function(){
-      if(!EDIT_MODE)return;
-      var isoVal=this.value;
-      this.type='text';
-      this.value=isoVal?fmtDate(isoVal):'';
     });
     c5.appendChild(compIn);metaWrap.appendChild(c5);
     // Column 7: Plan% badge
@@ -1081,11 +1052,11 @@ function updateEditButtons(){var f=document.getElementById('fs').value;var hasPe
 function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   // PPP start date input
   var ppInp=document.getElementById('pp');
-  if(ppInp){ppInp.disabled=!EDIT_MODE;ppInp.readOnly=!EDIT_MODE;ppInp.style.cursor=EDIT_MODE?'pointer':'not-allowed';ppInp.style.opacity=EDIT_MODE?'1':'.5';}
+  if(ppInp){ppInp.disabled=!EDIT_MODE;ppInp.style.cursor=EDIT_MODE?'pointer':'not-allowed';ppInp.style.opacity=EDIT_MODE?'1':'.5';}
   // Checkboxes (Done)
   var cbEls=document.querySelectorAll('.msc input[type="checkbox"]');console.log('[syncEditMode] checkboxes='+cbEls.length);cbEls.forEach(function(cb){cb.disabled=!EDIT_MODE;cb.style.cursor=EDIT_MODE?'pointer':'not-allowed';cb.style.opacity=EDIT_MODE?'1':'.5';});
-  // Date inputs (completion date — switches between text display and date picker)
-  var diEls=document.querySelectorAll('.comp-date input[type="text"],.comp-date input[type="date"]');console.log('[syncEditMode] dateInputs='+diEls.length);diEls.forEach(function(inp){inp.disabled=!EDIT_MODE;inp.style.cursor=EDIT_MODE?'pointer':'not-allowed';inp.style.opacity=EDIT_MODE?'1':'.5';});
+  // Date inputs (completion date)
+  var diEls=document.querySelectorAll('.comp-date input[type="date"]');console.log('[syncEditMode] dateInputs='+diEls.length);diEls.forEach(function(inp){inp.disabled=!EDIT_MODE;inp.style.cursor=EDIT_MODE?'pointer':'not-allowed';inp.style.opacity=EDIT_MODE?'1':'.5';});
   // File inputs (hidden)
   document.querySelectorAll('input[type="file"].hidden-fi').forEach(function(fi){fi.disabled=!EDIT_MODE;});
   // Styled upload labels
