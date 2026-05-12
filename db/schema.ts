@@ -129,31 +129,3 @@ export const governanceFiles = pgTable("governance_files", {
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
 });
-
-// Monthly KPI Scorecard table
-export const kpiScorecard = pgTable("kpi_scorecard", {
-  id: serial("id").primaryKey(),
-  businessUnit: varchar("business_unit", { length: 50 }).notNull(),
-  month: integer("month").notNull(),
-  year: integer("year").notNull(),
-  plannedBudget: integer("planned_budget"),
-  actualBudget: integer("actual_budget"),
-  pmPlanned: integer("pm_planned"),
-  pmActual: integer("pm_actual"),
-  pmOngoing: integer("pm_ongoing"),
-  pmScheduled: integer("pm_scheduled"),
-  cmInprogress: integer("cm_inprogress"),
-  recovery: integer("recovery"),
-  pmCompliance: integer("pm_compliance"),
-  scheduleCompliance: integer("schedule_compliance"),
-  budgetSpendPct: integer("budget_spend_pct"),
-  pmcmWoRatio: integer("pmcm_wo_ratio"),
-  pmcmCostRatio: integer("pmcm_cost_ratio"),
-  mtbf: integer("mtbf"),
-  mttr: integer("mttr"),
-  facilityUptime: integer("facility_uptime"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [
-  index("kpi_bu_month_year_idx").on(table.businessUnit, table.month, table.year),
-]);
