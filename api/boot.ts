@@ -415,13 +415,31 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     } else if (files1 && Array.isArray((files1 as any).rows)) {
       upRows = (files1 as any).rows;
     } else if (files1 && typeof files1 === 'object') {
-      // May be a Result object with row data in various forms
       const f = files1 as any;
       if (f.rows) upRows = f.rows;
       else if (f.length) upRows = f;
     }
-    console.log("[API] uploads extracted rows:", upRows.length);
-    const allFiles = upRows;
+    console.log("[API] governance_uploads rows:", upRows.length);
+    // ALSO query governance_files (tRPC-managed table for milestone uploads)
+    const files2 = await db.execute(sql`
+      SELECT id, facility_slug, milestone_id, toc_item, file_name, file_data AS file_url, uploaded_by, uploaded_at
+      FROM governance_files
+      WHERE facility_slug = ${facilitySlug}
+      ORDER BY id DESC
+    `);
+    let gfRows: any[] = [];
+    if (Array.isArray(files2)) {
+      gfRows = files2;
+    } else if (files2 && Array.isArray((files2 as any).rows)) {
+      gfRows = (files2 as any).rows;
+    } else if (files2 && typeof files2 === 'object') {
+      const f2 = files2 as any;
+      if (f2.rows) gfRows = f2.rows;
+      else if (f2.length) gfRows = f2;
+    }
+    console.log("[API] governance_files rows:", gfRows.length);
+    // Merge both sources
+    const allFiles = [...upRows, ...gfRows];
     // Separate reference documents (milestone_id = '__ref')
     const refFiles = allFiles.filter((f: any) => f.milestone_id === '__ref' || f.category === 'references');
     const msFiles = allFiles.filter((f: any) => f.milestone_id !== '__ref' && f.category !== 'references');
