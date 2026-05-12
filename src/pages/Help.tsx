@@ -27,7 +27,7 @@ export default function Help() {
         <div className="space-y-6">
 
           {/* Maintenance Planning (Post-PPP) */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#F0F4FF' }}>📋</div>
               <div>
@@ -52,7 +52,7 @@ export default function Help() {
           </div>
 
           {/* O&M Governance */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#FFF7ED' }}>🏗️</div>
               <div>
@@ -76,7 +76,7 @@ export default function Help() {
           </div>
 
           {/* ODM Dashboard */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#F0FDF4' }}>🔧</div>
               <div>
@@ -100,7 +100,7 @@ export default function Help() {
           </div>
 
           {/* General Tips */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#FEF2F2' }}>💡</div>
               <h3 className="text-base font-bold text-gray-900">General Tips</h3>

@@ -18,7 +18,8 @@
   --green:#0A9B6E;--green-bg:#E6F5EF;--green-light:#D1FAE5;
   --yellow:#D97706;--yellow-bg:#FEF3C7;--yellow-light:#FDE68A;
   --red:#DC2626;--red-bg:#FEF2F2;--red-light:#FECACA;
-  --r:8px;--sh:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.04);
+  --r:8px;--sh:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.04);--sh-hover:0 2px 8px rgba(0,0,0,.1),0 8px 24px rgba(0,0,0,.06);
+  --transition:all .2s cubic-bezier(.4,0,.2,1);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;min-width:320px}
@@ -34,28 +35,31 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 
 /* CONTROLS */
 .controls{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
-.ctrl-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:12px;font-weight:600;font-family:inherit;border:none;border-radius:var(--r);cursor:pointer;transition:all .15s;white-space:nowrap}
-.ctrl-blue{background:var(--blue);color:#fff}
-.ctrl-blue:hover{background:#005a8f}
-.ctrl-green{background:var(--green);color:#fff}
-.ctrl-green:hover{background:#087f56}
+.ctrl-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:12px;font-weight:600;font-family:inherit;border:none;border-radius:var(--r);cursor:pointer;transition:var(--transition);white-space:nowrap}
+.ctrl-blue{background:var(--blue);color:#fff;box-shadow:0 1px 3px rgba(0,102,166,.2)}
+.ctrl-blue:hover{background:#005a8f;box-shadow:0 3px 10px rgba(0,102,166,.3);transform:translateY(-1px)}
+.ctrl-green{background:var(--green);color:#fff;box-shadow:0 1px 3px rgba(10,155,110,.2)}
+.ctrl-green:hover{background:#087f56;box-shadow:0 3px 10px rgba(10,155,110,.3);transform:translateY(-1px)}
 .ctrl-gray{background:#E2E8F0;color:var(--text);border:1px solid var(--border)}
-.ctrl-gray:hover{background:#D6DFE8}
-.ctrl-red{background:var(--red);color:#fff}
-.ctrl-red:hover{background:#b91c1c}
+.ctrl-gray:hover{background:#D6DFE8;transform:translateY(-1px)}
+.ctrl-red{background:var(--red);color:#fff;box-shadow:0 1px 3px rgba(220,38,38,.2)}
+.ctrl-red:hover{background:#b91c1c;box-shadow:0 3px 10px rgba(220,38,38,.3);transform:translateY(-1px)}
+.ctrl-btn:active{transform:scale(.97)}
 select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radius:var(--r);border:1px solid var(--border);background:#fff;cursor:pointer}
 
 /* TABS */
 .tabs{display:flex;gap:2px;background:#E2E8F0;padding:4px;border-radius:var(--r);margin-bottom:16px;overflow-x:auto}
-.tab{padding:8px 18px;font-size:12px;font-weight:600;color:var(--muted);background:transparent;border:none;border-radius:var(--r);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.tab{padding:8px 18px;font-size:12px;font-weight:600;color:var(--muted);background:transparent;border:none;border-radius:var(--r);cursor:pointer;transition:var(--transition);white-space:nowrap;flex-shrink:0;position:relative}
 .tab:hover{color:var(--navy);background:rgba(255,255,255,.5)}
-.tab.active{color:#fff;background:var(--blue)}
+.tab.active{color:#fff;background:var(--blue);box-shadow:0 2px 8px rgba(0,102,166,.25)}
+.tab.active:hover{box-shadow:0 3px 12px rgba(0,102,166,.35)}
 
 /* TC */
 .tc{display:none}.tc.active{display:block}
 
 /* SUMMARY MATRIX */
-.matrix-card{background:var(--card);border-radius:var(--r);padding:20px;box-shadow:var(--sh);border:1px solid var(--border);margin-bottom:16px}
+.matrix-card{background:var(--card);border-radius:var(--r);padding:20px;box-shadow:var(--sh);border:1px solid var(--border);margin-bottom:16px;transition:var(--transition)}
+.matrix-card:hover{box-shadow:var(--sh-hover);border-color:#C8D4E0}
 .matrix-title{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:16px}
 .matrix-table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
 .matrix-table th{padding:10px 8px;text-align:center;background:#F1F5F9;color:var(--muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid var(--border);border-right:1px solid var(--border)}
@@ -85,7 +89,8 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
 /* GAUGE CARDS */
 .gauge-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px}
-.gauge-card{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center}
+.gauge-card{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center;transition:var(--transition)}
+.gauge-card:hover{box-shadow:var(--sh-hover);border-color:#C8D4E0;transform:translateY(-2px)}
 .gauge-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .gauge-value{font-size:28px;font-weight:700;color:var(--text);margin-bottom:6px}
 .gauge-benchmark{font-size:12px;color:var(--muted);margin-bottom:8px}
@@ -96,7 +101,8 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .gauge-fill.red{background:var(--red)}
 
 /* CHARTS */
-.chart-card{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);margin-bottom:16px}
+.chart-card{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);margin-bottom:16px;transition:var(--transition)}
+.chart-card:hover{box-shadow:var(--sh-hover);border-color:#C8D4E0}
 .chart-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px}
 .chart-wrap{height:280px;position:relative}
 .chart-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:12px}
@@ -651,7 +657,4 @@ function clearData(){
 }
 
 // Close modal on overlay click
-document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
-</script>
-</body>
-</html>
+document.getElementById('modal').ad

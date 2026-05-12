@@ -42,14 +42,17 @@ export default function Home() {
           {/* Maintenance Planning (Post-PPP) */}
           <Link
             to="/equipment"
-            className="block rounded-lg p-5 border transition hover:shadow-lg hover:-translate-y-0.5"
+            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
             style={{
               background: '#FFFFFF',
               borderColor: '#D6DFE8',
               boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
               textDecoration: 'none',
               color: 'inherit',
+              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
             }}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(0,102,166,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🔧</div>
@@ -73,14 +76,17 @@ export default function Home() {
           {/* O&M Manual Governance */}
           <a
             href="/governance"
-            className="block rounded-lg p-5 border transition hover:shadow-lg hover:-translate-y-0.5"
+            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
             style={{
               background: '#FFFFFF',
               borderColor: '#D6DFE8',
               boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
               textDecoration: 'none',
               color: 'inherit',
+              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
             }}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(0,168,210,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📊</div>
@@ -104,14 +110,17 @@ export default function Home() {
           {/* Monthly KPI Scorecard */}
           <a
             href="/scorecard-kpi.html"
-            className="block rounded-lg p-5 border transition hover:shadow-lg hover:-translate-y-0.5"
+            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
             style={{
               background: '#FFFFFF',
               borderColor: '#D6DFE8',
               boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
               textDecoration: 'none',
               color: 'inherit',
+              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
             }}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(0,168,210,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📈</div>
@@ -135,14 +144,17 @@ export default function Home() {
           {/* Operator-Driven Maintenance */}
           <a
             href="/mw-dashboard.html"
-            className="block rounded-lg p-5 border transition hover:shadow-lg hover:-translate-y-0.5"
+            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
             style={{
               background: '#FFFFFF',
               borderColor: '#D6DFE8',
               boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
               textDecoration: 'none',
               color: 'inherit',
+              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
             }}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(42,170,138,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🏭</div>
