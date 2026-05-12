@@ -30,7 +30,9 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .acts select,.acts input,.acts button{padding:6px 10px;font-size:11px;font-family:inherit;border-radius:var(--r-md);border:none;outline:none;cursor:pointer}
 .acts select,.acts input{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)}
 .acts select option{background:var(--mw-navy);color:#fff}
-.acts input[type="date"]{color-scheme:dark;padding-right:4px}
+.acts input[type="date"]{color-scheme:dark;padding-right:4px;color:#fff!important;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2)}
+.acts input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1);cursor:pointer}
+.acts input[type="date"]::placeholder{color:rgba(255,255,255,.5)}
 .acts button{font-weight:600;transition:all .15s}
 .btn-p{background:var(--mw-cyan);color:#fff}.btn-p:hover{background:#0092B8}
 .btn-g{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.2)}
