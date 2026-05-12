@@ -427,6 +427,11 @@ const RJG=['OEM manuals without integration — standalone manufacturer document
 
 // STATE — DB-backed (no localStorage)
 let ST={},CH=null,PENDING={},PENDING_REF=[],EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={},DRAFT_PP=null;
+// In-memory tab cache: timestamp of last successful fetch per tab (ms)
+var TAB_CACHE={p:0,r:0,d:0,a:0};
+const CACHE_TTL=60000; // 60 seconds stale time
+const CB=function(){return '_='+Date.now();}; // cache buster
+var ACTIVE_TAB='p'; // track active tab
 const CU=()=>ST[document.getElementById('fs').value];
 const DF=()=>{
   var f=document.getElementById('fs').value;
@@ -447,30 +452,29 @@ const DF=()=>{
 const API_BASE='';
 
 // Fetch ALL state from DB — this is the ONLY source of milestone data
-async function fetchStateFromDB(facility){
-  if(!facility)return;
+async function fetchStateFromDB(facility,opts){
+  if(!facility)return null;
+  opts=opts||{};
+  var which=opts.which||'all';
   var statusEl=document.getElementById('fetch-status');
   function setStatus(msg){console.log('[API]',msg);if(statusEl)statusEl.textContent=msg;}
   try{
-    setStatus('Fetching '+facility+'...');
-    var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility);
+    setStatus('Fetching '+facility+' ('+which+')...');
+    var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility)+'?_='+Date.now();
     var ctrl=new AbortController();
     var tmr=setTimeout(function(){ctrl.abort();},5000);
     var resp=await fetch(url,{signal:ctrl.signal});
     clearTimeout(tmr);
-    if(!resp.ok){setStatus('HTTP '+resp.status);return;}
-    var raw=await resp.text();
-    var data;
-    try{data=JSON.parse(raw);}catch(pe){setStatus('JSON parse error: '+pe.message);return;}
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    var data=await resp.json();
     var states=Array.isArray(data.states)?data.states:[];
     var files=Array.isArray(data.files)?data.files:[];
     var refFiles=Array.isArray(data.referenceFiles)?data.referenceFiles:[];
-    console.log('[API] RAW files.length='+files.length,'first mid='+(files[0]?files[0].milestone_id:'none'));
-    console.log('[API] RAW refs.length='+refFiles.length);
-    setStatus('HTTP 200 | states='+states.length+' files='+files.length+' refs='+refFiles.length);
-
+    console.log('[API] states='+states.length,'files='+files.length,'refs='+refFiles.length);
+    setStatus('HTTP 200 | st='+states.length+' mf='+files.length+' rf='+refFiles.length);
     if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
-
+    if(!ST[facility].ms)ST[facility].ms={};
+    if(!ST[facility].up)ST[facility].up={};
     var mCount=0;
     states.forEach(function(s){
       var mid=s.milestone_id;if(!mid)return;
@@ -480,49 +484,43 @@ async function fetchStateFromDB(facility){
       if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
       mCount++;
     });
-    // Sync PPP start date from M1 to facility top-level
     var m1State=ST[facility].ms['M1'];
-    console.log('[PPP SYNC] facility='+facility,'m1State='+(m1State?'exists':'null'),'m1State.pppDate='+(m1State?m1State.pppDate:'n/a'),'current pp='+(ST[facility]?ST[facility].pp:'no facility'));
     if(m1State&&m1State.pppDate){
       ST[facility].pp=m1State.pppDate;
-      console.log('[PPP SYNC] SET facility.pp =',m1State.pppDate);
-    }else{
-      console.log('[PPP SYNC] SKIPPED — no M1 pppDate in DB for',facility);
+      var ppInp=document.getElementById('pp');
+      if(ppInp){ppInp.value=ST[facility].pp;}
     }
-
-    console.log('[API] refFiles raw:',JSON.stringify(refFiles).substring(0,300));
-    REFERENCE_DOCS=refFiles.map(function(f){
-      return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
-    });
-    console.log('[API] REFERENCE_DOCS mapped:',REFERENCE_DOCS.length,'items');
-    var refDbg=document.getElementById('ref-debug');
-    if(refDbg)refDbg.dataset.fetchResult='refs='+REFERENCE_DOCS.length;
-
-    var fCount=0;
-    if(!ST[facility].up)ST[facility].up={};
-    files.forEach(function(f,ix){
-      var mid=f.milestone_id;
-      console.log('[API] Processing file',ix,'mid='+mid,'name='+(f.file_name||'unnamed'));
-      if(!mid||mid==='__ref'){console.log('[API] Skipped (no mid or __ref)');return;}
-      if(!ST[facility].up[mid])ST[facility].up[mid]={};
-      var tkey=f.toc_item||f.category||null;
-      if(!tkey&&MSD[mid]&&MSD[mid].t&&MSD[mid].t.length===1)tkey='TOC-'+MSD[mid].t[0];
-      if(!tkey)tkey='OTHER';
-      if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
-      if(!ST[facility].up[mid][tkey].some(function(u){return(u.id||u.dbId)===f.id;})){
-        ST[facility].up[mid][tkey].push({id:f.id,name:f.file_name||'',url:f.file_url||'',size:0,date:f.uploaded_at,fromDB:true});fCount++;
-      }
-    });
-
-    setStatus('Done: '+mCount+' milestones, '+fCount+' files, '+REFERENCE_DOCS.length+' refs');
-    // Update PPP date input after fetch
-    var ppInput=document.getElementById('pp');
-    if(ppInput&&ST[facility]&&ST[facility].pp){ppInput.value=ST[facility].pp;}
-    return {milestones:mCount,files:fCount};
-  }catch(e){
-    setStatus('Error: '+(e&&e.message?e.message:String(e)));
-    console.error('[API] fetchStateFromDB FAILED:',e);
-}
+    if(which==='all'||which==='references'){
+      REFERENCE_DOCS=refFiles.map(function(f){
+        return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
+      });
+      TAB_CACHE.r=Date.now();
+    }
+    if(which==='all'||which==='progress'){
+      var fCount=0;
+      files.forEach(function(f){
+        var mid=f.milestone_id;
+        if(!mid||mid==='__ref'||mid===null)return;
+        var cat=String(f.category||'').toLowerCase();
+        if(cat==='references')return;
+        if(!ST[facility].up[mid])ST[facility].up[mid]={};
+        var tkey=f.toc_item||'OTHER';
+        if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
+        var already=ST[facility].up[mid][tkey].find(function(u){return u.id===f.id;});
+        if(!already){
+          ST[facility].up[mid][tkey].push({id:f.id,n:f.file_name,url:f.file_url,d:f.file_url});
+          fCount++;
+        }
+      });
+      TAB_CACHE.p=Date.now();TAB_CACHE.d=Date.now();TAB_CACHE.a=Date.now();
+    }
+    setStatus('Done: '+mCount+' m, '+files.length+' mf, '+refFiles.length+' rf');
+    return {milestones:mCount,files:files.length,refs:refFiles.length};
+  }catch(err){
+    setStatus('Fetch error: '+err.message);
+    console.error('[API] fetchStateFromDB error:',err);
+    return null;
+  }
 }
 
 // Save milestone state to DB
@@ -626,65 +624,85 @@ function saveFacilityPreference(){SV();}
 
 // INIT
 async function INIT(){
-  LD(); // Load facility preference only
+  LD();
   var f=document.getElementById('fs').value;
-  
+
   // Facility change listener
   document.getElementById('fs').addEventListener('change',async function(e){
     EDIT_MODE=false;PENDING={};updateEditButtons();
     document.getElementById('fl').textContent=e.target.value;
     document.getElementById('dlf').textContent=e.target.value;
-    SV(); // Save facility preference
-    // Fetch from DB before rendering
-    await fetchStateFromDB(e.target.value);
-    // Refresh reference documents (fire-and-forget, never block)
-    fetchReferenceDocs().catch(function(e){console.error('[REF] Facility change ref fetch:',e.message);});
+    SV();
+    // Fetch all data for new facility
+    await fetchStateFromDB(e.target.value,{which:'all'});
     document.getElementById('pp').value=ST[e.target.value]?ST[e.target.value].pp:'';
     ALL();
     syncEditMode();
   });
-  
+
   // PPP date change
   document.getElementById('pp').addEventListener('change',function(e){
-    if(!EDIT_MODE){return;} // Only allow changes in edit mode
+    if(!EDIT_MODE){return;}
     var f=document.getElementById('fs').value;
     if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
     ST[f].pp=e.target.value;
-    DRAFT_PP=e.target.value; // Mark as changed (non-null means dirty)
+    DRAFT_PP=e.target.value;
     console.log('[PPP] Changed to',e.target.value,'(pending save)');
     ALL();
   });
-  
-  // Initial load: fetch from DB then render
+
+  // Initial load: fetch ONLY progress data for fast first render
   var initDbg=document.getElementById('init-debug');
   function idbg(msg){console.log('[INIT]',msg);if(initDbg)initDbg.textContent+=(initDbg.textContent?'\n':'')+msg;}
   document.getElementById('fl').textContent=f;
   document.getElementById('dlf').textContent=f;
   idbg('1: LD() done');
-  try{await fetchStateFromDB(f);idbg('2: fetchState OK, states='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).length:0));}catch(err){idbg('2: fetchState ERR: '+err.message);}
-  fetchReferenceDocs().then(function(){idbg('3: fetchRef OK, refs='+REFERENCE_DOCS.length);}).catch(function(err){idbg('3: fetchRef ERR: '+err.message);});
-  idbg('4: ST.ms keys='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
-  idbg('5: ST.up keys='+(ST[f]&&ST[f].up?Object.keys(ST[f].up).join(','):'none'));
-  // Safety: re-sync PPP from M1 before setting input
+  try{
+    await fetchStateFromDB(f,{which:'progress'});
+    idbg('2: fetchState OK, states='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).length:0));
+  }catch(err){idbg('2: fetchState ERR: '+err.message);}
+  idbg('4: ST.ms='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
+  idbg('5: ST.up='+(ST[f]&&ST[f].up?Object.keys(ST[f].up).join(','):'none'));
   var m1s=ST[f]&&ST[f].ms&&ST[f].ms['M1'];
-  if(m1s&&m1s.pppDate&&ST[f].pp!==m1s.pppDate){
-    console.log('[INIT] Safety re-sync: ST.'+f+'.pp was',ST[f].pp,'overriding with M1.pppDate',m1s.pppDate);
-    ST[f].pp=m1s.pppDate;
-  }
+  if(m1s&&m1s.pppDate&&ST[f].pp!==m1s.pppDate){ST[f].pp=m1s.pppDate;}
   var ppVal=ST[f]?ST[f].pp:'';
   document.getElementById('pp').value=ppVal;
-  idbg('6: pp input set to '+ppVal+' (ST.'+f+'.pp)');
-  idbg('6: Calling ALL()...');
+  idbg('6: pp='+ppVal);
   ALL();
-  idbg('7: ALL() done');
-  // Hard safety: ensure render happens even if all fetches hung
-  setTimeout(function(){if(!window.__INIT_DONE){window.__INIT_DONE=true;console.log('[INIT] Safety timer fired');ALL();}},6000);
+  idbg('7: done');
+  setTimeout(function(){if(!window.__INIT_DONE){window.__INIT_DONE=true;ALL();}},6000);
   window.__INIT_DONE=true;
 }
-function ALL(){RM();RS();RD();RAC();syncEditMode();renderRefDocs();}
+function ALL(){
+  // Only render the active tab — lazy loading for performance
+  if(ACTIVE_TAB==='p'){RM();RS();}
+  else if(ACTIVE_TAB==='r'){RREF();RREFTAB();}
+  else if(ACTIVE_TAB==='d'){RD();}
+  else if(ACTIVE_TAB==='a'){RAC();}
+  syncEditMode();
+  renderRefDocs();
+}
 
 // TABS
-function sw(id,btn){document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('a')});document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});document.getElementById('t-'+id).classList.add('a');btn.classList.add('a');if(id==='p')RS();if(id==='r'){RREF();/* async, no await needed */}}
+function sw(id,btn){
+  ACTIVE_TAB=id;
+  document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('a')});
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});
+  document.getElementById('t-'+id).classList.add('a');
+  btn.classList.add('a');
+  var f=document.getElementById('fs').value;
+  var now=Date.now();
+  // Render cached data immediately
+  if(id==='p'){RM();RS();}
+  else if(id==='r'){RREF();RREFTAB();}
+  else if(id==='d'){RD();}
+  else if(id==='a'){RAC();}
+  // Lazy fetch only if cache is stale (60s TTL)
+  if(id==='r'&&now-TAB_CACHE.r>CACHE_TTL){
+    console.log('[TAB] Refetching references (stale)');
+    fetchStateFromDB(f,{which:'references'});
+  }
+}
 
 // DATE
 function cd(pp,o){if(!pp)return'';var p=pp.split('-').map(Number);var nd=new Date(p[0],p[1]-1+o,p[2]);var yy=nd.getFullYear(),mm=String(nd.getMonth()+1).padStart(2,'0'),dd=String(nd.getDate()).padStart(2,'0');return yy+'-'+mm+'-'+dd}
@@ -1028,31 +1046,30 @@ async function saveAll(){
   console.log('[EDIT] Save clicked');
   var f=document.getElementById('fs').value;
   DRAFT_UP={};DRAFT_RM={};
-  var dbg=document.getElementById('ref-debug');
   // Save PPP start date if changed
   if(DRAFT_PP!==null&&ST[f]&&ST[f].pp){
     console.log('[EDIT] Saving PPP date:',ST[f].pp);
-    saveMilestoneToDB(f,'M1',{ppp:ST[f].pp});
+    await saveMilestoneToDB(f,'M1',{ppp:ST[f].pp});
     DRAFT_PP=null;
   }
   // Save milestone changes
   if(PENDING[f]&&PENDING[f].ms){
     if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
-    Object.entries(PENDING[f].ms).forEach(function(e){
-      var mId=e[0],v=e[1];
-      if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};
-      if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate});}
-    });
+    await Promise.all(Object.entries(PENDING[f].ms).map(function(e){
+      return new Promise(function(resolve){
+        var mId=e[0],v=e[1];
+        if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};
+        if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate}).then(resolve).catch(resolve);}
+        else{resolve();}
+      });
+    }));
   }
-  // Uploads now happen immediately in hRefUp, so Save just refreshes
-  console.log('[EDIT] Save: uploads were done on file select, just refreshing');
-  await fetchStateFromDB(f);
-  renderRefDocs();
   PENDING={};
   EDIT_MODE=false;
   document.body.classList.remove('editing');
   updateEditButtons();
   syncEditMode();
+  // Only re-render the active tab (no full refetch)
   ALL();
   var el=document.getElementById('edit-status');
   if(el)el.textContent='✓ Saved';
@@ -1656,34 +1673,25 @@ function renderRefDocs(){
 function hRefUp(ev){
   if(!EDIT_MODE){alert('Press Edit to upload reference files');return;}
   var files=ev.target.files;if(!files||!files.length)return;
-  var dbg=document.getElementById('ref-debug');
   var total=files.length,done=0,failed=0;
-  if(dbg)dbg.textContent='Uploading...';
   Array.from(files).forEach(function(file){
     if(file.size>35*1024*1024){alert('File too large: '+file.name);done++;failed++;return;}
     var r=new FileReader();
     r.onload=function(e){
       var b64=e.target.result;
       done++;
-      if(dbg)dbg.textContent='Uploading '+file.name+'...';
       saveFileToDB('all','__ref','references',{n:file.name,d:b64,s:file.size})
         .then(function(res){
           if(res&&res.id){
-            if(dbg)dbg.textContent='Uploaded! ID='+res.id;
+            // Optimistic: add to local state immediately, no full refetch
             REFERENCE_DOCS.push({id:res.id,name:file.name,url:b64,date:new Date().toISOString(),by:''});
             renderRefDocs();
           }else{
-            var err='Upload failed: no ID in response. Got: '+JSON.stringify(res).substring(0,100);
-            if(dbg)dbg.textContent=err;
-            console.error('[REF]',err);failed++;
+            console.error('[REF] Upload failed:',JSON.stringify(res).substring(0,100));failed++;
           }
           if(done===total){ev.target.value='';}
         })
-        .catch(function(err){
-          failed++;var msg='Upload error: '+err.message;
-          if(dbg)dbg.textContent=msg;console.error('[REF]',msg);
-          if(done===total){ev.target.value='';}
-        });
+        .catch(function(err){failed++;console.error('[REF] Error:',err.message);if(done===total){ev.target.value='';}});
     };
     r.onerror=function(){failed++;done++;alert('Cannot read: '+file.name);if(done===total){ev.target.value='';}};
     r.readAsDataURL(file);
