@@ -1258,7 +1258,7 @@
                 <path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>
               </svg>
             </span>
-            Daily Negative Findings Trend
+            Daily Distinct Negative Findings Trend
           </h3>
           <span class="card-badge">Operational Analytics</span>
         </div>
@@ -1273,7 +1273,7 @@
             </svg>
           </div>
           <div>
-            <div class="cumulative-label">Cumulative Negative Findings</div>
+            <div class="cumulative-label">CUMULATIVE DISTINCT NEGATIVE FINDINGS</div>
             <div class="cumulative-value" id="cumulativeValue">0</div>
           </div>
         </div>
@@ -1902,18 +1902,29 @@ function updateKPIs(rows) {
 
 function updateEscalationChart(rows) {
   const ctx = document.getElementById('chartEscalations').getContext('2d');
-  const daily = new Map();
+
+  // Deduplicate: per day, count each unique asset only once
+  // dailyMap: date -> { assets: Set<assetId>, total: number }
+  const dailyMap = new Map();
   rows.forEach(r => {
     if (!r.InspectionDate) return;
-    const key = r.InspectionDate.toISOString().slice(0,10);
-    if (!daily.has(key)) daily.set(key, 0);
-    if (hasNegativeFindings(r)) daily.set(key, daily.get(key) + 1);
+    const key = r.InspectionDate.toISOString().slice(0, 10);
+    if (!hasNegativeFindings(r)) return;
+
+    // Unique asset identifier priority: AssetTag > AssetName > EquipmentType > composite
+    const assetId = r.AssetTag || r.AssetName || r.EquipmentType || 'Unknown';
+
+    if (!dailyMap.has(key)) dailyMap.set(key, { assets: new Set(), total: 0 });
+    const day = dailyMap.get(key);
+    day.assets.add(assetId);
+    day.total++;
   });
 
-  const labels = Array.from(daily.keys()).sort();
-  const dataArr = labels.map(d => daily.get(d));
+  const labels = Array.from(dailyMap.keys()).sort();
+  const distinctArr = labels.map(d => dailyMap.get(d).assets.size);
+  const totalArr = labels.map(d => dailyMap.get(d).total);
 
-  const cumulativeTotal = dataArr.reduce((a, b) => a + b, 0);
+  const cumulativeTotal = distinctArr.reduce((a, b) => a + b, 0);
   document.getElementById('cumulativeValue').textContent = cumulativeTotal.toLocaleString();
 
   if (chartEsc) chartEsc.destroy();
@@ -1922,8 +1933,8 @@ function updateEscalationChart(rows) {
     data: {
       labels,
       datasets: [{
-        label: 'Daily Negative Findings',
-        data: dataArr,
+        label: 'Distinct Affected Assets',
+        data: distinctArr,
         backgroundColor: 'rgba(220,38,38,0.6)',
         borderColor: '#DC2626',
         borderWidth: 1,
@@ -1958,6 +1969,13 @@ function updateEscalationChart(rows) {
             title: (items) => {
               const d = new Date(items[0].label);
               return d.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+            },
+            label: (item) => {
+              const idx = item.dataIndex;
+              return [
+                'Distinct Affected Assets: ' + distinctArr[idx],
+                'Repeated Inspection Entries: ' + totalArr[idx]
+              ];
             }
           }
         }
