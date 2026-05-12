@@ -436,7 +436,10 @@ const CU=()=>ST[document.getElementById('fs').value];
 const DF=()=>{
   var f=document.getElementById('fs').value;
   var d={pp:'',ms:{},up:{}};
-  if(ST[f]){d.pp=ST[f].pp;d.ms=JSON.parse(JSON.stringify(ST[f].ms));d.up=ST[f].up?JSON.parse(JSON.stringify(ST[f].up)):{};}
+  if(ST[f]){
+    d.pp=ST[f].pp||(ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'2026-01-01';
+    d.ms=JSON.parse(JSON.stringify(ST[f].ms));
+    d.up=ST[f].up?JSON.parse(JSON.stringify(ST[f].up)):{};}
   if(PENDING[f]&&PENDING[f].ms){
     Object.entries(PENDING[f].ms).forEach(function(e){
       var k=e[0],v=e[1];
