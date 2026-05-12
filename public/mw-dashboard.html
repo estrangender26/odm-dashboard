@@ -18,6 +18,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="/analytics-engine.js?v=1"></script>
+  <script src="/chart-interactions.js?v=1"></script>
 
   <style>
     /* ============================================================
@@ -1095,6 +1096,38 @@
       .insight-card { padding: 14px; }
       .insight-title { font-size: 12px; }
       .insight-desc { font-size: 11px; }
+      #filterChipContainer { flex-wrap: wrap; }
+      #drillDownContainer table { font-size: 10px; }
+      #drillDownContainer table th,
+      #drillDownContainer table td { padding: 3px 2px; }
+    }
+
+    /* Filter chip */
+    #filterChipContainer {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+      padding: 0 2px;
+      animation: fadeIn .2s ease;
+    }
+
+    /* Drill-down panel */
+    #drillDownContainer {
+      display: none;
+      animation: fadeIn .25s ease;
+    }
+    #drillDownContainer table th,
+    #drillDownContainer table td {
+      padding: 5px 4px;
+    }
+    #drillDownContainer table tbody tr:hover {
+      background: #FAFBFC;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
@@ -1377,7 +1410,13 @@
         </div>
       </div>
 
-      <!-- Inspector Performance -->
+      <!-- Active Filter Indicator -->
+    <div id="filterChipContainer" style="display:none;align-items:center;margin-bottom:10px;padding:0 2px"></div>
+
+    <!-- Drill-Down Detail Panel -->
+    <div id="drillDownContainer" style="display:none"></div>
+
+    <!-- Inspector Performance -->
       <div class="card animate-scale-in delay-3">
         <div class="card-header">
           <h3 class="card-title">
@@ -2014,6 +2053,11 @@ function updateEscalationChart(rows) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      onClick: (e, elements) => {
+        if (typeof ChartInteractions !== 'undefined') {
+          ChartInteractions.onDailyChartClick(elements, labels, distinctArr, totalArr, rows);
+        }
+      },
       plugins: {
         legend: {
           display: true,
@@ -2067,9 +2111,16 @@ function updateEscalationChart(rows) {
           beginAtZero: true
         }
       },
-      animation: { duration: 600, easing: 'easeOutQuart' }
+      animation: { duration: 600, easing: 'easeOutQuart' },
+      onHover: (e, elements) => {
+        e.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      }
     }
   });
+  if (typeof ChartInteractions !== 'undefined') {
+    ChartInteractions.enableLegendToggle(chartEsc);
+    ChartInteractions.addHoverCursor(chartEsc);
+  }
 }
 
 /* ============================================================
@@ -2142,6 +2193,7 @@ function updateParetoChart(rows) {
     type: 'bar',
     data: {
       labels: displayLabels,
+      _fullLabels: labels,
       datasets: [
         {
           type: 'line',
@@ -2189,6 +2241,15 @@ function updateParetoChart(rows) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      onClick: (e, elements) => {
+        if (typeof ChartInteractions !== 'undefined') {
+          const fullLabels = chartPareto.data._fullLabels || labels;
+          ChartInteractions.onParetoChartClick(elements, fullLabels, distinctCounts, totalInspections, cumPct, rows);
+        }
+      },
+      onHover: (e, elements) => {
+        e.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
       plugins: {
         legend: {
           display: true,
@@ -2261,6 +2322,10 @@ function updateParetoChart(rows) {
       animation: { duration: 600, easing: 'easeOutQuart' }
     }
   });
+  if (typeof ChartInteractions !== 'undefined') {
+    ChartInteractions.enableLegendToggle(chartPareto);
+    ChartInteractions.addHoverCursor(chartPareto);
+  }
 }
 
 /* ============================================================
