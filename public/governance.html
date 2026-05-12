@@ -478,11 +478,14 @@ async function fetchStateFromDB(facility){
       if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
       mCount++;
     });
-    // Sync PPP start date from M1 (or default milestone) to facility top-level
+    // Sync PPP start date from M1 to facility top-level
     var m1State=ST[facility].ms['M1'];
+    console.log('[PPP SYNC] facility='+facility,'m1State='+(m1State?'exists':'null'),'m1State.pppDate='+(m1State?m1State.pppDate:'n/a'),'current pp='+(ST[facility]?ST[facility].pp:'no facility'));
     if(m1State&&m1State.pppDate){
       ST[facility].pp=m1State.pppDate;
-      console.log('[API] Synced PPP date for',facility,':',m1State.pppDate);
+      console.log('[PPP SYNC] SET facility.pp =',m1State.pppDate);
+    }else{
+      console.log('[PPP SYNC] SKIPPED — no M1 pppDate in DB for',facility);
     }
 
     console.log('[API] refFiles raw:',JSON.stringify(refFiles).substring(0,300));
@@ -601,6 +604,7 @@ function LD(){
     });
   });
   // Default PPP dates (critical for target date calculations)
+  // These are set as fallbacks; fetchStateFromDB will override with DB values
   ST.AGLIPAY.pp='2026-01-01';ST.HTT.pp='2026-02-01';ST.EASTBAY.pp='2026-03-01';ST.KAYSAKAT.pp='2026-04-01';
   // Load facility preference from localStorage only
   var savedFac=null;
@@ -656,7 +660,15 @@ async function INIT(){
   fetchReferenceDocs().then(function(){idbg('3: fetchRef OK, refs='+REFERENCE_DOCS.length);}).catch(function(err){idbg('3: fetchRef ERR: '+err.message);});
   idbg('4: ST.ms keys='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
   idbg('5: ST.up keys='+(ST[f]&&ST[f].up?Object.keys(ST[f].up).join(','):'none'));
-  document.getElementById('pp').value=ST[f]?ST[f].pp:'';
+  // Safety: re-sync PPP from M1 before setting input
+  var m1s=ST[f]&&ST[f].ms&&ST[f].ms['M1'];
+  if(m1s&&m1s.pppDate&&ST[f].pp!==m1s.pppDate){
+    console.log('[INIT] Safety re-sync: ST.'+f+'.pp was',ST[f].pp,'overriding with M1.pppDate',m1s.pppDate);
+    ST[f].pp=m1s.pppDate;
+  }
+  var ppVal=ST[f]?ST[f].pp:'';
+  document.getElementById('pp').value=ppVal;
+  idbg('6: pp input set to '+ppVal+' (ST.'+f+'.pp)');
   idbg('6: Calling ALL()...');
   ALL();
   idbg('7: ALL() done');
