@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Monthly Scorecard: Maintenance KPIs</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=2" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --navy:#0B1D44;--navy2:#07132E;--blue:#0066A6;--cyan:#00A8D2;--teal:#2AAA8A;
+  --bg:#F0F2F5;--card:#FFFFFF;--border:#D6DFE8;--text:#0F172A;--muted:#5A6B7D;
+  --green:#0A9B6E;--green-bg:#E6F5EF;--green-light:#D1FAE5;
+  --yellow:#D97706;--yellow-bg:#FEF3C7;--yellow-light:#FDE68A;
+  --red:#DC2626;--red-bg:#FEF2F2;--red-light:#FECACA;
+  --r:8px;--sh:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;min-width:320px}
+
+/* HEADER */
+.hdr{background:linear-gradient(180deg,var(--navy) 0%,var(--navy2) 100%);color:#fff;position:sticky;top:0;z-index:100;box-shadow:var(--sh)}
+.hdr-in{max-width:1440px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px}
+.brand img{width:72px;height:72px;background:#fff;border-radius:10px;padding:4px;flex-shrink:0;object-fit:contain}
+.brand h1{font-size:15px;font-weight:700;letter-spacing:-.2px}
+.brand span{font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.5px;display:block;margin-top:1px}
+.nav{display:flex;gap:8px;flex-wrap:wrap}
+.nav a{color:#fff;text-decoration:none;font-size:13px;font-weight:500;padding:6px 14px;border-radius:5px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);transition:all .2s;white-space:nowrap}
+.nav a:hover{background:rgba(255,255,255,0.25)}
+
+/* MAIN */
+.main{max-width:1440px;margin:0 auto;padding:16px 20px 40px}
+
+/* CONTROLS */
+.controls{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.ctrl-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:12px;font-weight:600;font-family:inherit;border:none;border-radius:var(--r);cursor:pointer;transition:all .15s;white-space:nowrap}
+.ctrl-blue{background:var(--blue);color:#fff}
+.ctrl-blue:hover{background:#005a8f}
+.ctrl-green{background:var(--green);color:#fff}
+.ctrl-green:hover{background:#087f56}
+.ctrl-gray{background:#E2E8F0;color:var(--text);border:1px solid var(--border)}
+.ctrl-gray:hover{background:#D6DFE8}
+.ctrl-red{background:var(--red);color:#fff}
+.ctrl-red:hover{background:#b91c1c}
+select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radius:var(--r);border:1px solid var(--border);background:#fff;cursor:pointer}
+
+/* TABS */
+.tabs{display:flex;gap:2px;background:#E2E8F0;padding:4px;border-radius:var(--r);margin-bottom:16px;overflow-x:auto}
+.tab{padding:8px 18px;font-size:12px;font-weight:600;color:var(--muted);background:transparent;border:none;border-radius:var(--r);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.tab:hover{color:var(--navy);background:rgba(255,255,255,.5)}
+.tab.active{color:#fff;background:var(--blue)}
+
+/* TC */
+.tc{display:none}.tc.active{display:block}
+
+/* SUMMARY MATRIX */
+.matrix-card{background:var(--card);border-radius:var(--r);padding:20px;box-shadow:var(--sh);border:1px solid var(--border);margin-bottom:16px}
+.matrix-title{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:16px}
+.matrix-table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.matrix-table th{padding:10px 8px;text-align:center;background:#F1F5F9;color:var(--muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid var(--border);border-right:1px solid var(--border)}
+.matrix-table th:first-child{text-align:left;padding-left:12px}
+.matrix-table th:last-child{border-right:none}
+.matrix-table td{padding:10px 8px;text-align:center;border-bottom:1px solid #EDF1F4;border-right:1px solid #EDF1F4;font-weight:600}
+.matrix-table td:first-child{text-align:left;padding-left:12px;font-weight:700;color:var(--navy);border-right:2px solid var(--border)}
+.matrix-table td:last-child{border-right:none}
+.matrix-table tr:hover td{background:#FAFBFC}
+.matrix-table .benchmark-row td{background:var(--navy2);color:#fff;font-size:11px;font-weight:700;border-bottom:none}
+.matrix-table .benchmark-row td:first-child{border-right:2px solid rgba(255,255,255,.2)}
+
+/* KPI STATUS COLORS */
+.kpi-green{background:var(--green-light);color:var(--green)}
+.kpi-yellow{background:var(--yellow-light);color:var(--yellow)}
+.kpi-red{background:var(--red-light);color:var(--red)}
+.kpi-missing{background:#F3F4F6;color:#9CA3AF;font-style:italic}
+
+/* LEGEND */
+.legend{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+.legend-dot{width:14px;height:14px;border-radius:4px}
+.legend-dot.green{background:var(--green)}
+.legend-dot.yellow{background:var(--yellow)}
+.legend-dot.red{background:var(--red)}
+.legend-dot.gray{background:#E2E8F0}
+
+/* GAUGE CARDS */
+.gauge-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+.gauge-card{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center}
+.gauge-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.gauge-value{font-size:28px;font-weight:700;color:var(--text);margin-bottom:6px}
+.gauge-benchmark{font-size:12px;color:var(--muted);margin-bottom:8px}
+.gauge-bar{height:10px;background:#E2E8F0;border-radius:5px;overflow:hidden}
+.gauge-fill{height:100%;border-radius:5px;transition:width .3s ease}
+.gauge-fill.green{background:var(--green)}
+.gauge-fill.yellow{background:var(--yellow)}
+.gauge-fill.red{background:var(--red)}
+
+/* CHARTS */
+.chart-card{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);margin-bottom:16px}
+.chart-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px}
+.chart-wrap{height:280px;position:relative}
+.chart-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:12px}
+
+/* MODAL */
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.active{display:flex}
+.modal{background:var(--card);border-radius:var(--r);padding:24px;max-width:900px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.modal-title{font-size:18px;font-weight:700;color:var(--navy)}
+.modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--muted);padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--r)}
+.modal-close:hover{background:var(--bg)}
+
+/* FORM TABLE */
+.form-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
+.form-table th{padding:10px 8px;text-align:left;background:#F1F5F9;color:var(--muted);font-weight:700;font-size:11px;text-transform:uppercase;border-bottom:2px solid var(--border)}
+.form-table td{padding:8px;border-bottom:1px solid #EDF1F4}
+.form-table input{width:100%;padding:8px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:var(--r);outline:none}
+.form-table input:focus{border-color:var(--blue)}
+.form-table input::placeholder{color:#C5D1DB}
+.form-bu{font-weight:700;color:var(--navy)}
+
+/* FOOTER */
+.footer{text-align:center;padding:20px;color:var(--muted);font-size:11px;border-top:1px solid var(--border);margin-top:20px}
+
+/* RESPONSIVE */
+@media(max-width:768px){
+  .hdr-in{padding:8px 12px}
+  .brand img{width:48px;height:48px}
+  .main{padding:10px 12px 30px}
+  .gauge-grid{grid-template-columns:repeat(2,1fr)}
+  .chart-row{grid-template-columns:1fr}
+  .chart-wrap{height:240px}
+  .matrix-table{font-size:11px}
+  .matrix-table th,.matrix-table td{padding:6px 4px}
+  .modal{padding:16px}
+  .form-table{font-size:11px}
+  .form-table input{padding:6px;font-size:11px}
+}
+@media(max-width:480px){
+  .gauge-grid{grid-template-columns:1fr}
+  .matrix-table{display:block;overflow-x:auto;white-space:nowrap}
+  .tabs{overflow-x:auto}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-in">
+    <div class="brand">
+      <img src="/programs_engineering_vertical_logo.svg" alt="Programs Logo">
+      <div>
+        <h1>Monthly Scorecard: Maintenance KPIs</h1>
+        <span>Programs Engineering Division</span>
+      </div>
+    </div>
+    <div class="nav">
+      <a href="/">Home</a>
+      <a href="/governance">O&amp;M Governance</a>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- CONTROLS -->
+  <div class="controls">
+    <select id="yearSel" class="ctrl-gray">
+      <option value="2026" selected>2026</option>
+      <option value="2025">2025</option>
+    </select>
+    <select id="monthSel" class="ctrl-gray">
+      <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+      <option value="4">April</option><option value="5" selected>May</option><option value="6">June</option>
+      <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+      <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+    </select>
+    <button class="ctrl-btn ctrl-blue" onclick="loadData()">Load</button>
+    <button class="ctrl-btn ctrl-green" onclick="openManualInput()">Input Data Manually</button>
+    <button class="ctrl-btn ctrl-gray" onclick="document.getElementById('excelInput').click()">Import Excel</button>
+    <input type="file" id="excelInput" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)">
+    <button class="ctrl-btn ctrl-red" onclick="clearData()">Clear</button>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot green"></div> KPI Passed</div>
+    <div class="legend-item"><div class="legend-dot yellow"></div> KPI Missing</div>
+    <div class="legend-item"><div class="legend-dot red"></div> KPI Below Benchmark</div>
+    <div class="legend-item"><div class="legend-dot gray"></div> No Data</div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('summary',this)">Summary Matrix</button>
+    <button class="tab" onclick="showTab('ez',this)">Manila Water / EZ</button>
+    <button class="tab" onclick="showTab('laguna',this)">Laguna Water</button>
+    <button class="tab" onclick="showTab('clark',this)">Clark Water</button>
+    <button class="tab" onclick="showTab('tagum',this)">Tagum Water</button>
+    <button class="tab" onclick="showTab('estate',this)">Estate Water</button>
+  </div>
+
+  <!-- SUMMARY TAB -->
+  <div id="t-summary" class="tc active">
+    <div class="matrix-card">
+      <div class="matrix-title">2026 - EZ &amp; Non-EZ Monthly KPI/Scorecard</div>
+      <div style="overflow-x:auto">
+        <table class="matrix-table" id="summaryTable">
+          <thead>
+            <tr>
+              <th>Business Unit</th>
+              <th>PM Compliance (%)</th>
+              <th>PM:CM Ratio (Work Order)</th>
+              <th>Budget Spend (%)</th>
+              <th>PM:CM Ratio (Cost)</th>
+              <th>Facility Uptime (%)</th>
+            </tr>
+          </thead>
+          <tbody id="summaryBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- BU TABS -->
+  <div id="t-ez" class="tc">
+    <div id="ez-gauges" class="gauge-grid"></div>
+    <div class="chart-row">
+      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="ez-pm-chart"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="ez-budget-chart"></canvas></div></div>
+    </div>
+  </div>
+
+  <div id="t-laguna" class="tc">
+    <div id="laguna-gauges" class="gauge-grid"></div>
+    <div class="chart-row">
+      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="laguna-pm-chart"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="laguna-budget-chart"></canvas></div></div>
+    </div>
+  </div>
+
+  <div id="t-clark" class="tc">
+    <div id="clark-gauges" class="gauge-grid"></div>
+    <div class="chart-row">
+      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="clark-pm-chart"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="clark-budget-chart"></canvas></div></div>
+    </div>
+  </div>
+
+  <div id="t-tagum" class="tc">
+    <div id="tagum-gauges" class="gauge-grid"></div>
+    <div class="chart-row">
+      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="tagum-pm-chart"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="tagum-budget-chart"></canvas></div></div>
+    </div>
+  </div>
+
+  <div id="t-estate" class="tc">
+    <div id="estate-gauges" class="gauge-grid"></div>
+    <div class="chart-row">
+      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="estate-pm-chart"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="estate-budget-chart"></canvas></div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- MANUAL INPUT MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Input KPI Data Manually</div>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <table class="form-table">
+      <thead>
+        <tr>
+          <th>Business Unit</th>
+          <th>PM Compliance (%)</th>
+          <th>Schedule Compliance (%)</th>
+          <th>Budget Spend (%)</th>
+          <th>PM:CM Ratio WO (%)</th>
+          <th>PM:CM Ratio Cost (%)</th>
+          <th>MTBF (days)</th>
+          <th>MTTR (days)</th>
+          <th>Facility Uptime (%)</th>
+        </tr>
+      </thead>
+      <tbody id="formBody"></tbody>
+    </table>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="ctrl-btn ctrl-gray" onclick="closeModal()">Cancel</button>
+      <button class="ctrl-btn ctrl-green" onclick="saveManualData()">Save Data</button>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  Programs Engineering Division — Manila Water Company Inc. &copy; 2026
+</div>
+
+<script>
+// ===== CONFIG =====
+var BUs = [
+  {id:'ez',name:'Manila Water / EZ',label:'Manila Water'},
+  {id:'laguna',name:'Laguna Water',label:'Laguna Water'},
+  {id:'clark',name:'Clark Water',label:'Clark Water'},
+  {id:'tagum',name:'Tagum Water',label:'Tagum Water'},
+  {id:'estate',name:'Estate Water',label:'Estate Water'}
+];
+var KPIs = [
+  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95},
+  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:90},
+  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105]},
+  {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86},
+  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60},
+  {key:'mtbf',name:'MTBF',unit:'days',benchmark:0,trend:'increasing'},
+  {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing'},
+  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97}
+];
+var GaugeKPIs = ['pmCompliance','pmcmWORatio','budgetSpend','pmcmCostRatio','facilityUptime'];
+
+// ===== STATE =====
+var ScoreData = {};
+var Charts = {};
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded',function(){
+  initForm();
+  loadData();
+});
+
+// ===== TAB SWITCH =====
+function showTab(id,btn){
+  document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('active')});
+  document.getElementById('t-'+id).classList.add('active');
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
+  if(btn)btn.classList.add('active');
+  if(id!=='summary') renderBUCharts(id);
+}
+
+// ===== COLOR LOGIC =====
+function getKPIStatus(key,val){
+  if(val===null||val===undefined||val===''||isNaN(val))return {cls:'kpi-missing',barCls:'',label:'Missing'};
+  var kpi = KPIs.find(function(k){return k.key===key});
+  if(!kpi)return {cls:'',barCls:'',label:''};
+  var v = parseFloat(val);
+  if(kpi.range){
+    if(v>=kpi.range[0]&&v<=kpi.range[1])return {cls:'kpi-green',barCls:'gauge-fill green',label:'On Target'};
+    return {cls:'kpi-red',barCls:'gauge-fill red',label:'Off Target'};
+  }
+  if(kpi.trend==='increasing')return v>0?{cls:'kpi-green',barCls:'gauge-fill green',label:'Available'}:{cls:'kpi-missing',barCls:'',label:'Missing'};
+  if(kpi.trend==='decreasing')return v>0?{cls:'kpi-green',barCls:'gauge-fill green',label:'Available'}:{cls:'kpi-missing',barCls:'',label:'Missing'};
+  if(v>=kpi.benchmark)return {cls:'kpi-green',barCls:'gauge-fill green',label:'Passed'};
+  if(v>=kpi.benchmark*0.8)return {cls:'kpi-yellow',barCls:'gauge-fill yellow',label:'Near Target'};
+  return {cls:'kpi-red',barCls:'gauge-fill red',label:'Below Target'};
+}
+
+function getSummaryKPIs(bu){
+  var d = ScoreData[bu.id]||{};
+  var summaryKPIs = [
+    {key:'pmCompliance',name:'PM Compliance',fmt:'%'},
+    {key:'pmcmWORatio',name:'PM:CM Ratio WO',fmt:':'},
+    {key:'budgetSpend',name:'Budget Spend',fmt:'%'},
+    {key:'pmcmCostRatio',name:'PM:CM Ratio Cost',fmt:':'},
+    {key:'facilityUptime',name:'Facility Uptime',fmt:'%'}
+  ];
+  return summaryKPIs.map(function(sk){
+    var val = d[sk.key];
+    var status = getKPIStatus(sk.key,val);
+    var display = '--';
+    if(val!==undefined&&val!==null&&val!==''){
+      display = sk.fmt==='%'?parseFloat(val).toFixed(2):val;
+    }
+    return {val:val,display:display,cls:status.cls};
+  });
+}
+
+// ===== RENDER SUMMARY =====
+function renderSummary(){
+  var tbody = document.getElementById('summaryBody');
+  var html = '';
+  // Benchmark row
+  html += '<tr class="benchmark-row">';
+  html += '<td>BENCHMARK</td>';
+  html += '<td>95%</td>';
+  html += '<td>&ge;86% (6:1)</td>';
+  html += '<td>95% - 105%</td>';
+  html += '<td>&ge;60% (1.5:1)</td>';
+  html += '<td>99.97%</td>';
+  html += '</tr>';
+  BUs.forEach(function(bu){
+    var kpis = getSummaryKPIs(bu);
+    html += '<tr>';
+    html += '<td>'+bu.label+'</td>';
+    kpis.forEach(function(k){html += '<td class="'+k.cls+'">'+k.display+'</td>';});
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+// ===== RENDER GAUGES =====
+function renderGauges(buId){
+  var container = document.getElementById(buId+'-gauges');
+  if(!container)return;
+  var d = ScoreData[buId]||{};
+  var html = '';
+  GaugeKPIs.forEach(function(key){
+    var kpi = KPIs.find(function(k){return k.key===key});
+    var val = d[key];
+    var status = getKPIStatus(key,val);
+    var display = '--';
+    var pct = 0;
+    if(val!==undefined&&val!==null&&val!==''){
+      var v = parseFloat(val);
+      display = kpi.unit==='%'?v.toFixed(2):v;
+      if(kpi.benchmark>0)pct = Math.min((v/kpi.benchmark)*100,100);
+    }
+    html += '<div class="gauge-card">';
+    html += '<div class="gauge-title">'+kpi.name+'</div>';
+    html += '<div class="gauge-value">'+display+'</div>';
+    html += '<div class="gauge-benchmark">Benchmark: '+(kpi.range?kpi.range[0]+'% - '+kpi.range[1]+'%':kpi.benchmark+(kpi.unit==='%'?'%':''))+'</div>';
+    html += '<div class="gauge-bar"><div class="gauge-fill '+status.barCls+'" style="width:'+pct+'%"></div></div>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+// ===== CHARTS =====
+function renderBUCharts(buId){
+  renderGauges(buId);
+  var d = ScoreData[buId]||{};
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var pmData = months.map(function(){return Math.random()*30+70});
+  var plannedBudget = months.map(function(){return 10+Math.random()*5});
+  var actualBudget = months.map(function(){return 8+Math.random()*6});
+  
+  if(Charts[buId+'-pm'])Charts[buId+'-pm'].destroy();
+  if(Charts[buId+'-budget'])Charts[buId+'-budget'].destroy();
+  
+  var pmCtx = document.getElementById(buId+'-pm-chart');
+  if(pmCtx){
+    Charts[buId+'-pm'] = new Chart(pmCtx,{type:'bar',data:{labels:months,datasets:[{label:'PM Compliance %',data:pmData,backgroundColor:pmData.map(function(v){return v>=95?'#0A9B6E':v>=80?'#D97706':'#DC2626'}),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,max:120,grid:{color:'#F1F5F9'}},x:{grid:{display:false}}},plugins:{legend:{display:false}}}});
+  }
+  
+  var budgetCtx = document.getElementById(buId+'-budget-chart');
+  if(budgetCtx){
+    Charts[buId+'-budget'] = new Chart(budgetCtx,{type:'bar',data:{labels:months,datasets:[{label:'Planned (₱M)',data:plannedBudget,backgroundColor:'#0066A6',borderRadius:4},{label:'Actual (₱M)',data:actualBudget,backgroundColor:'#00A8D2',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,grid:{color:'#F1F5F9'}},x:{grid:{display:false}}},plugins:{legend:{position:'top'}}}});
+  }
+}
+
+// ===== LOAD / INIT DATA =====
+function loadData(){
+  renderSummary();
+  var activeTab = document.querySelector('.tab.active');
+  var tabId = activeTab?activeTab.textContent.toLowerCase().replace(/\s+/g,''):'summary';
+  if(tabId==='summary') return;
+  var buMap = {'manilawater/ez':'ez','lagunawater':'laguna','clarkwater':'clark','tagumwater':'tagum','estatewater':'estate'};
+  var buId = buMap[tabId];
+  if(buId)renderBUCharts(buId);
+}
+
+function initForm(){
+  var tbody = document.getElementById('formBody');
+  var html = '';
+  BUs.forEach(function(bu){
+    html += '<tr>';
+    html += '<td class="form-bu">'+bu.name+'</td>';
+    KPIs.forEach(function(kpi){
+      html += '<td><input type="number" step="0.01" id="form-'+bu.id+'-'+kpi.key+'" placeholder="--"></td>';
+    });
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+// ===== MODAL =====
+function openManualInput(){
+  // Populate existing data
+  BUs.forEach(function(bu){
+    var d = ScoreData[bu.id]||{};
+    KPIs.forEach(function(kpi){
+      var inp = document.getElementById('form-'+bu.id+'-'+kpi.key);
+      if(inp)inp.value = d[kpi.key]!==undefined?d[kpi.key]:'';
+    });
+  });
+  document.getElementById('modal').classList.add('active');
+}
+function closeModal(){document.getElementById('modal').classList.remove('active');}
+
+// ===== SAVE =====
+function saveManualData(){
+  BUs.forEach(function(bu){
+    if(!ScoreData[bu.id])ScoreData[bu.id]={};
+    KPIs.forEach(function(kpi){
+      var inp = document.getElementById('form-'+bu.id+'-'+kpi.key);
+      if(inp&&inp.value!==''){
+        ScoreData[bu.id][kpi.key] = parseFloat(inp.value);
+      }
+    });
+  });
+  closeModal();
+  loadData();
+}
+
+// ===== EXCEL IMPORT =====
+function importExcel(ev){
+  var file = ev.target.files[0];
+  if(!file)return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      var data = new Uint8Array(e.target.result);
+      var workbook = XLSX.read(data,{type:'array'});
+      var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      var rows = XLSX.utils.sheet_to_json(firstSheet,{header:1});
+      if(rows.length<2){alert('No data found in Excel');return;}
+      // Parse rows (skip header)
+      var headerMap = {};
+      var headers = rows[0].map(function(h){return String(h).toLowerCase().trim().replace(/[^a-z]/g,'')});
+      headers.forEach(function(h,i){
+        if(h.includes('business')||h.includes('unit'))headerMap.bu=i;
+        if(h.includes('pmcompliance'))headerMap.pmCompliance=i;
+        if(h.includes('schedule'))headerMap.scheduleCompliance=i;
+        if(h.includes('budget'))headerMap.budgetSpend=i;
+        if(h.includes('pmcm')&&h.includes('wo'))headerMap.pmcmWORatio=i;
+        if(h.includes('pmcm')&&h.includes('cost'))headerMap.pmcmCostRatio=i;
+        if(h.includes('mtbf'))headerMap.mtbf=i;
+        if(h.includes('mttr'))headerMap.mttr=i;
+        if(h.includes('uptime')||h.includes('facility'))headerMap.facilityUptime=i;
+      });
+      for(var i=1;i<rows.length;i++){
+        var row = rows[i];
+        if(!row[headerMap.bu])continue;
+        var buName = String(row[headerMap.bu]).toLowerCase().trim();
+        var bu = BUs.find(function(b){return buName.includes(b.id)||buName.includes(b.name.toLowerCase())||buName.includes(b.label.toLowerCase())});
+        if(!bu)continue;
+        if(!ScoreData[bu.id])ScoreData[bu.id]={};
+        Object.keys(headerMap).forEach(function(key){
+          if(key==='bu')return;
+          var val = row[headerMap[key]];
+          if(val!==undefined&&val!=='')ScoreData[bu.id][key]=parseFloat(val);
+        });
+      }
+      alert('Excel imported successfully!');
+      loadData();
+    }catch(err){console.error('Import error:',err);alert('Error importing Excel: '+err.message);}
+  };
+  reader.readAsArrayBuffer(file);
+  ev.target.value='';
+}
+
+// ===== CLEAR =====
+function clearData(){
+  if(!confirm('Clear all scorecard data?'))return;
+  ScoreData={};
+  loadData();
+}
+
+// Close modal on overlay click
+document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+</script>
+</body>
+</html>

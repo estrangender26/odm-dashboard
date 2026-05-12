@@ -101,6 +101,37 @@ export default function Home() {
             </span>
           </a>
 
+          {/* Monthly KPI Scorecard */}
+          <a
+            href="/scorecard-kpi.html"
+            className="block rounded-lg p-5 border transition hover:shadow-lg hover:-translate-y-0.5"
+            style={{
+              background: '#FFFFFF',
+              borderColor: '#D6DFE8',
+              boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
+              textDecoration: 'none',
+              color: 'inherit',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(0,168,210,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📈</div>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>Monthly KPI Scorecard</h3>
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: '#5A6B7D', lineHeight: 1.5, marginBottom: 14 }}>
+              Track 8 KPIs across 5 business units with color-coded performance, Excel import, and budget analytics.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#E6F5EF', color: '#0A9B6E' }}>5 BUs</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#F0F9FF', color: '#0066A6' }}>8 KPIs</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Excel Import</span>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#0066A6', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Open Scorecard →
+            </span>
+          </a>
+
           {/* Operator-Driven Maintenance */}
           <a
             href="/mw-dashboard.html"
