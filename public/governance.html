@@ -1958,41 +1958,38 @@ function renderRefDocs(){
 
 // Handle reference file upload (from file input change)
 function hRefUp(ev){
-  console.log('[REF UP] hRefUp called, EDIT_MODE='+EDIT_MODE);
   if(!EDIT_MODE){alert('Press Edit to upload reference files');return;}
-  var files=ev.target.files;if(!files||!files.length){console.log('[REF UP] No files selected');return;}
-  var facilitySlug=document.getElementById('fs').value;
+  var files=ev.target.files;if(!files||!files.length)return;
+  var dbg=document.getElementById('ref-debug');
   var total=files.length,done=0,failed=0;
-  console.log('[REF UP] Uploading',total,'file(s)');
+  if(dbg)dbg.textContent='Uploading...';
   Array.from(files).forEach(function(file){
     if(file.size>35*1024*1024){alert('File too large: '+file.name);done++;failed++;return;}
     var r=new FileReader();
     r.onload=function(e){
       var b64=e.target.result;
       done++;
-      console.log('[REF UP] Posting',file.name,'('+b64.length+' bytes)');
+      if(dbg)dbg.textContent='Uploading '+file.name+'...';
       saveFileToDB('all','__ref','references',{n:file.name,d:b64,s:file.size})
         .then(function(res){
           if(res&&res.id){
-            console.log('[REF UP] Uploaded OK, id:',res.id);
+            if(dbg)dbg.textContent='Uploaded! ID='+res.id;
+            REFERENCE_DOCS.push({id:res.id,name:file.name,url:b64,date:new Date().toISOString(),by:''});
+            renderRefDocs();
           }else{
-            console.error('[REF UP] Upload failed for',file.name,': no id in response');
-            failed++;
+            var err='Upload failed: no ID in response. Got: '+JSON.stringify(res).substring(0,100);
+            if(dbg)dbg.textContent=err;
+            console.error('[REF]',err);failed++;
           }
-          if(done===total){
-            console.log('[REF UP] All done, refetching...');
-            fetchStateFromDB(facilitySlug).then(function(){
-              renderRefDocs();
-              ev.target.value='';
-            });
-          }
+          if(done===total){ev.target.value='';}
         })
         .catch(function(err){
-          failed++;console.error('[REF UP] Error:',err.message);
-          if(done===total){fetchStateFromDB(facilitySlug).then(renderRefDocs);ev.target.value='';}
+          failed++;var msg='Upload error: '+err.message;
+          if(dbg)dbg.textContent=msg;console.error('[REF]',msg);
+          if(done===total){ev.target.value='';}
         });
     };
-    r.onerror=function(){failed++;done++;alert('Cannot read: '+file.name);if(done===total){fetchStateFromDB(facilitySlug).then(renderRefDocs);ev.target.value='';}};
+    r.onerror=function(){failed++;done++;alert('Cannot read: '+file.name);if(done===total){ev.target.value='';}};
     r.readAsDataURL(file);
   });
 }
