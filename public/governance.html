@@ -666,16 +666,32 @@ async function INIT(){
     syncEditMode();
   });
 
-  // PPP date change (text format: JAN-01-2026 → parse to ISO)
-  document.getElementById('pp').addEventListener('change',function(e){
-    if(!EDIT_MODE){return;}
+  // PPP date: text display (JAN-01-2026), date picker on focus
+  var ppInp=document.getElementById('pp');
+  ppInp.addEventListener('focus',function(){
+    if(!EDIT_MODE)return;
+    var f=document.getElementById('fs').value;
+    var isoVal=parseDate(this.value)||(ST[f]&&ST[f].pp)||'';
+    this.type='date';
+    this.value=isoVal;
+  });
+  ppInp.addEventListener('change',function(e){
+    if(!EDIT_MODE)return;
+    var isoDate=e.target.value;
+    this.type='text';
+    this.value=isoDate?fmtDate(isoDate):'';
     var f=document.getElementById('fs').value;
     if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
-    var isoDate=parseDate(e.target.value)||e.target.value;
     ST[f].pp=isoDate;
     DRAFT_PP=isoDate;
     console.log('[PPP] Changed to',isoDate,'(pending save)');
     ALL();
+  });
+  ppInp.addEventListener('blur',function(){
+    if(!EDIT_MODE)return;
+    var isoVal=this.value;
+    this.type='text';
+    this.value=isoVal?fmtDate(isoVal):'';
   });
 
   // Initial load: fetch ONLY progress data for fast first render
@@ -811,15 +827,29 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     var c5=document.createElement('div');c5.className='comp-date';c5.style.cssText='text-align:center';
     var compIn=document.createElement('input');compIn.type='text';compIn.value=fmtDate(st.compDate)||'';compIn.disabled=!EDIT_MODE;compIn.placeholder='JAN-01-2026';
     compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
-    compIn.dataset.tip='Completion date';compIn.addEventListener('change',function(ev){
+    compIn.dataset.tip='Completion date';
+    compIn.addEventListener('focus',function(){
+      if(!EDIT_MODE)return;
+      var isoVal=parseDate(this.value)||st.compDate||'';
+      this.type='date';
+      this.value=isoVal;
+    });
+    compIn.addEventListener('change',function(ev){
       console.log('[DATE] change fired, EDIT_MODE='+EDIT_MODE+', value='+ev.target.value);
       if(!EDIT_MODE){console.log('[DATE] Ignored - not edit mode');return;}
       var f=document.getElementById('fs').value;
       if(!PENDING[f])PENDING[f]={ms:{}};
-      PENDING[f].ms[mid]={compDate:parseDate(ev.target.value)||ev.target.value||null};
+      PENDING[f].ms[mid]={compDate:ev.target.value||null};
       console.log('[DATE] PENDING updated:',PENDING);
       updateEditButtons();ALL();
-    });c5.appendChild(compIn);metaWrap.appendChild(c5);
+    });
+    compIn.addEventListener('blur',function(){
+      if(!EDIT_MODE)return;
+      var isoVal=this.value;
+      this.type='text';
+      this.value=isoVal?fmtDate(isoVal):'';
+    });
+    c5.appendChild(compIn);metaWrap.appendChild(c5);
     // Column 7: Plan% badge
     var c7=document.createElement('div');c7.className='mst';
     var badge=document.createElement('span');badge.className='badge '+rc;badge.dataset.tip='Completion: '+effPct+'%'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?' (manual)':' (auto from uploads)');badge.textContent=effPct+'%';c7.appendChild(badge);metaWrap.appendChild(c7);
@@ -1054,8 +1084,8 @@ function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   if(ppInp){ppInp.disabled=!EDIT_MODE;ppInp.readOnly=!EDIT_MODE;ppInp.style.cursor=EDIT_MODE?'pointer':'not-allowed';ppInp.style.opacity=EDIT_MODE?'1':'.5';}
   // Checkboxes (Done)
   var cbEls=document.querySelectorAll('.msc input[type="checkbox"]');console.log('[syncEditMode] checkboxes='+cbEls.length);cbEls.forEach(function(cb){cb.disabled=!EDIT_MODE;cb.style.cursor=EDIT_MODE?'pointer':'not-allowed';cb.style.opacity=EDIT_MODE?'1':'.5';});
-  // Date inputs (completion date — now text type for cross-browser consistency)
-  var diEls=document.querySelectorAll('.comp-date input[type="text"]');console.log('[syncEditMode] dateInputs='+diEls.length);diEls.forEach(function(inp){inp.disabled=!EDIT_MODE;inp.style.cursor=EDIT_MODE?'pointer':'not-allowed';inp.style.opacity=EDIT_MODE?'1':'.5';});
+  // Date inputs (completion date — switches between text display and date picker)
+  var diEls=document.querySelectorAll('.comp-date input[type="text"],.comp-date input[type="date"]');console.log('[syncEditMode] dateInputs='+diEls.length);diEls.forEach(function(inp){inp.disabled=!EDIT_MODE;inp.style.cursor=EDIT_MODE?'pointer':'not-allowed';inp.style.opacity=EDIT_MODE?'1':'.5';});
   // File inputs (hidden)
   document.querySelectorAll('input[type="file"].hidden-fi').forEach(function(fi){fi.disabled=!EDIT_MODE;});
   // Styled upload labels
