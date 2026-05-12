@@ -25,14 +25,11 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 /* HEADER */
 .hdr{background:linear-gradient(180deg,var(--navy) 0%,var(--navy2) 100%);color:#fff;position:sticky;top:0;z-index:100;box-shadow:var(--sh)}
 .hdr-in{max-width:1440px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:10px}
-.brand img{width:72px;height:72px;background:#fff;border-radius:10px;padding:4px;flex-shrink:0;object-fit:contain}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer}
+.brand img{width:72px;height:72px;background:#fff;border-radius:10px;padding:4px;flex-shrink:0;object-fit:contain;transition:transform .25s ease,box-shadow .25s ease}
+.brand:hover img{transform:scale(1.08) rotate(-2deg);box-shadow:0 4px 16px rgba(0,0,0,.3)}
 .brand h1{font-size:15px;font-weight:700;letter-spacing:-.2px}
 .brand span{font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.5px;display:block;margin-top:1px}
-.nav{display:flex;gap:8px;flex-wrap:wrap}
-.nav a{color:#fff;text-decoration:none;font-size:13px;font-weight:500;padding:6px 14px;border-radius:5px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);transition:all .2s;white-space:nowrap}
-.nav a:hover{background:rgba(255,255,255,0.25)}
-
 /* MAIN */
 .main{max-width:1440px;margin:0 auto;padding:16px 20px 40px}
 
@@ -152,17 +149,13 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 <!-- HEADER -->
 <div class="hdr">
   <div class="hdr-in">
-    <div class="brand">
+    <a href="/" class="brand" title="Back to Home">
       <img src="/programs_engineering_vertical_logo.svg" alt="Programs Logo">
       <div>
         <h1>Monthly Scorecard: Maintenance KPIs</h1>
         <span>Programs Engineering Division</span>
       </div>
-    </div>
-    <div class="nav">
-      <a href="/">Home</a>
-      <a href="/governance">O&amp;M Governance</a>
-    </div>
+    </a>
   </div>
 </div>
 
