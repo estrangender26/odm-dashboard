@@ -465,6 +465,8 @@ async function fetchStateFromDB(facility){
     var states=Array.isArray(data.states)?data.states:[];
     var files=Array.isArray(data.files)?data.files:[];
     var refFiles=Array.isArray(data.referenceFiles)?data.referenceFiles:[];
+    console.log('[API] RAW files.length='+files.length,'first mid='+(files[0]?files[0].milestone_id:'none'));
+    console.log('[API] RAW refs.length='+refFiles.length);
     setStatus('HTTP 200 | states='+states.length+' files='+files.length+' refs='+refFiles.length);
 
     if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
@@ -498,8 +500,10 @@ async function fetchStateFromDB(facility){
 
     var fCount=0;
     if(!ST[facility].up)ST[facility].up={};
-    files.forEach(function(f){
-      var mid=f.milestone_id;if(!mid||mid==='__ref')return;
+    files.forEach(function(f,ix){
+      var mid=f.milestone_id;
+      console.log('[API] Processing file',ix,'mid='+mid,'name='+(f.file_name||'unnamed'));
+      if(!mid||mid==='__ref'){console.log('[API] Skipped (no mid or __ref)');return;}
       if(!ST[facility].up[mid])ST[facility].up[mid]={};
       var tkey=f.toc_item||f.category||null;
       if(!tkey&&MSD[mid]&&MSD[mid].t&&MSD[mid].t.length===1)tkey='TOC-'+MSD[mid].t[0];
