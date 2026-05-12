@@ -182,7 +182,7 @@ function forceRefresh() {
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<link rel="stylesheet" href="/governance.css" />
+<link rel="stylesheet" href="/governance.css?v=2" />
 <link rel="stylesheet" href="/ProgramsEngineeringLogo.css" />
 
 </head>
@@ -603,9 +603,10 @@ function LD(){
       ST[f].ms[m]={subDate:'',compDate:'',pct:null};
     });
   });
-  // Default PPP dates (critical for target date calculations)
-  // These are set as fallbacks; fetchStateFromDB will override with DB values
-  ST.AGLIPAY.pp='2026-01-01';ST.HTT.pp='2026-02-01';ST.EASTBAY.pp='2026-03-01';ST.KAYSAKAT.pp='2026-04-01';
+  // Version marker for cache-busting verification
+  window._GOV_VERSION='2025-05-13-v2';
+  console.log('[GOV] Version',window._GOV_VERSION);
+  // No hardcoded PPP defaults — all PPP dates come from DB via fetchStateFromDB
   // Load facility preference from localStorage only
   var savedFac=null;
   try{savedFac=localStorage.getItem('omg5_facility');}catch(e){}
