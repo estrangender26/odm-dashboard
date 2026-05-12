@@ -806,7 +806,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       console.log('[CHK] dbCompleted='+dbCompleted+', checked='+checked+', match='+(checked===!!dbCompleted));
       if(checked===!!dbCompleted){console.log('[CHK] Reverting to DB');if(PENDING[f])delete PENDING[f].ms[mid];updateEditButtons();ALL();return;}
       if(!PENDING[f])PENDING[f]={ms:{}};
-      if(checked){var dt=cd((ST[f]&&ST[f].pp)||'',MSD[mid].o);PENDING[f].ms[mid]={compDate:dt};console.log('[CHK] Set complete: '+dt);}
+      if(checked){var ppDate=(ST[f]&&ST[f].pp)||(ST[f]&&ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'';var dt=cd(ppDate,MSD[mid].o);PENDING[f].ms[mid]={compDate:dt};console.log('[CHK] Set complete: '+dt+' (target)');}
       else{PENDING[f].ms[mid]={compDate:null};console.log('[CHK] Set incomplete (null)');}
       console.log('[CHK] PENDING now:',JSON.stringify(PENDING));updateEditButtons();ALL();
     });
