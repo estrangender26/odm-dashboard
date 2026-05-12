@@ -17,6 +17,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/analytics-engine.js?v=1"></script>
 
   <style>
     /* ============================================================
@@ -1041,6 +1042,60 @@
     /* Pareto chart scroll wrapper */
     .chart-scroll-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     #chartPareto { min-width: 500px; height: 320px !important; }
+
+    /* ===== AI OPERATIONAL INSIGHTS ===== */
+    .insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .insight-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      border: 1px solid var(--border-light);
+      box-shadow: var(--shadow-sm);
+      transition: var(--transition-base);
+      position: relative;
+      overflow: hidden;
+    }
+    .insight-card:hover { box-shadow: var(--shadow-md); border-color: var(--border-medium); }
+    .insight-card::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 4px;
+      border-radius: var(--radius-md) 0 0 var(--radius-md);
+    }
+    .insight-card.critical::before { background: linear-gradient(to bottom, #DC2626, #EF4444); }
+    .insight-card.high::before { background: linear-gradient(to bottom, #F59E0B, #FBBF24); }
+    .insight-card.medium::before { background: linear-gradient(to bottom, #005BAC, #00AEEF); }
+    .insight-card.low::before { background: linear-gradient(to bottom, #8BA3B8, #B0C4DE); }
+    .insight-card.info::before { background: linear-gradient(to bottom, #1F9D55, #34D399); }
+    .insight-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .insight-icon { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+    .insight-card.critical .insight-icon { background: var(--danger-light); color: var(--danger); }
+    .insight-card.high .insight-icon { background: var(--warning-light); color: #D97706; }
+    .insight-card.medium .insight-icon { background: var(--info-light); color: var(--info); }
+    .insight-card.low .insight-icon { background: #F1F5F9; color: #64748B; }
+    .insight-card.info .insight-icon { background: var(--success-light); color: var(--success); }
+    .insight-title { font-size: 13px; font-weight: 700; color: var(--text-primary); flex: 1; line-height: 1.3; }
+    .insight-severity {
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+      padding: 2px 8px; border-radius: 999px; flex-shrink: 0;
+    }
+    .insight-card.critical .insight-severity { background: var(--danger-light); color: var(--danger); }
+    .insight-card.high .insight-severity { background: var(--warning-light); color: #D97706; }
+    .insight-card.medium .insight-severity { background: var(--info-light); color: var(--info); }
+    .insight-card.low .insight-severity { background: #F1F5F9; color: #64748B; }
+    .insight-card.info .insight-severity { background: var(--success-light); color: var(--success); }
+    .insight-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 8px; }
+    .insight-metric { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--text-primary); background: var(--bg-secondary); padding: 3px 10px; border-radius: 6px; margin-bottom: 8px; }
+    .insight-rec { font-size: 11px; color: var(--text-muted); line-height: 1.4; padding: 8px 10px; background: rgba(0,91,172,0.03); border-radius: 6px; border-left: 2px solid rgba(0,91,172,0.15); }
+    .insight-rec strong { color: var(--text-primary); font-weight: 600; }
+
+    @media (max-width: 768px) {
+      .insights-grid { grid-template-columns: 1fr; gap: 10px; }
+      .insight-card { padding: 14px; }
+      .insight-title { font-size: 12px; }
+      .insight-desc { font-size: 11px; }
+    }
   </style>
 </head>
 
@@ -1245,6 +1300,18 @@
         <div class="kpi-value" id="kpiPredRisk">Normal</div>
         <div class="kpi-sub">maintenance risk level</div>
       </div>
+    </div>
+
+    <!-- AI Operational Insights -->
+    <div id="insightsSection" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#E3F2FD,#BBDEFB);display:flex;align-items:center;justify-content:center;color:#005BAC">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/></svg>
+        </div>
+        <h3 style="font-size:14px;font-weight:700;color:var(--text-primary);letter-spacing:-.3px">AI Operational Insights</h3>
+        <span id="insightsBadge" style="font-size:10px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--danger-light);color:var(--danger);display:none">0 alerts</span>
+      </div>
+      <div class="insights-grid" id="insightsContainer"></div>
     </div>
 
     <!-- Charts Grid -->
@@ -1772,6 +1839,7 @@ function refreshAll() {
   updateDQTable(rows);
   updateEscalatedTable(rows);
   updateNotesTable(rows);
+  if (typeof AnalyticsEngine !== 'undefined') renderInsights(rows);
 }
 
 /* ============================================================
@@ -2609,6 +2677,61 @@ function escHtml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/* ============================================================
+   AI OPERATIONAL INSIGHTS RENDERER
+   ============================================================ */
+
+const INSIGHT_ICONS = {
+  trend: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
+  risk: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  inspector: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  anomaly: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+  coverage: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+  recommendation: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/></svg>'
+};
+
+function renderInsights(rows) {
+  const section = document.getElementById('insightsSection');
+  const container = document.getElementById('insightsContainer');
+  const badge = document.getElementById('insightsBadge');
+  if (!section || !container) return;
+
+  const insights = AnalyticsEngine.generateInsights({ rows });
+  if (!insights.length) {
+    section.style.display = 'none';
+    return;
+  }
+
+  const criticalHigh = insights.filter(i => i.severity === 'critical' || i.severity === 'high').length;
+  if (badge) {
+    badge.textContent = criticalHigh > 0 ? criticalHigh + ' alert' + (criticalHigh > 1 ? 's' : '') : insights.length + ' insight' + (insights.length > 1 ? 's' : '');
+    badge.style.display = 'inline-flex';
+    if (criticalHigh > 0) {
+      badge.style.background = 'var(--danger-light)';
+      badge.style.color = 'var(--danger)';
+    } else {
+      badge.style.background = 'var(--info-light)';
+      badge.style.color = 'var(--info)';
+    }
+  }
+
+  container.innerHTML = insights.map(insight => {
+    const icon = INSIGHT_ICONS[insight.type] || INSIGHT_ICONS.recommendation;
+    return '<div class="insight-card ' + insight.severity + '">' +
+      '<div class="insight-header">' +
+        '<div class="insight-icon">' + icon + '</div>' +
+        '<div class="insight-title">' + escHtml(insight.title) + '</div>' +
+        '<span class="insight-severity">' + insight.severity + '</span>' +
+      '</div>' +
+      '<div class="insight-desc">' + escHtml(insight.description) + '</div>' +
+      '<div class="insight-metric">' + escHtml(insight.metric) + '</div>' +
+      '<div class="insight-rec"><strong>Recommendation:</strong> ' + escHtml(insight.recommendation) + '</div>' +
+    '</div>';
+  }).join('');
+
+  section.style.display = 'block';
 }
 </script>
 <div style="text-align:right;padding:20px;font-size:11px;color:#5A6B7D;border-top:1px solid #D6DFE8;margin-top:20px">Program Oversight Center &copy; 2026</div>
