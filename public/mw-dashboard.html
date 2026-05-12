@@ -1001,6 +1001,7 @@
       .cumulative-icon { width: 36px; height: 36px; }
       .cumulative-value { font-size: 20px; }
       canvas { max-height: 240px !important; }
+      #chartPareto { height: 280px !important; min-width: 420px; }
 
       /* --- Table: horizontal scroll --- */
       .table-wrap { -webkit-overflow-scrolling: touch; }
@@ -1036,6 +1037,10 @@
        CHART.JS OVERRIDES
        ============================================================ */
     canvas { max-height: 320px; }
+
+    /* Pareto chart scroll wrapper */
+    .chart-scroll-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    #chartPareto { min-width: 500px; height: 320px !important; }
   </style>
 </head>
 
@@ -1276,6 +1281,35 @@
         <canvas id="chartEscalations"></canvas>
       </div>
 
+      <!-- Pareto Analysis of Negative Findings -->
+      <div class="card animate-scale-in delay-2">
+        <div class="card-header">
+          <h3 class="card-title">
+            <span class="card-title-icon" style="background:linear-gradient(135deg,#FEF3C7,#FDE68A);color:#D97706">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 3v18h18"/><path d="M7 16v-3"/><path d="M11 16V8"/><path d="M15 16v-5"/><path d="M19 16v-9"/>
+              </svg>
+            </span>
+            Pareto Analysis of Negative Findings
+          </h3>
+          <span class="card-badge">Operational Analytics</span>
+        </div>
+        <div class="cumulative-box" style="background:linear-gradient(135deg,#FFFBEB,#FEF3C7);border-color:#FDE68A">
+          <div class="cumulative-icon" style="background:#FEF3C7;color:#D97706">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            </svg>
+          </div>
+          <div>
+            <div class="cumulative-label">Categories at 80%</div>
+            <div class="cumulative-value" id="pareto80Value">—</div>
+          </div>
+        </div>
+        <div class="chart-scroll-wrap">
+          <canvas id="chartPareto"></canvas>
+        </div>
+      </div>
+
       <!-- Inspector Performance -->
       <div class="card animate-scale-in delay-3">
         <div class="card-header">
@@ -1452,6 +1486,7 @@
 
 let rawRows = [];
 let chartEsc = null;
+let chartPareto = null;
 
 /* ---------- Event Listeners ---------- */
 document.getElementById('fileInput').addEventListener('change', handleFile, false);
@@ -1509,6 +1544,7 @@ function loadFromStorage() {
 function clearStorageUI() {
   rawRows = [];
   if (chartEsc) { chartEsc.destroy(); chartEsc = null; }
+  if (chartPareto) { chartPareto.destroy(); chartPareto = null; }
   document.getElementById('filters').style.display = 'none';
   document.getElementById('kpis').style.display = 'none';
   document.getElementById('mainGrid').style.display = 'none';
@@ -1731,6 +1767,7 @@ function refreshAll() {
   const rows = getFilteredRows();
   updateKPIs(rows);
   updateEscalationChart(rows);
+  updateParetoChart(rows);
   updateInspectorTable(rows);
   updateDQTable(rows);
   updateEscalatedTable(rows);
@@ -1942,6 +1979,177 @@ function updateEscalationChart(rows) {
           grid: { color: 'rgba(0,91,172,0.04)', drawBorder: false },
           ticks: { font: { family: 'Inter', size: 10 }, color: '#8BA3B8', precision: 0 },
           beginAtZero: true
+        }
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' }
+    }
+  });
+}
+
+/* ============================================================
+   CHART: Pareto Analysis of Negative Findings
+   ============================================================ */
+
+function updateParetoChart(rows) {
+  const ctx = document.getElementById('chartPareto').getContext('2d');
+
+  // Group negative findings by EquipmentType (fallback to AssetTag/AssetName)
+  const catMap = new Map();
+  rows.forEach(r => {
+    if (!hasNegativeFindings(r)) return;
+    const cat = r.EquipmentType || r.AssetTag || r.AssetName || 'Unknown';
+    catMap.set(cat, (catMap.get(cat) || 0) + 1);
+  });
+
+  // Sort descending by count
+  const sorted = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
+  if (sorted.length === 0) {
+    document.getElementById('pareto80Value').textContent = '—';
+    if (chartPareto) { chartPareto.destroy(); chartPareto = null; }
+    return;
+  }
+
+  // Limit to top 15 for readability
+  const top = sorted.slice(0, 15);
+  const labels = top.map(([cat]) => cat);
+  const counts = top.map(([, c]) => c);
+  const total = counts.reduce((a, b) => a + b, 0);
+
+  // Compute cumulative percentage
+  let cum = 0;
+  const cumPct = counts.map(c => {
+    cum += c;
+    return parseFloat(((cum / total) * 100).toFixed(1));
+  });
+
+  // Find how many categories hit 80%
+  let catsAt80 = cumPct.findIndex(p => p >= 80);
+  if (catsAt80 === -1) catsAt80 = counts.length - 1;
+  else catsAt80 += 1; // convert to 1-based count
+  const pctOfTotal = Math.round((catsAt80 / counts.length) * 100);
+  document.getElementById('pareto80Value').textContent =
+    catsAt80 + ' of ' + counts.length + ' (' + pctOfTotal + '%)';
+
+  // Truncate long labels for display
+  const displayLabels = labels.map(l => l.length > 18 ? l.slice(0, 16) + '…' : l);
+
+  if (chartPareto) chartPareto.destroy();
+  chartPareto = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: displayLabels,
+      datasets: [
+        {
+          type: 'line',
+          label: '80% Threshold',
+          data: labels.map(() => 80),
+          borderColor: '#F59E0B',
+          borderWidth: 2,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          yAxisID: 'y1',
+          order: 0
+        },
+        {
+          type: 'line',
+          label: 'Cumulative %',
+          data: cumPct,
+          borderColor: '#005BAC',
+          backgroundColor: 'rgba(0,91,172,0.08)',
+          borderWidth: 2.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#005BAC',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1.5,
+          fill: false,
+          tension: 0.3,
+          yAxisID: 'y1',
+          order: 1
+        },
+        {
+          type: 'bar',
+          label: 'Negative Findings',
+          data: counts,
+          backgroundColor: 'rgba(220,38,38,0.55)',
+          borderColor: '#DC2626',
+          borderWidth: 1,
+          borderRadius: 4,
+          borderSkipped: false,
+          barPercentage: 0.6,
+          yAxisID: 'y',
+          order: 2
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            font: { family: 'Inter', size: 11, weight: '600' },
+            color: '#4A6380',
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 16
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(22,50,79,0.95)',
+          titleFont: { family: 'Inter', size: 12, weight: '700' },
+          bodyFont: { family: 'Inter', size: 11 },
+          padding: 12,
+          cornerRadius: 8,
+          callbacks: {
+            title: (items) => {
+              const idx = items[0].dataIndex;
+              return labels[idx]; // full label in tooltip
+            },
+            label: (item) => {
+              if (item.dataset.label === 'Negative Findings') {
+                return item.dataset.label + ': ' + item.raw.toLocaleString();
+              }
+              return item.dataset.label + ': ' + item.raw + '%';
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            font: { family: 'Inter', size: 9 },
+            color: '#8BA3B8',
+            maxRotation: 45,
+            minRotation: 30,
+            autoSkip: true,
+            maxTicksLimit: 12
+          }
+        },
+        y: {
+          type: 'linear',
+          position: 'left',
+          grid: { color: 'rgba(0,91,172,0.04)', drawBorder: false },
+          ticks: { font: { family: 'Inter', size: 10 }, color: '#8BA3B8', precision: 0 },
+          beginAtZero: true,
+          title: { display: true, text: 'Count', font: { size: 10, family: 'Inter' }, color: '#8BA3B8' }
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          min: 0,
+          max: 100,
+          grid: { display: false },
+          ticks: {
+            font: { family: 'Inter', size: 10 },
+            color: '#005BAC',
+            callback: v => v + '%',
+            stepSize: 20
+          },
+          title: { display: true, text: 'Cumulative %', font: { size: 10, family: 'Inter' }, color: '#005BAC' }
         }
       },
       animation: { duration: 600, easing: 'easeOutQuart' }
