@@ -54,14 +54,25 @@
     return new Date().toISOString().slice(0, 10);
   }
 
-  /* ---------- HAS NEGATIVE FINDINGS (mirrors dashboard logic) ---------- */
-  const ABNORMAL_KEYWORDS = /abnormal|defect|fault|failure|leak|broken|damage|corrosion|wear|clog|blockage|malfunction|offline|down|alarm|critical|not ok|notok|not functioning|out of service|repair needed|needs repair/i;
+  /* ---------- HAS NEGATIVE FINDINGS (EXACT match to dashboard logic) ---------- */
+  const ABNORMAL_KEYWORDS = [
+    'leak','loose','vibration','vibrating','noisy','noise','abnormal',
+    'hot','overheat','overheating','smoke','blocked','jammed','misaligned',
+    'worn','crack','damage','fail','alarm','not ok','not_ok','ng','no good',
+    'defect','fault','error','critical','urgent','repair','replace','broken'
+  ];
+
+  function hasAbnormalKeyword(text) {
+    if (!text || text.toString().trim() === '') return false;
+    const t = text.toString().toLowerCase();
+    return ABNORMAL_KEYWORDS.some(k => t.includes(k));
+  }
 
   function hasNegativeFindings(row) {
-    const notes = row.EntryNotes ? String(row.EntryNotes).trim() : '';
-    const capture = row.Capture1Response ? String(row.Capture1Response).trim() : '';
-    const findings = row.Findings ? String(row.Findings).trim() : '';
-    return ABNORMAL_KEYWORDS.test(notes) || ABNORMAL_KEYWORDS.test(capture) || ABNORMAL_KEYWORDS.test(findings);
+    if (hasAbnormalKeyword(row.EntryNotes)) return true;
+    if (hasAbnormalKeyword(row.Capture1Response)) return true;
+    if (hasAbnormalKeyword(row.Findings)) return true;
+    return false;
   }
 
   /* ---------- INSIGHT GENERATORS ---------- */
