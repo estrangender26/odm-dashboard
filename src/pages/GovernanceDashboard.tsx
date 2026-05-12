@@ -1236,8 +1236,8 @@ export default function GovernanceDashboard() {
         )}
       </main>
 
-      <footer className="text-center py-5 text-sm text-gray-500 border-t border-gray-200 mt-6">
-        Programs © 2026
+      <footer className="text-right py-5 px-5 text-sm text-gray-500 border-t border-gray-200 mt-6">
+        Program Oversight Center &copy; 2026
       </footer>
     </div>
   );

@@ -178,8 +178,8 @@ export default function Home() {
       </main>
 
       {/* Footer */}
-      <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'center', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
-        Programs © 2026
+      <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'right', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
+        Program Oversight Center &copy; 2026
       </footer>
     </div>
   );
