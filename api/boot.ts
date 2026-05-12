@@ -382,9 +382,9 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug}
     `);
     console.log("[API] States:", states.rows ? states.rows.length : states.length);
-    // Query uploads table via postgres-js (matching production DATABASE_URL)
+    // Query uploads table — exclude file_url (base64) to keep response small
     const files1 = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at
       FROM governance_uploads
       WHERE facility_slug = ${facilitySlug} OR facility_slug = 'all'
       ORDER BY id DESC
@@ -402,9 +402,9 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
       else if (f.length) upRows = f;
     }
     console.log("[API] governance_uploads rows:", upRows.length);
-    // ALSO query governance_files (tRPC-managed table for milestone uploads)
+    // ALSO query governance_files — exclude file_data (base64) to keep response small
     const files2 = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, toc_item, file_name, file_data AS file_url, uploaded_by, uploaded_at
+      SELECT id, facility_slug, milestone_id, toc_item, file_name, uploaded_by, uploaded_at
       FROM governance_files
       WHERE facility_slug = ${facilitySlug}
       ORDER BY id DESC

@@ -492,7 +492,7 @@ async function fetchStateFromDB(facility,opts){
     }
     if(which==='all'||which==='references'){
       REFERENCE_DOCS=refFiles.map(function(f){
-        return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
+        return{id:f.id,name:f.file_name,date:f.uploaded_at,by:f.uploaded_by||''};
       });
       TAB_CACHE.r=Date.now();
     }
@@ -508,7 +508,7 @@ async function fetchStateFromDB(facility,opts){
         if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
         var already=ST[facility].up[mid][tkey].find(function(u){return u.id===f.id;});
         if(!already){
-          ST[facility].up[mid][tkey].push({id:f.id,n:f.file_name,url:f.file_url,d:f.file_url});
+          ST[facility].up[mid][tkey].push({id:f.id,n:f.file_name});
           fCount++;
         }
       });
