@@ -462,7 +462,7 @@ async function fetchStateFromDB(facility,opts){
     setStatus('Fetching '+facility+' ('+which+')...');
     var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility)+'?_='+Date.now();
     var ctrl=new AbortController();
-    var tmr=setTimeout(function(){ctrl.abort();},5000);
+    var tmr=setTimeout(function(){ctrl.abort();},15000);
     var resp=await fetch(url,{signal:ctrl.signal});
     clearTimeout(tmr);
     if(!resp.ok)throw new Error('HTTP '+resp.status);
