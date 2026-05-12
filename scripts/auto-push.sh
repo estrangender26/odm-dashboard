@@ -20,9 +20,12 @@ REMOTE_URL="${GITHUB_REMOTE:-https://github.com/estrangender26/odm-dashboard.git
   
   git commit -m "$MESSAGE" 2>/dev/null
   
-  # Push with token from env var, with timeout
+  # Push with token — try env var first, then token file
   if [ -n "$TOKEN" ]; then
     timeout 30 git push "https://estrangender26:${TOKEN}@${REMOTE_URL#https://}" main 2>/dev/null
+  elif [ -f ".github-token" ] && grep -q "ghp_" .github-token 2>/dev/null; then
+    FILE_TOKEN=$(grep "ghp_" .github-token | head -1 | tr -d '[:space:]')
+    timeout 30 git push "https://estrangender26:${FILE_TOKEN}@${REMOTE_URL#https://}" main 2>/dev/null
   else
     timeout 30 git push "$REMOTE_URL" main 2>/dev/null
   fi
