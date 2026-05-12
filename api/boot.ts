@@ -190,7 +190,7 @@ app.post("/api/governance/files", async (c) => {
       INSERT INTO governance_uploads
         (facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_at)
       VALUES
-        (${slug}, ${mid}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt) : new Date()})
+        (${slug}, ${mid}, ${tocItem || null}, ${tocItem || null}, ${filename}, ${fileUrl || filename}, ${uploadedAt ? new Date(uploadedAt).toISOString() : new Date().toISOString()})
     `);
     // SELECT back the inserted row to get the generated id
     const inserted = await db.execute(sql`
