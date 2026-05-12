@@ -302,7 +302,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
     </div>
     <div class="hdr-chip">
       <label>PPP Start</label>
-      <input type="date" id="pp">
+      <input type="date" id="pp" disabled>
     </div>
     <button class="btn-g" onclick="forceRefresh()" title="Refresh uploads from server">🔄 Refresh</button>
     <button class="btn-r" onclick="rsA()">Reset</button>
@@ -426,7 +426,7 @@ const ALM=[
 const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
 
 // STATE — DB-backed (no localStorage)
-let ST={},CH=null,PENDING={},PENDING_REF=[],EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={};
+let ST={},CH=null,PENDING={},PENDING_REF=[],EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={},DRAFT_PP=null;
 const CU=()=>ST[document.getElementById('fs').value];
 const DF=()=>{
   var f=document.getElementById('fs').value;
@@ -637,11 +637,12 @@ async function INIT(){
   
   // PPP date change
   document.getElementById('pp').addEventListener('change',function(e){
+    if(!EDIT_MODE){return;} // Only allow changes in edit mode
     var f=document.getElementById('fs').value;
     if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
     ST[f].pp=e.target.value;
-    // Also save PPP to DB for M1
-    saveMilestoneToDB(f,'M1',{ppp:e.target.value});
+    DRAFT_PP=e.target.value; // Mark as changed (non-null means dirty)
+    console.log('[PPP] Changed to',e.target.value,'(pending save)');
     ALL();
   });
   
@@ -985,6 +986,9 @@ function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
 function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';;renderRefDocs()}
 // Sync ALL existing interactive controls with current EDIT_MODE
 function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
+  // PPP start date input
+  var ppInp=document.getElementById('pp');
+  if(ppInp){ppInp.disabled=!EDIT_MODE;ppInp.style.cursor=EDIT_MODE?'pointer':'not-allowed';ppInp.style.opacity=EDIT_MODE?'1':'.5';}
   // Checkboxes (Done)
   var cbEls=document.querySelectorAll('.msc input[type="checkbox"]');console.log('[syncEditMode] checkboxes='+cbEls.length);cbEls.forEach(function(cb){cb.disabled=!EDIT_MODE;cb.style.cursor=EDIT_MODE?'pointer':'not-allowed';cb.style.opacity=EDIT_MODE?'1':'.5';});
   // Date inputs (completion date)
@@ -1002,12 +1006,18 @@ function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   // Select all checkbox
   var selAll=document.getElementById('sel-all');if(selAll){selAll.disabled=!EDIT_MODE;selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
 }
-function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};console.log('[EDIT] Edit mode ON');updateEditButtons();ALL();}
+function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};DRAFT_PP=null;var f=document.getElementById('fs').value;if(ST[f]){DRAFT_PP=ST[f].pp||'';}console.log('[EDIT] Edit mode ON, original PPP:',DRAFT_PP);updateEditButtons();syncEditMode();ALL();}
 async function saveAll(){
   console.log('[EDIT] Save clicked');
   var f=document.getElementById('fs').value;
   DRAFT_UP={};DRAFT_RM={};
   var dbg=document.getElementById('ref-debug');
+  // Save PPP start date if changed
+  if(DRAFT_PP!==null&&ST[f]&&ST[f].pp){
+    console.log('[EDIT] Saving PPP date:',ST[f].pp);
+    saveMilestoneToDB(f,'M1',{ppp:ST[f].pp});
+    DRAFT_PP=null;
+  }
   // Save milestone changes
   if(PENDING[f]&&PENDING[f].ms){
     if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
@@ -1037,6 +1047,14 @@ function cancelEdit(){
   PENDING={};
   PENDING_REF=[];
   DRAFT_UP={};DRAFT_RM={};
+  // Revert PPP date to original
+  if(DRAFT_PP!==null){
+    var f=document.getElementById('fs').value;
+    if(ST[f])ST[f].pp=DRAFT_PP;
+    var ppInp=document.getElementById('pp');
+    if(ppInp)ppInp.value=DRAFT_PP;
+    DRAFT_PP=null;
+  }
   EDIT_MODE=false;
   document.body.classList.remove('editing');
   updateEditButtons();
