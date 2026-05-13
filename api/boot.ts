@@ -493,7 +493,25 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
   }
 });
 
-// One-time migration: add planned_start, planned_end, category, notes to gantt_tasks
+// Auto-run migration on startup for planned vs actual columns
+(async () => {
+  try {
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    await db.execute(sql.raw(`
+      ALTER TABLE gantt_tasks 
+      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS notes TEXT
+    `));
+    console.log("[MIGRATION] gantt_tasks planned columns added/verified");
+  } catch (e: any) {
+    console.error("[MIGRATION] failed:", e.message);
+  }
+})();
+
+// Manual migration endpoint
 app.get("/api/migrate/gantt-planned", async (c) => {
   try {
     const { getDb } = await import("./queries/connection");
