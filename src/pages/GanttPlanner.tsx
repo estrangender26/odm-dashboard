@@ -90,18 +90,30 @@ export default function GanttPlanner() {
     gantt.config.details_on_dblclick = true;
     gantt.config.show_unscheduled = true;
 
-    /* ─── Planned vs Actual: Custom Baseline Layer ─── */
-    gantt.addTaskLayer(function(task: any) {
-      if (!task.planned_start || !task.planned_end) return null;
-      var ps = gantt.date.parseDate(task.planned_start, gantt.config.date_format);
-      var pe = gantt.date.parseDate(task.planned_end, gantt.config.date_format);
-      if (!ps || !pe) return null;
-      var sizes = gantt.getTaskPosition(task, ps, pe);
-      var el = document.createElement("div");
-      el.className = "gantt-planned-bar";
-      el.style.cssText = "position:absolute;left:" + sizes.left + "px;top:" + (sizes.top + 2) + "px;width:" + sizes.width + "px;height:" + (sizes.height - 4) + "px;border:2px dashed #64748b;border-radius:4px;background:rgba(100,116,139,0.08);pointer-events:none;box-sizing:border-box;z-index:0;";
-      return el;
-    });
+    /* ─── Planned vs Actual: Manual DOM overlay ─── */
+    var drawPlannedBars = function(){
+      var container = document.querySelector(".gantt_task_bars_area");
+      if(!container) return;
+      // Remove old planned bars
+      var old = container.querySelectorAll(".gantt-planned-bar");
+      for(var i=0;i<old.length;i++) old[i].remove();
+      // Draw new ones
+      gantt.eachTask(function(task: any){
+        if(!task.planned_start || !task.planned_end) return;
+        var ps = gantt.date.parseDate(task.planned_start, "%Y-%m-%d %H:%i");
+        var pe = gantt.date.parseDate(task.planned_end, "%Y-%m-%d %H:%i");
+        if(!ps || !pe) return;
+        var pos = gantt.getTaskPosition(task, ps, pe);
+        var el = document.createElement("div");
+        el.className = "gantt-planned-bar";
+        el.setAttribute("data-task-id", task.id);
+        el.style.cssText = "position:absolute;left:"+pos.left+"px;top:"+(pos.top+2)+"px;width:"+pos.width+"px;height:"+(pos.height-4)+"px;border:2px dashed #64748b;border-radius:4px;background:rgba(100,116,139,0.06);pointer-events:none;box-sizing:border-box;z-index:0;";
+        container.appendChild(el);
+      });
+    };
+    gantt.attachEvent("onGanttRender", drawPlannedBars);
+    gantt.attachEvent("onAfterTaskUpdate", function(){ setTimeout(drawPlannedBars, 100); });
+    gantt.attachEvent("onAfterTaskAdd", function(){ setTimeout(drawPlannedBars, 100); });
 
     /* Lightbox config */
     gantt.config.lightbox.sections = [
