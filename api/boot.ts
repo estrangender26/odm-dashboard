@@ -367,6 +367,24 @@ app.get("/api/governance/files/:id/download", async (c) => {
 
 // ═══ Governance Milestone State CRUD (DB-only, no localStorage) ═══
 
+// GET /api/governance/ppp-diag/:facilitySlug/:milestoneId — diagnostic: raw DB row
+app.get("/api/governance/ppp-diag/:facilitySlug/:milestoneId", async (c) => {
+  try {
+    const facilitySlug = c.req.param("facilitySlug").toLowerCase();
+    const milestoneId = c.req.param("milestoneId");
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    const rows = await db.execute(sql`
+      SELECT * FROM governance_milestone_state
+      WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
+    `);
+    const r = (rows as any).rows || rows;
+    return c.json({ facility: facilitySlug, milestone: milestoneId, count: Array.isArray(r) ? r.length : 0, row: Array.isArray(r) && r.length > 0 ? r[0] : null });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // GET /api/governance/state/:facilitySlug — returns all milestone states
 app.get("/api/governance/state/:facilitySlug", async (c) => {
   try {
