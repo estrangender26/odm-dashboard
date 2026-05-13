@@ -680,6 +680,7 @@
        TABLES
        ============================================================ */
     .table-wrap {
+      width: 100%;
       overflow-x: auto;
       border-radius: var(--radius-md);
       border: 1px solid var(--border-subtle);
@@ -784,6 +785,8 @@
        ============================================================ */
     .tabs-panel {
       display: none;
+      width: 100%;
+      box-sizing: border-box;
       background: var(--bg-card);
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow-sm);
@@ -793,6 +796,8 @@
 
     .tab-bar {
       display: flex;
+      flex-wrap: wrap;
+      width: 100%;
       gap: 4px;
       padding: 6px;
       background: linear-gradient(180deg, #F8FAFC, #F1F5F9);
@@ -852,8 +857,10 @@
 
     .tab-content {
       display: none;
+      width: 100%;
       padding: var(--space-5);
       animation: tabFadeIn 0.3s ease-out;
+      box-sizing: border-box;
     }
 
     .tab-content.active { display: block; }
