@@ -367,6 +367,39 @@ app.get("/api/governance/files/:id/download", async (c) => {
 
 // ═══ Governance Milestone State CRUD (DB-only, no localStorage) ═══
 
+// POST /api/governance/repair-ppp — fix corrupted ppp_date values
+app.post("/api/governance/repair-ppp", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { facilitySlug, milestoneId, pppDate } = body;
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    // First clear the corrupted value
+    await db.execute(sql`
+      UPDATE governance_milestone_state
+      SET ppp_date = NULL
+      WHERE facility_slug = ${facilitySlug.toLowerCase()} AND milestone_id = ${milestoneId}
+    `);
+    // Then set the correct value
+    if (pppDate) {
+      await db.execute(sql`
+        UPDATE governance_milestone_state
+        SET ppp_date = ${pppDate}
+        WHERE facility_slug = ${facilitySlug.toLowerCase()} AND milestone_id = ${milestoneId}
+      `);
+    }
+    // Verify
+    const rows = await db.execute(sql`
+      SELECT ppp_date FROM governance_milestone_state
+      WHERE facility_slug = ${facilitySlug.toLowerCase()} AND milestone_id = ${milestoneId}
+    `);
+    const r = (rows as any).rows || rows;
+    return c.json({ success: true, facility: facilitySlug, milestone: milestoneId, pppDate: Array.isArray(r) && r.length > 0 ? r[0].ppp_date : null });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // GET /api/governance/ppp-diag/:facilitySlug/:milestoneId — diagnostic: raw DB row
 app.get("/api/governance/ppp-diag/:facilitySlug/:milestoneId", async (c) => {
   try {
