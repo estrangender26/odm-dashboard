@@ -100,6 +100,14 @@ app.get("/_health", async (c) => {
     const result = await db.select({ count: sql`count(*)` }).from(sql`mw_inspections`);
     const dbRecords = result[0]?.count || 0;
     
+    // Lazy migration: ensure gantt planned columns exist
+    try {
+      await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20)`));
+      await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20)`));
+      await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS category VARCHAR(100)`));
+      await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS notes TEXT`));
+    } catch (_) { /* columns may already exist */ }
+    
     return c.json({ 
       status: "ok",
       service: "odm-dashboard",
