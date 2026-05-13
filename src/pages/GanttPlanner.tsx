@@ -36,6 +36,9 @@ export default function GanttPlanner() {
   const resetMut = trpc.gantt.resetAll.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
+  const seedMut = trpc.gantt.seed.useMutation({
+    onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
+  });
 
   /* ─── Helpers ─── */
   const calcKpi = useCallback((tasks: any[]): KpiData => {
@@ -296,7 +299,7 @@ export default function GanttPlanner() {
             <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Material Management — Project Roadmap</div>
           </div>
         </Link>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
           <button onClick={exportExcel} className="gantt-action-btn export-btn" title="Export to Excel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Export Excel
@@ -357,7 +360,24 @@ export default function GanttPlanner() {
       <div style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         {activeTab === "gantt" && (
           <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-            <div ref={ganttContainer} style={{ width: "100%", height: "calc(100vh - 340px)", minHeight: 500 }} />
+            {/* Empty state when no tasks */}
+            {tasksQuery.data && tasksQuery.data.length === 0 && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", minHeight: 400, textAlign: "center" }}>
+                <div style={{ width: 64, height: 64, borderRadius: 16, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 16 }}>📅</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#16324F", marginBottom: 6 }}>No tasks yet</div>
+                <div style={{ fontSize: 12, color: "#8BA3B8", maxWidth: 320, marginBottom: 20, lineHeight: 1.5 }}>Get started by loading demo data, importing from Excel, or adding tasks manually.</div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+                  <button onClick={() => seedMut.mutate()} disabled={seedMut.isPending} style={{ padding: "10px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#005BAC", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                    {seedMut.isPending ? "⏳ Loading..." : "🚀 Load Demo Data"}
+                  </button>
+                  <button onClick={() => fileInputRef.current?.click()} style={{ padding: "10px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                    📁 Import Excel
+                  </button>
+                </div>
+              </div>
+            )}
+            {/* Gantt container — always rendered, hidden when empty so dhtmlx can init */}
+            <div ref={ganttContainer} style={{ width: "100%", height: tasksQuery.data && tasksQuery.data.length > 0 ? "calc(100vh - 340px)" : 0, minHeight: tasksQuery.data && tasksQuery.data.length > 0 ? 500 : 0, overflow: tasksQuery.data && tasksQuery.data.length > 0 ? "auto" : "hidden" }} />
           </div>
         )}
 
@@ -405,6 +425,12 @@ export default function GanttPlanner() {
 
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
+          .gantt_grid_data .gantt_cell { font-size: 11px !important; }
+          .gantt_task_scale, .gantt_grid_scale { font-size: 10px !important; }
+        }
+        @media (max-width: 480px) {
+          .gantt-action-btn span { display: none; }
+          .gantt-action-btn { padding: 6px 8px; }
         }
       `}</style>
     </div>

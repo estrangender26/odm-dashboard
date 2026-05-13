@@ -131,4 +131,62 @@ export const ganttRouter = createRouter({
     `));
     return { success: true };
   }),
+
+  // Seed demo data if empty
+  seed: publicQuery.mutation(async () => {
+    const existing = await db.select({ count: sql<number>`count(*)` }).from(ganttTasks);
+    if (existing[0].count > 0) return { seeded: false, reason: "Tasks already exist" };
+
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const baseDate = `${y}-${m}-${d}`;
+
+    const demoTasks = [
+      { text: "S/4HANA MM Integration", start_date: `${y}-${m}-${d} 08:00`, duration: 180, progress: 15, parent: 0, type: "project", owner: "PMO", sortorder: 0, planned_start: `${y}-${m}-${d}`, planned_end: `${y}-${String(parseInt(m)+6).padStart(2,"0")}-${d}` },
+      { text: "Gap Analysis & Blueprint", start_date: `${y}-${m}-${d} 08:00`, duration: 30, progress: 80, parent: 1, type: "task", owner: "Business Analyst", sortorder: 1, planned_start: `${y}-${m}-${d}`, planned_end: `${y}-${m}-${String(parseInt(d)+30).padStart(2,"0")}` },
+      { text: "System Configuration", start_date: `${y}-${String(parseInt(m)+1).padStart(2,"0")}-${d} 08:00`, duration: 45, progress: 40, parent: 1, type: "task", owner: "Basis Team", sortorder: 2, planned_start: `${y}-${String(parseInt(m)+1).padStart(2,"0")}-${d}`, planned_end: `${y}-${String(parseInt(m)+2).padStart(2,"0")}-${String(parseInt(d)+15).padStart(2,"0")}` },
+      { text: "Data Migration", start_date: `${y}-${String(parseInt(m)+2).padStart(2,"0")}-${String(parseInt(d)+15).padStart(2,"0")} 08:00`, duration: 60, progress: 10, parent: 1, type: "task", owner: "Data Team", sortorder: 3, planned_start: `${y}-${String(parseInt(m)+2).padStart(2,"0")}-${String(parseInt(d)+15).padStart(2,"0")}`, planned_end: `${y}-${String(parseInt(m)+4).padStart(2,"0")}-${d}` },
+      { text: "Unit Testing", start_date: `${y}-${String(parseInt(m)+4).padStart(2,"0")}-${d} 08:00`, duration: 30, progress: 0, parent: 1, type: "task", owner: "QA Team", sortorder: 4, planned_start: `${y}-${String(parseInt(m)+4).padStart(2,"0")}-${d}`, planned_end: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${d}` },
+      { text: "UAT & Sign-off", start_date: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${d} 08:00`, duration: 20, progress: 0, parent: 1, type: "milestone", owner: "Business Lead", sortorder: 5, planned_start: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${d}`, planned_end: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${String(parseInt(d)+20).padStart(2,"0")}` },
+      { text: "Go-Live Preparation", start_date: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${String(parseInt(d)+20).padStart(2,"0")} 08:00`, duration: 15, progress: 0, parent: 1, type: "task", owner: "Cutover Team", sortorder: 6, planned_start: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${String(parseInt(d)+20).padStart(2,"0")}`, planned_end: `${y}-${String(parseInt(m)+6).padStart(2,"0")}-${d}` },
+    ];
+
+    for (const t of demoTasks) {
+      const end = new Date(new Date(t.start_date).getTime() + (t.duration * 864e5));
+      const endStr = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,"0")}-${String(end.getDate()).padStart(2,"0")} 08:00`;
+      await db.insert(ganttTasks).values({
+        text: t.text,
+        startDate: t.start_date,
+        endDate: endStr,
+        plannedStart: t.planned_start,
+        plannedEnd: t.planned_end,
+        duration: t.duration,
+        progress: t.progress,
+        parent: t.parent,
+        type: t.type,
+        owner: t.owner,
+        sortorder: t.sortorder,
+        open: 1,
+      });
+    }
+
+    // Add a link
+    const allTasks = await db.select().from(ganttTasks).orderBy(ganttTasks.id);
+    if (allTasks.length >= 3) {
+      await db.insert(ganttLinks).values({
+        source: allTasks[1].id,
+        target: allTasks[2].id,
+        type: "0",
+      });
+      await db.insert(ganttLinks).values({
+        source: allTasks[2].id,
+        target: allTasks[3].id,
+        type: "0",
+      });
+    }
+
+    return { seeded: true, count: demoTasks.length };
+  }),
 });
