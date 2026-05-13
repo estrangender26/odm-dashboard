@@ -751,7 +751,7 @@ function cd(pp,o){if(!pp)return'';var p=pp.split('-').map(Number);var nd=new Dat
 function moDiff(d1,d2){var dt1=new Date(d1+'T12:00:00'),dt2=new Date(d2+'T12:00:00');return(dt2.getFullYear()-dt1.getFullYear())*12+(dt2.getMonth()-dt1.getMonth())}
 function fmtDate(iso){if(!iso)return'\u2014';var p=iso.split('-');var M=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];return M[parseInt(p[1],10)-1]+'-'+p[2]+'-'+p[0]}
 function parseDate(fmtStr){if(!fmtStr||fmtStr==='')return'';var months={'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};var parts=fmtStr.split('-');if(parts.length!==3)return fmtStr;var m=months[parts[0].toUpperCase()];if(!m)return fmtStr;return parts[2]+'-'+m+'-'+parts[1]}
-function normalizeDateOnly(value){if(!value)return'';if(typeof value==='string')return value.slice(0,10);return''}
+function normalizeDateOnly(value){if(!value)return'';if(typeof value==='string')return value.slice(0,10);if(value instanceof Date)return value.toISOString().slice(0,10);if(typeof value==='object'&&value.toISOString)return value.toISOString().slice(0,10);return''}
 
 function tocT(num){var t=TOC.find(function(x){return x.num===num});return t?t.ti:''}
 function anxT(id){var a=ANX.find(function(x){return x.id===id});return a?a.ti:''}
