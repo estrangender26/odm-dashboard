@@ -533,17 +533,17 @@ async function fetchStateFromDB(facility,opts){
     states.forEach(function(s){
       var mid=s.milestone_id;if(!mid)return;
       if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
+      // Robust column name access — driver may return snake_case or camelCase
+      var rawPP=s.ppp_date!==undefined?s.ppp_date:(s.pppDate!==undefined?s.pppDate:null);
+      var rawCD=s.comp_date!==undefined?s.comp_date:(s.compDate!==undefined?s.compDate:null);
+      console.log('[LOAD-FE] Mapping',mid,'ppp_date:',JSON.stringify(rawPP),'type:',typeof rawPP,'comp_date:',JSON.stringify(rawCD),'type:',typeof rawCD);
       // PPP date
-      var rawPP=s.ppp_date;
-      console.log('[LOAD-FE] Mapping',mid,'raw ppp_date:',JSON.stringify(rawPP),'type:',typeof rawPP);
       if(rawPP&&rawPP!=='undefined'&&rawPP!=='null'&&rawPP!=='NaN'){
         var cleanPP=normalizeDateOnly(rawPP);
         if(cleanPP){ST[facility].ms[mid].pppDate=cleanPP;console.log('[LOAD-FE] → pppDate SET:',cleanPP);}
         else{console.warn('[SANITIZE] Rejected invalid ppp_date for',mid,':',JSON.stringify(rawPP));}
       }else{console.log('[LOAD-FE] → no ppp_date for',mid);}
       // Comp date
-      var rawCD=s.comp_date;
-      console.log('[LOAD-FE] Mapping',mid,'raw comp_date:',JSON.stringify(rawCD),'type:',typeof rawCD);
       if(rawCD!==undefined&&rawCD!==null&&rawCD!==''){
         if(rawCD==='undefined'||rawCD==='null'||rawCD==='NaN'){
           console.warn('[SANITIZE] Rejected garbage comp_date for',mid,':',JSON.stringify(rawCD));
@@ -722,7 +722,7 @@ function LD(){
     });
   });
   // Version marker for cache-busting verification
-  window._GOV_VERSION='2025-05-14-v3';
+  window._GOV_VERSION='2025-05-14-v4';
   console.log('[GOV] Version',window._GOV_VERSION);
   // Date formatter: converts YYYY-MM-DD → JAN-01-2026 format (consistent across all browsers)
   function fmtDate(isoStr){
@@ -770,6 +770,7 @@ async function INIT(){
 
   try{document.getElementById('fs').addEventListener('change',hFC);}catch(e){console.error('[INIT] fs listener:',e.message);if(window._vdLog)window._vdLog('ERR','fs listener: '+e.message);}
   try{document.getElementById('pp').addEventListener('change',hPP);}catch(e){console.error('[INIT] pp listener:',e.message);if(window._vdLog)window._vdLog('ERR','pp listener: '+e.message);}
+  try{document.getElementById('pp').addEventListener('input',hPP);}catch(e){console.error('[INIT] pp input listener:',e.message);if(window._vdLog)window._vdLog('ERR','pp input listener: '+e.message);}
 
   document.getElementById('fl').textContent=f;
   document.getElementById('dlf').textContent=f;
@@ -1275,14 +1276,20 @@ async function saveAll(){
   console.log('[SAVE-ALL] PENDING:',JSON.stringify(PENDING[f]&&PENDING[f].ms?PENDING[f].ms:{}));
   console.log('[SAVE-ALL] DRAFT_PP:',DRAFT_PP);
   DRAFT_UP={};DRAFT_RM={};
-  // Save PPP start date if changed
-  if(DRAFT_PP!==null&&ST[f]&&ST[f].pp){
-    var pppStr=safePP(ST[f].pp);
-    console.log('[SAVE-ALL] Saving PPP date:',pppStr);
-    await saveMilestoneToDB(f,'M1',{ppp:pppStr});
+  // Save PPP start date — read from DOM as primary source, ST as fallback
+  var domPP=document.getElementById('pp').value||'';
+  var stPP=safePP(ST[f]&&ST[f].pp)||'';
+  var pppToSave=safePP(domPP||stPP);
+  console.log('[SAVE-ALL] PPP DOM='+domPP+' ST='+stPP+' final='+pppToSave+' DRAFT_PP='+DRAFT_PP);
+  if(pppToSave){
+    if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
+    ST[f].pp=pppToSave;
+    console.log('[SAVE-ALL] Saving PPP:',pppToSave);
+    var ok=await saveMilestoneToDB(f,'M1',{ppp:pppToSave});
+    if(window._vdLog)window._vdLog('SAVE','PPP '+(ok?'SAVED':'FAILED')+': '+pppToSave);
     DRAFT_PP=null;
   }else{
-    console.log('[SAVE-ALL] Skipping PPP save. DRAFT_PP='+DRAFT_PP+' ST.pp='+(ST[f]&&ST[f].pp));
+    console.log('[SAVE-ALL] No PPP to save');
   }
   // Save milestone changes
   if(PENDING[f]&&PENDING[f].ms){
