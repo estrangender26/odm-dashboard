@@ -36,6 +36,15 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="js-error" style="display:none;position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:12px;font-family:monospace;font-size:13px;z-index:99999;white-space:pre-wrap;"></div>
+    <script>
+      window.onerror = function(msg, url, line, col, err) {
+        var d = document.getElementById('js-error');
+        if (d) { d.style.display = 'block'; d.textContent += '[JS ERROR] ' + msg + ' at ' + url + ':' + line + '\n'; }
+        console.error(msg, err);
+        return false;
+      };
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <link rel="stylesheet" href="/ProgramsEngineeringLogo.css?v=2" />
   </body>
