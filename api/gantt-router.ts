@@ -137,54 +137,61 @@ export const ganttRouter = createRouter({
     const existing = await db.select({ count: sql<number>`count(*)` }).from(ganttTasks);
     if (existing[0].count > 0) return { seeded: false, reason: "Tasks already exist" };
 
+    // Helper: format Date → "YYYY-MM-DD"
+    const fmt = (dt: Date) => {
+      return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+    };
+    // Helper: format Date → "YYYY-MM-DD HH:mm"
+    const fmtFull = (dt: Date) => fmt(dt) + " 08:00";
+    // Helper: add days to a date
+    const addDays = (dt: Date, days: number) => {
+      const r = new Date(dt);
+      r.setDate(r.getDate() + days);
+      return r;
+    };
+
     const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const baseDate = `${y}-${m}-${d}`;
+    const s0 = now;                           // project start
+    const s1 = now;                           // Gap Analysis
+    const s2 = addDays(now, 35);              // System Config
+    const s3 = addDays(now, 75);              // Data Migration
+    const s4 = addDays(now, 120);             // Unit Testing
+    const s5 = addDays(now, 150);             // UAT
+    const s6 = addDays(now, 170);             // Go-Live
 
     const demoTasks = [
-      { text: "S/4HANA MM Integration", start_date: `${y}-${m}-${d} 08:00`, duration: 180, progress: 15, parent: 0, type: "project", owner: "PMO", sortorder: 0, planned_start: `${y}-${m}-${d}`, planned_end: `${y}-${String(parseInt(m)+6).padStart(2,"0")}-${d}` },
-      { text: "Gap Analysis & Blueprint", start_date: `${y}-${m}-${d} 08:00`, duration: 30, progress: 80, parent: 1, type: "task", owner: "Business Analyst", sortorder: 1, planned_start: `${y}-${m}-${d}`, planned_end: `${y}-${m}-${String(parseInt(d)+30).padStart(2,"0")}` },
-      { text: "System Configuration", start_date: `${y}-${String(parseInt(m)+1).padStart(2,"0")}-${d} 08:00`, duration: 45, progress: 40, parent: 1, type: "task", owner: "Basis Team", sortorder: 2, planned_start: `${y}-${String(parseInt(m)+1).padStart(2,"0")}-${d}`, planned_end: `${y}-${String(parseInt(m)+2).padStart(2,"0")}-${String(parseInt(d)+15).padStart(2,"0")}` },
-      { text: "Data Migration", start_date: `${y}-${String(parseInt(m)+2).padStart(2,"0")}-${String(parseInt(d)+15).padStart(2,"0")} 08:00`, duration: 60, progress: 10, parent: 1, type: "task", owner: "Data Team", sortorder: 3, planned_start: `${y}-${String(parseInt(m)+2).padStart(2,"0")}-${String(parseInt(d)+15).padStart(2,"0")}`, planned_end: `${y}-${String(parseInt(m)+4).padStart(2,"0")}-${d}` },
-      { text: "Unit Testing", start_date: `${y}-${String(parseInt(m)+4).padStart(2,"0")}-${d} 08:00`, duration: 30, progress: 0, parent: 1, type: "task", owner: "QA Team", sortorder: 4, planned_start: `${y}-${String(parseInt(m)+4).padStart(2,"0")}-${d}`, planned_end: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${d}` },
-      { text: "UAT & Sign-off", start_date: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${d} 08:00`, duration: 20, progress: 0, parent: 1, type: "milestone", owner: "Business Lead", sortorder: 5, planned_start: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${d}`, planned_end: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${String(parseInt(d)+20).padStart(2,"0")}` },
-      { text: "Go-Live Preparation", start_date: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${String(parseInt(d)+20).padStart(2,"0")} 08:00`, duration: 15, progress: 0, parent: 1, type: "task", owner: "Cutover Team", sortorder: 6, planned_start: `${y}-${String(parseInt(m)+5).padStart(2,"0")}-${String(parseInt(d)+20).padStart(2,"0")}`, planned_end: `${y}-${String(parseInt(m)+6).padStart(2,"0")}-${d}` },
+      { text: "S/4HANA MM Integration",  start: s0, duration: 180, progress: 15, parent: 0, type: "project",   owner: "PMO",              ps: s0, pe: addDays(s0, 180) },
+      { text: "Gap Analysis & Blueprint", start: s1, duration: 30,  progress: 80, parent: 1, type: "task",      owner: "Business Analyst", ps: s1, pe: addDays(s1, 30) },
+      { text: "System Configuration",     start: s2, duration: 45,  progress: 40, parent: 1, type: "task",      owner: "Basis Team",       ps: s2, pe: addDays(s2, 45) },
+      { text: "Data Migration",           start: s3, duration: 60,  progress: 10, parent: 1, type: "task",      owner: "Data Team",        ps: s3, pe: addDays(s3, 60) },
+      { text: "Unit Testing",             start: s4, duration: 30,  progress: 0,  parent: 1, type: "task",      owner: "QA Team",          ps: s4, pe: addDays(s4, 30) },
+      { text: "UAT & Sign-off",           start: s5, duration: 20,  progress: 0,  parent: 1, type: "milestone", owner: "Business Lead",    ps: s5, pe: addDays(s5, 20) },
+      { text: "Go-Live Preparation",      start: s6, duration: 15,  progress: 0,  parent: 1, type: "task",      owner: "Cutover Team",     ps: s6, pe: addDays(s6, 15) },
     ];
 
     for (const t of demoTasks) {
-      const end = new Date(new Date(t.start_date).getTime() + (t.duration * 864e5));
-      const endStr = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,"0")}-${String(end.getDate()).padStart(2,"0")} 08:00`;
+      const end = addDays(t.start, t.duration);
       await db.insert(ganttTasks).values({
         text: t.text,
-        startDate: t.start_date,
-        endDate: endStr,
-        plannedStart: t.planned_start,
-        plannedEnd: t.planned_end,
+        startDate: fmtFull(t.start),
+        endDate: fmtFull(end),
+        plannedStart: fmt(t.ps),
+        plannedEnd: fmt(t.pe),
         duration: t.duration,
         progress: t.progress,
         parent: t.parent,
         type: t.type,
         owner: t.owner,
-        sortorder: t.sortorder,
+        sortorder: 0,
         open: 1,
       });
     }
 
-    // Add a link
+    // Add dependency links
     const allTasks = await db.select().from(ganttTasks).orderBy(ganttTasks.id);
-    if (allTasks.length >= 3) {
-      await db.insert(ganttLinks).values({
-        source: allTasks[1].id,
-        target: allTasks[2].id,
-        type: "0",
-      });
-      await db.insert(ganttLinks).values({
-        source: allTasks[2].id,
-        target: allTasks[3].id,
-        type: "0",
-      });
+    if (allTasks.length >= 4) {
+      await db.insert(ganttLinks).values({ source: allTasks[1].id, target: allTasks[2].id, type: "0" });
+      await db.insert(ganttLinks).values({ source: allTasks[2].id, target: allTasks[3].id, type: "0" });
     }
 
     return { seeded: true, count: demoTasks.length };

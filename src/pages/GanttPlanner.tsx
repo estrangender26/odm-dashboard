@@ -204,20 +204,42 @@ export default function GanttPlanner() {
   useEffect(() => {
     if (!tasksQuery.data || !linksQuery.data) return;
 
-    const tasks = tasksQuery.data.map((t: any) => ({
-      id: t.id,
-      text: t.text,
-      start_date: t.startDate ? t.startDate.replace("T", " ").slice(0, 16) : undefined,
-      end_date: t.endDate ? t.endDate.replace("T", " ").slice(0, 16) : undefined,
-      planned_start: t.plannedStart || undefined,
-      planned_end: t.plannedEnd || undefined,
-      duration: t.duration || 1,
-      progress: (t.progress || 0) / 100,
-      parent: t.parent || 0,
-      type: t.type || "task",
-      owner: t.owner || "",
-      open: t.open !== 0,
-    }));
+    // Validate and sanitize dates before passing to dhtmlx
+    const isValidDateStr = (s: string | null | undefined): boolean => {
+      if (!s || typeof s !== "string") return false;
+      const dt = new Date(s.replace(" ", "T"));
+      return !isNaN(dt.getTime());
+    };
+
+    const tasks = tasksQuery.data.map((t: any) => {
+      const startStr = t.startDate && isValidDateStr(t.startDate)
+        ? t.startDate.replace("T", " ").slice(0, 16)
+        : undefined;
+      const endStr = t.endDate && isValidDateStr(t.endDate)
+        ? t.endDate.replace("T", " ").slice(0, 16)
+        : undefined;
+      const plannedStart = t.plannedStart && isValidDateStr(t.plannedStart)
+        ? t.plannedStart.slice(0, 10)
+        : undefined;
+      const plannedEnd = t.plannedEnd && isValidDateStr(t.plannedEnd)
+        ? t.plannedEnd.slice(0, 10)
+        : undefined;
+
+      return {
+        id: t.id,
+        text: t.text || "Untitled Task",
+        start_date: startStr,
+        end_date: endStr,
+        planned_start: plannedStart,
+        planned_end: plannedEnd,
+        duration: parseInt(t.duration) || 1,
+        progress: Math.min(1, Math.max(0, (parseFloat(t.progress) || 0) / 100)),
+        parent: parseInt(t.parent) || 0,
+        type: t.type || "task",
+        owner: t.owner || "",
+        open: t.open !== 0,
+      };
+    }).filter((t: any) => t.start_date); // Require at least a start date
 
     const links = linksQuery.data.map((l: any) => ({
       id: l.id,
