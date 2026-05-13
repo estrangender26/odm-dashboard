@@ -217,9 +217,9 @@ export default function Dashboard() {
       .filter(([, v]) => v.operations !== undefined || v.amd !== undefined || v.ard !== undefined)
       .map(([taskId, v]) => ({
         taskId: Number(taskId),
-        operations: v.operations ?? null,
-        amd: v.amd ?? null,
-        ard: v.ard ?? null,
+        ...(v.operations !== undefined ? { operations: v.operations || null } : {}),
+        ...(v.amd !== undefined ? { amd: v.amd || null } : {}),
+        ...(v.ard !== undefined ? { ard: v.ard || null } : {}),
       }));
 
     if (updates.length > 0) {
