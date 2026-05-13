@@ -300,24 +300,60 @@ export default function GanttPlanner() {
     setKpi(calcKpi(tasksQuery.data));
   }, [tasksQuery.data, calcKpi]);
 
-  /* ─── Excel Export ─── */
+  /* ─── Normalize Excel date (serial number or string) → YYYY-MM-DD ─── */
+  const normalizeExcelDate = (val: any): string => {
+    if (!val) return "";
+    if (typeof val === "number") {
+      // Excel serial date → JS Date
+      const epoch = new Date(1899, 11, 30);
+      const dt = new Date(epoch.getTime() + val * 86400000);
+      return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+    }
+    const s = String(val).trim();
+    if (!s || s === "undefined" || s === "null") return "";
+    // Already ISO-ish: extract YYYY-MM-DD
+    const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+    return "";
+  };
+
+  /* ─── Calculate duration in days between two date strings ─── */
+  const calcDuration = (startStr: string, endStr: string): number => {
+    const s = parseDate(startStr);
+    const e = parseDate(endStr);
+    if (!s || !e) return 1;
+    return Math.max(1, daysBetween(s, e));
+  };
+
+  /* ─── Excel Export — exact 10-column format ─── */
   const exportExcel = () => {
-    const now = new Date();
     const rows = (tasksQuery.data || []).map((t: any) => {
-      const plannedStart = t.plannedStart ? String(t.plannedStart).slice(0, 10) : "";
-      const plannedEnd = t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "";
-      const actualStart = t.startDate ? String(t.startDate).slice(0, 10) : "";
-      const actualEnd = t.endDate ? String(t.endDate).slice(0, 10) : "";
-      const progressPct = Math.round((t.progress || 0) * 100);
-      // Determine status
-      let status = "Not Started";
-      if (progressPct >= 100) status = "Completed";
-      else if (progressPct > 0) {
-        const aEnd = parseDate(t.endDate);
-        const pEnd = parseDate(t.plannedEnd);
-        if (aEnd && pEnd && aEnd > pEnd) status = "In Progress (Delayed)";
-        else status = "In Progress";
+      // Planned dates
+      const plannedStart = normalizeExcelDate(t.plannedStart);
+      const plannedEnd = normalizeExcelDate(t.plannedEnd);
+      // Actual dates
+      const actualStart = normalizeExcelDate(t.startDate);
+      const actualEnd = normalizeExcelDate(t.endDate);
+      // Duration: stored value or calculated from planned dates
+      let duration = t.duration || "";
+      if (!duration && plannedStart && plannedEnd) {
+        duration = calcDuration(plannedStart, plannedEnd);
       }
+      // Progress as percentage number
+      const progressVal = Math.round((t.progress || 0) * 100);
+      // Status: stored or auto-calculated
+      let status = t.status || "";
+      if (!status) {
+        if (progressVal >= 100) status = "Completed";
+        else if (progressVal > 0) {
+          const aEnd = parseDate(t.endDate);
+          const pEnd = parseDate(t.plannedEnd);
+          status = (aEnd && pEnd && aEnd > pEnd) ? "In Progress (Delayed)" : "In Progress";
+        } else status = "Not Started";
+      }
+      // Remarks: notes field fallback
+      const remarks = t.remarks || t.notes || "";
+
       return {
         "Task Name": t.text || "",
         "Owner": t.owner || "",
@@ -325,19 +361,20 @@ export default function GanttPlanner() {
         "Planned End": plannedEnd,
         "Actual Start": actualStart,
         "Actual End": actualEnd,
-        "Duration": t.duration || "",
-        "Progress": progressPct + "%",
+        "Duration": duration,
+        "Progress": progressVal,
         "Status": status,
-        "Remarks": "",
+        "Remarks": remarks,
       };
     });
+    // Create worksheet with explicit column order
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Gantt Tasks");
     XLSX.writeFile(wb, "Gantt_Tasks.xlsx");
   };
 
-  /* ─── Excel Import ─── */
+  /* ─── Excel Import — robust multi-format support ─── */
   const importExcel = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -345,54 +382,111 @@ export default function GanttPlanner() {
       const workbook = XLSX.read(data, { type: "array" });
       const ws = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[] = XLSX.utils.sheet_to_json(ws);
+      if (!rows.length) { alert("No data found in the file"); return; }
 
       let imported = 0;
-      rows.forEach((row: any) => {
-        // Resolve task name with fallbacks
-        const text = (row["Task Name"] || row["text"] || row["Task"] || row["Name"] || row["name"] || "").trim();
-        if (!text) return; // SKIP blank task names
+      let skipped = 0;
+      const errors: string[] = [];
 
-        const owner = row["Owner"] || row["owner"] || row["Assignee"] || row["assignee"] || "";
+      rows.forEach((row: any, idx: number) => {
+        // ── Task Name (required) ──
+        const text = (row["Task Name"] || row["Task"] || row["Name"] || row["name"] || row["text"] || "").trim();
+        if (!text) { skipped++; return; }
 
-        // Planned dates (multiple field name variants)
-        let plannedStart = row["Planned Start"] || row["planned_start"] || row["plannedStart"] || row["Baseline Start"] || row["baseline_start"] || "";
-        let plannedEnd = row["Planned End"] || row["planned_end"] || row["plannedEnd"] || row["Baseline End"] || row["baseline_end"] || "";
+        // ── Owner ──
+        const owner = row["Owner"] || row["owner"] || row["Assignee"] || "";
 
-        // Actual dates (multiple field name variants)
-        let actualStart = row["Actual Start"] || row["actual_start"] || row["actualStart"] || row["Start Date"] || row["start_date"] || row["startDate"] || row["Start"] || row["start"] || "";
-        let actualEnd = row["Actual End"] || row["actual_end"] || row["actualEnd"] || row["End Date"] || row["end_date"] || row["endDate"] || row["End"] || row["end"] || "";
+        // ── Planned dates (new format) ──
+        let plannedStart = normalizeExcelDate(row["Planned Start"] || row["planned_start"] || row["plannedStart"] || row["baseline_start"] || "");
+        let plannedEnd = normalizeExcelDate(row["Planned End"] || row["planned_end"] || row["plannedEnd"] || row["baseline_end"] || "");
 
-        const dur = row["Duration"] || row["duration"] || 1;
-        const progRaw = row["Progress"] || row["progress"] || "0";
-        const prog = parseInt(String(progRaw).toString().replace("%", "")) || 0;
-        const status = row["Status"] || row["status"] || "";
-        const remarks = row["Remarks"] || row["remarks"] || row["Notes"] || row["notes"] || "";
-        const type = row["Type"] || row["type"] || "task";
-        const parent = parseInt(row["Parent"] || row["parent"] || "0") || 0;
+        // ── Actual dates (new format) ──
+        let actualStart = normalizeExcelDate(row["Actual Start"] || row["actual_start"] || row["actualStart"] || "");
+        let actualEnd = normalizeExcelDate(row["Actual End"] || row["actual_end"] || row["actualEnd"] || "");
 
-        // Backward-compat: if old format has Start but no Planned Start, treat Start as Planned Start
-        if (!plannedStart && actualStart) plannedStart = actualStart;
-        if (!plannedEnd && actualStart && dur) {
-          const s = parseDate(String(actualStart));
+        // ── Backward compat: old format columns ──
+        const oldStart = normalizeExcelDate(row["Start Date"] || row["start_date"] || row["startDate"] || row["Start"] || row["start"] || "");
+        const oldEnd = normalizeExcelDate(row["End Date"] || row["end_date"] || row["endDate"] || row["End"] || row["end"] || "");
+
+        // If no planned dates but old Start exists → use as planned
+        if (!plannedStart && oldStart) plannedStart = oldStart;
+        if (!plannedEnd && oldEnd) plannedEnd = oldEnd;
+
+        // ── Duration ──
+        let dur = row["Duration"] || row["duration"] || "";
+        if (!dur && plannedStart && plannedEnd) {
+          dur = calcDuration(plannedStart, plannedEnd);
+        } else if (!dur && actualStart && actualEnd) {
+          dur = calcDuration(actualStart, actualEnd);
+        }
+        if (!dur) dur = 1;
+
+        // If planned end missing but start + duration exist → calculate end
+        if (plannedStart && !plannedEnd && dur) {
+          const s = parseDate(plannedStart);
           if (s) {
             const e = new Date(s.getTime() + (parseInt(String(dur)) || 1) * 86400000);
             plannedEnd = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,"0")}-${String(e.getDate()).padStart(2,"0")}`;
           }
         }
 
+        // ── Progress ──
+        const progRaw = row["Progress"] || row["progress"] || "0";
+        let prog = parseInt(String(progRaw).toString().replace("%", "")) || 0;
+        // Clamp to 0-100
+        prog = Math.min(100, Math.max(0, prog));
+
+        // ── Status ──
+        let status = row["Status"] || row["status"] || "";
+        if (!status) {
+          if (prog >= 100) status = "Completed";
+          else if (prog > 0) status = "In Progress";
+          else status = "Not Started";
+        }
+
+        // ── Remarks ──
+        const remarks = row["Remarks"] || row["remarks"] || row["Notes"] || row["notes"] || "";
+
+        // ── Type / Parent ──
+        const type = row["Type"] || row["type"] || "task";
+        const parent = parseInt(row["Parent"] || row["parent"] || "0") || 0;
+
+        // ── Validation ──
+        if (plannedStart && plannedEnd) {
+          const ps = parseDate(plannedStart);
+          const pe = parseDate(plannedEnd);
+          if (ps && pe && pe < ps) {
+            errors.push(`Row ${idx + 1}: "${text}" has Planned End before Planned Start`);
+          }
+        }
+        if (actualStart && actualEnd) {
+          const as = parseDate(actualStart);
+          const ae = parseDate(actualEnd);
+          if (as && ae && ae < as) {
+            errors.push(`Row ${idx + 1}: "${text}" has Actual End before Actual Start`);
+          }
+        }
+
+        // ── Save ──
         saveTaskMut.mutate({
           text, owner: owner || null,
-          start_date: actualStart ? String(actualStart) : null,
-          end_date: actualEnd ? String(actualEnd) : null,
-          planned_start: plannedStart ? String(plannedStart) : null,
-          planned_end: plannedEnd ? String(plannedEnd) : null,
-          duration: parseInt(dur) || 1, progress: prog,
-          status: status || null, remarks: remarks || null,
+          start_date: actualStart || null,
+          end_date: actualEnd || null,
+          planned_start: plannedStart || null,
+          planned_end: plannedEnd || null,
+          duration: parseInt(String(dur)) || 1,
+          progress: prog,
+          status: status || null,
+          remarks: remarks || null,
           parent, type,
         });
         imported++;
       });
-      alert(`Imported ${imported} task(s)`);
+
+      const msg = [`Imported ${imported} task(s)`];
+      if (skipped > 0) msg.push(`${skipped} row(s) skipped (blank task name)`);
+      if (errors.length > 0) msg.push(`\nWarnings:\n${errors.join("\n")}`);
+      alert(msg.join("\n"));
     };
     reader.readAsArrayBuffer(file);
   };
