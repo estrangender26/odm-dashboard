@@ -329,6 +329,20 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 <!-- TAB 1: PROGRESS -->
 <div id="t-p" class="tc a">
   <div id="fetch-status" style="background:#1a1a2e;color:#00ff88;padding:8px 12px;font-family:monospace;font-size:11px;border-radius:6px;margin-bottom:10px">Loading data...</div>
+  <div id="viz-debug" style="background:#1a1a2e;color:#ffdd00;padding:8px 12px;font-family:monospace;font-size:10px;border-radius:6px;margin-bottom:10px;max-height:120px;overflow-y:auto;display:none"></div>
+  <script>
+  // Visible debug logger — shows on page for mobile debugging
+  window._vdLog=function(tag,msg){
+    var el=document.getElementById('viz-debug');
+    if(!el)return;
+    el.style.display='block';
+    var line='['+tag+'] '+msg;
+    el.innerHTML+=line+'<br>';
+    if(el.innerHTML.length>3000)el.innerHTML=el.innerHTML.slice(-2000);
+    console.log(line);
+  };
+  window._vdLog('BOOT','Script parsed OK');
+  </script>
   <!-- S-Curve Card -->
   <div class="card">
     <div class="ch"><h2>S-Curve Progress — Logistic Model</h2><span class="badge" style="background:var(--bg);color:var(--t2)" data-tip="30-month view showing Pre-PPP (-8 to 0), PPP (0 to +12), and Post-PPP (+12 to +20) phases">28-Month Project | 30-Month Curve View</span></div>
@@ -366,6 +380,19 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 </main>
 
 <script>
+
+// ═══ GLOBAL ERROR CATCHER — logs fatal errors to page ═══
+window.onerror=function(msg,url,line,col,err){
+  console.error('[FATAL]',msg,'at',url+':'+line);
+  var dbg=document.getElementById('fetch-status');
+  if(dbg){dbg.style.background='#d1383e';dbg.style.color='#fff';dbg.textContent='JS ERROR: '+msg+' (line '+line+')';}
+  var bd=document.createElement('div');
+  bd.style.cssText='position:fixed;top:60px;left:10px;right:10px;background:#d1383e;color:#fff;padding:12px;font-size:13px;z-index:99999;border-radius:8px;font-family:monospace;';
+  bd.textContent='[FATAL] '+msg+' at line '+line;
+  document.body.appendChild(bd);
+  return false;
+};
+console.log('[BOOT] Script starting. Version marker check...');
 
 // CONSTANTS
 const FAC=['AGLIPAY','HTT','EASTBAY','KAYSAKAT'];
@@ -479,7 +506,7 @@ async function fetchStateFromDB(facility,opts){
   opts=opts||{};
   var which=opts.which||'all';
   var statusEl=document.getElementById('fetch-status');
-  function setStatus(msg){console.log('[API]',msg);if(statusEl)statusEl.textContent=msg;}
+  function setStatus(msg){console.log('[API]',msg);if(statusEl)statusEl.textContent=msg;if(window._vdLog)window._vdLog('API',msg);}
   try{
     setStatus('Fetching '+facility+' ('+which+')...');
     var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility)+'?_='+Date.now();
@@ -695,7 +722,7 @@ function LD(){
     });
   });
   // Version marker for cache-busting verification
-  window._GOV_VERSION='2025-05-14-v2';
+  window._GOV_VERSION='2025-05-14-v3';
   console.log('[GOV] Version',window._GOV_VERSION);
   // Date formatter: converts YYYY-MM-DD → JAN-01-2026 format (consistent across all browsers)
   function fmtDate(isoStr){
@@ -735,66 +762,62 @@ function saveFacilityPreference(){SV();}
 
 // INIT
 async function INIT(){
-  LD();
+  if(window._vdLog)window._vdLog('INIT','=== ENTER ===');
+  console.log('[INIT] === ENTER ===');
+  try{LD();console.log('[INIT] LD() done');if(window._vdLog)window._vdLog('INIT','LD done');}catch(e){console.error('[INIT] LD() FAILED:',e.message);window.onerror&&window.onerror('LD: '+e.message,'',0,0,e);if(window._vdLog)window._vdLog('FATAL','LD: '+e.message);return;}
   var f=document.getElementById('fs').value;
+  console.log('[INIT] Facility:',f);if(window._vdLog)window._vdLog('INIT','Facility='+f);
 
-  // Facility change listener
-  document.getElementById('fs').addEventListener('change',async function(e){
-    EDIT_MODE=false;PENDING={};updateEditButtons();
-    document.getElementById('fl').textContent=e.target.value;
-    document.getElementById('dlf').textContent=e.target.value;
-    SV();
-    // Fetch all data for new facility
-    await fetchStateFromDB(e.target.value,{which:'all'});
-    var newPP=safePP(ST[e.target.value]&&ST[e.target.value].pp);
-    document.getElementById('pp').value=newPP;
-    logPP('FACILITY_CHANGE',{from:f,to:e.target.value,pp:newPP});
-    ALL();
-    syncEditMode();
-  });
+  try{document.getElementById('fs').addEventListener('change',hFC);}catch(e){console.error('[INIT] fs listener:',e.message);if(window._vdLog)window._vdLog('ERR','fs listener: '+e.message);}
+  try{document.getElementById('pp').addEventListener('change',hPP);}catch(e){console.error('[INIT] pp listener:',e.message);if(window._vdLog)window._vdLog('ERR','pp listener: '+e.message);}
 
-  // PPP date change
-  document.getElementById('pp').addEventListener('change',function(e){
-    if(!EDIT_MODE){return;}
-    var f=document.getElementById('fs').value;
-    if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
-    ST[f].pp=e.target.value;
-    DRAFT_PP=e.target.value;
-    console.log('[PPP] Changed to',e.target.value,'(pending save)');
-    ALL();
-  });
-
-  // Initial load: fetch ONLY progress data for fast first render
-  var initDbg=document.getElementById('init-debug');
-  function idbg(msg){console.log('[INIT]',msg);if(initDbg)initDbg.textContent+=(initDbg.textContent?'\n':'')+msg;}
   document.getElementById('fl').textContent=f;
   document.getElementById('dlf').textContent=f;
-  idbg('1: LD() done');
+  console.log('[INIT] Step 1: listeners attached');if(window._vdLog)window._vdLog('INIT','listeners attached');
+
+  console.log('[INIT] About to call fetchStateFromDB...');if(window._vdLog)window._vdLog('INIT','about to fetchStateFromDB');
   try{
-    await fetchStateFromDB(f,{which:'progress'});
-    idbg('2: fetchState OK, states='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).length:0));
-  }catch(err){idbg('2: fetchState ERR: '+err.message);}
-  idbg('4: ST.ms='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
-  idbg('5: ST.up='+(ST[f]&&ST[f].up?Object.keys(ST[f].up).join(','):'none'));
+    var r=await fetchStateFromDB(f,{which:'progress'});
+    console.log('[INIT] fetchStateFromDB returned:',JSON.stringify(r));if(window._vdLog)window._vdLog('INIT','fetch returned: '+JSON.stringify(r));
+  }catch(err){console.error('[INIT] fetchState FAILED:',err.message);if(window._vdLog)window._vdLog('ERR','fetchState FAILED: '+err.message);}
+
+  console.log('[INIT] Step 4: ST.ms='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
   var m1s=ST[f]&&ST[f].ms&&ST[f].ms['M1'];
   console.log('[INIT] m1s:',JSON.stringify(m1s));
-  console.log('[INIT] ST[f].pp BEFORE:',ST[f].pp);
-  // Only set PPP from M1 if not already set this session (prevents overwrite on re-init)
   if(!ST[f].pp||ST[f].pp===''){
-    if(m1s&&m1s.pppDate){ST[f].pp=safePP(m1s.pppDate);console.log('[INIT] Set PP from M1.pppDate:',ST[f].pp);}
-    else{console.log('[INIT] M1.pppDate missing, PP stays blank');}
-  }else{
-    console.log('[INIT] ST[f].pp already set:',ST[f].pp);
+    if(m1s&&m1s.pppDate){ST[f].pp=safePP(m1s.pppDate);console.log('[INIT] PP set from M1:',ST[f].pp);}
+    else{console.log('[INIT] PP stays blank');}
   }
   var ppVal=safePP(ST[f]&&ST[f].pp);
   document.getElementById('pp').value=ppVal;
-  console.log('[INIT] PP input set to:',ppVal);
-  idbg('6: pp='+ppVal);
-  ALL();
-  idbg('7: done');
+  console.log('[INIT] PP input:',ppVal);if(window._vdLog)window._vdLog('INIT','PP='+ppVal);
+
+  console.log('[INIT] About to call ALL()...');if(window._vdLog)window._vdLog('INIT','about to ALL()');
+  try{ALL();console.log('[INIT] ALL() success');if(window._vdLog)window._vdLog('INIT','ALL() success');}catch(e){console.error('[INIT] ALL() FAILED:',e.message);window.onerror&&window.onerror('ALL: '+e.message,'',0,0,e);if(window._vdLog)window._vdLog('FATAL','ALL: '+e.message);}
   setTimeout(function(){if(!window.__INIT_DONE){window.__INIT_DONE=true;ALL();}},6000);
   window.__INIT_DONE=true;
+  console.log('[INIT] === DONE ===');if(window._vdLog)window._vdLog('INIT','=== DONE ===');
 }
+async function hFC(e){
+  EDIT_MODE=false;PENDING={};updateEditButtons();
+  document.getElementById('fl').textContent=e.target.value;
+  document.getElementById('dlf').textContent=e.target.value;
+  SV();
+  await fetchStateFromDB(e.target.value,{which:'all'});
+  var newPP=safePP(ST[e.target.value]&&ST[e.target.value].pp);
+  document.getElementById('pp').value=newPP;
+  ALL();syncEditMode();
+}
+function hPP(e){
+  if(!EDIT_MODE){return;}
+  var f=document.getElementById('fs').value;
+  if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
+  ST[f].pp=e.target.value;
+  DRAFT_PP=e.target.value;
+  console.log('[PPP] Changed to',e.target.value,'(pending save)');
+  ALL();
+}
+
 function ALL(){
   // Only render the active tab — lazy loading for performance
   if(ACTIVE_TAB==='p'){RM();RS();}
