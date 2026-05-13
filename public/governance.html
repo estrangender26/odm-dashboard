@@ -631,10 +631,10 @@ async function saveMilestoneToDB(facility,mId,changes){
       body:JSON.stringify(payload)
     });
     var respText=await resp.text();
-    console.log('[SAVE-FE] Raw response:',resp.status,respText.substring(0,200));
     var data=respText?JSON.parse(respText):{};
+    var feMsg='BE resp: status='+resp.status+' savedPP='+JSON.stringify(data.savedPP)+' savedCD='+JSON.stringify(data.savedCD);
+    console.log('[SAVE-FE]',feMsg);if(window._vdLog)window._vdLog('SAVE',feMsg);
     if(!resp.ok)throw new Error('HTTP '+resp.status+' '+respText);
-    console.log('[SAVE-FE] Success',mId,data.success?'✓':'✗');
     return data.success;
   }catch(e){
     console.error('[SAVE-FE] FAILED',mId,e.message);
