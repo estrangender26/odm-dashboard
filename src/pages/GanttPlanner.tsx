@@ -234,24 +234,31 @@ export default function GanttPlanner() {
       type: l.type || "0",
     }));
 
-    // Init gantt NOW (after data arrives) — this ensures init runs with a visible container
-    if (ganttContainer.current) {
+    // Defer gantt init to next paint so React has attached the ref
+    const initAndRender = () => {
+      if (!ganttContainer.current) {
+        console.warn("[Gantt] container ref is null, retrying...");
+        setTimeout(initAndRender, 50);
+        return;
+      }
       try {
         gantt.init(ganttContainer.current);
-      } catch (e) { console.warn("gantt.init() error:", e); }
-    }
-    gantt.clearAll();
-    gantt.parse({ data: tasks, links });
-    gantt.setSizes();
-    gantt.render();
+        gantt.clearAll();
+        gantt.parse({ data: tasks, links });
+        gantt.setSizes();
+        gantt.render();
+        console.log("[Gantt] init+render done, tasks:", tasks.length);
+      } catch (e) { console.warn("[Gantt] init error:", e); }
+    };
+    requestAnimationFrame(initAndRender);
 
     setKpi(calcKpi(tasks));
   }, [tasksQuery.data, linksQuery.data, calcKpi]);
 
   /* ─── Re-render gantt when gantt tab becomes active ─── */
   useEffect(() => {
-    if (activeTab === "gantt" && tasksQuery.data && tasksQuery.data.length > 0) {
-      setTimeout(() => { gantt.setSizes(); gantt.render(); }, 150);
+    if (activeTab === "gantt" && tasksQuery.data && tasksQuery.data.length > 0 && ganttContainer.current) {
+      setTimeout(() => { gantt.setSizes(); gantt.render(); }, 200);
     }
   }, [activeTab, tasksQuery.data]);
 
