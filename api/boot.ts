@@ -507,11 +507,11 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
       console.log('[SAVE-BE] existing row before:',JSON.stringify(existingRows[0]));
       // Update — only touch fields that were explicitly sent
       const setParts: string[] = [`updated_at = '${now}'`];
-      if (sanitizedCD !== undefined) setParts.push(`comp_date = ${sanitizedCD === null ? 'NULL' : `' + sanitizedCD + '`}`);
-      if (sanitizedPP !== undefined) setParts.push(`ppp_date = ${sanitizedPP === null ? 'NULL' : `' + sanitizedPP + '`}`);
-      if (customPct !== undefined) setParts.push(`custom_pct = ${customPct}`);
-      if (readyStatus !== undefined) setParts.push(`ready_status = ${readyStatus === null ? 'NULL' : `' + readyStatus + '`}`);
-      if (remarks !== undefined) setParts.push(`remarks = ${remarks === null ? 'NULL' : `' + remarks + '`}`);
+      if (sanitizedCD !== undefined) setParts.push("comp_date = " + (sanitizedCD === null ? 'NULL' : "'" + sanitizedCD + "'"));
+      if (sanitizedPP !== undefined) setParts.push("ppp_date = " + (sanitizedPP === null ? 'NULL' : "'" + sanitizedPP + "'"));
+      if (customPct !== undefined) setParts.push("custom_pct = " + customPct);
+      if (readyStatus !== undefined) setParts.push("ready_status = " + (readyStatus === null ? 'NULL' : "'" + readyStatus + "'"));
+      if (remarks !== undefined) setParts.push("remarks = " + (remarks === null ? 'NULL' : "'" + remarks + "'"));
       const updateSQL = `UPDATE governance_milestone_state SET ${setParts.join(', ')} WHERE facility_slug = '${facilitySlug}' AND milestone_id = '${milestoneId}'`;
       console.log('[SAVE-BE] UPDATE SQL:',updateSQL);
       await db.execute(sql.raw(updateSQL));
