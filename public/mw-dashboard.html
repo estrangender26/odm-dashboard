@@ -528,13 +528,52 @@
     .kpi-trend-down { color: #DC2626; background: rgba(220,38,38,0.1); }
 
     /* ============================================================
-       DASHBOARD GRID
+       MAIN INNER WRAPPER (max-width for large screens)
+       ============================================================ */
+    .main-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      width: 100%;
+      padding: 0 var(--space-5); /* 24px default */
+    }
+
+    /* 1440px+: comfortable padding */
+    @media (min-width: 1440px) {
+      .main-inner { padding: 0 32px; }
+    }
+
+    /* 1280-1439px: MacBook Air / laptop */
+    @media (max-width: 1439px) and (min-width: 1280px) {
+      .main-inner { padding: 0 var(--space-5); }
+    }
+
+    /* 992-1279px: smaller laptop */
+    @media (max-width: 1279px) and (min-width: 992px) {
+      .main-inner { padding: 0 var(--space-4); }
+    }
+
+    /* 768-991px: tablet */
+    @media (max-width: 991px) and (min-width: 769px) {
+      .main-inner { padding: 0 var(--space-4); }
+    }
+
+    /* ============================================================
+       DASHBOARD GRID (balanced 2-column layout)
        ============================================================ */
     .dash-grid {
       display: none;
-      grid-template-columns: 1.4fr 1fr;
+      grid-template-columns: 1fr;
       gap: var(--space-5);
       margin-bottom: var(--space-5);
+    }
+
+    /* 1100px+: side-by-side charts */
+    @media (min-width: 1100px) {
+      .dash-grid {
+        grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+        gap: var(--space-5);
+        align-items: start;
+      }
     }
 
     /* ============================================================
@@ -1003,8 +1042,9 @@
       .cumulative-box { padding: 10px 14px; gap: var(--space-3); }
       .cumulative-icon { width: 36px; height: 36px; }
       .cumulative-value { font-size: 20px; }
-      canvas { max-height: 240px !important; }
-      #chartPareto { height: 280px !important; min-width: 420px; }
+      .main-inner { padding: 0 var(--space-3); }
+      #chartEscalations { height: 280px !important; }
+      #chartPareto { height: 280px !important; min-width: 320px; }
 
       /* --- Table: horizontal scroll --- */
       .table-wrap { -webkit-overflow-scrolling: touch; }
@@ -1041,9 +1081,27 @@
        ============================================================ */
     canvas { max-height: 320px; }
 
+    /* Chart heights — desktop */
+    #chartEscalations { height: 380px !important; }
+    #chartPareto { height: 380px !important; min-width: 420px; }
+
+    /* Chart heights — laptop (1100px-1439px) */
+    @media (max-width: 1439px) and (min-width: 1100px) {
+      #chartEscalations { height: 360px !important; }
+      #chartPareto { height: 360px !important; }
+    }
+
+    /* Chart heights — smaller laptop (992px-1099px) */
+    @media (max-width: 1099px) and (min-width: 769px) {
+      #chartEscalations { height: 340px !important; }
+      #chartPareto { height: 340px !important; min-width: 360px; }
+    }
+
     /* Pareto chart scroll wrapper */
     .chart-scroll-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    #chartPareto { min-width: 500px; height: 320px !important; }
+
+    /* Spacing between chart grid and tabs panel */
+    .tabs-panel { margin-top: var(--space-5); }
 
     /* ===== AI OPERATIONAL INSIGHTS ===== */
     .insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -1267,6 +1325,7 @@
      ============================================================ -->
 <div class="app-body">
   <main class="main">
+    <div class="main-inner">
 
     <!-- Alert -->
     <div id="alertLowDQ" class="alert alert-danger">
@@ -1656,6 +1715,7 @@
 
     </div>
 
+    </div><!-- .main-inner -->
   </main>
 </div>
 
