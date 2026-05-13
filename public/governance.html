@@ -492,7 +492,12 @@ async function fetchStateFromDB(facility,opts){
     var states=Array.isArray(data.states)?data.states:[];
     var files=Array.isArray(data.files)?data.files:[];
     var refFiles=Array.isArray(data.referenceFiles)?data.referenceFiles:[];
-    console.log('[API] states='+states.length,'files='+files.length,'refs='+refFiles.length);
+    console.log('[LOAD-FE] states count:',states.length);
+    if(states.length>0){
+      console.log('[LOAD-FE] First raw state keys:',Object.keys(states[0]));
+      console.log('[LOAD-FE] First state ppp_date:',JSON.stringify(states[0].ppp_date),'type:',typeof states[0].ppp_date);
+      console.log('[LOAD-FE] First state comp_date:',JSON.stringify(states[0].comp_date),'type:',typeof states[0].comp_date);
+    }
     setStatus('HTTP 200 | st='+states.length+' mf='+files.length+' rf='+refFiles.length);
     if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
     if(!ST[facility].ms)ST[facility].ms={};
@@ -501,15 +506,17 @@ async function fetchStateFromDB(facility,opts){
     states.forEach(function(s){
       var mid=s.milestone_id;if(!mid)return;
       if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
-      // Sanitize ppp_date from DB — reject garbage like 'undefined' string
+      // PPP date
       var rawPP=s.ppp_date;
+      console.log('[LOAD-FE] Mapping',mid,'raw ppp_date:',JSON.stringify(rawPP),'type:',typeof rawPP);
       if(rawPP&&rawPP!=='undefined'&&rawPP!=='null'&&rawPP!=='NaN'){
         var cleanPP=normalizeDateOnly(rawPP);
-        if(cleanPP){ST[facility].ms[mid].pppDate=cleanPP;}
+        if(cleanPP){ST[facility].ms[mid].pppDate=cleanPP;console.log('[LOAD-FE] → pppDate SET:',cleanPP);}
         else{console.warn('[SANITIZE] Rejected invalid ppp_date for',mid,':',JSON.stringify(rawPP));}
-      }
-      // Sanitize comp_date from DB
+      }else{console.log('[LOAD-FE] → no ppp_date for',mid);}
+      // Comp date
       var rawCD=s.comp_date;
+      console.log('[LOAD-FE] Mapping',mid,'raw comp_date:',JSON.stringify(rawCD),'type:',typeof rawCD);
       if(rawCD!==undefined&&rawCD!==null&&rawCD!==''){
         if(rawCD==='undefined'||rawCD==='null'||rawCD==='NaN'){
           console.warn('[SANITIZE] Rejected garbage comp_date for',mid,':',JSON.stringify(rawCD));
@@ -517,36 +524,36 @@ async function fetchStateFromDB(facility,opts){
           ST[facility].ms[mid].done=false;
         }else{
           var cleanCD=normalizeDateOnly(rawCD);
-          if(cleanCD){ST[facility].ms[mid].compDate=cleanCD;ST[facility].ms[mid].done=true;}
+          if(cleanCD){ST[facility].ms[mid].compDate=cleanCD;ST[facility].ms[mid].done=true;console.log('[LOAD-FE] → compDate SET:',cleanCD);}
           else{console.warn('[SANITIZE] Rejected invalid comp_date for',mid,':',JSON.stringify(rawCD));}
         }
       }else if(rawCD===null||rawCD===''){
-        // DB explicitly cleared this completion date
         delete ST[facility].ms[mid].compDate;
         ST[facility].ms[mid].done=false;
+        console.log('[LOAD-FE] → compDate CLEARED for',mid);
       }
       if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
       mCount++;
     });
-    // DEBUG: log all milestone keys for M1
+    // Map PPP from M1
     var m1State=ST[facility].ms['M1'];
-    console.log('[PPP] M1 state:',m1State?'exists':'MISSING','keys:',m1State?Object.keys(m1State):'none');
+    console.log('[LOAD-FE] After loop: M1 keys:',m1State?Object.keys(m1State):'none');
     if(m1State&&m1State.pppDate){
       var pppStr=safePP(m1State.pppDate);
-      // Always update from DB (DB is source of truth on load)
       var oldPP=ST[facility].pp||'';
       ST[facility].pp=pppStr;
-      console.log('[PPP] SET facility='+facility+' old='+oldPP+' new='+pppStr);
+      console.log('[LOAD-FE] SET facility.pp: old='+oldPP+' new='+pppStr);
     }else{
-      console.log('[PPP] No M1 pppDate for',facility);
+      console.log('[LOAD-FE] No M1 pppDate. m1State:',JSON.stringify(m1State));
     }
-    // Always force-sync pp input
+    console.log('[LOAD-FE] Final ST['+facility+'].pp:',ST[facility].pp);
+    // Sync PP input
     var ppInp=document.getElementById('pp');
     var fsEl=document.getElementById('fs');
     if(ppInp&&fsEl&&fsEl.value===facility){
       var targetPP=safePP(ST[facility].pp);
       ppInp.value=targetPP;
-      console.log('[PPP] INPUT SYNC facility='+facility+' value='+targetPP);
+      console.log('[LOAD-FE] INPUT SYNC pp.value='+targetPP);
     }
     if(which==='all'||which==='references'){
       REFERENCE_DOCS=refFiles.map(function(f){
@@ -584,17 +591,21 @@ async function fetchStateFromDB(facility,opts){
 // Save milestone state to DB
 async function saveMilestoneToDB(facility,mId,changes){
   try{
+    var payload={milestoneId:mId,compDate:changes.compDate!==undefined?changes.compDate:undefined,customPct:changes.pct!==undefined?changes.pct:undefined,pppDate:changes.ppp!==undefined?changes.ppp:undefined};
+    console.log('[SAVE-FE] Sending to REST:',facility,mId,JSON.stringify(payload));
     var resp=await fetch(API_BASE+'/api/governance/state/'+encodeURIComponent(facility),{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({milestoneId:mId,compDate:changes.compDate!==undefined?changes.compDate:undefined,customPct:changes.pct!==undefined?changes.pct:undefined,pppDate:changes.ppp!==undefined?changes.ppp:undefined})
+      body:JSON.stringify(payload)
     });
-    if(!resp.ok)throw new Error('HTTP '+resp.status);
-    var data=await resp.json();
-    console.log('[API] Saved milestone',mId,':',data.success);
+    var respText=await resp.text();
+    console.log('[SAVE-FE] Raw response:',resp.status,respText.substring(0,200));
+    var data=respText?JSON.parse(respText):{};
+    if(!resp.ok)throw new Error('HTTP '+resp.status+' '+respText);
+    console.log('[SAVE-FE] Success',mId,data.success?'✓':'✗');
     return data.success;
   }catch(e){
-    console.error('[API] saveMilestoneToDB failed:',e.message);
+    console.error('[SAVE-FE] FAILED',mId,e.message);
     return false;
   }
 }
@@ -684,7 +695,7 @@ function LD(){
     });
   });
   // Version marker for cache-busting verification
-  window._GOV_VERSION='2025-05-14-v1';
+  window._GOV_VERSION='2025-05-14-v2';
   console.log('[GOV] Version',window._GOV_VERSION);
   // Date formatter: converts YYYY-MM-DD → JAN-01-2026 format (consistent across all browsers)
   function fmtDate(isoStr){
@@ -766,13 +777,18 @@ async function INIT(){
   idbg('4: ST.ms='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
   idbg('5: ST.up='+(ST[f]&&ST[f].up?Object.keys(ST[f].up).join(','):'none'));
   var m1s=ST[f]&&ST[f].ms&&ST[f].ms['M1'];
+  console.log('[INIT] m1s:',JSON.stringify(m1s));
+  console.log('[INIT] ST[f].pp BEFORE:',ST[f].pp);
   // Only set PPP from M1 if not already set this session (prevents overwrite on re-init)
   if(!ST[f].pp||ST[f].pp===''){
-    if(m1s&&m1s.pppDate){ST[f].pp=safePP(m1s.pppDate);}
+    if(m1s&&m1s.pppDate){ST[f].pp=safePP(m1s.pppDate);console.log('[INIT] Set PP from M1.pppDate:',ST[f].pp);}
+    else{console.log('[INIT] M1.pppDate missing, PP stays blank');}
+  }else{
+    console.log('[INIT] ST[f].pp already set:',ST[f].pp);
   }
   var ppVal=safePP(ST[f]&&ST[f].pp);
   document.getElementById('pp').value=ppVal;
-  logPP('INIT_SET',{facility:f,pp:ppVal});
+  console.log('[INIT] PP input set to:',ppVal);
   idbg('6: pp='+ppVal);
   ALL();
   idbg('7: done');
@@ -912,6 +928,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
   track.appendChild(hdr);
   pv.m.forEach(function(mid){
     var d=MSD[mid],st=c.ms[mid]||{};
+    if(mid==='M1'){console.log('[RENDER-M1] c.pp:',JSON.stringify(c.pp),'st.compDate:',JSON.stringify(st.compDate),'st.pppDate:',JSON.stringify(st.pppDate));}
     var isComp=st.compDate&&st.compDate.length>0;if(isComp)cp++;
     var dt=cd(c.pp,d.o);
     // Count total files for this milestone
@@ -1228,15 +1245,21 @@ function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
 }
 function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};var f=document.getElementById('fs').value;if(ST[f]&&ST[f].pp){DRAFT_PP=safePP(ST[f].pp);}else{DRAFT_PP=null;}console.log('[EDIT] Edit mode ON, original PPP:',DRAFT_PP);updateEditButtons();syncEditMode();ALL();}
 async function saveAll(){
-  console.log('[EDIT] Save clicked');
   var f=document.getElementById('fs').value;
+  console.log('[SAVE-ALL] === START facility='+f+' ===');
+  console.log('[SAVE-ALL] ST.pp BEFORE:',safePP(ST[f]&&ST[f].pp));
+  console.log('[SAVE-ALL] ST.ms.M1 BEFORE:',ST[f]&&ST[f].ms&&ST[f].ms['M1']?JSON.stringify(ST[f].ms['M1']):'none');
+  console.log('[SAVE-ALL] PENDING:',JSON.stringify(PENDING[f]&&PENDING[f].ms?PENDING[f].ms:{}));
+  console.log('[SAVE-ALL] DRAFT_PP:',DRAFT_PP);
   DRAFT_UP={};DRAFT_RM={};
   // Save PPP start date if changed
   if(DRAFT_PP!==null&&ST[f]&&ST[f].pp){
     var pppStr=safePP(ST[f].pp);
-    console.log('[EDIT] Saving PPP date:',pppStr);
+    console.log('[SAVE-ALL] Saving PPP date:',pppStr);
     await saveMilestoneToDB(f,'M1',{ppp:pppStr});
     DRAFT_PP=null;
+  }else{
+    console.log('[SAVE-ALL] Skipping PPP save. DRAFT_PP='+DRAFT_PP+' ST.pp='+(ST[f]&&ST[f].pp));
   }
   // Save milestone changes
   if(PENDING[f]&&PENDING[f].ms){
@@ -1247,12 +1270,17 @@ async function saveAll(){
         if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};
         if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate}).then(resolve).catch(resolve);}
         else{resolve();}
-      });
+      }));
     }));
   }
   PENDING={};
   EDIT_MODE=false;
   document.body.classList.remove('editing');
+  console.log('[SAVE-ALL] === DONE ===');
+  console.log('[SAVE-ALL] ST.pp AFTER:',safePP(ST[f]&&ST[f].pp));
+  console.log('[SAVE-ALL] ST.ms.M1 AFTER:',ST[f]&&ST[f].ms&&ST[f].ms['M1']?JSON.stringify(ST[f].ms['M1']):'none');
+  // Re-render UI to show saved state
+  ALL();
   updateEditButtons();
   syncEditMode();
   // Only re-render the active tab (no full refetch)

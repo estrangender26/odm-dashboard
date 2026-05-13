@@ -371,17 +371,22 @@ app.get("/api/governance/files/:id/download", async (c) => {
 app.get("/api/governance/state/:facilitySlug", async (c) => {
   try {
     const facilitySlug = c.req.param("facilitySlug").toLowerCase();
-    console.log("[API] GET /api/governance/state/" + facilitySlug);
+    console.log("[LOAD-BE] GET facility=" + facilitySlug);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    console.log("[API] DB connection OK");
     // Raw SQL matching actual migration columns (avoid schema drift)
     const states = await db.execute(sql`
       SELECT id, facility_slug, milestone_id, ppp_date, comp_date, custom_pct, updated_at, updated_by
       FROM governance_milestone_state
       WHERE facility_slug = ${facilitySlug}
     `);
-    console.log("[API] States:", states.rows ? states.rows.length : states.length);
+    const stateRows = (states as any).rows || states;
+    console.log("[LOAD-BE] Found", Array.isArray(stateRows) ? stateRows.length : 'N/A', "states");
+    if (Array.isArray(stateRows) && stateRows.length > 0) {
+      stateRows.forEach((r: any, i: number) => {
+        console.log(`[LOAD-BE] Row ${i}: mid=${r.milestone_id} ppp_date=${JSON.stringify(r.ppp_date)} comp_date=${JSON.stringify(r.comp_date)}`);
+      });
+    }
     // Query uploads table — exclude file_url (base64) to keep response small
     const files1 = await db.execute(sql`
       SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at
@@ -427,7 +432,7 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     const msFiles = allFiles.filter((f: any) => f.milestone_id !== '__ref' && f.category !== 'references');
     console.log("[API] files=" + allFiles.length + " refs=" + refFiles.length + " ms=" + msFiles.length);
     return c.json({
-      states: states.rows || states,
+      states: stateRows,
       files: msFiles,
       referenceFiles: refFiles
     });
@@ -452,6 +457,7 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
   try {
     const facilitySlug = c.req.param("facilitySlug").toLowerCase();
     const body = await c.req.json();
+    console.log('[SAVE-BE] facility='+facilitySlug+' body:',JSON.stringify(body));
     const { milestoneId, compDate, customPct, pppDate, readyStatus, remarks } = body;
     if (!milestoneId) return c.json({ error: "milestoneId required" }, 400);
     // Sanitize date inputs — reject garbage strings like "undefined"
@@ -461,23 +467,26 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     const sanitizedCD = compDate !== undefined
       ? (isValidDate(compDate) ? compDate : (compDate === null ? null : undefined))
       : undefined;
+    console.log('[SAVE-BE] sanitizedPP:',sanitizedPP,'sanitizedCD:',sanitizedCD);
     if (pppDate !== undefined && sanitizedPP === undefined && pppDate !== null) {
-      console.warn('[API] Rejected invalid pppDate:', JSON.stringify(pppDate));
+      console.warn('[SAVE-BE] REJECTED invalid pppDate:', JSON.stringify(pppDate));
     }
     if (compDate !== undefined && sanitizedCD === undefined && compDate !== null) {
-      console.warn('[API] Rejected invalid compDate:', JSON.stringify(compDate));
+      console.warn('[SAVE-BE] REJECTED invalid compDate:', JSON.stringify(compDate));
     }
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     const now = new Date().toISOString();
     // Check for existing
     const existing = await db.execute(sql`
-      SELECT id FROM governance_milestone_state
+      SELECT id, ppp_date, comp_date FROM governance_milestone_state
       WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
       LIMIT 1
     `);
     const existingRows = existing.rows || existing;
+    console.log('[SAVE-BE] existing rows:',existingRows.length);
     if (existingRows.length > 0) {
+      console.log('[SAVE-BE] existing row before:',JSON.stringify(existingRows[0]));
       // Update — only touch fields that were explicitly sent
       const setParts: string[] = [`updated_at = '${now}'`];
       if (sanitizedCD !== undefined) setParts.push(`comp_date = ${sanitizedCD === null ? 'NULL' : `' + sanitizedCD + '`}`);
@@ -485,20 +494,36 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
       if (customPct !== undefined) setParts.push(`custom_pct = ${customPct}`);
       if (readyStatus !== undefined) setParts.push(`ready_status = ${readyStatus === null ? 'NULL' : `' + readyStatus + '`}`);
       if (remarks !== undefined) setParts.push(`remarks = ${remarks === null ? 'NULL' : `' + remarks + '`}`);
-      await db.execute(sql.raw(
-        `UPDATE governance_milestone_state SET ${setParts.join(', ')} WHERE facility_slug = '${facilitySlug}' AND milestone_id = '${milestoneId}'`
-      ));
+      const updateSQL = `UPDATE governance_milestone_state SET ${setParts.join(', ')} WHERE facility_slug = '${facilitySlug}' AND milestone_id = '${milestoneId}'`;
+      console.log('[SAVE-BE] UPDATE SQL:',updateSQL);
+      await db.execute(sql.raw(updateSQL));
+      // Verify
+      const verify = await db.execute(sql`
+        SELECT ppp_date, comp_date FROM governance_milestone_state
+        WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
+      `);
+      const vRows = verify.rows || verify;
+      console.log('[SAVE-BE] row after UPDATE:',JSON.stringify(vRows[0]));
     } else {
       // Insert — use provided values or NULL
+      console.log('[SAVE-BE] INSERT: pp='+sanitizedPP+' cd='+sanitizedCD);
       await db.execute(sql`
         INSERT INTO governance_milestone_state
           (facility_slug, milestone_id, comp_date, custom_pct, ppp_date, updated_at)
         VALUES
           (${facilitySlug}, ${milestoneId}, ${sanitizedCD !== undefined ? sanitizedCD : null}, ${customPct !== undefined ? customPct : null}, ${sanitizedPP !== undefined ? sanitizedPP : null}, ${now})
       `);
+      // Verify
+      const verify = await db.execute(sql`
+        SELECT ppp_date, comp_date FROM governance_milestone_state
+        WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
+      `);
+      const vRows = verify.rows || verify;
+      console.log('[SAVE-BE] row after INSERT:',JSON.stringify(vRows[0]));
     }
-    return c.json({ success: true, milestoneId });
+    return c.json({ success: true, milestoneId, savedPP: sanitizedPP, savedCD: sanitizedCD });
   } catch (e: any) {
+    console.error('[SAVE-BE] ERROR:', e.message);
     return c.json({ error: e.message }, 500);
   }
 });
