@@ -123,20 +123,29 @@ export default function GanttPlanner() {
     gantt.config.lightbox.sections = [
       { name: "description", height: 38, map_to: "text", type: "textarea", focus: true },
       { name: "owner", height: 30, map_to: "owner", type: "textarea" },
-      { name: "planned", height: 30, map_to: "planned_start", type: "duration" },
-      { name: "planned_end", height: 30, map_to: "planned_end", type: "duration" },
-      { name: "category", height: 30, map_to: "category", type: "textarea" },
-      { name: "notes", height: 60, map_to: "notes", type: "textarea" },
+      { name: "planned_dates", height: 38, map_to: "planned_start", type: "template" },
+      { name: "category_notes", height: 60, map_to: "category", type: "textarea" },
       { name: "type", height: 30, map_to: "type", type: "template" },
       { name: "time", type: "duration", map_to: "auto" },
     ];
     gantt.locale.labels.section_description = "Task Name";
     gantt.locale.labels.section_owner = "Owner / Assignee";
-    gantt.locale.labels.section_planned = "Planned Start";
-    gantt.locale.labels.section_planned_end = "Planned End";
-    gantt.locale.labels.section_category = "Category";
-    gantt.locale.labels.section_notes = "Notes";
+    gantt.locale.labels.section_planned_dates = "Planned Dates";
+    gantt.locale.labels.section_category_notes = "Category & Notes";
     gantt.locale.labels.section_type = "Type";
+
+    /* Lightbox template renderers */
+    gantt.form_blocks["template"] ||= gantt.form_blocks["template"];
+    gantt.templates.lightbox_planned_dates = (_start: Date, _end: Date, task: any) => {
+      const ps = task.planned_start ? String(task.planned_start).slice(0, 10) : "";
+      const pe = task.planned_end ? String(task.planned_end).slice(0, 10) : "";
+      return `<div style="display:flex;gap:12px;align-items:center;">
+        <label style="font-size:12px;color:#64748b;">Planned Start</label>
+        <input type="date" name="planned_start" value="${ps}" style="padding:4px 8px;border:1px solid #e2e8f0;border-radius:4px;font-size:12px;" />
+        <label style="font-size:12px;color:#64748b;">Planned End</label>
+        <input type="date" name="planned_end" value="${pe}" style="padding:4px 8px;border:1px solid #e2e8f0;border-radius:4px;font-size:12px;" />
+      </div>`;
+    };
 
     /* Columns */
     gantt.config.columns = [
