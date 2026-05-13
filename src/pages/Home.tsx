@@ -175,7 +175,7 @@ export default function Home() {
             </span>
           </a>
 
-          {/* S/4HANA Integration Gantt Planner */}
+          {/* Gantt Charts */}
           <Link
             to="/gantt-planner"
             className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
@@ -193,11 +193,11 @@ export default function Home() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(124,58,237,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📅</div>
               <div>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>S/4HANA Gantt Planner</h3>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>Gantt Charts</h3>
               </div>
             </div>
             <p style={{ fontSize: 13, color: '#5A6B7D', lineHeight: 1.5, marginBottom: 14 }}>
-              Interactive Gantt chart for S/4HANA integration project. Track tasks, dependencies, milestones, durations with Excel import/export.
+              Interactive Gantt chart for project scheduling. Track tasks, dependencies, milestones, durations with Excel import/export.
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#EDE9FE', color: '#7C3AED' }}>Gantt</span>
