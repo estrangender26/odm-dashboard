@@ -216,7 +216,7 @@ function forceRefresh() {
         facilitySlug: currentFacility,
         milestoneId: milestoneId,
         pppDate: values.ppp || '',
-        compDate: values.comp || '',
+        compDate: values.comp !== undefined && values.comp !== null && values.comp !== '' ? normalizeDateOnly(values.comp) : null,
         customPct: values.customPct || null,
       };
       fetch(API_BASE + '/governance.saveMilestone', {
@@ -239,7 +239,7 @@ function forceRefresh() {
           data.result.data.json.forEach(row => {
             state[row.milestoneId] = {
               ppp: row.pppDate || '',
-              comp: row.compDate || '',
+              comp: row.compDate !== undefined && row.compDate !== null ? normalizeDateOnly(row.compDate) : null,
               customPct: row.customPct || null
             };
           });
@@ -484,10 +484,10 @@ async function fetchStateFromDB(facility,opts){
       var mid=s.milestone_id;if(!mid)return;
       if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
       if(s.ppp_date)ST[facility].ms[mid].pppDate=s.ppp_date;
-      if(s.comp_date!==undefined&&s.comp_date!==null){
+      if(s.comp_date!==undefined&&s.comp_date!==null&&s.comp_date!==''){
         ST[facility].ms[mid].compDate=normalizeDateOnly(s.comp_date);
         ST[facility].ms[mid].done=true;
-      }else if(s.comp_date===null){
+      }else if(s.comp_date===null||s.comp_date===''){
         // DB explicitly cleared this completion date
         delete ST[facility].ms[mid].compDate;
         ST[facility].ms[mid].done=false;
@@ -645,10 +645,9 @@ function LD(){
     if(!m)return fmtStr;
     return parts[2]+'-'+m+'-'+parts[1];
   }
-  // Safe fallback PPP dates — overridden by DB values when fetch succeeds
-  var PPP_FALLBACKS={'AGLIPAY':'2026-03-01','HTT':'2026-02-01','EASTBAY':'2026-03-01','KAYSAKAT':'2026-04-01'};
-  FAC.forEach(function(f){if(PPP_FALLBACKS[f]&&ST[f]&&!ST[f].pp)ST[f].pp=PPP_FALLBACKS[f];});
-  console.log('[LD] PPP fallbacks applied:',Object.keys(PPP_FALLBACKS).join(','));
+  // PPP fallbacks removed — PPP now comes ONLY from DB or user input
+  // Hardcoded fallbacks caused PPP to revert to wrong dates on every render
+  console.log('[LD] No fallbacks — PPP from DB or user input only');
   // Load facility preference from localStorage only
   var savedFac=null;
   try{savedFac=localStorage.getItem('omg5_facility');}catch(e){}
