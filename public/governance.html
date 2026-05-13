@@ -329,19 +329,19 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 <!-- TAB 1: PROGRESS -->
 <div id="t-p" class="tc a">
   <div id="fetch-status" style="background:#1a1a2e;color:#00ff88;padding:8px 12px;font-family:monospace;font-size:11px;border-radius:6px;margin-bottom:10px">Loading data...</div>
-  <div id="viz-debug" style="background:#1a1a2e;color:#ffdd00;padding:8px 12px;font-family:monospace;font-size:10px;border-radius:6px;margin-bottom:10px;max-height:120px;overflow-y:auto;display:none"></div>
+  <div id="viz-debug" style="background:#1a1a2e;color:#ffdd00;padding:8px 12px;font-family:monospace;font-size:10px;border-radius:6px;margin-bottom:10px;max-height:120px;overflow-y:auto"></div>
   <script>
   // Visible debug logger — shows on page for mobile debugging
   window._vdLog=function(tag,msg){
     var el=document.getElementById('viz-debug');
     if(!el)return;
     el.style.display='block';
-    var line='['+tag+'] '+msg;
+    var line='['+new Date().toLocaleTimeString()+']['+tag+'] '+msg;
     el.innerHTML+=line+'<br>';
     if(el.innerHTML.length>3000)el.innerHTML=el.innerHTML.slice(-2000);
     console.log(line);
   };
-  window._vdLog('BOOT','Script parsed OK');
+  window._vdLog('BOOT','Script parsed OK v4');
   </script>
   <!-- S-Curve Card -->
   <div class="card">
@@ -573,7 +573,9 @@ async function fetchStateFromDB(facility,opts){
     }else{
       console.log('[LOAD-FE] No M1 pppDate. m1State:',JSON.stringify(m1State));
     }
-    console.log('[LOAD-FE] Final ST['+facility+'].pp:',ST[facility].pp);
+    var finalPP=ST[facility].pp||'';
+    var loadMsg='[LOAD] Final PP='+finalPP+' M1.pppDate='+(ST[facility].ms['M1']&&ST[facility].ms['M1'].pppDate||'null');
+    console.log('[LOAD-FE] '+loadMsg);if(window._vdLog)window._vdLog('LOAD',loadMsg);
     // Sync PP input
     var ppInp=document.getElementById('pp');
     var fsEl=document.getElementById('fs');
@@ -1280,16 +1282,18 @@ async function saveAll(){
   var domPP=document.getElementById('pp').value||'';
   var stPP=safePP(ST[f]&&ST[f].pp)||'';
   var pppToSave=safePP(domPP||stPP);
-  console.log('[SAVE-ALL] PPP DOM='+domPP+' ST='+stPP+' final='+pppToSave+' DRAFT_PP='+DRAFT_PP);
+  var saveMsg='[SAVE] PPP DOM='+domPP+' ST='+stPP+' final='+pppToSave;
+  console.log(saveMsg);if(window._vdLog)window._vdLog('SAVE',saveMsg);
   if(pppToSave){
     if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
     ST[f].pp=pppToSave;
-    console.log('[SAVE-ALL] Saving PPP:',pppToSave);
     var ok=await saveMilestoneToDB(f,'M1',{ppp:pppToSave});
-    if(window._vdLog)window._vdLog('SAVE','PPP '+(ok?'SAVED':'FAILED')+': '+pppToSave);
+    var resultMsg='[SAVE] PPP '+(ok?'SAVED ✓':'FAILED ✗')+': '+pppToSave;
+    console.log(resultMsg);if(window._vdLog)window._vdLog('SAVE',resultMsg);
     DRAFT_PP=null;
   }else{
-    console.log('[SAVE-ALL] No PPP to save');
+    var skipMsg='[SAVE] No PPP to save (both DOM and ST empty)';
+    console.log(skipMsg);if(window._vdLog)window._vdLog('SAVE',skipMsg);
   }
   // Save milestone changes
   if(PENDING[f]&&PENDING[f].ms){
