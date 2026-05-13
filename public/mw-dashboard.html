@@ -1488,35 +1488,6 @@
     <!-- Drill-Down Detail Panel -->
     <div id="drillDownContainer" style="display:none"></div>
 
-    <!-- Inspector Performance -->
-      <div class="card animate-scale-in delay-3">
-        <div class="card-header">
-          <h3 class="card-title">
-            <span class="card-title-icon" style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9);color:#1F9D55">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-              </svg>
-            </span>
-            Inspector Performance
-          </h3>
-          <span class="card-badge" id="inspectorCountBadge">0 inspectors</span>
-        </div>
-        <div class="table-wrap">
-          <table id="tblInspectors">
-            <thead>
-              <tr>
-                <th>Inspector</th>
-                <th style="text-align:center">Inspections</th>
-                <th style="text-align:center">Data Quality</th>
-                <th style="text-align:center">Negative Rate</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
     <!-- Tabs Panel -->
     <div class="tabs-panel" id="tablesPanel">
       <div class="tab-bar">
@@ -1545,6 +1516,13 @@
           </svg>
           Inspection Notes
           <span class="tab-count" id="tabCountNotes">0</span>
+        </button>
+        <button class="tab-btn" data-tab="tabInspector">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          Inspector Performance
+          <span class="tab-count" id="tabCountInspector">0</span>
         </button>
       </div>
 
@@ -1648,6 +1626,34 @@
         </div>
       </div>
 
+      <!-- Tab: Inspector Performance -->
+      <div class="tab-content" id="tabInspector">
+        <div class="card-header" style="padding-top:4px">
+          <h3 class="card-title">
+            <span class="card-title-icon" style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9);color:#1F9D55">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </span>
+            Inspector Performance
+          </h3>
+          <span class="card-badge" id="inspectorCountBadge">0 inspectors</span>
+        </div>
+        <div class="table-wrap">
+          <table id="tblInspectors">
+            <thead>
+              <tr>
+                <th>Inspector</th>
+                <th style="text-align:center">Inspections</th>
+                <th style="text-align:center">Data Quality</th>
+                <th style="text-align:center">Negative Rate</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
 
   </main>
@@ -1687,8 +1693,15 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(btn.dataset.tab).classList.add('active');
+    // Lazy render Inspector Performance table when tab is first activated
+    if (btn.dataset.tab === 'tabInspector' && !inspectorTabRendered) {
+      inspectorTabRendered = true;
+      const rows = getFilteredRows();
+      if (rows.length) updateInspectorTable(rows);
+    }
   });
 });
+let inspectorTabRendered = false;
 
 /* ---------- Persistence (localStorage) ---------- */
 const LS_KEY = 'mwc_odm_data';
@@ -1946,7 +1959,14 @@ function refreshAll() {
   updateKPIs(rows);
   updateEscalationChart(rows);
   updateParetoChart(rows);
-  updateInspectorTable(rows);
+  // Inspector table: lazy render only if tab is active, otherwise flag for next activation
+  const inspectorTab = document.getElementById('tabInspector');
+  if (inspectorTab && inspectorTab.classList.contains('active')) {
+    updateInspectorTable(rows);
+    inspectorTabRendered = true;
+  } else {
+    inspectorTabRendered = false;
+  }
   updateDQTable(rows);
   updateEscalatedTable(rows);
   updateNotesTable(rows);
@@ -2417,6 +2437,8 @@ function updateInspectorTable(rows) {
 
   document.getElementById('inspectorCountBadge').textContent =
     byInspector.size + ' inspector' + (byInspector.size !== 1 ? 's' : '');
+  const tabCount = document.getElementById('tabCountInspector');
+  if (tabCount) tabCount.textContent = byInspector.size;
 
   byInspector.forEach((list, inspector) => {
     const dq = computeDataQuality(list);
