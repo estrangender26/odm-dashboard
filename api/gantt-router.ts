@@ -119,4 +119,16 @@ export const ganttRouter = createRouter({
     await db.delete(ganttTasks);
     return { success: true };
   }),
+
+  // Migrate: add planned columns
+  migrate: publicQuery.query(async () => {
+    await db.execute(sql.raw(`
+      ALTER TABLE gantt_tasks 
+      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS notes TEXT
+    `));
+    return { success: true };
+  }),
 });
