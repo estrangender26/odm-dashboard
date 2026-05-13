@@ -135,6 +135,8 @@ export const ganttTasks = pgTable("gantt_tasks", {
   text: varchar("text", { length: 500 }).notNull(),
   startDate: varchar("start_date", { length: 20 }),
   endDate: varchar("end_date", { length: 20 }),
+  plannedStart: varchar("planned_start", { length: 20 }),
+  plannedEnd: varchar("planned_end", { length: 20 }),
   duration: integer("duration"),
   progress: integer("progress").default(0),
   parent: integer("parent").default(0),
@@ -142,6 +144,8 @@ export const ganttTasks = pgTable("gantt_tasks", {
   sortorder: integer("sortorder").default(0),
   owner: varchar("owner", { length: 255 }),
   open: integer("open").default(1),
+  category: varchar("category", { length: 100 }),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

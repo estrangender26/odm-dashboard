@@ -57,6 +57,25 @@ export default function GanttPlanner() {
     return { totalTasks: total, completed, inProgress, overdue, completionRate, avgDuration };
   }, []);
 
+  /* ─── Helpers ─── */
+  const formatDate = (val?: string | null): string => {
+    if (!val) return "—";
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return val;
+    return d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+  };
+  const calcVariance = (task: any): string => {
+    if (!task.planned_end || !task.end_date) return "—";
+    const planned = new Date(task.planned_end);
+    const actual = new Date(task.end_date);
+    if (isNaN(planned.getTime()) || isNaN(actual.getTime())) return "—";
+    const diffMs = actual.getTime() - planned.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return "On Track";
+    if (diffDays < 0) return `${Math.abs(diffDays)}d early`;
+    return `${diffDays}d late`;
+  };
+
   /* ─── Init Gantt ─── */
   useEffect(() => {
     if (ganttInit.current || !ganttContainer.current) return;
@@ -84,28 +103,50 @@ export default function GanttPlanner() {
     gantt.config.lightbox.sections = [
       { name: "description", height: 38, map_to: "text", type: "textarea", focus: true },
       { name: "owner", height: 30, map_to: "owner", type: "textarea" },
+      { name: "planned", height: 30, map_to: "planned_start", type: "duration" },
+      { name: "planned_end", height: 30, map_to: "planned_end", type: "duration" },
+      { name: "category", height: 30, map_to: "category", type: "textarea" },
+      { name: "notes", height: 60, map_to: "notes", type: "textarea" },
       { name: "type", height: 30, map_to: "type", type: "template" },
       { name: "time", type: "duration", map_to: "auto" },
     ];
     gantt.locale.labels.section_description = "Task Name";
     gantt.locale.labels.section_owner = "Owner / Assignee";
+    gantt.locale.labels.section_planned = "Planned Start";
+    gantt.locale.labels.section_planned_end = "Planned End";
+    gantt.locale.labels.section_category = "Category";
+    gantt.locale.labels.section_notes = "Notes";
     gantt.locale.labels.section_type = "Type";
 
     /* Columns */
     gantt.config.columns = [
-      { name: "text", label: "Task Name", tree: true, width: 200, resize: true },
-      { name: "owner", label: "Owner", width: 120, align: "center", resize: true },
-      { name: "start_date", label: "Start", width: 90, align: "center" },
-      { name: "end_date", label: "End", width: 90, align: "center" },
-      { name: "duration", label: "Duration", width: 70, align: "center" },
-      { name: "progress", label: "%", width: 50, align: "center", template: (task: any) => Math.round((task.progress || 0) * 100) + "%" },
+      { name: "text", label: "Task Name", tree: true, width: 180, resize: true },
+      { name: "planned_start", label: "Planned Start", width: 95, align: "center", template: (task: any) => formatDate(task.planned_start) },
+      { name: "planned_end", label: "Planned End", width: 95, align: "center", template: (task: any) => formatDate(task.planned_end) },
+      { name: "start_date", label: "Actual Start", width: 95, align: "center" },
+      { name: "end_date", label: "Actual End", width: 95, align: "center" },
+      { name: "duration", label: "Dur", width: 50, align: "center" },
+      { name: "variance", label: "Variance", width: 75, align: "center", template: (task: any) => calcVariance(task) },
+      { name: "owner", label: "Owner", width: 100, align: "center", resize: true },
+      { name: "progress", label: "%", width: 45, align: "center", template: (task: any) => Math.round((task.progress || 0) * 100) + "%" },
       { name: "add", label: "", width: 40 },
     ];
 
-    /* Color coding by progress */
-    gantt.templates.task_class = (start: Date, end: Date, task: any) => {
-      const p = task.progress || 0;
+    /* Color coding: planned vs actual */
+    gantt.templates.task_class = (_start: Date, _end: Date, task: any) => {
+      // Milestone always takes priority
       if (task.type === "milestone") return "milestone-task";
+      // Variance-based coloring when planned dates exist
+      if (task.planned_end && task.end_date) {
+        const pe = new Date(task.planned_end);
+        const ae = new Date(task.end_date);
+        if (!isNaN(pe.getTime()) && !isNaN(ae.getTime())) {
+          if (ae <= pe) return "ahead-task";    // completed on/before planned
+          return "behind-task";                  // completed after planned
+        }
+      }
+      // Fallback to progress-based
+      const p = task.progress || 0;
       if (p >= 1) return "completed-task";
       if (p > 0) return "inprogress-task";
       return "notstarted-task";
@@ -117,11 +158,15 @@ export default function GanttPlanner() {
         text: task.text || "New Task",
         start_date: task.start_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.start_date) : null,
         end_date: task.end_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.end_date) : null,
+        planned_start: task.planned_start ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_start) : null,
+        planned_end: task.planned_end ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_end) : null,
         duration: task.duration || 1,
         progress: task.progress || 0,
         parent: task.parent || 0,
         type: task.type || "task",
         owner: task.owner || "",
+        category: task.category || "",
+        notes: task.notes || "",
         sortorder: task.sortorder || 0,
       });
     });
@@ -132,11 +177,13 @@ export default function GanttPlanner() {
         text: task.text || "Task",
         start_date: task.start_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.start_date) : null,
         end_date: task.end_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.end_date) : null,
-        duration: task.duration || 1,
-        progress: task.progress || 0,
+        planned_start: task.planned_start ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_start) : null,
+        planned_end: task.planned_end ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_end) : null,
         parent: task.parent || 0,
         type: task.type || "task",
         owner: task.owner || "",
+        category: task.category || "",
+        notes: task.notes || "",
       });
     });
 
@@ -164,12 +211,16 @@ export default function GanttPlanner() {
       text: t.text,
       start_date: t.startDate ? t.startDate.replace("T", " ").slice(0, 16) : undefined,
       end_date: t.endDate ? t.endDate.replace("T", " ").slice(0, 16) : undefined,
+      planned_start: t.plannedStart || undefined,
+      planned_end: t.plannedEnd || undefined,
       duration: t.duration || 1,
       progress: (t.progress || 0) / 100,
       parent: t.parent || 0,
       type: t.type || "task",
       owner: t.owner || "",
       open: t.open !== 0,
+      category: t.category || "",
+      notes: t.notes || "",
     }));
 
     const links = linksQuery.data.map((l: any) => ({
@@ -486,6 +537,10 @@ export default function GanttPlanner() {
         .inprogress-task .gantt_task_progress { background: #F59E0B !important; }
         .notstarted-task .gantt_task_progress { background: #94A3B8 !important; }
         .milestone-task .gantt_task_content { background: #7C3AED !important; border-radius: 50%; }
+        .ahead-task .gantt_task_line { background: #1F9D55 !important; border-color: #15803D !important; }
+        .ahead-task .gantt_task_content { color: #fff; }
+        .behind-task .gantt_task_line { background: #DC2626 !important; border-color: #991B1B !important; }
+        .behind-task .gantt_task_content { color: #fff; }
 
         .gantt_task_line { border-radius: 4px; }
         .gantt_grid_scale, .gantt_task_scale { background: #F8FAFC; }

@@ -25,6 +25,8 @@ export const ganttRouter = createRouter({
         text: z.string(),
         start_date: z.string().nullable().optional(),
         end_date: z.string().nullable().optional(),
+        planned_start: z.string().nullable().optional(),
+        planned_end: z.string().nullable().optional(),
         duration: z.number().nullable().optional(),
         progress: z.number().default(0),
         parent: z.number().default(0),
@@ -32,41 +34,34 @@ export const ganttRouter = createRouter({
         sortorder: z.number().default(0),
         owner: z.string().nullable().optional(),
         open: z.number().default(1),
+        category: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ input }) => {
       const now = new Date();
+      const setData: any = {
+        text: input.text,
+        startDate: input.start_date || null,
+        endDate: input.end_date || null,
+        plannedStart: input.planned_start || null,
+        plannedEnd: input.planned_end || null,
+        duration: input.duration,
+        progress: input.progress,
+        parent: input.parent,
+        type: input.type,
+        sortorder: input.sortorder,
+        owner: input.owner,
+        open: input.open,
+        category: input.category || null,
+        notes: input.notes || null,
+        updatedAt: now,
+      };
       if (input.id) {
-        await db
-          .update(ganttTasks)
-          .set({
-            text: input.text,
-            startDate: input.start_date || null,
-            endDate: input.end_date || null,
-            duration: input.duration,
-            progress: input.progress,
-            parent: input.parent,
-            type: input.type,
-            sortorder: input.sortorder,
-            owner: input.owner,
-            open: input.open,
-            updatedAt: now,
-          })
-          .where(eq(ganttTasks.id, input.id));
+        await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
         return { id: input.id, action: "updated" };
       } else {
-        const result = await db.insert(ganttTasks).values({
-          text: input.text,
-          startDate: input.start_date || null,
-          endDate: input.end_date || null,
-          duration: input.duration,
-          progress: input.progress,
-          parent: input.parent,
-          type: input.type,
-          sortorder: input.sortorder,
-          owner: input.owner,
-          open: input.open,
-        });
+        const result = await db.insert(ganttTasks).values(setData);
         return { id: Number(result[0].insertId), action: "created" };
       }
     }),
