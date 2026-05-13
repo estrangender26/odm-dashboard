@@ -132,10 +132,31 @@ export const ganttRouter = createRouter({
     return { success: true };
   }),
 
-  // Seed demo data if empty
+  // Seed demo data if empty (or if existing data has invalid dates)
   seed: publicQuery.mutation(async () => {
-    const existing = await db.select({ count: sql<number>`count(*)` }).from(ganttTasks);
-    if (existing[0].count > 0) return { seeded: false, reason: "Tasks already exist" };
+    const existing = await db.select().from(ganttTasks);
+    // Check if any existing data has invalid dates — if so, clear and re-seed
+    const hasInvalid = existing.some((t: any) => {
+      const sd = t.startDate || "";
+      const ed = t.endDate || "";
+      // Check for obviously invalid dates like "2026-10-33"
+      if (sd && !/^\d{4}-\d{2}-\d{2}/.test(sd)) return true;
+      if (ed && !/^\d{4}-\d{2}-\d{2}/.test(ed)) return true;
+      // Check day/month validity
+      const checkDate = (d: string) => {
+        if (!d) return true;
+        const dt = new Date(d.replace(" ", "T"));
+        if (isNaN(dt.getTime())) return false;
+        const parts = d.slice(0, 10).split("-");
+        return dt.getFullYear() === parseInt(parts[0]) && dt.getMonth() === parseInt(parts[1]) - 1 && dt.getDate() === parseInt(parts[2]);
+      };
+      return !checkDate(sd) || !checkDate(ed);
+    });
+    if (existing.length > 0 && !hasInvalid) return { seeded: false, reason: "Tasks already exist" };
+    if (hasInvalid) {
+      await db.delete(ganttLinks);
+      await db.delete(ganttTasks);
+    }
 
     // Helper: format Date → "YYYY-MM-DD"
     const fmt = (dt: Date) => {

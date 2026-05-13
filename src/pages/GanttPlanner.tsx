@@ -198,6 +198,8 @@ export default function GanttPlanner() {
     });
 
     gantt.init(ganttContainer.current);
+    // Force initial render size
+    gantt.setSizes();
   }, []);
 
   /* ─── Load data ─── */
@@ -250,9 +252,18 @@ export default function GanttPlanner() {
 
     gantt.clearAll();
     gantt.parse({ data: tasks, links });
+    // Force gantt to recalculate sizes after data loads
+    setTimeout(() => { gantt.render(); gantt.setSizes(); }, 50);
 
     setKpi(calcKpi(tasks));
   }, [tasksQuery.data, linksQuery.data, calcKpi]);
+
+  /* ─── Re-render gantt when gantt tab becomes active ─── */
+  useEffect(() => {
+    if (activeTab === "gantt" && ganttInit.current) {
+      setTimeout(() => { gantt.render(); gantt.setSizes(); }, 100);
+    }
+  }, [activeTab]);
 
   /* ─── Excel Export ─── */
   const exportExcel = () => {
@@ -398,8 +409,8 @@ export default function GanttPlanner() {
                 </div>
               </div>
             )}
-            {/* Gantt container — always rendered, hidden when empty so dhtmlx can init */}
-            <div ref={ganttContainer} style={{ width: "100%", height: tasksQuery.data && tasksQuery.data.length > 0 ? "calc(100vh - 340px)" : 0, minHeight: tasksQuery.data && tasksQuery.data.length > 0 ? 500 : 0, overflow: tasksQuery.data && tasksQuery.data.length > 0 ? "auto" : "hidden" }} />
+            {/* Gantt container — always rendered so dhtmlx can init, collapsed when no data */}
+            <div ref={ganttContainer} style={{ width: "100%", height: tasksQuery.data && tasksQuery.data.length > 0 ? "calc(100vh - 340px)" : 1, minHeight: tasksQuery.data && tasksQuery.data.length > 0 ? 500 : 1 }} />
           </div>
         )}
 
