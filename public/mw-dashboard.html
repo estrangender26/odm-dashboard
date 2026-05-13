@@ -576,6 +576,11 @@
       }
     }
 
+    /* Safety: any stray elements inside dash-grid span all columns */
+    .dash-grid > *:nth-child(n+3) {
+      grid-column: 1 / -1;
+    }
+
     /* ============================================================
        CARDS
        ============================================================ */
@@ -1554,8 +1559,9 @@
           <canvas id="chartPareto"></canvas>
         </div>
       </div>
+    </div><!-- .dash-grid -->
 
-      <!-- Active Filter Indicator -->
+    <!-- Active Filter Indicator -->
     <div id="filterChipContainer" style="display:none;align-items:center;margin-bottom:10px;padding:0 2px"></div>
 
     <!-- Drill-Down Detail Panel -->
