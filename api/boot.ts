@@ -437,6 +437,16 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
   }
 });
 
+// Validate YYYY-MM-DD format
+function isValidDate(str: unknown): boolean {
+  if (!str || typeof str !== 'string') return false;
+  if (str === 'undefined' || str === 'null' || str === 'NaN' || str === '') return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
+  const [y, m, d] = str.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+
 // POST /api/governance/state/:facilitySlug — save a milestone state
 app.post("/api/governance/state/:facilitySlug", async (c) => {
   try {
@@ -444,6 +454,19 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     const body = await c.req.json();
     const { milestoneId, compDate, customPct, pppDate, readyStatus, remarks } = body;
     if (!milestoneId) return c.json({ error: "milestoneId required" }, 400);
+    // Sanitize date inputs — reject garbage strings like "undefined"
+    const sanitizedPP = pppDate !== undefined
+      ? (isValidDate(pppDate) ? pppDate : (pppDate === null ? null : undefined))
+      : undefined;
+    const sanitizedCD = compDate !== undefined
+      ? (isValidDate(compDate) ? compDate : (compDate === null ? null : undefined))
+      : undefined;
+    if (pppDate !== undefined && sanitizedPP === undefined && pppDate !== null) {
+      console.warn('[API] Rejected invalid pppDate:', JSON.stringify(pppDate));
+    }
+    if (compDate !== undefined && sanitizedCD === undefined && compDate !== null) {
+      console.warn('[API] Rejected invalid compDate:', JSON.stringify(compDate));
+    }
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     const now = new Date().toISOString();
@@ -457,8 +480,8 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     if (existingRows.length > 0) {
       // Update — only touch fields that were explicitly sent
       const setParts: string[] = [`updated_at = '${now}'`];
-      if (compDate !== undefined) setParts.push(`comp_date = ${compDate === null ? 'NULL' : `' + compDate + '`}`);
-      if (pppDate !== undefined) setParts.push(`ppp_date = ${pppDate === null ? 'NULL' : `' + pppDate + '`}`);
+      if (sanitizedCD !== undefined) setParts.push(`comp_date = ${sanitizedCD === null ? 'NULL' : `' + sanitizedCD + '`}`);
+      if (sanitizedPP !== undefined) setParts.push(`ppp_date = ${sanitizedPP === null ? 'NULL' : `' + sanitizedPP + '`}`);
       if (customPct !== undefined) setParts.push(`custom_pct = ${customPct}`);
       if (readyStatus !== undefined) setParts.push(`ready_status = ${readyStatus === null ? 'NULL' : `' + readyStatus + '`}`);
       if (remarks !== undefined) setParts.push(`remarks = ${remarks === null ? 'NULL' : `' + remarks + '`}`);
@@ -471,7 +494,7 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
         INSERT INTO governance_milestone_state
           (facility_slug, milestone_id, comp_date, custom_pct, ppp_date, updated_at)
         VALUES
-          (${facilitySlug}, ${milestoneId}, ${compDate !== undefined ? compDate : null}, ${customPct !== undefined ? customPct : null}, ${pppDate !== undefined ? pppDate : null}, ${now})
+          (${facilitySlug}, ${milestoneId}, ${sanitizedCD !== undefined ? sanitizedCD : null}, ${customPct !== undefined ? customPct : null}, ${sanitizedPP !== undefined ? sanitizedPP : null}, ${now})
       `);
     }
     return c.json({ success: true, milestoneId });

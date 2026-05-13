@@ -37,13 +37,23 @@ export const governanceRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const user = ctx.user;
+      // Validate dates — reject garbage strings like "undefined"
+      function validDate(v: unknown): v is string { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v); }
+      const cleanPP = validDate(input.pppDate) ? input.pppDate : (input.pppDate === null ? null : undefined);
+      const cleanCD = validDate(input.compDate) ? input.compDate : (input.compDate === null ? null : undefined);
+      if (input.pppDate !== undefined && cleanPP === undefined && input.pppDate !== null) {
+        console.warn('[GOV API] Rejected invalid pppDate:', JSON.stringify(input.pppDate));
+      }
+      if (input.compDate !== undefined && cleanCD === undefined && input.compDate !== null) {
+        console.warn('[GOV API] Rejected invalid compDate:', JSON.stringify(input.compDate));
+      }
 
       const updateData: Record<string, unknown> = {
         updatedBy: user?.name || null,
         updatedAt: new Date(),
       };
-      if (input.pppDate !== undefined) updateData.pppDate = input.pppDate;
-      if (input.compDate !== undefined) updateData.compDate = input.compDate;
+      if (cleanPP !== undefined) updateData.pppDate = cleanPP;
+      if (cleanCD !== undefined) updateData.compDate = cleanCD;
       if (input.customPct !== undefined) updateData.customPct = input.customPct;
       if (input.readyStatus !== undefined) updateData.readyStatus = input.readyStatus;
       if (input.remarks !== undefined) updateData.remarks = input.remarks;
@@ -54,8 +64,8 @@ export const governanceRouter = createRouter({
         .values({
           facilitySlug: input.facilitySlug,
           milestoneId: input.milestoneId,
-          pppDate: input.pppDate || null,
-          compDate: input.compDate || null,
+          pppDate: cleanPP !== undefined ? cleanPP : null,
+          compDate: cleanCD !== undefined ? cleanCD : null,
           customPct: input.customPct || null,
           readyStatus: input.readyStatus || null,
           remarks: input.remarks || null,

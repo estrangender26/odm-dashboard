@@ -212,11 +212,13 @@ function forceRefresh() {
 
     // Send each milestone to the server
     Object.entries(data).forEach(([milestoneId, values]) => {
+      var cleanPPP=safePP(values.ppp);
+      var cleanComp=values.comp!==undefined&&values.comp!==null&&values.comp!==''?normalizeDateOnly(values.comp):null;
       const payload = {
         facilitySlug: currentFacility,
         milestoneId: milestoneId,
-        pppDate: values.ppp || '',
-        compDate: values.comp !== undefined && values.comp !== null && values.comp !== '' ? normalizeDateOnly(values.comp) : null,
+        pppDate: cleanPPP||null,
+        compDate: cleanComp||null,
         customPct: values.customPct || null,
       };
       fetch(API_BASE + '/governance.saveMilestone', {
@@ -452,7 +454,9 @@ const DF=()=>{
   var f=document.getElementById('fs').value;
   var d={pp:'',ms:{},up:{}};
   if(ST[f]){
-    d.pp=normalizeDateOnly(ST[f].pp)||normalizeDateOnly(ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'';
+    var pp1=safePP(ST[f].pp);
+    var pp2=safePP(ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate);
+    d.pp=pp1||pp2||'';
     d.ms=JSON.parse(JSON.stringify(ST[f].ms));
     d.up=ST[f].up?JSON.parse(JSON.stringify(ST[f].up)):{};}
   if(PENDING[f]&&PENDING[f].ms){
@@ -497,11 +501,26 @@ async function fetchStateFromDB(facility,opts){
     states.forEach(function(s){
       var mid=s.milestone_id;if(!mid)return;
       if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
-      if(s.ppp_date)ST[facility].ms[mid].pppDate=normalizeDateOnly(s.ppp_date);
-      if(s.comp_date!==undefined&&s.comp_date!==null&&s.comp_date!==''){
-        ST[facility].ms[mid].compDate=normalizeDateOnly(s.comp_date);
-        ST[facility].ms[mid].done=true;
-      }else if(s.comp_date===null||s.comp_date===''){
+      // Sanitize ppp_date from DB — reject garbage like 'undefined' string
+      var rawPP=s.ppp_date;
+      if(rawPP&&rawPP!=='undefined'&&rawPP!=='null'&&rawPP!=='NaN'){
+        var cleanPP=normalizeDateOnly(rawPP);
+        if(cleanPP){ST[facility].ms[mid].pppDate=cleanPP;}
+        else{console.warn('[SANITIZE] Rejected invalid ppp_date for',mid,':',JSON.stringify(rawPP));}
+      }
+      // Sanitize comp_date from DB
+      var rawCD=s.comp_date;
+      if(rawCD!==undefined&&rawCD!==null&&rawCD!==''){
+        if(rawCD==='undefined'||rawCD==='null'||rawCD==='NaN'){
+          console.warn('[SANITIZE] Rejected garbage comp_date for',mid,':',JSON.stringify(rawCD));
+          delete ST[facility].ms[mid].compDate;
+          ST[facility].ms[mid].done=false;
+        }else{
+          var cleanCD=normalizeDateOnly(rawCD);
+          if(cleanCD){ST[facility].ms[mid].compDate=cleanCD;ST[facility].ms[mid].done=true;}
+          else{console.warn('[SANITIZE] Rejected invalid comp_date for',mid,':',JSON.stringify(rawCD));}
+        }
+      }else if(rawCD===null||rawCD===''){
         // DB explicitly cleared this completion date
         delete ST[facility].ms[mid].compDate;
         ST[facility].ms[mid].done=false;
@@ -665,7 +684,7 @@ function LD(){
     });
   });
   // Version marker for cache-busting verification
-  window._GOV_VERSION='2025-05-13-v2';
+  window._GOV_VERSION='2025-05-14-v1';
   console.log('[GOV] Version',window._GOV_VERSION);
   // Date formatter: converts YYYY-MM-DD → JAN-01-2026 format (consistent across all browsers)
   function fmtDate(isoStr){
@@ -806,13 +825,38 @@ function sw(id,btn){
 }
 
 // DATE
-function cd(pp,o){if(!pp)return'';var p=pp.split('-').map(Number);var nd=new Date(p[0],p[1]-1+o,p[2]);var yy=nd.getFullYear(),mm=String(nd.getMonth()+1).padStart(2,'0'),dd=String(nd.getDate()).padStart(2,'0');return yy+'-'+mm+'-'+dd}
+function cd(pp,o){
+  if(!pp||pp==='undefined'||pp==='null'||pp==='NaN')return'';
+  // Validate pp is a real date string
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(pp))return'';
+  var p=pp.split('-').map(Number);
+  var nd=new Date(p[0],p[1]-1+o,p[2]);
+  // Guard: if any part is NaN, the date is invalid
+  if(isNaN(nd.getTime()))return'';
+  var yy=nd.getFullYear(),mm=String(nd.getMonth()+1).padStart(2,'0'),dd=String(nd.getDate()).padStart(2,'0');
+  return yy+'-'+mm+'-'+dd
+}
 function moDiff(d1,d2){var dt1=new Date(d1+'T12:00:00'),dt2=new Date(d2+'T12:00:00');return(dt2.getFullYear()-dt1.getFullYear())*12+(dt2.getMonth()-dt1.getMonth())}
 function fmtDate(iso){if(!iso)return'\u2014';var p=iso.split('-');var M=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];return M[parseInt(p[1],10)-1]+'-'+p[2]+'-'+p[0]}
 function parseDate(fmtStr){if(!fmtStr||fmtStr==='')return'';var months={'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};var parts=fmtStr.split('-');if(parts.length!==3)return fmtStr;var m=months[parts[0].toUpperCase()];if(!m)return fmtStr;return parts[2]+'-'+m+'-'+parts[1]}
+// Validate YYYY-MM-DD format (strict)
+function isValidISODate(str){
+  if(!str||typeof str!=='string')return false;
+  // Reject literal 'undefined', 'null', 'NaN', empty
+  if(str==='undefined'||str==='null'||str==='NaN'||str===''||str==='undefined-NaN-NaN')return false;
+  // Must match YYYY-MM-DD pattern
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(str))return false;
+  // Must be a valid calendar date
+  var p=str.split('-').map(Number);
+  var dt=new Date(p[0],p[1]-1,p[2]);
+  return dt.getFullYear()===p[0]&&dt.getMonth()===p[1]-1&&dt.getDate()===p[2];
+}
 function normalizeDateOnly(value){
   if(!value)return'';
-  if(typeof value==='string')return value.slice(0,10);
+  if(typeof value==='string'){
+    var s=value.slice(0,10);
+    return isValidISODate(s)?s:'';
+  }
   if(value instanceof Date){
     // Use local date parts — toISOString() shifts to UTC and can change the date
     var y=value.getFullYear();
@@ -822,11 +866,14 @@ function normalizeDateOnly(value){
   }
   if(typeof value==='object'&&value.toISOString){
     var dt=value.toISOString().slice(0,10);
-    return dt;
+    return isValidISODate(dt)?dt:'';
   }
   return'';
 }
-function safePP(val){return normalizeDateOnly(val)||'';}
+function safePP(val){
+  var n=normalizeDateOnly(val);
+  return isValidISODate(n)?n:'';
+}
 
 function tocT(num){var t=TOC.find(function(x){return x.num===num});return t?t.ti:''}
 function anxT(id){var a=ANX.find(function(x){return x.id===id});return a?a.ti:''}
