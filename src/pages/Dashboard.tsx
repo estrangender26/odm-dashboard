@@ -223,15 +223,13 @@ export default function Dashboard() {
       }));
 
     if (updates.length > 0) {
-      bulkUpdateMutation.mutate(updates, {
-        onSuccess: () => {
-          setEditMode(false);
-          setPending({});
-        },
-        onError: () => {},
-      });
+      // Optimistic: exit edit mode immediately, revert handled by onError
+      setEditMode(false);
+      setPending({});
+      bulkUpdateMutation.mutate(updates);
     } else {
       setEditMode(false);
+      setPending({});
     }
   }, [pending, bulkUpdateMutation]);
 
@@ -480,8 +478,26 @@ export default function Dashboard() {
                 </button>
               ) : (
                 <>
-                  <button onClick={saveEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-green-700 text-white rounded-lg text-xs font-semibold hover:bg-green-800 flex items-center gap-1">
-                    <span>&#128190;</span><span className="hidden sm:inline">Save</span>
+                  <button
+                    onClick={saveEdit}
+                    disabled={bulkUpdateMutation.isPending}
+                    className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition ${
+                      bulkUpdateMutation.isPending
+                        ? 'bg-green-400 text-white cursor-wait'
+                        : 'bg-green-700 text-white hover:bg-green-800'
+                    }`}
+                  >
+                    {bulkUpdateMutation.isPending ? (
+                      <>
+                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
+                        <span className="hidden sm:inline">Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>&#128190;</span>
+                        <span className="hidden sm:inline">Save</span>
+                      </>
+                    )}
                   </button>
                   <button onClick={cancelEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-red-100 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-200 flex items-center gap-1">
                     <span>&#10005;</span><span className="hidden sm:inline">Cancel</span>

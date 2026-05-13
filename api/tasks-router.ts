@@ -90,19 +90,21 @@ export const tasksRouter = createRouter({
       )
     )
     .mutation(async ({ input, ctx }) => {
-      // db is already imported
       const user = ctx.user;
       let updated = 0;
-      for (const item of input) {
+      // Run updates in parallel for speed
+      const promises = input.map((item) => {
         const updateData: Record<string, string | null> = {};
         if (item.operations !== undefined) updateData.operations = item.operations;
         if (item.amd !== undefined) updateData.amd = item.amd;
         if (item.ard !== undefined) updateData.ard = item.ard;
         if (Object.keys(updateData).length > 0) {
-          await db.update(tasks).set(updateData).where(eq(tasks.id, item.taskId));
           updated++;
+          return db.update(tasks).set(updateData).where(eq(tasks.id, item.taskId));
         }
-      }
+        return Promise.resolve();
+      });
+      await Promise.all(promises);
       return { success: true, updated, updatedBy: user?.name || null };
     }),
 
