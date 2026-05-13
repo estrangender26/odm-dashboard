@@ -329,7 +329,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
 <!-- TAB 1: PROGRESS -->
 <div id="t-p" class="tc a">
   <div id="fetch-status" style="background:#1a1a2e;color:#00ff88;padding:8px 12px;font-family:monospace;font-size:11px;border-radius:6px;margin-bottom:10px">Loading data...</div>
-  <div id="viz-debug" style="background:#1a1a2e;color:#ffdd00;padding:8px 12px;font-family:monospace;font-size:10px;border-radius:6px;margin-bottom:10px;max-height:120px;overflow-y:auto"></div>
+  <div id="viz-debug" style="background:#1a1a2e;color:#ffdd00;padding:8px 12px;font-family:monospace;font-size:10px;border-radius:6px;margin-bottom:10px;max-height:200px;overflow-y:auto"></div>
   <script>
   // Visible debug logger — shows on page for mobile debugging
   window._vdLog=function(tag,msg){
@@ -519,12 +519,14 @@ async function fetchStateFromDB(facility,opts){
     var states=Array.isArray(data.states)?data.states:[];
     var files=Array.isArray(data.files)?data.files:[];
     var refFiles=Array.isArray(data.referenceFiles)?data.referenceFiles:[];
-    console.log('[LOAD-FE] states count:',states.length);
+    var state0msg='states='+states.length;
     if(states.length>0){
-      console.log('[LOAD-FE] First raw state keys:',Object.keys(states[0]));
-      console.log('[LOAD-FE] First state ppp_date:',JSON.stringify(states[0].ppp_date),'type:',typeof states[0].ppp_date);
-      console.log('[LOAD-FE] First state comp_date:',JSON.stringify(states[0].comp_date),'type:',typeof states[0].comp_date);
+      state0msg+=' keys='+Object.keys(states[0]).join(',');
+      state0msg+=' ppp_date='+JSON.stringify(states[0].ppp_date);
+      state0msg+=' pppDate='+JSON.stringify(states[0].pppDate);
+      state0msg+(' comp_date='+JSON.stringify(states[0].comp_date));
     }
+    console.log('[LOAD-FE] '+state0msg);if(window._vdLog)window._vdLog('LOAD',state0msg);
     setStatus('HTTP 200 | st='+states.length+' mf='+files.length+' rf='+refFiles.length);
     if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
     if(!ST[facility].ms)ST[facility].ms={};
@@ -536,7 +538,8 @@ async function fetchStateFromDB(facility,opts){
       // Robust column name access — driver may return snake_case or camelCase
       var rawPP=s.ppp_date!==undefined?s.ppp_date:(s.pppDate!==undefined?s.pppDate:null);
       var rawCD=s.comp_date!==undefined?s.comp_date:(s.compDate!==undefined?s.compDate:null);
-      console.log('[LOAD-FE] Mapping',mid,'ppp_date:',JSON.stringify(rawPP),'type:',typeof rawPP,'comp_date:',JSON.stringify(rawCD),'type:',typeof rawCD);
+      var mapMsg='M='+mid+' pp='+JSON.stringify(rawPP)+' cd='+JSON.stringify(rawCD);
+      console.log('[LOAD-FE] '+mapMsg);if(window._vdLog)window._vdLog('LOAD',mapMsg);
       // PPP date
       if(rawPP&&rawPP!=='undefined'&&rawPP!=='null'&&rawPP!=='NaN'){
         var cleanPP=normalizeDateOnly(rawPP);
