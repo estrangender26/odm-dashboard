@@ -198,8 +198,8 @@ export default function GanttPlanner() {
     });
 
     gantt.init(ganttContainer.current);
-    // Force initial render size
     gantt.setSizes();
+    gantt.render();
   }, []);
 
   /* ─── Load data ─── */
@@ -252,8 +252,11 @@ export default function GanttPlanner() {
 
     gantt.clearAll();
     gantt.parse({ data: tasks, links });
-    // Force gantt to recalculate sizes after data loads
-    setTimeout(() => { gantt.render(); gantt.setSizes(); }, 50);
+    // Force full re-render after data loads
+    requestAnimationFrame(() => {
+      gantt.setSizes();
+      gantt.render();
+    });
 
     setKpi(calcKpi(tasks));
   }, [tasksQuery.data, linksQuery.data, calcKpi]);
@@ -261,7 +264,10 @@ export default function GanttPlanner() {
   /* ─── Re-render gantt when gantt tab becomes active ─── */
   useEffect(() => {
     if (activeTab === "gantt" && ganttInit.current) {
-      setTimeout(() => { gantt.render(); gantt.setSizes(); }, 100);
+      requestAnimationFrame(() => {
+        gantt.setSizes();
+        gantt.render();
+      });
     }
   }, [activeTab]);
 
@@ -392,10 +398,12 @@ export default function GanttPlanner() {
       {/* Content */}
       <div style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         {activeTab === "gantt" && (
-          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-            {/* Empty state when no tasks */}
-            {tasksQuery.data && tasksQuery.data.length === 0 && (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", minHeight: 400, textAlign: "center" }}>
+          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden", position: "relative" }}>
+            {/* Gantt container — ALWAYS full height so dhtmlx init works properly */}
+            <div ref={ganttContainer} style={{ width: "100%", height: "calc(100vh - 340px)", minHeight: 500 }} />
+            {/* Empty state overlay — covers gantt when no data */}
+            {(!tasksQuery.data || tasksQuery.data.length === 0) && (
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", textAlign: "center", zIndex: 10 }}>
                 <div style={{ width: 64, height: 64, borderRadius: 16, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 16 }}>📅</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#16324F", marginBottom: 6 }}>No tasks yet</div>
                 <div style={{ fontSize: 12, color: "#8BA3B8", maxWidth: 320, marginBottom: 20, lineHeight: 1.5 }}>Get started by loading demo data, importing from Excel, or adding tasks manually.</div>
@@ -409,8 +417,6 @@ export default function GanttPlanner() {
                 </div>
               </div>
             )}
-            {/* Gantt container — always rendered so dhtmlx can init, collapsed when no data */}
-            <div ref={ganttContainer} style={{ width: "100%", height: tasksQuery.data && tasksQuery.data.length > 0 ? "calc(100vh - 340px)" : 1, minHeight: tasksQuery.data && tasksQuery.data.length > 0 ? 500 : 1 }} />
           </div>
         )}
 
