@@ -188,21 +188,52 @@ export default function GanttPlanner() {
   /* ─── Excel Export ─── */
   const exportExcel = () => {
     const data = gantt.serialize();
-    const rows = data.data.map((t: any) => ({
-      "WBS": gantt.getWBSCode(t.id),
-      "Task Name": t.text,
-      "Owner": t.owner || "",
-      "Start Date": t.start_date || "",
-      "End Date": t.end_date || "",
-      "Duration": t.duration || "",
-      "Progress": Math.round((t.progress || 0) * 100) + "%",
-      "Type": t.type || "task",
-      "Parent": t.parent || 0,
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const today = new Date().toISOString().slice(0, 10);
+    const headers = [
+      "Task ID", "Parent Task", "WBS Level", "Task Name", "Owner",
+      "Start", "Finish", "Duration", "Progress", "Dependency",
+      "Dependency Type", "Milestone", "Category", "Status", "Notes"
+    ];
+
+    const rows = data.data.length > 0
+      ? data.data.map((t: any) => {
+          // Find dependency link
+          const link = data.links?.find((l: any) => l.source === t.id);
+          const wbs = gantt.getWBSCode(t.id);
+          const wbsLevel = wbs ? wbs.split(".").length : 1;
+          const isMilestone = t.type === "milestone";
+          const progressPct = Math.round((t.progress || 0) * 100);
+          let status = "Not Started";
+          if (isMilestone) status = "Milestone";
+          else if (progressPct >= 100) status = "Completed";
+          else if (progressPct > 0) status = "In Progress";
+
+          return {
+            "Task ID": t.id,
+            "Parent Task": t.parent || "",
+            "WBS Level": wbsLevel,
+            "Task Name": t.text,
+            "Owner": t.owner || "",
+            "Start": t.start_date ? t.start_date.slice(0, 10) : "",
+            "Finish": t.end_date ? t.end_date.slice(0, 10) : "",
+            "Duration": t.duration || "",
+            "Progress": progressPct,
+            "Dependency": link ? link.target : "",
+            "Dependency Type": link ? (link.type || "FS") : "",
+            "Milestone": isMilestone ? "TRUE" : "FALSE",
+            "Category": t.category || "",
+            "Status": status,
+            "Notes": t.notes || "",
+          };
+        })
+      : []; // empty data → just headers
+
+    const ws = rows.length > 0
+      ? XLSX.utils.json_to_sheet(rows, { header: headers })
+      : XLSX.utils.aoa_to_sheet([headers]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Gantt Tasks");
-    XLSX.writeFile(wb, "S4HANA_Gantt_Tasks.xlsx");
+    XLSX.writeFile(wb, `s4hana-gantt-template-${today}.xlsx`);
   };
 
   /* ─── Excel Import ─── */
@@ -213,26 +244,73 @@ export default function GanttPlanner() {
       const workbook = XLSX.read(data, { type: "array" });
       const ws = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[] = XLSX.utils.sheet_to_json(ws);
+      if (!rows.length) { alert("No data found in the Excel file."); return; }
+
+      // Collect all tasks first, then links
+      const importedTasks: any[] = [];
+      const importedLinks: any[] = [];
 
       rows.forEach((row: any) => {
+        // Accept both new column names and old aliases
         const text = row["Task Name"] || row["text"] || "Imported Task";
-        const start = row["Start Date"] || row["start_date"] || "";
-        const end = row["End Date"] || row["end_date"] || "";
+        const start = row["Start"] || row["Start Date"] || row["start_date"] || "";
+        const end = row["Finish"] || row["End Date"] || row["end_date"] || "";
         const dur = row["Duration"] || row["duration"] || 1;
-        const prog = parseInt((row["Progress"] || "0").toString().replace("%", "")) || 0;
+        const progRaw = row["Progress"] || row["progress"] || "0";
+        const prog = typeof progRaw === "number" ? progRaw : (parseInt(String(progRaw).replace("%", "")) || 0);
         const owner = row["Owner"] || row["owner"] || "";
-        const type = row["Type"] || row["type"] || "task";
-        const parent = parseInt(row["Parent"] || row["parent"] || "0") || 0;
+        const parentRaw = row["Parent Task"] || row["Parent"] || row["parent"] || "0";
+        const parent = parseInt(String(parentRaw)) || 0;
+        const milestoneStr = row["Milestone"] || "";
+        const isMilestone = milestoneStr === "TRUE" || milestoneStr === true || milestoneStr === 1;
+        const type = isMilestone ? "milestone" : "task";
+        const category = row["Category"] || row["category"] || "";
+        const notes = row["Notes"] || row["notes"] || "";
+        const depTarget = row["Dependency"] || row["dependency"] || "";
+        const depType = row["Dependency Type"] || row["dependency_type"] || "FS";
 
-        saveTaskMut.mutate({
+        importedTasks.push({
           text,
-          start_date: start ? String(start) : null,
-          end_date: end ? String(end) : null,
-          duration: parseInt(dur) || 1,
+          start_date: start ? String(start).slice(0, 10) : null,
+          end_date: end ? String(end).slice(0, 10) : null,
+          duration: parseInt(String(dur)) || 1,
           progress: prog,
           parent,
           type,
           owner,
+          category,
+          notes,
+        });
+
+        if (depTarget) {
+          importedLinks.push({ target: depTarget, type: depType });
+        }
+      });
+
+      // Save tasks sequentially to get IDs, then save links
+      let savedCount = 0;
+      importedTasks.forEach((task, idx) => {
+        saveTaskMut.mutate(task, {
+          onSuccess: () => {
+            savedCount++;
+            if (savedCount === importedTasks.length) {
+              // All tasks saved — now create links
+              if (importedLinks.length > 0) {
+                // Refresh gantt to get IDs, then create links
+                setTimeout(() => {
+                  const data = gantt.serialize();
+                  importedLinks.forEach((link, linkIdx) => {
+                    const src = data.data[linkIdx]?.id;
+                    const tgt = data.data.find((t: any) => t.text === link.target)?.id;
+                    if (src && tgt) {
+                      saveLinkMut.mutate({ source: src, target: tgt, type: link.type });
+                    }
+                  });
+                }, 500);
+              }
+              alert(`Imported ${importedTasks.length} tasks successfully!`);
+            }
+          },
         });
       });
     };
@@ -244,27 +322,29 @@ export default function GanttPlanner() {
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
       {/* Header */}
-      <header style={{ background: "#16324F", padding: "12px 24px", display: "flex", alignItems: "center", gap: "16px", position: "sticky", top: 0, zIndex: 100 }}>
-        <Link to="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}>
-          <ProgramsEngineeringLogo size={48} borderRadius={8} />
-          <div>
-            <div style={{ fontSize: "15px", fontWeight: 700, color: "#fff", letterSpacing: "-0.3px" }}>S/4HANA Integration Gantt Planner</div>
-            <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Material Management — Project Roadmap</div>
-          </div>
-        </Link>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
+      <header className="gantt-header">
+        <div className="gantt-header-left">
+          <Link to="/" className="gantt-header-brand">
+            <ProgramsEngineeringLogo size={42} borderRadius={8} />
+            <div className="gantt-header-text">
+              <div className="gantt-header-title">S/4HANA Gantt Planner</div>
+              <div className="gantt-header-sub">Material Management — Project Roadmap</div>
+            </div>
+          </Link>
+        </div>
+        <div className="gantt-header-actions">
           <button onClick={exportExcel} className="gantt-action-btn export-btn" title="Export to Excel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export Excel
+            <span>Export</span>
           </button>
           <button onClick={() => fileInputRef.current?.click()} className="gantt-action-btn import-btn" title="Import from Excel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Import Excel
+            <span>Import</span>
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) importExcel(e.target.files[0]); }} />
           <button onClick={() => { if (confirm("Reset all tasks and links?")) resetMut.mutate(); }} className="gantt-action-btn reset-btn" title="Reset all data">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-            Reset
+            <span>Reset</span>
           </button>
         </div>
       </header>
@@ -329,6 +409,65 @@ export default function GanttPlanner() {
 
       {/* Custom Gantt Styles */}
       <style>{`
+        /* ─── Responsive Header ─── */
+        .gantt-header {
+          background: #16324F;
+          padding: 10px 20px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          position: sticky;
+          top: 0;
+          z-index: 100;
+          flex-wrap: wrap;
+        }
+        .gantt-header-left { flex: 1 1 auto; min-width: 0; }
+        .gantt-header-brand {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          text-decoration: none;
+        }
+        .gantt-header-text { min-width: 0; }
+        .gantt-header-title {
+          font-size: 15px;
+          font-weight: 700;
+          color: #fff;
+          letter-spacing: -0.3px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .gantt-header-sub {
+          font-size: 10px;
+          color: rgba(255,255,255,0.6);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .gantt-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-shrink: 0;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        /* Mobile: stack header */
+        @media (max-width: 640px) {
+          .gantt-header { padding: 8px 12px; gap: 8px; }
+          .gantt-header-brand { gap: 8px; }
+          .gantt-header-title { font-size: 13px; }
+          .gantt-header-sub { font-size: 9px; }
+          .gantt-header-actions { gap: 6px; width: 100%; justify-content: flex-start; }
+          .gantt-action-btn { padding: 6px 10px !important; font-size: 11px !important; }
+          .gantt-action-btn svg { width: 12px !important; height: 12px !important; }
+        }
+
+        /* ─── Buttons ─── */
         .gantt-action-btn {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 7px 14px; font-size: 12px; font-weight: 600;
