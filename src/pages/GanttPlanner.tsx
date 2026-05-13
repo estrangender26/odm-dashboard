@@ -57,25 +57,6 @@ export default function GanttPlanner() {
     return { totalTasks: total, completed, inProgress, overdue, completionRate, avgDuration };
   }, []);
 
-  /* ─── Helpers ─── */
-  const formatDate = (val?: string | null): string => {
-    if (!val) return "—";
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return val;
-    return d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
-  };
-  const calcVariance = (task: any): string => {
-    if (!task.planned_end || !task.end_date) return "—";
-    const planned = new Date(task.planned_end);
-    const actual = new Date(task.end_date);
-    if (isNaN(planned.getTime()) || isNaN(actual.getTime())) return "—";
-    const diffMs = actual.getTime() - planned.getTime();
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return "On Track";
-    if (diffDays < 0) return `${Math.abs(diffDays)}d early`;
-    return `${diffDays}d late`;
-  };
-
   /* ─── Init Gantt ─── */
   useEffect(() => {
     if (ganttInit.current || !ganttContainer.current) return;
@@ -99,83 +80,32 @@ export default function GanttPlanner() {
     gantt.config.details_on_dblclick = true;
     gantt.config.show_unscheduled = true;
 
-    /* ─── Planned vs Actual: Custom Baseline Layer ─── */
-    // Draws a second bar (planned) behind each task bar (actual)
-    gantt.addTaskLayer(function drawPlanned(task: any) {
-      if (!task.planned_start || !task.planned_end) return null;
-      const ps = gantt.date.parseDate(String(task.planned_start).replace("T", " ").slice(0, 16), "%Y-%m-%d %H:%i");
-      const pe = gantt.date.parseDate(String(task.planned_end).replace("T", " ").slice(0, 16), "%Y-%m-%d %H:%i");
-      if (!ps || !pe || isNaN(ps.getTime()) || isNaN(pe.getTime())) return null;
-      const sizes = gantt.getTaskPosition(task, ps, pe);
-      const el = document.createElement("div");
-      el.className = "gantt-planned-bar";
-      el.style.cssText = `
-        position:absolute; left:${sizes.left}px; top:${sizes.top + 2}px;
-        width:${sizes.width}px; height:${Math.min(sizes.height - 4, 16)}px;
-        border:2px dashed #64748b; border-radius:4px;
-        background:rgba(100,116,139,0.08); pointer-events:none;
-        box-sizing:border-box;
-      `;
-      return el;
-    });
-
     /* Lightbox config */
     gantt.config.lightbox.sections = [
       { name: "description", height: 38, map_to: "text", type: "textarea", focus: true },
       { name: "owner", height: 30, map_to: "owner", type: "textarea" },
-      { name: "planned_dates", height: 38, map_to: "planned_start", type: "template" },
-      { name: "category_notes", height: 60, map_to: "category", type: "textarea" },
       { name: "type", height: 30, map_to: "type", type: "template" },
       { name: "time", type: "duration", map_to: "auto" },
     ];
     gantt.locale.labels.section_description = "Task Name";
     gantt.locale.labels.section_owner = "Owner / Assignee";
-    gantt.locale.labels.section_planned_dates = "Planned Dates";
-    gantt.locale.labels.section_category_notes = "Category & Notes";
     gantt.locale.labels.section_type = "Type";
-
-    /* Lightbox template renderers */
-    gantt.form_blocks["template"] ||= gantt.form_blocks["template"];
-    gantt.templates.lightbox_planned_dates = (_start: Date, _end: Date, task: any) => {
-      const ps = task.planned_start ? String(task.planned_start).slice(0, 10) : "";
-      const pe = task.planned_end ? String(task.planned_end).slice(0, 10) : "";
-      return `<div style="display:flex;gap:12px;align-items:center;">
-        <label style="font-size:12px;color:#64748b;">Planned Start</label>
-        <input type="date" name="planned_start" value="${ps}" style="padding:4px 8px;border:1px solid #e2e8f0;border-radius:4px;font-size:12px;" />
-        <label style="font-size:12px;color:#64748b;">Planned End</label>
-        <input type="date" name="planned_end" value="${pe}" style="padding:4px 8px;border:1px solid #e2e8f0;border-radius:4px;font-size:12px;" />
-      </div>`;
-    };
 
     /* Columns */
     gantt.config.columns = [
-      { name: "text", label: "Task Name", tree: true, width: 180, resize: true },
-      { name: "planned_start", label: "Planned Start", width: 95, align: "center", template: (task: any) => formatDate(task.planned_start) },
-      { name: "planned_end", label: "Planned End", width: 95, align: "center", template: (task: any) => formatDate(task.planned_end) },
-      { name: "start_date", label: "Actual Start", width: 95, align: "center" },
-      { name: "end_date", label: "Actual End", width: 95, align: "center" },
-      { name: "duration", label: "Dur", width: 50, align: "center" },
-      { name: "variance", label: "Variance", width: 75, align: "center", template: (task: any) => calcVariance(task) },
-      { name: "owner", label: "Owner", width: 100, align: "center", resize: true },
-      { name: "progress", label: "%", width: 45, align: "center", template: (task: any) => Math.round((task.progress || 0) * 100) + "%" },
+      { name: "text", label: "Task Name", tree: true, width: 200, resize: true },
+      { name: "owner", label: "Owner", width: 120, align: "center", resize: true },
+      { name: "start_date", label: "Start", width: 90, align: "center" },
+      { name: "end_date", label: "End", width: 90, align: "center" },
+      { name: "duration", label: "Duration", width: 70, align: "center" },
+      { name: "progress", label: "%", width: 50, align: "center", template: (task: any) => Math.round((task.progress || 0) * 100) + "%" },
       { name: "add", label: "", width: 40 },
     ];
 
-    /* Color coding: planned vs actual */
-    gantt.templates.task_class = (_start: Date, _end: Date, task: any) => {
-      // Milestone always takes priority
-      if (task.type === "milestone") return "milestone-task";
-      // Variance-based coloring when planned dates exist
-      if (task.planned_end && task.end_date) {
-        const pe = new Date(task.planned_end);
-        const ae = new Date(task.end_date);
-        if (!isNaN(pe.getTime()) && !isNaN(ae.getTime())) {
-          if (ae <= pe) return "ahead-task";    // completed on/before planned
-          return "behind-task";                  // completed after planned
-        }
-      }
-      // Fallback to progress-based
+    /* Color coding by progress */
+    gantt.templates.task_class = (start: Date, end: Date, task: any) => {
       const p = task.progress || 0;
+      if (task.type === "milestone") return "milestone-task";
       if (p >= 1) return "completed-task";
       if (p > 0) return "inprogress-task";
       return "notstarted-task";
@@ -187,15 +117,11 @@ export default function GanttPlanner() {
         text: task.text || "New Task",
         start_date: task.start_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.start_date) : null,
         end_date: task.end_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.end_date) : null,
-        planned_start: task.planned_start ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_start) : null,
-        planned_end: task.planned_end ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_end) : null,
         duration: task.duration || 1,
         progress: task.progress || 0,
         parent: task.parent || 0,
         type: task.type || "task",
         owner: task.owner || "",
-        category: task.category || "",
-        notes: task.notes || "",
         sortorder: task.sortorder || 0,
       });
     });
@@ -206,13 +132,11 @@ export default function GanttPlanner() {
         text: task.text || "Task",
         start_date: task.start_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.start_date) : null,
         end_date: task.end_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.end_date) : null,
-        planned_start: task.planned_start ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_start) : null,
-        planned_end: task.planned_end ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_end) : null,
+        duration: task.duration || 1,
+        progress: task.progress || 0,
         parent: task.parent || 0,
         type: task.type || "task",
         owner: task.owner || "",
-        category: task.category || "",
-        notes: task.notes || "",
       });
     });
 
@@ -240,16 +164,12 @@ export default function GanttPlanner() {
       text: t.text,
       start_date: t.startDate ? t.startDate.replace("T", " ").slice(0, 16) : undefined,
       end_date: t.endDate ? t.endDate.replace("T", " ").slice(0, 16) : undefined,
-      planned_start: t.plannedStart || undefined,
-      planned_end: t.plannedEnd || undefined,
       duration: t.duration || 1,
       progress: (t.progress || 0) / 100,
       parent: t.parent || 0,
       type: t.type || "task",
       owner: t.owner || "",
       open: t.open !== 0,
-      category: t.category || "",
-      notes: t.notes || "",
     }));
 
     const links = linksQuery.data.map((l: any) => ({
@@ -268,52 +188,21 @@ export default function GanttPlanner() {
   /* ─── Excel Export ─── */
   const exportExcel = () => {
     const data = gantt.serialize();
-    const today = new Date().toISOString().slice(0, 10);
-    const headers = [
-      "Task ID", "Parent Task", "WBS Level", "Task Name", "Owner",
-      "Start", "Finish", "Duration", "Progress", "Dependency",
-      "Dependency Type", "Milestone", "Category", "Status", "Notes"
-    ];
-
-    const rows = data.data.length > 0
-      ? data.data.map((t: any) => {
-          // Find dependency link
-          const link = data.links?.find((l: any) => l.source === t.id);
-          const wbs = gantt.getWBSCode(t.id);
-          const wbsLevel = wbs ? wbs.split(".").length : 1;
-          const isMilestone = t.type === "milestone";
-          const progressPct = Math.round((t.progress || 0) * 100);
-          let status = "Not Started";
-          if (isMilestone) status = "Milestone";
-          else if (progressPct >= 100) status = "Completed";
-          else if (progressPct > 0) status = "In Progress";
-
-          return {
-            "Task ID": t.id,
-            "Parent Task": t.parent || "",
-            "WBS Level": wbsLevel,
-            "Task Name": t.text,
-            "Owner": t.owner || "",
-            "Start": t.start_date ? t.start_date.slice(0, 10) : "",
-            "Finish": t.end_date ? t.end_date.slice(0, 10) : "",
-            "Duration": t.duration || "",
-            "Progress": progressPct,
-            "Dependency": link ? link.target : "",
-            "Dependency Type": link ? (link.type || "FS") : "",
-            "Milestone": isMilestone ? "TRUE" : "FALSE",
-            "Category": t.category || "",
-            "Status": status,
-            "Notes": t.notes || "",
-          };
-        })
-      : []; // empty data → just headers
-
-    const ws = rows.length > 0
-      ? XLSX.utils.json_to_sheet(rows, { header: headers })
-      : XLSX.utils.aoa_to_sheet([headers]);
+    const rows = data.data.map((t: any) => ({
+      "WBS": gantt.getWBSCode(t.id),
+      "Task Name": t.text,
+      "Owner": t.owner || "",
+      "Start Date": t.start_date || "",
+      "End Date": t.end_date || "",
+      "Duration": t.duration || "",
+      "Progress": Math.round((t.progress || 0) * 100) + "%",
+      "Type": t.type || "task",
+      "Parent": t.parent || 0,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Gantt Tasks");
-    XLSX.writeFile(wb, `s4hana-gantt-template-${today}.xlsx`);
+    XLSX.writeFile(wb, "S4HANA_Gantt_Tasks.xlsx");
   };
 
   /* ─── Excel Import ─── */
@@ -324,73 +213,26 @@ export default function GanttPlanner() {
       const workbook = XLSX.read(data, { type: "array" });
       const ws = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[] = XLSX.utils.sheet_to_json(ws);
-      if (!rows.length) { alert("No data found in the Excel file."); return; }
-
-      // Collect all tasks first, then links
-      const importedTasks: any[] = [];
-      const importedLinks: any[] = [];
 
       rows.forEach((row: any) => {
-        // Accept both new column names and old aliases
         const text = row["Task Name"] || row["text"] || "Imported Task";
-        const start = row["Start"] || row["Start Date"] || row["start_date"] || "";
-        const end = row["Finish"] || row["End Date"] || row["end_date"] || "";
+        const start = row["Start Date"] || row["start_date"] || "";
+        const end = row["End Date"] || row["end_date"] || "";
         const dur = row["Duration"] || row["duration"] || 1;
-        const progRaw = row["Progress"] || row["progress"] || "0";
-        const prog = typeof progRaw === "number" ? progRaw : (parseInt(String(progRaw).replace("%", "")) || 0);
+        const prog = parseInt((row["Progress"] || "0").toString().replace("%", "")) || 0;
         const owner = row["Owner"] || row["owner"] || "";
-        const parentRaw = row["Parent Task"] || row["Parent"] || row["parent"] || "0";
-        const parent = parseInt(String(parentRaw)) || 0;
-        const milestoneStr = row["Milestone"] || "";
-        const isMilestone = milestoneStr === "TRUE" || milestoneStr === true || milestoneStr === 1;
-        const type = isMilestone ? "milestone" : "task";
-        const category = row["Category"] || row["category"] || "";
-        const notes = row["Notes"] || row["notes"] || "";
-        const depTarget = row["Dependency"] || row["dependency"] || "";
-        const depType = row["Dependency Type"] || row["dependency_type"] || "FS";
+        const type = row["Type"] || row["type"] || "task";
+        const parent = parseInt(row["Parent"] || row["parent"] || "0") || 0;
 
-        importedTasks.push({
+        saveTaskMut.mutate({
           text,
-          start_date: start ? String(start).slice(0, 10) : null,
-          end_date: end ? String(end).slice(0, 10) : null,
-          duration: parseInt(String(dur)) || 1,
+          start_date: start ? String(start) : null,
+          end_date: end ? String(end) : null,
+          duration: parseInt(dur) || 1,
           progress: prog,
           parent,
           type,
           owner,
-          category,
-          notes,
-        });
-
-        if (depTarget) {
-          importedLinks.push({ target: depTarget, type: depType });
-        }
-      });
-
-      // Save tasks sequentially to get IDs, then save links
-      let savedCount = 0;
-      importedTasks.forEach((task, idx) => {
-        saveTaskMut.mutate(task, {
-          onSuccess: () => {
-            savedCount++;
-            if (savedCount === importedTasks.length) {
-              // All tasks saved — now create links
-              if (importedLinks.length > 0) {
-                // Refresh gantt to get IDs, then create links
-                setTimeout(() => {
-                  const data = gantt.serialize();
-                  importedLinks.forEach((link, linkIdx) => {
-                    const src = data.data[linkIdx]?.id;
-                    const tgt = data.data.find((t: any) => t.text === link.target)?.id;
-                    if (src && tgt) {
-                      saveLinkMut.mutate({ source: src, target: tgt, type: link.type });
-                    }
-                  });
-                }, 500);
-              }
-              alert(`Imported ${importedTasks.length} tasks successfully!`);
-            }
-          },
         });
       });
     };
@@ -402,29 +244,27 @@ export default function GanttPlanner() {
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
       {/* Header */}
-      <header className="gantt-header">
-        <div className="gantt-header-left">
-          <Link to="/" className="gantt-header-brand">
-            <ProgramsEngineeringLogo size={42} borderRadius={8} />
-            <div className="gantt-header-text">
-              <div className="gantt-header-title">S/4HANA Gantt Planner</div>
-              <div className="gantt-header-sub">Material Management — Project Roadmap</div>
-            </div>
-          </Link>
-        </div>
-        <div className="gantt-header-actions">
+      <header style={{ background: "#16324F", padding: "12px 24px", display: "flex", alignItems: "center", gap: "16px", position: "sticky", top: 0, zIndex: 100 }}>
+        <Link to="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}>
+          <ProgramsEngineeringLogo size={48} borderRadius={8} />
+          <div>
+            <div style={{ fontSize: "15px", fontWeight: 700, color: "#fff", letterSpacing: "-0.3px" }}>S/4HANA Integration Gantt Planner</div>
+            <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Material Management — Project Roadmap</div>
+          </div>
+        </Link>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
           <button onClick={exportExcel} className="gantt-action-btn export-btn" title="Export to Excel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span>Export</span>
+            Export Excel
           </button>
           <button onClick={() => fileInputRef.current?.click()} className="gantt-action-btn import-btn" title="Import from Excel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span>Import</span>
+            Import Excel
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) importExcel(e.target.files[0]); }} />
           <button onClick={() => { if (confirm("Reset all tasks and links?")) resetMut.mutate(); }} className="gantt-action-btn reset-btn" title="Reset all data">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-            <span>Reset</span>
+            Reset
           </button>
         </div>
       </header>
@@ -489,65 +329,6 @@ export default function GanttPlanner() {
 
       {/* Custom Gantt Styles */}
       <style>{`
-        /* ─── Responsive Header ─── */
-        .gantt-header {
-          background: #16324F;
-          padding: 10px 20px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          position: sticky;
-          top: 0;
-          z-index: 100;
-          flex-wrap: wrap;
-        }
-        .gantt-header-left { flex: 1 1 auto; min-width: 0; }
-        .gantt-header-brand {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          text-decoration: none;
-        }
-        .gantt-header-text { min-width: 0; }
-        .gantt-header-title {
-          font-size: 15px;
-          font-weight: 700;
-          color: #fff;
-          letter-spacing: -0.3px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .gantt-header-sub {
-          font-size: 10px;
-          color: rgba(255,255,255,0.6);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .gantt-header-actions {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex-shrink: 0;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-        }
-        /* Mobile: stack header */
-        @media (max-width: 640px) {
-          .gantt-header { padding: 8px 12px; gap: 8px; }
-          .gantt-header-brand { gap: 8px; }
-          .gantt-header-title { font-size: 13px; }
-          .gantt-header-sub { font-size: 9px; }
-          .gantt-header-actions { gap: 6px; width: 100%; justify-content: flex-start; }
-          .gantt-action-btn { padding: 6px 10px !important; font-size: 11px !important; }
-          .gantt-action-btn svg { width: 12px !important; height: 12px !important; }
-        }
-
-        /* ─── Buttons ─── */
         .gantt-action-btn {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 7px 14px; font-size: 12px; font-weight: 600;
@@ -566,21 +347,11 @@ export default function GanttPlanner() {
         .inprogress-task .gantt_task_progress { background: #F59E0B !important; }
         .notstarted-task .gantt_task_progress { background: #94A3B8 !important; }
         .milestone-task .gantt_task_content { background: #7C3AED !important; border-radius: 50%; }
-        .ahead-task .gantt_task_line { background: #1F9D55 !important; border-color: #15803D !important; }
-        .ahead-task .gantt_task_content { color: #fff; }
-        .behind-task .gantt_task_line { background: #DC2626 !important; border-color: #991B1B !important; }
-        .behind-task .gantt_task_content { color: #fff; }
 
         .gantt_task_line { border-radius: 4px; }
         .gantt_grid_scale, .gantt_task_scale { background: #F8FAFC; }
         .gantt_grid_data .gantt_cell { font-family: Inter, sans-serif; font-size: 12px; color: #2D3748; }
         .gantt_task_line { box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-        .gantt-planned-bar { z-index: 0 !important; }
-        .gantt-planned-bar::before {
-          content: "PLANNED"; position: absolute; left: 4px; top: 50%;
-          transform: translateY(-50%); font-size: 7px; color: #64748b;
-          letter-spacing: 0.3px; opacity: 0.7; pointer-events: none;
-        }
 
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
