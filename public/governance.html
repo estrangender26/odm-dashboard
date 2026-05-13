@@ -424,6 +424,8 @@ const ALM=[
 ];
 const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
 
+// String.padStart polyfill for older browsers
+if(!String.prototype.padStart)String.prototype.padStart=function(t,p){var s=String(this);if(s.length>=t)return s;p=p||' ';var r=Math.ceil((t-s.length)/p.length);return p.repeat?p.repeat(r).slice(0,t-s.length)+s:Array(r+1).join(p).slice(0,t-s.length)+s};
 // STATE — DB-backed (no localStorage)
 let ST={},CH=null,PENDING={},PENDING_REF=[],EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={},DRAFT_PP=null;
 // In-memory tab cache: timestamp of last successful fetch per tab (ms)
@@ -482,7 +484,14 @@ async function fetchStateFromDB(facility,opts){
       var mid=s.milestone_id;if(!mid)return;
       if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
       if(s.ppp_date)ST[facility].ms[mid].pppDate=s.ppp_date;
-      if(s.comp_date){ST[facility].ms[mid].compDate=s.comp_date;ST[facility].ms[mid].done=true;}
+      if(s.comp_date!==undefined&&s.comp_date!==null){
+        ST[facility].ms[mid].compDate=normalizeDateOnly(s.comp_date);
+        ST[facility].ms[mid].done=true;
+      }else if(s.comp_date===null){
+        // DB explicitly cleared this completion date
+        delete ST[facility].ms[mid].compDate;
+        ST[facility].ms[mid].done=false;
+      }
       if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
       mCount++;
     });
@@ -846,12 +855,23 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       if(!PENDING[f])PENDING[f]={ms:{}};
       if(checked){
         var ppDate=normalizeDateOnly(ST[f]&&ST[f].pp)||normalizeDateOnly(ST[f]&&ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'';
-        if(!ppDate)ppDate='';
-        var dt=cd(ppDate,MSD[mid].o);
+        var dt='';
+        if(ppDate&&ppDate.length>=10){
+          dt=cd(ppDate,MSD[mid].o);
+        }else if(ST[f]&&ST[f].ms&&ST[f].ms[mid]&&ST[f].ms[mid].compDate){
+          // Preserve existing completion date if PPP is not available
+          dt=ST[f].ms[mid].compDate;
+          console.log('[CHK] Preserving existing compDate for '+mid+':',dt);
+        }else{
+          // Use today's date as last resort (avoid empty string which clears DB)
+          var today=new Date();
+          dt=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+          console.log('[CHK] No PPP date, using today for '+mid+':',dt);
+        }
         PENDING[f].ms[mid]={compDate:dt};
         console.log('[CHK] Set complete: ppDate='+ppDate+' offset='+MSD[mid].o+' dt='+dt);
       }
-      else{PENDING[f].ms[mid]={compDate:null};console.log('[CHK] Set incomplete (null)');}
+      else{PENDING[f].ms[mid]={compDate:null,done:false};console.log('[CHK] Set incomplete (null)');}
       console.log('[CHK] PENDING now:',JSON.stringify(PENDING));updateEditButtons();ALL();
     });
     c8.appendChild(cb);metaWrap.appendChild(c8);
