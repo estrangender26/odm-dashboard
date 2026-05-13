@@ -531,30 +531,31 @@
        MAIN INNER WRAPPER (max-width for large screens)
        ============================================================ */
     .main-inner {
-      max-width: 1440px;
+      max-width: 1600px;
       margin: 0 auto;
       width: 100%;
-      padding: 0 var(--space-5); /* 24px default */
+      padding: 0 24px;
+      box-sizing: border-box;
     }
 
-    /* 1440px+: comfortable padding */
+    /* 1440px+: extra breathing room */
     @media (min-width: 1440px) {
       .main-inner { padding: 0 32px; }
     }
 
     /* 1280-1439px: MacBook Air / laptop */
     @media (max-width: 1439px) and (min-width: 1280px) {
-      .main-inner { padding: 0 var(--space-5); }
+      .main-inner { padding: 0 24px; }
     }
 
     /* 992-1279px: smaller laptop */
     @media (max-width: 1279px) and (min-width: 992px) {
-      .main-inner { padding: 0 var(--space-4); }
+      .main-inner { padding: 0 20px; }
     }
 
     /* 768-991px: tablet */
     @media (max-width: 991px) and (min-width: 769px) {
-      .main-inner { padding: 0 var(--space-4); }
+      .main-inner { padding: 0 16px; }
     }
 
     /* ============================================================
@@ -567,11 +568,11 @@
       margin-bottom: var(--space-5);
     }
 
-    /* 1100px+: side-by-side charts */
+    /* 1100px+: side-by-side charts (wider left chart) */
     @media (min-width: 1100px) {
       .dash-grid {
-        grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
-        gap: var(--space-5);
+        grid-template-columns: minmax(0, 1.4fr) minmax(420px, 0.9fr);
+        gap: 24px;
         align-items: start;
       }
     }
@@ -1081,27 +1082,34 @@
        ============================================================ */
     canvas { max-height: 320px; }
 
-    /* Chart heights — desktop */
-    #chartEscalations { height: 380px !important; }
-    #chartPareto { height: 380px !important; min-width: 420px; }
+    /* Chart heights — desktop (1440px+) */
+    #chartEscalations { height: 400px !important; }
+    #chartPareto { height: 400px !important; min-width: 460px; }
 
     /* Chart heights — laptop (1100px-1439px) */
     @media (max-width: 1439px) and (min-width: 1100px) {
-      #chartEscalations { height: 360px !important; }
-      #chartPareto { height: 360px !important; }
+      #chartEscalations { height: 380px !important; }
+      #chartPareto { height: 380px !important; min-width: 420px; }
     }
 
     /* Chart heights — smaller laptop (992px-1099px) */
     @media (max-width: 1099px) and (min-width: 769px) {
       #chartEscalations { height: 340px !important; }
-      #chartPareto { height: 340px !important; min-width: 360px; }
+      #chartPareto { height: 340px !important; min-width: 380px; }
     }
 
     /* Pareto chart scroll wrapper */
     .chart-scroll-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-    /* Spacing between chart grid and tabs panel */
-    .tabs-panel { margin-top: var(--space-5); }
+    /* Tabs panel full width */
+    .tabs-panel { margin-top: var(--space-5); width: 100%; }
+
+    /* Tab content full width */
+    .tab-content { width: 100%; }
+
+    /* Table wrappers full width */
+    .table-wrap { width: 100%; }
+    .table-wrap table { width: 100%; }
 
     /* ===== AI OPERATIONAL INSIGHTS ===== */
     .insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-bottom: 16px; }
