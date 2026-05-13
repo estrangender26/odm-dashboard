@@ -60,7 +60,7 @@ export default function GanttPlanner() {
     return { totalTasks: total, completed, inProgress, overdue, completionRate, avgDuration };
   }, []);
 
-  /* ─── Setup Gantt (config only, NO init) ─── */
+  /* ─── Setup Gantt config + init ─── */
   useEffect(() => {
     if (ganttInit.current) return;
     ganttInit.current = true;
@@ -184,14 +184,23 @@ export default function GanttPlanner() {
     gantt.attachEvent("onAfterTaskDelete", (_id: string) => { deleteTaskMut.mutate({ id: parseInt(_id) }); });
     gantt.attachEvent("onAfterLinkAdd", (_id: string, link: any) => { saveLinkMut.mutate({ source: link.source, target: link.target, type: link.type || "0" }); });
     gantt.attachEvent("onAfterLinkDelete", (_id: string) => { deleteLinkMut.mutate({ id: parseInt(_id) }); });
+  }, []);
 
-    // Init gantt on mount — container always exists in DOM
-    if (ganttContainer.current) {
+  /* ─── Init gantt on container (separate from config) ─── */
+  useEffect(() => {
+    const container = ganttContainer.current;
+    if (!container) return;
+    // Defer init to ensure CSS is loaded and container has dimensions
+    const timer = setTimeout(() => {
       try {
-        gantt.init(ganttContainer.current);
+        gantt.init(container);
         gantt.setSizes();
-      } catch (e) { console.warn("[Gantt] mount init error:", e); }
-    }
+        console.log("[Gantt] init succeeded");
+      } catch (e) {
+        console.warn("[Gantt] init error:", e);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
   }, []);
 
   /* ─── Load data ─── */
@@ -242,13 +251,15 @@ export default function GanttPlanner() {
       type: l.type || "0",
     }));
 
-    // Container always exists (hidden when no data), just parse and render
+    // Parse data and force full re-render
     try {
       gantt.clearAll();
       gantt.parse({ data: tasks, links });
+      gantt.refreshData();
       gantt.setSizes();
       gantt.render();
-    } catch (e) { console.warn("[Gantt] render error:", e); }
+      console.log("[Gantt] parsed", tasks.length, "tasks,", links.length, "links");
+    } catch (e) { console.warn("[Gantt] parse error:", e); }
 
     setKpi(calcKpi(tasks));
   }, [tasksQuery.data, linksQuery.data, calcKpi]);
@@ -389,7 +400,7 @@ export default function GanttPlanner() {
         {activeTab === "gantt" && (
           <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden", position: "relative" }}>
             {/* Gantt container — ALWAYS rendered so init() has a stable DOM element */}
-            <div ref={ganttContainer} style={{ width: "100%", height: "calc(100vh - 340px)", minHeight: 500, visibility: tasksQuery.data && tasksQuery.data.length > 0 ? "visible" : "hidden" }} />
+            <div ref={ganttContainer} className="gantt-container" style={{ width: "100%", height: "calc(100vh - 340px)", minHeight: 500, opacity: tasksQuery.data && tasksQuery.data.length > 0 ? 1 : 0 }} />
             {/* Empty state overlay — on top of hidden gantt when no data */}
             {(!tasksQuery.data || tasksQuery.data.length === 0) && (
               <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", textAlign: "center", zIndex: 10 }}>
@@ -451,14 +462,24 @@ export default function GanttPlanner() {
           letter-spacing: 0.3px; opacity: 0.7; pointer-events: none;
         }
 
+        /* Force gantt container dimensions — critical for mobile Safari */
+        .gantt-container,
+        .gantt_task,
+        .gantt_layout_root,
+        .gantt_container {
+          min-height: 500px !important;
+          width: 100% !important;
+        }
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
           .gantt_grid_data .gantt_cell { font-size: 11px !important; }
           .gantt_task_scale, .gantt_grid_scale { font-size: 10px !important; }
+          .gantt-container { min-height: 400px !important; }
         }
         @media (max-width: 480px) {
           .gantt-action-btn span { display: none; }
           .gantt-action-btn { padding: 6px 8px; }
+          .gantt-container { min-height: 350px !important; }
         }
       `}</style>
     </div>
