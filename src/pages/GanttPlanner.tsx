@@ -184,6 +184,14 @@ export default function GanttPlanner() {
     gantt.attachEvent("onAfterTaskDelete", (_id: string) => { deleteTaskMut.mutate({ id: parseInt(_id) }); });
     gantt.attachEvent("onAfterLinkAdd", (_id: string, link: any) => { saveLinkMut.mutate({ source: link.source, target: link.target, type: link.type || "0" }); });
     gantt.attachEvent("onAfterLinkDelete", (_id: string) => { deleteLinkMut.mutate({ id: parseInt(_id) }); });
+
+    // Init gantt on mount — container always exists in DOM
+    if (ganttContainer.current) {
+      try {
+        gantt.init(ganttContainer.current);
+        gantt.setSizes();
+      } catch (e) { console.warn("[Gantt] mount init error:", e); }
+    }
   }, []);
 
   /* ─── Load data ─── */
@@ -234,33 +242,23 @@ export default function GanttPlanner() {
       type: l.type || "0",
     }));
 
-    // Defer gantt init to next paint so React has attached the ref
-    const initAndRender = () => {
-      if (!ganttContainer.current) {
-        console.warn("[Gantt] container ref is null, retrying...");
-        setTimeout(initAndRender, 50);
-        return;
-      }
-      try {
-        gantt.init(ganttContainer.current);
-        gantt.clearAll();
-        gantt.parse({ data: tasks, links });
-        gantt.setSizes();
-        gantt.render();
-        console.log("[Gantt] init+render done, tasks:", tasks.length);
-      } catch (e) { console.warn("[Gantt] init error:", e); }
-    };
-    requestAnimationFrame(initAndRender);
+    // Container always exists (hidden when no data), just parse and render
+    try {
+      gantt.clearAll();
+      gantt.parse({ data: tasks, links });
+      gantt.setSizes();
+      gantt.render();
+    } catch (e) { console.warn("[Gantt] render error:", e); }
 
     setKpi(calcKpi(tasks));
   }, [tasksQuery.data, linksQuery.data, calcKpi]);
 
   /* ─── Re-render gantt when gantt tab becomes active ─── */
   useEffect(() => {
-    if (activeTab === "gantt" && tasksQuery.data && tasksQuery.data.length > 0 && ganttContainer.current) {
-      setTimeout(() => { gantt.setSizes(); gantt.render(); }, 200);
+    if (activeTab === "gantt" && ganttContainer.current) {
+      setTimeout(() => { gantt.setSizes(); gantt.render(); }, 100);
     }
-  }, [activeTab, tasksQuery.data]);
+  }, [activeTab]);
 
   /* ─── Excel Export ─── */
   const exportExcel = () => {
@@ -389,13 +387,12 @@ export default function GanttPlanner() {
       {/* Content */}
       <div style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         {activeTab === "gantt" && (
-          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-            {tasksQuery.data && tasksQuery.data.length > 0 ? (
-              /* Gantt chart with data */
-              <div ref={ganttContainer} style={{ width: "100%", height: "calc(100vh - 340px)", minHeight: 500 }} />
-            ) : (
-              /* Empty state — no gantt container until data arrives */
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", minHeight: 400, textAlign: "center" }}>
+          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden", position: "relative" }}>
+            {/* Gantt container — ALWAYS rendered so init() has a stable DOM element */}
+            <div ref={ganttContainer} style={{ width: "100%", height: "calc(100vh - 340px)", minHeight: 500, visibility: tasksQuery.data && tasksQuery.data.length > 0 ? "visible" : "hidden" }} />
+            {/* Empty state overlay — on top of hidden gantt when no data */}
+            {(!tasksQuery.data || tasksQuery.data.length === 0) && (
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", textAlign: "center", zIndex: 10 }}>
                 <div style={{ width: 64, height: 64, borderRadius: 16, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 16 }}>📅</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#16324F", marginBottom: 6 }}>No tasks yet</div>
                 <div style={{ fontSize: 12, color: "#8BA3B8", maxWidth: 320, marginBottom: 20, lineHeight: 1.5 }}>Get started by loading demo data, importing from Excel, or adding tasks manually.</div>
