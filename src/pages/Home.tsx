@@ -38,7 +38,7 @@ export default function Home() {
         </div>
 
         {/* Dashboard Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* Maintenance Planning (Post-PPP) */}
           <Link
             to="/equipment"
@@ -174,6 +174,40 @@ export default function Home() {
               Open Dashboard →
             </span>
           </a>
+
+          {/* S/4HANA Integration Gantt Planner */}
+          <Link
+            to="/gantt-planner"
+            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+            style={{
+              background: '#FFFFFF',
+              borderColor: '#D6DFE8',
+              boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
+              textDecoration: 'none',
+              color: 'inherit',
+              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(124,58,237,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📅</div>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>S/4HANA Gantt Planner</h3>
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: '#5A6B7D', lineHeight: 1.5, marginBottom: 14 }}>
+              Interactive Gantt chart for S/4HANA integration project. Track tasks, dependencies, milestones, durations with Excel import/export.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#EDE9FE', color: '#7C3AED' }}>Gantt</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#EDE9FE', color: '#7C3AED' }}>CRUD</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Excel</span>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#0066A6', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Open Planner →
+            </span>
+          </Link>
         </div>
       </main>
 

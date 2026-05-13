@@ -4,6 +4,7 @@ import { governanceRouter } from "./governance-router";
 import { governanceFilesRouter } from "./governance-files-router";
 import { seedRouter } from "./seed-router";
 import { mwRouter } from "./mw-router";
+import { ganttRouter } from "./gantt-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -14,6 +15,7 @@ export const appRouter = createRouter({
   govFiles: governanceFilesRouter,
   seed: seedRouter,
   mw: mwRouter,
+  gantt: ganttRouter,
 });
 
 export type AppRouter = typeof appRouter;

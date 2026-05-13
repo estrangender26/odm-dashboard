@@ -129,3 +129,27 @@ export const governanceFiles = pgTable("governance_files", {
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
 });
+
+export const ganttTasks = pgTable("gantt_tasks", {
+  id: serial("id").primaryKey(),
+  text: varchar("text", { length: 500 }).notNull(),
+  startDate: varchar("start_date", { length: 20 }),
+  endDate: varchar("end_date", { length: 20 }),
+  duration: integer("duration"),
+  progress: integer("progress").default(0),
+  parent: integer("parent").default(0),
+  type: varchar("type", { length: 20 }).default("task"),
+  sortorder: integer("sortorder").default(0),
+  owner: varchar("owner", { length: 255 }),
+  open: integer("open").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const ganttLinks = pgTable("gantt_links", {
+  id: serial("id").primaryKey(),
+  source: integer("source").notNull(),
+  target: integer("target").notNull(),
+  type: varchar("type", { length: 20 }).notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
