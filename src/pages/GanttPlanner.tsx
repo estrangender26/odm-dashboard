@@ -60,9 +60,9 @@ export default function GanttPlanner() {
     return { totalTasks: total, completed, inProgress, overdue, completionRate, avgDuration };
   }, []);
 
-  /* ─── Init Gantt ─── */
+  /* ─── Setup Gantt (config only, NO init) ─── */
   useEffect(() => {
-    if (ganttInit.current || !ganttContainer.current) return;
+    if (ganttInit.current) return;
     ganttInit.current = true;
 
     /* Helpers */
@@ -97,10 +97,8 @@ export default function GanttPlanner() {
     var drawPlannedBars = function(){
       var container = document.querySelector(".gantt_task_bars_area");
       if(!container) return;
-      // Remove old planned bars
       var old = container.querySelectorAll(".gantt-planned-bar");
       for(var i=0;i<old.length;i++) old[i].remove();
-      // Draw new ones
       gantt.eachTask(function(task: any){
         if(!task.planned_start || !task.planned_end) return;
         var ps = gantt.date.parseDate(task.planned_start, "%Y-%m-%d %H:%i");
@@ -118,7 +116,7 @@ export default function GanttPlanner() {
     gantt.attachEvent("onAfterTaskUpdate", function(){ setTimeout(drawPlannedBars, 100); });
     gantt.attachEvent("onAfterTaskAdd", function(){ setTimeout(drawPlannedBars, 100); });
 
-    /* Lightbox config */
+    /* Lightbox */
     gantt.config.lightbox.sections = [
       { name: "description", height: 38, map_to: "text", type: "textarea", focus: true },
       { name: "owner", height: 30, map_to: "owner", type: "textarea" },
@@ -143,7 +141,7 @@ export default function GanttPlanner() {
       { name: "add", label: "", width: 40 },
     ];
 
-    /* Color coding by progress */
+    /* Color coding */
     gantt.templates.task_class = (start: Date, end: Date, task: any) => {
       const p = task.progress || 0;
       if (task.type === "milestone") return "milestone-task";
@@ -152,7 +150,7 @@ export default function GanttPlanner() {
       return "notstarted-task";
     };
 
-    /* Attach handlers */
+    /* Handlers */
     gantt.attachEvent("onAfterTaskAdd", (_id: string, task: any) => {
       saveTaskMut.mutate({
         text: task.text || "New Task",
@@ -168,7 +166,6 @@ export default function GanttPlanner() {
         sortorder: task.sortorder || 0,
       });
     });
-
     gantt.attachEvent("onAfterTaskUpdate", (_id: string, task: any) => {
       saveTaskMut.mutate({
         id: parseInt(_id),
@@ -184,22 +181,9 @@ export default function GanttPlanner() {
         owner: task.owner || "",
       });
     });
-
-    gantt.attachEvent("onAfterTaskDelete", (_id: string) => {
-      deleteTaskMut.mutate({ id: parseInt(_id) });
-    });
-
-    gantt.attachEvent("onAfterLinkAdd", (_id: string, link: any) => {
-      saveLinkMut.mutate({ source: link.source, target: link.target, type: link.type || "0" });
-    });
-
-    gantt.attachEvent("onAfterLinkDelete", (_id: string) => {
-      deleteLinkMut.mutate({ id: parseInt(_id) });
-    });
-
-    gantt.init(ganttContainer.current);
-    gantt.setSizes();
-    gantt.render();
+    gantt.attachEvent("onAfterTaskDelete", (_id: string) => { deleteTaskMut.mutate({ id: parseInt(_id) }); });
+    gantt.attachEvent("onAfterLinkAdd", (_id: string, link: any) => { saveLinkMut.mutate({ source: link.source, target: link.target, type: link.type || "0" }); });
+    gantt.attachEvent("onAfterLinkDelete", (_id: string) => { deleteLinkMut.mutate({ id: parseInt(_id) }); });
   }, []);
 
   /* ─── Load data ─── */
@@ -250,26 +234,26 @@ export default function GanttPlanner() {
       type: l.type || "0",
     }));
 
+    // Init gantt NOW (after data arrives) — this ensures init runs with a visible container
+    if (ganttContainer.current) {
+      try {
+        gantt.init(ganttContainer.current);
+      } catch (e) { console.warn("gantt.init() error:", e); }
+    }
     gantt.clearAll();
     gantt.parse({ data: tasks, links });
-    // Force full re-render after data loads
-    requestAnimationFrame(() => {
-      gantt.setSizes();
-      gantt.render();
-    });
+    gantt.setSizes();
+    gantt.render();
 
     setKpi(calcKpi(tasks));
   }, [tasksQuery.data, linksQuery.data, calcKpi]);
 
   /* ─── Re-render gantt when gantt tab becomes active ─── */
   useEffect(() => {
-    if (activeTab === "gantt" && ganttInit.current) {
-      requestAnimationFrame(() => {
-        gantt.setSizes();
-        gantt.render();
-      });
+    if (activeTab === "gantt" && tasksQuery.data && tasksQuery.data.length > 0) {
+      setTimeout(() => { gantt.setSizes(); gantt.render(); }, 150);
     }
-  }, [activeTab]);
+  }, [activeTab, tasksQuery.data]);
 
   /* ─── Excel Export ─── */
   const exportExcel = () => {
@@ -398,12 +382,13 @@ export default function GanttPlanner() {
       {/* Content */}
       <div style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         {activeTab === "gantt" && (
-          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden", position: "relative" }}>
-            {/* Gantt container — ALWAYS full height so dhtmlx init works properly */}
-            <div ref={ganttContainer} style={{ width: "100%", height: "calc(100vh - 340px)", minHeight: 500 }} />
-            {/* Empty state overlay — covers gantt when no data */}
-            {(!tasksQuery.data || tasksQuery.data.length === 0) && (
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", textAlign: "center", zIndex: 10 }}>
+          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
+            {tasksQuery.data && tasksQuery.data.length > 0 ? (
+              /* Gantt chart with data */
+              <div ref={ganttContainer} style={{ width: "100%", height: "calc(100vh - 340px)", minHeight: 500 }} />
+            ) : (
+              /* Empty state — no gantt container until data arrives */
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", minHeight: 400, textAlign: "center" }}>
                 <div style={{ width: 64, height: 64, borderRadius: 16, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 16 }}>📅</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#16324F", marginBottom: 6 }}>No tasks yet</div>
                 <div style={{ fontSize: 12, color: "#8BA3B8", maxWidth: 320, marginBottom: 20, lineHeight: 1.5 }}>Get started by loading demo data, importing from Excel, or adding tasks manually.</div>
