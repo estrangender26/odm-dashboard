@@ -68,9 +68,15 @@ app.get("/governance", async (c) => {
   const governancePath = path.join(dp, "governance.html");
   if (fs.existsSync(governancePath)) {
     const content = fs.readFileSync(governancePath, "utf-8");
-    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
+    // Aggressive cache-busting: unique ETag based on file mtime + content length
+    const stat = fs.statSync(governancePath);
+    const etag = `"gov-${stat.mtime.getTime()}-${content.length}"`;
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
     c.header("Pragma", "no-cache");
     c.header("Expires", "0");
+    c.header("Vary", "*");
+    c.header("ETag", etag);
+    // If client sends matching If-None-Match, still return 200 to force refresh
     return c.html(content);
   }
   return c.json({ error: "Governance dashboard not found", path: governancePath }, 404);
@@ -522,12 +528,42 @@ app.get("/api/migrate-gantt", async (c) => {
 // Validate YYYY-MM-DD format
 function isValidDate(str: unknown): boolean {
   if (!str || typeof str !== 'string') return false;
-  if (str === 'undefined' || str === 'null' || str === 'NaN' || str === '') return false;
+  if (str === 'undefined' || str === 'null' || str === 'NaN' || str === '' || str === 'undefined-NaN-NaN') return false;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
   const [y, m, d] = str.split('-').map(Number);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return false;
   const dt = new Date(y, m - 1, d);
   return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
 }
+
+// ═══ DB Cleanup: remove corrupted date values ═══
+app.post("/api/governance/cleanup-dates", async (c) => {
+  try {
+    const { getDb } = await import("./queries/connection");
+    const db = getDb();
+    // Clear corrupted ppp_date values (MySQL/TiDB compatible regex)
+    const ppResult = await db.execute(sql.raw(`
+      UPDATE governance_milestone_state
+      SET ppp_date = NULL
+      WHERE ppp_date IS NOT NULL
+        AND ppp_date NOT REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    `));
+    // Clear corrupted comp_date values
+    const cdResult = await db.execute(sql.raw(`
+      UPDATE governance_milestone_state
+      SET comp_date = NULL
+      WHERE comp_date IS NOT NULL
+        AND comp_date NOT REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    `));
+    return c.json({
+      success: true,
+      pppCleared: (ppResult as any).rowCount || 0,
+      compCleared: (cdResult as any).rowCount || 0
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
 
 // POST /api/governance/state/:facilitySlug — save a milestone state
 app.post("/api/governance/state/:facilitySlug", async (c) => {
