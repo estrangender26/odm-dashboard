@@ -80,6 +80,19 @@ export default function GanttPlanner() {
     gantt.config.details_on_dblclick = true;
     gantt.config.show_unscheduled = true;
 
+    /* ─── Planned vs Actual: Custom Baseline Layer ─── */
+    gantt.addTaskLayer(function(task: any) {
+      if (!task.planned_start || !task.planned_end) return null;
+      var ps = gantt.date.parseDate(task.planned_start, gantt.config.date_format);
+      var pe = gantt.date.parseDate(task.planned_end, gantt.config.date_format);
+      if (!ps || !pe) return null;
+      var sizes = gantt.getTaskPosition(task, ps, pe);
+      var el = document.createElement("div");
+      el.className = "gantt-planned-bar";
+      el.style.cssText = "position:absolute;left:" + sizes.left + "px;top:" + (sizes.top + 2) + "px;width:" + sizes.width + "px;height:" + (sizes.height - 4) + "px;border:2px dashed #64748b;border-radius:4px;background:rgba(100,116,139,0.08);pointer-events:none;box-sizing:border-box;z-index:0;";
+      return el;
+    });
+
     /* Lightbox config */
     gantt.config.lightbox.sections = [
       { name: "description", height: 38, map_to: "text", type: "textarea", focus: true },
@@ -352,6 +365,12 @@ export default function GanttPlanner() {
         .gantt_grid_scale, .gantt_task_scale { background: #F8FAFC; }
         .gantt_grid_data .gantt_cell { font-family: Inter, sans-serif; font-size: 12px; color: #2D3748; }
         .gantt_task_line { box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+        .gantt-planned-bar { z-index: 0 !important; }
+        .gantt-planned-bar::before {
+          content: "PLANNED"; position: absolute; left: 4px; top: 50%;
+          transform: translateY(-50%); font-size: 7px; color: #64748b;
+          letter-spacing: 0.3px; opacity: 0.7; pointer-events: none;
+        }
 
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
