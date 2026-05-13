@@ -52,53 +52,81 @@ const fmtShortDate = (d: Date): string => {
   return M[d.getMonth()] + " " + d.getDate();
 };
 
-/* ─── Native Gantt Chart Component ─── */
+/* ─── Native Gantt Chart Component — Planned vs Actual dual bars ─── */
 function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  /* Compute project range + per-task bar positions */
   const { projectStart, projectEnd, totalDays, dayWidth, rows } = useMemo(() => {
     if (!tasks.length) {
       return { projectStart: new Date(), projectEnd: new Date(), totalDays: 30, dayWidth: 18, rows: [] };
     }
 
-    // Find project date range
-    let start: Date | null = null;
-    let end: Date | null = null;
+    // Collect ALL dates — planned AND actual
+    let ps: Date | null = null;
+    let pe: Date | null = null;
+    const consider = (d: Date | null) => {
+      if (!d) return;
+      if (!ps || d < ps) ps = d;
+      if (!pe || d > pe) pe = d;
+    };
+
     for (const t of tasks) {
-      const s = parseDate(t.startDate);
-      const e = t.endDate ? parseDate(t.endDate) : s ? new Date(s.getTime() + (t.duration || 1) * 86400000) : null;
-      if (s && (!start || s < start)) start = s;
-      if (e && (!end || e > end)) end = e;
+      consider(parseDate(t.plannedStart));
+      consider(parseDate(t.plannedEnd));
+      consider(parseDate(t.startDate));
+      consider(parseDate(t.endDate));
     }
-    if (!start) start = new Date();
-    if (!end) end = new Date(start.getTime() + 30 * 86400000);
+
+    if (!ps) ps = new Date();
+    if (!pe) pe = new Date(ps.getTime() + 30 * 86400000);
 
     // Add padding
-    const ps = new Date(start.getTime() - 5 * 86400000);
-    const pe = new Date(end.getTime() + 10 * 86400000);
+    ps = new Date(ps.getTime() - 5 * 86400000);
+    pe = new Date(pe.getTime() + 10 * 86400000);
     const td = Math.max(daysBetween(ps, pe), 30);
 
     // Responsive day width
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
     const dw = isMobile ? 12 : 18;
 
-    // Build rows (exclude project-type rows from chart, show only tasks/milestones)
+    // Build rows
     const chartRows = tasks
-      .filter((t) => t.type !== "project" && parseDate(t.startDate))
+      .filter((t) => t.type !== "project")
       .map((t) => {
-        const sd = parseDate(t.startDate)!;
-        const dur = t.duration || 1;
-        const left = Math.max(0, daysBetween(ps, sd)) * dw;
-        const width = dur * dw;
-        const prog = Math.min(1, Math.max(0, t.progress || 0));
+        const plannedStart = parseDate(t.plannedStart);
+        const plannedEnd = parseDate(t.plannedEnd);
+        const actualStart = parseDate(t.startDate);
+        const actualEnd = parseDate(t.endDate);
+
+        // Planned bar geometry
+        const plannedLeft = plannedStart ? Math.max(0, daysBetween(ps, plannedStart)) * dw : null;
+        const plannedWidth = (plannedStart && plannedEnd && daysBetween(plannedStart, plannedEnd) > 0)
+          ? daysBetween(plannedStart, plannedEnd) * dw
+          : null;
+
+        // Actual bar geometry
+        const actualLeft = actualStart ? Math.max(0, daysBetween(ps, actualStart)) * dw : null;
+        const actualWidth = (actualStart && actualEnd && daysBetween(actualStart, actualEnd) > 0)
+          ? daysBetween(actualStart, actualEnd) * dw
+          : actualStart ? (t.duration || 1) * dw : null;
+
+        // Delay check
+        const isDelayed = actualEnd && plannedEnd && actualEnd > plannedEnd;
         const isMilestone = t.type === "milestone";
-        return { task: t, left, width, prog, isMilestone };
+
+        return {
+          task: t,
+          plannedLeft, plannedWidth,
+          actualLeft, actualWidth,
+          isDelayed, isMilestone,
+        };
       });
 
     return { projectStart: ps, projectEnd: pe, totalDays: td, dayWidth: dw, rows: chartRows };
   }, [tasks]);
 
-  // Build month header columns
+  // Month header columns
   const monthColumns = useMemo(() => {
     const cols: { label: string; left: number; width: number }[] = [];
     if (!projectStart) return cols;
@@ -116,17 +144,9 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   }, [projectStart, projectEnd, dayWidth]);
 
   const chartWidth = totalDays * dayWidth;
-  const rowHeight = 40;
+  const rowHeight = 56;
   const headerHeight = 40;
-  const chartHeight = Math.max(300, rows.length * rowHeight + headerHeight + 20);
-
-  const barColor = (task: GanttTask) => {
-    const p = task.progress || 0;
-    if (task.type === "milestone") return "#7C3AED";
-    if (p >= 1) return "#1F9D55";
-    if (p > 0) return "#005BAC";
-    return "#94A3B8";
-  };
+  const chartHeight = Math.max(350, rows.length * rowHeight + headerHeight + 20);
 
   if (!tasks.length) {
     return (
@@ -139,71 +159,98 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   }
 
   return (
-    <div style={{ display: "flex", height: chartHeight, fontFamily: "Inter, sans-serif", fontSize: 12 }}>
-      {/* Left: Task names column */}
-      <div style={{ width: 160, minWidth: 160, borderRight: "1px solid #E2E8F0", background: "#FAFBFC", display: "flex", flexDirection: "column", zIndex: 2 }}>
-        {/* Header */}
-        <div style={{ height: headerHeight, borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", padding: "0 10px", fontWeight: 700, color: "#475569", fontSize: 11, background: "#F1F5F9" }}>
-          Task Name
-        </div>
-        {/* Task rows */}
-        {rows.map(({ task }) => (
-          <div key={task.id} style={{ height: rowHeight, borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", padding: "0 10px", overflow: "hidden" }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#2D3748", fontWeight: task.parent === 0 ? 600 : 400 }} title={task.text}>
-              {task.text || "Untitled"}
-            </span>
-          </div>
-        ))}
+    <div>
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, padding: "10px 14px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", fontSize: 11, fontFamily: "Inter, sans-serif", flexWrap: "wrap" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#93C5FD", borderRadius: 2, border: "1px solid #60A5FA" }} /> Planned</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#86EFAC", borderRadius: 2, border: "1px solid #4ADE80" }} /> Actual (on time)</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#FCA5A5", borderRadius: 2, border: "1px solid #F87171" }} /> Actual (delayed)</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 1 }} /> Milestone</span>
       </div>
 
-      {/* Right: Scrollable timeline */}
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto", position: "relative" }}>
-        <div style={{ width: chartWidth, position: "relative" }}>
-          {/* Month header row */}
-          <div style={{ height: headerHeight, borderBottom: "1px solid #E2E8F0", display: "flex", position: "relative", background: "#F1F5F9" }}>
-            {monthColumns.map((col, i) => (
-              <div key={i} style={{ position: "absolute", left: col.left, width: col.width, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #E2E8F0", fontWeight: 600, color: "#475569", fontSize: 10, whiteSpace: "nowrap" }}>
-                {col.label}
-              </div>
-            ))}
+      <div style={{ display: "flex", height: chartHeight, fontFamily: "Inter, sans-serif", fontSize: 12 }}>
+        {/* Left: Task names column */}
+        <div style={{ width: 160, minWidth: 160, borderRight: "1px solid #E2E8F0", background: "#FAFBFC", display: "flex", flexDirection: "column", zIndex: 2 }}>
+          {/* Header */}
+          <div style={{ height: headerHeight, borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", padding: "0 10px", fontWeight: 700, color: "#475569", fontSize: 11, background: "#F1F5F9" }}>
+            Task Name
           </div>
-
-          {/* Grid lines */}
-          {monthColumns.map((col, i) => (
-            <div key={`grid-${i}`} style={{ position: "absolute", left: col.left, top: headerHeight, width: 1, height: rows.length * rowHeight, background: "#F1F5F9", zIndex: 0 }} />
+          {/* Task rows */}
+          {rows.map(({ task }) => (
+            <div key={task.id} style={{ height: rowHeight, borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", padding: "0 10px", overflow: "hidden" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#2D3748", fontWeight: task.parent === 0 ? 600 : 400, fontSize: 11 }} title={task.text}>
+                {task.text || "Untitled"}
+              </span>
+            </div>
           ))}
+        </div>
 
-          {/* Task bars */}
-          {rows.map(({ task, left, width, prog, isMilestone }, idx) => {
-            const top = headerHeight + idx * rowHeight;
-            const color = barColor(task);
-            return (
-              <div key={task.id} style={{ position: "absolute", left, top, height: rowHeight, display: "flex", alignItems: "center", zIndex: 1 }}>
-                {isMilestone ? (
-                  /* Milestone: diamond shape */
-                  <div style={{ width: 14, height: 14, background: color, transform: "rotate(45deg)", borderRadius: 2, marginLeft: -7, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
-                ) : (
-                  /* Task bar */
-                  <div style={{ width, height: 20, background: "#E2E8F0", borderRadius: 4, overflow: "hidden", position: "relative", boxShadow: "0 1px 2px rgba(0,0,0,.08)" }}>
-                    {/* Progress fill */}
-                    <div style={{ width: `${prog * 100}%`, height: "100%", background: color, borderRadius: 4, transition: "width .3s" }} />
-                    {/* Progress text */}
-                    {width > 40 && (
-                      <span style={{ position: "absolute", left: 4, top: "50%", transform: "translateY(-50%)", fontSize: 9, fontWeight: 700, color: prog > 0.4 ? "#fff" : "#475569", lineHeight: 1 }}>
-                        {Math.round(prog * 100)}%
-                      </span>
-                    )}
-                  </div>
-                )}
-                {/* Duration label */}
-                {!isMilestone && width > 60 && (
-                  <span style={{ marginLeft: 6, fontSize: 10, color: "#94A3B8", whiteSpace: "nowrap" }}>
-                    {task.duration}d
-                  </span>
-                )}
-              </div>
-            );
-          })}
+        {/* Right: Scrollable timeline */}
+        <div ref={scrollRef} style={{ flex: 1, overflow: "auto", position: "relative" }}>
+          <div style={{ width: chartWidth, position: "relative" }}>
+            {/* Month header row */}
+            <div style={{ height: headerHeight, borderBottom: "1px solid #E2E8F0", display: "flex", position: "relative", background: "#F1F5F9" }}>
+              {monthColumns.map((col, i) => (
+                <div key={i} style={{ position: "absolute", left: col.left, width: col.width, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #E2E8F0", fontWeight: 600, color: "#475569", fontSize: 10, whiteSpace: "nowrap" }}>
+                  {col.label}
+                </div>
+              ))}
+            </div>
+
+            {/* Grid lines */}
+            {monthColumns.map((col, i) => (
+              <div key={`grid-${i}`} style={{ position: "absolute", left: col.left, top: headerHeight, width: 1, height: rows.length * rowHeight, background: "#F1F5F9", zIndex: 0 }} />
+            ))}
+
+            {/* Task rows — dual bars */}
+            {rows.map((row, idx) => {
+              const { task, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone } = row;
+              const top = headerHeight + idx * rowHeight;
+
+              return (
+                <div key={task.id}>
+                  {isMilestone ? (
+                    /* Milestone: diamond only */
+                    <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 7, top: top + rowHeight / 2 - 7, zIndex: 2 }}>
+                      <div style={{ width: 14, height: 14, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
+                    </div>
+                  ) : (
+                    <>
+                      {/* Planned bar (top) */}
+                      {plannedLeft !== null && plannedWidth !== null && (
+                        <div style={{ position: "absolute", left: plannedLeft, top: top + 6, height: 18, zIndex: 1 }}>
+                          <div style={{ width: Math.max(plannedWidth, 2), height: 16, background: "rgba(147,197,253,0.35)", border: "1px dashed #60A5FA", borderRadius: 3, position: "relative" }}>
+                            {plannedWidth > 50 && (
+                              <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 600, color: "#3B82F6", whiteSpace: "nowrap" }}>Planned</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {/* Actual bar (bottom) */}
+                      {actualLeft !== null && actualWidth !== null ? (
+                        <div style={{ position: "absolute", left: actualLeft, top: top + 30, height: 18, zIndex: 2 }}>
+                          <div style={{ width: Math.max(actualWidth, 2), height: 16, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 3, position: "relative" }}>
+                            {actualWidth > 50 && (
+                              <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 600, color: isDelayed ? "#DC2626" : "#15803D", whiteSpace: "nowrap" }}>
+                                {isDelayed ? "Delayed" : `${Math.round((task.progress || 0) * 100)}%`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        /* No actual data yet */
+                        plannedLeft !== null && (
+                          <div style={{ position: "absolute", left: plannedLeft, top: top + 30, zIndex: 1 }}>
+                            <span style={{ fontSize: 8, color: "#CBD5E1", fontStyle: "italic" }}>No actual yet</span>
+                          </div>
+                        )
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
@@ -255,17 +302,35 @@ export default function GanttPlanner() {
 
   /* ─── Excel Export ─── */
   const exportExcel = () => {
-    const rows = (tasksQuery.data || []).map((t: any) => ({
-      "ID": t.id,
-      "Task Name": t.text || "",
-      "Owner": t.owner || "",
-      "Start Date": t.startDate ? String(t.startDate).slice(0, 10) : "",
-      "End Date": t.endDate ? String(t.endDate).slice(0, 10) : "",
-      "Duration": t.duration || "",
-      "Progress": Math.round((t.progress || 0) * 100) + "%",
-      "Type": t.type || "task",
-      "Parent": t.parent || 0,
-    }));
+    const now = new Date();
+    const rows = (tasksQuery.data || []).map((t: any) => {
+      const plannedStart = t.plannedStart ? String(t.plannedStart).slice(0, 10) : "";
+      const plannedEnd = t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "";
+      const actualStart = t.startDate ? String(t.startDate).slice(0, 10) : "";
+      const actualEnd = t.endDate ? String(t.endDate).slice(0, 10) : "";
+      const progressPct = Math.round((t.progress || 0) * 100);
+      // Determine status
+      let status = "Not Started";
+      if (progressPct >= 100) status = "Completed";
+      else if (progressPct > 0) {
+        const aEnd = parseDate(t.endDate);
+        const pEnd = parseDate(t.plannedEnd);
+        if (aEnd && pEnd && aEnd > pEnd) status = "In Progress (Delayed)";
+        else status = "In Progress";
+      }
+      return {
+        "Task Name": t.text || "",
+        "Owner": t.owner || "",
+        "Planned Start": plannedStart,
+        "Planned End": plannedEnd,
+        "Actual Start": actualStart,
+        "Actual End": actualEnd,
+        "Duration": t.duration || "",
+        "Progress": progressPct + "%",
+        "Status": status,
+        "Remarks": "",
+      };
+    });
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Gantt Tasks");
@@ -282,18 +347,35 @@ export default function GanttPlanner() {
       const rows: any[] = XLSX.utils.sheet_to_json(ws);
 
       rows.forEach((row: any) => {
-        const text = row["Task Name"] || row["text"] || "Imported Task";
-        const start = row["Start Date"] || row["start_date"] || "";
-        const end = row["End Date"] || row["end_date"] || "";
+        // Normalize field names (handle multiple naming conventions)
+        const text = row["Task Name"] || row["text"] || row["Task"] || "Imported Task";
+        const owner = row["Owner"] || row["owner"] || row["Assignee"] || "";
+
+        // Planned dates (multiple field name variants)
+        const plannedStart = row["Planned Start"] || row["planned_start"] || row["plannedStart"] || row["Baseline Start"] || row["baseline_start"] || "";
+        const plannedEnd = row["Planned End"] || row["planned_end"] || row["plannedEnd"] || row["Baseline End"] || row["baseline_end"] || "";
+
+        // Actual dates (multiple field name variants)
+        const actualStart = row["Actual Start"] || row["actual_start"] || row["actualStart"] || row["Start Date"] || row["start_date"] || row["startDate"] || "";
+        const actualEnd = row["Actual End"] || row["actual_end"] || row["actualEnd"] || row["End Date"] || row["end_date"] || row["endDate"] || "";
+
         const dur = row["Duration"] || row["duration"] || 1;
-        const prog = parseInt((row["Progress"] || "0").toString().replace("%", "")) || 0;
-        const owner = row["Owner"] || row["owner"] || "";
+        const progRaw = row["Progress"] || row["progress"] || "0";
+        const prog = parseInt(String(progRaw).toString().replace("%", "")) || 0;
         const type = row["Type"] || row["type"] || "task";
         const parent = parseInt(row["Parent"] || row["parent"] || "0") || 0;
 
         saveTaskMut.mutate({
-          text, start_date: start ? String(start) : null, end_date: end ? String(end) : null,
-          duration: parseInt(dur) || 1, progress: prog, parent, type, owner,
+          text,
+          start_date: actualStart ? String(actualStart) : null,
+          end_date: actualEnd ? String(actualEnd) : null,
+          planned_start: plannedStart ? String(plannedStart) : null,
+          planned_end: plannedEnd ? String(plannedEnd) : null,
+          duration: parseInt(dur) || 1,
+          progress: prog,
+          parent,
+          type,
+          owner,
         });
       });
     };
