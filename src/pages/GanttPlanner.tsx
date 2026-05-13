@@ -62,6 +62,16 @@ export default function GanttPlanner() {
     if (ganttInit.current || !ganttContainer.current) return;
     ganttInit.current = true;
 
+    /* Helpers */
+    var fmtDate = function(v: any) { return v ? String(v).slice(0,10) : "—"; };
+    var calcVar = function(task: any) {
+      if (!task.planned_end || !task.end_date) return "—";
+      var p = new Date(task.planned_end), a = new Date(task.end_date);
+      if (isNaN(p.getTime()) || isNaN(a.getTime())) return "—";
+      var d = Math.round((a.getTime()-p.getTime())/(864e5));
+      return d===0?"On Track":(d<0?Math.abs(d)+"d early":d+"d late");
+    };
+
     /* Gantt config */
     gantt.config.date_format = "%Y-%m-%d %H:%i";
     gantt.config.xml_date = "%Y-%m-%d %H:%i";
@@ -106,12 +116,15 @@ export default function GanttPlanner() {
 
     /* Columns */
     gantt.config.columns = [
-      { name: "text", label: "Task Name", tree: true, width: 200, resize: true },
-      { name: "owner", label: "Owner", width: 120, align: "center", resize: true },
-      { name: "start_date", label: "Start", width: 90, align: "center" },
-      { name: "end_date", label: "End", width: 90, align: "center" },
-      { name: "duration", label: "Duration", width: 70, align: "center" },
-      { name: "progress", label: "%", width: 50, align: "center", template: (task: any) => Math.round((task.progress || 0) * 100) + "%" },
+      { name: "text", label: "Task Name", tree: true, width: 180, resize: true },
+      { name: "planned_start", label: "Planned Start", width: 90, align: "center", template: (task: any) => fmtDate(task.planned_start) },
+      { name: "planned_end", label: "Planned End", width: 90, align: "center", template: (task: any) => fmtDate(task.planned_end) },
+      { name: "start_date", label: "Actual Start", width: 90, align: "center" },
+      { name: "end_date", label: "Actual End", width: 90, align: "center" },
+      { name: "variance", label: "Variance", width: 75, align: "center", template: (task: any) => calcVar(task) },
+      { name: "duration", label: "Dur", width: 50, align: "center" },
+      { name: "owner", label: "Owner", width: 100, align: "center", resize: true },
+      { name: "progress", label: "%", width: 45, align: "center", template: (task: any) => Math.round((task.progress || 0) * 100) + "%" },
       { name: "add", label: "", width: 40 },
     ];
 
@@ -130,6 +143,8 @@ export default function GanttPlanner() {
         text: task.text || "New Task",
         start_date: task.start_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.start_date) : null,
         end_date: task.end_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.end_date) : null,
+        planned_start: task.planned_start ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_start) : null,
+        planned_end: task.planned_end ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_end) : null,
         duration: task.duration || 1,
         progress: task.progress || 0,
         parent: task.parent || 0,
@@ -145,6 +160,8 @@ export default function GanttPlanner() {
         text: task.text || "Task",
         start_date: task.start_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.start_date) : null,
         end_date: task.end_date ? gantt.date.date_to_str("%Y-%m-%d %H:%i")(task.end_date) : null,
+        planned_start: task.planned_start ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_start) : null,
+        planned_end: task.planned_end ? gantt.date.date_to_str("%Y-%m-%d")(task.planned_end) : null,
         duration: task.duration || 1,
         progress: task.progress || 0,
         parent: task.parent || 0,
@@ -177,6 +194,8 @@ export default function GanttPlanner() {
       text: t.text,
       start_date: t.startDate ? t.startDate.replace("T", " ").slice(0, 16) : undefined,
       end_date: t.endDate ? t.endDate.replace("T", " ").slice(0, 16) : undefined,
+      planned_start: t.plannedStart || undefined,
+      planned_end: t.plannedEnd || undefined,
       duration: t.duration || 1,
       progress: (t.progress || 0) / 100,
       parent: t.parent || 0,
