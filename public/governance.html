@@ -430,6 +430,20 @@ if(!String.prototype.padStart)String.prototype.padStart=function(t,p){var s=Stri
 let ST={},CH=null,PENDING={},PENDING_REF=[],EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={},DRAFT_PP=null;
 // In-memory tab cache: timestamp of last successful fetch per tab (ms)
 var TAB_CACHE={p:0,r:0,d:0,a:0};
+// PP safety net: every 3 seconds, ensure pp input matches ST
+setInterval(function(){
+  var fsEl=document.getElementById('fs');
+  var ppInp=document.getElementById('pp');
+  if(!fsEl||!ppInp)return;
+  var f=fsEl.value;
+  if(!f||!ST[f])return;
+  var stPP=safePP(ST[f].pp);
+  var inpVal=ppInp.value||'';
+  if(stPP&&inpVal!==stPP){
+    console.log('[PPP-SAFETY] Repairing input: was='+inpVal+' should='+stPP);
+    ppInp.value=stPP;
+  }
+},3000);
 const CACHE_TTL=60000; // 60 seconds stale time
 const CB=function(){return '_='+Date.now();}; // cache buster
 var ACTIVE_TAB='p'; // track active tab
@@ -495,18 +509,25 @@ async function fetchStateFromDB(facility,opts){
       if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
       mCount++;
     });
+    // DEBUG: log all milestone keys for M1
     var m1State=ST[facility].ms['M1'];
+    console.log('[PPP] M1 state:',m1State?'exists':'MISSING','keys:',m1State?Object.keys(m1State):'none');
     if(m1State&&m1State.pppDate){
-      var pppStr=normalizeDateOnly(m1State.pppDate)||'';
-      // Only set PPP from DB if not already set this session (prevents overwrite on refresh)
-      if(!ST[facility].pp||ST[facility].pp===''){
-        ST[facility].pp=pppStr;
-        console.log('[PPP] Set from DB M1 pppDate:',pppStr);
-      }else{
-        console.log('[PPP] Preserving existing value:',ST[facility].pp,'(DB has:',pppStr+')');
-      }
-      var ppInp=document.getElementById('pp');
-      if(ppInp){ppInp.value=ST[facility].pp||'';}
+      var pppStr=safePP(m1State.pppDate);
+      // Always update from DB (DB is source of truth on load)
+      var oldPP=ST[facility].pp||'';
+      ST[facility].pp=pppStr;
+      console.log('[PPP] SET facility='+facility+' old='+oldPP+' new='+pppStr);
+    }else{
+      console.log('[PPP] No M1 pppDate for',facility);
+    }
+    // Always force-sync pp input
+    var ppInp=document.getElementById('pp');
+    var fsEl=document.getElementById('fs');
+    if(ppInp&&fsEl&&fsEl.value===facility){
+      var targetPP=safePP(ST[facility].pp);
+      ppInp.value=targetPP;
+      console.log('[PPP] INPUT SYNC facility='+facility+' value='+targetPP);
     }
     if(which==='all'||which==='references'){
       REFERENCE_DOCS=refFiles.map(function(f){
@@ -789,7 +810,22 @@ function cd(pp,o){if(!pp)return'';var p=pp.split('-').map(Number);var nd=new Dat
 function moDiff(d1,d2){var dt1=new Date(d1+'T12:00:00'),dt2=new Date(d2+'T12:00:00');return(dt2.getFullYear()-dt1.getFullYear())*12+(dt2.getMonth()-dt1.getMonth())}
 function fmtDate(iso){if(!iso)return'\u2014';var p=iso.split('-');var M=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];return M[parseInt(p[1],10)-1]+'-'+p[2]+'-'+p[0]}
 function parseDate(fmtStr){if(!fmtStr||fmtStr==='')return'';var months={'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};var parts=fmtStr.split('-');if(parts.length!==3)return fmtStr;var m=months[parts[0].toUpperCase()];if(!m)return fmtStr;return parts[2]+'-'+m+'-'+parts[1]}
-function normalizeDateOnly(value){if(!value)return'';if(typeof value==='string')return value.slice(0,10);if(value instanceof Date)return value.toISOString().slice(0,10);if(typeof value==='object'&&value.toISOString)return value.toISOString().slice(0,10);return''}
+function normalizeDateOnly(value){
+  if(!value)return'';
+  if(typeof value==='string')return value.slice(0,10);
+  if(value instanceof Date){
+    // Use local date parts — toISOString() shifts to UTC and can change the date
+    var y=value.getFullYear();
+    var m=String(value.getMonth()+1);if(m.length<2)m='0'+m;
+    var d=String(value.getDate());if(d.length<2)d='0'+d;
+    return y+'-'+m+'-'+d;
+  }
+  if(typeof value==='object'&&value.toISOString){
+    var dt=value.toISOString().slice(0,10);
+    return dt;
+  }
+  return'';
+}
 function safePP(val){return normalizeDateOnly(val)||'';}
 
 function tocT(num){var t=TOC.find(function(x){return x.num===num});return t?t.ti:''}
