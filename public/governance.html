@@ -1293,7 +1293,7 @@ async function saveAll(){
         if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};
         if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate}).then(resolve).catch(resolve);}
         else{resolve();}
-      }));
+      });
     }));
   }
   PENDING={};
