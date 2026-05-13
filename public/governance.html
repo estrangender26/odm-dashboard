@@ -238,7 +238,7 @@ function forceRefresh() {
           const state = {};
           data.result.data.json.forEach(row => {
             state[row.milestoneId] = {
-              ppp: row.pppDate || '',
+              ppp: normalizeDateOnly(row.pppDate) || '',
               comp: row.compDate !== undefined && row.compDate !== null ? normalizeDateOnly(row.compDate) : null,
               customPct: row.customPct || null
             };
@@ -483,7 +483,7 @@ async function fetchStateFromDB(facility,opts){
     states.forEach(function(s){
       var mid=s.milestone_id;if(!mid)return;
       if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
-      if(s.ppp_date)ST[facility].ms[mid].pppDate=s.ppp_date;
+      if(s.ppp_date)ST[facility].ms[mid].pppDate=normalizeDateOnly(s.ppp_date);
       if(s.comp_date!==undefined&&s.comp_date!==null&&s.comp_date!==''){
         ST[facility].ms[mid].compDate=normalizeDateOnly(s.comp_date);
         ST[facility].ms[mid].done=true;
@@ -497,12 +497,13 @@ async function fetchStateFromDB(facility,opts){
     });
     var m1State=ST[facility].ms['M1'];
     if(m1State&&m1State.pppDate){
+      var pppStr=normalizeDateOnly(m1State.pppDate)||'';
       // Only set PPP from DB if not already set this session (prevents overwrite on refresh)
       if(!ST[facility].pp||ST[facility].pp===''){
-        ST[facility].pp=m1State.pppDate;
-        console.log('[PPP] Set from DB M1 pppDate:',m1State.pppDate);
+        ST[facility].pp=pppStr;
+        console.log('[PPP] Set from DB M1 pppDate:',pppStr);
       }else{
-        console.log('[PPP] Preserving existing value:',ST[facility].pp,'(DB has:',m1State.pppDate+')');
+        console.log('[PPP] Preserving existing value:',ST[facility].pp,'(DB has:',pppStr+')');
       }
       var ppInp=document.getElementById('pp');
       if(ppInp){ppInp.value=ST[facility].pp||'';}
@@ -612,6 +613,26 @@ function getTotalFileCount(){
 
 // STORAGE (DEPRECATED — data now comes from API)
 // Only facility preference is saved in localStorage
+
+/* ═══ PPP AUDIT — detects unexpected clearing ═══ */
+var PPP_AUDIT=[],_lastPP='';
+function logPP(event,detail){
+  var entry={t:Date.now(),e:event,d:detail};
+  PPP_AUDIT.push(entry);if(PPP_AUDIT.length>200)PPP_AUDIT=PPP_AUDIT.slice(-200);
+  console.log('[PPP-AUDIT]',event,JSON.stringify(detail));
+}
+function checkPP(label){
+  var f=document.getElementById('fs')&&document.getElementById('fs').value;
+  var inp=document.getElementById('pp');
+  var stVal=f&&ST[f]?ST[f].pp||'':'';
+  var inpVal=inp?inp.value||'':'';
+  if(inpVal!==_lastPP){
+    logPP(label,{facility:f,stPP:stVal,inpVal:inpVal,prev:_lastPP});
+    _lastPP=inpVal;
+  }
+  return{stPP:stVal,inpVal:inpVal};
+}
+
 function LD(){
   // Initialize ST with empty structure for all facilities
   // (data will be merged from DB via fetchStateFromDB)
@@ -674,7 +695,9 @@ async function INIT(){
     SV();
     // Fetch all data for new facility
     await fetchStateFromDB(e.target.value,{which:'all'});
-    document.getElementById('pp').value=ST[e.target.value]?ST[e.target.value].pp||'':'';
+    var newPP=safePP(ST[e.target.value]&&ST[e.target.value].pp);
+    document.getElementById('pp').value=newPP;
+    logPP('FACILITY_CHANGE',{from:f,to:e.target.value,pp:newPP});
     ALL();
     syncEditMode();
   });
@@ -705,10 +728,11 @@ async function INIT(){
   var m1s=ST[f]&&ST[f].ms&&ST[f].ms['M1'];
   // Only set PPP from M1 if not already set this session (prevents overwrite on re-init)
   if(!ST[f].pp||ST[f].pp===''){
-    if(m1s&&m1s.pppDate){ST[f].pp=m1s.pppDate;}
+    if(m1s&&m1s.pppDate){ST[f].pp=safePP(m1s.pppDate);}
   }
-  var ppVal=ST[f]?ST[f].pp:'';
-  document.getElementById('pp').value=ppVal||'';
+  var ppVal=safePP(ST[f]&&ST[f].pp);
+  document.getElementById('pp').value=ppVal;
+  logPP('INIT_SET',{facility:f,pp:ppVal});
   idbg('6: pp='+ppVal);
   ALL();
   idbg('7: done');
@@ -723,6 +747,20 @@ function ALL(){
   else if(ACTIVE_TAB==='a'){RAC();}
   syncEditMode();
   renderRefDocs();
+  // PP safety sync — ensure pp input matches ST value
+  syncPPInput();
+}
+
+function syncPPInput(){
+  var f=document.getElementById('fs')&&document.getElementById('fs').value;
+  var inp=document.getElementById('pp');
+  if(!f||!inp||!ST[f])return;
+  var stPP=safePP(ST[f].pp);
+  var inpVal=inp.value||'';
+  if(stPP&&inpVal!==stPP){
+    logPP('SYNC_REPAIR',{facility:f,stPP:stPP,inpVal:inpVal});
+    inp.value=stPP;
+  }
 }
 
 // TABS
@@ -752,6 +790,7 @@ function moDiff(d1,d2){var dt1=new Date(d1+'T12:00:00'),dt2=new Date(d2+'T12:00:
 function fmtDate(iso){if(!iso)return'\u2014';var p=iso.split('-');var M=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];return M[parseInt(p[1],10)-1]+'-'+p[2]+'-'+p[0]}
 function parseDate(fmtStr){if(!fmtStr||fmtStr==='')return'';var months={'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};var parts=fmtStr.split('-');if(parts.length!==3)return fmtStr;var m=months[parts[0].toUpperCase()];if(!m)return fmtStr;return parts[2]+'-'+m+'-'+parts[1]}
 function normalizeDateOnly(value){if(!value)return'';if(typeof value==='string')return value.slice(0,10);if(value instanceof Date)return value.toISOString().slice(0,10);if(typeof value==='object'&&value.toISOString)return value.toISOString().slice(0,10);return''}
+function safePP(val){return normalizeDateOnly(val)||'';}
 
 function tocT(num){var t=TOC.find(function(x){return x.num===num});return t?t.ti:''}
 function anxT(id){var a=ANX.find(function(x){return x.id===id});return a?a.ti:''}
@@ -1104,15 +1143,16 @@ function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
   // Select all checkbox
   var selAll=document.getElementById('sel-all');if(selAll){selAll.disabled=!EDIT_MODE;selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
 }
-function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};var f=document.getElementById('fs').value;if(ST[f]&&ST[f].pp){DRAFT_PP=ST[f].pp;}else{DRAFT_PP=null;}console.log('[EDIT] Edit mode ON, original PPP:',DRAFT_PP);updateEditButtons();syncEditMode();ALL();}
+function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};var f=document.getElementById('fs').value;if(ST[f]&&ST[f].pp){DRAFT_PP=safePP(ST[f].pp);}else{DRAFT_PP=null;}console.log('[EDIT] Edit mode ON, original PPP:',DRAFT_PP);updateEditButtons();syncEditMode();ALL();}
 async function saveAll(){
   console.log('[EDIT] Save clicked');
   var f=document.getElementById('fs').value;
   DRAFT_UP={};DRAFT_RM={};
   // Save PPP start date if changed
   if(DRAFT_PP!==null&&ST[f]&&ST[f].pp){
-    console.log('[EDIT] Saving PPP date:',ST[f].pp);
-    await saveMilestoneToDB(f,'M1',{ppp:ST[f].pp});
+    var pppStr=safePP(ST[f].pp);
+    console.log('[EDIT] Saving PPP date:',pppStr);
+    await saveMilestoneToDB(f,'M1',{ppp:pppStr});
     DRAFT_PP=null;
   }
   // Save milestone changes
@@ -1147,10 +1187,11 @@ function cancelEdit(){
   // Revert PPP date to original (only if we captured a real value)
   if(DRAFT_PP!==null&&DRAFT_PP!==''){
     var f=document.getElementById('fs').value;
-    if(ST[f])ST[f].pp=DRAFT_PP;
+    var revertPP=safePP(DRAFT_PP);
+    if(ST[f])ST[f].pp=revertPP;
     var ppInp=document.getElementById('pp');
-    if(ppInp)ppInp.value=DRAFT_PP||'';
-    console.log('[EDIT] PPP reverted to:',DRAFT_PP);
+    if(ppInp)ppInp.value=revertPP;
+    console.log('[EDIT] PPP reverted to:',revertPP);
   }
   DRAFT_PP=null;
   EDIT_MODE=false;
