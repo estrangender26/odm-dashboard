@@ -455,22 +455,23 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     `);
     const existingRows = existing.rows || existing;
     if (existingRows.length > 0) {
-      // Update
-      await db.execute(sql`
-        UPDATE governance_milestone_state
-        SET comp_date = ${compDate !== undefined ? compDate : null},
-            custom_pct = ${customPct !== undefined ? customPct : null},
-            ppp_date = ${pppDate !== undefined ? pppDate : null},
-            updated_at = ${now}
-        WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
-      `);
+      // Update — only touch fields that were explicitly sent
+      const setParts: string[] = [`updated_at = '${now}'`];
+      if (compDate !== undefined) setParts.push(`comp_date = ${compDate === null ? 'NULL' : `' + compDate + '`}`);
+      if (pppDate !== undefined) setParts.push(`ppp_date = ${pppDate === null ? 'NULL' : `' + pppDate + '`}`);
+      if (customPct !== undefined) setParts.push(`custom_pct = ${customPct}`);
+      if (readyStatus !== undefined) setParts.push(`ready_status = ${readyStatus === null ? 'NULL' : `' + readyStatus + '`}`);
+      if (remarks !== undefined) setParts.push(`remarks = ${remarks === null ? 'NULL' : `' + remarks + '`}`);
+      await db.execute(sql.raw(
+        `UPDATE governance_milestone_state SET ${setParts.join(', ')} WHERE facility_slug = '${facilitySlug}' AND milestone_id = '${milestoneId}'`
+      ));
     } else {
-      // Insert
+      // Insert — use provided values or NULL
       await db.execute(sql`
         INSERT INTO governance_milestone_state
           (facility_slug, milestone_id, comp_date, custom_pct, ppp_date, updated_at)
         VALUES
-          (${facilitySlug}, ${milestoneId}, ${compDate || null}, ${customPct !== undefined ? customPct : null}, ${pppDate || null}, ${now})
+          (${facilitySlug}, ${milestoneId}, ${compDate !== undefined ? compDate : null}, ${customPct !== undefined ? customPct : null}, ${pppDate !== undefined ? pppDate : null}, ${now})
       `);
     }
     return c.json({ success: true, milestoneId });
