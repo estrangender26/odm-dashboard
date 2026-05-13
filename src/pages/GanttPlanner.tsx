@@ -346,38 +346,53 @@ export default function GanttPlanner() {
       const ws = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[] = XLSX.utils.sheet_to_json(ws);
 
+      let imported = 0;
       rows.forEach((row: any) => {
-        // Normalize field names (handle multiple naming conventions)
-        const text = row["Task Name"] || row["text"] || row["Task"] || "Imported Task";
-        const owner = row["Owner"] || row["owner"] || row["Assignee"] || "";
+        // Resolve task name with fallbacks
+        const text = (row["Task Name"] || row["text"] || row["Task"] || row["Name"] || row["name"] || "").trim();
+        if (!text) return; // SKIP blank task names
+
+        const owner = row["Owner"] || row["owner"] || row["Assignee"] || row["assignee"] || "";
 
         // Planned dates (multiple field name variants)
-        const plannedStart = row["Planned Start"] || row["planned_start"] || row["plannedStart"] || row["Baseline Start"] || row["baseline_start"] || "";
-        const plannedEnd = row["Planned End"] || row["planned_end"] || row["plannedEnd"] || row["Baseline End"] || row["baseline_end"] || "";
+        let plannedStart = row["Planned Start"] || row["planned_start"] || row["plannedStart"] || row["Baseline Start"] || row["baseline_start"] || "";
+        let plannedEnd = row["Planned End"] || row["planned_end"] || row["plannedEnd"] || row["Baseline End"] || row["baseline_end"] || "";
 
         // Actual dates (multiple field name variants)
-        const actualStart = row["Actual Start"] || row["actual_start"] || row["actualStart"] || row["Start Date"] || row["start_date"] || row["startDate"] || "";
-        const actualEnd = row["Actual End"] || row["actual_end"] || row["actualEnd"] || row["End Date"] || row["end_date"] || row["endDate"] || "";
+        let actualStart = row["Actual Start"] || row["actual_start"] || row["actualStart"] || row["Start Date"] || row["start_date"] || row["startDate"] || row["Start"] || row["start"] || "";
+        let actualEnd = row["Actual End"] || row["actual_end"] || row["actualEnd"] || row["End Date"] || row["end_date"] || row["endDate"] || row["End"] || row["end"] || "";
 
         const dur = row["Duration"] || row["duration"] || 1;
         const progRaw = row["Progress"] || row["progress"] || "0";
         const prog = parseInt(String(progRaw).toString().replace("%", "")) || 0;
+        const status = row["Status"] || row["status"] || "";
+        const remarks = row["Remarks"] || row["remarks"] || row["Notes"] || row["notes"] || "";
         const type = row["Type"] || row["type"] || "task";
         const parent = parseInt(row["Parent"] || row["parent"] || "0") || 0;
 
+        // Backward-compat: if old format has Start but no Planned Start, treat Start as Planned Start
+        if (!plannedStart && actualStart) plannedStart = actualStart;
+        if (!plannedEnd && actualStart && dur) {
+          const s = parseDate(String(actualStart));
+          if (s) {
+            const e = new Date(s.getTime() + (parseInt(String(dur)) || 1) * 86400000);
+            plannedEnd = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,"0")}-${String(e.getDate()).padStart(2,"0")}`;
+          }
+        }
+
         saveTaskMut.mutate({
-          text,
+          text, owner: owner || null,
           start_date: actualStart ? String(actualStart) : null,
           end_date: actualEnd ? String(actualEnd) : null,
           planned_start: plannedStart ? String(plannedStart) : null,
           planned_end: plannedEnd ? String(plannedEnd) : null,
-          duration: parseInt(dur) || 1,
-          progress: prog,
-          parent,
-          type,
-          owner,
+          duration: parseInt(dur) || 1, progress: prog,
+          status: status || null, remarks: remarks || null,
+          parent, type,
         });
+        imported++;
       });
+      alert(`Imported ${imported} task(s)`);
     };
     reader.readAsArrayBuffer(file);
   };
@@ -484,105 +499,212 @@ function KpiCard({ label, value, icon, color }: { label: string; value: string |
   );
 }
 
-/* ─── Task List Tab ─── */
+/* ─── Task List Tab — Full 10-field CRUD ─── */
+interface TaskForm {
+  text: string; owner: string;
+  plannedStart: string; plannedEnd: string;
+  actualStart: string; actualEnd: string;
+  duration: number; progress: number;
+  status: string; remarks: string;
+  type: string; parent: number;
+}
+
+const EMPTY_FORM: TaskForm = {
+  text: "", owner: "", plannedStart: "", plannedEnd: "", actualStart: "", actualEnd: "",
+  duration: 1, progress: 0, status: "Not Started", remarks: "", type: "task", parent: 0,
+};
+
+function taskToForm(t: any): TaskForm {
+  return {
+    text: t.text || "",
+    owner: t.owner || "",
+    plannedStart: t.plannedStart ? String(t.plannedStart).slice(0, 10) : "",
+    plannedEnd: t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "",
+    actualStart: t.startDate ? String(t.startDate).slice(0, 10) : "",
+    actualEnd: t.endDate ? String(t.endDate).slice(0, 10) : "",
+    duration: t.duration || 1,
+    progress: Math.round((t.progress || 0) * 100),
+    status: rowStatus(t),
+    remarks: t.remarks || "",
+    type: t.type || "task",
+    parent: t.parent || 0,
+  };
+}
+
+function rowStatus(t: any): string {
+  const p = Math.round((t.progress || 0) * 100);
+  if (p >= 100) return "Completed";
+  if (p > 0) {
+    const aEnd = parseDate(t.endDate);
+    const pEnd = parseDate(t.plannedEnd);
+    if (aEnd && pEnd && aEnd > pEnd) return "In Progress (Delayed)";
+    return "In Progress";
+  }
+  return "Not Started";
+}
+
+function statusBadge(status: string) {
+  const map: Record<string, { bg: string; color: string }> = {
+    "Completed": { bg: "#DCFCE7", color: "#166534" },
+    "In Progress": { bg: "#DBEAFE", color: "#1E40AF" },
+    "In Progress (Delayed)": { bg: "#FEE2E2", color: "#991B1B" },
+    "Not Started": { bg: "#F1F5F9", color: "#475569" },
+  };
+  const s = map[status] || map["Not Started"];
+  return <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: "nowrap" }}>{status}</span>;
+}
+
 function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: any; deleteTask: any }) {
-  const [editing, setEditing] = useState<number | null>(null);
-  const [form, setForm] = useState({ text: "", start_date: "", duration: 1, progress: 0, owner: "", type: "task", parent: 0 });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
+  const [showAdd, setShowAdd] = useState(false);
+
+  // Filter out garbage rows
+  const validTasks = tasks.filter((t) => t.text && t.text.trim() && t.text.trim() !== "-");
 
   const startEdit = (t: any) => {
-    setEditing(t.id);
-    setForm({
-      text: t.text || "",
-      start_date: t.startDate ? t.startDate.slice(0, 10) : "",
-      duration: t.duration || 1,
-      progress: t.progress || 0,
-      owner: t.owner || "",
-      type: t.type || "task",
-      parent: t.parent || 0,
-    });
+    setEditingId(t.id);
+    setForm(taskToForm(t));
+    setShowAdd(false);
   };
 
-  const submitEdit = () => {
-    if (!editing) return;
-    saveTask.mutate({
-      id: editing,
-      text: form.text,
-      start_date: form.start_date || null,
-      duration: form.duration,
-      progress: form.progress,
-      owner: form.owner,
-      type: form.type,
-      parent: form.parent,
-    });
-    setEditing(null);
+  const startAdd = () => {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setShowAdd(true);
   };
 
-  const addTask = () => {
-    saveTask.mutate({
-      text: "New Task",
-      start_date: new Date().toISOString().slice(0, 10) + " 08:00",
-      duration: 5,
-      progress: 0,
-      owner: "",
-      type: "task",
-      parent: 0,
-    });
+  const submitForm = () => {
+    if (!form.text.trim()) { alert("Task Name is required"); return; }
+    const payload: any = {
+      text: form.text.trim(),
+      owner: form.owner || null,
+      planned_start: form.plannedStart || null,
+      planned_end: form.plannedEnd || null,
+      start_date: form.actualStart || null,
+      end_date: form.actualEnd || null,
+      duration: form.duration || 1,
+      progress: Math.min(100, Math.max(0, form.progress)),
+      status: form.status || "Not Started",
+      remarks: form.remarks || null,
+      type: form.type || "task",
+      parent: form.parent || 0,
+    };
+    if (editingId) payload.id = editingId;
+    saveTask.mutate(payload);
+    setEditingId(null);
+    setShowAdd(false);
+    setForm(EMPTY_FORM);
   };
+
+  const inputStyle: React.CSSProperties = { fontSize: 12, padding: "5px 8px", border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter, sans-serif", width: "100%", boxSizing: "border-box" };
+  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3, display: "block" };
+
+  const renderForm = () => (
+    <div style={{ background: "#FAFBFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "16px", marginBottom: 16 }}>
+      <h4 style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 700, color: "#16324F" }}>{editingId ? "Edit Task" : "Add New Task"}</h4>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px 16px" }}>
+        <div>
+          <label style={labelStyle}>Task Name *</label>
+          <input value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} style={inputStyle} placeholder="Enter task name" />
+        </div>
+        <div>
+          <label style={labelStyle}>Owner</label>
+          <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} style={inputStyle} placeholder="Assignee name" />
+        </div>
+        <div>
+          <label style={labelStyle}>Planned Start</label>
+          <input type="date" value={form.plannedStart} onChange={(e) => setForm({ ...form, plannedStart: e.target.value })} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Planned End</label>
+          <input type="date" value={form.plannedEnd} onChange={(e) => setForm({ ...form, plannedEnd: e.target.value })} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Actual Start</label>
+          <input type="date" value={form.actualStart} onChange={(e) => setForm({ ...form, actualStart: e.target.value })} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Actual End</label>
+          <input type="date" value={form.actualEnd} onChange={(e) => setForm({ ...form, actualEnd: e.target.value })} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Duration (days)</label>
+          <input type="number" min={1} value={form.duration} onChange={(e) => setForm({ ...form, duration: parseInt(e.target.value) || 1 })} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Progress %</label>
+          <input type="number" min={0} max={100} value={form.progress} onChange={(e) => setForm({ ...form, progress: parseInt(e.target.value) || 0 })} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Status</label>
+          <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle}>
+            <option>Not Started</option>
+            <option>In Progress</option>
+            <option>In Progress (Delayed)</option>
+            <option>Completed</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Remarks</label>
+          <input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} style={inputStyle} placeholder="Notes..." />
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button onClick={submitForm} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Save</button>
+        <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08)", border: "1px solid #D6DFE8", padding: "20px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#16324F" }}>Task List</h3>
-        <span style={{ fontSize: 12, color: "#8BA3B8" }}>{tasks.length} tasks</span>
+        <span style={{ fontSize: 12, color: "#8BA3B8" }}>{validTasks.length} tasks</span>
       </div>
-      <button onClick={addTask} style={{ marginBottom: 12, padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#005BAC", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Add Task</button>
+
+      {!showAdd && !editingId && (
+        <button onClick={startAdd} style={{ marginBottom: 16, padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#005BAC", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Add Task</button>
+      )}
+
+      {(showAdd || editingId) && renderForm()}
+
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 800 }}>
           <thead>
             <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569" }}>ID</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569" }}>Task</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569" }}>Owner</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569" }}>Start</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569" }}>Duration</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569" }}>Progress</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569" }}></th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Task Name</th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Owner</th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Planned Start</th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Planned End</th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Actual Start</th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Actual End</th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Progress</th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Status</th>
+              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {tasks.map((t) => (
+            {validTasks.map((t) => (
               <tr key={t.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                {editing === t.id ? (
-                  <>
-                    <td style={{ padding: "6px 8px" }}>{t.id}</td>
-                    <td style={{ padding: "6px 8px" }}><input value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} style={{ width: 120, fontSize: 12, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
-                    <td style={{ padding: "6px 8px" }}><input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} style={{ width: 80, fontSize: 12, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
-                    <td style={{ padding: "6px 8px" }}><input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} style={{ width: 120, fontSize: 12, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
-                    <td style={{ padding: "6px 8px" }}><input type="number" value={form.duration} onChange={(e) => setForm({ ...form, duration: parseInt(e.target.value) || 1 })} style={{ width: 50, fontSize: 12, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
-                    <td style={{ padding: "6px 8px" }}><input type="number" value={form.progress} onChange={(e) => setForm({ ...form, progress: parseInt(e.target.value) || 0 })} style={{ width: 50, fontSize: 12, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
-                    <td style={{ padding: "6px 8px" }}>
-                      <button onClick={submitEdit} style={{ fontSize: 11, padding: "3px 8px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Save</button>
-                      <button onClick={() => setEditing(null)} style={{ fontSize: 11, padding: "3px 8px", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Cancel</button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td style={{ padding: "8px", color: "#94A3B8", fontWeight: 600 }}>{t.id}</td>
-                    <td style={{ padding: "8px", color: "#2D3748", fontWeight: 600 }}>{t.text || "Untitled"}</td>
-                    <td style={{ padding: "8px", color: "#5A6B7D" }}>{t.owner || "—"}</td>
-                    <td style={{ padding: "8px", color: "#5A6B7D" }}>{t.startDate ? t.startDate.slice(0, 10) : "—"}</td>
-                    <td style={{ padding: "8px", color: "#5A6B7D" }}>{t.duration || 0}d</td>
-                    <td style={{ padding: "8px" }}>
-                      <div style={{ width: 60, height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
-                        <div style={{ width: `${Math.min(100, (t.progress || 0) * 100)}%`, height: "100%", background: (t.progress || 0) >= 1 ? "#1F9D55" : (t.progress || 0) > 0 ? "#005BAC" : "#94A3B8", borderRadius: 3 }} />
-                      </div>
-                    </td>
-                    <td style={{ padding: "8px" }}>
-                      <button onClick={() => startEdit(t)} style={{ fontSize: 11, padding: "3px 8px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer" }}>Edit</button>
-                      <button onClick={() => { if (confirm("Delete this task?")) deleteTask.mutate({ id: t.id }); }} style={{ fontSize: 11, padding: "3px 8px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Delete</button>
-                    </td>
-                  </>
-                )}
+                <td style={{ padding: "8px", color: "#2D3748", fontWeight: 600, whiteSpace: "nowrap" }}>{t.text}</td>
+                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap" }}>{t.owner || "—"}</td>
+                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.plannedStart ? String(t.plannedStart).slice(0, 10) : "—"}</td>
+                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "—"}</td>
+                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.startDate ? String(t.startDate).slice(0, 10) : "—"}</td>
+                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.endDate ? String(t.endDate).slice(0, 10) : "—"}</td>
+                <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
+                  <div style={{ width: 60, height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${Math.min(100, (t.progress || 0) * 100)}%`, height: "100%", background: (t.progress || 0) >= 1 ? "#1F9D55" : (t.progress || 0) > 0 ? "#005BAC" : "#94A3B8", borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontSize: 10, color: "#94A3B8" }}>{Math.round((t.progress || 0) * 100)}%</span>
+                </td>
+                <td style={{ padding: "8px", whiteSpace: "nowrap" }}>{statusBadge(rowStatus(t))}</td>
+                <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
+                  <button onClick={() => startEdit(t)} style={{ fontSize: 11, padding: "3px 8px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer" }}>Edit</button>
+                  <button onClick={() => { if (confirm("Delete this task?")) deleteTask.mutate({ id: t.id }); }} style={{ fontSize: 11, padding: "3px 8px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Delete</button>
+                </td>
               </tr>
             ))}
           </tbody>

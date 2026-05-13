@@ -36,6 +36,8 @@ export const ganttRouter = createRouter({
         open: z.number().default(1),
         category: z.string().nullable().optional(),
         notes: z.string().nullable().optional(),
+        status: z.string().nullable().optional(),
+        remarks: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -54,7 +56,8 @@ export const ganttRouter = createRouter({
         owner: input.owner,
         open: input.open,
         category: input.category || null,
-        notes: input.notes || null,
+        notes: input.notes || input.remarks || null,
+        status: input.status || null,
         updatedAt: now,
       };
       if (input.id) {
@@ -120,20 +123,31 @@ export const ganttRouter = createRouter({
     return { success: true };
   }),
 
-  // Migrate: add planned columns
+  // Migrate: add missing columns
   migrate: publicQuery.query(async () => {
     await db.execute(sql.raw(`
       ALTER TABLE gantt_tasks 
       ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
       ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
       ADD COLUMN IF NOT EXISTS category VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS notes TEXT
+      ADD COLUMN IF NOT EXISTS notes TEXT,
+      ADD COLUMN IF NOT EXISTS status VARCHAR(50)
     `));
     return { success: true };
   }),
 
   // Seed demo data if empty (or if existing data has invalid dates)
   seed: publicQuery.mutation(async () => {
+    // Ensure all columns exist
+    await db.execute(sql.raw(`
+      ALTER TABLE gantt_tasks 
+      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS notes TEXT,
+      ADD COLUMN IF NOT EXISTS status VARCHAR(50)
+    `));
+
     const existing = await db.select().from(ganttTasks);
     // Check if any existing data has invalid dates — if so, clear and re-seed
     const hasInvalid = existing.some((t: any) => {
@@ -172,37 +186,96 @@ export const ganttRouter = createRouter({
     };
 
     const now = new Date();
-    const s0 = now;                           // project start
-    const s1 = now;                           // Gap Analysis
-    const s2 = addDays(now, 35);              // System Config
-    const s3 = addDays(now, 75);              // Data Migration
-    const s4 = addDays(now, 120);             // Unit Testing
-    const s5 = addDays(now, 150);             // UAT
-    const s6 = addDays(now, 170);             // Go-Live
 
+    // Complete demo tasks with BOTH planned AND actual dates
     const demoTasks = [
-      { text: "S/4HANA MM Integration",  start: s0, duration: 180, progress: 15, parent: 0, type: "project",   owner: "PMO",              ps: s0, pe: addDays(s0, 180) },
-      { text: "Gap Analysis & Blueprint", start: s1, duration: 30,  progress: 80, parent: 1, type: "task",      owner: "Business Analyst", ps: s1, pe: addDays(s1, 30) },
-      { text: "System Configuration",     start: s2, duration: 45,  progress: 40, parent: 1, type: "task",      owner: "Basis Team",       ps: s2, pe: addDays(s2, 45) },
-      { text: "Data Migration",           start: s3, duration: 60,  progress: 10, parent: 1, type: "task",      owner: "Data Team",        ps: s3, pe: addDays(s3, 60) },
-      { text: "Unit Testing",             start: s4, duration: 30,  progress: 0,  parent: 1, type: "task",      owner: "QA Team",          ps: s4, pe: addDays(s4, 30) },
-      { text: "UAT & Sign-off",           start: s5, duration: 20,  progress: 0,  parent: 1, type: "milestone", owner: "Business Lead",    ps: s5, pe: addDays(s5, 20) },
-      { text: "Go-Live Preparation",      start: s6, duration: 15,  progress: 0,  parent: 1, type: "task",      owner: "Cutover Team",     ps: s6, pe: addDays(s6, 15) },
+      {
+        text: "S/4HANA MM Integration",
+        owner: "PMO",
+        type: "project", parent: 0, progress: 0.15, duration: 180,
+        plannedStart: fmt(now),
+        plannedEnd: fmt(addDays(now, 180)),
+        actualStart: fmt(now),
+        actualEnd: fmt(addDays(now, 170)),
+        status: "In Progress",
+      },
+      {
+        text: "Gap Analysis & Blueprint",
+        owner: "Business Analyst",
+        type: "task", parent: 1, progress: 0.80, duration: 30,
+        plannedStart: fmt(now),
+        plannedEnd: fmt(addDays(now, 30)),
+        actualStart: fmt(now),
+        actualEnd: fmt(addDays(now, 33)),
+        status: "Completed",
+      },
+      {
+        text: "System Configuration",
+        owner: "Basis Team",
+        type: "task", parent: 1, progress: 0.40, duration: 45,
+        plannedStart: fmt(addDays(now, 35)),
+        plannedEnd: fmt(addDays(now, 80)),
+        actualStart: fmt(addDays(now, 35)),
+        actualEnd: fmt(addDays(now, 82)),
+        status: "In Progress (Delayed)",
+      },
+      {
+        text: "Data Migration",
+        owner: "Data Team",
+        type: "task", parent: 1, progress: 0.10, duration: 60,
+        plannedStart: fmt(addDays(now, 75)),
+        plannedEnd: fmt(addDays(now, 135)),
+        actualStart: fmt(addDays(now, 83)),
+        actualEnd: null,
+        status: "In Progress",
+      },
+      {
+        text: "Unit Testing",
+        owner: "QA Team",
+        type: "task", parent: 1, progress: 0, duration: 30,
+        plannedStart: fmt(addDays(now, 120)),
+        plannedEnd: fmt(addDays(now, 150)),
+        actualStart: null,
+        actualEnd: null,
+        status: "Not Started",
+      },
+      {
+        text: "UAT & Sign-off",
+        owner: "Business Lead",
+        type: "milestone", parent: 1, progress: 0, duration: 20,
+        plannedStart: fmt(addDays(now, 150)),
+        plannedEnd: fmt(addDays(now, 170)),
+        actualStart: null,
+        actualEnd: null,
+        status: "Not Started",
+      },
+      {
+        text: "Go-Live Preparation",
+        owner: "Cutover Team",
+        type: "task", parent: 1, progress: 0, duration: 15,
+        plannedStart: fmt(addDays(now, 170)),
+        plannedEnd: fmt(addDays(now, 185)),
+        actualStart: null,
+        actualEnd: null,
+        status: "Not Started",
+      },
     ];
 
     for (const t of demoTasks) {
-      const end = addDays(t.start, t.duration);
+      const end = t.actualEnd ? t.actualEnd : (t.actualStart ? fmt(addDays(new Date(t.actualStart.replace("T", "T") + "T12:00:00"), t.duration)) : null);
+      const start = t.actualStart ? t.actualStart + " 08:00" : null;
       await db.insert(ganttTasks).values({
         text: t.text,
-        startDate: fmtFull(t.start),
-        endDate: fmtFull(end),
-        plannedStart: fmt(t.ps),
-        plannedEnd: fmt(t.pe),
+        startDate: start,
+        endDate: end ? end + " 08:00" : null,
+        plannedStart: t.plannedStart,
+        plannedEnd: t.plannedEnd,
         duration: t.duration,
         progress: t.progress,
         parent: t.parent,
         type: t.type,
         owner: t.owner,
+        status: t.status,
         sortorder: 0,
         open: 1,
       });
