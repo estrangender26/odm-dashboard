@@ -436,7 +436,7 @@ const DF=()=>{
   var f=document.getElementById('fs').value;
   var d={pp:'',ms:{},up:{}};
   if(ST[f]){
-    d.pp=ST[f].pp||(ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'2026-01-01';
+    d.pp=normalizeDateOnly(ST[f].pp)||normalizeDateOnly(ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'';
     d.ms=JSON.parse(JSON.stringify(ST[f].ms));
     d.up=ST[f].up?JSON.parse(JSON.stringify(ST[f].up)):{};}
   if(PENDING[f]&&PENDING[f].ms){
@@ -488,7 +488,13 @@ async function fetchStateFromDB(facility,opts){
     });
     var m1State=ST[facility].ms['M1'];
     if(m1State&&m1State.pppDate){
-      ST[facility].pp=m1State.pppDate;
+      // Only set PPP from DB if not already set this session (prevents overwrite on refresh)
+      if(!ST[facility].pp||ST[facility].pp===''){
+        ST[facility].pp=m1State.pppDate;
+        console.log('[PPP] Set from DB M1 pppDate:',m1State.pppDate);
+      }else{
+        console.log('[PPP] Preserving existing value:',ST[facility].pp,'(DB has:',m1State.pppDate+')');
+      }
       var ppInp=document.getElementById('pp');
       if(ppInp){ppInp.value=ST[facility].pp||'';}
     }
@@ -689,7 +695,10 @@ async function INIT(){
   idbg('4: ST.ms='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
   idbg('5: ST.up='+(ST[f]&&ST[f].up?Object.keys(ST[f].up).join(','):'none'));
   var m1s=ST[f]&&ST[f].ms&&ST[f].ms['M1'];
-  if(m1s&&m1s.pppDate&&ST[f].pp!==m1s.pppDate){ST[f].pp=m1s.pppDate;}
+  // Only set PPP from M1 if not already set this session (prevents overwrite on re-init)
+  if(!ST[f].pp||ST[f].pp===''){
+    if(m1s&&m1s.pppDate){ST[f].pp=m1s.pppDate;}
+  }
   var ppVal=ST[f]?ST[f].pp:'';
   document.getElementById('pp').value=ppVal||'';
   idbg('6: pp='+ppVal);
@@ -731,9 +740,10 @@ function sw(id,btn){
 
 // DATE
 function cd(pp,o){if(!pp)return'';var p=pp.split('-').map(Number);var nd=new Date(p[0],p[1]-1+o,p[2]);var yy=nd.getFullYear(),mm=String(nd.getMonth()+1).padStart(2,'0'),dd=String(nd.getDate()).padStart(2,'0');return yy+'-'+mm+'-'+dd}
-function moDiff(d1,d2){var dt1=new Date(d1+'T00:00:00'),dt2=new Date(d2+'T00:00:00');return(dt2.getFullYear()-dt1.getFullYear())*12+(dt2.getMonth()-dt1.getMonth())}
+function moDiff(d1,d2){var dt1=new Date(d1+'T12:00:00'),dt2=new Date(d2+'T12:00:00');return(dt2.getFullYear()-dt1.getFullYear())*12+(dt2.getMonth()-dt1.getMonth())}
 function fmtDate(iso){if(!iso)return'\u2014';var p=iso.split('-');var M=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];return M[parseInt(p[1],10)-1]+'-'+p[2]+'-'+p[0]}
 function parseDate(fmtStr){if(!fmtStr||fmtStr==='')return'';var months={'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};var parts=fmtStr.split('-');if(parts.length!==3)return fmtStr;var m=months[parts[0].toUpperCase()];if(!m)return fmtStr;return parts[2]+'-'+m+'-'+parts[1]}
+function normalizeDateOnly(value){if(!value)return'';if(typeof value==='string')return value.slice(0,10);return''}
 
 function tocT(num){var t=TOC.find(function(x){return x.num===num});return t?t.ti:''}
 function anxT(id){var a=ANX.find(function(x){return x.id===id});return a?a.ti:''}
@@ -835,9 +845,8 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       if(checked===!!dbCompleted){console.log('[CHK] Reverting to DB');if(PENDING[f])delete PENDING[f].ms[mid];updateEditButtons();ALL();return;}
       if(!PENDING[f])PENDING[f]={ms:{}};
       if(checked){
-        var ppDate=(ST[f]&&ST[f].pp)||(ST[f]&&ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'';
-        var fbMap={'AGLIPAY':'2026-03-01','HTT':'2026-02-01','EASTBAY':'2026-03-01','KAYSAKAT':'2026-04-01'};
-        if(!ppDate&&fbMap[f])ppDate=fbMap[f];
+        var ppDate=normalizeDateOnly(ST[f]&&ST[f].pp)||normalizeDateOnly(ST[f]&&ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'';
+        if(!ppDate)ppDate='';
         var dt=cd(ppDate,MSD[mid].o);
         PENDING[f].ms[mid]={compDate:dt};
         console.log('[CHK] Set complete: ppDate='+ppDate+' offset='+MSD[mid].o+' dt='+dt);
