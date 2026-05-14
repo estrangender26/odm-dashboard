@@ -3,20 +3,30 @@ import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 
-// ── Types ──
+// ═══════════════════════════════════════════════════════════
+// Types
+// ═══════════════════════════════════════════════════════════
+
+interface TocItem {
+  id: number;
+  title: string;
+  status: "Complete" | "In Progress" | "Pending" | "Not Applicable";
+  lastUpdated?: string;
+  responsibleParty?: string;
+  notes?: string;
+}
+
 interface OmManual {
   id: number;
   project: string;
   facility: string;
+  facilityCode: string;
   manualTitle: string;
-  equipmentType: string;
-  system: string;
   dateIssued: string;
   revision: string;
-  status: string;
   responsibleParty: string;
-  fileUrl?: string;
-  fileType?: string;
+  status: "Active" | "Under Review" | "Expired" | "Draft";
+  toc: TocItem[];
 }
 
 interface ProjectNode {
@@ -26,65 +36,147 @@ interface ProjectNode {
 
 interface FacilityNode {
   name: string;
-  manuals: OmManual[];
+  code: string;
+  manual: OmManual;
 }
 
-// ── Mock data — O&M Manuals organized by Project → Facility ──
-const MOCK_MANUALS: OmManual[] = [
-  // HTT STP — Water Supply
-  { id: 1,  project: "HTT STP", facility: "Water Supply", manualTitle: "O&M Manual — Pump Station A",              equipmentType: "Pumps",          system: "Raw Water Intake", dateIssued: "2022-03-15", revision: "Rev. 3", status: "Active",         responsibleParty: "Operations" },
-  { id: 2,  project: "HTT STP", facility: "Water Supply", manualTitle: "O&M Manual — Main Valve Yard",              equipmentType: "Valves",         system: "Distribution",     dateIssued: "2021-11-20", revision: "Rev. 2", status: "Active",         responsibleParty: "Operations" },
-  { id: 3,  project: "HTT STP", facility: "Water Supply", manualTitle: "O&M Manual — Flow Metering Station",        equipmentType: "Flow Meters",    system: "Distribution",     dateIssued: "2023-01-10", revision: "Rev. 1", status: "Active",         responsibleParty: "Instrumentation" },
-  // HTT STP — Electrical
-  { id: 4,  project: "HTT STP", facility: "Electrical",   manualTitle: "O&M Manual — Motor Control Center",         equipmentType: "Motors",         system: "MCC",              dateIssued: "2021-07-20", revision: "Rev. 2", status: "Active",         responsibleParty: "Electrical" },
-  { id: 5,  project: "HTT STP", facility: "Electrical",   manualTitle: "O&M Manual — Transformer Substation",       equipmentType: "Transformers",   system: "HV Distribution",  dateIssued: "2019-09-12", revision: "Rev. 5", status: "Expired",        responsibleParty: "Electrical" },
-  { id: 6,  project: "HTT STP", facility: "Electrical",   manualTitle: "O&M Manual — Emergency Generator Set",      equipmentType: "Generators",     system: "Backup Power",     dateIssued: "2023-06-01", revision: "Rev. 1", status: "Active",         responsibleParty: "Electrical" },
-  { id: 7,  project: "HTT STP", facility: "Electrical",   manualTitle: "O&M Manual — LV Switchgear",                equipmentType: "Switchgear",     system: "Power Distribution", dateIssued: "2022-04-18", revision: "Rev. 2", status: "Active",         responsibleParty: "Electrical" },
-  // HTT STP — Mechanical / Aeration
-  { id: 8,  project: "HTT STP", facility: "Mechanical",   manualTitle: "O&M Manual — Aeration Blower System",       equipmentType: "Blowers",        system: "Aeration",         dateIssued: "2023-01-10", revision: "Rev. 1", status: "Active",         responsibleParty: "Mechanical" },
-  { id: 9,  project: "HTT STP", facility: "Mechanical",   manualTitle: "O&M Manual — Sludge Dewatering Press",      equipmentType: "Sludge Handling", system: "Dewatering",      dateIssued: "2020-04-20", revision: "Rev. 4", status: "Expired",        responsibleParty: "Operations" },
-  { id: 10, project: "HTT STP", facility: "Mechanical",   manualTitle: "O&M Manual — Bar Screen & Grit Removal",    equipmentType: "Screens",        system: "Preliminary Treatment", dateIssued: "2023-07-10", revision: "Rev. 1", status: "Active",         responsibleParty: "Operations" },
-  // HTT STP — Automation
-  { id: 11, project: "HTT STP", facility: "Automation",   manualTitle: "O&M Manual — SCADA & Telemetry",            equipmentType: "PLC / SCADA",    system: "Automation",       dateIssued: "2023-04-18", revision: "Rev. 2", status: "Active",         responsibleParty: "Automation" },
-  { id: 12, project: "HTT STP", facility: "Automation",   manualTitle: "O&M Manual — Instrumentation & Control",    equipmentType: "Instrumentation", system: "SCADA",           dateIssued: "2022-08-22", revision: "Rev. 1", status: "Active",         responsibleParty: "Instrumentation" },
-  // HTT STP — Building / Safety
-  { id: 13, project: "HTT STP", facility: "Building",     manualTitle: "O&M Manual — HVAC System",                  equipmentType: "HVAC",           system: "Building Mgmt",    dateIssued: "2021-05-30", revision: "Rev. 3", status: "Active",         responsibleParty: "Facilities" },
-  { id: 14, project: "HTT STP", facility: "Building",     manualTitle: "O&M Manual — Fire Safety System",           equipmentType: "Fire Safety",    system: "Safety",           dateIssued: "2023-09-01", revision: "Rev. 1", status: "Active",         responsibleParty: "Safety" },
-  // Aglipay STP — Water Supply
-  { id: 15, project: "Aglipay STP", facility: "Water Supply", manualTitle: "O&M Manual — Intake Structure & Pumps",   equipmentType: "Pumps",          system: "Raw Water Intake", dateIssued: "2022-06-15", revision: "Rev. 2", status: "Active",         responsibleParty: "Operations" },
-  { id: 16, project: "Aglipay STP", facility: "Water Supply", manualTitle: "O&M Manual — Reservoir & Level Controls", equipmentType: "Level Controls", system: "Storage",          dateIssued: "2023-03-20", revision: "Rev. 1", status: "Under Review",   responsibleParty: "Instrumentation" },
-  // Aglipay STP — Electrical
-  { id: 17, project: "Aglipay STP", facility: "Electrical",   manualTitle: "O&M Manual — Main Distribution Panel",    equipmentType: "Switchgear",     system: "Power Distribution", dateIssued: "2021-01-12", revision: "Rev. 3", status: "Active",         responsibleParty: "Electrical" },
-  { id: 18, project: "Aglipay STP", facility: "Electrical",   manualTitle: "O&M Manual — Diesel Generator 500kVA",  equipmentType: "Generators",     system: "Backup Power",     dateIssued: "2023-08-01", revision: "Rev. 1", status: "Active",         responsibleParty: "Electrical" },
-  // Aglipay STP — Treatment
-  { id: 19, project: "Aglipay STP", facility: "Treatment",    manualTitle: "O&M Manual — Chemical Dosing System",     equipmentType: "Chemical Dosing", system: "Chemical Feed",   dateIssued: "2023-02-14", revision: "Rev. 1", status: "Active",         responsibleParty: "Chemical" },
-  { id: 20, project: "Aglipay STP", facility: "Treatment",    manualTitle: "O&M Manual — UV Disinfection System",     equipmentType: "UV / Disinfection", system: "Disinfection",  dateIssued: "2022-12-01", revision: "Rev. 2", status: "Under Review",   responsibleParty: "Operations" },
-  { id: 21, project: "Aglipay STP", facility: "Treatment",    manualTitle: "O&M Manual — Odor Control System",        equipmentType: "Odor Control",   system: "Environmental",    dateIssued: "2021-10-15", revision: "Rev. 2", status: "Active",         responsibleParty: "Environmental" },
-  { id: 22, project: "Aglipay STP", facility: "Treatment",    manualTitle: "O&M Manual — Clarifier Mechanism",        equipmentType: "Clarifiers",     system: "Secondary Treatment", dateIssued: "2020-07-22", revision: "Rev. 4", status: "Expired",        responsibleParty: "Mechanical" },
-  // Aglipay STP — Automation
-  { id: 23, project: "Aglipay STP", facility: "Automation",   manualTitle: "O&M Manual — PLC Programming & HMI",      equipmentType: "PLC / SCADA",    system: "Automation",       dateIssued: "2023-05-10", revision: "Rev. 1", status: "Active",         responsibleParty: "Automation" },
-  { id: 24, project: "Aglipay STP", facility: "Automation",   manualTitle: "O&M Manual — Online Water Quality Analyzers", equipmentType: "Instrumentation", system: "Monitoring",    dateIssued: "2022-09-15", revision: "Rev. 2", status: "Active",         responsibleParty: "Instrumentation" },
-  // Aglipay STP — Building
-  { id: 25, project: "Aglipay STP", facility: "Building",     manualTitle: "O&M Manual — Admin Building Utilities",   equipmentType: "HVAC",           system: "Building Mgmt",    dateIssued: "2021-03-18", revision: "Rev. 3", status: "Active",         responsibleParty: "Facilities" },
-  { id: 26, project: "Aglipay STP", facility: "Building",     manualTitle: "O&M Manual — Security & Access Control",  equipmentType: "Access Control", system: "Security",         dateIssued: "2023-11-01", revision: "Rev. 1", status: "Active",         responsibleParty: "Security" },
+// ═══════════════════════════════════════════════════════════
+// Standard 14 TOC Items (per IOM for O&M Structure Governance)
+// ═══════════════════════════════════════════════════════════
+
+const STANDARD_TOC: { id: number; title: string }[] = [
+  { id: 1,  title: "Executive Summary" },
+  { id: 2,  title: "Facility Overview and Process Description" },
+  { id: 3,  title: "Operating Philosophy" },
+  { id: 4,  title: "Standard Operating Procedures (SOPs) — ANNEX" },
+  { id: 5,  title: "Standard Maintenance Procedures (SMPs) — ANNEX" },
+  { id: 6,  title: "Maintenance Management Framework — ANNEX" },
+  { id: 7,  title: "SCADA and Automation" },
+  { id: 8,  title: "Testing, Commissioning, and Proving — ANNEX" },
+  { id: 9,  title: "As-Built Drawings and Final Technical Documentation — ANNEX" },
+  { id: 10, title: "Training and Competency Records — ANNEX" },
+  { id: 11, title: "Digital / SAP S/4HANA Onboarding — ANNEX" },
+  { id: 12, title: "Critical Spares Handover (Contract Deliverable) — ANNEX" },
+  { id: 13, title: "Acceptance and Handover — ANNEX" },
+  { id: 14, title: "Facility-Specific Addenda — ANNEX" },
 ];
 
-const STATUSES = ["Active", "Under Review", "Expired", "Draft"];
+// ═══════════════════════════════════════════════════════════
+// Helper: build a random but realistic TOC for a facility
+// ═══════════════════════════════════════════════════════════
 
-// ── Build hierarchical tree from flat data ──
+const PARTIES = ["Operations", "Electrical", "Mechanical", "Automation", "Instrumentation", "Facilities", "Safety", "Contractor"];
+
+function buildToc(baseStatus?: string): TocItem[] {
+  const statuses: Array<TocItem["status"]> = ["Complete", "In Progress", "Pending", "Not Applicable"];
+  return STANDARD_TOC.map(item => {
+    const status = baseStatus === "Expired" ? "Pending" as const :
+                   baseStatus === "Draft" ? "In Progress" as const :
+                   baseStatus === "Under Review" ? (Math.random() > 0.5 ? "In Progress" : "Pending") as const :
+                   item.id <= 3 ? "Complete" as const :
+                   item.id <= 8 ? (Math.random() > 0.3 ? "Complete" : "In Progress") as const :
+                   item.id <= 12 ? (Math.random() > 0.4 ? "In Progress" : "Pending") as const :
+                   (Math.random() > 0.5 ? "Pending" : "Not Applicable") as const;
+    return {
+      ...item,
+      status,
+      lastUpdated: `2025-${String(Math.floor(Math.random() * 12) + 1).padStart(2, "0")}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, "0")}`,
+      responsibleParty: PARTIES[Math.floor(Math.random() * PARTIES.length)],
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// Mock Data — Project → Facility → 1 O&M Manual PDF each
+// ═══════════════════════════════════════════════════════════
+
+const MOCK_MANUALS: OmManual[] = [
+  {
+    id: 1, project: "HTT STP", facility: "Water Supply", facilityCode: "HTT-WS",
+    manualTitle: "O&M Manual — HTT STP Water Supply System",
+    dateIssued: "2024-01-15", revision: "Rev. 3", responsibleParty: "Operations",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 2, project: "HTT STP", facility: "Electrical", facilityCode: "HTT-EL",
+    manualTitle: "O&M Manual — HTT STP Electrical System",
+    dateIssued: "2024-02-20", revision: "Rev. 2", responsibleParty: "Electrical",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 3, project: "HTT STP", facility: "Mechanical", facilityCode: "HTT-ME",
+    manualTitle: "O&M Manual — HTT STP Mechanical System",
+    dateIssued: "2024-03-10", revision: "Rev. 1", responsibleParty: "Mechanical",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 4, project: "HTT STP", facility: "Automation", facilityCode: "HTT-AU",
+    manualTitle: "O&M Manual — HTT STP SCADA & Automation",
+    dateIssued: "2024-04-05", revision: "Rev. 2", responsibleParty: "Automation",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 5, project: "HTT STP", facility: "Building & Safety", facilityCode: "HTT-BS",
+    manualTitle: "O&M Manual — HTT STP Building & Safety Systems",
+    dateIssued: "2024-05-18", revision: "Rev. 1", responsibleParty: "Facilities",
+    status: "Under Review", toc: buildToc("Under Review"),
+  },
+  {
+    id: 6, project: "HTT STP", facility: "Treatment Process", facilityCode: "HTT-TP",
+    manualTitle: "O&M Manual — HTT STP Treatment Process",
+    dateIssued: "2024-06-22", revision: "Rev. 1", responsibleParty: "Operations",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 7, project: "Aglipay STP", facility: "Water Supply", facilityCode: "AGL-WS",
+    manualTitle: "O&M Manual — Aglipay STP Water Supply System",
+    dateIssued: "2024-01-30", revision: "Rev. 2", responsibleParty: "Operations",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 8, project: "Aglipay STP", facility: "Electrical", facilityCode: "AGL-EL",
+    manualTitle: "O&M Manual — Aglipay STP Electrical System",
+    dateIssued: "2024-02-14", revision: "Rev. 3", responsibleParty: "Electrical",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 9, project: "Aglipay STP", facility: "Mechanical", facilityCode: "AGL-ME",
+    manualTitle: "O&M Manual — Aglipay STP Mechanical System",
+    dateIssued: "2024-03-25", revision: "Rev. 1", responsibleParty: "Mechanical",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 10, project: "Aglipay STP", facility: "Automation", facilityCode: "AGL-AU",
+    manualTitle: "O&M Manual — Aglipay STP SCADA & Automation",
+    dateIssued: "2024-04-12", revision: "Rev. 2", responsibleParty: "Automation",
+    status: "Under Review", toc: buildToc("Under Review"),
+  },
+  {
+    id: 11, project: "Aglipay STP", facility: "Treatment Process", facilityCode: "AGL-TP",
+    manualTitle: "O&M Manual — Aglipay STP Treatment Process",
+    dateIssued: "2024-05-08", revision: "Rev. 1", responsibleParty: "Operations",
+    status: "Active", toc: buildToc("Active"),
+  },
+  {
+    id: 12, project: "Aglipay STP", facility: "Building & Safety", facilityCode: "AGL-BS",
+    manualTitle: "O&M Manual — Aglipay STP Building & Safety Systems",
+    dateIssued: "2024-06-15", revision: "Rev. 1", responsibleParty: "Safety",
+    status: "Draft", toc: buildToc("Draft"),
+  },
+];
+
+// ── Build hierarchical tree ──
 function buildTree(manuals: OmManual[]): ProjectNode[] {
-  const map = new Map<string, Map<string, OmManual[]>>();
+  const map = new Map<string, Map<string, OmManual>>();
   for (const m of manuals) {
     if (!map.has(m.project)) map.set(m.project, new Map());
-    const facMap = map.get(m.project)!;
-    if (!facMap.has(m.facility)) facMap.set(m.facility, []);
-    facMap.get(m.facility)!.push(m);
+    map.get(m.project)!.set(m.facility, m);
   }
   const projects: ProjectNode[] = [];
   for (const [name, facMap] of map) {
     const facilities: FacilityNode[] = [];
-    for (const [fname, ms] of facMap) {
-      facilities.push({ name: fname, manuals: ms });
+    for (const [fname, manual] of facMap) {
+      facilities.push({ name: fname, code: manual.facilityCode, manual });
     }
     facilities.sort((a, b) => a.name.localeCompare(b.name));
     projects.push({ name, facilities });
@@ -93,18 +185,24 @@ function buildTree(manuals: OmManual[]): ProjectNode[] {
   return projects;
 }
 
-// ── Status badge ──
-function statusBadge(s: string) {
-  const map: Record<string, { bg: string; text: string }> = {
-    "Active":       { bg: "#D1FAE5", text: "#059669" },
-    "Under Review": { bg: "#FEF3C7", text: "#D97706" },
-    "Expired":      { bg: "#FEE2E2", text: "#DC2626" },
-    "Draft":        { bg: "#E2E8F0", text: "#475569" },
-  };
-  return map[s] || { bg: "#F1F5F9", text: "#64748B" };
-}
+// ═══════════════════════════════════════════════════════════
+// UI Helpers
+// ═══════════════════════════════════════════════════════════
 
-// ── Banner (replaces alert) ──
+const STATUS_STYLE: Record<string, { bg: string; text: string; bar: string }> = {
+  "Complete":       { bg: "#D1FAE5", text: "#059669", bar: "#22C55E" },
+  "In Progress":    { bg: "#DBEAFE", text: "#2563EB", bar: "#3B82F6" },
+  "Pending":        { bg: "#FEF3C7", text: "#D97706", bar: "#F59E0B" },
+  "Not Applicable": { bg: "#E2E8F0", text: "#64748B", bar: "#94A3B8" },
+};
+
+const MANUAL_STATUS: Record<string, { bg: string; text: string }> = {
+  "Active":       { bg: "#D1FAE5", text: "#059669" },
+  "Under Review": { bg: "#FEF3C7", text: "#D97706" },
+  "Expired":      { bg: "#FEE2E2", text: "#DC2626" },
+  "Draft":        { bg: "#E2E8F0", text: "#475569" },
+};
+
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
   const s: Record<string, string> = {
     error:   "bg-red-50   border-red-200   text-red-800",
@@ -120,7 +218,6 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
   );
 }
 
-// ── Chevron icon ──
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}>
@@ -129,19 +226,32 @@ function Chevron({ expanded }: { expanded: boolean }) {
   );
 }
 
-// ═══════════════════════════════════════════════════
+// ── TOC completion stats for a manual ──
+function tocStats(toc: TocItem[]) {
+  const total = toc.length;
+  const complete = toc.filter(t => t.status === "Complete").length;
+  const inProgress = toc.filter(t => t.status === "In Progress").length;
+  const pending = toc.filter(t => t.status === "Pending").length;
+  const na = toc.filter(t => t.status === "Not Applicable").length;
+  const pct = Math.round((complete / total) * 100);
+  return { total, complete, inProgress, pending, na, pct };
+}
+
+// ═══════════════════════════════════════════════════════════
 // MAIN COMPONENT
-// ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+
 export default function OmManualsLibrary() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedManual, setSelectedManual] = useState<OmManual | null>(null);
+  const [selectedTocItem, setSelectedTocItem] = useState<TocItem | null>(null);
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set(["Aglipay STP", "HTT STP"]));
   const [expandedFacilities, setExpandedFacilities] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Search filtering (flat) ──
+  // ── Search filtering ──
   const filteredManuals = useMemo(() => {
     let d = MOCK_MANUALS;
     if (search) {
@@ -150,18 +260,15 @@ export default function OmManualsLibrary() {
         x.manualTitle.toLowerCase().includes(s) ||
         x.project.toLowerCase().includes(s) ||
         x.facility.toLowerCase().includes(s) ||
-        x.equipmentType.toLowerCase().includes(s) ||
-        x.system.toLowerCase().includes(s)
+        x.facilityCode.toLowerCase().includes(s)
       );
     }
     if (statusFilter) d = d.filter(x => x.status === statusFilter);
     return d;
   }, [search, statusFilter]);
 
-  // ── Build tree from filtered manuals ──
   const tree = useMemo(() => buildTree(filteredManuals), [filteredManuals]);
 
-  // ── Stats ──
   const stats = useMemo(() => ({
     total:    MOCK_MANUALS.length,
     active:   MOCK_MANUALS.filter(d => d.status === "Active").length,
@@ -170,57 +277,53 @@ export default function OmManualsLibrary() {
     projects: new Set(MOCK_MANUALS.map(d => d.project)).size,
   }), []);
 
-  // ── Toggle helpers ──
   const toggleProject = useCallback((name: string) => {
-    setExpandedProjects(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name); else next.add(name);
-      return next;
-    });
+    setExpandedProjects(prev => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; });
   }, []);
 
   const toggleFacility = useCallback((key: string) => {
-    setExpandedFacilities(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
+    setExpandedFacilities(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  }, []);
+
+  const handleSelectManual = useCallback((manual: OmManual) => {
+    setSelectedManual(manual);
+    setSelectedTocItem(null);
   }, []);
 
   const expandAll = useCallback(() => {
     const ps = new Set(tree.map(p => p.name));
     const fs = new Set<string>();
-    for (const p of tree) {
-      for (const f of p.facilities) {
-        fs.add(`${p.name}::${f.name}`);
-      }
-    }
-    setExpandedProjects(ps);
-    setExpandedFacilities(fs);
+    for (const p of tree) { for (const f of p.facilities) { fs.add(`${p.name}::${f.name}`); } }
+    setExpandedProjects(ps); setExpandedFacilities(fs);
   }, [tree]);
 
   const clearFilters = useCallback(() => {
-    setSearch(""); setStatusFilter(""); setSelectedManual(null);
+    setSearch(""); setStatusFilter(""); setSelectedManual(null); setSelectedTocItem(null);
   }, []);
 
   const handleExport = useCallback(() => {
-    const rows = filteredManuals.map(d => ({
-      "Project":       d.project,
-      "Facility":      d.facility,
-      "Manual Title":  d.manualTitle,
-      "Equipment Type":d.equipmentType,
-      "System":        d.system,
-      "Date Issued":   d.dateIssued,
-      "Revision":      d.revision,
-      "Status":        d.status,
-      "Responsible":   d.responsibleParty,
-    }));
+    const rows: any[] = [];
+    filteredManuals.forEach(m => {
+      m.toc.forEach(t => {
+        rows.push({
+          "Project": m.project,
+          "Facility Code": m.facilityCode,
+          "Facility": m.facility,
+          "Manual Status": m.status,
+          "TOC #": t.id,
+          "TOC Section": t.title,
+          "Section Status": t.status,
+          "Last Updated": t.lastUpdated,
+          "Responsible": t.responsibleParty || m.responsibleParty,
+        });
+      });
+    });
     const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [{ wch: 14 }, { wch: 14 }, { wch: 45 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 15 }];
+    ws["!cols"] = [{ wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 6 }, { wch: 52 }, { wch: 14 }, { wch: 13 }, { wch: 15 }];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "O&M Manuals");
-    XLSX.writeFile(wb, "OM_Manuals_Export.xlsx");
-    setBanner({ type: "success", message: `${rows.length} O&M manuals exported.` });
+    XLSX.utils.book_append_sheet(wb, ws, "O&M Manuals TOC");
+    XLSX.writeFile(wb, "OM_Manuals_TOC_Export.xlsx");
+    setBanner({ type: "success", message: `${rows.length} TOC rows exported from ${filteredManuals.length} manuals.` });
   }, [filteredManuals]);
 
   const handleUpload = useCallback((file: File) => {
@@ -232,15 +335,10 @@ export default function OmManualsLibrary() {
     setBanner({ type: "info", message: `Downloading ${selectedManual.manualTitle}... (file storage integration coming soon)` });
   }, [selectedManual]);
 
-  // ── Keyboard shortcut: Ctrl+F to focus search ──
+  // Keyboard shortcut: Ctrl+F to focus search
   const searchRef = useRef<HTMLInputElement>(null);
   React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "f") {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-    };
+    const handler = (e: KeyboardEvent) => { if (e.ctrlKey && e.key === "f") { e.preventDefault(); searchRef.current?.focus(); } };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
@@ -258,7 +356,7 @@ export default function OmManualsLibrary() {
             <ProgramsEngineeringLogo size={72} borderRadius={8} />
             <div>
               <h1 className="text-lg font-bold leading-tight">O&amp;M Manuals Library</h1>
-              <p className="text-xs opacity-55" style={{ letterSpacing: "1px", textTransform: "uppercase" }}>Per Project &middot; Per Facility</p>
+              <p className="text-xs opacity-55" style={{ letterSpacing: "1px", textTransform: "uppercase" }}>Per Project &middot; Per Facility &middot; 14-Item Standard TOC</p>
             </div>
           </Link>
           <div className="flex gap-2">
@@ -277,51 +375,35 @@ export default function OmManualsLibrary() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* ── LEFT PANEL: Hierarchical Tree ── */}
-        <div className="w-full sm:w-[420px] lg:w-[460px] flex flex-col border-r border-gray-200 bg-white">
+        <div className="w-full sm:w-[440px] lg:w-[480px] flex flex-col border-r border-gray-200 bg-white">
           {/* Toolbar */}
           <div className="flex-shrink-0 p-3 border-b border-gray-200 space-y-2">
-            {/* Search */}
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">&#128269;</span>
-              <input
-                ref={searchRef}
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search across all projects & facilities..."
-                className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-              />
+              <input ref={searchRef} type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search project, facility, or code..."
+                className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none" />
               {search && <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">&#10005;</button>}
             </div>
-            {/* Filters & Actions */}
             <div className="flex gap-2 items-center">
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white flex-1">
-                <option value="">All Status</option>
-                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="">All Manual Status</option>
+                <option value="Active">Active</option>
+                <option value="Under Review">Under Review</option>
+                <option value="Draft">Draft</option>
+                <option value="Expired">Expired</option>
               </select>
-              <button onClick={expandAll} className="px-2 py-1.5 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200 whitespace-nowrap">
-                Expand All
-              </button>
+              <button onClick={expandAll} className="px-2 py-1.5 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200 whitespace-nowrap">Expand All</button>
               {(search || statusFilter) && (
-                <button onClick={clearFilters} className="px-2 py-1.5 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100 whitespace-nowrap">
-                  Clear
-                </button>
+                <button onClick={clearFilters} className="px-2 py-1.5 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100 whitespace-nowrap">Clear</button>
               )}
             </div>
-            {/* Action buttons */}
             <div className="flex gap-2 flex-wrap">
-              <button onClick={handleExport} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
-                <span>&#128196;</span> Export
-              </button>
-              <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
-                <span>&#128194;</span> Upload
-              </button>
-              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ""; }} />
-              <button onClick={handleDownload} className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1 ${selectedManual ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}>
-                <span>&#11015;</span> Download
-              </button>
+              <button onClick={handleExport} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1"><span>&#128196;</span> Export</button>
+              <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1"><span>&#128194;</span> Upload</button>
+              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ""; }} />
+              <button onClick={handleDownload} className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1 ${selectedManual ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}><span>&#11015;</span> Download</button>
             </div>
-            {/* Stats row */}
             <div className="flex gap-3 text-xs text-gray-500">
               <span><strong className="text-green-600">{stats.active}</strong> Active</span>
               <span><strong className="text-amber-600">{stats.review}</strong> Review</span>
@@ -330,85 +412,77 @@ export default function OmManualsLibrary() {
             </div>
           </div>
 
-          {/* Hierarchical Tree */}
+          {/* Tree */}
           <div className="flex-1 overflow-y-auto">
             {tree.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
                 <div className="text-3xl mb-2">&#128196;</div>
                 <div className="text-sm font-semibold text-gray-600">No manuals found</div>
-                <div className="text-xs mt-1">Try adjusting your search or filters</div>
               </div>
             ) : (
               tree.map(project => {
                 const pExpanded = expandedProjects.has(project.name);
-                const pTotal = project.facilities.reduce((s, f) => s + f.manuals.length, 0);
-                const pActive = project.facilities.reduce((s, f) => s + f.manuals.filter(m => m.status === "Active").length, 0);
+                const pTotal = project.facilities.length;
                 return (
                   <div key={project.name} className="border-b border-gray-200">
-                    {/* ── Project Header ── */}
-                    <button
-                      onClick={() => toggleProject(project.name)}
-                      className={`w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50 transition ${pExpanded ? "bg-blue-50/50" : ""}`}
-                    >
+                    {/* Project Header */}
+                    <button onClick={() => toggleProject(project.name)}
+                      className={`w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50 transition ${pExpanded ? "bg-blue-50/50" : ""}`}>
                       <Chevron expanded={pExpanded} />
                       <span className="text-lg">&#127980;</span>
                       <span className="flex-1 text-sm font-bold text-gray-800">{project.name}</span>
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
-                        <span className="bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-semibold">{pActive} active</span>
-                        <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-semibold">{pTotal} manuals</span>
-                      </div>
+                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-semibold">{pTotal} facilities</span>
                     </button>
 
-                    {/* ── Facilities under this project ── */}
+                    {/* Facilities */}
                     {pExpanded && project.facilities.map(facility => {
                       const fKey = `${project.name}::${facility.name}`;
                       const fExpanded = expandedFacilities.has(fKey);
+                      const isSelected = selectedManual?.id === facility.manual.id;
+                      const tocSt = tocStats(facility.manual.toc);
+                      const ms = MANUAL_STATUS[facility.manual.status] || MANUAL_STATUS.Draft;
                       return (
-                        <div key={fKey} className="border-t border-gray-100">
+                        <div key={fKey}>
                           {/* Facility Header */}
-                          <button
-                            onClick={() => toggleFacility(fKey)}
-                            className={`w-full flex items-center gap-2 pl-9 pr-4 py-2 text-left hover:bg-gray-50 transition ${fExpanded ? "bg-blue-50/30" : ""}`}
-                          >
+                          <button onClick={() => toggleFacility(fKey)}
+                            className={`w-full flex items-center gap-2 pl-9 pr-4 py-2 text-left hover:bg-gray-50 transition border-t border-gray-50 ${fExpanded ? "bg-blue-50/30" : ""}`}>
                             <Chevron expanded={fExpanded} />
-                            <span className="text-sm">&#9881;</span>
+                            <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1 rounded">{facility.code}</span>
                             <span className="flex-1 text-xs font-semibold text-gray-700">{facility.name}</span>
-                            <span className="text-xs text-gray-400">{facility.manuals.length}</span>
+                            {/* Mini progress bar */}
+                            <div className="hidden sm:flex items-center gap-1.5">
+                              <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${tocSt.pct}%`, background: tocSt.pct >= 80 ? "#22C55E" : tocSt.pct >= 50 ? "#3B82F6" : "#F59E0B" }} />
+                              </div>
+                              <span className="text-[0.6rem] text-gray-500 font-semibold">{tocSt.pct}%</span>
+                            </div>
+                            <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded-full" style={{ background: ms.bg, color: ms.text }}>{facility.manual.status}</span>
                           </button>
 
-                          {/* Manuals under this facility */}
-                          {fExpanded && facility.manuals.map(manual => {
-                            const isSelected = selectedManual?.id === manual.id;
-                            const sb = statusBadge(manual.status);
-                            return (
-                              <div
-                                key={manual.id}
-                                onClick={() => setSelectedManual(manual)}
-                                className={`pl-[52px] pr-4 py-2.5 cursor-pointer transition hover:bg-gray-50 border-t border-gray-50 ${isSelected ? "bg-blue-50 border-l-4 border-l-blue-600" : "border-l-4 border-l-transparent"}`}
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-[0.65rem] font-semibold text-gray-400 uppercase tracking-wide">{manual.revision}</span>
-                                      <span className="text-[0.6rem] text-gray-300">|</span>
-                                      <span className="text-[0.65rem] text-gray-400">{manual.system}</span>
-                                    </div>
-                                    <div className={`text-xs font-semibold mt-0.5 truncate ${isSelected ? "text-blue-800" : "text-gray-800"}`}>
-                                      {manual.manualTitle}
-                                    </div>
-                                  </div>
-                                  <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0" style={{ background: sb.bg, color: sb.text }}>
-                                    {manual.status}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1 text-[0.7rem] text-gray-500">
-                                  <span>{manual.equipmentType}</span>
-                                  <span>&middot;</span>
-                                  <span>{manual.dateIssued}</span>
+                          {/* Manual entry under facility */}
+                          {fExpanded && (
+                            <div onClick={() => handleSelectManual(facility.manual)}
+                              className={`pl-[52px] pr-4 py-3 cursor-pointer transition hover:bg-blue-50/40 border-t border-gray-50 ${isSelected ? "bg-blue-50 border-l-4 border-l-blue-600" : "border-l-4 border-l-transparent"}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs font-semibold truncate" style={{ color: isSelected ? "#1E40AF" : "#374151" }}>{facility.manual.manualTitle}</div>
+                                  <div className="text-[0.65rem] text-gray-400 mt-0.5">{facility.manual.revision} &middot; Issued {facility.manual.dateIssued} &middot; {facility.manual.responsibleParty}</div>
                                 </div>
                               </div>
-                            );
-                          })}
+                              {/* TOC completion micro-bars */}
+                              <div className="flex gap-1 mt-2">
+                                {facility.manual.toc.map(t => (
+                                  <div key={t.id} className="flex-1 h-1 rounded-full" style={{ background: STATUS_STYLE[t.status]?.bar || "#CBD5E1" }} title={`${t.id}. ${t.title} — ${t.status}`} />
+                                ))}
+                              </div>
+                              <div className="flex gap-2 mt-1.5 text-[0.6rem] text-gray-500">
+                                <span className="text-green-600 font-semibold">{tocSt.complete} done</span>
+                                <span className="text-blue-600 font-semibold">{tocSt.inProgress} in prog</span>
+                                <span className="text-amber-600 font-semibold">{tocSt.pending} pending</span>
+                                {tocSt.na > 0 && <span className="text-gray-400">{tocSt.na} N/A</span>}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -419,60 +493,133 @@ export default function OmManualsLibrary() {
           </div>
         </div>
 
-        {/* ── MAIN CONTENT (Document Viewer) ── */}
-        <div className="hidden sm:flex flex-1 flex-col bg-gray-100">
+        {/* ── MAIN CONTENT: TOC Viewer ── */}
+        <div className="hidden sm:flex flex-1 flex-col bg-gray-100 overflow-hidden">
           {selectedManual ? (
-            <div className="flex-1 flex flex-col">
-              {/* Document Header */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Manual Header */}
               <div className="flex-shrink-0 bg-white border-b border-gray-200 px-6 py-4">
-                {/* Breadcrumb */}
                 <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
                   <span className="font-semibold text-blue-600">&#127980; {selectedManual.project}</span>
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   <span className="font-medium text-gray-500">&#9881; {selectedManual.facility}</span>
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  <span className="text-gray-400">{selectedManual.system}</span>
+                  <span className="font-mono text-gray-400">{selectedManual.facilityCode}</span>
                 </div>
                 <div className="flex items-start justify-between">
                   <div>
                     <h2 className="text-xl font-bold text-gray-800">{selectedManual.manualTitle}</h2>
                     <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-                      <span><strong>Equipment:</strong> {selectedManual.equipmentType}</span>
-                      <span><strong>System:</strong> {selectedManual.system}</span>
                       <span><strong>Responsible:</strong> {selectedManual.responsibleParty}</span>
+                      <span><strong>Revision:</strong> {selectedManual.revision}</span>
+                      <span><strong>Issued:</strong> {selectedManual.dateIssued}</span>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span className="text-xs font-bold px-3 py-1 rounded-full" style={{ background: statusBadge(selectedManual.status).bg, color: statusBadge(selectedManual.status).text }}>
-                      {selectedManual.status}
-                    </span>
-                    <span className="text-xs text-gray-400">{selectedManual.revision} &middot; Issued: {selectedManual.dateIssued}</span>
+                    <span className="text-xs font-bold px-3 py-1 rounded-full" style={{ background: MANUAL_STATUS[selectedManual.status]?.bg, color: MANUAL_STATUS[selectedManual.status]?.text }}>{selectedManual.status}</span>
                   </div>
                 </div>
               </div>
-              {/* PDF Placeholder */}
-              <div className="flex-1 flex items-center justify-center p-8">
-                <div className="text-center max-w-md">
-                  <div className="text-6xl mb-4">&#128214;</div>
-                  <h3 className="text-lg font-semibold text-gray-700 mb-2">O&amp;M Manual Viewer</h3>
-                  <p className="text-sm text-gray-500 mb-1">
-                    <strong>{selectedManual.project}</strong> &mdash; {selectedManual.facility}
-                  </p>
-                  <p className="text-sm text-gray-500 mb-4">
-                    {selectedManual.manualTitle}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    PDF viewing integration is ready for implementation.
-                    Upload a PDF file to view it here.
-                  </p>
-                  <div className="mt-6 flex gap-3 justify-center">
-                    <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">
-                      Upload PDF
-                    </button>
-                    <button onClick={handleDownload} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50">
-                      Download
-                    </button>
+
+              {/* Two-column: TOC list + TOC detail */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* TOC 14-item list */}
+                <div className="w-[340px] lg:w-[380px] flex flex-col border-r border-gray-200 bg-white overflow-hidden">
+                  <div className="flex-shrink-0 px-4 py-2.5 border-b border-gray-200 bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Standard TOC — 14 Sections</span>
+                      {(() => { const s = tocStats(selectedManual.toc); return (
+                        <span className="text-xs font-semibold" style={{ color: s.pct >= 80 ? "#059669" : s.pct >= 50 ? "#2563EB" : "#D97706" }}>{s.pct}% Complete</span>
+                      ); })()}
+                    </div>
+                    {/* Overall progress bar */}
+                    {(() => { const s = tocStats(selectedManual.toc); return (
+                      <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mt-1.5">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${s.pct}%`, background: s.pct >= 80 ? "#22C55E" : s.pct >= 50 ? "#3B82F6" : "#F59E0B" }} />
+                      </div>
+                    ); })()}
                   </div>
+                  <div className="flex-1 overflow-y-auto">
+                    {selectedManual.toc.map(item => {
+                      const isActive = selectedTocItem?.id === item.id;
+                      const st = STATUS_STYLE[item.status];
+                      return (
+                        <button key={item.id} onClick={() => setSelectedTocItem(isActive ? null : item)}
+                          className={`w-full text-left px-4 py-2.5 border-b border-gray-50 flex items-center gap-3 transition hover:bg-gray-50 ${isActive ? "bg-blue-50" : ""}`}>
+                          <span className="w-6 h-6 rounded-full flex items-center justify-center text-[0.65rem] font-bold flex-shrink-0" style={{ background: st.bg, color: st.text }}>{item.id}</span>
+                          <span className="flex-1 text-xs font-medium truncate" style={{ color: isActive ? "#1E40AF" : "#374151" }}>{item.title}</span>
+                          <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: st.bg, color: st.text }}>{item.status}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* TOC Detail Panel */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  {selectedTocItem ? (
+                    <div className="max-w-xl">
+                      <div className="flex items-center gap-3 mb-4">
+                        <span className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: STATUS_STYLE[selectedTocItem.status]?.bg, color: STATUS_STYLE[selectedTocItem.status]?.text }}>{selectedTocItem.id}</span>
+                        <div>
+                          <h3 className="text-base font-bold text-gray-800">{selectedTocItem.title}</h3>
+                          <span className="text-xs text-gray-400">Section {selectedTocItem.id} of 14</span>
+                        </div>
+                      </div>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+                        <div className="flex items-center justify-between py-1 border-b border-gray-100">
+                          <span className="text-xs text-gray-500">Status</span>
+                          <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ background: STATUS_STYLE[selectedTocItem.status]?.bg, color: STATUS_STYLE[selectedTocItem.status]?.text }}>{selectedTocItem.status}</span>
+                        </div>
+                        <div className="flex items-center justify-between py-1 border-b border-gray-100">
+                          <span className="text-xs text-gray-500">Responsible Party</span>
+                          <span className="text-xs font-semibold text-gray-700">{selectedTocItem.responsibleParty || selectedManual.responsibleParty}</span>
+                        </div>
+                        <div className="flex items-center justify-between py-1 border-b border-gray-100">
+                          <span className="text-xs text-gray-500">Last Updated</span>
+                          <span className="text-xs font-semibold text-gray-700">{selectedTocItem.lastUpdated || "—"}</span>
+                        </div>
+                        <div className="pt-1">
+                          <span className="text-xs text-gray-500">Description</span>
+                          <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                            This section covers the requirements for {selectedTocItem.title.replace(" — ANNEX", "").toLowerCase()} as defined in the Standard O&M Manual Governance Framework (IOM dated 7 January 2026).
+                          </p>
+                        </div>
+                        <div className="pt-2">
+                          <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Upload Document</button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center text-gray-400">
+                      <div className="text-5xl mb-3">&#128218;</div>
+                      <h3 className="text-base font-semibold text-gray-500 mb-1">Select a TOC Section</h3>
+                      <p className="text-xs text-gray-400 max-w-xs mx-auto">Click any of the 14 TOC items on the left to view section details, status, and responsible party.</p>
+                      {/* TOC summary grid */}
+                      <div className="grid grid-cols-2 gap-2 mt-6 max-w-sm mx-auto">
+                        {(() => { const s = tocStats(selectedManual.toc); return (
+                          <React.Fragment>
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                              <div className="text-lg font-bold text-green-700">{s.complete}</div>
+                              <div className="text-[0.6rem] text-green-600 font-semibold uppercase">Complete</div>
+                            </div>
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                              <div className="text-lg font-bold text-blue-700">{s.inProgress}</div>
+                              <div className="text-[0.6rem] text-blue-600 font-semibold uppercase">In Progress</div>
+                            </div>
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                              <div className="text-lg font-bold text-amber-700">{s.pending}</div>
+                              <div className="text-[0.6rem] text-amber-600 font-semibold uppercase">Pending</div>
+                            </div>
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+                              <div className="text-lg font-bold text-gray-700">{s.na}</div>
+                              <div className="text-[0.6rem] text-gray-600 font-semibold uppercase">Not Applicable</div>
+                            </div>
+                          </React.Fragment>
+                        ); })()}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -480,10 +627,8 @@ export default function OmManualsLibrary() {
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center max-w-md">
                 <div className="text-6xl mb-4 opacity-30">&#128214;</div>
-                <h3 className="text-lg font-semibold text-gray-400 mb-2">Select a Manual</h3>
-                <p className="text-sm text-gray-400">
-                  Browse by project and facility in the left panel, then click on any O&amp;M Manual to view details.
-                </p>
+                <h3 className="text-lg font-semibold text-gray-400 mb-2">Select a Facility Manual</h3>
+                <p className="text-sm text-gray-400">Browse by project and facility on the left, then click any O&amp;M Manual to view its 14-section Standard TOC.</p>
               </div>
             </div>
           )}
