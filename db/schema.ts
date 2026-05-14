@@ -150,6 +150,28 @@ export const ganttTasks = pgTable("gantt_tasks", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Existing Facilities Maintenance Plans table
+export const existingFacilitiesMaintenance = pgTable("existing_facilities_maintenance", {
+  id: serial("id").primaryKey(),
+  plant: varchar("plant", { length: 255 }).notNull(),
+  equipmentType: varchar("equipment_type", { length: 255 }).notNull().default(""),
+  task: text("task").notNull(),
+  frequency: varchar("frequency", { length: 100 }).notNull(),
+  implementor: varchar("implementor", { length: 255 }),
+  status: varchar("status", { length: 50 }).notNull().default("Active"),
+  lastCompleted: varchar("last_completed", { length: 20 }),
+  nextDue: varchar("next_due", { length: 20 }),
+  remarks: text("remarks"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("efm_plant_idx").on(table.plant),
+  index("efm_equip_idx").on(table.equipmentType),
+  index("efm_frequency_idx").on(table.frequency),
+  index("efm_implementor_idx").on(table.implementor),
+  index("efm_status_idx").on(table.status),
+]);
+
 export const ganttLinks = pgTable("gantt_links", {
   id: serial("id").primaryKey(),
   source: integer("source").notNull(),

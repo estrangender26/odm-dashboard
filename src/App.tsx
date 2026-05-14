@@ -5,6 +5,7 @@ import Login from "./pages/Login"
 import Help from "./pages/Help"
 import NotFound from "./pages/NotFound"
 import GanttPlanner from "./pages/GanttPlanner"
+import ExistingFacilitiesMaintenance from "./pages/ExistingFacilitiesMaintenance"
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/help" element={<Help />} />
       <Route path="/gantt-planner" element={<GanttPlanner />} />
+      <Route path="/existing-facilities" element={<ExistingFacilitiesMaintenance />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )

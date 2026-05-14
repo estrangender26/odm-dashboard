@@ -208,6 +208,80 @@ export default function Home() {
               Open Planner →
             </span>
           </Link>
+
+          {/* Existing Facilities Maintenance Plans Card */}
+          <Link
+            to="/existing-facilities"
+            style={{
+              display: 'block',
+              background: 'white',
+              borderRadius: '16px',
+              padding: '28px',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)',
+              border: '1px solid #E8EDF2',
+              transition: 'all 0.3s ease',
+              textDecoration: 'none',
+              color: 'inherit',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-4px)';
+              e.currentTarget.style.boxShadow = '0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.08)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)';
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: '4px',
+                background: 'linear-gradient(90deg, #059669, #10B981)',
+              }}
+            />
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '52px',
+                  height: '52px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #D1FAE5, #A7F3D0)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '26px',
+                  flexShrink: 0,
+                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)',
+                }}
+              >
+                🏗️
+              </div>
+              <div style={{ flex: 1 }}>
+                <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0B1D44', margin: '0 0 6px', lineHeight: 1.2 }}>
+                  Existing Facilities Maintenance Plans
+                </h2>
+                <p style={{ fontSize: '14px', color: '#5A6B7D', margin: 0, lineHeight: 1.5 }}>
+                  Asset Maintenance Department / Programs
+                </p>
+              </div>
+            </div>
+            <p style={{ fontSize: '14px', color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
+              View and manage maintenance schedules for existing facilities. Track tasks by equipment type, frequency, implementor. Import/export from Excel.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#D1FAE5', color: '#059669' }}>Maintenance</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#D1FAE5', color: '#059669' }}>CRUD</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Excel</span>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#059669', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Open Dashboard →
+            </span>
+          </Link>
         </div>
       </main>
 
