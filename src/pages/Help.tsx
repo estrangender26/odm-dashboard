@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
-import AIAssistant from "@/components/AIAssistant";
 
 const DASHBOARDS = [
   {
@@ -286,19 +285,6 @@ export default function Help() {
         Program Oversight Center &copy; 2026
       </footer>
 
-      {/* AI Assistant */}
-      <AIAssistant
-        contextType="maintenance"
-        data={HELP_CONTEXT}
-        quickQuestions={[
-          "How do I create a folder in O&M Manuals Library?",
-          "How do I upload a file?",
-          "How do I use the Gantt chart?",
-          "How do I export data to Excel?",
-          "How do I use the AI assistant?",
-          "Which dashboards have AI support?",
-        ]}
-      />
     </div>
   );
 }
