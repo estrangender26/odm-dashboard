@@ -199,7 +199,7 @@ export const efmRouter = createRouter({
       return { success: true };
     }),
 
-  // ── Bulk import ──
+  // ── Bulk import with batch insert, duplicate detection, per-row error handling ──
   importExcel: publicQuery
     .input(z.object({
       rows: z.array(z.object({
@@ -212,35 +212,126 @@ export const efmRouter = createRouter({
         lastCompleted: z.string().optional(),
         nextDue: z.string().optional(),
         remarks: z.string().optional(),
+        _sourceSheet: z.string().optional(),
+        _sourceRow: z.number().optional(),
       })),
     }))
     .mutation(async ({ input }) => {
       await ensureTable();
-      const inserted = [];
-      const skipped = [];
-      for (let i = 0; i < input.rows.length; i++) {
-        const row = input.rows[i];
-        // Skip rows with missing required fields
+
+      const inserted: any[] = [];
+      const skipped: { row: number; sheet: string; reason: string }[] = [];
+      const failed: { row: number; sheet: string; reason: string }[] = [];
+      const duplicates: { row: number; sheet: string; key: string }[] = [];
+
+      // Build a set of existing composite keys for duplicate detection
+      const existingKeys = new Set<string>();
+      try {
+        const allRecords = await db.select().from(existingFacilitiesMaintenance);
+        for (const rec of allRecords) {
+          const key = `${rec.plant}::${rec.equipmentType || ""}::${rec.task}::${rec.frequency || ""}::${rec.implementor || ""}`;
+          existingKeys.add(key);
+        }
+      } catch {
+        // If select fails, proceed without duplicate detection
+      }
+
+      // Normalize and deduplicate incoming rows
+      const normalizedRows = input.rows.map((row, idx) => {
+        const plant = (row.plant || "").trim();
+        const task = (row.task || "").trim();
+        const equipmentType = (row.equipmentType || "").trim();
+        const frequency = (row.frequency || "").trim() || "As needed";
+        const implementor = (row.implementor || "").trim() || null;
+        const status = (row.status || "").trim() || "Active";
+        const lastCompleted = (row.lastCompleted || "").trim() || null;
+        const nextDue = (row.nextDue || "").trim() || null;
+        const remarks = (row.remarks || "").trim() || null;
+        const dupKey = `${plant}::${equipmentType}::${task}::${frequency}::${implementor || ""}`;
+        return {
+          plant, task, equipmentType, frequency, implementor, status,
+          lastCompleted, nextDue, remarks,
+          _sourceSheet: row._sourceSheet || "Sheet1",
+          _sourceRow: row._sourceRow || idx + 1,
+          _dupKey: dupKey,
+          _incomingIdx: idx,
+        };
+      });
+
+      // Separate valid rows from skipped (missing required fields)
+      const validRows: typeof normalizedRows = [];
+      for (const row of normalizedRows) {
         if (!row.plant || !row.task) {
-          skipped.push({ row: i + 1, reason: "Missing plant or task" });
+          skipped.push({ row: row._sourceRow, sheet: row._sourceSheet, reason: "Missing Plant or Task" });
           continue;
         }
-        // Normalize frequency - default to empty string if missing
-        const freq = (row.frequency || "").trim();
-        const [result] = await db.insert(existingFacilitiesMaintenance).values({
-          plant: row.plant.trim(),
-          equipmentType: (row.equipmentType || "").trim(),
-          task: row.task.trim(),
-          frequency: freq || "As needed", // Default frequency if empty
-          implementor: (row.implementor || "").trim() || null,
-          status: (row.status || "Active").trim() || "Active",
-          lastCompleted: (row.lastCompleted || "").trim() || null,
-          nextDue: (row.nextDue || "").trim() || null,
-          remarks: (row.remarks || "").trim() || null,
-        }).returning();
-        inserted.push(result);
+        // Check for duplicates against existing database
+        if (existingKeys.has(row._dupKey)) {
+          duplicates.push({ row: row._sourceRow, sheet: row._sourceSheet, key: row._dupKey });
+          continue;
+        }
+        // Check for duplicates within this same import batch
+        const firstIdx = validRows.findIndex((r) => r._dupKey === row._dupKey);
+        if (firstIdx >= 0) {
+          duplicates.push({ row: row._sourceRow, sheet: row._sourceSheet, key: row._dupKey });
+          continue;
+        }
+        validRows.push(row);
       }
-      return { success: true, count: inserted.length, skipped: skipped.length };
+
+      // Insert in batches of 50 — per-row error recovery
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
+        const batch = validRows.slice(i, i + BATCH_SIZE);
+        try {
+          // Try batch insert first
+          await db.insert(existingFacilitiesMaintenance).values(
+            batch.map((r) => ({
+              plant: r.plant,
+              equipmentType: r.equipmentType,
+              task: r.task,
+              frequency: r.frequency,
+              implementor: r.implementor,
+              status: r.status,
+              lastCompleted: r.lastCompleted,
+              nextDue: r.nextDue,
+              remarks: r.remarks,
+            }))
+          );
+          inserted.push(...batch);
+        } catch (batchErr: any) {
+          // Batch failed — try row-by-row for this chunk
+          console.error(`[IMPORT] Batch ${i}-${i + batch.length} failed, trying per-row:`, batchErr.message);
+          for (const row of batch) {
+            try {
+              await db.insert(existingFacilitiesMaintenance).values({
+                plant: row.plant,
+                equipmentType: row.equipmentType,
+                task: row.task,
+                frequency: row.frequency,
+                implementor: row.implementor,
+                status: row.status,
+                lastCompleted: row.lastCompleted,
+                nextDue: row.nextDue,
+                remarks: row.remarks,
+              });
+              inserted.push(row);
+            } catch (rowErr: any) {
+              failed.push({ row: row._sourceRow, sheet: row._sourceSheet, reason: rowErr.message || "Database insert failed" });
+            }
+          }
+        }
+      }
+
+      return {
+        success: true,
+        count: inserted.length,
+        skipped: skipped.length,
+        failed: failed.length,
+        duplicates: duplicates.length,
+        totalReceived: input.rows.length,
+        details: { skipped, failed, duplicates: duplicates.slice(0, 20) },
+      };
     }),
 
   // ── Seed from complete Excel data ──
