@@ -282,6 +282,40 @@ export default function Home() {
               Open Dashboard →
             </span>
           </Link>
+
+          {/* SMP — Standard Maintenance Procedures */}
+          <Link
+            to="/smp-dashboard"
+            className="group"
+            style={{ display: 'block', background: '#fff', borderRadius: 14, padding: '22px 24px', border: '1px solid #D6DFE8', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', textDecoration: 'none', color: 'inherit', transition: 'all 0.2s ease', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #0B1D44 0%, #005BAC 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                📘
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>Standard Maintenance Procedures</h3>
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#005BAC', color: '#fff', textTransform: 'uppercase', letterSpacing: '0.5px' }}>New</span>
+                </div>
+                <p style={{ fontSize: 12, color: '#8BA3B8', margin: 0 }}>
+                  Centralized repository for SOPs, SMPs, and preventive maintenance documentation. Upload, view, and download PDF maintenance guides.
+                </p>
+              </div>
+            </div>
+            <p style={{ fontSize: '14px', color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
+              Browse maintenance procedure documents organized by equipment type and system. PDF viewer with upload/download support. Searchable and filterable document library.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#DBEAFE', color: '#005BAC' }}>Documents</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#DBEAFE', color: '#005BAC' }}>PDF</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Upload</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#D1FAE5', color: '#059669' }}>Download</span>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#005BAC', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Open SMP Library →
+            </span>
+          </Link>
         </div>
       </main>
 

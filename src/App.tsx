@@ -6,6 +6,7 @@ import Help from "./pages/Help"
 import NotFound from "./pages/NotFound"
 import GanttPlanner from "./pages/GanttPlanner"
 import ExistingFacilitiesMaintenance from "./pages/ExistingFacilitiesMaintenance"
+import SmpDashboard from "./pages/SmpDashboard"
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
       <Route path="/help" element={<Help />} />
       <Route path="/gantt-planner" element={<GanttPlanner />} />
       <Route path="/existing-facilities" element={<ExistingFacilitiesMaintenance />} />
+      <Route path="/smp-dashboard" element={<SmpDashboard />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
