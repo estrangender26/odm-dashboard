@@ -168,6 +168,22 @@ function mapRecord(raw: any): InspectionRecord {
 // MAIN COMPONENT
 // ═══════════════════════════════════════════
 
+// ── Mock data fallback for when API is unavailable ──
+const MOCK_RECORDS: InspectionRecord[] = [
+  { id: 1, facilityId: "HTT-STP", inspector: "J. Cruz", inspectionDate: "2025-08-12", assetTag: "PU-HTT-001", assetName: "Raw Water Pump A", equipmentType: "Pumps", category: "Mechanical", task: "Check bearing temperature", status: "Fail", score: 45, findings: "Excessive vibration detected on bearing housing. Temperature reading 85°C, above normal 65°C. Oil seal showing minor leak.", action: "Schedule pump overhaul within 14 days. Monitor daily.", recommendation: "Replace bearings and oil seal. Check alignment.", remarks: "Vendor: PumpTech Services", date: "2025-08-12", month: "August 2025", plantArea: "Raw Water Intake" },
+  { id: 2, facilityId: "HTT-STP", inspector: "M. Santos", inspectionDate: "2025-08-13", assetTag: "BL-HTT-003", assetName: "Aeration Blower 2", equipmentType: "Blowers", category: "Mechanical", task: "Inspect belt tension", status: "Warning", score: 72, findings: "Belt tension below spec (12mm deflection vs 8mm standard). Slight noise from motor coupling.", action: "Adjust belt tension. Inspect coupling.", recommendation: "Replace belts if adjustment insufficient. Check coupling alignment.", remarks: "", date: "2025-08-13", month: "August 2025", plantArea: "Aeration" },
+  { id: 3, facilityId: "AGL-STP", inspector: "R. Reyes", inspectionDate: "2025-08-14", assetTag: "MC-AGL-007", assetName: "MCC Panel A", equipmentType: "Motors", category: "Electrical", task: "Thermal scan of terminals", status: "Pass", score: 92, findings: "All terminal temperatures within normal range. No hotspots detected.", action: "Continue normal operation.", recommendation: "Next inspection in 6 months.", remarks: "", date: "2025-08-14", month: "August 2025", plantArea: "Electrical Room" },
+  { id: 4, facilityId: "AGL-STP", inspector: "J. Cruz", inspectionDate: "2025-08-15", assetTag: "SC-AGL-012", assetName: "SCADA Workstation", equipmentType: "SCADA", category: "Automation", task: "Check HMI response time", status: "Fail", score: 38, findings: "HMI response time 8 seconds (spec: <2s). Communication timeout alarms frequent. PLC program version outdated.", action: "Update PLC firmware. Check network cables.", recommendation: "Upgrade SCADA software. Replace aged network infrastructure.", remarks: "Vendor: AutoControl Systems needed", date: "2025-08-15", month: "August 2025", plantArea: "Control Room" },
+  { id: 5, facilityId: "EBY-STP", inspector: "L. Garcia", inspectionDate: "2025-08-16", assetTag: "FM-EBY-004", assetName: "Effluent Flow Meter", equipmentType: "Flow Meters", category: "Instrumentation", task: "Calibrate flow reading", status: "Warning", score: 68, findings: "Flow reading 8% deviation from standard. Sensor fouling observed.", action: "Clean sensor. Recalibrate.", recommendation: "Schedule calibration service. Consider ultrasonic replacement.", remarks: "", date: "2025-08-16", month: "August 2025", plantArea: "Effluent" },
+  { id: 6, facilityId: "HTT-STP", inspector: "M. Santos", inspectionDate: "2025-08-17", assetTag: "TR-HTT-009", assetName: "Transformer T1", equipmentType: "Transformers", category: "Electrical", task: "Oil sampling and DGA", status: "Fail", score: 30, findings: "DGA shows elevated acetylene (45 ppm) indicating arcing. Oil moisture content 28 ppm (limit: 20 ppm).", action: "Immediate de-energize for inspection. Contact transformer specialist.", recommendation: "Internal inspection required. Possible winding damage.", remarks: "Vendor: PowerTech Diagnostics required", date: "2025-08-17", month: "August 2025", plantArea: "HV Yard" },
+  { id: 7, facilityId: "KAY-STP", inspector: "R. Reyes", inspectionDate: "2025-08-18", assetTag: "VS-KAY-003", assetName: "Sluice Valve 12in", equipmentType: "Valves", category: "Mechanical", task: "Check valve operation", status: "Pass", score: 88, findings: "Valve operates smoothly. No leaks. Position indicator accurate.", action: "Continue normal operation.", recommendation: "Next inspection in 12 months.", remarks: "", date: "2025-08-18", month: "August 2025", plantArea: "Distribution" },
+  { id: 8, facilityId: "AGL-STP", inspector: "J. Cruz", inspectionDate: "2025-08-19", assetTag: "UV-AGL-015", assetName: "UV Disinfection Bank 2", equipmentType: "UV / Disinfection", category: "Treatment", task: "Check UV intensity", status: "Warning", score: 65, findings: "UV intensity 72% of design (spec: >80%). 3 of 24 lamps showing reduced output.", action: "Replace underperforming lamps. Clean quartz sleeves.", recommendation: "Replace all lamps if batch >2 years old.", remarks: "", date: "2025-08-19", month: "August 2025", plantArea: "Disinfection" },
+  { id: 9, facilityId: "EBY-STP", inspector: "L. Garcia", inspectionDate: "2025-08-20", assetTag: "GN-EBY-008", assetName: "Emergency Generator", equipmentType: "Generators", category: "Electrical", task: "Test auto-start sequence", status: "Fail", score: 25, findings: "Auto-start failed during test. Battery voltage low (11.2V vs 12.6V). Starter motor cranking slow.", action: "Replace battery. Inspect starter motor.", recommendation: "Replace battery immediately. Check charging system.", remarks: "", date: "2025-08-20", month: "August 2025", plantArea: "Backup Power" },
+  { id: 10, facilityId: "HTT-STP", inspector: "M. Santos", inspectionDate: "2025-08-21", assetTag: "OD-HTT-020", assetName: "Odor Control Scrubber", equipmentType: "Odor Control", category: "Environmental", task: "Check chemical levels", status: "Pass", score: 95, findings: "All chemical levels optimal. Scrubber efficiency 98%. No bypass odors detected.", action: "Continue normal operation.", recommendation: "Maintain current chemical dosing schedule.", remarks: "", date: "2025-08-21", month: "August 2025", plantArea: "Environmental" },
+  { id: 11, facilityId: "KAY-STP", inspector: "R. Reyes", inspectionDate: "2025-08-22", assetTag: "CL-KAY-011", assetName: "Clarifier Drive Unit", equipmentType: "Clarifiers", category: "Mechanical", task: "Check drive torque", status: "Warning", score: 70, findings: "Drive torque 15% above baseline. Gearbox oil darkened. Chain wear visible.", action: "Change gearbox oil. Inspect chain drive.", recommendation: "Replace chain if wear exceeds 10%.", remarks: "", date: "2025-08-22", month: "August 2025", plantArea: "Secondary Treatment" },
+  { id: 12, facilityId: "AGL-STP", inspector: "J. Cruz", inspectionDate: "2025-08-23", assetTag: "CD-AGL-019", assetName: "Chemical Dosing Pump B", equipmentType: "Chemical Dosing", category: "Treatment", task: "Verify dosing rate", status: "Pass", score: 90, findings: "Dosing rate accurate within 2% of setpoint. Diaphragm condition good.", action: "Continue normal operation.", recommendation: "Replace diaphragm at next PM.", remarks: "", date: "2025-08-23", month: "August 2025", plantArea: "Chemical Feed" },
+];
+
 export default function OperatorDrivenMaintenance() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -176,14 +192,39 @@ export default function OperatorDrivenMaintenance() {
   const [selectedFinding, setSelectedFinding] = useState<InspectionRecord | null>(null);
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [view, setView] = useState<"table" | "ai">("table");
+  const [usingMock, setUsingMock] = useState(false);
+  const utils = trpc.useUtils();
 
-  // Fetch data — map snake_case → camelCase
-  const { data: apiResponse, isLoading } = trpc.mw.list.useQuery();
+  // Fetch data — with error handling and mock fallback
+  const { data: apiResponse, isLoading, isError, error: queryError } = trpc.mw.list.useQuery(undefined, {
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
   const rawRecords: InspectionRecord[] = useMemo(() => {
+    if (isError) {
+      console.error("[ODM] API error:", queryError?.message);
+      setUsingMock(true);
+      return MOCK_RECORDS;
+    }
+    if (!apiResponse) {
+      // Still loading but don't block — return empty
+      return [];
+    }
     const rows = (apiResponse as any)?.rows || apiResponse;
-    if (!Array.isArray(rows)) return [];
+    if (!Array.isArray(rows) || rows.length === 0) {
+      console.log("[ODM] API returned empty, using mock data");
+      setUsingMock(true);
+      return MOCK_RECORDS;
+    }
+    console.log("[ODM] API returned", rows.length, "records");
     return rows.map(mapRecord);
-  }, [apiResponse]);
+  }, [apiResponse, isError, queryError]);
+
+  const handleRetry = useCallback(() => {
+    setUsingMock(false);
+    utils.mw.list.invalidate();
+  }, [utils]);
 
   // Filters
   const filtered = useMemo(() => {
@@ -228,6 +269,11 @@ export default function OperatorDrivenMaintenance() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
       {banner && <div className="flex-shrink-0 px-4 pt-3"><Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} /></div>}
+      {usingMock && (
+        <div className="flex-shrink-0 px-4 pt-2">
+          <Banner type="info" message="📡 Showing offline sample data. API connection unavailable — retry or continue working with sample records." onDismiss={() => setUsingMock(false)} />
+        </div>
+      )}
 
       {/* Header */}
       <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}>
@@ -293,12 +339,22 @@ export default function OperatorDrivenMaintenance() {
 
           {/* Table */}
           <div className="flex-1 overflow-y-auto">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-16 text-gray-400 text-sm">Loading inspection records...</div>
+            {isLoading && rawRecords.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400 text-sm">
+                <div className="text-2xl mb-2">⏳</div>
+                <div>Loading inspection records...</div>
+                {isError && (
+                  <button type="button" onClick={handleRetry} className="mt-3 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">
+                    🔄 Retry
+                  </button>
+                )}
+              </div>
             ) : filtered.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
                 <div className="text-3xl mb-2">🔍</div>
                 <div className="text-sm font-semibold text-gray-600">No findings match</div>
+                {rawRecords.length > 0 && <div className="text-xs mt-1">{rawRecords.length} total records — try adjusting filters</div>}
+                {usingMock && <div className="text-xs text-amber-500 mt-1">📡 Using offline data (API unavailable)</div>}
               </div>
             ) : (
               filtered.map(r => {
