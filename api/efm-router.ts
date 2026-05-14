@@ -413,19 +413,38 @@ export const efmRouter = createRouter({
       { plant: "Modesta PS", equipmentType: "1. Automation", task: "Preventive Maintenance and Repairs", frequency: "Quarterly", implementor: "Maintenance/Contractor" },
     ];
 
+    // Batch insert in chunks of 50 for reliability
+    const chunkSize = 50;
     let inserted = 0;
-    for (const t of allTasks) {
-      await db.insert(existingFacilitiesMaintenance).values({
+    let failed = 0;
+    for (let i = 0; i < allTasks.length; i += chunkSize) {
+      const chunk = allTasks.slice(i, i + chunkSize).map((t) => ({
         plant: t.plant,
         equipmentType: t.equipmentType,
         task: t.task,
         frequency: t.frequency,
         implementor: t.implementor,
-        status: "Active",
-      });
-      inserted++;
+        status: "Active" as const,
+      }));
+      try {
+        await db.insert(existingFacilitiesMaintenance).values(chunk);
+        inserted += chunk.length;
+      } catch (e: any) {
+        console.error(`[SEED] Batch ${i}-${i + chunkSize} failed:`, e.message);
+        failed += chunk.length;
+        // Try one-by-one for this batch to salvage what we can
+        for (const t of chunk) {
+          try {
+            await db.insert(existingFacilitiesMaintenance).values(t);
+            inserted++;
+            failed--;
+          } catch (e2: any) {
+            console.error(`[SEED] Row failed:`, t.plant, t.task, e2.message);
+          }
+        }
+      }
     }
-    return { seeded: true, count: inserted };
+    return { seeded: true, count: inserted, failed, total: allTasks.length };
   }),
 
   // ── Reset all data ──

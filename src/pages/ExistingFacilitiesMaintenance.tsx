@@ -132,7 +132,16 @@ export default function ExistingFacilitiesMaintenance() {
     onError: (err) => { alert("Import failed: " + err.message); console.error("[IMPORT ERROR]", err); },
   });
   const seedMut = trpc.efm.seed.useMutation({
-    onSuccess: (data) => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); alert(data.seeded ? `Loaded ${data.count} records!` : data.reason); },
+    onSuccess: (data) => {
+      utils.efm.list.invalidate();
+      utils.efm.filters.invalidate();
+      if (data.seeded) {
+        const msg = `Loaded ${data.count} of ${data.total} records` + (data.failed ? ` (${data.failed} failed)` : "");
+        alert(msg);
+      } else {
+        alert(data.reason);
+      }
+    },
     onError: (err) => { alert("Seed failed: " + err.message); console.error("[SEED ERROR]", err); },
   });
   const resetMut = trpc.efm.reset.useMutation({ onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); } });
