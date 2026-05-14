@@ -1,9 +1,155 @@
 import { Link } from "react-router";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import AIAssistant from "@/components/AIAssistant";
+
+const DASHBOARDS = [
+  {
+    icon: "📋",
+    bg: "#F0F4FF",
+    title: "Maintenance Planning (Post-PPP)",
+    route: "/equipment",
+    desc: "Manage maintenance task schedules across facilities. Plan when each maintenance activity (Operations, AMD, ARD) should occur.",
+    steps: [
+      "Filter by Equipment Type, Frequency, or Personnel.",
+      "Expand/Collapse equipment groups to show/hide tasks.",
+      "Select tasks with checkboxes or use Select All.",
+      "Edit dates by clicking Edit, then pick from calendar dropdowns.",
+      "Export: select tasks and click Export, or export all.",
+      "Import: upload a CSV or Excel file. Blank cells won't overwrite existing data.",
+      "Ask AI: click the floating AI button for insights on coverage, overloads, and anomalies.",
+    ],
+  },
+  {
+    icon: "🏭",
+    bg: "#E0F2FE",
+    title: "Existing Facilities Maintenance",
+    route: "/existing-facilities",
+    desc: "View and manage maintenance plans grouped by equipment type with inferred categorization, KPI cards, and grouped task tables.",
+    steps: [
+      "View equipment grouped by inferred Equipment Type (Pumps, Motors, Blowers, etc.).",
+      "Check KPI cards for total equipment, tasks, implementors, and frequencies.",
+      "Expand equipment groups to see individual maintenance tasks.",
+      "Filter by plant, equipment type, or responsible person.",
+      "Export grouped data to Excel for offline analysis.",
+      "Ask AI: get summaries of PM coverage, overloaded implementors, and incomplete plans.",
+    ],
+  },
+  {
+    icon: "📅",
+    bg: "#ECFDF5",
+    title: "Gantt Chart Planner",
+    route: "/gantt-planner",
+    desc: "Interactive Gantt chart with 6 zoom levels, dual-bar visualization (planned vs actual), and responsive timeline rendering.",
+    steps: [
+      "Select zoom level: Autofit, Year, Quarter, Month, Week, or Day.",
+      "View dual bars: planned (blue dashed) + actual (green/red).",
+      "Pan and scroll the timeline with touch or mouse.",
+      "Resize the window — the chart auto-fits to container width.",
+      "Filter tasks by project, status, or responsible party.",
+      "Ask AI: identify delayed tasks, schedule risks, and recovery actions.",
+    ],
+  },
+  {
+    icon: "🔧",
+    bg: "#FFF7ED",
+    title: "Standard Maintenance Procedures",
+    route: "/smp-dashboard",
+    desc: "Browse, search, and manage Standard Maintenance Procedure (SMP) documents with equipment type filtering and PDF viewer.",
+    steps: [
+      "Search SMPs by title, code, equipment type, or system.",
+      "Filter by Equipment Type, System, Status, or Responsible Party.",
+      "Select an SMP to view details in the right panel.",
+      "Upload PDF documents to attach to SMP records.",
+      "Export SMP list to Excel for reporting.",
+      "Ask AI: find missing SMPs, expired procedures, and coverage gaps.",
+    ],
+  },
+  {
+    icon: "📖",
+    bg: "#F5F3FF",
+    title: "O&M Manuals Library",
+    route: "/om-manuals-library",
+    desc: "Document management system with configurable folder tree, PDF upload/view, download, delete, and 14-item Standard TOC tracking.",
+    steps: [
+      "Create folders and subfolders to organize documents.",
+      "Upload PDF, Word, or Excel files into any folder.",
+      "Download files with original filename preserved.",
+      "Delete files with confirmation dialog.",
+      "Search across all folders and files.",
+      "Right-click (or tap ⋮) for folder/file actions: rename, move, delete.",
+      "Ask AI: summarize document coverage, identify missing manuals, and prioritize uploads.",
+    ],
+  },
+  {
+    icon: "📈",
+    bg: "#F0F9FF",
+    title: "Monthly KPI Scorecard",
+    route: "/scorecard-kpi",
+    desc: "Track 8 KPIs across 6 business units with color-coded performance, benchmark comparison, and Excel import.",
+    steps: [
+      "Select Year and Month, then click Load.",
+      "Input data manually or import from Excel.",
+      "Color codes: Green = passed, Yellow = missing, Red = below benchmark.",
+      "View summary matrix with all BUs and KPIs.",
+      "Drill down into individual BU performance.",
+      "Ask AI: identify underperforming BUs, benchmark gaps, and recommended actions.",
+    ],
+  },
+  {
+    icon: "🏗️",
+    bg: "#FFF7ED",
+    title: "O&M Manual Governance",
+    route: "/governance.html",
+    desc: "Track O&M manual delivery progress across water treatment facilities (Aglipay, HTT, East Bay, Kaysakat).",
+    steps: [
+      "Tabs: Progress Chart, Deliverables, S-Curve, Extra Uploads.",
+      "Check milestones by clicking checkboxes.",
+      "Upload files next to any TOC item.",
+      "Enter PPP/Comp dates to calculate progress percentages.",
+      "Click Refresh to see updates from other users.",
+    ],
+  },
+  {
+    icon: "🔧",
+    bg: "#F0FDF4",
+    title: "ODM Dashboard",
+    route: "/mw-dashboard.html",
+    desc: "View operator-driven maintenance inspection records and KPIs (asset health, compliance, abnormalities).",
+    steps: [
+      "Import Excel: upload inspection data from .xlsx files.",
+      "View KPIs: health score, compliance rate, abnormal findings.",
+      "Filter by date range, asset tag, or status.",
+      "Toggle between bar, line, and pie chart views.",
+    ],
+  },
+];
+
+// Help context data for AI
+const HELP_CONTEXT = {
+  totalDashboards: DASHBOARDS.length,
+  dashboardNames: DASHBOARDS.map(d => d.title),
+  features: [
+    "Folder-based document management with CRUD operations",
+    "PDF upload, view, download, and delete",
+    "Interactive Gantt charts with 6 zoom levels",
+    "Equipment type grouping with inference engine",
+    "KPI scorecards with benchmark tracking",
+    "SMP document library with search and filter",
+    "AI-powered insights on all dashboards",
+    "Excel import/export across all modules",
+    "Mobile-responsive design",
+  ],
+  shortcuts: [
+    "Click Programs logo to return to home page",
+    "Ctrl+F to focus search in O&M Manuals Library",
+    "Tap floating AI button for dashboard insights",
+    "Swipe AI panel to close on mobile",
+  ],
+};
 
 export default function Help() {
   return (
-    <div className="min-h-screen" style={{ background: '#F8FAFC', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: '#F8FAFC', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
       {/* Header */}
       <header style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', color: '#fff', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -11,143 +157,148 @@ export default function Help() {
             <ProgramsEngineeringLogo size={72} borderRadius={8} />
             <div>
               <h1 className="text-sm sm:text-[15px] font-bold" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
-              <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Programs</span>
+              <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Help & User Guide</span>
             </div>
           </Link>
-
         </div>
       </header>
 
+      {/* Hero */}
+      <div style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 100%)', color: '#fff' }}>
+        <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 24px' }}>
+          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Help & User Guide</h2>
+          <p style={{ fontSize: 13, opacity: 0.7, maxWidth: 600 }}>
+            How to navigate and use each dashboard in the Programs suite. 
+            All dashboards include AI-powered insights — tap the floating button on any page to ask questions.
+          </p>
+          <div className="flex gap-2 mt-3 flex-wrap">
+            <span className="text-[10px] font-semibold px-2 py-1 rounded-full" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff' }}>{DASHBOARDS.length} Dashboards</span>
+            <span className="text-[10px] font-semibold px-2 py-1 rounded-full" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff' }}>AI-Enhanced</span>
+            <span className="text-[10px] font-semibold px-2 py-1 rounded-full" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff' }}>Mobile Ready</span>
+          </div>
+        </div>
+      </div>
+
       {/* Content */}
-      <main style={{ maxWidth: 900, margin: '0 auto', padding: '32px 16px 60px' }} className="sm:!px-6">
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: '#0B1D44', marginBottom: 8 }}>Help & User Guide</h2>
-        <p style={{ fontSize: 14, color: '#5A6B7D', marginBottom: 32 }}>How to navigate and use each dashboard in the Programs suite.</p>
+      <main style={{ maxWidth: 900, margin: '0 auto', padding: '24px 16px 40px' }} className="sm:!px-6 flex-1">
+
+        {/* AI Feature Highlight */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm mb-6" style={{ borderLeft: '4px solid #0066A6' }}>
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#F0F4FF' }}>🤖</div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900 mb-1">AI Assistant — Available on Every Dashboard</h3>
+              <p className="text-sm text-gray-600 mb-3">
+                Every dashboard now includes an AI-powered assistant. Tap the floating button in the bottom-right corner to open the AI panel.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600">
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold flex-shrink-0">1.</span>
+                  <span><strong>Ask questions</strong> about your data in natural language</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold flex-shrink-0">2.</span>
+                  <span><strong>Quick questions</strong> — tap pre-built question chips for instant insights</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold flex-shrink-0">3.</span>
+                  <span><strong>Summarize</strong> coverage, gaps, risks, and priorities</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold flex-shrink-0">4.</span>
+                  <span><strong>Mobile-friendly</strong> — swipe to close, scrollable panel</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Dashboard Cards */}
-        <div className="space-y-6">
-
-          {/* Maintenance Planning (Post-PPP) */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#F0F4FF' }}>📋</div>
-              <div>
-                <h3 className="text-base font-bold text-gray-900">Maintenance Planning (Post-PPP)</h3>
-                <p className="text-xs text-gray-500">/equipment</p>
+        <div className="space-y-5">
+          {DASHBOARDS.map((d) => (
+            <div key={d.route} className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: d.bg }}>{d.icon}</div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">{d.title}</h3>
+                  <p className="text-xs text-gray-500">{d.route}</p>
+                </div>
+              </div>
+              <div className="space-y-3 text-sm text-gray-700">
+                <p><strong>What it does:</strong> {d.desc}</p>
+                <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                  <p className="font-semibold text-gray-900 text-xs uppercase tracking-wide">How to use</p>
+                  <ul className="list-disc list-inside space-y-1 text-sm">
+                    {d.steps.map((s, i) => (
+                      <li key={i} dangerouslySetInnerHTML={{ __html: s.replace(/(Ask AI)/, '<strong>$1</strong>') }} />
+                    ))}
+                  </ul>
+                </div>
               </div>
             </div>
-            <div className="space-y-3 text-sm text-gray-700">
-              <p><strong>What it does:</strong> Manage maintenance task schedules across facilities. Plan when each maintenance activity (Operations, AMD, ARD) should occur.</p>
-              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                <p className="font-semibold text-gray-900 text-xs uppercase tracking-wide">How to use</p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li><strong>Filter:</strong> Use dropdowns to filter by Equipment Type, Frequency, or Personnel (Aglipay tab).</li>
-                  <li><strong>Expand/Collapse:</strong> Click equipment group headers to show/hide tasks. Use Expand/Collapse All buttons.</li>
-                  <li><strong>Select tasks:</strong> Check the box next to tasks or use "Select All" to select multiple.</li>
-                  <li><strong>Edit dates:</strong> Click Edit, pick dates from the calendar dropdowns, then Save.</li>
-                  <li><strong>Export:</strong> Select tasks and click Export, or export all without selecting.</li>
-                  <li><strong>Import:</strong> Click Import and upload a CSV or Excel file. Blank cells won't overwrite existing data.</li>
-                </ul>
+          ))}
+        </div>
+
+        {/* General Tips */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm mt-5" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#FEF2F2' }}>💡</div>
+            <h3 className="text-base font-bold text-gray-900">General Tips & Shortcuts</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-700">
+            {HELP_CONTEXT.shortcuts.map((tip, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="text-red-500 font-bold text-xs flex-shrink-0 mt-0.5">●</span>
+                <span>{tip}</span>
               </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Keyboard Shortcuts */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm mt-5" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#F0FDF4' }}>⌨️</div>
+            <h3 className="text-base font-bold text-gray-900">Keyboard Shortcuts</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-700">
+            <div className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+              <span>Focus search</span>
+              <kbd className="px-2 py-0.5 bg-white border border-gray-300 rounded text-xs font-mono">Ctrl + F</kbd>
+            </div>
+            <div className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+              <span>Return to home</span>
+              <kbd className="px-2 py-0.5 bg-white border border-gray-300 rounded text-xs font-mono">Click Logo</kbd>
+            </div>
+            <div className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+              <span>Open AI panel</span>
+              <kbd className="px-2 py-0.5 bg-white border border-gray-300 rounded text-xs font-mono">Tap AI Button</kbd>
+            </div>
+            <div className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+              <span>Close AI panel</span>
+              <kbd className="px-2 py-0.5 bg-white border border-gray-300 rounded text-xs font-mono">Swipe / Tap ✕</kbd>
             </div>
           </div>
-
-          {/* O&M Governance */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#FFF7ED' }}>🏗️</div>
-              <div>
-                <h3 className="text-base font-bold text-gray-900">O&M Manual Governance</h3>
-                <p className="text-xs text-gray-500">/governance.html (standalone)</p>
-              </div>
-            </div>
-            <div className="space-y-3 text-sm text-gray-700">
-              <p><strong>What it does:</strong> Track O&M manual delivery progress across water treatment facilities (Aglipay, HTT, East Bay, Kaysakat).</p>
-              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                <p className="font-semibold text-gray-900 text-xs uppercase tracking-wide">How to use</p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li><strong>Tabs:</strong> Progress Chart, Deliverables, S-Curve, Extra Uploads.</li>
-                  <li><strong>Check milestones:</strong> Click checkboxes to mark items complete.</li>
-                  <li><strong>Upload files:</strong> Click Upload next to any TOC item to attach documents.</li>
-                  <li><strong>PPP/Comp dates:</strong> Enter dates to calculate progress percentages.</li>
-                  <li><strong>Multi-user:</strong> Click Refresh to see updates from other users.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* ODM Dashboard */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#F0FDF4' }}>🔧</div>
-              <div>
-                <h3 className="text-base font-bold text-gray-900">ODM Dashboard</h3>
-                <p className="text-xs text-gray-500">/mw-dashboard.html (standalone)</p>
-              </div>
-            </div>
-            <div className="space-y-3 text-sm text-gray-700">
-              <p><strong>What it does:</strong> View operator-driven maintenance inspection records and KPIs (asset health, compliance, abnormalities).</p>
-              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                <p className="font-semibold text-gray-900 text-xs uppercase tracking-wide">How to use</p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li><strong>Import Excel:</strong> Upload inspection data from Excel files. Supports .xlsx format.</li>
-                  <li><strong>View KPIs:</strong> See health score, compliance rate, and abnormal findings at a glance.</li>
-                  <li><strong>Filter:</strong> Use dropdowns to filter by date range, asset tag, or status.</li>
-                  <li><strong>Charts:</strong> Toggle between bar, line, and pie chart views.</li>
-                  <li><strong>Reset:</strong> Clear all data to start fresh.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* Monthly KPI Scorecard */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#F0F9FF' }}>📈</div>
-              <div>
-                <h3 className="text-base font-bold text-gray-900">Monthly KPI Scorecard</h3>
-                <p className="text-xs text-gray-500">/scorecard-kpi.html (standalone)</p>
-              </div>
-            </div>
-            <div className="space-y-3 text-sm text-gray-700">
-              <p><strong>What it does:</strong> Track 8 KPIs across 5 business units with color-coded performance, Excel import, and budget analytics.</p>
-              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                <p className="font-semibold text-gray-900 text-xs uppercase tracking-wide">How to use</p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li><strong>Select Year/Month:</strong> Choose the year and month from the dropdowns, then click Load.</li>
-                  <li><strong>Input Manually:</strong> Click Input Data Manually to enter KPI values per business unit.</li>
-                  <li><strong>Import Excel:</strong> Upload a pre-formatted Excel file with KPI data. Use the Import Excel button.</li>
-                  <li><strong>Color Codes:</strong> Green = passed benchmark, Yellow = missing data, Red = below benchmark.</li>
-                  <li><strong>Business Units:</strong> Manila Water / EZ, Laguna Water, Clark Water, Tagum Water.</li>
-                  <li><strong>Clear:</strong> Click Clear to remove all data for the selected period.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* General Tips */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm transition-all duration-200 hover:shadow-md hover:border-gray-300" style={{transitionTimingFunction:'cubic-bezier(.4,0,.2,1)'}}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: '#FEF2F2' }}>💡</div>
-              <h3 className="text-base font-bold text-gray-900">General Tips</h3>
-            </div>
-            <div className="space-y-2 text-sm text-gray-700">
-              <ul className="list-disc list-inside space-y-1">
-                <li><strong>Logo click:</strong> Click the Programs logo on any page to return to the home/landing page.</li>
-                <li><strong>Multi-user sync:</strong> Use the Refresh button to load the latest data from other users.</li>
-                <li><strong>File uploads:</strong> Files are stored in the database and visible to all users after refresh.</li>
-                <li><strong>Import safety:</strong> Blank cells in imported files will NOT overwrite existing data.</li>
-                <li><strong>Mobile:</strong> All dashboards are responsive and work on phones and tablets.</li>
-                <li><strong>Need help?</strong> Contact your system administrator for account or access issues.</li>
-              </ul>
-            </div>
-          </div>
-
         </div>
       </main>
 
-      <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'right', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
+      <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'right', fontSize: 12, color: '#5A6B7D' }}>
         Program Oversight Center &copy; 2026
       </footer>
+
+      {/* AI Assistant */}
+      <AIAssistant
+        contextType="maintenance"
+        data={HELP_CONTEXT}
+        quickQuestions={[
+          "How do I create a folder in O&M Manuals Library?",
+          "How do I upload a file?",
+          "How do I use the Gantt chart?",
+          "How do I export data to Excel?",
+          "How do I use the AI assistant?",
+          "Which dashboards have AI support?",
+        ]}
+      />
     </div>
   );
 }
