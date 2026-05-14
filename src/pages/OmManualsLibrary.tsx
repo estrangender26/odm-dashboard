@@ -365,7 +365,6 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 // ═══════════════════════════════════════════════════════════
 
 export default function OmManualsLibrary() {
-  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
