@@ -193,7 +193,19 @@ export default function OperatorDrivenMaintenance() {
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [view, setView] = useState<"table" | "ai">("table");
   const [usingMock, setUsingMock] = useState(false);
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
   const utils = trpc.useUtils();
+
+  // Timeout fallback — don't wait forever for API
+  useEffect(() => {
+    if (!isLoading) return;
+    const timer = setTimeout(() => {
+      console.log("[ODM] API load timed out after 8s, enabling demo mode");
+      setLoadTimedOut(true);
+      setUsingMock(true);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
 
   // Fetch data — with error handling and mock fallback
   const { data: apiResponse, isLoading, isError, error: queryError } = trpc.mw.listInspections.useQuery(undefined, {
@@ -207,19 +219,28 @@ export default function OperatorDrivenMaintenance() {
       setUsingMock(true);
       return MOCK_RECORDS;
     }
+    if (loadTimedOut && (!apiResponse || !Array.isArray((apiResponse as any)?.rows || apiResponse))) {
+      console.log("[ODM] Load timed out, using demo data");
+      return MOCK_RECORDS;
+    }
     if (!apiResponse) {
-      // Still loading but don't block — return empty
-      return [];
+      return []; // Still loading normally
     }
     const rows = (apiResponse as any)?.rows || apiResponse;
-    if (!Array.isArray(rows) || rows.length === 0) {
-      console.log("[ODM] API returned empty, using mock data");
+    if (!Array.isArray(rows)) {
+      console.error("[ODM] API response is not an array:", typeof rows);
       setUsingMock(true);
       return MOCK_RECORDS;
     }
-    console.log("[ODM] API returned", rows.length, "records");
+    if (rows.length === 0) {
+      // API succeeded but DB is empty — this is a real empty state, NOT an error
+      console.log("[ODM] API returned 0 records (database empty)");
+      return [];
+    }
+    console.log("[ODM] API returned", rows.length, "real records");
+    setUsingMock(false);
     return rows.map(mapRecord);
-  }, [apiResponse, isError, queryError]);
+  }, [apiResponse, isError, queryError, loadTimedOut]);
 
   const handleRetry = useCallback(() => {
     setUsingMock(false);
