@@ -79,14 +79,16 @@ export const documentsRouter = {
       })
     )
     .mutation(async ({ input }) => {
+      console.log(`[api/createFolder] name="${input.name}", parentId=${input.parentId ?? "null (root)"}`);
       try {
         const result = await db.insert(docFolders).values({
           name: input.name,
           parentId: input.parentId ?? null,
         }).returning();
+        console.log(`[api/createFolder] Inserted: id=${result[0].id}, name="${result[0].name}", parentId=${result[0].parentId ?? "null"}`);
         return result[0];
       } catch (err: any) {
-        console.error("[createFolder] Error:", err.message);
+        console.error("[api/createFolder] Error:", err.message);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create folder" });
       }
     }),

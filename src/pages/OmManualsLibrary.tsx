@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Link } from "react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 
@@ -382,6 +381,7 @@ export default function OmManualsLibrary() {
   // ── Fetch tree ──
   const { data: treeData, isLoading } = trpc.documents.getTree.useQuery();
   const tree = treeData?.tree || [];
+  const utils = trpc.useUtils();
 
   // ── Fetch single file for viewer ──
   const { data: fileDetail } = trpc.documents.getFile.useQuery(
@@ -393,38 +393,65 @@ export default function OmManualsLibrary() {
     if (fileDetail) setSelectedFileData(fileDetail);
   }, [fileDetail]);
 
+  // ── Refresh helper ──
+  const refreshTree = useCallback(async (action: string) => {
+    console.log(`[OM] Refreshing tree after: ${action}`);
+    await utils.documents.getTree.invalidate();
+    const fresh = await utils.documents.getTree.fetch();
+    console.log(`[OM] Tree refreshed. Folders: ${fresh?.tree?.length ?? 0}, total items: ${fresh?.count ?? 0}`);
+  }, [utils]);
+
   // ── Mutations ──
   const createFolder = trpc.documents.createFolder.useMutation({
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setModal(null); setBanner({ type: "success", message: "Folder created" }); },
-    onError: (e) => setBanner({ type: "error", message: e.message }),
+    onMutate: (vars) => { console.log(`[OM] Creating folder: name="${vars.name}", parentId=${vars.parentId ?? "null (root)"}`); },
+    onSuccess: (data, vars) => {
+      console.log(`[OM] Folder created: id=${data.id}, name="${data.name}", parentId=${data.parentId ?? "null"}`);
+      refreshTree("createFolder");
+      setModal(null);
+      setModalInput("");
+      setExpandedIds(prev => { const n = new Set(prev); n.add(data.id); return n; });
+      setBanner({ type: "success", message: `Folder "${data.name}" created` });
+    },
+    onError: (e) => { console.error("[OM] Create folder failed:", e.message); setBanner({ type: "error", message: `Unable to create folder. ${e.message}` }); },
   });
   const renameFolder = trpc.documents.renameFolder.useMutation({
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setModal(null); setBanner({ type: "success", message: "Folder renamed" }); },
-    onError: (e) => setBanner({ type: "error", message: e.message }),
+    onMutate: (vars) => { console.log(`[OM] Renaming folder ${vars.id} to "${vars.name}"`); },
+    onSuccess: (_, vars) => { refreshTree("renameFolder"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "Folder renamed" }); },
+    onError: (e) => { console.error("[OM] Rename folder failed:", e.message); setBanner({ type: "error", message: `Unable to rename folder. ${e.message}` }); },
   });
   const deleteFolder = trpc.documents.deleteFolder.useMutation({
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setBanner({ type: "success", message: "Folder deleted" }); },
-    onError: (e) => setBanner({ type: "error", message: e.message }),
+    onMutate: (vars) => { console.log(`[OM] Deleting folder ${vars.id}`); },
+    onSuccess: () => { refreshTree("deleteFolder"); setSelectedFolderId(null); setBanner({ type: "success", message: "Folder deleted" }); },
+    onError: (e) => { console.error("[OM] Delete folder failed:", e.message); setBanner({ type: "error", message: `Unable to delete folder. ${e.message}` }); },
   });
   const moveFolder = trpc.documents.moveFolder.useMutation({
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setBanner({ type: "success", message: "Folder moved" }); },
-    onError: (e) => setBanner({ type: "error", message: e.message }),
+    onMutate: (vars) => { console.log(`[OM] Moving folder ${vars.id} to parent ${vars.parentId ?? "root"}`); },
+    onSuccess: () => { refreshTree("moveFolder"); setBanner({ type: "success", message: "Folder moved" }); },
+    onError: (e) => { console.error("[OM] Move folder failed:", e.message); setBanner({ type: "error", message: `Unable to move folder. ${e.message}` }); },
   });
   const uploadFile = trpc.documents.uploadFile.useMutation({
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setBanner({ type: "success", message: "File uploaded" }); },
-    onError: (e) => setBanner({ type: "error", message: e.message }),
+    onMutate: (vars) => { console.log(`[OM] Uploading file: "${vars.title}" to folder ${vars.folderId}`); },
+    onSuccess: (data) => {
+      console.log(`[OM] File uploaded: id=${data.id}, title="${data.title}"`);
+      refreshTree("uploadFile");
+      setBanner({ type: "success", message: `File "${data.title}" uploaded` });
+    },
+    onError: (e) => { console.error("[OM] Upload file failed:", e.message); setBanner({ type: "error", message: `Upload failed. ${e.message}` }); },
   });
   const deleteFile = trpc.documents.deleteFile.useMutation({
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setSelectedFileId(null); setSelectedFileData(null); setBanner({ type: "success", message: "File deleted" }); },
-    onError: (e) => setBanner({ type: "error", message: e.message }),
+    onMutate: (vars) => { console.log(`[OM] Deleting file ${vars.id}`); },
+    onSuccess: () => { refreshTree("deleteFile"); setSelectedFileId(null); setSelectedFileData(null); setBanner({ type: "success", message: "File deleted" }); },
+    onError: (e) => { console.error("[OM] Delete file failed:", e.message); setBanner({ type: "error", message: `Unable to delete file. ${e.message}` }); },
   });
   const renameFile = trpc.documents.renameFile.useMutation({
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setModal(null); setBanner({ type: "success", message: "File renamed" }); },
-    onError: (e) => setBanner({ type: "error", message: e.message }),
+    onMutate: (vars) => { console.log(`[OM] Renaming file ${vars.id} to "${vars.title}"`); },
+    onSuccess: () => { refreshTree("renameFile"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "File renamed" }); },
+    onError: (e) => { console.error("[OM] Rename file failed:", e.message); setBanner({ type: "error", message: `Unable to rename file. ${e.message}` }); },
   });
   const moveFile = trpc.documents.moveFile.useMutation({
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setBanner({ type: "success", message: "File moved" }); },
-    onError: (e) => setBanner({ type: "error", message: e.message }),
+    onMutate: (vars) => { console.log(`[OM] Moving file ${vars.id} to folder ${vars.folderId}`); },
+    onSuccess: () => { refreshTree("moveFile"); setBanner({ type: "success", message: "File moved" }); },
+    onError: (e) => { console.error("[OM] Move file failed:", e.message); setBanner({ type: "error", message: `Unable to move file. ${e.message}` }); },
   });
 
   // ── Search ──
@@ -656,9 +683,9 @@ export default function OmManualsLibrary() {
             placeholder="Folder name" autoFocus
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
-            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button onClick={() => { if (modalInput.trim()) createFolder.mutate({ name: modalInput.trim() }); }}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Create</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { console.log(`[OM] Create button clicked: name="${modalInput.trim()}", parentId=null`); createFolder.mutate({ name: modalInput.trim() }); }}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
           </div>
         </Modal>
       )}
@@ -669,9 +696,9 @@ export default function OmManualsLibrary() {
             placeholder="Subfolder name" autoFocus
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
-            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button onClick={() => { if (modalInput.trim()) createFolder.mutate({ name: modalInput.trim(), parentId: modal.folderId }); }}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Create</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { console.log(`[OM] Create subfolder button clicked: name="${modalInput.trim()}", parentId=${modal.folderId}`); createFolder.mutate({ name: modalInput.trim(), parentId: modal.folderId }); }}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
           </div>
         </Modal>
       )}
@@ -682,9 +709,9 @@ export default function OmManualsLibrary() {
             placeholder="Folder name" autoFocus
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
-            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button onClick={() => { if (modalInput.trim()) renameFolder.mutate({ id: modal.folderId!, name: modalInput.trim() }); }}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Rename</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button type="button" disabled={renameFolder.isPending || !modalInput.trim()} onClick={() => renameFolder.mutate({ id: modal.folderId!, name: modalInput.trim() })}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{renameFolder.isPending ? "Renaming..." : "Rename"}</button>
           </div>
         </Modal>
       )}
@@ -695,9 +722,9 @@ export default function OmManualsLibrary() {
             placeholder="File title" autoFocus
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
-            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button onClick={() => { if (modalInput.trim()) renameFile.mutate({ id: modal.fileId!, title: modalInput.trim() }); }}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Rename</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button type="button" disabled={renameFile.isPending || !modalInput.trim()} onClick={() => renameFile.mutate({ id: modal.fileId!, title: modalInput.trim() })}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{renameFile.isPending ? "Renaming..." : "Rename"}</button>
           </div>
         </Modal>
       )}
@@ -706,9 +733,9 @@ export default function OmManualsLibrary() {
         <Modal title="Delete Folder?" onClose={() => setModal(null)}>
           <p className="text-sm text-gray-600">This will permanently delete the folder and all its contents (subfolders and files). This action cannot be undone.</p>
           <div className="flex justify-end gap-2 mt-3">
-            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button onClick={() => { deleteFolder.mutate({ id: modal.folderId! }); setModal(null); }}
-              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700">Delete</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button type="button" disabled={deleteFolder.isPending} onClick={() => { deleteFolder.mutate({ id: modal.folderId! }); setModal(null); }}
+              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">{deleteFolder.isPending ? "Deleting..." : "Delete"}</button>
           </div>
         </Modal>
       )}
@@ -717,9 +744,9 @@ export default function OmManualsLibrary() {
         <Modal title="Delete File?" onClose={() => setModal(null)}>
           <p className="text-sm text-gray-600">This will permanently delete the file. This action cannot be undone.</p>
           <div className="flex justify-end gap-2 mt-3">
-            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button onClick={() => { deleteFile.mutate({ id: modal.fileId! }); setModal(null); }}
-              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700">Delete</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button type="button" disabled={deleteFile.isPending} onClick={() => { deleteFile.mutate({ id: modal.fileId! }); setModal(null); }}
+              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">{deleteFile.isPending ? "Deleting..." : "Delete"}</button>
           </div>
         </Modal>
       )}
@@ -728,13 +755,13 @@ export default function OmManualsLibrary() {
         <Modal title="Move Folder" onClose={() => setModal(null)}>
           <p className="text-xs text-gray-500 mb-2">Select a destination folder:</p>
           <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
-            <button onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: null }); setModal(null); }}
+            <button type="button" onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: null }); setModal(null); }}
               className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100">📁 Root (top level)</button>
             {collectIds(tree).filter(id => id !== modal.folderId).map(id => {
               const path = getFolderPath(tree, id);
               const name = path.map(p => p.name).join(" / ");
               return (
-                <button key={id} onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: id }); setModal(null); }}
+                <button type="button" key={id} onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: id }); setModal(null); }}
                   className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-600 border-b border-gray-50">{name}</button>
               );
             })}
@@ -750,7 +777,7 @@ export default function OmManualsLibrary() {
               const path = getFolderPath(tree, id);
               const name = path.map(p => p.name).join(" / ");
               return (
-                <button key={id} onClick={() => { moveFile.mutate({ id: modal.fileId!, folderId: id }); setModal(null); }}
+                <button type="button" key={id} onClick={() => { moveFile.mutate({ id: modal.fileId!, folderId: id }); setModal(null); }}
                   className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-600 border-b border-gray-50">{name}</button>
               );
             })}
