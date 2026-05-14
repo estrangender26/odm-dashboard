@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
@@ -75,7 +75,7 @@ function StatCard({ label, value, icon, color }: { label: string; value: number;
   );
 }
 
-const PLANT_TABS = ["All Plants", "Delos Santos PS", "East lamesa Pumping", "Modesta PS"];
+const PLANT_OPTIONS = ["Delos Santos PS", "East lamesa Pumping", "Modesta PS"];
 const FREQUENCIES = ["Daily", "Weekly", "Monthly", "Quarterly", "Semi-annual", "Annually", "As needed"];
 const IMPLEMENTORS = ["Operator/Shifthead", "Maintenance/Contractor", "SLA"];
 const STATUSES = ["Active", "Completed", "In Progress", "Overdue", "Pending"];
@@ -131,6 +131,14 @@ export default function ExistingFacilitiesMaintenance() {
     onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); alert("Import successful!"); },
     onError: (err) => { alert("Import failed: " + err.message); console.error("[IMPORT ERROR]", err); },
   });
+  // Auto-seed on first load if no data exists
+  useEffect(() => {
+    if (!isLoading && data && data.total === 0) {
+      console.log("[AUTO-SEED] No data found, auto-seeding...");
+      seedMut.mutate();
+    }
+  }, [isLoading, data?.total]);
+
   const seedMut = trpc.efm.seed.useMutation({
     onSuccess: (data) => {
       utils.efm.list.invalidate();
@@ -367,15 +375,21 @@ export default function ExistingFacilitiesMaintenance() {
         </div>
       </div>
 
-      {/* ── Plant Tabs ── */}
+      {/* ── Facility Dropdown ── */}
       <div style={{ padding: "16px 24px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
-        <div style={{ display: "flex", gap: "2px", background: "#E2E8F0", padding: "4px", borderRadius: "8px" }}>
-          {PLANT_TABS.map((tab) => (
-            <button key={tab} onClick={() => { setActivePlant(tab); setPage(1); }}
-              style={{ flex: 1, padding: "8px 16px", border: "none", borderRadius: "6px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer", transition: "all .2s", background: activePlant === tab ? "#005BAC" : "transparent", color: activePlant === tab ? "#fff" : "#5A6B7D", boxShadow: activePlant === tab ? "0 1px 3px rgba(0,0,0,.1)" : "none" }}>
-              {tab}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>Facility</label>
+          <select value={activePlant} onChange={(e) => { setActivePlant(e.target.value); setPage(1); }}
+            style={{ padding: "8px 14px", fontSize: 13, fontFamily: "Inter, sans-serif", border: "1px solid #D6DFE8", borderRadius: 8, minWidth: 260, cursor: "pointer", background: "#fff" }}>
+            <option value="All Plants">All Facilities</option>
+            {PLANT_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          {activePlant !== "All Plants" && (
+            <button onClick={() => setActivePlant("All Plants")}
+              style={{ fontSize: 11, fontWeight: 600, fontFamily: "Inter, sans-serif", color: "#005BAC", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+              Show All
             </button>
-          ))}
+          )}
         </div>
       </div>
 
@@ -420,7 +434,7 @@ export default function ExistingFacilitiesMaintenance() {
           <div style={{ background: "#FAFBFC", borderRadius: 12, padding: "20px", border: "1px solid #E2E8F0" }}>
             <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#16324F" }}>Add New Maintenance Record</h3>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
-              <FormSelect label="Plant *" value={addForm.plant} onChange={(v) => setAddForm({ ...addForm, plant: v })} options={PLANT_TABS.filter((p) => p !== "All Plants")} />
+              <FormSelect label="Plant *" value={addForm.plant} onChange={(v) => setAddForm({ ...addForm, plant: v })} options={PLANT_OPTIONS} />
               <FormField label="Equipment Type" value={addForm.equipmentType} onChange={(v) => setAddForm({ ...addForm, equipmentType: v })} placeholder="e.g., 1. Generator Set" />
               <FormField label="Task *" value={addForm.task} onChange={(v) => setAddForm({ ...addForm, task: v })} placeholder="e.g., Inspect for leaks" />
               <FormSelect label="Frequency *" value={addForm.frequency} onChange={(v) => setAddForm({ ...addForm, frequency: v })} options={FREQUENCIES} />
@@ -465,17 +479,8 @@ export default function ExistingFacilitiesMaintenance() {
                   <tr><td colSpan={editMode ? 8 : 7} style={{ padding: "40px", textAlign: "center", color: "#8BA3B8" }}>Loading...</td></tr>
                 ) : equipmentTypeList.length === 0 ? (
                   <tr><td colSpan={editMode ? 8 : 7} style={{ padding: "40px", textAlign: "center" }}>
-                    <div style={{ fontSize: 14, color: "#8BA3B8", marginBottom: 12 }}>No maintenance records found</div>
-                    <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-                      <button onClick={() => seedMut.mutate()} disabled={seedMut.isPending}
-                        style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#005BAC", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>
-                        {seedMut.isPending ? "Loading..." : "Load Sample Data"}
-                      </button>
-                      <button onClick={() => fileInputRef.current?.click()}
-                        style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>
-                        Import Excel
-                      </button>
-                    </div>
+                    <div style={{ fontSize: 14, color: "#8BA3B8", marginBottom: 8 }}>Loading maintenance records...</div>
+                    <div style={{ fontSize: 12, color: "#94A3B8" }}>Data is being pre-loaded automatically.</div>
                   </td></tr>
                 ) : (
                   equipmentTypeList.map((equipType) => (
