@@ -1,7 +1,8 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import AIAssistant from "@/components/AIAssistant";
 
 // ── Types ──
 interface SmpDoc {
@@ -318,6 +319,20 @@ export default function SmpDashboard() {
           )}
         </div>
       </div>
+
+      {/* AI Assistant */}
+      <AIAssistant
+        contextType="maintenance"
+        data={filtered}
+        quickQuestions={[
+          "Which equipment types are missing SMPs?",
+          "Which SMPs are expired or under review?",
+          "Summarize SMP coverage by system.",
+          "Which responsible parties have the most SMPs?",
+          "What is the overall SMP completion status?",
+          "Which SMPs need urgent review?",
+        ]}
+      />
     </div>
   );
 }

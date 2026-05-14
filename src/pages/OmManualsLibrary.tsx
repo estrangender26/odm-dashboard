@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import AIAssistant from "@/components/AIAssistant";
 
 // ═══════════════════════════════════════════════════════════
 // Types
@@ -893,6 +894,20 @@ export default function OmManualsLibrary() {
           </div>
         </Modal>
       )}
+
+      {/* AI Assistant */}
+      <AIAssistant
+        contextType="maintenance"
+        data={{ folders: counts.folders, files: counts.files, tree }}
+        quickQuestions={[
+          "Which facilities have the most documents?",
+          "Which folders have no files?",
+          "What is the overall document coverage?",
+          "Which facilities lack manuals?",
+          "Summarize the document library.",
+          "Which folders need more documents?",
+        ]}
+      />
     </div>
   );
 }

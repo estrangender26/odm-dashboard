@@ -109,7 +109,7 @@ export default function Home() {
 
           {/* Monthly KPI Scorecard */}
           <a
-            href="/scorecard-kpi.html"
+            href="/scorecard-kpi"
             className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
             style={{
               background: '#FFFFFF',
