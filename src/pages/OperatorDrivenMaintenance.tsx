@@ -196,7 +196,13 @@ export default function OperatorDrivenMaintenance() {
   const [loadTimedOut, setLoadTimedOut] = useState(false);
   const utils = trpc.useUtils();
 
-  // Timeout fallback — don't wait forever for API
+  // Fetch data — MUST be before any hook that references isLoading
+  const { data: apiResponse, isLoading, isError, error: queryError } = trpc.mw.listInspections.useQuery(undefined, {
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
+  // Timeout fallback — depends on isLoading which is now declared above
   useEffect(() => {
     if (!isLoading) return;
     const timer = setTimeout(() => {
@@ -206,12 +212,6 @@ export default function OperatorDrivenMaintenance() {
     }, 8000);
     return () => clearTimeout(timer);
   }, [isLoading]);
-
-  // Fetch data — with error handling and mock fallback
-  const { data: apiResponse, isLoading, isError, error: queryError } = trpc.mw.listInspections.useQuery(undefined, {
-    retry: 1,
-    refetchOnWindowFocus: false,
-  });
 
   const rawRecords: InspectionRecord[] = useMemo(() => {
     if (isError) {
