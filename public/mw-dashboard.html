@@ -1367,8 +1367,11 @@
           <polyline points="10 9 9 9 8 9"/>
         </svg>
       </div>
-      <h2>No Inspection Data Loaded</h2>
-      <p>Upload an ODM Excel file to begin analysis</p>
+      <h2 id="emptyStateTitle">Loading from Database...</h2>
+      <p id="emptyStateDesc">Fetching inspection records from the server</p>
+      <button id="retryDbBtn" class="btn btn-primary" style="display:none;margin-top:12px" onclick="document.getElementById('emptyStateTitle').textContent='Loading from Database...';document.getElementById('emptyStateDesc').textContent='Fetching inspection records from the server';document.getElementById('retryDbBtn').style.display='none';loadFromDatabase()">
+        🔄 Retry Database Connection
+      </button>
     </div>
 
     <!-- Filters -->
@@ -1933,7 +1936,14 @@ function handleFile(e) {
 
 /* ---------- Load from database on page load ---------- */
 window.addEventListener('DOMContentLoaded', () => {
-  loadFromDatabase();
+  // Show loading state immediately
+  document.getElementById('loadedFileName').textContent = 'Connecting to database...';
+  loadFromDatabase().then(function() {
+    console.log('Database load attempt completed');
+  }).catch(function(err) {
+    console.error('Database load failed:', err);
+    document.getElementById('loadedFileName').textContent = 'Database connection failed. Click Refresh to retry.';
+  });
 });
 
 function showDashboard() {
@@ -2703,82 +2713,111 @@ const API_BASE = '/api/trpc';
 
 function apiCall(endpoint, payload, callback, errback) {
   var xhr = new XMLHttpRequest();
-  xhr.open('POST', API_BASE + endpoint, true);
+  // Use GET for queries (tRPC v11 requires GET for .query procedures)
+  // Append input as query param if payload is not empty
+  var url = API_BASE + endpoint;
+  if (payload && Object.keys(payload).length > 0) {
+    url += '?input=' + encodeURIComponent(JSON.stringify({ json: payload }));
+  }
+  xhr.open('GET', url, true);
   xhr.setRequestHeader('Content-Type', 'application/json');
-  xhr.timeout = 30000;
+  xhr.setRequestHeader('x-trpc-source', 'fetch');
+  xhr.timeout = 10000; // 10s max to avoid hanging UI
   xhr.ontimeout = function() { if(errback) errback(new Error('Timeout')); };
   xhr.onerror = function() { if(errback) errback(new Error('Network error')); };
   xhr.onload = function() {
     if(xhr.status >= 200 && xhr.status < 300) {
       try { var d = JSON.parse(xhr.responseText); if(callback) callback(d); }
       catch(e) { if(errback) errback(e); }
-    } else { if(errback) errback(new Error('HTTP ' + xhr.status)); }
+    } else { if(errback) errback(new Error('HTTP ' + xhr.status + ': ' + xhr.responseText.slice(0,200))); }
   };
-  xhr.send(JSON.stringify({ json: payload }));
+  xhr.send();
 }
 
 function loadFromDatabase() {
-  apiCall('/mw.listInspections', {},
-    function(res) {
-      apiAvailable = true;
-      var rows = res.result && res.result.data && res.result.data.json || [];
-      if (rows.length === 0) {
-        document.getElementById('loadedFileName').textContent = 'No records in database';
-        if (loadFromStorage()) {
-          document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage';
-          document.getElementById('refreshBtn').style.display = 'inline-flex';
-          document.getElementById('clearDataBtn').style.display = 'inline-flex';
-          buildFilterOptions();
-          showDashboard();
-          refreshAll();
+  return new Promise(function(resolve, reject) {
+    apiCall('/mw.listInspections', {},
+      function(res) {
+        apiAvailable = true;
+        // tRPC v11 format: res.result.data (direct), v10: res.result.data.json
+        var rows = res.result && res.result.data || [];
+        if (Array.isArray(rows) && rows.length === 0 && res.result && res.result.data && res.result.data.json) {
+          rows = res.result.data.json;
         }
-        return;
-      }
+        if (!Array.isArray(rows)) {
+          console.error('DB response not array:', typeof rows, rows);
+          rows = [];
+        }
+        if (rows.length === 0) {
+          document.getElementById('loadedFileName').textContent = 'No records in database';
+          document.getElementById('emptyStateTitle').textContent = 'No Records Found';
+          document.getElementById('emptyStateDesc').textContent = 'The database is empty. Upload an Excel file to import data.';
+          document.getElementById('retryDbBtn').style.display = 'inline-block';
+          if (loadFromStorage()) {
+            document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage';
+            document.getElementById('refreshBtn').style.display = 'inline-flex';
+            document.getElementById('clearDataBtn').style.display = 'inline-flex';
+            buildFilterOptions();
+            showDashboard();
+            refreshAll();
+          }
+          resolve();
+          return;
+        }
 
-      rawRows = rows.map(function(r) { return {
-        SubmissionID: r.submissionId || '',
-        Plant: r.facilityId || '',
-        Inspector: r.inspector || '',
-        InspectionDate: r.inspectionDate ? new Date(r.inspectionDate) : (r.date ? new Date(r.date) : null),
-        AssetTag: r.assetTag || '',
-        AssetName: r.assetName || '',
-        EquipmentType: r.equipmentType || '',
-        EquipmentName: r.assetName || '',
-        Category: r.category || '',
-        Task: r.task || '',
-        Capture1Label: r.capture1Label || '',
-        Capture1Response: r.capture1Response || '',
-        EscalationTrigger: r.escalationTrigger || '',
-        EntryNotes: r.entryNotes || '',
-        Status: r.status || 'Pending',
-        Score: r.score || 0,
-        Findings: r.findings || '',
-        SubmittedAt: r.submittedAt || r.submitted_at || '',
-        Frequency: r.frequency || '',
-        _dbId: r.id
-      };});
+        rawRows = rows.map(function(r) { return {
+          SubmissionID: r.id || '',
+          Plant: r.facility_id || r.facilityId || r.plant || '',
+          Inspector: r.inspector || '',
+          InspectionDate: r.inspection_date || r.inspectionDate ? new Date(r.inspection_date || r.inspectionDate) : (r.date ? new Date(r.date) : null),
+          AssetTag: r.asset_tag || r.assetTag || '',
+          AssetName: r.asset_name || r.assetName || '',
+          EquipmentType: r.equipment_type || r.equipmentType || '',
+          EquipmentName: r.asset_name || r.assetName || '',
+          Category: r.category || '',
+          Task: r.task || '',
+          Capture1Label: r.capture1Label || '',
+          Capture1Response: r.capture1Response || '',
+          EscalationTrigger: r.escalationTrigger || '',
+          EntryNotes: r.findings || r.entryNotes || r.entry_notes || '',
+          Status: r.status || 'Pending',
+          Score: r.score || 0,
+          Findings: r.findings || '',
+          SubmittedAt: r.submitted_at || r.submittedAt || r.uploaded_at || '',
+          Frequency: r.frequency || '',
+          _dbId: r.id
+        };});
 
-      document.getElementById('loadedFileName').textContent = rows.length + ' records from database';
-      document.getElementById('uploadProgress').style.display = 'none';
-      document.getElementById('refreshBtn').style.display = 'inline-flex';
-      document.getElementById('clearDataBtn').style.display = 'inline-flex';
-      buildFilterOptions();
-      showDashboard();
-      refreshAll();
-    },
-    function(err) {
-      console.error('DB load failed:', err);
-      apiAvailable = false;
-      if (loadFromStorage()) {
-        document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage (API unavailable)';
+        document.getElementById('loadedFileName').textContent = rows.length + ' records from database';
+        document.getElementById('uploadProgress').style.display = 'none';
         document.getElementById('refreshBtn').style.display = 'inline-flex';
         document.getElementById('clearDataBtn').style.display = 'inline-flex';
         buildFilterOptions();
         showDashboard();
         refreshAll();
+        resolve();
+      },
+      function(err) {
+        console.error('DB load failed:', err);
+        apiAvailable = false;
+        var hasLocal = loadFromStorage();
+        if (hasLocal) {
+          document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage (API unavailable)';
+          document.getElementById('refreshBtn').style.display = 'inline-flex';
+          document.getElementById('clearDataBtn').style.display = 'inline-flex';
+          buildFilterOptions();
+          showDashboard();
+          refreshAll();
+        } else {
+          // Show retry button in empty state
+          document.getElementById('emptyStateTitle').textContent = 'Database Connection Failed';
+          document.getElementById('emptyStateDesc').textContent = (err && err.message ? err.message : 'Could not connect to server. Click Retry or upload an Excel file.');
+          document.getElementById('retryDbBtn').style.display = 'inline-block';
+        }
+        resolve();
       }
-    }
-  );
+    );
+  });
 }
 
 var apiAvailable = true;
