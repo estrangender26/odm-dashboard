@@ -140,6 +140,30 @@ function AIAnalysisPanel({ finding }: { finding: InspectionRecord }) {
   );
 }
 
+// ── Map snake_case API response to camelCase InspectionRecord ──
+function mapRecord(raw: any): InspectionRecord {
+  return {
+    id: raw.id ?? 0,
+    facilityId: raw.facility_id ?? raw.facilityId ?? null,
+    inspector: raw.inspector ?? null,
+    inspectionDate: raw.inspection_date ?? raw.inspectionDate ?? null,
+    assetTag: raw.asset_tag ?? raw.assetTag ?? null,
+    assetName: raw.asset_name ?? raw.assetName ?? null,
+    equipmentType: raw.equipment_type ?? raw.equipmentType ?? null,
+    category: raw.category ?? null,
+    task: raw.task ?? null,
+    status: raw.status ?? null,
+    score: raw.score ?? null,
+    findings: raw.findings ?? null,
+    action: raw.action ?? null,
+    recommendation: raw.recommendation ?? null,
+    remarks: raw.remarks ?? null,
+    date: raw.date ?? null,
+    month: raw.month ?? null,
+    plantArea: raw.plant_area ?? raw.plantArea ?? null,
+  };
+}
+
 // ═══════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════
@@ -153,9 +177,13 @@ export default function OperatorDrivenMaintenance() {
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [view, setView] = useState<"table" | "ai">("table");
 
-  // Fetch data
-  const { data: records, isLoading } = trpc.mw.list.useQuery();
-  const rawRecords: InspectionRecord[] = useMemo(() => (records as InspectionRecord[]) || [], [records]);
+  // Fetch data — map snake_case → camelCase
+  const { data: apiResponse, isLoading } = trpc.mw.list.useQuery();
+  const rawRecords: InspectionRecord[] = useMemo(() => {
+    const rows = (apiResponse as any)?.rows || apiResponse;
+    if (!Array.isArray(rows)) return [];
+    return rows.map(mapRecord);
+  }, [apiResponse]);
 
   // Filters
   const filtered = useMemo(() => {
