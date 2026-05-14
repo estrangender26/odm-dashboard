@@ -127,9 +127,15 @@ export default function ExistingFacilitiesMaintenance() {
     onSuccess: () => { utils.efm.list.invalidate(); },
     onError: (err) => { alert("Delete failed: " + err.message); console.error(err); },
   });
+  // Import progress state
+  const [importProgress, setImportProgress] = useState<{total: number; imported: number; skipped: number; status: string} | null>(null);
+  const [importSummary, setImportSummary] = useState<{total: number; imported: number; skipped: number; failed: number} | null>(null);
+
   const importMut = trpc.efm.importExcel.useMutation({
-    onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); alert("Import successful!"); },
-    onError: (err) => { alert("Import failed: " + err.message); console.error("[IMPORT ERROR]", err); },
+    onSuccess: (res) => {
+      setImportProgress((prev) => prev ? { ...prev, imported: (prev?.imported || 0) + res.count, status: `Imported ${(prev?.imported || 0) + res.count} of ${prev?.total || 0}` } : null);
+    },
+    onError: (err) => { console.error("[IMPORT ERROR]", err); },
   });
   // Auto-seed on first load if no data exists
   useEffect(() => {
@@ -200,64 +206,75 @@ export default function ExistingFacilitiesMaintenance() {
     XLSX.writeFile(wb, "Existing_Facilities_Maintenance_Plans.xlsx");
   }, [data]);
 
-  // ── Import ──
-  const handleImport = useCallback((file: File) => {
+  // ── Import with progress bar (batched) ──
+  const handleImport = useCallback(async (file: File) => {
+    setImportSummary(null);
     console.log("[IMPORT] Starting import of file:", file.name, "size:", file.size);
-    const reader = new FileReader();
-    reader.onload = (e) => {
+    
+    // Step 1: Parse file locally
+    const data = await new Promise<Uint8Array>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(new Uint8Array(e.target?.result as ArrayBuffer));
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsArrayBuffer(file);
+    });
+
+    const wb = XLSX.read(data, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rawRows: any[] = XLSX.utils.sheet_to_json(ws);
+    console.log("[IMPORT] Raw rows parsed:", rawRows.length);
+    if (!rawRows.length) { alert("No data found in the Excel file"); return; }
+
+    // Step 2: Clean and validate rows
+    const rows = rawRows.map((r: any, idx: number) => {
+      const plant = String(r["Plant"] || r["plant"] || r["Facility"] || r["facility"] || r["PLANT"] || "").trim();
+      const equipmentType = String(r["Equipment Type"] || r["Equipment"] || r["equipment_type"] || r["equipmentType"] || r["EQUIPMENT TYPE"] || "").trim();
+      const task = String(r["Task"] || r["Tasks"] || r["task"] || r["TASK"] || r["Task Description"] || r["Maintenance Task"] || "").trim();
+      const frequency = String(r["Frequency"] || r["frequency"] || r["FREQ"] || r["Freq"] || "").trim();
+      const implementor = String(r["Implementor"] || r["Implementer"] || r["Responsible"] || r["Personnel"] || r["IMPLEMENTOR"] || "").trim();
+      if (!plant || !task) return null;
+      return {
+        plant, equipmentType, task,
+        frequency: frequency || "As needed",
+        implementor: implementor || undefined,
+        status: String(r["Status"] || r["status"] || "Active").trim() || "Active",
+        lastCompleted: (r["Last Completed"] || r["last_completed"] || "").trim() || undefined,
+        nextDue: (r["Next Due"] || r["next_due"] || "").trim() || undefined,
+        remarks: (r["Remarks"] || r["remarks"] || r["Notes"] || r["notes"] || "").trim() || undefined,
+      };
+    }).filter(Boolean) as any[];
+
+    if (!rows.length) { alert("No valid rows found. Need Plant + Task columns."); return; }
+
+    // Step 3: Show initial progress
+    setImportProgress({ total: rows.length, imported: 0, skipped: 0, status: `Importing 0 of ${rows.length}...` });
+
+    // Step 4: Send in batches of 100
+    const BATCH_SIZE = 100;
+    let totalImported = 0;
+    let totalFailed = 0;
+    
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+      setImportProgress({ total: rows.length, imported: totalImported, skipped: 0, status: `Importing ${totalImported + batch.length} of ${rows.length}...` });
+      
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
-        console.log("[IMPORT] Sheets found:", wb.SheetNames);
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rawRows: any[] = XLSX.utils.sheet_to_json(ws);
-        console.log("[IMPORT] Raw rows parsed:", rawRows.length, rawRows[0]);
-        if (!rawRows.length) { alert("No data found in the Excel file"); return; }
-
-        const rows = rawRows.map((r: any, idx: number) => {
-          // Log first few rows for debugging
-          if (idx < 3) console.log(`[IMPORT] Row ${idx} keys:`, Object.keys(r), "values:", r);
-          const plant = String(r["Plant"] || r["plant"] || r["Facility"] || r["facility"] || r["PLANT"] || "").trim();
-          const equipmentType = String(r["Equipment Type"] || r["Equipment"] || r["equipment_type"] || r["equipmentType"] || r["EQUIPMENT TYPE"] || "").trim();
-          const task = String(r["Task"] || r["Tasks"] || r["task"] || r["TASK"] || r["Task Description"] || r["Maintenance Task"] || "").trim();
-          const frequency = String(r["Frequency"] || r["frequency"] || r["FREQ"] || r["Freq"] || "").trim();
-          const implementor = String(r["Implementor"] || r["Implementer"] || r["Responsible"] || r["Personnel"] || r["IMPLEMENTOR"] || "").trim();
-          // Skip rows without plant or task
-          if (!plant || !task) {
-            console.log(`[IMPORT] Skipping row ${idx} (missing plant or task):`, r);
-            return null;
-          }
-          return {
-            plant,
-            equipmentType,
-            task,
-            frequency: frequency || "As needed", // Default if blank
-            implementor: implementor || undefined,
-            status: String(r["Status"] || r["status"] || "Active").trim() || "Active",
-            lastCompleted: (r["Last Completed"] || r["last_completed"] || "").trim() || undefined,
-            nextDue: (r["Next Due"] || r["next_due"] || "").trim() || undefined,
-            remarks: (r["Remarks"] || r["remarks"] || r["Notes"] || r["notes"] || "").trim() || undefined,
-          };
-        }).filter(Boolean);
-
-        console.log("[IMPORT] Valid rows after filter:", rows.length);
-        if (!rows.length) { alert("No valid rows found. Need Plant + Task columns. Check console for details."); return; }
-        
-        // Warn about rows with missing frequency
-        const missingFreq = rows.filter((r: any) => !r.frequency);
-        if (missingFreq.length) {
-          console.log(`[IMPORT] ${missingFreq.length} rows have empty frequency, defaulting to "As needed"`);
-        }
-        
-        importMut.mutate({ rows: rows as any[] });
+        const result = await importMut.mutateAsync({ rows: batch });
+        totalImported += result.count;
       } catch (err: any) {
-        console.error("[IMPORT] Parse error:", err);
-        alert("Import failed: " + (err.message || "Invalid file format"));
+        console.error(`[IMPORT] Batch ${i}-${i + BATCH_SIZE} failed:`, err.message);
+        totalFailed += batch.length;
       }
-    };
-    reader.onerror = () => alert("Failed to read the file");
-    reader.readAsArrayBuffer(file);
-  }, [importMut]);
+    }
+
+    // Step 5: Show summary
+    setImportProgress(null);
+    setImportSummary({ total: rows.length, imported: totalImported, skipped: rows.length - totalImported - totalFailed, failed: totalFailed });
+    
+    // Refresh data
+    utils.efm.list.invalidate();
+    utils.efm.filters.invalidate();
+  }, [importMut, utils]);
 
   // ── Edit row ──
   const startEditRow = (item: any) => {
@@ -374,6 +391,35 @@ export default function ExistingFacilitiesMaintenance() {
           })}
         </div>
       </div>
+
+      {/* ── Import Progress Bar ── */}
+      {importProgress && (
+        <div style={{ padding: "16px 24px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: "16px 20px", boxShadow: "0 1px 3px rgba(0,0,0,.06)", border: "1px solid #E2E8F0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#16324F" }}>📥 {importProgress.status}</span>
+              <span style={{ fontSize: 12, color: "#8BA3B8" }}>{Math.round((importProgress.imported / importProgress.total) * 100)}%</span>
+            </div>
+            <div style={{ width: "100%", height: 8, background: "#E2E8F0", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{ width: `${Math.min(100, (importProgress.imported / importProgress.total) * 100)}%`, height: "100%", background: "linear-gradient(90deg, #005BAC, #3B82F6)", borderRadius: 4, transition: "width 0.3s ease" }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Import Summary ── */}
+      {importSummary && (
+        <div style={{ padding: "16px 24px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+          <div style={{ background: "#F0FDF4", borderRadius: 12, padding: "16px 20px", border: "1px solid #86EFAC", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#166534" }}>✅ Import Complete</span>
+            <span style={{ fontSize: 12, color: "#166534" }}>Total: <b>{importSummary.total}</b></span>
+            <span style={{ fontSize: 12, color: "#15803D" }}>Imported: <b>{importSummary.imported}</b></span>
+            {importSummary.skipped > 0 && <span style={{ fontSize: 12, color: "#D97706" }}>Skipped: <b>{importSummary.skipped}</b></span>}
+            {importSummary.failed > 0 && <span style={{ fontSize: 12, color: "#DC2626" }}>Failed: <b>{importSummary.failed}</b></span>}
+            <button onClick={() => setImportSummary(null)} style={{ marginLeft: "auto", fontSize: 11, padding: "4px 10px", background: "#fff", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer" }}>Dismiss</button>
+          </div>
+        </div>
+      )}
 
       {/* ── Facility Dropdown ── */}
       <div style={{ padding: "16px 24px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
