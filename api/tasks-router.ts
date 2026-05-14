@@ -2,7 +2,11 @@ import { z } from "zod";
 import { createRouter, publicQuery, adminQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { tasks, equipment } from "@db/schema";
-import { eq, and, like, or } from "drizzle-orm";
+import { eq, and, like, or, sql } from "drizzle-orm";
+
+// ── Procedure Familiarity options ──
+const FAMILIARITY_OPTIONS = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
+const FamiliarityValue = z.enum(FAMILIARITY_OPTIONS);
 
 export const tasksRouter = createRouter({
   list: publicQuery
@@ -13,6 +17,7 @@ export const tasksRouter = createRouter({
         equipFilter: z.string().optional(),
         freqFilter: z.string().optional(),
         personFilter: z.string().optional(),
+        familiarityFilter: z.string().optional(),
       })
     )
     .query(async ({ input }) => {
@@ -33,6 +38,9 @@ export const tasksRouter = createRouter({
       }
       if (input.personFilter) {
         conditions.push(eq(tasks.responsiblePersonnel, input.personFilter));
+      }
+      if (input.familiarityFilter) {
+        conditions.push(eq(tasks.procedureFamiliarity, input.familiarityFilter));
       }
 
       const rows = await db
@@ -64,6 +72,7 @@ export const tasksRouter = createRouter({
         operations: z.string().nullable().optional(),
         amd: z.string().nullable().optional(),
         ard: z.string().nullable().optional(),
+        procedureFamiliarity: FamiliarityValue.nullable().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -73,6 +82,7 @@ export const tasksRouter = createRouter({
       if (input.operations !== undefined) updateData.operations = input.operations;
       if (input.amd !== undefined) updateData.amd = input.amd;
       if (input.ard !== undefined) updateData.ard = input.ard;
+      if (input.procedureFamiliarity !== undefined) updateData.procedureFamiliarity = input.procedureFamiliarity;
 
       await db.update(tasks).set(updateData).where(eq(tasks.id, input.taskId));
       return { success: true, taskId: input.taskId, updatedBy: user?.name || null };
@@ -86,6 +96,7 @@ export const tasksRouter = createRouter({
           operations: z.string().nullable().optional(),
           amd: z.string().nullable().optional(),
           ard: z.string().nullable().optional(),
+          procedureFamiliarity: FamiliarityValue.nullable().optional(),
         })
       )
     )
@@ -98,6 +109,7 @@ export const tasksRouter = createRouter({
         if (item.operations !== undefined) updateData.operations = item.operations;
         if (item.amd !== undefined) updateData.amd = item.amd;
         if (item.ard !== undefined) updateData.ard = item.ard;
+        if (item.procedureFamiliarity !== undefined) updateData.procedureFamiliarity = item.procedureFamiliarity;
         if (Object.keys(updateData).length > 0) {
           updated++;
           return db.update(tasks).set(updateData).where(eq(tasks.id, item.taskId));
@@ -111,12 +123,12 @@ export const tasksRouter = createRouter({
   filters: publicQuery
     .input(z.object({ dataset: z.enum(["htt", "aglipay"]) }))
     .query(async ({ input }) => {
-      // db is already imported
       const rows = await db
         .selectDistinct({
           equipmentName: equipment.name,
           frequency: tasks.frequency,
           responsiblePersonnel: tasks.responsiblePersonnel,
+          procedureFamiliarity: tasks.procedureFamiliarity,
         })
         .from(tasks)
         .innerJoin(equipment, eq(tasks.equipmentId, equipment.id))
@@ -125,17 +137,20 @@ export const tasksRouter = createRouter({
       const equipSet = new Set<string>();
       const freqSet = new Set<string>();
       const personSet = new Set<string>();
+      const famSet = new Set<string>();
 
       for (const row of rows) {
         if (row.equipmentName) equipSet.add(row.equipmentName);
         if (row.frequency) freqSet.add(row.frequency);
         if (row.responsiblePersonnel) personSet.add(row.responsiblePersonnel);
+        if (row.procedureFamiliarity) famSet.add(row.procedureFamiliarity);
       }
 
       return {
         equipment: Array.from(equipSet).sort(),
         frequencies: Array.from(freqSet).sort(),
         personnel: Array.from(personSet).sort(),
+        familiarity: Array.from(famSet).sort(),
       };
     }),
 
@@ -166,6 +181,7 @@ export const tasksRouter = createRouter({
         operations: r.task.operations,
         amd: r.task.amd,
         ard: r.task.ard,
+        procedureFamiliarity: r.task.procedureFamiliarity,
       }));
     }),
 
@@ -178,6 +194,7 @@ export const tasksRouter = createRouter({
           operations: z.string().nullable().optional(),
           amd: z.string().nullable().optional(),
           ard: z.string().nullable().optional(),
+          procedureFamiliarity: z.string().nullable().optional(),
         })
       )
     )
@@ -218,6 +235,7 @@ export const tasksRouter = createRouter({
         if (item.operations !== undefined && item.operations !== null && item.operations.trim() !== "") updateData.operations = item.operations.trim();
         if (item.amd !== undefined && item.amd !== null && item.amd.trim() !== "") updateData.amd = item.amd.trim();
         if (item.ard !== undefined && item.ard !== null && item.ard.trim() !== "") updateData.ard = item.ard.trim();
+        if (item.procedureFamiliarity !== undefined && item.procedureFamiliarity !== null && item.procedureFamiliarity.trim() !== "") updateData.procedureFamiliarity = item.procedureFamiliarity.trim();
 
         if (Object.keys(updateData).length > 0) {
           await db.update(tasks).set(updateData).where(eq(tasks.id, taskId));
@@ -229,5 +247,27 @@ export const tasksRouter = createRouter({
       }
       console.log("[SERVER IMPORT] Done:", { updated, total: input.length, skipped: skipped.length });
       return { success: true, updated, total: input.length, skipped: skipped.slice(0, 10) };
+    }),
+
+  // ── Procedure Familiarity Summary (KPI) ──
+  familiaritySummary: publicQuery
+    .input(z.object({ dataset: z.enum(["htt", "aglipay"]) }))
+    .query(async ({ input }) => {
+      const counts = await db
+        .select({
+          level: tasks.procedureFamiliarity,
+          count: sql<number>`COUNT(*)`,
+        })
+        .from(tasks)
+        .where(eq(tasks.dataset, input.dataset))
+        .groupBy(tasks.procedureFamiliarity);
+
+      const result: Record<string, number> = {};
+      for (const row of counts) {
+        const key = row.level || "Not Set";
+        result[key] = row.count;
+      }
+      const total = Object.values(result).reduce((a, b) => a + b, 0);
+      return { distribution: result, total };
     }),
 });

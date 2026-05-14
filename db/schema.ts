@@ -26,10 +26,12 @@ export const tasks = pgTable("tasks", {
   operations: varchar("operations", { length: 100 }),
   amd: varchar("amd", { length: 100 }),
   ard: varchar("ard", { length: 100 }),
+  procedureFamiliarity: varchar("procedure_familiarity", { length: 50 }),
   dataset: varchar("dataset", { length: 20 }).notNull(),
 }, (table) => [
   index("tasks_equipment_idx").on(table.equipmentId),
   index("tasks_dataset_idx").on(table.dataset),
+  index("tasks_familiarity_idx").on(table.procedureFamiliarity),
 ]);
 
 export const governanceFacilities = pgTable("governance_facilities", {

@@ -9,11 +9,15 @@ import AIAssistant from "@/components/AIAssistant";
 const VALID_OPS = ["", "Operator", "AMD in-house", "Outsourced SLA"] as const;
 type OpsValue = (typeof VALID_OPS)[number];
 
+const VALID_FAM = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
+type FamValue = (typeof VALID_FAM)[number];
+
 interface PendingChange {
   taskId: number;
   operations?: string;
   amd?: string;
   ard?: string;
+  procedureFamiliarity?: string;
 }
 
 function getFreqBadgeClass(f: string) {
@@ -82,10 +86,11 @@ export default function Dashboard() {
   const [equipFilter, setEquipFilter] = useState("");
   const [freqFilter, setFreqFilter] = useState("");
   const [personFilter, setPersonFilter] = useState("");
+  const [familiarityFilter, setFamiliarityFilter] = useState("");
 
   // Edit mode
   const [editMode, setEditMode] = useState(false);
-  const [pending, setPending] = useState<Record<number, Partial<{ operations: string; amd: string; ard: string }>>>({});
+  const [pending, setPending] = useState<Record<number, Partial<{ operations: string; amd: string; ard: string; procedureFamiliarity: string }>>>({});
 
   // Selection
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -110,6 +115,7 @@ export default function Dashboard() {
     equipFilter: equipFilter || undefined,
     freqFilter: freqFilter || undefined,
     personFilter: personFilter || undefined,
+    familiarityFilter: familiarityFilter || undefined,
   }, {
     refetchInterval: 30000,
     refetchIntervalInBackground: true,
@@ -118,6 +124,12 @@ export default function Dashboard() {
   });
 
   const { data: filters } = trpc.tasks.filters.useQuery({ dataset: activeTab }, {
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
+  });
+
+  // Procedure Familiarity KPI
+  const { data: famSummary } = trpc.tasks.familiaritySummary.useQuery({ dataset: activeTab }, {
     refetchInterval: 30000,
     refetchIntervalInBackground: true,
   });
@@ -215,12 +227,13 @@ export default function Dashboard() {
 
   const saveEdit = useCallback(() => {
     const updates = Object.entries(pending)
-      .filter(([, v]) => v.operations !== undefined || v.amd !== undefined || v.ard !== undefined)
+      .filter(([, v]) => v.operations !== undefined || v.amd !== undefined || v.ard !== undefined || v.procedureFamiliarity !== undefined)
       .map(([taskId, v]) => ({
         taskId: Number(taskId),
         ...(v.operations !== undefined ? { operations: v.operations || null } : {}),
         ...(v.amd !== undefined ? { amd: v.amd || null } : {}),
         ...(v.ard !== undefined ? { ard: v.ard || null } : {}),
+        ...(v.procedureFamiliarity !== undefined ? { procedureFamiliarity: v.procedureFamiliarity || null } : {}),
       }));
 
     if (updates.length > 0) {
@@ -234,7 +247,7 @@ export default function Dashboard() {
     }
   }, [pending, bulkUpdateMutation]);
 
-  const onDropdownChange = useCallback((taskId: number, field: "operations" | "amd" | "ard", value: string) => {
+  const onDropdownChange = useCallback((taskId: number, field: "operations" | "amd" | "ard" | "procedureFamiliarity", value: string) => {
     setPending((prev) => ({
       ...prev,
       [taskId]: { ...prev[taskId], [field]: value },
@@ -253,7 +266,7 @@ export default function Dashboard() {
         return;
       }
 
-      const headers = ["Equipment Type", "Task Description", "Frequency", "Responsible Personnel", "Operations", "AMD", "ARD"];
+      const headers = ["Equipment Type", "Task Description", "Frequency", "Responsible Personnel", "Operations", "AMD", "ARD", "Procedure Familiarity"];
       let csv = headers.map(csvEsc).join(",") + "\n";
       result.forEach((row) => {
         csv += [
@@ -264,6 +277,7 @@ export default function Dashboard() {
           row.operations,
           row.amd,
           row.ard,
+          row.procedureFamiliarity || "",
         ].map(csvEsc).join(",") + "\n";
       });
 
@@ -315,6 +329,7 @@ export default function Dashboard() {
       const opsIdx = findHeader(["Operations", "Ops"]);
       const amdIdx = findHeader(["AMD"]);
       const ardIdx = findHeader(["ARD"]);
+      const famIdx = findHeader(["Procedure Familiarity", "Familiarity", "Fam", "Procedure_Familiarity", "Familiarity_Level"]);
 
       if (eqIdx < 0 || taskIdx < 0) {
         setImportProgress(null);
@@ -328,6 +343,7 @@ export default function Dashboard() {
         operations: opsIdx >= 0 ? String(row[opsIdx] || "").trim() : undefined,
         amd: amdIdx >= 0 ? String(row[amdIdx] || "").trim() : undefined,
         ard: ardIdx >= 0 ? String(row[ardIdx] || "").trim() : undefined,
+        procedureFamiliarity: famIdx >= 0 ? String(row[famIdx] || "").trim() : undefined,
       })).filter((u) => u.equipmentType && u.taskList);
 
       if (updates.length === 0) {
@@ -453,6 +469,11 @@ export default function Dashboard() {
                 {filters?.personnel?.map((p) => (<option key={p} value={p}>{p}</option>))}
               </select>
             )}
+            {/* Procedure Familiarity Filter */}
+            <select value={familiarityFilter} onChange={(e) => setFamiliarityFilter(e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[160px]">
+              <option value="">All Familiarity</option>
+              {VALID_FAM.filter(f => f !== "").map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={expandAll} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 font-medium">Expand</button>
@@ -521,6 +542,28 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Procedure Familiarity KPI Cards */}
+        {famSummary && (
+          <div className="mb-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {Object.entries(famSummary.distribution).sort().map(([level, count]) => {
+              const colors: Record<string, string> = {
+                "Fully Familiar": "bg-green-50 border-green-200 text-green-800",
+                "Partially Familiar": "bg-blue-50 border-blue-200 text-blue-800",
+                "Requires Guidance": "bg-amber-50 border-amber-200 text-amber-800",
+                "Not Familiar": "bg-red-50 border-red-200 text-red-800",
+                "Not Set": "bg-gray-50 border-gray-200 text-gray-600",
+              };
+              const pct = famSummary.total > 0 ? Math.round((count / famSummary.total) * 100) : 0;
+              return (
+                <div key={level} className={`px-3 py-2.5 rounded-lg border ${colors[level] || "bg-gray-50 border-gray-200 text-gray-600"}`}>
+                  <div className="text-[0.6rem] uppercase tracking-wide font-semibold opacity-70">{level}</div>
+                  <div className="text-lg font-bold">{count} <span className="text-xs font-normal opacity-60">({pct}%)</span></div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Desktop Table + Mobile Cards */}
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           {/* Desktop Table (hidden on mobile) */}
@@ -536,6 +579,7 @@ export default function Dashboard() {
                   <th className="min-w-[200px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">Operations</th>
                   <th className="min-w-[200px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">AMD</th>
                   <th className="min-w-[200px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">ARD</th>
+                  <th className="min-w-[180px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">Procedure Familiarity</th>
                 </tr>
               </thead>
               <tbody>
@@ -564,7 +608,8 @@ export default function Dashboard() {
                           const opsValue = pend?.operations !== undefined ? pend.operations : (task?.operations || "");
                           const amdValue = pend?.amd !== undefined ? pend.amd : (task?.amd || "");
                           const ardValue = pend?.ard !== undefined ? pend.ard : (task?.ard || "");
-                          const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined);
+                          const famValue = pend?.procedureFamiliarity !== undefined ? pend.procedureFamiliarity : (task?.procedureFamiliarity || "");
+                          const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined || pend.procedureFamiliarity !== undefined);
                           return (
                             <tr key={`dt-task-${task?.id ?? "unknown"}`} className={`transition ${isSel ? "bg-blue-50" : ""} ${isPending ? "bg-yellow-50/50" : ""} hover:bg-gray-50`}>
                               <td className="px-3 py-2 border-b border-gray-100"><input type="checkbox" checked={isSel} onChange={() => task?.id && toggleSelect(task.id)} className="w-4 h-4" /></td>
@@ -585,6 +630,11 @@ export default function Dashboard() {
                               <td className="px-3 py-2 border-b border-gray-100">
                                 <select disabled={!editMode} value={ardValue} onChange={(e) => task?.id && onDropdownChange(task.id, "ard", e.target.value)} className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task?.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                   {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
+                                </select>
+                              </td>
+                              <td className="px-3 py-2 border-b border-gray-100">
+                                <select disabled={!editMode} value={famValue} onChange={(e) => task?.id && onDropdownChange(task.id, "procedureFamiliarity", e.target.value)} className={`w-auto min-w-[160px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.procedureFamiliarity !== undefined ? "bg-yellow-50 border-yellow-400" : task?.procedureFamiliarity ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_FAM.map((f) => (<option key={f} value={f}>{f || "-- Select --"}</option>))}
                                 </select>
                               </td>
                             </tr>
@@ -621,7 +671,8 @@ export default function Dashboard() {
                       const opsValue = pend?.operations !== undefined ? pend.operations : (task?.operations || "");
                       const amdValue = pend?.amd !== undefined ? pend.amd : (task?.amd || "");
                       const ardValue = pend?.ard !== undefined ? pend.ard : (task?.ard || "");
-                      const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined);
+                      const famValue = pend?.procedureFamiliarity !== undefined ? pend.procedureFamiliarity : (task?.procedureFamiliarity || "");
+                      const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined || pend.procedureFamiliarity !== undefined);
                       return (
                         <div key={`mob-task-${task?.id ?? "unknown"}`} className={`p-3 border-b border-gray-100 ${isSel ? "bg-blue-50" : ""} ${isPending ? "bg-yellow-50/50" : ""}`}>
                           <div className="flex items-start gap-2 mb-2">
@@ -635,7 +686,7 @@ export default function Dashboard() {
                             <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getFreqBadgeClass(task?.frequency ?? "")}`}>{task?.frequency || "-"}</span>
                             <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getPersBadgeClass(task?.responsiblePersonnel ?? "")}`}>{task?.responsiblePersonnel || "-"}</span>
                           </div>
-                          <div className="grid grid-cols-3 gap-2 ml-6">
+                          <div className="grid grid-cols-2 gap-2 ml-6">
                             <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">Operations</label>
                               <select disabled={!editMode} value={opsValue} onChange={(e) => task?.id && onDropdownChange(task.id, "operations", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task?.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                 {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
@@ -649,6 +700,11 @@ export default function Dashboard() {
                             <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">ARD</label>
                               <select disabled={!editMode} value={ardValue} onChange={(e) => task?.id && onDropdownChange(task.id, "ard", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task?.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
                                 {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                              </select>
+                            </div>
+                            <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">Familiarity</label>
+                              <select disabled={!editMode} value={famValue} onChange={(e) => task?.id && onDropdownChange(task.id, "procedureFamiliarity", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.procedureFamiliarity !== undefined ? "bg-yellow-50 border-yellow-400" : task?.procedureFamiliarity ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                {VALID_FAM.map((f) => (<option key={f} value={f}>{f || "--"}</option>))}
                               </select>
                             </div>
                           </div>

@@ -141,63 +141,6 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
         )}
       </button>
 
-      {/* AI Insights Bar (visible when panel closed) */}
-      {!isOpen && insights.length > 0 && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 88,
-            [position]: 24,
-            zIndex: 9998,
-            maxWidth: 320,
-          }}
-        >
-          {insights.slice(0, 2).map((insight, i) => (
-            <div
-              key={i}
-              onClick={() => setIsOpen(true)}
-              style={{
-                background: "#fff",
-                borderRadius: 8,
-                padding: "10px 14px",
-                marginBottom: 6,
-                boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                borderLeft: `3px solid ${severityDot(insight.severity)}`,
-                cursor: "pointer",
-                fontSize: 11,
-                fontFamily: "Inter, sans-serif",
-                transition: "transform 0.15s",
-                animation: `slideIn${position === "right" ? "Right" : "Left"} 0.3s ease-out ${i * 0.1}s both`,
-              }}
-            >
-              <div style={{ fontWeight: 700, color: severityDot(insight.severity), fontSize: 10, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 2 }}>
-                {insight.severity}
-              </div>
-              <div style={{ fontWeight: 600, color: "#16324F", marginBottom: 2, lineHeight: 1.3 }}>{insight.title}</div>
-              <div style={{ color: "#5A6B7D", lineHeight: 1.3 }}>{insight.description}</div>
-            </div>
-          ))}
-          {insights.length > 2 && (
-            <div
-              onClick={() => setIsOpen(true)}
-              style={{
-                background: "#F1F5F9",
-                borderRadius: 8,
-                padding: "6px 14px",
-                textAlign: "center",
-                fontSize: 10,
-                fontWeight: 600,
-                color: "#005BAC",
-                cursor: "pointer",
-                boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-              }}
-            >
-              +{insights.length - 2} more insights
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Overlay */}
       {isOpen && (
         <div
