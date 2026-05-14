@@ -191,7 +191,8 @@ export default function OperatorDrivenMaintenance() {
   const [areaFilter, setAreaFilter] = useState("");
   const [selectedFinding, setSelectedFinding] = useState<InspectionRecord | null>(null);
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
-  const [view, setView] = useState<"table" | "ai">("table");
+  const [detailView, setDetailView] = useState<"table" | "ai">("table");
+  const [dashboardView, setDashboardView] = useState<"findings" | "all">("findings");
   const [usingMock, setUsingMock] = useState(false);
   const [loadTimedOut, setLoadTimedOut] = useState(false);
   const utils = trpc.useUtils();
@@ -247,9 +248,22 @@ export default function OperatorDrivenMaintenance() {
     utils.mw.listInspections.invalidate();
   }, [utils]);
 
-  // Filters
+  // Findings-only dataset (excludes blank/null/"No finding recorded")
+  const findingsOnly = useMemo(() => {
+    return rawRecords.filter(r => {
+      const f = String(r.findings || "").trim();
+      return f && f !== "No finding recorded" && f !== "-" && f !== "N/A" && f !== "n/a" && f !== "None" && f !== "none" && f !== "Nil" && f !== "nil" && f !== "Null" && f !== "null" && f !== "undefined" && f !== "—";
+    });
+  }, [rawRecords]);
+
+  // Active dataset based on dashboard view
+  const activeDataset = useMemo(() => {
+    return dashboardView === "findings" ? findingsOnly : rawRecords;
+  }, [dashboardView, findingsOnly, rawRecords]);
+
+  // Filters applied to active dataset
   const filtered = useMemo(() => {
-    let d = rawRecords;
+    let d = activeDataset;
     if (search) {
       const s = search.toLowerCase();
       d = d.filter(r =>
@@ -264,28 +278,29 @@ export default function OperatorDrivenMaintenance() {
     if (equipFilter) d = d.filter(r => r.equipmentType === equipFilter);
     if (areaFilter) d = d.filter(r => r.plantArea === areaFilter);
     return d;
-  }, [rawRecords, search, statusFilter, equipFilter, areaFilter]);
+  }, [activeDataset, search, statusFilter, equipFilter, areaFilter]);
 
   // Unique filter values
   const statuses = useMemo(() => [...new Set(rawRecords.map(r => r.status).filter(Boolean))].sort(), [rawRecords]);
   const equipTypes = useMemo(() => [...new Set(rawRecords.map(r => r.equipmentType).filter(Boolean))].sort(), [rawRecords]);
   const areas = useMemo(() => [...new Set(rawRecords.map(r => r.plantArea).filter(Boolean))].sort(), [rawRecords]);
 
-  // Stats
+  // Stats — findings-only for header counters (old dashboard behavior)
   const stats = useMemo(() => {
-    const critical = filtered.filter(r => classifySeverity(r) === "critical").length;
-    const warning = filtered.filter(r => classifySeverity(r) === "warning").length;
-    const info = filtered.filter(r => classifySeverity(r) === "info").length;
-    const pass = filtered.filter(r => r.status === "Pass").length;
-    const fail = filtered.filter(r => r.status === "Fail").length;
-    return { total: filtered.length, critical, warning, info, pass, fail };
-  }, [filtered]);
+    const base = dashboardView === "findings" ? findingsOnly : rawRecords;
+    const critical = base.filter(r => classifySeverity(r) === "critical").length;
+    const warning = base.filter(r => classifySeverity(r) === "warning").length;
+    const info = base.filter(r => classifySeverity(r) === "info").length;
+    const pass = base.filter(r => r.status === "Pass").length;
+    const fail = base.filter(r => r.status === "Fail").length;
+    return { total: base.length, critical, warning, info, pass, fail, findingsCount: findingsOnly.length, allCount: rawRecords.length };
+  }, [findingsOnly, rawRecords, dashboardView]);
 
-  // AI data context
+  // AI data context — always uses findings-only (never all records)
   const aiData = useMemo(() => {
-    if (!selectedFinding) return filtered;
+    if (!selectedFinding) return findingsOnly;
     return [selectedFinding];
-  }, [filtered, selectedFinding]);
+  }, [findingsOnly, selectedFinding]);
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
@@ -354,7 +369,29 @@ export default function OperatorDrivenMaintenance() {
               <span><strong className="text-red-600">{stats.critical}</strong> Critical</span>
               <span><strong className="text-amber-600">{stats.warning}</strong> Warning</span>
               <span><strong className="text-green-600">{stats.pass}</strong> Pass</span>
-              <span className="ml-auto"><strong>{filtered.length}</strong> shown</span>
+              <span className="ml-auto">
+                <strong>{filtered.length}</strong> shown
+                {dashboardView === "findings" && stats.allCount > 0 && (
+                  <span className="text-gray-400 ml-1">of {stats.findingsCount} findings ({stats.allCount} total)</span>
+                )}
+              </span>
+            </div>
+            {/* View switcher */}
+            <div className="flex gap-0 bg-gray-100 rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => setDashboardView("findings")}
+                className={`flex-1 px-2 py-1 rounded-md text-xs font-semibold transition ${dashboardView === "findings" ? "bg-white text-blue-700 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                🔍 Findings Dashboard
+              </button>
+              <button
+                type="button"
+                onClick={() => setDashboardView("all")}
+                className={`flex-1 px-2 py-1 rounded-md text-xs font-semibold transition ${dashboardView === "all" ? "bg-white text-blue-700 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                📋 Inspection Records ({stats.allCount})
+              </button>
             </div>
           </div>
 
@@ -372,9 +409,16 @@ export default function OperatorDrivenMaintenance() {
               </div>
             ) : filtered.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
-                <div className="text-3xl mb-2">🔍</div>
-                <div className="text-sm font-semibold text-gray-600">No findings match</div>
-                {rawRecords.length > 0 && <div className="text-xs mt-1">{rawRecords.length} total records — try adjusting filters</div>}
+                <div className="text-3xl mb-2">{dashboardView === "findings" ? "🔍" : "📋"}</div>
+                <div className="text-sm font-semibold text-gray-600">
+                  {dashboardView === "findings" ? "No findings match" : "No records match"}
+                </div>
+                {dashboardView === "findings" && stats.findingsCount > 0 && (
+                  <div className="text-xs mt-1">{stats.findingsCount} findings total — try adjusting filters</div>
+                )}
+                {dashboardView === "findings" && stats.findingsCount === 0 && stats.allCount > 0 && (
+                  <div className="text-xs mt-1 text-gray-500">No findings in {stats.allCount} inspection records</div>
+                )}
                 {usingMock && <div className="text-xs text-amber-500 mt-1">📡 Using offline data (API unavailable)</div>}
               </div>
             ) : (
@@ -383,7 +427,7 @@ export default function OperatorDrivenMaintenance() {
                 const isSelected = selectedFinding?.id === r.id;
                 return (
                   <div key={r.id}
-                    onClick={() => { setSelectedFinding(r); setView("ai"); }}
+                    onClick={() => { setSelectedFinding(r); setDetailView("ai"); }}
                     className={`px-4 py-3 border-b border-gray-100 cursor-pointer transition hover:bg-gray-50 ${isSelected ? "bg-blue-50 border-l-4 border-l-blue-600" : "border-l-4 border-l-transparent"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -414,10 +458,10 @@ export default function OperatorDrivenMaintenance() {
         <div className="hidden sm:flex flex-1 flex-col bg-gray-100 overflow-hidden">
           {/* View tabs */}
           <div className="flex-shrink-0 flex items-center gap-1 px-4 py-2 bg-white border-b border-gray-200">
-            <button type="button" onClick={() => setView("ai")} className={`px-3 py-1.5 rounded text-xs font-semibold ${view === "ai" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            <button type="button" onClick={() => setDetailView("ai")} className={`px-3 py-1.5 rounded text-xs font-semibold ${detailView === "ai" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
               🤖 AI Analysis
             </button>
-            <button type="button" onClick={() => setView("table")} className={`px-3 py-1.5 rounded text-xs font-semibold ${view === "table" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            <button type="button" onClick={() => setDetailView("table")} className={`px-3 py-1.5 rounded text-xs font-semibold ${detailView === "table" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
               📋 Raw Data
             </button>
             {selectedFinding && (
@@ -426,7 +470,7 @@ export default function OperatorDrivenMaintenance() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
-            {view === "ai" ? (
+            {detailView === "ai" ? (
               selectedFinding ? (
                 <AIAnalysisPanel finding={selectedFinding} />
               ) : (
