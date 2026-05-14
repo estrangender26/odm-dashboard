@@ -143,7 +143,7 @@ export default function Home() {
 
           {/* Operator-Driven Maintenance */}
           <a
-            href="/operator-maintenance"
+            href="/mw-dashboard.html"
             className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
             style={{
               background: '#FFFFFF',
