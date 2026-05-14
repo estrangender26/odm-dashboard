@@ -249,6 +249,7 @@ export default function OmManualsLibrary() {
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set(["Aglipay STP", "HTT STP"]));
   const [expandedFacilities, setExpandedFacilities] = useState<Set<string>>(new Set());
+  const [mobileView, setMobileView] = useState<"tree" | "detail">("tree");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Search filtering ──
@@ -288,6 +289,7 @@ export default function OmManualsLibrary() {
   const handleSelectManual = useCallback((manual: OmManual) => {
     setSelectedManual(manual);
     setSelectedTocItem(null);
+    setMobileView("detail");
   }, []);
 
   const expandAll = useCallback(() => {
@@ -298,7 +300,7 @@ export default function OmManualsLibrary() {
   }, [tree]);
 
   const clearFilters = useCallback(() => {
-    setSearch(""); setStatusFilter(""); setSelectedManual(null); setSelectedTocItem(null);
+    setSearch(""); setStatusFilter(""); setSelectedManual(null); setSelectedTocItem(null); setMobileView("tree");
   }, []);
 
   const handleExport = useCallback(() => {
@@ -375,7 +377,7 @@ export default function OmManualsLibrary() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* ── LEFT PANEL: Hierarchical Tree ── */}
-        <div className="w-full sm:w-[440px] lg:w-[480px] flex flex-col border-r border-gray-200 bg-white">
+        <div className={`w-full sm:w-[440px] lg:w-[480px] flex flex-col border-r border-gray-200 bg-white ${mobileView === "detail" ? "hidden sm:flex" : "flex"}`}>
           {/* Toolbar */}
           <div className="flex-shrink-0 p-3 border-b border-gray-200 space-y-2">
             <div className="relative">
@@ -494,11 +496,16 @@ export default function OmManualsLibrary() {
         </div>
 
         {/* ── MAIN CONTENT: TOC Viewer ── */}
-        <div className="hidden sm:flex flex-1 flex-col bg-gray-100 overflow-hidden">
+        <div className={`flex-1 flex-col bg-gray-100 overflow-hidden ${mobileView === "detail" ? "flex" : "hidden sm:flex"}`}>
           {selectedManual ? (
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* Manual Header */}
               <div className="flex-shrink-0 bg-white border-b border-gray-200 px-6 py-4">
+                {/* Mobile back button */}
+                <button onClick={() => setMobileView("tree")} className="sm:hidden flex items-center gap-1 text-xs text-blue-600 font-semibold mb-2">
+                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M7.5 9.5L4 6L7.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Back to list
+                </button>
                 <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
                   <span className="font-semibold text-blue-600">&#127980; {selectedManual.project}</span>
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
