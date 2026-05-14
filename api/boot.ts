@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { sql, eq, and } from "drizzle-orm";
@@ -640,6 +641,13 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     return c.json({ error: e.message }, 500);
   }
 });
+
+app.use("/api/trpc/*", cors({
+  origin: ["https://oduhiajrfyneq.kimi.page", "http://localhost:3000", "http://localhost:4173"],
+  allowMethods: ["GET", "POST", "OPTIONS"],
+  allowHeaders: ["Content-Type", "x-trpc-source"],
+  credentials: false,
+}));
 
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
