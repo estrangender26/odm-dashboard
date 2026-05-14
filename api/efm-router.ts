@@ -145,15 +145,15 @@ export const efmRouter = createRouter({
     .mutation(async ({ input }) => {
       await ensureTable();
       const [result] = await db.insert(existingFacilitiesMaintenance).values({
-        plant: input.plant,
-        equipmentType: input.equipmentType || "",
-        task: input.task,
-        frequency: input.frequency,
-        implementor: input.implementor || null,
-        status: input.status || "Active",
-        lastCompleted: input.lastCompleted || null,
-        nextDue: input.nextDue || null,
-        remarks: input.remarks || null,
+        plant: input.plant.trim(),
+        equipmentType: (input.equipmentType || "").trim(),
+        task: input.task.trim(),
+        frequency: (input.frequency || "As needed").trim(),
+        implementor: (input.implementor || "").trim() || null,
+        status: (input.status || "Active").trim(),
+        lastCompleted: (input.lastCompleted || "").trim() || null,
+        nextDue: (input.nextDue || "").trim() || null,
+        remarks: (input.remarks || "").trim() || null,
       }).returning();
       return result;
     }),
@@ -206,7 +206,7 @@ export const efmRouter = createRouter({
         plant: z.string().min(1),
         equipmentType: z.string().optional(),
         task: z.string().min(1),
-        frequency: z.string().min(1),
+        frequency: z.string().optional(),
         implementor: z.string().optional(),
         status: z.string().optional(),
         lastCompleted: z.string().optional(),
@@ -217,21 +217,30 @@ export const efmRouter = createRouter({
     .mutation(async ({ input }) => {
       await ensureTable();
       const inserted = [];
-      for (const row of input.rows) {
+      const skipped = [];
+      for (let i = 0; i < input.rows.length; i++) {
+        const row = input.rows[i];
+        // Skip rows with missing required fields
+        if (!row.plant || !row.task) {
+          skipped.push({ row: i + 1, reason: "Missing plant or task" });
+          continue;
+        }
+        // Normalize frequency - default to empty string if missing
+        const freq = (row.frequency || "").trim();
         const [result] = await db.insert(existingFacilitiesMaintenance).values({
-          plant: row.plant,
-          equipmentType: row.equipmentType || "",
-          task: row.task,
-          frequency: row.frequency,
-          implementor: row.implementor || null,
-          status: row.status || "Active",
-          lastCompleted: row.lastCompleted || null,
-          nextDue: row.nextDue || null,
-          remarks: row.remarks || null,
+          plant: row.plant.trim(),
+          equipmentType: (row.equipmentType || "").trim(),
+          task: row.task.trim(),
+          frequency: freq || "As needed", // Default frequency if empty
+          implementor: (row.implementor || "").trim() || null,
+          status: (row.status || "Active").trim() || "Active",
+          lastCompleted: (row.lastCompleted || "").trim() || null,
+          nextDue: (row.nextDue || "").trim() || null,
+          remarks: (row.remarks || "").trim() || null,
         }).returning();
         inserted.push(result);
       }
-      return { success: true, count: inserted.length };
+      return { success: true, count: inserted.length, skipped: skipped.length };
     }),
 
   // ── Seed from complete Excel data ──

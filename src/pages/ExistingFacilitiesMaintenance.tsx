@@ -200,25 +200,38 @@ export default function ExistingFacilitiesMaintenance() {
         const rows = rawRows.map((r: any, idx: number) => {
           // Log first few rows for debugging
           if (idx < 3) console.log(`[IMPORT] Row ${idx} keys:`, Object.keys(r), "values:", r);
+          const plant = String(r["Plant"] || r["plant"] || r["Facility"] || r["facility"] || r["PLANT"] || "").trim();
+          const equipmentType = String(r["Equipment Type"] || r["Equipment"] || r["equipment_type"] || r["equipmentType"] || r["EQUIPMENT TYPE"] || "").trim();
+          const task = String(r["Task"] || r["Tasks"] || r["task"] || r["TASK"] || r["Task Description"] || r["Maintenance Task"] || "").trim();
+          const frequency = String(r["Frequency"] || r["frequency"] || r["FREQ"] || r["Freq"] || "").trim();
+          const implementor = String(r["Implementor"] || r["Implementer"] || r["Responsible"] || r["Personnel"] || r["IMPLEMENTOR"] || "").trim();
+          // Skip rows without plant or task
+          if (!plant || !task) {
+            console.log(`[IMPORT] Skipping row ${idx} (missing plant or task):`, r);
+            return null;
+          }
           return {
-            plant: String(r["Plant"] || r["plant"] || r["Facility"] || r["facility"] || r["PLANT"] || "").trim(),
-            equipmentType: String(r["Equipment Type"] || r["Equipment"] || r["equipment_type"] || r["equipmentType"] || r["EQUIPMENT TYPE"] || "").trim(),
-            task: String(r["Task"] || r["Tasks"] || r["task"] || r["TASK"] || r["Task Description"] || r["Maintenance Task"] || "").trim(),
-            frequency: String(r["Frequency"] || r["frequency"] || r["FREQ"] || r["Freq"] || "").trim(),
-            implementor: String(r["Implementor"] || r["Implementer"] || r["Responsible"] || r["Personnel"] || r["IMPLEMENTOR"] || "").trim(),
-            status: String(r["Status"] || r["status"] || "Active").trim(),
-            lastCompleted: r["Last Completed"] || r["last_completed"] || "",
-            nextDue: r["Next Due"] || r["next_due"] || "",
-            remarks: r["Remarks"] || r["remarks"] || r["Notes"] || r["notes"] || "",
+            plant,
+            equipmentType,
+            task,
+            frequency: frequency || "As needed", // Default if blank
+            implementor: implementor || undefined,
+            status: String(r["Status"] || r["status"] || "Active").trim() || "Active",
+            lastCompleted: (r["Last Completed"] || r["last_completed"] || "").trim() || undefined,
+            nextDue: (r["Next Due"] || r["next_due"] || "").trim() || undefined,
+            remarks: (r["Remarks"] || r["remarks"] || r["Notes"] || r["notes"] || "").trim() || undefined,
           };
-        }).filter((r: any) => {
-          const valid = r.plant && r.task;
-          if (!valid) console.log("[IMPORT] Skipping row (missing plant or task):", r);
-          return valid;
-        });
+        }).filter(Boolean);
 
         console.log("[IMPORT] Valid rows after filter:", rows.length);
         if (!rows.length) { alert("No valid rows found. Need Plant + Task columns. Check console for details."); return; }
+        
+        // Warn about rows with missing frequency
+        const missingFreq = rows.filter((r: any) => !r.frequency);
+        if (missingFreq.length) {
+          console.log(`[IMPORT] ${missingFreq.length} rows have empty frequency, defaulting to "As needed"`);
+        }
+        
         importMut.mutate({ rows: rows as any[] });
       } catch (err: any) {
         console.error("[IMPORT] Parse error:", err);
