@@ -3,14 +3,10 @@ import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
-import AIAssistant from "@/components/AIAssistant";
 
-// Types
+// ── Types ──
 const VALID_OPS = ["", "Operator", "AMD in-house", "Outsourced SLA"] as const;
-type OpsValue = (typeof VALID_OPS)[number];
-
 const VALID_FAM = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
-type FamValue = (typeof VALID_FAM)[number];
 
 interface PendingChange {
   taskId: number;
@@ -20,6 +16,12 @@ interface PendingChange {
   procedureFamiliarity?: string;
 }
 
+interface Banner {
+  type: "error" | "success" | "info";
+  message: string;
+}
+
+// ── Helpers ──
 function getFreqBadgeClass(f: string) {
   const fl = f.toLowerCase();
   if (fl.includes("daily")) return "bg-green-100 text-green-800";
@@ -77,106 +79,143 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-export default function Dashboard() {
-  // Active tab
-  const [activeTab, setActiveTab] = useState<"htt" | "aglipay">("htt");
+// ── Friendly error message mapper ──
+function friendlyError(err: any): string {
+  const msg = err?.message || "";
+  if (msg.includes("connection")) return "Unable to connect to the server. Please check your network and try again.";
+  if (msg.includes("timeout")) return "The server took too long to respond. Please try again.";
+  if (msg.includes("column") || msg.includes("does not exist")) return "A database column is missing. The system will auto-recover shortly.";
+  if (msg.includes("permission") || msg.includes("unauthorized")) return "You do not have permission to perform this action.";
+  if (msg.includes("not found")) return "The requested data was not found.";
+  return "Something went wrong. Please refresh the page or try again later.";
+}
 
-  // Search & filters
+// ── Inline Banner component ──
+function InlineBanner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
+  const styles = {
+    error: "bg-red-50 border-red-200 text-red-800",
+    success: "bg-green-50 border-green-200 text-green-800",
+    info: "bg-blue-50 border-blue-200 text-blue-800",
+  };
+  const icons = { error: "⚠️", success: "✅", info: "ℹ️" };
+  return (
+    <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${styles[type]}`}>
+      <span>{icons[type]}</span>
+      <span className="flex-1">{message}</span>
+      {onDismiss && (
+        <button onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════
+export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState<"htt" | "aglipay">("htt");
   const [search, setSearch] = useState("");
   const [equipFilter, setEquipFilter] = useState("");
   const [freqFilter, setFreqFilter] = useState("");
   const [personFilter, setPersonFilter] = useState("");
   const [familiarityFilter, setFamiliarityFilter] = useState("");
-
-  // Edit mode
   const [editMode, setEditMode] = useState(false);
   const [pending, setPending] = useState<Record<number, Partial<{ operations: string; amd: string; ard: string; procedureFamiliarity: string }>>>({});
-
-  // Selection
   const [selected, setSelected] = useState<Set<number>>(new Set());
-
-  // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-
-  // File input ref
+  const [banner, setBanner] = useState<Banner | null>(null);
+  const [importProgress, setImportProgress] = useState<{ show: boolean; text: string; sub: string; pct: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Import progress
-  const [importProgress, setImportProgress] = useState<{ show: boolean; text: string; sub: string; pct: number } | null>(null);
-
-  // tRPC queries
   const utils = trpc.useUtils();
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { data, isLoading: isDataLoading, dataUpdatedAt, error: listError } = trpc.tasks.list.useQuery({
-    dataset: activeTab,
-    search: search || undefined,
-    equipFilter: equipFilter || undefined,
-    freqFilter: freqFilter || undefined,
-    personFilter: personFilter || undefined,
-    // familiarityFilter: temporarily disabled until backend is updated
-  }, {
-    refetchInterval: 30000,
-    refetchIntervalInBackground: true,
-    staleTime: 0,
-    onSuccess: () => setLastSync(new Date()),
-  });
-
-  const { data: filters } = trpc.tasks.filters.useQuery({ dataset: activeTab }, {
-    refetchInterval: 30000,
-    refetchIntervalInBackground: true,
-  });
-
-  // Procedure Familiarity KPI
-  const { data: famSummary } = trpc.tasks.familiaritySummary.useQuery({ dataset: activeTab }, {
-    refetchInterval: 30000,
-    refetchIntervalInBackground: true,
-  });
-
-  const updateMutation = trpc.tasks.update.useMutation({
-    onSuccess: () => {
-      utils.tasks.list.invalidate();
-      utils.tasks.export.invalidate();
+  // ── tRPC Queries ──
+  const {
+    data: rawData,
+    isLoading,
+    error: listError,
+  } = trpc.tasks.list.useQuery(
+    {
+      dataset: activeTab,
+      search: search || undefined,
+      equipFilter: equipFilter || undefined,
+      freqFilter: freqFilter || undefined,
+      personFilter: personFilter || undefined,
     },
-  });
+    {
+      refetchInterval: 30000,
+      staleTime: 0,
+      onSuccess: () => setLastSync(new Date()),
+      onError: (err) => {
+        console.error("[Dashboard] list query error:", err);
+        setBanner({ type: "error", message: friendlyError(err) });
+      },
+    }
+  );
+
+  const { data: filtersData } = trpc.tasks.filters.useQuery(
+    { dataset: activeTab },
+    { refetchInterval: 30000 }
+  );
+
+  const { data: famSummary } = trpc.tasks.familiaritySummary.useQuery(
+    { dataset: activeTab },
+    { refetchInterval: 30000 }
+  );
+
+  const { data: stats } = trpc.tasks.stats.useQuery(
+    { dataset: activeTab },
+    { refetchInterval: 30000 }
+  );
+
+  // ── Client-side familiarity filter ──
+  const data = useMemo(() => {
+    if (!rawData) return rawData;
+    if (!familiarityFilter) return rawData;
+    const filteredGroups = rawData.groups.map((g) => ({
+      ...g,
+      tasks: g.tasks.filter((t) => (t as any).procedureFamiliarity === familiarityFilter),
+    })).filter((g) => g.tasks.length > 0);
+    const totalTasks = filteredGroups.reduce((sum, g) => sum + g.tasks.length, 0);
+    return { ...rawData, groups: filteredGroups, totalTasks };
+  }, [rawData, familiarityFilter]);
 
   const bulkUpdateMutation = trpc.tasks.bulkUpdate.useMutation({
-    onSuccess: () => {
+    onSuccess: (res) => {
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
-      alert("Changes saved successfully!");
+      setBanner({ type: "success", message: `${res.updated} changes saved successfully.` });
+      setPending({});
+      setEditMode(false);
     },
     onError: (err) => {
       console.error("Save failed:", err);
-      alert("Save failed: " + (err.message || "Server error. Your changes were not saved."));
+      setBanner({ type: "error", message: "Save failed: " + friendlyError(err) });
     },
   });
 
   const importMutation = trpc.tasks.import.useMutation({
-    onSuccess: () => {
+    onSuccess: (res) => {
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
+      setBanner({ type: "success", message: `Import complete: ${res.updated} rows updated, ${res.total - res.updated} unchanged.` });
+      setImportProgress(null);
     },
     onError: (err) => {
       console.error("Import failed:", err);
-      alert("Import failed: " + (err.message || "Server error. Check console for details."));
+      setBanner({ type: "error", message: "Import failed: " + friendlyError(err) });
+      setImportProgress(null);
     },
   });
 
-  const exportQuery = trpc.tasks.export.useQuery(
-    { dataset: activeTab, selectedIds: selected.size > 0 ? Array.from(selected) : undefined },
-    { enabled: false }
-  );
-
-  // Tab label
-  const tabLabel = activeTab === "htt" ? "HTT STP" : "Aglipay STP";
+  // ── Derived state ──
   const totalTasks = data?.totalTasks ?? 0;
   const totalGroups = data?.groups?.length ?? 0;
+  const tabLabel = activeTab === "htt" ? "HTT STP" : "Aglipay STP";
 
-  // ====== ALL CALLBACKS DEFINED AFTER data IS AVAILABLE ======
-
-  // Toggle group collapse
+  // ── Callbacks ──
   const toggleGroup = useCallback((name: string) => {
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
@@ -186,7 +225,6 @@ export default function Dashboard() {
     });
   }, []);
 
-  // Toggle selection
   const toggleSelect = useCallback((taskId: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -203,27 +241,15 @@ export default function Dashboard() {
     setSelected(allIds);
   }, [data]);
 
-  const deselectAll = useCallback(() => {
-    setSelected(new Set());
-  }, []);
-
+  const deselectAll = useCallback(() => setSelected(new Set()), []);
   const expandAll = useCallback(() => setCollapsedGroups(new Set()), []);
-
   const collapseAll = useCallback(() => {
     if (!data?.groups) return;
     setCollapsedGroups(new Set(data.groups.map((g) => g.equipment?.name).filter(Boolean) as string[]));
   }, [data]);
 
-  // Edit handlers
-  const startEdit = useCallback(() => {
-    setEditMode(true);
-    setPending({});
-  }, []);
-
-  const cancelEdit = useCallback(() => {
-    setEditMode(false);
-    setPending({});
-  }, []);
+  const startEdit = useCallback(() => { setEditMode(true); setPending({}); }, []);
+  const cancelEdit = useCallback(() => { setEditMode(false); setPending({}); }, []);
 
   const saveEdit = useCallback(() => {
     const updates = Object.entries(pending)
@@ -235,91 +261,81 @@ export default function Dashboard() {
         ...(v.ard !== undefined ? { ard: v.ard || null } : {}),
         ...(v.procedureFamiliarity !== undefined ? { procedureFamiliarity: v.procedureFamiliarity || null } : {}),
       }));
-
     if (updates.length > 0) {
-      // Optimistic: exit edit mode immediately, revert handled by onError
-      setEditMode(false);
       setPending({});
+      setEditMode(false);
       bulkUpdateMutation.mutate(updates);
     } else {
       setEditMode(false);
-      setPending({});
     }
   }, [pending, bulkUpdateMutation]);
 
-  const onDropdownChange = useCallback((taskId: number, field: "operations" | "amd" | "ard" | "procedureFamiliarity", value: string) => {
-    setPending((prev) => ({
-      ...prev,
-      [taskId]: { ...prev[taskId], [field]: value },
-    }));
+  const onDropdownChange = useCallback((taskId: number, field: string, value: string) => {
+    setPending((prev) => ({ ...prev, [taskId]: { ...prev[taskId], [field]: value } }));
   }, []);
 
-  // Export
+  const clearAllFilters = useCallback(() => {
+    setSearch("");
+    setEquipFilter("");
+    setFreqFilter("");
+    setPersonFilter("");
+    setFamiliarityFilter("");
+  }, []);
+
+  // ── Export ──
   const handleExport = useCallback(async (selectedOnly: boolean) => {
     try {
       const result = await utils.tasks.export.fetch({
         dataset: activeTab,
         selectedIds: selectedOnly && selected.size > 0 ? Array.from(selected) : undefined,
       });
-      if (!result || result.length === 0) {
-        alert("Export returned no data. Make sure tasks exist for the current dataset.");
+      if (!result?.length) {
+        setBanner({ type: "info", message: "No data to export for the current selection." });
         return;
       }
-
       const headers = ["Equipment Type", "Task Description", "Frequency", "Responsible Personnel", "Operations", "AMD", "ARD", "Procedure Familiarity"];
       let csv = headers.map(csvEsc).join(",") + "\n";
-      result.forEach((row) => {
-        csv += [
-          row.equipmentType,
-          row.taskList,
-          row.frequency,
-          row.responsiblePersonnel,
-          row.operations,
-          row.amd,
-          row.ard,
-          row.procedureFamiliarity || "",
-        ].map(csvEsc).join(",") + "\n";
+      result.forEach((row: any) => {
+        csv += [row.equipmentType, row.taskList, row.frequency, row.responsiblePersonnel, row.operations, row.amd, row.ard, row.procedureFamiliarity || ""].map(csvEsc).join(",") + "\n";
       });
-
       const blob = new Blob([csv], { type: "text/csv" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = selectedOnly ? `${activeTab}_selected.csv` : `${activeTab}.csv`;
+      link.download = `${activeTab}_${new Date().toISOString().slice(0,10)}.csv`;
       link.click();
       URL.revokeObjectURL(link.href);
+      setBanner({ type: "success", message: `${result.length} rows exported successfully.` });
     } catch (err: any) {
       console.error("Export failed:", err);
-      alert("Export failed: " + (err.message || "Server error. Check console for details."));
+      setBanner({ type: "error", message: "Export failed: " + friendlyError(err) });
     }
   }, [utils.tasks.export, activeTab, selected]);
 
-  // Import
+  // ── Import ──
   const handleImport = useCallback((file: File) => {
     const isExcel = /\.(xlsx|xlsm|xls)$/i.test(file.name);
-    setImportProgress({ show: true, text: 'Reading file...', sub: file.name, pct: 10 });
+    setImportProgress({ show: true, text: "Reading file...", sub: file.name, pct: 10 });
     const reader = new FileReader();
     reader.onload = (e) => {
-      setImportProgress({ show: true, text: 'Parsing data...', sub: 'Extracting rows', pct: 30 });
+      setImportProgress({ show: true, text: "Parsing data...", sub: "Extracting rows", pct: 30 });
       let sheetRows: string[][] = [];
       if (isExcel) {
         const raw = e.target?.result as ArrayBuffer;
-        const wb = XLSX.read(raw, { type: 'array', cellDates: true });
+        const wb = XLSX.read(raw, { type: "array", cellDates: true });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        sheetRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as string[][];
+        sheetRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as string[][];
       } else {
         const raw = e.target?.result as string;
         const text = raw.charCodeAt(0) === 0xfeff ? raw.substring(1) : raw;
         sheetRows = parseCsv(text);
       }
-      if (sheetRows.length < 2) { setImportProgress(null); alert("File is empty or invalid"); return; }
+      if (sheetRows.length < 2) { setImportProgress(null); setBanner({ type: "error", message: "File is empty or invalid." }); return; }
 
       const headers = sheetRows[0].map((h: string) => String(h).trim());
       const findHeader = (names: string[]): number => {
         for (let i = 0; i < headers.length; i++) {
-          const h = headers[i].toLowerCase().replace(/\s+/g, '');
-          for (const name of names) {
-            if (h === name.toLowerCase().replace(/\s+/g, '')) return i;
-          }
+          const h = headers[i].toLowerCase().replace(/\s+/g, "");
+          for (const name of names) { if (h === name.toLowerCase().replace(/\s+/g, "")) return i; }
         }
         return -1;
       };
@@ -329,11 +345,11 @@ export default function Dashboard() {
       const opsIdx = findHeader(["Operations", "Ops"]);
       const amdIdx = findHeader(["AMD"]);
       const ardIdx = findHeader(["ARD"]);
-      const famIdx = findHeader(["Procedure Familiarity", "Familiarity", "Fam", "Procedure_Familiarity", "Familiarity_Level"]);
+      const famIdx = findHeader(["Procedure Familiarity", "Familiarity", "Fam", "Procedure_Familiarity"]);
 
       if (eqIdx < 0 || taskIdx < 0) {
         setImportProgress(null);
-        alert("Missing required columns.\n\nFound: " + headers.join(", ") + "\n\nNeed: 'Equipment Type' and 'Task Description'.");
+        setBanner({ type: "error", message: `Missing required columns. Found: ${headers.join(", ")}` });
         return;
       }
 
@@ -346,37 +362,17 @@ export default function Dashboard() {
         procedureFamiliarity: famIdx >= 0 ? String(row[famIdx] || "").trim() : undefined,
       })).filter((u) => u.equipmentType && u.taskList);
 
-      if (updates.length === 0) {
-        setImportProgress(null);
-        alert("No valid data rows found.");
-        return;
-      }
+      if (updates.length === 0) { setImportProgress(null); setBanner({ type: "error", message: "No valid data rows found." }); return; }
 
-      if (!confirm(`Import ${updates.length} rows?\n\nBlank cells will NOT overwrite existing data.`)) {
-        setImportProgress(null); return;
-      }
-
-      setImportProgress({ show: true, text: `Uploading ${updates.length} rows...`, sub: 'Sending to server', pct: 60 });
-      importMutation.mutate(updates, {
-        onSuccess: (res) => {
-          setImportProgress({ show: true, text: 'Import complete!', sub: 'Refreshing...', pct: 100 });
-          setTimeout(() => setImportProgress(null), 800);
-          const updated = res?.updated ?? 0;
-          const total = res?.total ?? updates.length;
-          alert(`Import complete!\n\n• ${updated} rows updated\n• ${total - updated} rows not found`);
-        },
-        onError: (err) => {
-          setImportProgress(null);
-          alert("Import failed: " + (err.message || "Server error"));
-        },
-      });
+      setImportProgress({ show: true, text: `Uploading ${updates.length} rows...`, sub: "Sending to server", pct: 60 });
+      importMutation.mutate(updates);
     };
-    reader.onerror = () => { setImportProgress(null); alert("Failed to read file."); };
+    reader.onerror = () => { setImportProgress(null); setBanner({ type: "error", message: "Failed to read file." }); };
     if (isExcel) reader.readAsArrayBuffer(file);
     else reader.readAsText(file);
   }, [importMutation]);
 
-  // ====== RENDER ======
+  // ═════════════ RENDER ═════════════
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Import Progress Overlay */}
@@ -386,54 +382,47 @@ export default function Dashboard() {
             <div className="text-sm font-semibold text-gray-700 mb-1">{importProgress.text}</div>
             <div className="text-xs text-gray-500 mb-3">{importProgress.sub}</div>
             <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${importProgress.pct}%`, background: 'linear-gradient(90deg, #2563eb, #34d399)' }} />
+              <div className="h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${importProgress.pct}%`, background: "linear-gradient(90deg, #2563eb, #34d399)" }} />
             </div>
             <div className="text-xs text-gray-400 mt-2 text-right">{importProgress.pct}%</div>
           </div>
         </div>
       )}
 
+      {/* Banner */}
+      {banner && <InlineBanner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
+
       {/* Header */}
-      <header className="text-white sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
+      <header className="text-white sticky top-0 z-50" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)", boxShadow: "0 4px 12px rgba(22,50,79,0.10)" }}>
         <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-3 sm:py-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
             <Link to="/" className="flex items-center gap-2 sm:gap-3 no-underline text-white min-w-0">
               <ProgramsEngineeringLogo size={72} borderRadius={8} />
               <div className="min-w-0">
                 <h1 className="text-sm sm:text-xl font-bold leading-tight truncate">Maintenance Planning (Post-PPP)</h1>
-                <p className="text-[10px] sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: '1px', textTransform: 'uppercase' }}>Programs</p>
+                <p className="text-[10px] sm:text-sm opacity-55 hidden sm:block" style={{ letterSpacing: "1px", textTransform: "uppercase" }}>Programs</p>
               </div>
             </Link>
             <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
               <div className="flex gap-1.5 sm:gap-2">
                 <div className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 sm:px-3 sm:py-2 text-center">
-                  <div className="text-xs sm:text-lg font-bold">976</div>
-                  <div className="text-[0.5rem] sm:text-[0.65rem] uppercase opacity-70">HTT</div>
-                </div>
-                <div className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 sm:px-3 sm:py-2 text-center">
-                  <div className="text-xs sm:text-lg font-bold">401</div>
-                  <div className="text-[0.5rem] sm:text-[0.65rem] uppercase opacity-70">Aglipay</div>
-                </div>
-                <div className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 sm:px-3 sm:py-2 text-center hidden sm:block">
-                  <div className="text-xs sm:text-lg font-bold">128</div>
-                  <div className="text-[0.6rem] sm:text-[0.65rem] uppercase opacity-70">Equip.</div>
+                  <div className="text-xs sm:text-lg font-bold">{stats?.count ?? "—"}</div>
+                  <div className="text-[0.5rem] sm:text-[0.65rem] uppercase opacity-70">{activeTab.toUpperCase()}</div>
                 </div>
               </div>
-              <a href="/" className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition">&#8592;</a>
               <button onClick={() => { setIsRefreshing(true); utils.tasks.list.invalidate().then(() => { utils.tasks.filters.invalidate().then(() => { setIsRefreshing(false); setLastSync(new Date()); }); }); }} className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition" title="Refresh data">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={isRefreshing ? "animate-spin" : ""}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
               </button>
-              <Link to="/help" className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition">Help</Link>
             </div>
           </div>
         </div>
         {/* Tabs */}
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto">
-          <button onClick={() => setActiveTab("htt")} className={`px-3 sm:px-5 py-2.5 sm:py-3 rounded-t-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 transition whitespace-nowrap flex-shrink-0 ${activeTab === "htt" ? "text-white" : "text-white/60 hover:text-white/85 hover:bg-white/5"}`} style={activeTab === "htt" ? { background: '#0066A6' } : {}}>
-            &#128203; <span className="hidden sm:inline">HTT STP</span><span className="sm:hidden">HTT</span> <span className="bg-white/20 text-[0.65rem] px-1.5 sm:px-2 py-0.5 rounded-full">976</span>
+          <button onClick={() => setActiveTab("htt")} className={`px-3 sm:px-5 py-2.5 sm:py-3 rounded-t-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 transition whitespace-nowrap flex-shrink-0 ${activeTab === "htt" ? "text-white" : "text-white/60 hover:text-white/85 hover:bg-white/5"}`} style={activeTab === "htt" ? { background: "#0066A6" } : {}}>
+            <span className="hidden sm:inline">HTT STP</span><span className="sm:hidden">HTT</span>
           </button>
-          <button onClick={() => setActiveTab("aglipay")} className={`px-3 sm:px-5 py-2.5 sm:py-3 rounded-t-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 transition whitespace-nowrap flex-shrink-0 ${activeTab === "aglipay" ? "text-white" : "text-white/60 hover:text-white/85 hover:bg-white/5"}`} style={activeTab === "aglipay" ? { background: '#0066A6' } : {}}>
-            &#128295; <span className="hidden sm:inline">Aglipay STP</span><span className="sm:hidden">Aglipay</span> <span className="bg-white/20 text-[0.65rem] px-1.5 sm:px-2 py-0.5 rounded-full">401</span>
+          <button onClick={() => setActiveTab("aglipay")} className={`px-3 sm:px-5 py-2.5 sm:py-3 rounded-t-lg text-xs sm:text-sm font-semibold flex items-center gap-1 sm:gap-2 transition whitespace-nowrap flex-shrink-0 ${activeTab === "aglipay" ? "text-white" : "text-white/60 hover:text-white/85 hover:bg-white/5"}`} style={activeTab === "aglipay" ? { background: "#0066A6" } : {}}>
+            <span className="hidden sm:inline">Aglipay STP</span><span className="sm:hidden">Aglipay</span>
           </button>
         </div>
       </header>
@@ -443,7 +432,7 @@ export default function Dashboard() {
         {/* Edit banner */}
         {editMode && (
           <div className="mb-3 px-4 py-3 bg-yellow-50 border border-yellow-400 rounded-lg text-sm font-semibold text-yellow-800 flex items-center gap-2">
-            &#9999; Edit mode: changes are not saved yet. Click <strong>Save</strong> to commit or <strong>Cancel</strong> to discard.
+            <span>&#9999;</span> Edit mode: changes are not saved yet. Click <strong>Save</strong> to commit or <strong>Cancel</strong> to discard.
           </div>
         )}
 
@@ -457,30 +446,33 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
             <select value={equipFilter} onChange={(e) => setEquipFilter(e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]">
               <option value="">All Equipment</option>
-              {filters?.equipment?.map((e) => (<option key={e} value={e}>{e}</option>))}
+              {filtersData?.equipment?.map((e: string) => <option key={e} value={e}>{e}</option>)}
             </select>
             <select value={freqFilter} onChange={(e) => setFreqFilter(e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]">
               <option value="">All Freq.</option>
-              {filters?.frequencies?.map((f) => (<option key={f} value={f}>{f}</option>))}
+              {filtersData?.frequencies?.map((f: string) => <option key={f} value={f}>{f}</option>)}
             </select>
             {activeTab === "aglipay" && (
               <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[140px]">
                 <option value="">All Personnel</option>
-                {filters?.personnel?.map((p) => (<option key={p} value={p}>{p}</option>))}
+                {filtersData?.personnel?.map((p: string) => <option key={p} value={p}>{p}</option>)}
               </select>
             )}
-            {/* Procedure Familiarity Filter */}
+            {/* Familiarity Filter — client-side only */}
             <select value={familiarityFilter} onChange={(e) => setFamiliarityFilter(e.target.value)} className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white w-full sm:w-auto sm:min-w-[160px]">
               <option value="">All Familiarity</option>
-              {VALID_FAM.filter(f => f !== "").map((f) => <option key={f} value={f}>{f}</option>)}
+              {VALID_FAM.filter((f) => f !== "").map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={expandAll} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 font-medium">Expand</button>
             <button onClick={collapseAll} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 font-medium">Collapse</button>
+            {(search || equipFilter || freqFilter || familiarityFilter) && (
+              <button onClick={clearAllFilters} className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100 font-medium">Clear</button>
+            )}
           </div>
           <div className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">
-            {isDataLoading ? "Loading..." : <><strong>{totalGroups}</strong> groups &#183; <strong>{totalTasks}</strong> tasks</>}
+            {isLoading ? "Loading..." : <><strong>{totalGroups}</strong> groups &middot; <strong>{totalTasks}</strong> tasks</>}
           </div>
         </div>
 
@@ -500,26 +492,8 @@ export default function Dashboard() {
                 </button>
               ) : (
                 <>
-                  <button
-                    onClick={saveEdit}
-                    disabled={bulkUpdateMutation.isPending}
-                    className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition ${
-                      bulkUpdateMutation.isPending
-                        ? 'bg-green-400 text-white cursor-wait'
-                        : 'bg-green-700 text-white hover:bg-green-800'
-                    }`}
-                  >
-                    {bulkUpdateMutation.isPending ? (
-                      <>
-                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
-                        <span className="hidden sm:inline">Saving...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>&#128190;</span>
-                        <span className="hidden sm:inline">Save</span>
-                      </>
-                    )}
+                  <button onClick={saveEdit} disabled={bulkUpdateMutation.isPending} className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition ${bulkUpdateMutation.isPending ? "bg-green-400 text-white cursor-wait" : "bg-green-700 text-white hover:bg-green-800"}`}>
+                    {bulkUpdateMutation.isPending ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" /><span className="hidden sm:inline">Saving...</span></> : <><span>&#128190;</span><span className="hidden sm:inline">Save</span></>}
                   </button>
                   <button onClick={cancelEdit} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-red-100 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-200 flex items-center gap-1">
                     <span>&#10005;</span><span className="hidden sm:inline">Cancel</span>
@@ -532,7 +506,7 @@ export default function Dashboard() {
             <button onClick={() => handleExport(true)} className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
               <span>&#128196;</span><span className="hidden sm:inline">Export Selected</span><span className="sm:hidden">Export</span>
             </button>
-            <button onClick={() => handleExport(false)} className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 text-white hover:opacity-90" style={{ background: '#0066A6' }}>
+            <button onClick={() => handleExport(false)} className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-1 text-white hover:opacity-90" style={{ background: "#0066A6" }}>
               <span>&#11015;</span><span className="hidden sm:inline">Export All</span><span className="sm:hidden">All</span>
             </button>
             <label className="px-2 sm:px-4 py-1.5 sm:py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 flex items-center gap-1 cursor-pointer">
@@ -543,7 +517,7 @@ export default function Dashboard() {
         </div>
 
         {/* Procedure Familiarity KPI Cards */}
-        {famSummary && (
+        {famSummary && Object.keys(famSummary.distribution).length > 0 && (
           <div className="mb-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
             {Object.entries(famSummary.distribution).sort().map(([level, count]) => {
               const colors: Record<string, string> = {
@@ -566,20 +540,20 @@ export default function Dashboard() {
 
         {/* Desktop Table + Mobile Cards */}
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          {/* Desktop Table (hidden on mobile) */}
+          {/* Desktop Table */}
           <div className="hidden sm:block overflow-x-auto">
             <table className="w-auto text-sm table-auto min-w-full">
               <thead>
                 <tr className="bg-gray-50">
                   <th className="w-10 px-3 py-3 text-left"></th>
-                  <th className="px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide">Equipment Type</th>
-                  <th className="px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide">Task Description</th>
-                  <th className="px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide">Frequency</th>
-                  <th className="px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide">Responsible</th>
-                  <th className="min-w-[200px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">Operations</th>
-                  <th className="min-w-[200px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">AMD</th>
-                  <th className="min-w-[200px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">ARD</th>
-                  <th className="min-w-[180px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">Procedure Familiarity</th>
+                  <th className="px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide">Equipment</th>
+                  <th className="px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide">Task</th>
+                  <th className="px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide">Freq</th>
+                  <th className="px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide">Resp.</th>
+                  <th className="min-w-[180px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">Operations</th>
+                  <th className="min-w-[180px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">AMD</th>
+                  <th className="min-w-[180px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">ARD</th>
+                  <th className="min-w-[160px] px-3 py-3 text-left font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">Familiarity</th>
                 </tr>
               </thead>
               <tbody>
@@ -588,19 +562,25 @@ export default function Dashboard() {
                     <div className="flex flex-col items-center gap-3 max-w-md mx-auto">
                       <div className="text-red-500 text-2xl">⚠️</div>
                       <h3 className="text-lg font-semibold text-red-700">Failed to load records</h3>
-                      <p className="text-sm text-red-600">{listError.message || "Database query failed. Please refresh or contact support."}</p>
+                      <p className="text-sm text-red-600">{friendlyError(listError)}</p>
                       <button onClick={() => window.location.reload()} className="mt-2 px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">Retry</button>
                     </div>
                   </td></tr>
-                ) : isDataLoading ? (
-                  <tr><td colSpan={9} className="text-center py-20 text-gray-500"><div className="flex flex-col items-center gap-3"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading data...</span></div></td></tr>
+                ) : isLoading ? (
+                  <tr><td colSpan={9} className="text-center py-20 text-gray-500">
+                    <div className="flex flex-col items-center gap-3"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading data...</span></div>
+                  </td></tr>
                 ) : !data?.groups?.length ? (
-                  <tr><td colSpan={9} className="text-center py-20 text-gray-500"><h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3><p className="text-sm">Try adjusting your search or filters.</p></td></tr>
+                  <tr><td colSpan={9} className="text-center py-20 text-gray-500">
+                    <h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3>
+                    <p className="text-sm">{familiarityFilter ? `No tasks match "${familiarityFilter}". Clear the familiarity filter to see all records.` : "Try adjusting your search or filters."}</p>
+                    {familiarityFilter && <button onClick={() => setFamiliarityFilter("")} className="mt-3 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Clear Familiarity Filter</button>}
+                  </td></tr>
                 ) : (
-                  data?.groups?.map((group) => {
+                  data.groups.map((group) => {
                     const isCollapsed = collapsedGroups.has(group?.equipment?.name ?? "");
                     return (
-                      <Fragment key={`dt-group-${group?.equipment?.id ?? "unknown"}`}>
+                      <Fragment key={`dt-${group?.equipment?.id ?? "x"}`}>
                         <tr className="bg-gray-50 cursor-pointer hover:bg-gray-100 transition" onClick={() => toggleGroup(group?.equipment?.name ?? "")}>
                           <td colSpan={9} className="px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200">
                             <div className="flex items-center gap-3">
@@ -614,36 +594,36 @@ export default function Dashboard() {
                         {!isCollapsed && group?.tasks?.map((task) => {
                           const isSel = selected.has(task?.id);
                           const pend = task?.id ? pending[task.id] : undefined;
-                          const opsValue = pend?.operations !== undefined ? pend.operations : (task?.operations || "");
-                          const amdValue = pend?.amd !== undefined ? pend.amd : (task?.amd || "");
-                          const ardValue = pend?.ard !== undefined ? pend.ard : (task?.ard || "");
-                          const famValue = pend?.procedureFamiliarity !== undefined ? pend.procedureFamiliarity : (task?.procedureFamiliarity || "");
-                          const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined || pend.procedureFamiliarity !== undefined);
+                          const opsVal = pend?.operations !== undefined ? pend.operations : (task?.operations || "");
+                          const amdVal = pend?.amd !== undefined ? pend.amd : (task?.amd || "");
+                          const ardVal = pend?.ard !== undefined ? pend.ard : (task?.ard || "");
+                          const famVal = pend?.procedureFamiliarity !== undefined ? pend.procedureFamiliarity : ((task as any).procedureFamiliarity || "");
+                          const isPend = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined || pend.procedureFamiliarity !== undefined);
                           return (
-                            <tr key={`dt-task-${task?.id ?? "unknown"}`} className={`transition ${isSel ? "bg-blue-50" : ""} ${isPending ? "bg-yellow-50/50" : ""} hover:bg-gray-50`}>
+                            <tr key={`dt-t-${task?.id}`} className={`transition ${isSel ? "bg-blue-50" : ""} ${isPend ? "bg-yellow-50/50" : ""} hover:bg-gray-50`}>
                               <td className="px-3 py-2 border-b border-gray-100"><input type="checkbox" checked={isSel} onChange={() => task?.id && toggleSelect(task.id)} className="w-4 h-4" /></td>
                               <td className="px-3 py-2 border-b border-gray-100 font-semibold text-gray-800">{group?.equipment?.name ?? "-"}</td>
                               <td className="px-3 py-2 border-b border-gray-100 text-gray-700">{task?.taskList ?? "-"}</td>
                               <td className="px-3 py-2 border-b border-gray-100"><span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getFreqBadgeClass(task?.frequency ?? "")}`}>{task?.frequency || "-"}</span></td>
                               <td className="px-3 py-2 border-b border-gray-100"><span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getPersBadgeClass(task?.responsiblePersonnel ?? "")}`}>{task?.responsiblePersonnel || "-"}</span></td>
                               <td className="px-3 py-2 border-b border-gray-100">
-                                <select disabled={!editMode} value={opsValue} onChange={(e) => task?.id && onDropdownChange(task.id, "operations", e.target.value)} className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task?.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
+                                <select disabled={!editMode} value={opsVal} onChange={(e) => task?.id && onDropdownChange(task.id, "operations", e.target.value)} className={`w-auto min-w-[160px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPend && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task?.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_OPS.map((o) => <option key={o} value={o}>{o || "-- Select --"}</option>)}
                                 </select>
                               </td>
                               <td className="px-3 py-2 border-b border-gray-100">
-                                <select disabled={!editMode} value={amdValue} onChange={(e) => task?.id && onDropdownChange(task.id, "amd", e.target.value)} className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task?.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
+                                <select disabled={!editMode} value={amdVal} onChange={(e) => task?.id && onDropdownChange(task.id, "amd", e.target.value)} className={`w-auto min-w-[160px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPend && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task?.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_OPS.map((o) => <option key={o} value={o}>{o || "-- Select --"}</option>)}
                                 </select>
                               </td>
                               <td className="px-3 py-2 border-b border-gray-100">
-                                <select disabled={!editMode} value={ardValue} onChange={(e) => task?.id && onDropdownChange(task.id, "ard", e.target.value)} className={`w-auto min-w-[180px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task?.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "-- Select --"}</option>))}
+                                <select disabled={!editMode} value={ardVal} onChange={(e) => task?.id && onDropdownChange(task.id, "ard", e.target.value)} className={`w-auto min-w-[160px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPend && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task?.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_OPS.map((o) => <option key={o} value={o}>{o || "-- Select --"}</option>)}
                                 </select>
                               </td>
                               <td className="px-3 py-2 border-b border-gray-100">
-                                <select disabled={!editMode} value={famValue} onChange={(e) => task?.id && onDropdownChange(task.id, "procedureFamiliarity", e.target.value)} className={`w-auto min-w-[160px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPending && pend?.procedureFamiliarity !== undefined ? "bg-yellow-50 border-yellow-400" : task?.procedureFamiliarity ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                  {VALID_FAM.map((f) => (<option key={f} value={f}>{f || "-- Select --"}</option>))}
+                                <select disabled={!editMode} value={famVal} onChange={(e) => task?.id && onDropdownChange(task.id, "procedureFamiliarity", e.target.value)} className={`w-auto min-w-[140px] px-2 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300 cursor-pointer" : "bg-gray-100 text-gray-500 cursor-default border-gray-200"} ${isPend && pend?.procedureFamiliarity !== undefined ? "bg-yellow-50 border-yellow-400" : (task as any).procedureFamiliarity ? "bg-yellow-50 border-yellow-400" : ""}`}>
+                                  {VALID_FAM.map((f) => <option key={f} value={f}>{f || "-- Select --"}</option>)}
                                 </select>
                               </td>
                             </tr>
@@ -657,40 +637,44 @@ export default function Dashboard() {
             </table>
           </div>
 
-          {/* Mobile Cards (visible only on mobile) */}
+          {/* Mobile Cards */}
           <div className="sm:hidden">
             {listError ? (
               <div className="p-6 text-center">
                 <div className="text-red-500 text-2xl mb-2">⚠️</div>
-                <h3 className="text-base font-semibold text-red-700">Failed to load records</h3>
-                <p className="text-sm text-red-600 mt-1">{listError.message || "Database error"}</p>
+                <h3 className="text-base font-semibold text-red-700">Failed to load</h3>
+                <p className="text-sm text-red-600 mt-1">{friendlyError(listError)}</p>
                 <button onClick={() => window.location.reload()} className="mt-3 px-4 py-2 bg-red-600 text-white text-sm rounded-lg">Retry</button>
               </div>
-            ) : isDataLoading ? (
-              <div className="flex flex-col items-center gap-3 py-20 text-gray-500"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading data...</span></div>
+            ) : isLoading ? (
+              <div className="flex flex-col items-center gap-3 py-20 text-gray-500"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading...</span></div>
             ) : !data?.groups?.length ? (
-              <div className="text-center py-20 text-gray-500"><h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3><p className="text-sm">Try adjusting your search or filters.</p></div>
+              <div className="text-center py-20 text-gray-500">
+                <h3 className="text-lg font-semibold text-gray-700 mb-1">No records</h3>
+                <p className="text-sm">{familiarityFilter ? `Clear "${familiarityFilter}" filter.` : "Adjust filters or refresh."}</p>
+                {familiarityFilter && <button onClick={() => setFamiliarityFilter("")} className="mt-3 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg">Clear</button>}
+              </div>
             ) : (
-              data?.groups?.map((group) => {
+              data.groups.map((group) => {
                 const isCollapsed = collapsedGroups.has(group?.equipment?.name ?? "");
                 return (
-                  <div key={`mob-group-${group?.equipment?.id ?? "unknown"}`}>
+                  <div key={`m-${group?.equipment?.id ?? "x"}`}>
                     <div className="bg-gray-50 px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200 flex items-center gap-3 cursor-pointer" onClick={() => toggleGroup(group?.equipment?.name ?? "")}>
                       <span className={`text-gray-500 text-xs transition-transform ${isCollapsed ? "-rotate-90" : ""}`}>&#9660;</span>
                       <span className="w-7 h-7 bg-blue-50 text-blue-700 rounded flex items-center justify-center text-xs font-bold">{group?.equipment?.initials ?? "?"}</span>
                       <span className="font-bold text-gray-800 text-sm">{group?.equipment?.name ?? "Unknown"}</span>
-                      <span className="text-xs text-gray-500 ml-auto">{(group?.tasks?.length ?? 0)} task{(group?.tasks?.length ?? 0) !== 1 ? "s" : ""}</span>
+                      <span className="text-xs text-gray-500 ml-auto">{(group?.tasks?.length ?? 0)}</span>
                     </div>
                     {!isCollapsed && group?.tasks?.map((task) => {
                       const isSel = selected.has(task?.id);
                       const pend = task?.id ? pending[task.id] : undefined;
-                      const opsValue = pend?.operations !== undefined ? pend.operations : (task?.operations || "");
-                      const amdValue = pend?.amd !== undefined ? pend.amd : (task?.amd || "");
-                      const ardValue = pend?.ard !== undefined ? pend.ard : (task?.ard || "");
-                      const famValue = pend?.procedureFamiliarity !== undefined ? pend.procedureFamiliarity : (task?.procedureFamiliarity || "");
-                      const isPending = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined || pend.procedureFamiliarity !== undefined);
+                      const opsVal = pend?.operations !== undefined ? pend.operations : (task?.operations || "");
+                      const amdVal = pend?.amd !== undefined ? pend.amd : (task?.amd || "");
+                      const ardVal = pend?.ard !== undefined ? pend.ard : (task?.ard || "");
+                      const famVal = pend?.procedureFamiliarity !== undefined ? pend.procedureFamiliarity : ((task as any).procedureFamiliarity || "");
+                      const isPend = !!pend && (pend.operations !== undefined || pend.amd !== undefined || pend.ard !== undefined || pend.procedureFamiliarity !== undefined);
                       return (
-                        <div key={`mob-task-${task?.id ?? "unknown"}`} className={`p-3 border-b border-gray-100 ${isSel ? "bg-blue-50" : ""} ${isPending ? "bg-yellow-50/50" : ""}`}>
+                        <div key={`m-t-${task?.id}`} className={`p-3 border-b border-gray-100 ${isSel ? "bg-blue-50" : ""} ${isPend ? "bg-yellow-50/50" : ""}`}>
                           <div className="flex items-start gap-2 mb-2">
                             <input type="checkbox" checked={isSel} onChange={() => task?.id && toggleSelect(task.id)} className="w-4 h-4 mt-0.5 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
@@ -703,24 +687,24 @@ export default function Dashboard() {
                             <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${getPersBadgeClass(task?.responsiblePersonnel ?? "")}`}>{task?.responsiblePersonnel || "-"}</span>
                           </div>
                           <div className="grid grid-cols-2 gap-2 ml-6">
-                            <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">Operations</label>
-                              <select disabled={!editMode} value={opsValue} onChange={(e) => task?.id && onDropdownChange(task.id, "operations", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.operations !== undefined ? "bg-yellow-50 border-yellow-400" : task?.operations ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                            <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">Ops</label>
+                              <select disabled={!editMode} value={opsVal} onChange={(e) => task?.id && onDropdownChange(task.id, "operations", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"}`}>
+                                {VALID_OPS.map((o) => <option key={o} value={o}>{o || "--"}</option>)}
                               </select>
                             </div>
                             <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">AMD</label>
-                              <select disabled={!editMode} value={amdValue} onChange={(e) => task?.id && onDropdownChange(task.id, "amd", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.amd !== undefined ? "bg-yellow-50 border-yellow-400" : task?.amd ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                              <select disabled={!editMode} value={amdVal} onChange={(e) => task?.id && onDropdownChange(task.id, "amd", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"}`}>
+                                {VALID_OPS.map((o) => <option key={o} value={o}>{o || "--"}</option>)}
                               </select>
                             </div>
                             <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">ARD</label>
-                              <select disabled={!editMode} value={ardValue} onChange={(e) => task?.id && onDropdownChange(task.id, "ard", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.ard !== undefined ? "bg-yellow-50 border-yellow-400" : task?.ard ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                {VALID_OPS.map((o) => (<option key={o} value={o}>{o || "--"}</option>))}
+                              <select disabled={!editMode} value={ardVal} onChange={(e) => task?.id && onDropdownChange(task.id, "ard", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"}`}>
+                                {VALID_OPS.map((o) => <option key={o} value={o}>{o || "--"}</option>)}
                               </select>
                             </div>
                             <div><label className="text-[0.65rem] text-gray-400 uppercase block mb-0.5">Familiarity</label>
-                              <select disabled={!editMode} value={famValue} onChange={(e) => task?.id && onDropdownChange(task.id, "procedureFamiliarity", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"} ${isPending && pend?.procedureFamiliarity !== undefined ? "bg-yellow-50 border-yellow-400" : task?.procedureFamiliarity ? "bg-yellow-50 border-yellow-400" : ""}`}>
-                                {VALID_FAM.map((f) => (<option key={f} value={f}>{f || "--"}</option>))}
+                              <select disabled={!editMode} value={famVal} onChange={(e) => task?.id && onDropdownChange(task.id, "procedureFamiliarity", e.target.value)} className={`w-full px-1.5 py-1 border rounded text-xs ${editMode ? "bg-white border-gray-300" : "bg-gray-100 text-gray-500 border-gray-200"}`}>
+                                {VALID_FAM.map((f) => <option key={f} value={f}>{f || "--"}</option>)}
                               </select>
                             </div>
                           </div>
@@ -738,15 +722,6 @@ export default function Dashboard() {
       <footer className="text-right py-5 px-5 text-sm text-gray-500 border-t border-gray-200 mt-4">
         Program Oversight Center &copy; 2026
       </footer>
-
-      {/* AI Assistant */}
-      <AIAssistant
-        contextType="odm"
-        data={data?.groups ? data.groups.flatMap((g: any) => g.tasks || []) : []}
-        filters={{ dataset: activeTab, search, operations: personFilter }}
-        title="ODM AI"
-      />
-
     </div>
   );
 }
