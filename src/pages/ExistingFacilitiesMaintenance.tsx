@@ -5,6 +5,28 @@ import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 
+/* ── Friendly error mapper ── */
+function friendlyErr(err: any): string {
+  const m = err?.message || "";
+  if (m.includes("connection")) return "Unable to connect. Please check your network.";
+  if (m.includes("timeout")) return "Server took too long. Please try again.";
+  if (m.includes("column") || m.includes("does not exist")) return "Database update needed. Please contact support.";
+  if (m.includes("permission")) return "You do not have permission for this action.";
+  return "Something went wrong. Please try again.";
+}
+
+/* ── Inline Banner ── */
+function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
+  const s: Record<string, string> = { error: "bg-red-50 border-red-200 text-red-800", success: "bg-green-50 border-green-200 text-green-800", info: "bg-blue-50 border-blue-200 text-blue-800" };
+  return (
+    <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
+      <span>{type === "error" ? "⚠️" : type === "success" ? "✅" : "ℹ️"}</span>
+      <span className="flex-1">{message}</span>
+      {onDismiss && <button onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
+    </div>
+  );
+}
+
 /* ============================================================
    EQUIPMENT TYPE INFERENCE ENGINE
    Maps task names / descriptions to standardized Equipment Types
@@ -259,17 +281,19 @@ export default function ExistingFacilitiesMaintenance() {
   const { data: filterOptions } = trpc.efm.filters.useQuery(undefined, { refetchInterval: 30000 });
 
   const createMut = trpc.efm.create.useMutation({
-    onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); },
-    onError: (err) => { alert("Create failed: " + err.message); console.error(err); },
+    onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); setBanner({ type: "success", message: "Record created successfully." }); },
+    onError: (err) => { setBanner({ type: "error", message: "Create failed: " + friendlyErr(err) }); console.error(err); },
   });
   const updateMut = trpc.efm.update.useMutation({
-    onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); },
-    onError: (err) => { alert("Update failed: " + err.message); console.error(err); },
+    onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); setBanner({ type: "success", message: "Record updated successfully." }); },
+    onError: (err) => { setBanner({ type: "error", message: "Update failed: " + friendlyErr(err) }); console.error(err); },
   });
   const deleteMut = trpc.efm.delete.useMutation({
-    onSuccess: () => { utils.efm.list.invalidate(); },
-    onError: (err) => { alert("Delete failed: " + err.message); console.error(err); },
+    onSuccess: () => { utils.efm.list.invalidate(); setBanner({ type: "success", message: "Record deleted." }); },
+    onError: (err) => { setBanner({ type: "error", message: "Delete failed: " + friendlyErr(err) }); console.error(err); },
   });
+  // Banner state (replaces alert())
+  const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   // Import progress state
   const [importProgress, setImportProgress] = useState<{total: number; imported: number; skipped: number; status: string} | null>(null);
   const [importSummary, setImportSummary] = useState<{
@@ -298,12 +322,12 @@ export default function ExistingFacilitiesMaintenance() {
       utils.efm.filters.invalidate();
       if (data.seeded) {
         const msg = `Loaded ${data.count} of ${data.total} records` + (data.failed ? ` (${data.failed} failed)` : "");
-        alert(msg);
+        setBanner({ type: "success", message: msg });
       } else {
-        alert(data.reason);
+        setBanner({ type: "info", message: data.reason });
       }
     },
-    onError: (err) => { alert("Seed failed: " + err.message); console.error("[SEED ERROR]", err); },
+    onError: (err) => { setBanner({ type: "error", message: "Seed failed: " + friendlyErr(err) }); console.error("[SEED ERROR]", err); },
   });
   const resetMut = trpc.efm.reset.useMutation({ onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); } });
 
@@ -363,7 +387,7 @@ export default function ExistingFacilitiesMaintenance() {
   // ── Export ──
   const handleExport = useCallback(() => {
     const items = data?.items || [];
-    if (!items.length) { alert("No data to export"); return; }
+    if (!items.length) { setBanner({ type: "info", message: "No data to export." }); return; }
     const rows = items.map((item: any) => ({
       "Plant": item.plant,
       "Equipment Type": item.equipmentType || inferEquipmentType(item.task || "", item.equipmentType || undefined),
@@ -575,7 +599,7 @@ export default function ExistingFacilitiesMaintenance() {
     console.log(`[IMPORT] Total rows across ${wb.SheetNames.length} sheet(s): ${allRows.length}`);
 
     if (allRows.length === 0) {
-      alert("No valid data rows found in any worksheet.\n\nExpected columns: Plant, Task, Frequency, Implementor (case-insensitive).\n\nSheets scanned: " + sheetStats.map((s) => `${s.name} (${s.totalRows} rows)`).join(", "));
+      setBanner({ type: "error", message: `No valid data rows found. Expected columns: Plant, Task, Frequency, Implementor. Sheets scanned: ${sheetStats.map((s) => `${s.name} (${s.totalRows} rows)`).join(", ")}` });
       return;
     }
 
@@ -619,19 +643,11 @@ export default function ExistingFacilitiesMaintenance() {
       sheets: sheetStats,
     });
 
-    // Show alert if there were issues
+    // Show banner if there were issues
     if (totalFailed > 0 || totalDuplicates > 0) {
-      setTimeout(() => {
-        alert(
-          `Import finished with issues:\n\n` +
-          `Total rows: ${allRows.length}\n` +
-          `Imported: ${totalInserted}\n` +
-          `Skipped: ${totalSkipped}\n` +
-          `Duplicates: ${totalDuplicates}\n` +
-          `Failed: ${totalFailed}\n\n` +
-          `Check console for details.`
-        );
-      }, 300);
+      setBanner({ type: "info", message: `Import finished: ${totalInserted} imported, ${totalSkipped} skipped, ${totalDuplicates} duplicates, ${totalFailed} failed out of ${allRows.length} total.` });
+    } else if (totalInserted > 0) {
+      setBanner({ type: "success", message: `Import complete: ${totalInserted} of ${allRows.length} rows imported successfully.` });
     }
 
     // ── 4. Clear filters and refresh ──
@@ -684,7 +700,7 @@ export default function ExistingFacilitiesMaintenance() {
   // ── Add record ──
   const submitAdd = () => {
     if (!addForm.plant.trim() || !addForm.task.trim() || !addForm.frequency) {
-      alert("Plant, Task, and Frequency are required");
+      setBanner({ type: "error", message: "Plant, Task, and Frequency are required." });
       return;
     }
     createMut.mutate({
@@ -744,6 +760,9 @@ export default function ExistingFacilitiesMaintenance() {
           <button onClick={() => { if (confirm("Reset all data?")) resetMut.mutate(); }} className="efm-btn efm-reset"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg><span>Reset</span></button>
         </div>
       </header>
+
+      {/* ── Banner ── */}
+      {banner && <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
 
       {/* ── Stats ── */}
       <div style={{ padding: "16px 24px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
