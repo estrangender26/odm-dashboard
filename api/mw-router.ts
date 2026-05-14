@@ -99,7 +99,7 @@ export const mwRouter = createRouter({
   // List all inspections — uses cache for read-after-write consistency
   listInspections: publicQuery
     .input(z.object({ facilityId: z.string().optional() }).optional())
-    .mutation(async ({ input }) => {
+    .query(async ({ input }) => {
       const cacheKey = "mw_inspections:" + (input?.facilityId || "all");
       const cached = cacheGet(cacheKey);
       if (cached) return cached;

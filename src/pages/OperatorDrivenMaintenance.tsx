@@ -196,7 +196,7 @@ export default function OperatorDrivenMaintenance() {
   const utils = trpc.useUtils();
 
   // Fetch data — with error handling and mock fallback
-  const { data: apiResponse, isLoading, isError, error: queryError } = trpc.mw.list.useQuery(undefined, {
+  const { data: apiResponse, isLoading, isError, error: queryError } = trpc.mw.listInspections.useQuery(undefined, {
     retry: 1,
     refetchOnWindowFocus: false,
   });
@@ -223,7 +223,7 @@ export default function OperatorDrivenMaintenance() {
 
   const handleRetry = useCallback(() => {
     setUsingMock(false);
-    utils.mw.list.invalidate();
+    utils.mw.listInspections.invalidate();
   }, [utils]);
 
   // Filters
