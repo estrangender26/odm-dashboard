@@ -75,7 +75,7 @@ function StatCard({ label, value, icon, color }: { label: string; value: number;
   );
 }
 
-const PLANT_OPTIONS = ["Delos Santos PS", "East lamesa Pumping", "Modesta PS"];
+// Plant list is now fully dynamic from filterOptions.plants — no hardcoded facilities
 const FREQUENCIES = ["Daily", "Weekly", "Monthly", "Quarterly", "Semi-annual", "Annually", "As needed"];
 const IMPLEMENTORS = ["Operator/Shifthead", "Maintenance/Contractor", "SLA"];
 const STATUSES = ["Active", "Completed", "In Progress", "Overdue", "Pending"];
@@ -381,8 +381,8 @@ export default function ExistingFacilitiesMaintenance() {
           <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>Facility</label>
           <select value={activePlant} onChange={(e) => { setActivePlant(e.target.value); setPage(1); }}
             style={{ padding: "8px 14px", fontSize: 13, fontFamily: "Inter, sans-serif", border: "1px solid #D6DFE8", borderRadius: 8, minWidth: 260, cursor: "pointer", background: "#fff" }}>
-            <option value="All Plants">All Facilities</option>
-            {PLANT_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+            <option value="All Plants">All Facilities ({filterOptions?.plants?.length || 0})</option>
+            {(filterOptions?.plants || []).map((p: string) => <option key={p} value={p}>{p}</option>)}
           </select>
           {activePlant !== "All Plants" && (
             <button onClick={() => setActivePlant("All Plants")}
@@ -434,7 +434,7 @@ export default function ExistingFacilitiesMaintenance() {
           <div style={{ background: "#FAFBFC", borderRadius: 12, padding: "20px", border: "1px solid #E2E8F0" }}>
             <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#16324F" }}>Add New Maintenance Record</h3>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
-              <FormSelect label="Plant *" value={addForm.plant} onChange={(v) => setAddForm({ ...addForm, plant: v })} options={PLANT_OPTIONS} />
+              <FormSelect label="Plant *" value={addForm.plant} onChange={(v) => setAddForm({ ...addForm, plant: v })} options={filterOptions?.plants || []} allowEmpty emptyLabel="Select Facility..." />
               <FormField label="Equipment Type" value={addForm.equipmentType} onChange={(v) => setAddForm({ ...addForm, equipmentType: v })} placeholder="e.g., 1. Generator Set" />
               <FormField label="Task *" value={addForm.task} onChange={(v) => setAddForm({ ...addForm, task: v })} placeholder="e.g., Inspect for leaks" />
               <FormSelect label="Frequency *" value={addForm.frequency} onChange={(v) => setAddForm({ ...addForm, frequency: v })} options={FREQUENCIES} />
