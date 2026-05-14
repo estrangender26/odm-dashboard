@@ -115,7 +115,7 @@ export default function Dashboard() {
     equipFilter: equipFilter || undefined,
     freqFilter: freqFilter || undefined,
     personFilter: personFilter || undefined,
-    familiarityFilter: familiarityFilter || undefined,
+    // familiarityFilter: temporarily disabled until backend is updated
   }, {
     refetchInterval: 30000,
     refetchIntervalInBackground: true,
