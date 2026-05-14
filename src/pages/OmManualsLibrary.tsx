@@ -1,201 +1,55 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Link } from "react-router";
-import * as XLSX from "xlsx";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 
 // ═══════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════
 
-interface TocItem {
+interface TreeFolder {
+  id: number;
+  name: string;
+  parentId: number | null;
+  sortOrder: number;
+  children: TreeFolder[];
+  files: TreeFile[];
+}
+
+interface TreeFile {
   id: number;
   title: string;
-  status: "Complete" | "In Progress" | "Pending" | "Not Applicable";
-  lastUpdated?: string;
-  responsibleParty?: string;
-  notes?: string;
+  fileName: string;
+  fileType: string | null;
+  fileSize: number | null;
+  revision: string | null;
+  uploadedAt: Date | null;
 }
 
-interface OmManual {
+interface DocFileFull {
   id: number;
-  project: string;
-  facility: string;
-  facilityCode: string;
-  manualTitle: string;
-  dateIssued: string;
-  revision: string;
-  responsibleParty: string;
-  status: "Active" | "Under Review" | "Expired" | "Draft";
-  toc: TocItem[];
-}
-
-interface FacilityNode {
-  name: string;
-  manuals: OmManual[];
-}
-
-// ═══════════════════════════════════════════════════════════
-// Standard 14 TOC Items (per IOM for O&M Structure Governance)
-// ═══════════════════════════════════════════════════════════
-
-const STANDARD_TOC: { id: number; title: string }[] = [
-  { id: 1,  title: "Executive Summary" },
-  { id: 2,  title: "Facility Overview and Process Description" },
-  { id: 3,  title: "Operating Philosophy" },
-  { id: 4,  title: "Standard Operating Procedures (SOPs) — ANNEX" },
-  { id: 5,  title: "Standard Maintenance Procedures (SMPs) — ANNEX" },
-  { id: 6,  title: "Maintenance Management Framework — ANNEX" },
-  { id: 7,  title: "SCADA and Automation" },
-  { id: 8,  title: "Testing, Commissioning, and Proving — ANNEX" },
-  { id: 9,  title: "As-Built Drawings and Final Technical Documentation — ANNEX" },
-  { id: 10, title: "Training and Competency Records — ANNEX" },
-  { id: 11, title: "Digital / SAP S/4HANA Onboarding — ANNEX" },
-  { id: 12, title: "Critical Spares Handover (Contract Deliverable) — ANNEX" },
-  { id: 13, title: "Acceptance and Handover — ANNEX" },
-  { id: 14, title: "Facility-Specific Addenda — ANNEX" },
-];
-
-// ═══════════════════════════════════════════════════════════
-// Helper: build a random but realistic TOC for a facility
-// ═══════════════════════════════════════════════════════════
-
-const PARTIES = ["Operations", "Electrical", "Mechanical", "Automation", "Instrumentation", "Facilities", "Safety", "Contractor"];
-
-function buildToc(baseStatus?: string): TocItem[] {
-  const statuses: Array<TocItem["status"]> = ["Complete", "In Progress", "Pending", "Not Applicable"];
-  return STANDARD_TOC.map(item => {
-    const status = baseStatus === "Expired" ? "Pending" as const :
-                   baseStatus === "Draft" ? "In Progress" as const :
-                   baseStatus === "Under Review" ? (Math.random() > 0.5 ? "In Progress" : "Pending") as const :
-                   item.id <= 3 ? "Complete" as const :
-                   item.id <= 8 ? (Math.random() > 0.3 ? "Complete" : "In Progress") as const :
-                   item.id <= 12 ? (Math.random() > 0.4 ? "In Progress" : "Pending") as const :
-                   (Math.random() > 0.5 ? "Pending" : "Not Applicable") as const;
-    return {
-      ...item,
-      status,
-      lastUpdated: `2025-${String(Math.floor(Math.random() * 12) + 1).padStart(2, "0")}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, "0")}`,
-      responsibleParty: PARTIES[Math.floor(Math.random() * PARTIES.length)],
-    };
-  });
-}
-
-// ═══════════════════════════════════════════════════════════
-// Mock Data — Project → Facility → 1 O&M Manual PDF each
-// ═══════════════════════════════════════════════════════════
-
-const MOCK_MANUALS: OmManual[] = [
-  {
-    id: 1, project: "HTT STP", facility: "Water Supply", facilityCode: "HTT-WS",
-    manualTitle: "O&M Manual — HTT STP Water Supply System",
-    dateIssued: "2024-01-15", revision: "Rev. 3", responsibleParty: "Operations",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 2, project: "HTT STP", facility: "Electrical", facilityCode: "HTT-EL",
-    manualTitle: "O&M Manual — HTT STP Electrical System",
-    dateIssued: "2024-02-20", revision: "Rev. 2", responsibleParty: "Electrical",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 3, project: "HTT STP", facility: "Mechanical", facilityCode: "HTT-ME",
-    manualTitle: "O&M Manual — HTT STP Mechanical System",
-    dateIssued: "2024-03-10", revision: "Rev. 1", responsibleParty: "Mechanical",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 4, project: "HTT STP", facility: "Automation", facilityCode: "HTT-AU",
-    manualTitle: "O&M Manual — HTT STP SCADA & Automation",
-    dateIssued: "2024-04-05", revision: "Rev. 2", responsibleParty: "Automation",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 5, project: "HTT STP", facility: "Building & Safety", facilityCode: "HTT-BS",
-    manualTitle: "O&M Manual — HTT STP Building & Safety Systems",
-    dateIssued: "2024-05-18", revision: "Rev. 1", responsibleParty: "Facilities",
-    status: "Under Review", toc: buildToc("Under Review"),
-  },
-  {
-    id: 6, project: "HTT STP", facility: "Treatment Process", facilityCode: "HTT-TP",
-    manualTitle: "O&M Manual — HTT STP Treatment Process",
-    dateIssued: "2024-06-22", revision: "Rev. 1", responsibleParty: "Operations",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 7, project: "Aglipay STP", facility: "Water Supply", facilityCode: "AGL-WS",
-    manualTitle: "O&M Manual — Aglipay STP Water Supply System",
-    dateIssued: "2024-01-30", revision: "Rev. 2", responsibleParty: "Operations",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 8, project: "Aglipay STP", facility: "Electrical", facilityCode: "AGL-EL",
-    manualTitle: "O&M Manual — Aglipay STP Electrical System",
-    dateIssued: "2024-02-14", revision: "Rev. 3", responsibleParty: "Electrical",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 9, project: "Aglipay STP", facility: "Mechanical", facilityCode: "AGL-ME",
-    manualTitle: "O&M Manual — Aglipay STP Mechanical System",
-    dateIssued: "2024-03-25", revision: "Rev. 1", responsibleParty: "Mechanical",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 10, project: "Aglipay STP", facility: "Automation", facilityCode: "AGL-AU",
-    manualTitle: "O&M Manual — Aglipay STP SCADA & Automation",
-    dateIssued: "2024-04-12", revision: "Rev. 2", responsibleParty: "Automation",
-    status: "Under Review", toc: buildToc("Under Review"),
-  },
-  {
-    id: 11, project: "Aglipay STP", facility: "Treatment Process", facilityCode: "AGL-TP",
-    manualTitle: "O&M Manual — Aglipay STP Treatment Process",
-    dateIssued: "2024-05-08", revision: "Rev. 1", responsibleParty: "Operations",
-    status: "Active", toc: buildToc("Active"),
-  },
-  {
-    id: 12, project: "Aglipay STP", facility: "Building & Safety", facilityCode: "AGL-BS",
-    manualTitle: "O&M Manual — Aglipay STP Building & Safety Systems",
-    dateIssued: "2024-06-15", revision: "Rev. 1", responsibleParty: "Safety",
-    status: "Draft", toc: buildToc("Draft"),
-  },
-];
-
-// ── Build hierarchical tree: Facility (top) → Manuals → TOC ──
-function buildTree(manuals: OmManual[]): FacilityNode[] {
-  const map = new Map<string, OmManual[]>();
-  for (const m of manuals) {
-    if (!map.has(m.facility)) map.set(m.facility, []);
-    map.get(m.facility)!.push(m);
-  }
-  const facilities: FacilityNode[] = [];
-  for (const [name, ms] of map) {
-    ms.sort((a, b) => a.project.localeCompare(b.project));
-    facilities.push({ name, manuals: ms });
-  }
-  facilities.sort((a, b) => a.name.localeCompare(b.name));
-  return facilities;
+  folderId: number;
+  title: string;
+  fileName: string;
+  fileType: string | null;
+  fileSize: number | null;
+  fileData: string | null;
+  fileUrl: string | null;
+  description: string | null;
+  revision: string | null;
+  tags: string | null;
+  uploadedBy: string | null;
+  uploadedAt: Date | null;
 }
 
 // ═══════════════════════════════════════════════════════════
 // UI Helpers
 // ═══════════════════════════════════════════════════════════
 
-const STATUS_STYLE: Record<string, { bg: string; text: string; bar: string }> = {
-  "Complete":       { bg: "#D1FAE5", text: "#059669", bar: "#22C55E" },
-  "In Progress":    { bg: "#DBEAFE", text: "#2563EB", bar: "#3B82F6" },
-  "Pending":        { bg: "#FEF3C7", text: "#D97706", bar: "#F59E0B" },
-  "Not Applicable": { bg: "#E2E8F0", text: "#64748B", bar: "#94A3B8" },
-};
-
-const MANUAL_STATUS: Record<string, { bg: string; text: string }> = {
-  "Active":       { bg: "#D1FAE5", text: "#059669" },
-  "Under Review": { bg: "#FEF3C7", text: "#D97706" },
-  "Expired":      { bg: "#FEE2E2", text: "#DC2626" },
-  "Draft":        { bg: "#E2E8F0", text: "#475569" },
-};
-
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
   const s: Record<string, string> = {
-    error:   "bg-red-50   border-red-200   text-red-800",
+    error: "bg-red-50   border-red-200   text-red-800",
     success: "bg-green-50 border-green-200 text-green-800",
     info:    "bg-blue-50  border-blue-200  text-blue-800",
   };
@@ -216,33 +70,295 @@ function Chevron({ expanded }: { expanded: boolean }) {
   );
 }
 
-// ── Detailed descriptions for each of the 14 TOC sections (from ANNEX) ──
-const TOC_DESCRIPTIONS: Record<number, string> = {
-  1:  "High-level summary of the O&M Manual covering facility purpose, scope, key operational parameters, and document structure. Provides an at-a-glance overview for management, auditors, and new personnel joining the facility.",
-  2:  "Detailed description of the facility layout, process flow, treatment trains, capacity, design parameters, and key infrastructure. Includes process flow diagrams (PFDs), general arrangement drawings, and equipment inventory.",
-  3:  "Defines the operating philosophy including staffing model, shift structure, process control strategy, safety-first principles, environmental compliance approach, and performance targets. Establishes the decision-making framework for operators.",
-  4:  "Step-by-step procedures for safe facility operation under all conditions: Start-up, Normal operation, Shutdown, Abnormal/upset operating conditions, and Emergency scenarios (power failure, flooding, major equipment failure). Must be unambiguous, identify operator actions and decision points, and reference all applicable alarms, interlocks, safeguards, and safety precautions. SOPs are mandatory acceptance deliverables.",
-  5:  "Defines how maintenance work is performed including required tools, safety controls, execution steps, and acceptance criteria. Mandatory SMP categories: Mechanical equipment, Electrical systems, Instrumentation and control devices. Each SMP must include: Safety requirements including LOTO, Step-by-step maintenance activities, and Post-maintenance testing and return-to-service checks. SMPs form the technical foundation for all preventive maintenance activities.",
-  6:  "Maintenance strategy structured into Preventive Maintenance (PM) and Corrective Maintenance (CM). Strategy defined based on: Equipment criticality, Operational and safety risk, Warranty conditions and OEM requirements. All PM tasks must be derived from approved SMPs — no PM task shall exist without a corresponding SMP. O&M Manual must clearly define in-house vs contractor scope.",
-  7:  "Complete documentation of the SCADA architecture, control logic, instrumentation, telemetry, alarm management, and automation systems. Includes network diagrams, PLC/HMI configurations, I/O lists, and communication protocols. Must cover operator interfaces and remote monitoring capabilities.",
-  8:  "Dry-Commissioning: Mechanical completion verification, Electrical and instrumentation testing. Wet Commissioning: Functional operation demonstration, Control logic integrity verification, Alarm and interlock performance validation. Proving Period: Performance data collection and analysis, Defect logging/rectification/closure, Demonstration of stable and repeatable operation. Commissioning and proving documentation is a non-waivable acceptance requirement.",
-  9:  "Complete and verified as-built drawings and final technical documentation reflecting the installed condition. Must include: PFDs and P&IDs, GA/layout drawings, Electrical single-line diagrams and schematics, Instrument loop diagrams and I/O lists, Network/SCADA architecture and panel drawings. As-built drawings are mandatory acceptance deliverables.",
-  10: "Training covering at a minimum: Facility operations, Maintenance procedures, SCADA and automation systems, Safety and emergency response. Supported by: Attendance records, Certificates of completion, OEM training certificates where applicable. Facilities shall not be accepted unless minimum training and competency requirements are fully satisfied.",
-  11: "Digital structure into Functional locations and Equipment records. Minimum master data: Equipment technical details, Bills of Materials (BOMs), PM task lists, Measurement points, Warranty information. All digital data must be Complete, Accurate, and Validated prior to acceptance. Digital onboarding is a core acceptance gate, not a post-handover activity.",
-  12: "Separate handover deliverable from SAP onboarding. Contractor must submit final list of contractual critical spares to be turned over per asset/package, including quantities and part identification, together with corresponding supplier/vendor details and documented local support/service contact information for each critical spare/equipment package. Completion required prior to Final Acceptance.",
-  13: "Two-stage acceptance process: Provisional Acceptance → Final Acceptance. Final Acceptance only granted when: All documentation complete and approved, All SOPs and SMPs approved, Training requirements fulfilled, Digital onboarding verified, Critical spares handover deliverable completed. Ownership transfers to Operations only after formal Final Acceptance approval.",
-  14: "Facility-specific requirements documented as appendices to this corporate standard, covering: Unique process units, Special safety considerations, Regulatory and compliance requirements.",
-};
+// Collect all folder IDs that match search (for auto-expand)
+function getMatchingIds(folders: TreeFolder[], query: string): Set<number> {
+  const ids = new Set<number>();
+  const q = query.toLowerCase();
+  function walk(fs: TreeFolder[]): boolean {
+    let anyMatch = false;
+    for (const f of fs) {
+      const nameMatch = f.name.toLowerCase().includes(q);
+      const fileMatch = f.files.some(file =>
+        file.title.toLowerCase().includes(q) ||
+        file.fileName.toLowerCase().includes(q)
+      );
+      const childMatch = walk(f.children);
+      if (nameMatch || fileMatch || childMatch) {
+        ids.add(f.id);
+        anyMatch = true;
+      }
+    }
+    return anyMatch;
+  }
+  walk(folders);
+  return ids;
+}
 
-// ── TOC completion stats for a manual ──
-function tocStats(toc: TocItem[]) {
-  const total = toc.length;
-  const complete = toc.filter(t => t.status === "Complete").length;
-  const inProgress = toc.filter(t => t.status === "In Progress").length;
-  const pending = toc.filter(t => t.status === "Pending").length;
-  const na = toc.filter(t => t.status === "Not Applicable").length;
-  const pct = Math.round((complete / total) * 100);
-  return { total, complete, inProgress, pending, na, pct };
+// Collect all folder IDs in a tree
+function collectIds(folders: TreeFolder[]): number[] {
+  const ids: number[] = [];
+  function walk(fs: TreeFolder[]) {
+    for (const f of fs) {
+      ids.push(f.id);
+      walk(f.children);
+    }
+  }
+  walk(folders);
+  return ids;
+}
+
+// Filter tree by search query
+function filterTree(folders: TreeFolder[], query: string): TreeFolder[] {
+  const q = query.toLowerCase();
+  return folders
+    .map(f => {
+      const matchingChildren = filterTree(f.children, q);
+      const matchingFiles = f.files.filter(file =>
+        file.title.toLowerCase().includes(q) ||
+        file.fileName.toLowerCase().includes(q)
+      );
+      const nameMatch = f.name.toLowerCase().includes(q);
+      if (nameMatch || matchingChildren.length > 0 || matchingFiles.length > 0) {
+        return { ...f, children: matchingChildren, files: nameMatch ? f.files : matchingFiles };
+      }
+      return null;
+    })
+    .filter(Boolean) as TreeFolder[];
+}
+
+// Count items in tree
+function countItems(folders: TreeFolder[]): { folders: number; files: number } {
+  let fc = 0, fl = 0;
+  function walk(fs: TreeFolder[]) {
+    for (const f of fs) {
+      fc++;
+      fl += f.files.length;
+      walk(f.children);
+    }
+  }
+  walk(folders);
+  return { folders: fc, files: fl };
+}
+
+// Get path breadcrumbs for a folder
+function getFolderPath(folders: TreeFolder[], targetId: number): TreeFolder[] {
+  function walk(fs: TreeFolder[], path: TreeFolder[]): TreeFolder[] | null {
+    for (const f of fs) {
+      if (f.id === targetId) return [...path, f];
+      const result = walk(f.children, [...path, f]);
+      if (result) return result;
+    }
+    return null;
+  }
+  return walk(folders, []) || [];
+}
+
+// Format file size
+function formatBytes(bytes: number | null): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Context Menu Component
+// ═══════════════════════════════════════════════════════════
+
+function ContextMenu({ x, y, items, onClose }: {
+  x: number; y: number;
+  items: { label: string; icon: string; onClick: () => void; danger?: boolean }[];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function clickOutside(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); }
+    function esc() { onClose(); }
+    document.addEventListener("mousedown", clickOutside);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", clickOutside); document.removeEventListener("keydown", esc); };
+  }, [onClose]);
+
+  return (
+    <div ref={ref} className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]" style={{ left: x, top: y }}>
+      {items.map((item, i) => (
+        <button key={i} onClick={() => { item.onClick(); onClose(); }}
+          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2 ${item.danger ? "text-red-600" : "text-gray-700"}`}>
+          <span>{item.icon}</span> {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Recursive Tree Folder Component
+// ═══════════════════════════════════════════════════════════
+
+function TreeFolderItem({
+  folder, level, expanded, onToggle,
+  selectedFolderId, selectedFileId, onSelectFolder, onSelectFile,
+  onContextMenuFolder, onContextMenuFile,
+  searchQuery, matchedIds,
+}: {
+  folder: TreeFolder;
+  level: number;
+  expanded: boolean;
+  onToggle: (id: number) => void;
+  selectedFolderId: number | null;
+  selectedFileId: number | null;
+  onSelectFolder: (id: number) => void;
+  onSelectFile: (file: TreeFile) => void;
+  onContextMenuFolder: (e: React.MouseEvent, folder: TreeFolder) => void;
+  onContextMenuFile: (e: React.MouseEvent, file: TreeFile, folderId: number) => void;
+  searchQuery: string;
+  matchedIds: Set<number>;
+}) {
+  const hasContent = folder.children.length > 0 || folder.files.length > 0;
+  const isDimmed = searchQuery.length > 0 && !matchedIds.has(folder.id) && !folder.files.some(f => f.title.toLowerCase().includes(searchQuery.toLowerCase()) || f.fileName.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  return (
+    <div>
+      {/* Folder row */}
+      <div
+        className={`flex items-center gap-1.5 cursor-pointer group transition select-none
+          ${isDimmed ? "opacity-40" : "opacity-100"}
+          ${selectedFolderId === folder.id ? "bg-blue-50" : "hover:bg-gray-50"}`}
+        style={{ paddingLeft: `${level * 12 + 8}px`, paddingRight: "12px", paddingTop: "4px", paddingBottom: "4px" }}
+        onClick={() => { onToggle(folder.id); onSelectFolder(folder.id); }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenuFolder(e, folder); }}
+      >
+        <button
+          className="w-4 h-4 flex items-center justify-center text-gray-400 flex-shrink-0"
+          onClick={(e) => { e.stopPropagation(); onToggle(folder.id); }}
+        >
+          {hasContent ? <Chevron expanded={expanded} /> : <span className="w-2" />}
+        </button>
+        <span className="text-sm flex-shrink-0">{expanded ? "📂" : "📁"}</span>
+        <span className={`text-xs font-semibold truncate flex-1 ${selectedFolderId === folder.id ? "text-blue-800" : "text-gray-700"}`}>{folder.name}</span>
+        {(folder.children.length > 0 || folder.files.length > 0) && (
+          <span className="text-[0.6rem] text-gray-400 flex-shrink-0">
+            {folder.children.length > 0 && `${folder.children.length}f`}
+            {folder.children.length > 0 && folder.files.length > 0 && " · "}
+            {folder.files.length > 0 && `${folder.files.length}d`}
+          </span>
+        )}
+      </div>
+
+      {/* Children */}
+      {expanded && (
+        <div>
+          {/* Sub-folders */}
+          {folder.children.map(child => (
+            <TreeFolderItem
+              key={child.id}
+              folder={child}
+              level={level + 1}
+              expanded={true}
+              onToggle={onToggle}
+              selectedFolderId={selectedFolderId}
+              selectedFileId={selectedFileId}
+              onSelectFolder={onSelectFolder}
+              onSelectFile={onSelectFile}
+              onContextMenuFolder={onContextMenuFolder}
+              onContextMenuFile={onContextMenuFile}
+              searchQuery={searchQuery}
+              matchedIds={matchedIds}
+            />
+          ))}
+          {/* Files */}
+          {folder.files.map(file => {
+            const isSelected = selectedFileId === file.id;
+            const fileMatch = searchQuery.length > 0 && (file.title.toLowerCase().includes(searchQuery.toLowerCase()) || file.fileName.toLowerCase().includes(searchQuery.toLowerCase()));
+            return (
+              <div
+                key={file.id}
+                className={`flex items-center gap-1.5 cursor-pointer group transition select-none
+                  ${isSelected ? "bg-blue-50" : "hover:bg-gray-50"}
+                  ${fileMatch ? "bg-yellow-50/60" : ""}`}
+                style={{ paddingLeft: `${(level + 1) * 12 + 8}px`, paddingRight: "12px", paddingTop: "3px", paddingBottom: "3px" }}
+                onClick={(e) => { e.stopPropagation(); onSelectFile(file); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenuFile(e, file, folder.id); }}
+              >
+                <span className="w-4 flex-shrink-0" />
+                <span className="text-sm flex-shrink-0">{file.fileType?.includes("pdf") ? "📄" : "📃"}</span>
+                <span className={`text-xs truncate flex-1 ${isSelected ? "text-blue-800 font-semibold" : "text-gray-600"}`}>{file.title || file.fileName}</span>
+                {file.revision && <span className="text-[0.6rem] text-gray-400 bg-gray-100 px-1 rounded flex-shrink-0">{file.revision}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// PDF Viewer Component
+// ═══════════════════════════════════════════════════════════
+
+function PdfViewer({ fileData, fileUrl, title }: { fileData: string | null; fileUrl: string | null; title: string }) {
+  const [zoom, setZoom] = useState(1);
+  const src = useMemo(() => {
+    if (fileData) return `data:application/pdf;base64,${fileData}`;
+    if (fileUrl) return fileUrl;
+    return null;
+  }, [fileData, fileUrl]);
+
+  if (!src) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center max-w-md text-gray-400">
+          <div className="text-6xl mb-4">📄</div>
+          <h3 className="text-lg font-semibold text-gray-500 mb-2">No PDF Available</h3>
+          <p className="text-sm">This document has no file data attached.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200">
+        <span className="text-xs font-semibold text-gray-700 truncate flex-1">{title}</span>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">−</button>
+          <span className="text-xs text-gray-500 w-12 text-center">{Math.round(zoom * 100)}%</span>
+          <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">+</button>
+          <button onClick={() => setZoom(1)} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 ml-1">Fit</button>
+        </div>
+        <a href={src} download className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 font-semibold ml-1">⬇ Download</a>
+      </div>
+      {/* PDF iframe */}
+      <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-4">
+        <iframe
+          src={src}
+          title={title}
+          className="bg-white shadow-lg"
+          style={{ width: `${zoom * 100}%`, maxWidth: `${zoom * 850}px`, height: "calc(100vh - 200px)", minHeight: "500px" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Modal Component
+// ═══════════════════════════════════════════════════════════
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+          <span className="text-sm font-bold text-gray-800">{title}</span>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -250,396 +366,397 @@ function tocStats(toc: TocItem[]) {
 // ═══════════════════════════════════════════════════════════
 
 export default function OmManualsLibrary() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [selectedManual, setSelectedManual] = useState<OmManual | null>(null);
-  const [selectedTocItem, setSelectedTocItem] = useState<TocItem | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
+  const [selectedFileData, setSelectedFileData] = useState<DocFileFull | null>(null);
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
-  const [expandedFacilities, setExpandedFacilities] = useState<Set<string>>(new Set(["Automation", "Building & Safety", "Electrical", "Mechanical", "Treatment Process", "Water Supply"]));
-  const [expandedManuals, setExpandedManuals] = useState<Set<string>>(new Set());
   const [mobileView, setMobileView] = useState<"tree" | "detail">("tree");
+  const [contextMenu, setContextMenu] = useState<{x: number; y: number; items: {label: string; icon: string; onClick: () => void; danger?: boolean}[]} | null>(null);
+  const [modal, setModal] = useState<{type: string; folderId?: number; fileId?: number} | null>(null);
+  const [modalInput, setModalInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Search filtering ──
-  const filteredManuals = useMemo(() => {
-    let d = MOCK_MANUALS;
-    if (search) {
-      const s = search.toLowerCase();
-      d = d.filter(x =>
-        x.manualTitle.toLowerCase().includes(s) ||
-        x.project.toLowerCase().includes(s) ||
-        x.facility.toLowerCase().includes(s) ||
-        x.facilityCode.toLowerCase().includes(s)
-      );
-    }
-    if (statusFilter) d = d.filter(x => x.status === statusFilter);
-    return d;
-  }, [search, statusFilter]);
+  // ── Fetch tree ──
+  const { data: treeData, isLoading } = trpc.documents.getTree.useQuery();
+  const tree = treeData?.tree || [];
 
-  const tree = useMemo(() => buildTree(filteredManuals), [filteredManuals]);
+  // ── Fetch single file for viewer ──
+  const { data: fileDetail } = trpc.documents.getFile.useQuery(
+    { id: selectedFileId! },
+    { enabled: !!selectedFileId }
+  );
 
-  const stats = useMemo(() => ({
-    total:    MOCK_MANUALS.length,
-    active:   MOCK_MANUALS.filter(d => d.status === "Active").length,
-    review:   MOCK_MANUALS.filter(d => d.status === "Under Review").length,
-    expired:  MOCK_MANUALS.filter(d => d.status === "Expired").length,
-    projects: new Set(MOCK_MANUALS.map(d => d.project)).size,
-  }), []);
+  useEffect(() => {
+    if (fileDetail) setSelectedFileData(fileDetail);
+  }, [fileDetail]);
 
-  const toggleFacility = useCallback((name: string) => {
-    setExpandedFacilities(prev => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; });
-  }, []);
+  // ── Mutations ──
+  const createFolder = trpc.documents.createFolder.useMutation({
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setModal(null); setBanner({ type: "success", message: "Folder created" }); },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
+  const renameFolder = trpc.documents.renameFolder.useMutation({
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setModal(null); setBanner({ type: "success", message: "Folder renamed" }); },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
+  const deleteFolder = trpc.documents.deleteFolder.useMutation({
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setBanner({ type: "success", message: "Folder deleted" }); },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
+  const moveFolder = trpc.documents.moveFolder.useMutation({
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setBanner({ type: "success", message: "Folder moved" }); },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
+  const uploadFile = trpc.documents.uploadFile.useMutation({
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setBanner({ type: "success", message: "File uploaded" }); },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
+  const deleteFile = trpc.documents.deleteFile.useMutation({
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setSelectedFileId(null); setSelectedFileData(null); setBanner({ type: "success", message: "File deleted" }); },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
+  const renameFile = trpc.documents.renameFile.useMutation({
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setModal(null); setBanner({ type: "success", message: "File renamed" }); },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
+  const moveFile = trpc.documents.moveFile.useMutation({
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: [["documents", "getTree"]] }); setBanner({ type: "success", message: "File moved" }); },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
 
-  const toggleManual = useCallback((id: number) => {
-    setExpandedManuals(prev => { const n = new Set(prev); if (n.has(String(id))) n.delete(String(id)); else n.add(String(id)); return n; });
-  }, []);
+  // ── Search ──
+  const matchedIds = useMemo(() => search.length > 2 ? getMatchingIds(tree, search) : new Set<number>(), [tree, search]);
+  const displayTree = useMemo(() => search.length > 2 ? filterTree(tree, search) : tree, [tree, search]);
+  const counts = useMemo(() => countItems(tree), [tree]);
 
-  const handleSelectManual = useCallback((manual: OmManual) => {
-    setSelectedManual(manual);
-    setSelectedTocItem(null);
-    setMobileView("detail");
+  // ── Toggle expand ──
+  const toggle = useCallback((id: number) => {
+    setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
 
   const expandAll = useCallback(() => {
-    const fs = new Set(tree.map(f => f.name));
-    const ms = new Set<string>();
-    for (const f of tree) { for (const m of f.manuals) { ms.add(String(m.id)); } }
-    setExpandedFacilities(fs); setExpandedManuals(ms);
+    setExpandedIds(new Set(collectIds(tree)));
   }, [tree]);
 
-  const clearFilters = useCallback(() => {
-    setSearch(""); setStatusFilter(""); setSelectedManual(null); setSelectedTocItem(null); setMobileView("tree");
+  const collapseAll = useCallback(() => {
+    setExpandedIds(new Set());
   }, []);
 
-  const handleExport = useCallback(() => {
-    const rows: any[] = [];
-    filteredManuals.forEach(m => {
-      m.toc.forEach(t => {
-        rows.push({
-          "Project": m.project,
-          "Facility Code": m.facilityCode,
-          "Facility": m.facility,
-          "Manual Status": m.status,
-          "TOC #": t.id,
-          "TOC Section": t.title,
-          "Section Status": t.status,
-          "Last Updated": t.lastUpdated,
-          "Responsible": t.responsibleParty || m.responsibleParty,
-        });
-      });
+  // ── Context menus ──
+  const handleFolderContextMenu = useCallback((e: React.MouseEvent, folder: TreeFolder) => {
+    setSelectedFolderId(folder.id);
+    setContextMenu({
+      x: e.clientX, y: e.clientY,
+      items: [
+        { label: "New Subfolder", icon: "📁", onClick: () => { setModal({ type: "createSubfolder", folderId: folder.id }); setModalInput(""); } },
+        { label: "Rename", icon: "✏️", onClick: () => { setModal({ type: "renameFolder", folderId: folder.id }); setModalInput(folder.name); } },
+        { label: "Move", icon: "📋", onClick: () => { setModal({ type: "moveFolder", folderId: folder.id }); } },
+        { label: "Delete", icon: "🗑️", onClick: () => { setModal({ type: "deleteFolder", folderId: folder.id }); }, danger: true },
+      ],
     });
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [{ wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 6 }, { wch: 52 }, { wch: 14 }, { wch: 13 }, { wch: 15 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "O&M Manuals TOC");
-    XLSX.writeFile(wb, "OM_Manuals_TOC_Export.xlsx");
-    setBanner({ type: "success", message: `${rows.length} TOC rows exported from ${filteredManuals.length} manuals.` });
-  }, [filteredManuals]);
-
-  const handleUpload = useCallback((file: File) => {
-    setBanner({ type: "info", message: `Uploading "${file.name}"... (PDF storage integration coming soon)` });
   }, []);
 
-  const handleDownload = useCallback(() => {
-    if (!selectedManual) { setBanner({ type: "error", message: "Select a manual first." }); return; }
-    setBanner({ type: "info", message: `Downloading ${selectedManual.manualTitle}... (file storage integration coming soon)` });
-  }, [selectedManual]);
-
-  // Keyboard shortcut: Ctrl+F to focus search
-  const searchRef = useRef<HTMLInputElement>(null);
-  React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.ctrlKey && e.key === "f") { e.preventDefault(); searchRef.current?.focus(); } };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+  const handleFileContextMenu = useCallback((e: React.MouseEvent, file: TreeFile, folderId: number) => {
+    setSelectedFileId(file.id);
+    setContextMenu({
+      x: e.clientX, y: e.clientY,
+      items: [
+        { label: "View", icon: "👁️", onClick: () => { onSelectFile(file); } },
+        { label: "Rename", icon: "✏️", onClick: () => { setModal({ type: "renameFile", fileId: file.id }); setModalInput(file.title); } },
+        { label: "Move", icon: "📋", onClick: () => { setModal({ type: "moveFile", fileId: file.id }); } },
+        { label: "Delete", icon: "🗑️", onClick: () => { setModal({ type: "deleteFile", fileId: file.id }); }, danger: true },
+      ],
+    });
   }, []);
+
+  const onSelectFile = useCallback((file: TreeFile) => {
+    setSelectedFileId(file.id);
+    setSelectedFileData(null);
+    setMobileView("detail");
+  }, []);
+
+  const onSelectFolder = useCallback((id: number) => {
+    setSelectedFolderId(id);
+    setSelectedFileId(null);
+    setSelectedFileData(null);
+  }, []);
+
+  // ── Seed default folders if empty ──
+  const seedFolders = trpc.documents.createFolder.useMutation();
+
+  // ── Handle file upload ──
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const targetFolder = selectedFolderId;
+    if (!targetFolder) { setBanner({ type: "error", message: "Select a folder first" }); return; }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(",")[1];
+      uploadFile.mutate({
+        folderId: targetFolder,
+        title: file.name.replace(/\.[^.]+$/, ""),
+        fileName: file.name,
+        fileType: file.type || "application/pdf",
+        fileSize: file.size,
+        fileData: base64,
+        uploadedBy: "User",
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }, [selectedFolderId, uploadFile]);
+
+  // ── Breadcrumbs for selected folder ──
+  const breadcrumbs = useMemo(() => selectedFolderId ? getFolderPath(tree, selectedFolderId) : [], [tree, selectedFolderId]);
 
   // ═════════════ RENDER ═════════════
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
-      {/* Banner */}
       {banner && <div className="flex-shrink-0 px-4 pt-3"><Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} /></div>}
 
       {/* Header */}
-      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)", boxShadow: "0 4px 12px rgba(22,50,79,0.10)" }}>
-        <div className="flex items-center justify-between px-4 py-3">
+      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}>
+        <div className="flex items-center justify-between px-4 py-2.5">
           <Link to="/" className="flex items-center gap-3 no-underline text-white">
-            <ProgramsEngineeringLogo size={72} borderRadius={8} />
+            <ProgramsEngineeringLogo size={56} borderRadius={8} />
             <div>
-              <h1 className="text-lg font-bold leading-tight">O&amp;M Manuals Library</h1>
-              <p className="text-xs opacity-55" style={{ letterSpacing: "1px", textTransform: "uppercase" }}>Per Project &middot; Per Facility &middot; 14-Item Standard TOC</p>
+              <h1 className="text-base font-bold leading-tight">O&amp;M Manuals Library</h1>
+              <p className="text-[0.6rem] opacity-55 uppercase tracking-wider">Document Management System</p>
             </div>
           </Link>
           <div className="flex gap-2">
-            <div className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-center">
-              <div className="text-lg font-bold">{stats.total}</div>
-              <div className="text-[0.6rem] uppercase opacity-70">Manuals</div>
+            <div className="bg-white/10 border border-white/20 rounded px-2.5 py-1.5 text-center">
+              <div className="text-sm font-bold">{counts.folders}</div>
+              <div className="text-[0.55rem] uppercase opacity-70">Folders</div>
             </div>
-            <div className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-center hidden sm:block">
-              <div className="text-lg font-bold">{stats.projects}</div>
-              <div className="text-[0.6rem] uppercase opacity-70">Projects</div>
+            <div className="bg-white/10 border border-white/20 rounded px-2.5 py-1.5 text-center">
+              <div className="text-sm font-bold">{counts.files}</div>
+              <div className="text-[0.55rem] uppercase opacity-70">Files</div>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main */}
       <div className="flex-1 flex overflow-hidden">
-        {/* ── LEFT PANEL: Hierarchical Tree ── */}
-        <div className={`w-full sm:w-[440px] lg:w-[480px] flex flex-col border-r border-gray-200 bg-white ${mobileView === "detail" ? "hidden sm:flex" : "flex"}`}>
+        {/* LEFT PANEL: Tree */}
+        <div className={`w-full sm:w-[380px] lg:w-[420px] flex flex-col border-r border-gray-200 bg-white ${mobileView === "detail" ? "hidden sm:flex" : "flex"}`}>
           {/* Toolbar */}
-          <div className="flex-shrink-0 p-3 border-b border-gray-200 space-y-2">
+          <div className="flex-shrink-0 p-2.5 border-b border-gray-200 space-y-2">
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">&#128269;</span>
-              <input ref={searchRef} type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search project, facility, or code..."
-                className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none" />
-              {search && <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">&#10005;</button>}
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#128269;</span>
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search folders and files..."
+                className="w-full pl-8 pr-7 py-1.5 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none" />
+              {search && <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#10005;</button>}
             </div>
-            <div className="flex gap-2 items-center">
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white flex-1">
-                <option value="">All Manual Status</option>
-                <option value="Active">Active</option>
-                <option value="Under Review">Under Review</option>
-                <option value="Draft">Draft</option>
-                <option value="Expired">Expired</option>
-              </select>
-              <button onClick={expandAll} className="px-2 py-1.5 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200 whitespace-nowrap">Expand All</button>
-              {(search || statusFilter) && (
-                <button onClick={clearFilters} className="px-2 py-1.5 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100 whitespace-nowrap">Clear</button>
-              )}
+            <div className="flex gap-1.5 flex-wrap">
+              <button onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
+                className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
+                <span>📁</span> New Folder
+              </button>
+              <button onClick={() => { if (selectedFolderId) fileInputRef.current?.click(); else setBanner({ type: "info", message: "Select a folder first" }); }}
+                className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
+                <span>📤</span> Upload
+              </button>
+              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx" className="hidden" onChange={handleFileUpload} />
+              <button onClick={expandAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Expand</button>
+              <button onClick={collapseAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Collapse</button>
+              {search && <button onClick={() => setSearch("")} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100">Clear</button>}
             </div>
-            <div className="flex gap-2 flex-wrap">
-              <button onClick={handleExport} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1"><span>&#128196;</span> Export</button>
-              <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1"><span>&#128194;</span> Upload</button>
-              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ""; }} />
-              <button onClick={handleDownload} className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1 ${selectedManual ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}><span>&#11015;</span> Download</button>
-            </div>
-            <div className="flex gap-3 text-xs text-gray-500">
-              <span><strong className="text-green-600">{stats.active}</strong> Active</span>
-              <span><strong className="text-amber-600">{stats.review}</strong> Review</span>
-              <span><strong className="text-red-600">{stats.expired}</strong> Expired</span>
-              <span className="ml-auto"><strong>{filteredManuals.length}</strong> shown</span>
-            </div>
+            {breadcrumbs.length > 0 && (
+              <div className="flex items-center gap-1 text-[0.65rem] text-gray-500 flex-wrap">
+                {breadcrumbs.map((b, i) => (
+                  <span key={b.id}>
+                    {i > 0 && <span className="text-gray-300 mx-0.5">/</span>}
+                    <span className="text-gray-600 font-medium">{b.name}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Tree: Facility → Manual Project Title → TOC */}
-          <div className="flex-1 overflow-y-auto">
-            {tree.length === 0 ? (
+          {/* Tree */}
+          <div className="flex-1 overflow-y-auto py-1">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16 text-gray-400 text-sm">Loading document library...</div>
+            ) : displayTree.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
-                <div className="text-3xl mb-2">&#128196;</div>
-                <div className="text-sm font-semibold text-gray-600">No manuals found</div>
+                <div className="text-3xl mb-2">📂</div>
+                <div className="text-sm font-semibold text-gray-600">No folders yet</div>
+                <button onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
+                  className="mt-3 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Create First Folder</button>
               </div>
             ) : (
-              tree.map(facility => {
-                const fExpanded = expandedFacilities.has(facility.name);
-                const fCount = facility.manuals.length;
-                return (
-                  <div key={facility.name} className="border-b border-gray-200">
-                    {/* Facility Header */}
-                    <button onClick={() => toggleFacility(facility.name)}
-                      className={`w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50 transition ${fExpanded ? "bg-blue-50/50" : ""}`}>
-                      <Chevron expanded={fExpanded} />
-                      <span className="text-sm">&#9881;</span>
-                      <span className="flex-1 text-sm font-bold text-gray-800">{facility.name}</span>
-                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-semibold">{fCount} manual{fCount > 1 ? "s" : ""}</span>
-                    </button>
-
-                    {/* Manuals under this facility */}
-                    {fExpanded && facility.manuals.map(manual => {
-                      const mExpanded = expandedManuals.has(String(manual.id));
-                      const isSelected = selectedManual?.id === manual.id;
-                      const tocSt = tocStats(manual.toc);
-                      const ms = MANUAL_STATUS[manual.status] || MANUAL_STATUS.Draft;
-                      return (
-                        <div key={manual.id} className="border-t border-gray-50">
-                          {/* O&M Manual Project Title */}
-                          <button onClick={() => toggleManual(manual.id)}
-                            className={`w-full flex items-center gap-2 pl-9 pr-4 py-2 text-left hover:bg-gray-50 transition ${mExpanded ? "bg-blue-50/30" : ""}`}>
-                            <Chevron expanded={mExpanded} />
-                            <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1 rounded">{manual.facilityCode}</span>
-                            <span className="flex-1 text-xs font-semibold text-gray-700 truncate">{manual.manualTitle}</span>
-                            <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: ms.bg, color: ms.text }}>{manual.status}</span>
-                          </button>
-
-                          {/* Manual summary + TOC micro-bars (when expanded) */}
-                          {mExpanded && (
-                            <div onClick={() => handleSelectManual(manual)}
-                              className={`pl-[52px] pr-4 py-3 cursor-pointer transition hover:bg-blue-50/40 border-t border-gray-50 ${isSelected ? "bg-blue-50 border-l-4 border-l-blue-600" : "border-l-4 border-l-transparent"}`}>
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-[0.65rem] text-gray-400">{manual.revision} &middot; Issued {manual.dateIssued} &middot; {manual.responsibleParty} &middot; {manual.project}</div>
-                                </div>
-                              </div>
-                              {/* TOC completion micro-bars */}
-                              <div className="flex gap-1 mt-2">
-                                {manual.toc.map(t => (
-                                  <div key={t.id} className="flex-1 h-1 rounded-full" style={{ background: STATUS_STYLE[t.status]?.bar || "#CBD5E1" }} title={`${t.id}. ${t.title} — ${t.status}`} />
-                                ))}
-                              </div>
-                              <div className="flex gap-2 mt-1.5 text-[0.6rem] text-gray-500">
-                                <span className="text-green-600 font-semibold">{tocSt.complete} done</span>
-                                <span className="text-blue-600 font-semibold">{tocSt.inProgress} in prog</span>
-                                <span className="text-amber-600 font-semibold">{tocSt.pending} pending</span>
-                                {tocSt.na > 0 && <span className="text-gray-400">{tocSt.na} N/A</span>}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })
+              displayTree.map(folder => (
+                <TreeFolderItem
+                  key={folder.id}
+                  folder={folder}
+                  level={0}
+                  expanded={expandedIds.has(folder.id)}
+                  onToggle={toggle}
+                  selectedFolderId={selectedFolderId}
+                  selectedFileId={selectedFileId}
+                  onSelectFolder={onSelectFolder}
+                  onSelectFile={onSelectFile}
+                  onContextMenuFolder={handleFolderContextMenu}
+                  onContextMenuFile={handleFileContextMenu}
+                  searchQuery={search}
+                  matchedIds={matchedIds}
+                />
+              ))
             )}
           </div>
         </div>
 
-        {/* ── MAIN CONTENT: TOC Viewer ── */}
+        {/* RIGHT PANEL: Viewer */}
         <div className={`flex-1 flex-col bg-gray-100 overflow-hidden ${mobileView === "detail" ? "flex" : "hidden sm:flex"}`}>
-          {selectedManual ? (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Manual Header */}
-              <div className="flex-shrink-0 bg-white border-b border-gray-200 px-6 py-4">
-                {/* Mobile back button */}
-                <button onClick={() => setMobileView("tree")} className="sm:hidden flex items-center gap-1 text-xs text-blue-600 font-semibold mb-2">
-                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M7.5 9.5L4 6L7.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  Back to list
-                </button>
-                <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
-                  <span className="font-semibold text-blue-600">&#127980; {selectedManual.project}</span>
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  <span className="font-medium text-gray-500">&#9881; {selectedManual.facility}</span>
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  <span className="font-mono text-gray-400">{selectedManual.facilityCode}</span>
-                </div>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-800">{selectedManual.manualTitle}</h2>
-                    <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-                      <span><strong>Responsible:</strong> {selectedManual.responsibleParty}</span>
-                      <span><strong>Revision:</strong> {selectedManual.revision}</span>
-                      <span><strong>Issued:</strong> {selectedManual.dateIssued}</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-xs font-bold px-3 py-1 rounded-full" style={{ background: MANUAL_STATUS[selectedManual.status]?.bg, color: MANUAL_STATUS[selectedManual.status]?.text }}>{selectedManual.status}</span>
-                  </div>
-                </div>
-              </div>
+          {/* Mobile back */}
+          <button onClick={() => setMobileView("tree")} className="sm:hidden flex items-center gap-1 text-xs text-blue-600 font-semibold px-4 py-2 bg-white border-b border-gray-200">
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M7.5 9.5L4 6L7.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Back to tree
+          </button>
 
-              {/* Two-column: TOC list + TOC detail */}
-              <div className="flex-1 flex overflow-hidden">
-                {/* TOC 14-item list */}
-                <div className="w-[340px] lg:w-[380px] flex flex-col border-r border-gray-200 bg-white overflow-hidden">
-                  <div className="flex-shrink-0 px-4 py-2.5 border-b border-gray-200 bg-gray-50">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Standard TOC — 14 Sections</span>
-                      {(() => { const s = tocStats(selectedManual.toc); return (
-                        <span className="text-xs font-semibold" style={{ color: s.pct >= 80 ? "#059669" : s.pct >= 50 ? "#2563EB" : "#D97706" }}>{s.pct}% Complete</span>
-                      ); })()}
-                    </div>
-                    {/* Overall progress bar */}
-                    {(() => { const s = tocStats(selectedManual.toc); return (
-                      <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mt-1.5">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${s.pct}%`, background: s.pct >= 80 ? "#22C55E" : s.pct >= 50 ? "#3B82F6" : "#F59E0B" }} />
-                      </div>
-                    ); })()}
-                  </div>
-                  <div className="flex-1 overflow-y-auto">
-                    {selectedManual.toc.map(item => {
-                      const isActive = selectedTocItem?.id === item.id;
-                      const st = STATUS_STYLE[item.status];
-                      return (
-                        <button key={item.id} onClick={() => setSelectedTocItem(isActive ? null : item)}
-                          className={`w-full text-left px-4 py-2.5 border-b border-gray-50 flex items-center gap-3 transition hover:bg-gray-50 ${isActive ? "bg-blue-50" : ""}`}>
-                          <span className="w-6 h-6 rounded-full flex items-center justify-center text-[0.65rem] font-bold flex-shrink-0" style={{ background: st.bg, color: st.text }}>{item.id}</span>
-                          <span className="flex-1 text-xs font-medium truncate" style={{ color: isActive ? "#1E40AF" : "#374151" }}>{item.title}</span>
-                          <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: st.bg, color: st.text }}>{item.status}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* TOC Detail Panel */}
-                <div className="flex-1 overflow-y-auto p-6">
-                  {selectedTocItem ? (
-                    <div className="max-w-xl">
-                      <div className="flex items-center gap-3 mb-4">
-                        <span className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: STATUS_STYLE[selectedTocItem.status]?.bg, color: STATUS_STYLE[selectedTocItem.status]?.text }}>{selectedTocItem.id}</span>
-                        <div>
-                          <h3 className="text-base font-bold text-gray-800">{selectedTocItem.title}</h3>
-                          <span className="text-xs text-gray-400">Section {selectedTocItem.id} of 14</span>
-                        </div>
-                      </div>
-                      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-                        <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                          <span className="text-xs text-gray-500">Status</span>
-                          <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ background: STATUS_STYLE[selectedTocItem.status]?.bg, color: STATUS_STYLE[selectedTocItem.status]?.text }}>{selectedTocItem.status}</span>
-                        </div>
-                        <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                          <span className="text-xs text-gray-500">Responsible Party</span>
-                          <span className="text-xs font-semibold text-gray-700">{selectedTocItem.responsibleParty || selectedManual.responsibleParty}</span>
-                        </div>
-                        <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                          <span className="text-xs text-gray-500">Last Updated</span>
-                          <span className="text-xs font-semibold text-gray-700">{selectedTocItem.lastUpdated || "—"}</span>
-                        </div>
-                        <div className="pt-1">
-                          <span className="text-xs text-gray-500">Description</span>
-                          <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                            {TOC_DESCRIPTIONS[selectedTocItem.id]}
-                          </p>
-                        </div>
-                        <div className="pt-2">
-                          <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Upload Document</button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center text-gray-400">
-                      <div className="text-5xl mb-3">&#128218;</div>
-                      <h3 className="text-base font-semibold text-gray-500 mb-1">Select a TOC Section</h3>
-                      <p className="text-xs text-gray-400 max-w-xs mx-auto">Click any of the 14 TOC items on the left to view section details, status, and responsible party.</p>
-                      {/* TOC summary grid */}
-                      <div className="grid grid-cols-2 gap-2 mt-6 max-w-sm mx-auto">
-                        {(() => { const s = tocStats(selectedManual.toc); return (
-                          <React.Fragment>
-                            <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
-                              <div className="text-lg font-bold text-green-700">{s.complete}</div>
-                              <div className="text-[0.6rem] text-green-600 font-semibold uppercase">Complete</div>
-                            </div>
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
-                              <div className="text-lg font-bold text-blue-700">{s.inProgress}</div>
-                              <div className="text-[0.6rem] text-blue-600 font-semibold uppercase">In Progress</div>
-                            </div>
-                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
-                              <div className="text-lg font-bold text-amber-700">{s.pending}</div>
-                              <div className="text-[0.6rem] text-amber-600 font-semibold uppercase">Pending</div>
-                            </div>
-                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-                              <div className="text-lg font-bold text-gray-700">{s.na}</div>
-                              <div className="text-[0.6rem] text-gray-600 font-semibold uppercase">Not Applicable</div>
-                            </div>
-                          </React.Fragment>
-                        ); })()}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+          {selectedFileData ? (
+            <PdfViewer
+              fileData={selectedFileData.fileData}
+              fileUrl={selectedFileData.fileUrl}
+              title={selectedFileData.title}
+            />
+          ) : selectedFileId && !selectedFileData ? (
+            <div className="flex-1 flex items-center justify-center"><div className="text-gray-400 text-sm">Loading document...</div></div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center max-w-md">
-                <div className="text-6xl mb-4 opacity-30">&#128214;</div>
-                <h3 className="text-lg font-semibold text-gray-400 mb-2">Select a Facility Manual</h3>
-                <p className="text-sm text-gray-400">Browse by project and facility on the left, then click any O&amp;M Manual to view its 14-section Standard TOC.</p>
+              <div className="text-center max-w-md text-gray-400">
+                <div className="text-6xl mb-4">📁</div>
+                <h3 className="text-lg font-semibold text-gray-500 mb-2">Document Library</h3>
+                <p className="text-sm">Select a file from the folder tree to view it here.<br />Right-click folders or files for more options.</p>
+                {counts.folders === 0 && (
+                  <button onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
+                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Create First Folder</button>
+                )}
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Context Menu */}
+      {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
+
+      {/* Modals */}
+      {modal?.type === "createRootFolder" && (
+        <Modal title="New Folder" onClose={() => setModal(null)}>
+          <input type="text" value={modalInput} onChange={e => setModalInput(e.target.value)}
+            placeholder="Folder name" autoFocus
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
+          <div className="flex justify-end gap-2 mt-3">
+            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button onClick={() => { if (modalInput.trim()) createFolder.mutate({ name: modalInput.trim() }); }}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Create</button>
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "createSubfolder" && (
+        <Modal title="New Subfolder" onClose={() => setModal(null)}>
+          <input type="text" value={modalInput} onChange={e => setModalInput(e.target.value)}
+            placeholder="Subfolder name" autoFocus
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
+          <div className="flex justify-end gap-2 mt-3">
+            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button onClick={() => { if (modalInput.trim()) createFolder.mutate({ name: modalInput.trim(), parentId: modal.folderId }); }}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Create</button>
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "renameFolder" && (
+        <Modal title="Rename Folder" onClose={() => setModal(null)}>
+          <input type="text" value={modalInput} onChange={e => setModalInput(e.target.value)}
+            placeholder="Folder name" autoFocus
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
+          <div className="flex justify-end gap-2 mt-3">
+            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button onClick={() => { if (modalInput.trim()) renameFolder.mutate({ id: modal.folderId!, name: modalInput.trim() }); }}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Rename</button>
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "renameFile" && (
+        <Modal title="Rename File" onClose={() => setModal(null)}>
+          <input type="text" value={modalInput} onChange={e => setModalInput(e.target.value)}
+            placeholder="File title" autoFocus
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
+          <div className="flex justify-end gap-2 mt-3">
+            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button onClick={() => { if (modalInput.trim()) renameFile.mutate({ id: modal.fileId!, title: modalInput.trim() }); }}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Rename</button>
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "deleteFolder" && (
+        <Modal title="Delete Folder?" onClose={() => setModal(null)}>
+          <p className="text-sm text-gray-600">This will permanently delete the folder and all its contents (subfolders and files). This action cannot be undone.</p>
+          <div className="flex justify-end gap-2 mt-3">
+            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button onClick={() => { deleteFolder.mutate({ id: modal.folderId! }); setModal(null); }}
+              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700">Delete</button>
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "deleteFile" && (
+        <Modal title="Delete File?" onClose={() => setModal(null)}>
+          <p className="text-sm text-gray-600">This will permanently delete the file. This action cannot be undone.</p>
+          <div className="flex justify-end gap-2 mt-3">
+            <button onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+            <button onClick={() => { deleteFile.mutate({ id: modal.fileId! }); setModal(null); }}
+              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700">Delete</button>
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "moveFolder" && (
+        <Modal title="Move Folder" onClose={() => setModal(null)}>
+          <p className="text-xs text-gray-500 mb-2">Select a destination folder:</p>
+          <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+            <button onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: null }); setModal(null); }}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100">📁 Root (top level)</button>
+            {collectIds(tree).filter(id => id !== modal.folderId).map(id => {
+              const path = getFolderPath(tree, id);
+              const name = path.map(p => p.name).join(" / ");
+              return (
+                <button key={id} onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: id }); setModal(null); }}
+                  className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-600 border-b border-gray-50">{name}</button>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "moveFile" && (
+        <Modal title="Move File" onClose={() => setModal(null)}>
+          <p className="text-xs text-gray-500 mb-2">Select a destination folder:</p>
+          <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+            {collectIds(tree).map(id => {
+              const path = getFolderPath(tree, id);
+              const name = path.map(p => p.name).join(" / ");
+              return (
+                <button key={id} onClick={() => { moveFile.mutate({ id: modal.fileId!, folderId: id }); setModal(null); }}
+                  className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-600 border-b border-gray-50">{name}</button>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

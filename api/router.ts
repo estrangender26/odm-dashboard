@@ -6,6 +6,7 @@ import { seedRouter } from "./seed-router";
 import { mwRouter } from "./mw-router";
 import { ganttRouter } from "./gantt-router";
 import { efmRouter } from "./efm-router";
+import { documentsRouter } from "./documents-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -18,6 +19,7 @@ export const appRouter = createRouter({
   mw: mwRouter,
   gantt: ganttRouter,
   efm: efmRouter,
+  documents: documentsRouter,
 });
 
 export type AppRouter = typeof appRouter;

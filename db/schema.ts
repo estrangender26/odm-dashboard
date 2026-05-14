@@ -174,6 +174,37 @@ export const existingFacilitiesMaintenance = pgTable("existing_facilities_mainte
   index("efm_status_idx").on(table.status),
 ]);
 
+// Document Management — Folder Tree System
+export const docFolders = pgTable("doc_folders", {
+  id: serial("id").primaryKey(),
+  parentId: integer("parent_id").references(() => docFolders.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("doc_folders_parent_idx").on(table.parentId),
+]);
+
+export const docFiles = pgTable("doc_files", {
+  id: serial("id").primaryKey(),
+  folderId: integer("folder_id").notNull().references(() => docFolders.id),
+  title: varchar("title", { length: 500 }).notNull(),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  fileType: varchar("file_type", { length: 100 }),
+  fileSize: integer("file_size"),
+  fileData: text("file_data"),
+  fileUrl: text("file_url"),
+  description: text("description"),
+  revision: varchar("revision", { length: 50 }),
+  tags: text("tags"),
+  uploadedBy: varchar("uploaded_by", { length: 255 }),
+  uploadedAt: timestamp("uploaded_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("doc_files_folder_idx").on(table.folderId),
+]);
+
 export const ganttLinks = pgTable("gantt_links", {
   id: serial("id").primaryKey(),
   source: integer("source").notNull(),
