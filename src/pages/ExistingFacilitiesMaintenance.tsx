@@ -5,6 +5,98 @@ import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 
+/* ============================================================
+   EQUIPMENT TYPE INFERENCE ENGINE
+   Maps task names / descriptions to standardized Equipment Types
+   ============================================================ */
+const EQUIPMENT_TYPE_MAP: { keywords: string[]; type: string }[] = [
+  { keywords: ["pump", "pumps", "impeller", "suction", "discharge", "priming", "cavitation", "volute"], type: "Pumps" },
+  { keywords: ["motor", "motors", "bearing", "stator", "rotor", "winding", "motorized", "blower motor", "pump motor"], type: "Motors" },
+  { keywords: ["blower", "blowers", "aerator", "aeration", "air blower", "diffuser"], type: "Blowers" },
+  { keywords: ["valve", "valves", "gate valve", "check valve", "butterfly valve", "ball valve", "control valve", "isolation valve"], type: "Valves" },
+  { keywords: ["generator", "generators", "gen set", "genset", "emergency power", "backup power"], type: "Generators" },
+  { keywords: ["transformer", "transformers", "step up", "step down", "voltage regulator", "mcc"], type: "Transformers" },
+  { keywords: ["instrument", "instruments", "sensor", "probe", "flow meter", "level sensor", "pressure gauge", "transmitter", "analyzer"], type: "Instrumentation" },
+  { keywords: ["plc", "scada", "hmi", "automation", "control panel", "plc/scada", "rtu", "telemetry", "control system"], type: "PLC / SCADA" },
+  { keywords: ["hvac", "aircon", "air conditioning", "ventilation", "cooling", "exhaust fan", "supply fan", "ahu"], type: "HVAC" },
+  { keywords: ["compressor", "compressors", "air compressor", "pneumatic"], type: "Compressors" },
+  { keywords: ["chemical dosing", "dosing pump", "chlorinator", "hypochlorite", "polymer", "coagulant", "disinfection", "chemical feed"], type: "Chemical Dosing Systems" },
+  { keywords: ["screen", "screens", "bar screen", "fine screen", "coarse screen", "grit"], type: "Screens" },
+  { keywords: ["clarifier", "clarifiers", "sedimentation", "settling tank", "thickener"], type: "Clarifiers" },
+  { keywords: ["filter", "filters", "sand filter", "carbon filter", "membrane", "uf", "mf", "ro", "media filter"], type: "Filters" },
+  { keywords: ["uv", "ultraviolet", "ozone", "disinfection unit"], type: "UV / Disinfection" },
+  { keywords: ["tank", "tanks", "storage tank", "equalization tank", "reservoir", "sump"], type: "Tanks" },
+  { keywords: ["pipe", "piping", "pipeline", "conduit", "manhole", "sewer"], type: "Piping" },
+  { keywords: ["crane", "hoist", "lifting", "chain block", "trolley"], type: "Lifting Equipment" },
+  { keywords: ["forklift", "loader", "vehicle", "truck", "van"], type: "Vehicles" },
+  { keywords: ["fire", "fire alarm", "smoke detector", "sprinkler", "fire extinguisher", "fire pump"], type: "Fire Safety" },
+  { keywords: ["security", "cctv", "camera", "access control", "alarm system"], type: "Security Systems" },
+  { keywords: ["lighting", "lights", "lamp", "fixture", "emergency light"], type: "Lighting" },
+  { keywords: ["generator set", "genset", "gen set"], type: "Generator Set" },
+  { keywords: ["switchgear", "switch", "breaker", "mcb", "mccb", "relay", "contactor"], type: "Switchgear" },
+  { keywords: ["dgps", "gps", "survey", "alignment"], type: "Survey Equipment" },
+  { keywords: ["diesel", "diesel engine", "engine"], type: "Diesel Engines" },
+  { keywords: ["feedwater", "boiler", "steam"], type: "Boiler / Feedwater" },
+  { keywords: ["sludge", "dewatering", "centrifuge", "belt press", "sludge pump"], type: "Sludge Handling" },
+  { keywords: ["odor", "deodorization", "biofilter", "carbon scrubber"], type: "Odor Control" },
+  { keywords: [" blower"], type: "Blowers" },
+  { keywords: [" blower motor"], type: "Motors" },
+];
+
+// Ordered list for display — "General" always at end
+const EQUIPMENT_TYPE_ORDER = [
+  "Pumps", "Motors", "Blowers", "Valves", "Generators", "Transformers",
+  "Instrumentation", "PLC / SCADA", "HVAC", "Compressors", "Chemical Dosing Systems",
+  "Screens", "Clarifiers", "Filters", "UV / Disinfection", "Tanks", "Piping",
+  "Lifting Equipment", "Vehicles", "Fire Safety", "Security Systems", "Lighting",
+  "Generator Set", "Switchgear", "Diesel Engines", "Boiler / Feedwater",
+  "Sludge Handling", "Odor Control", "General",
+];
+
+function inferEquipmentType(text: string, existingType?: string): string {
+  // If a valid explicit type is provided, normalize and use it
+  if (existingType) {
+    const trimmed = existingType.trim();
+    if (trimmed.length > 0 && trimmed !== "-" && trimmed !== "N/A" && trimmed !== "General") {
+      // Normalize known variants
+      const lower = trimmed.toLowerCase();
+      for (const mapping of EQUIPMENT_TYPE_MAP) {
+        for (const kw of mapping.keywords) {
+          if (lower.includes(kw.toLowerCase())) return mapping.type;
+        }
+      }
+      // If no keyword match but it's a reasonable name, use as-is with title case
+      return toTitleCase(trimmed);
+    }
+  }
+  // Infer from task / description text
+  if (!text) return "General";
+  const lower = text.toLowerCase();
+  for (const mapping of EQUIPMENT_TYPE_MAP) {
+    for (const kw of mapping.keywords) {
+      if (lower.includes(kw.toLowerCase())) return mapping.type;
+    }
+  }
+  return "General";
+}
+
+function toTitleCase(s: string): string {
+  return s.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+// Sort equipment types: known types first (in defined order), then alphabetically
+function sortEquipmentTypes(types: string[]): string[] {
+  const orderMap = new Map(EQUIPMENT_TYPE_ORDER.map((t, i) => [t, i]));
+  return [...types].sort((a, b) => {
+    const oa = orderMap.get(a) ?? 999;
+    const ob = orderMap.get(b) ?? 999;
+    if (oa !== 999 && ob !== 999) return oa - ob;
+    if (oa !== 999) return -1;
+    if (ob !== 999) return 1;
+    return a.localeCompare(b);
+  });
+}
+
 /* ─── Badge helpers ─── */
 const FREQ_BG: Record<string, string> = {
   daily: "#DCFCE7", weekly: "#DBEAFE", monthly: "#FEF3C7",
@@ -28,6 +120,18 @@ const implBadge = (i: string) => {
   if (il.includes("operator")) return { bg: "#DCFCE7", fg: "#166534" };
   return { bg: "#F1F5F9", fg: "#64748B" };
 };
+
+/* ─── Status badge color ─── */
+const STATUS_STYLES: Record<string, { bg: string; color: string; border: string }> = {
+  "Active":     { bg: "#F0FDF4", color: "#15803D", border: "#86EFAC" },
+  "Completed":  { bg: "#DBEAFE", color: "#1E40AF", border: "#93C5FD" },
+  "In Progress":{ bg: "#FEF3C7", color: "#92400E", border: "#FDE68A" },
+  "Overdue":    { bg: "#FEE2E2", color: "#DC2626", border: "#FECACA" },
+  "Pending":    { bg: "#F3F4F6", color: "#6B7280", border: "#D1D5DB" },
+};
+function statusBadgeStyle(s: string) {
+  return STATUS_STYLES[s] || STATUS_STYLES["Pending"];
+}
 
 /* ─── Form field component ─── */
 function FormField({ label, value, onChange, placeholder, type = "text" }: {
@@ -64,7 +168,7 @@ function FormSelect({ label, value, onChange, options, allowEmpty, emptyLabel }:
 }
 
 /* ─── Stat Card ─── */
-function StatCard({ label, value, icon, color }: { label: string; value: number; icon: string; color: string }) {
+function StatCard({ label, value, icon, color }: { label: string; value: string | number; icon: string; color: string }) {
   return (
     <div style={{ background: "#fff", borderRadius: 10, padding: "14px 16px", boxShadow: "0 1px 3px rgba(0,0,0,.06)", border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 10 }}>
       <div style={{ width: 36, height: 36, borderRadius: 8, background: `${color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{icon}</div>
@@ -81,6 +185,40 @@ const FREQUENCIES = ["Daily", "Weekly", "Monthly", "Quarterly", "Semi-annual", "
 const IMPLEMENTORS = ["Operator/Shifthead", "Maintenance/Contractor", "SLA"];
 const STATUSES = ["Active", "Completed", "In Progress", "Overdue", "Pending"];
 
+/* ============================================================
+   Equipment Type Group Summary
+   ============================================================ */
+interface EquipGroupSummary {
+  type: string;
+  count: number;
+  implementors: Set<string>;
+  freqDist: Record<string, number>;
+  statusDist: Record<string, number>;
+  overdue: number;
+}
+
+function computeGroupSummaries(items: any[]): Record<string, EquipGroupSummary> {
+  const groups: Record<string, EquipGroupSummary> = {};
+  for (const item of items) {
+    const et = item.equipmentType || "General";
+    if (!groups[et]) {
+      groups[et] = { type: et, count: 0, implementors: new Set(), freqDist: {}, statusDist: {}, overdue: 0 };
+    }
+    const g = groups[et];
+    g.count++;
+    if (item.implementor) g.implementors.add(item.implementor);
+    const f = item.frequency || "Unknown";
+    g.freqDist[f] = (g.freqDist[f] || 0) + 1;
+    const s = item.status || "Pending";
+    g.statusDist[s] = (g.statusDist[s] || 0) + 1;
+    if (s === "Overdue") g.overdue++;
+  }
+  return groups;
+}
+
+/* ============================================================
+   MAIN COMPONENT
+   ============================================================ */
 export default function ExistingFacilitiesMaintenance() {
   const [activePlant, setActivePlant] = useState("All Plants");
   const [search, setSearch] = useState("");
@@ -96,6 +234,10 @@ export default function ExistingFacilitiesMaintenance() {
   const [addForm, setAddForm] = useState({
     plant: "", equipmentType: "", task: "", frequency: "", implementor: "", status: "Active", lastCompleted: "", nextDue: "", remarks: "",
   });
+  // Collapsible group state
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Equipment Type grouping view toggle
+  const [groupByEquip, setGroupByEquip] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
@@ -111,7 +253,7 @@ export default function ExistingFacilitiesMaintenance() {
     implFilter: implFilter || undefined,
     statusFilter: statusFilter || undefined,
     page,
-    pageSize: 100,
+    pageSize: 500, // Load more for grouping
   }, { refetchInterval: 30000 });
 
   const { data: filterOptions } = trpc.efm.filters.useQuery(undefined, { refetchInterval: 30000 });
@@ -138,6 +280,7 @@ export default function ExistingFacilitiesMaintenance() {
     },
     onError: (err) => { console.error("[IMPORT ERROR]", err); },
   });
+
   // Auto-seed on first load if no data exists
   useEffect(() => {
     if (!isLoading && data && data.total === 0) {
@@ -161,29 +304,58 @@ export default function ExistingFacilitiesMaintenance() {
   });
   const resetMut = trpc.efm.reset.useMutation({ onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); } });
 
-  // Group items by equipment type
+  // Enhance items with inferred equipment types
+  const enhancedItems = useMemo(() => {
+    const items = data?.items || [];
+    return items.map((item: any) => ({
+      ...item,
+      _inferredType: inferEquipmentType(item.task || item.description || "", item.equipmentType || undefined),
+    }));
+  }, [data]);
+
+  // Group items by (inferred) equipment type
   const groupedItems = useMemo(() => {
-    if (!data?.items) return {} as Record<string, any[]>;
     const groups: Record<string, any[]> = {};
-    for (const item of data.items) {
-      const et = item.equipmentType || "General";
+    for (const item of enhancedItems) {
+      const et = item._inferredType || item.equipmentType || "General";
       if (!groups[et]) groups[et] = [];
       groups[et].push(item);
     }
     return groups;
-  }, [data]);
+  }, [enhancedItems]);
 
-  const equipmentTypeList = useMemo(() => Object.keys(groupedItems).sort(), [groupedItems]);
+  const equipmentTypeList = useMemo(() => sortEquipmentTypes(Object.keys(groupedItems)), [groupedItems]);
+
+  // Group summaries
+  const groupSummaries = useMemo(() => computeGroupSummaries(enhancedItems), [enhancedItems]);
 
   // Stats
   const stats = useMemo(() => {
-    const items = data?.items || [];
+    const items = enhancedItems;
+    const summaries = Object.values(groupSummaries);
+    const largestGroup = summaries.reduce((a, b) => (a.count > b.count ? a : b), summaries[0] || { type: "-", count: 0 });
+    const typesWithMissing = summaries.filter((g) => g.overdue > 0 || (g.statusDist["Not Started"] || 0) > 0).length;
     return {
       total: items.length,
       plants: new Set(items.map((i: any) => i.plant)).size,
-      equipTypes: new Set(items.map((i: any) => i.equipmentType)).size,
+      equipTypes: Object.keys(groupedItems).size,
+      largestGroup: largestGroup.type,
+      largestGroupCount: largestGroup.count,
+      avgPerType: Object.keys(groupedItems).length > 0 ? Math.round(items.length / Object.keys(groupedItems).length) : 0,
+      typesWithMissing,
     };
-  }, [data]);
+  }, [enhancedItems, groupSummaries, groupedItems]);
+
+  // ── Expand / Collapse ──
+  const toggleGroup = (type: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type); else next.add(type);
+      return next;
+    });
+  };
+  const expandAll = () => setCollapsedGroups(new Set());
+  const collapseAll = () => setCollapsedGroups(new Set(equipmentTypeList));
 
   // ── Export ──
   const handleExport = useCallback(() => {
@@ -191,7 +363,7 @@ export default function ExistingFacilitiesMaintenance() {
     if (!items.length) { alert("No data to export"); return; }
     const rows = items.map((item: any) => ({
       "Plant": item.plant,
-      "Equipment Type": item.equipmentType,
+      "Equipment Type": item.equipmentType || inferEquipmentType(item.task || "", item.equipmentType || undefined),
       "Task": item.task,
       "Frequency": item.frequency,
       "Implementor": item.implementor,
@@ -211,28 +383,29 @@ export default function ExistingFacilitiesMaintenance() {
   const handleImport = useCallback(async (file: File) => {
     setImportSummary(null);
     console.log("[IMPORT] Starting import of file:", file.name, "size:", file.size);
-    
-    // Step 1: Parse file locally
-    const data = await new Promise<Uint8Array>((resolve, reject) => {
+
+    const fileData = await new Promise<Uint8Array>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => resolve(new Uint8Array(e.target?.result as ArrayBuffer));
       reader.onerror = () => reject(new Error("Failed to read file"));
       reader.readAsArrayBuffer(file);
     });
 
-    const wb = XLSX.read(data, { type: "array" });
+    const wb = XLSX.read(fileData, { type: "array" });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rawRows: any[] = XLSX.utils.sheet_to_json(ws);
     console.log("[IMPORT] Raw rows parsed:", rawRows.length);
     if (!rawRows.length) { alert("No data found in the Excel file"); return; }
 
-    // Step 2: Clean and validate rows
-    const rows = rawRows.map((r: any, idx: number) => {
+    // Clean and validate rows with equipment type inference
+    const rows = rawRows.map((r: any) => {
       const plant = String(r["Plant"] || r["plant"] || r["Facility"] || r["facility"] || r["PLANT"] || "").trim();
-      const equipmentType = String(r["Equipment Type"] || r["Equipment"] || r["equipment_type"] || r["equipmentType"] || r["EQUIPMENT TYPE"] || "").trim();
+      const rawEquipType = String(r["Equipment Type"] || r["Equipment"] || r["equipment_type"] || r["equipmentType"] || r["EQUIPMENT TYPE"] || "").trim();
       const task = String(r["Task"] || r["Tasks"] || r["task"] || r["TASK"] || r["Task Description"] || r["Maintenance Task"] || "").trim();
       const frequency = String(r["Frequency"] || r["frequency"] || r["FREQ"] || r["Freq"] || "").trim();
       const implementor = String(r["Implementor"] || r["Implementer"] || r["Responsible"] || r["Personnel"] || r["IMPLEMENTOR"] || "").trim();
+      // Infer equipment type from task if not explicitly provided
+      const equipmentType = rawEquipType || inferEquipmentType(task, undefined);
       if (!plant || !task) return null;
       return {
         plant, equipmentType, task,
@@ -247,18 +420,16 @@ export default function ExistingFacilitiesMaintenance() {
 
     if (!rows.length) { alert("No valid rows found. Need Plant + Task columns."); return; }
 
-    // Step 3: Show initial progress
     setImportProgress({ total: rows.length, imported: 0, skipped: 0, status: `Importing 0 of ${rows.length}...` });
 
-    // Step 4: Send in batches of 100
     const BATCH_SIZE = 100;
     let totalImported = 0;
     let totalFailed = 0;
-    
+
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
       setImportProgress({ total: rows.length, imported: totalImported, skipped: 0, status: `Importing ${totalImported + batch.length} of ${rows.length}...` });
-      
+
       try {
         const result = await importMut.mutateAsync({ rows: batch });
         totalImported += result.count;
@@ -268,11 +439,8 @@ export default function ExistingFacilitiesMaintenance() {
       }
     }
 
-    // Step 5: Show summary
     setImportProgress(null);
     setImportSummary({ total: rows.length, imported: totalImported, skipped: rows.length - totalImported - totalFailed, failed: totalFailed });
-    
-    // Refresh data
     utils.efm.list.invalidate();
     utils.efm.filters.invalidate();
   }, [importMut, utils]);
@@ -282,7 +450,7 @@ export default function ExistingFacilitiesMaintenance() {
     setEditingRow(item.id);
     setEditForm({
       plant: item.plant || "",
-      equipmentType: item.equipmentType || "",
+      equipmentType: item.equipmentType || item._inferredType || "",
       task: item.task || "",
       frequency: item.frequency || "",
       implementor: item.implementor || "",
@@ -324,7 +492,7 @@ export default function ExistingFacilitiesMaintenance() {
     }
     createMut.mutate({
       plant: addForm.plant.trim(),
-      equipmentType: addForm.equipmentType || "",
+      equipmentType: addForm.equipmentType || inferEquipmentType(addForm.task, addForm.equipmentType || undefined),
       task: addForm.task.trim(),
       frequency: addForm.frequency,
       implementor: addForm.implementor || null,
@@ -351,6 +519,14 @@ export default function ExistingFacilitiesMaintenance() {
     return counts;
   }, [data]);
 
+  // Equipment type color map for visual distinction
+  const equipColors = useMemo(() => {
+    const palette = ["#005BAC", "#0EA5E9", "#7C3AED", "#DC2626", "#F59E0B", "#1F9D55", "#EC4899", "#6366F1", "#14B8A6", "#8B5CF6", "#F97316", "#06B6D4"];
+    const map: Record<string, string> = {};
+    equipmentTypeList.forEach((et, i) => { map[et] = palette[i % palette.length]; });
+    return map;
+  }, [equipmentTypeList]);
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
       {/* ── Header ── */}
@@ -374,10 +550,13 @@ export default function ExistingFacilitiesMaintenance() {
 
       {/* ── Stats ── */}
       <div style={{ padding: "16px 24px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "12px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "12px" }}>
           <StatCard label="Total Tasks" value={stats.total} icon="🔧" color="#005BAC" />
           <StatCard label="Facilities" value={stats.plants} icon="🏭" color="#7C3AED" />
           <StatCard label="Equip. Types" value={stats.equipTypes} icon="⚙️" color="#0EA5E9" />
+          <StatCard label="Largest Group" value={stats.largestGroup} icon="📊" color="#F59E0B" />
+          <StatCard label="Avg PMs / Type" value={stats.avgPerType} icon="📈" color="#1F9D55" />
+          <StatCard label="Types w/ Issues" value={stats.typesWithMissing} icon="⚠️" color="#DC2626" />
           {Object.entries(freqCounts).map(([freq, count]) => {
             const b = freqBadge(freq);
             return (
@@ -475,6 +654,32 @@ export default function ExistingFacilitiesMaintenance() {
         </div>
       </div>
 
+      {/* ── Group Controls ── */}
+      <div style={{ padding: "12px 24px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={() => setGroupByEquip(!groupByEquip)}
+            style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: groupByEquip ? "#005BAC" : "#F1F5F9", color: groupByEquip ? "#fff" : "#475569", border: `1px solid ${groupByEquip ? "#005BAC" : "#D6DFE8"}`, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all .15s" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            {groupByEquip ? "Grouped" : "Flat View"}
+          </button>
+          {groupByEquip && (
+            <>
+              <button onClick={expandAll}
+                style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>
+                Expand All
+              </button>
+              <button onClick={collapseAll}
+                style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>
+                Collapse All
+              </button>
+              <span style={{ fontSize: 11, color: "#8BA3B8", marginLeft: "auto" }}>
+                {equipmentTypeList.length} equipment type{equipmentTypeList.length !== 1 ? "s" : ""} · {collapsedGroups.size} collapsed
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* ── Add Form ── */}
       {showAddForm && (
         <div style={{ padding: "16px 24px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
@@ -482,7 +687,7 @@ export default function ExistingFacilitiesMaintenance() {
             <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#16324F" }}>Add New Maintenance Record</h3>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
               <FormSelect label="Plant *" value={addForm.plant} onChange={(v) => setAddForm({ ...addForm, plant: v })} options={filterOptions?.plants || []} allowEmpty emptyLabel="Select Facility..." />
-              <FormField label="Equipment Type" value={addForm.equipmentType} onChange={(v) => setAddForm({ ...addForm, equipmentType: v })} placeholder="e.g., 1. Generator Set" />
+              <FormField label="Equipment Type" value={addForm.equipmentType} onChange={(v) => setAddForm({ ...addForm, equipmentType: v })} placeholder="e.g., Pumps, Motors, Valves..." />
               <FormField label="Task *" value={addForm.task} onChange={(v) => setAddForm({ ...addForm, task: v })} placeholder="e.g., Inspect for leaks" />
               <FormSelect label="Frequency *" value={addForm.frequency} onChange={(v) => setAddForm({ ...addForm, frequency: v })} options={FREQUENCIES} />
               <FormSelect label="Implementor" value={addForm.implementor} onChange={(v) => setAddForm({ ...addForm, implementor: v })} options={IMPLEMENTORS} allowEmpty emptyLabel="Select..." />
@@ -523,87 +728,209 @@ export default function ExistingFacilitiesMaintenance() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={editMode ? 8 : 7} style={{ padding: "40px", textAlign: "center", color: "#8BA3B8" }}>Loading...</td></tr>
+                  <tr><td colSpan={editMode ? 8 : 7} style={{ padding: "40px", textAlign: "center", color: "#8BA3B8" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 24, height: 24, border: "2px solid #E2E8F0", borderTopColor: "#005BAC", borderRadius: "50%", animation: "efm-spin 0.8s linear infinite" }} />
+                      <span>Loading maintenance records...</span>
+                    </div>
+                  </td></tr>
                 ) : equipmentTypeList.length === 0 ? (
                   <tr><td colSpan={editMode ? 8 : 7} style={{ padding: "40px", textAlign: "center" }}>
                     <div style={{ fontSize: 14, color: "#8BA3B8", marginBottom: 8 }}>Loading maintenance records...</div>
                     <div style={{ fontSize: 12, color: "#94A3B8" }}>Data is being pre-loaded automatically.</div>
                   </td></tr>
-                ) : (
-                  equipmentTypeList.map((equipType) => (
-                    <>
-                      {/* Equipment Type Group Header */}
-                      <tr key={`group-${equipType}`}>
-                        <td colSpan={editMode ? 8 : 7} style={{ padding: "8px 12px", background: "#F1F5F9", fontWeight: 700, fontSize: 12, color: "#16324F", borderTop: "2px solid #CBD5E1" }}>
-                          {equipType}
-                        </td>
-                      </tr>
-                      {/* Records under this equipment type */}
-                      {groupedItems[equipType].map((item: any, idx: number) => {
-                        const fBadge = freqBadge(item.frequency);
-                        const iBadge = implBadge(item.implementor);
-                        const isEditing = editingRow === item.id;
-                        return (
-                          <tr key={item.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                            {isEditing && editMode ? (
-                              <>
-                                <td style={{ padding: "6px 12px", color: "#94A3B8" }}>{idx + 1}</td>
-                                <td style={{ padding: "6px" }}><input value={editForm.plant || ""} onChange={(e) => setEditForm({ ...editForm, plant: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
-                                <td style={{ padding: "6px" }}><input value={editForm.equipmentType || ""} onChange={(e) => setEditForm({ ...editForm, equipmentType: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
-                                <td style={{ padding: "6px" }}><input value={editForm.task || ""} onChange={(e) => setEditForm({ ...editForm, task: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
-                                <td style={{ padding: "6px" }}>
-                                  <select value={editForm.frequency || ""} onChange={(e) => setEditForm({ ...editForm, frequency: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
-                                    {FREQUENCIES.map((f) => <option key={f} value={f}>{f}</option>)}
-                                  </select>
-                                </td>
-                                <td style={{ padding: "6px" }}>
-                                  <select value={editForm.implementor || ""} onChange={(e) => setEditForm({ ...editForm, implementor: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
-                                    <option value="">—</option>
-                                    {IMPLEMENTORS.map((i) => <option key={i} value={i}>{i}</option>)}
-                                  </select>
-                                </td>
-                                <td style={{ padding: "6px" }}>
-                                  <select value={editForm.status || ""} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
-                                    {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                                  </select>
-                                </td>
-                                <td style={{ padding: "6px", whiteSpace: "nowrap" }}>
-                                  <button onClick={saveEditRow} style={{ fontSize: 11, padding: "3px 8px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Save</button>
-                                  <button onClick={cancelEditRow} style={{ fontSize: 11, padding: "3px 8px", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Cancel</button>
-                                </td>
-                              </>
-                            ) : (
-                              <>
-                                <td style={{ padding: "8px 12px", color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{idx + 1}</td>
-                                <td style={{ padding: "8px 12px", color: "#2D3748", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap" }}>{item.plant}</td>
-                                <td style={{ padding: "8px 12px", color: "#4A5568", fontSize: 11, maxWidth: 300 }}>
-                                  <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.equipmentType}</div>
-                                </td>
-                                <td style={{ padding: "8px 12px", color: "#4A5568", fontSize: 11 }}>
-                                  <div style={{ overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.task}</div>
-                                </td>
-                                <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
-                                  <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: fBadge.bg, color: fBadge.fg }}>{item.frequency}</span>
-                                </td>
-                                <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
-                                  <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: iBadge.bg, color: iBadge.fg }}>{item.implementor || "—"}</span>
-                                </td>
-                                <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
-                                  <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#F0FDF4", color: "#15803D", border: "1px solid #86EFAC" }}>{item.status}</span>
-                                </td>
-                                {editMode && (
-                                  <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
-                                    <button onClick={() => startEditRow(item)} style={{ fontSize: 11, padding: "3px 8px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer" }}>Edit</button>
-                                    <button onClick={() => { if (confirm("Delete this record?")) deleteMut.mutate({ id: item.id }); }} style={{ fontSize: 11, padding: "3px 8px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Delete</button>
-                                  </td>
-                                )}
-                              </>
+                ) : !groupByEquip ? (
+                  /* ── FLAT VIEW ── */
+                  enhancedItems.map((item: any, idx: number) => {
+                    const fBadge = freqBadge(item.frequency);
+                    const iBadge = implBadge(item.implementor);
+                    const sStyle = statusBadgeStyle(item.status);
+                    const isEditing = editingRow === item.id;
+                    return (
+                      <tr key={item.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                        {isEditing && editMode ? (
+                          <>
+                            <td style={{ padding: "6px 12px", color: "#94A3B8" }}>{idx + 1}</td>
+                            <td style={{ padding: "6px" }}><input value={editForm.plant || ""} onChange={(e) => setEditForm({ ...editForm, plant: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
+                            <td style={{ padding: "6px" }}><input value={editForm.equipmentType || ""} onChange={(e) => setEditForm({ ...editForm, equipmentType: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
+                            <td style={{ padding: "6px" }}><input value={editForm.task || ""} onChange={(e) => setEditForm({ ...editForm, task: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
+                            <td style={{ padding: "6px" }}>
+                              <select value={editForm.frequency || ""} onChange={(e) => setEditForm({ ...editForm, frequency: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
+                                {FREQUENCIES.map((f) => <option key={f} value={f}>{f}</option>)}
+                              </select>
+                            </td>
+                            <td style={{ padding: "6px" }}>
+                              <select value={editForm.implementor || ""} onChange={(e) => setEditForm({ ...editForm, implementor: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
+                                <option value="">—</option>
+                                {IMPLEMENTORS.map((i) => <option key={i} value={i}>{i}</option>)}
+                              </select>
+                            </td>
+                            <td style={{ padding: "6px" }}>
+                              <select value={editForm.status || ""} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
+                                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </td>
+                            <td style={{ padding: "6px", whiteSpace: "nowrap" }}>
+                              <button onClick={saveEditRow} style={{ fontSize: 11, padding: "3px 8px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Save</button>
+                              <button onClick={cancelEditRow} style={{ fontSize: 11, padding: "3px 8px", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Cancel</button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td style={{ padding: "8px 12px", color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{idx + 1}</td>
+                            <td style={{ padding: "8px 12px", color: "#2D3748", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap" }}>{item.plant}</td>
+                            <td style={{ padding: "8px 12px", color: "#4A5568", fontSize: 11 }}>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: equipColors[item._inferredType || item.equipmentType || "General"] || "#94A3B8" }} />
+                                {item._inferredType || item.equipmentType || "General"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "8px 12px", color: "#4A5568", fontSize: 11 }}>
+                              <div style={{ overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.task}</div>
+                            </td>
+                            <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                              <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: fBadge.bg, color: fBadge.fg }}>{item.frequency}</span>
+                            </td>
+                            <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                              <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: iBadge.bg, color: iBadge.fg }}>{item.implementor || "—"}</span>
+                            </td>
+                            <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                              <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: sStyle.bg, color: sStyle.color, border: `1px solid ${sStyle.border}` }}>{item.status}</span>
+                            </td>
+                            {editMode && (
+                              <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                                <button onClick={() => startEditRow(item)} style={{ fontSize: 11, padding: "3px 8px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer" }}>Edit</button>
+                                <button onClick={() => { if (confirm("Delete this record?")) deleteMut.mutate({ id: item.id }); }} style={{ fontSize: 11, padding: "3px 8px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Delete</button>
+                              </td>
                             )}
-                          </tr>
-                        );
-                      })}
-                    </>
-                  ))
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })
+                ) : (
+                  /* ── GROUPED BY EQUIPMENT TYPE ── */
+                  equipmentTypeList.map((equipType) => {
+                    const summary = groupSummaries[equipType];
+                    const isCollapsed = collapsedGroups.has(equipType);
+                    const color = equipColors[equipType] || "#64748B";
+                    const freqEntries = Object.entries(summary?.freqDist || {});
+                    const implCount = summary?.implementors?.size || 0;
+                    return (
+                      <React.Fragment key={`group-${equipType}`}>
+                        {/* ── Equipment Type Group Header ── */}
+                        <tr onClick={() => toggleGroup(equipType)} style={{ cursor: "pointer", userSelect: "none" }}>
+                          <td colSpan={editMode ? 8 : 7}
+                            style={{
+                              padding: "10px 14px",
+                              background: "linear-gradient(90deg, #F8FAFC 0%, #fff 100%)",
+                              borderTop: "2px solid #CBD5E1",
+                              borderBottom: "1px solid #E2E8F0",
+                            }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              {/* Expand/collapse chevron */}
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                width: 20, height: 20, borderRadius: 4, background: "#F1F5F9",
+                                fontSize: 11, color: "#475569", transition: "transform 0.2s",
+                                transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                              }}>▾</span>
+                              {/* Color dot + Type name */}
+                              <span style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                              <span style={{ fontWeight: 700, fontSize: 12, color: "#16324F" }}>{equipType}</span>
+                              {/* Summary pills */}
+                              <span style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: color, padding: "2px 8px", borderRadius: 10 }}>{summary?.count || 0} PMs</span>
+                              {implCount > 0 && <span style={{ fontSize: 10, color: "#475569", background: "#F1F5F9", padding: "2px 8px", borderRadius: 10 }}>{implCount} implementor{implCount !== 1 ? "s" : ""}</span>}
+                              {(summary?.overdue || 0) > 0 && <span style={{ fontSize: 10, color: "#fff", background: "#DC2626", padding: "2px 8px", borderRadius: 10 }}>{summary.overdue} overdue</span>}
+                              {/* Frequency mini badges */}
+                              {freqEntries.slice(0, 3).map(([f, c]) => {
+                                const fb = freqBadge(f);
+                                return <span key={f} style={{ fontSize: 9, fontWeight: 600, color: fb.fg, background: fb.bg, padding: "1px 6px", borderRadius: 8 }}>{f}: {c}</span>;
+                              })}
+                              {freqEntries.length > 3 && <span style={{ fontSize: 9, color: "#8BA3B8" }}>+{freqEntries.length - 3}</span>}
+                              {/* Status mini bar */}
+                              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+                                {Object.entries(summary?.statusDist || {}).map(([s, c]) => {
+                                  const st = statusBadgeStyle(s);
+                                  return <span key={s} style={{ fontSize: 9, fontWeight: 700, color: st.color, background: st.bg, padding: "1px 6px", borderRadius: 8, border: `1px solid ${st.border}` }}>{s}: {c}</span>;
+                                })}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                        {/* ── Records under this equipment type ── */}
+                        {!isCollapsed && groupedItems[equipType]?.map((item: any, idx: number) => {
+                          const fBadge = freqBadge(item.frequency);
+                          const iBadge = implBadge(item.implementor);
+                          const sStyle = statusBadgeStyle(item.status);
+                          const isEditing = editingRow === item.id;
+                          return (
+                            <tr key={item.id} style={{ borderBottom: "1px solid #F1F5F9", transition: "background 0.1s" }}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = "#FAFBFC"; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                              {isEditing && editMode ? (
+                                <>
+                                  <td style={{ padding: "6px 12px", color: "#94A3B8" }}>{idx + 1}</td>
+                                  <td style={{ padding: "6px" }}><input value={editForm.plant || ""} onChange={(e) => setEditForm({ ...editForm, plant: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
+                                  <td style={{ padding: "6px" }}><input value={editForm.equipmentType || ""} onChange={(e) => setEditForm({ ...editForm, equipmentType: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
+                                  <td style={{ padding: "6px" }}><input value={editForm.task || ""} onChange={(e) => setEditForm({ ...editForm, task: e.target.value })} style={{ width: "100%", fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }} /></td>
+                                  <td style={{ padding: "6px" }}>
+                                    <select value={editForm.frequency || ""} onChange={(e) => setEditForm({ ...editForm, frequency: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
+                                      {FREQUENCIES.map((f) => <option key={f} value={f}>{f}</option>)}
+                                    </select>
+                                  </td>
+                                  <td style={{ padding: "6px" }}>
+                                    <select value={editForm.implementor || ""} onChange={(e) => setEditForm({ ...editForm, implementor: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
+                                      <option value="">—</option>
+                                      {IMPLEMENTORS.map((i) => <option key={i} value={i}>{i}</option>)}
+                                    </select>
+                                  </td>
+                                  <td style={{ padding: "6px" }}>
+                                    <select value={editForm.status || ""} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} style={{ fontSize: 11, padding: 4, border: "1px solid #D6DFE8", borderRadius: 4 }}>
+                                      {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                  </td>
+                                  <td style={{ padding: "6px", whiteSpace: "nowrap" }}>
+                                    <button onClick={saveEditRow} style={{ fontSize: 11, padding: "3px 8px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Save</button>
+                                    <button onClick={cancelEditRow} style={{ fontSize: 11, padding: "3px 8px", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Cancel</button>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td style={{ padding: "8px 12px", color: "#94A3B8", fontWeight: 600, fontSize: 11, paddingLeft: 42 }}>{idx + 1}</td>
+                                  <td style={{ padding: "8px 12px", color: "#2D3748", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap" }}>{item.plant}</td>
+                                  <td style={{ padding: "8px 12px", color: "#4A5568", fontSize: 11 }}>
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: color }} />
+                                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>{item.equipmentType || item._inferredType || "—"}</span>
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: "8px 12px", color: "#4A5568", fontSize: 11 }}>
+                                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.task}</div>
+                                  </td>
+                                  <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                                    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: fBadge.bg, color: fBadge.fg }}>{item.frequency}</span>
+                                  </td>
+                                  <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                                    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: iBadge.bg, color: iBadge.fg }}>{item.implementor || "—"}</span>
+                                  </td>
+                                  <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                                    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: sStyle.bg, color: sStyle.color, border: `1px solid ${sStyle.border}` }}>{item.status}</span>
+                                  </td>
+                                  {editMode && (
+                                    <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                                      <button onClick={() => startEditRow(item)} style={{ fontSize: 11, padding: "3px 8px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer" }}>Edit</button>
+                                      <button onClick={() => { if (confirm("Delete this record?")) deleteMut.mutate({ id: item.id }); }} style={{ fontSize: 11, padding: "3px 8px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Delete</button>
+                                    </td>
+                                  )}
+                                </>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -633,6 +960,7 @@ export default function ExistingFacilitiesMaintenance() {
         .efm-edit { background: #0EA5E9; } .efm-edit:hover { background: #0284C7; }
         .efm-edit-active { background: #64748B; } .efm-edit-active:hover { background: #475569; }
         .efm-reset { background: #DC2626; } .efm-reset:hover { background: #B91C1C; }
+        @keyframes efm-spin { to { transform: rotate(360deg); } }
         @media (max-width: 768px) {
           .efm-btn { padding: 6px 10px; font-size: 11px; }
         }
