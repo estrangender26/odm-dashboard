@@ -680,6 +680,83 @@ if (env.isProduction) {
     });
   });
   
+// ═══ AI INSIGHTS: Analyze governance data for a facility ═══
+app.post("/api/governance/ai-insights", async (c) => {
+  try {
+    const { facilitySlug, allStates } = await c.req.json();
+    if (!facilitySlug || !allStates) {
+      return c.json({ error: "facilitySlug and allStates required" }, 400);
+    }
+    const { analyzeGovernance } = await import("./governance-ai");
+    const state = allStates[facilitySlug] || { pp: "", ms: {}, up: {} };
+    const insights = analyzeGovernance(facilitySlug, state, allStates);
+    return c.json({ success: true, insights });
+  } catch (e: any) {
+    console.error("[AI-INSIGHTS] Error:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ═══ AI CHAT: Answer governance questions ═══
+app.post("/api/governance/ai-chat", async (c) => {
+  try {
+    const { question, facilitySlug, allStates } = await c.req.json();
+    if (!question) return c.json({ error: "question required" }, 400);
+
+    const { analyzeGovernance, chatWithAI } = await import("./governance-ai");
+    const slug = facilitySlug || Object.keys(allStates || {})[0] || "default";
+    const state = allStates?.[slug] || { pp: "", ms: {}, up: {} };
+    const insights = analyzeGovernance(slug, state, allStates || {});
+    const response = chatWithAI(question, insights);
+    return c.json({ success: true, response });
+  } catch (e: any) {
+    console.error("[AI-CHAT] Error:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ═══ AI SUMMARY: Quick cross-facility overview ═══
+app.post("/api/governance/ai-summary", async (c) => {
+  try {
+    const { allStates } = await c.req.json();
+    if (!allStates) return c.json({ error: "allStates required" }, 400);
+
+    const { analyzeGovernance } = await import("./governance-ai");
+    const facilities = Object.keys(allStates);
+    const results = facilities.map((slug) => {
+      const insights = analyzeGovernance(slug, allStates[slug], allStates);
+      return {
+        slug,
+        readiness: insights.overallReadiness,
+        risk: insights.riskLevel,
+        completed: insights.milestoneAnalysis.filter((m: any) => m.completed).length,
+        total: insights.milestoneAnalysis.length,
+        hasPPP: insights.hasPPP,
+      };
+    });
+
+    const avgReadiness = results.length > 0
+      ? Math.round(results.reduce((s, r) => s + r.readiness, 0) / results.length)
+      : 0;
+    const criticalCount = results.filter((r) => r.risk === "CRITICAL").length;
+    const readyCount = results.filter((r) => r.readiness >= 80).length;
+
+    return c.json({
+      success: true,
+      summary: {
+        totalFacilities: facilities.length,
+        avgReadiness,
+        criticalCount,
+        readyCount,
+        facilities: results,
+      },
+    });
+  } catch (e: any) {
+    console.error("[AI-SUMMARY] Error:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);
 

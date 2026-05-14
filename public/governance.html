@@ -278,6 +278,15 @@ function forceRefresh() {
 #app-splash .spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:16px}
 @keyframes spin{to{transform:rotate(360deg)}}
 #viz-debug{display:none!important}
+/* AI Panel animations */
+#ai-panel{animation:slideInRight 0.3s ease-out}
+@keyframes slideInRight{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+#ai-panel::-webkit-scrollbar{width:6px}
+#ai-panel::-webkit-scrollbar-track{background:rgba(255,255,255,0.02)}
+#ai-panel::-webkit-scrollbar-thumb{background:rgba(99,102,241,0.3);border-radius:3px}
+#ask-ai-fab:hover .ai-glow{opacity:1}
+.ai-glow{animation:aiPulse 2s ease-in-out infinite}
+@keyframes aiPulse{0%,100%{opacity:0}50%{opacity:0.3}}
 </style>
 <div id="app-splash"><div style="text-align:center"><div class="spinner"></div><div>Loading dashboard...</div></div></div>
 <script>
@@ -311,11 +320,99 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
     <button class="btn-g" id="btn-edit" onclick="startEdit()" style="display:inline-block">✏️ Edit</button>
     <button class="btn-p" id="btn-save" onclick="saveAll()" style="display:none;background:#059669">💾 Save</button>
     <button class="btn-r" id="btn-cancel" onclick="cancelEdit()" style="display:none">✕ Cancel</button>
+    <button class="btn-g" onclick="toggleAIPanel()" title="AI Governance Insights" style="background:linear-gradient(135deg,#7C3AED,#6366F1);border:none;position:relative;overflow:hidden">
+      <span style="position:relative;z-index:1">✨ AI Insights</span>
+      <span class="ai-glow" style="position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,rgba(124,58,237,0.4),rgba(99,102,241,0.4));opacity:0;transition:opacity 0.3s"></span>
+    </button>
     <span id="edit-status" style="font-size:10px;opacity:0.7;white-space:nowrap;color:#fbbf24"></span>
     <span id="sync-status" style="font-size:10px;opacity:0.7;white-space:nowrap">Ready</span>
   </div>
 </div>
 </header>
+
+<!-- AI Summary Cards Bar -->
+<div id="ai-cards-bar" style="display:none;background:linear-gradient(135deg,#0B1D44 0%,#1e3a5f 100%);padding:12px 0;border-bottom:1px solid rgba(99,102,241,0.2)">
+  <div style="max-width:1400px;margin:0 auto;padding:0 20px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+    <div style="flex:1;min-width:200px;background:rgba(255,255,255,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:10px 14px">
+      <div style="font-size:9px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Governance Readiness</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <div style="flex:1;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden">
+          <div id="ai-readiness-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#7C3AED,#6366F1);border-radius:3px;transition:width 0.5s"></div>
+        </div>
+        <span id="ai-readiness-pct" style="font-size:14px;font-weight:700;color:#fff">--%</span>
+      </div>
+    </div>
+    <div style="min-width:140px;background:rgba(255,255,255,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:10px 14px">
+      <div style="font-size:9px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Risk Level</div>
+      <div id="ai-risk-badge" style="font-size:13px;font-weight:700;color:#FBBF24;margin-top:4px">--</div>
+    </div>
+    <div style="min-width:140px;background:rgba(255,255,255,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:10px 14px">
+      <div style="font-size:9px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Milestones Complete</div>
+      <div id="ai-milestones-count" style="font-size:13px;font-weight:700;color:#fff;margin-top:4px">--</div>
+    </div>
+    <div style="min-width:140px;background:rgba(255,255,255,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:10px;padding:10px 14px">
+      <div style="font-size:9px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">PPP Status</div>
+      <div id="ai-ppp-status" style="font-size:13px;font-weight:700;color:#fff;margin-top:4px">--</div>
+    </div>
+    <div style="min-width:100px">
+      <button onclick="toggleAIPanel()" style="width:100%;padding:8px 12px;font-size:11px;font-weight:600;background:rgba(124,58,237,0.15);color:#A78BFA;border:1px solid rgba(124,58,237,0.3);border-radius:8px;cursor:pointer">View Details →</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Full Panel -->
+<div id="ai-panel" style="display:none;position:fixed;top:0;right:0;width:420px;max-width:100vw;height:100vh;background:#0f172a;z-index:1000;box-shadow:-4px 0 24px rgba(0,0,0,0.3);border-left:1px solid rgba(99,102,241,0.2);overflow-y:auto">
+  <div style="position:sticky;top:0;background:linear-gradient(135deg,#1e1b4b,#0f172a);padding:16px 20px;border-bottom:1px solid rgba(99,102,241,0.2);z-index:10">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#7C3AED,#6366F1);display:flex;align-items:center;justify-content:center;font-size:18px">✨</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#fff">AI Governance Insights</div>
+          <div style="font-size:10px;color:#8BA3B8">Powered by O&amp;M Intelligence Engine</div>
+        </div>
+      </div>
+      <button onclick="toggleAIPanel()" style="background:none;border:none;color:#8BA3B8;font-size:20px;cursor:pointer;padding:4px">✕</button>
+    </div>
+  </div>
+
+  <div style="padding:20px">
+    <!-- AI Ask Input -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:10px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">Ask AI about this facility</div>
+      <div style="display:flex;gap:8px">
+        <input id="ai-question" type="text" placeholder="e.g., Which milestones are missing?" style="flex:1;padding:10px 12px;font-size:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(99,102,241,0.2);border-radius:8px;color:#fff;font-family:Inter,sans-serif" onkeydown="if(event.key==='Enter')askAI()">
+        <button onclick="askAI()" style="padding:10px 16px;font-size:12px;font-weight:600;background:linear-gradient(135deg,#7C3AED,#6366F1);color:#fff;border:none;border-radius:8px;cursor:pointer">Ask</button>
+      </div>
+      <div id="ai-chat-loading" style="display:none;margin-top:8px;font-size:11px;color:#A78BFA">🤖 Analyzing governance data...</div>
+      <div id="ai-chat-answer" style="display:none;margin-top:12px;padding:12px;background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.15);border-radius:8px;font-size:12px;color:#E2E8F0;line-height:1.6"></div>
+    </div>
+
+    <!-- Quick Questions -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:10px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">Quick Questions</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button onclick="quickAsk('Which facilities are missing SOPs?')" style="text-align:left;padding:8px 12px;font-size:11px;background:rgba(255,255,255,0.03);border:1px solid rgba(99,102,241,0.1);border-radius:6px;color:#CBD5E1;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">Which milestones are missing completion dates?</button>
+        <button onclick="quickAsk('What is the governance readiness?')" style="text-align:left;padding:8px 12px;font-size:11px;background:rgba(255,255,255,0.03);border:1px solid rgba(99,102,241,0.1);border-radius:6px;color:#CBD5E1;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">What is the overall readiness status?</button>
+        <button onclick="quickAsk('What are the governance gaps?')" style="text-align:left;padding:8px 12px;font-size:11px;background:rgba(255,255,255,0.03);border:1px solid rgba(99,102,241,0.1);border-radius:6px;color:#CBD5E1;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">What governance gaps exist?</button>
+        <button onclick="quickAsk('What are the recommendations?')" style="text-align:left;padding:8px 12px;font-size:11px;background:rgba(255,255,255,0.03);border:1px solid rgba(99,102,241,0.1);border-radius:6px;color:#CBD5E1;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">What should be done next?</button>
+      </div>
+    </div>
+
+    <!-- Detailed Analysis -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:10px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">Detailed Analysis</div>
+      <div id="ai-details" style="font-size:11px;color:#CBD5E1;line-height:1.7">
+        <div style="color:#64748B;text-align:center;padding:20px">Click "Analyze" to generate AI insights for this facility.</div>
+      </div>
+    </div>
+
+    <!-- Recommendations -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:10px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">AI Recommendations</div>
+      <div id="ai-recommendations" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+</div>
 
 <main class="main">
 <div class="tabs-wrap">
@@ -766,6 +863,208 @@ function SV(){
 }
 function saveFacilityPreference(){SV();}
 
+// ═══ AI FUNCTIONS ═══
+var _AI_INSIGHTS=null;
+
+function toggleAIPanel(){
+  var p=document.getElementById('ai-panel');
+  var showing=p.style.display!=='none';
+  p.style.display=showing?'none':'block';
+  if(!showing) refreshAICards();
+}
+
+function quickAsk(q){
+  document.getElementById('ai-question').value=q;
+  askAI();
+}
+
+async function askAI(){
+  var inp=document.getElementById('ai-question');
+  var q=inp.value.trim();
+  if(!q)return;
+  var ansEl=document.getElementById('ai-chat-answer');
+  var loadEl=document.getElementById('ai-chat-loading');
+  loadEl.style.display='block';
+  ansEl.style.display='none';
+  try{
+    var facility=document.getElementById('fs').value;
+    var resp=await fetch(API_BASE+'/api/governance/ai-chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({question:q,facilitySlug:facility,allStates:ST})
+    });
+    var data=await resp.json();
+    loadEl.style.display='none';
+    if(data.success&&data.response){
+      ansEl.style.display='block';
+      ansEl.innerHTML='<div style="color:#A78BFA;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🤖 AI Response</div>'+escapeHtml(data.response.answer)+'<div style="margin-top:8px;font-size:10px;color:#64748B">Sources: '+data.response.sources.join(', ')+' · Confidence: '+data.response.confidence+'</div>';
+    }else{
+      ansEl.style.display='block';
+      ansEl.innerHTML='<div style="color:#F87171">Error: '+(data.error||'Unknown')+'</div>';
+    }
+  }catch(e){
+    loadEl.style.display='none';
+    ansEl.style.display='block';
+    // Fallback: local AI analysis
+    var localAnswer=localAIAsk(q);
+    ansEl.innerHTML='<div style="color:#A78BFA;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🤖 AI Response (Local)</div>'+localAnswer;
+  }
+}
+
+function localAIAsk(q){
+  var f=document.getElementById('fs').value;
+  var st=ST[f]||{pp:'',ms:{},up:{}};
+  var ql=q.toLowerCase();
+  var ms=st.ms||{};
+  var completed=0,total=0,missingDates=[];
+  for(var mid in MS){
+    total++;
+    if(ms[mid]&&ms[mid].done)completed++;
+    else if(!(ms[mid]&&ms[mid].compDate))missingDates.push(mid);
+  }
+  if(ql.indexOf('ppp')>=0||(ql.indexOf('start')>=0&&ql.indexOf('date')>=0)){
+    return st.pp?'PPP Start Date is <b>'+fmtDate(st.pp)+'</b>. This drives all milestone target dates.':'No PPP Start Date is set for this facility. This is critical — set M1 PPP Start to activate the schedule.';
+  }
+  if(ql.indexOf('ready')>=0||ql.indexOf('turnover')>=0){
+    var pct=total>0?Math.round((completed/total)*100):0;
+    return 'Facility readiness: <b>'+pct+'%</b> ('+completed+'/'+total+' milestones). '+(pct>=80?'Ready for turnover.':pct>=50?'In progress — complete remaining milestones.':'Critical gaps — address missing items urgently.');
+  }
+  if(ql.indexOf('gap')>=0||ql.indexOf('missing')>=0){
+    if(missingDates.length===0)return 'No critical gaps. All milestones have completion dates or are done.';
+    return 'Gaps found: '+missingDates.map(function(m){return '<b>'+m+'</b> ('+MS[m].n+')';}).join(', ')+'. Set completion dates for these milestones.';
+  }
+  if(ql.indexOf('summary')>=0||ql.indexOf('status')>=0){
+    var ppStatus=st.pp?'set ('+fmtDate(st.pp)+')':'<b>NOT SET</b>';
+    return 'Summary: '+completed+'/'+total+' milestones complete. PPP: '+ppStatus+'. Missing dates: '+missingDates.length+'. Uploads: '+(st.up?Object.keys(st.up).length:0)+' milestones with files.';
+  }
+  return 'Governance status: '+completed+'/'+total+' milestones complete. Ask about PPP dates, missing items, readiness, or recommendations.';
+}
+
+async function refreshAICards(){
+  var f=document.getElementById('fs').value;
+  if(!f)return;
+  var bar=document.getElementById('ai-cards-bar');
+  bar.style.display='block';
+  try{
+    var resp=await fetch(API_BASE+'/api/governance/ai-insights',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({facilitySlug:f,allStates:ST})
+    });
+    var data=await resp.json();
+    if(data.success&&data.insights){
+      _AI_INSIGHTS=data.insights;
+      renderAIInsights(data.insights);
+    }
+  }catch(e){
+    console.log('[AI] Server unavailable, using local analysis');
+    var localInsights=generateLocalInsights(f);
+    renderAIInsights(localInsights);
+  }
+}
+
+function generateLocalInsights(facility){
+  var st=ST[facility]||{pp:'',ms:{},up:{}};
+  var ms=st.ms||{};
+  var completed=0,total=0,readinessSum=0;
+  var milestoneAnalysis=[];
+  for(var mid in MS){
+    total++;
+    var mState=ms[mid]||{};
+    var done=mState.done||false;
+    var hasComp=!!(mState.compDate&&mState.compDate.length===10);
+    var hasPPP=!!(mState.pppDate&&mState.pppDate.length===10);
+    if(done)completed++;
+    var r=done?100:hasComp?75:hasPPP?50:10;
+    readinessSum+=r;
+    milestoneAnalysis.push({id:mid,name:MS[mid].n,phase:MS[mid].ph,completed:done,readiness:r,hasPPPDate:hasPPP,hasCompDate:hasComp});
+  }
+  var overall=total>0?Math.round(readinessSum/total):0;
+  var risk=overall>=80?'LOW':overall>=50?'MEDIUM':overall>=20?'HIGH':'CRITICAL';
+  var gaps=[];
+  if(!st.pp&&!(ms['M1']&&ms['M1'].pppDate))gaps.push('No PPP Start Date set');
+  for(var i=0;i<milestoneAnalysis.length;i++){
+    var m=milestoneAnalysis[i];
+    if(!m.completed&&!m.hasCompDate)gaps.push(m.id+' ('+m.name+') missing completion date');
+  }
+  var recs=[];
+  if(!st.pp)recs.push('Set M1 PPP Start Date to activate the schedule');
+  var incomplete=milestoneAnalysis.filter(function(m){return !m.completed});
+  if(incomplete.length>0)recs.push('Complete '+incomplete.length+' pending milestones');
+  return {
+    overallReadiness:overall,riskLevel:risk,
+    milestoneAnalysis:milestoneAnalysis,
+    phaseAnalysis:[],
+    hasPPP:!!st.pp,gaps:gaps,
+    recommendations:recs,missingDeliverables:[],
+    uploadStats:{total:0,required:0,percent:0},
+    crossFacilityRank:0,totalFacilities:0
+  };
+}
+
+function renderAIInsights(ins){
+  var rBar=document.getElementById('ai-readiness-bar');
+  var rPct=document.getElementById('ai-readiness-pct');
+  var rBadge=document.getElementById('ai-risk-badge');
+  var mCount=document.getElementById('ai-milestones-count');
+  var pppEl=document.getElementById('ai-ppp-status');
+  if(rBar)rBar.style.width=(ins.overallReadiness||0)+'%';
+  if(rPct)rPct.textContent=(ins.overallReadiness||0)+'%';
+  if(rBadge){
+    rBadge.textContent=ins.riskLevel||'UNKNOWN';
+    var riskColors={LOW:'#10B981',MEDIUM:'#F59E0B',HIGH:'#F97316',CRITICAL:'#EF4444',UNKNOWN:'#94A3B8'};
+    rBadge.style.color=riskColors[ins.riskLevel]||'#94A3B8';
+  }
+  if(mCount){
+    var c=ins.milestoneAnalysis?ins.milestoneAnalysis.filter(function(m){return m.completed}).length:0;
+    var t=ins.milestoneAnalysis?ins.milestoneAnalysis.length:0;
+    mCount.innerHTML='<span style="color:#10B981">'+c+'</span> / <span style="color:#fff">'+t+'</span>';
+  }
+  if(pppEl){
+    pppEl.innerHTML=ins.hasPPP?'<span style="color:#10B981">✓ Set</span>':'<span style="color:#EF4444">✗ Missing</span>';
+  }
+  // Render details in panel
+  var detailsEl=document.getElementById('ai-details');
+  if(detailsEl&&ins.milestoneAnalysis){
+    var html='<div style="margin-bottom:12px">';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Overall Readiness</span><span style="color:#fff;font-weight:700">'+ins.overallReadiness+'%</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Risk Level</span><span style="font-weight:700;color:'+(riskColors[ins.riskLevel]||'#fff')+'">'+ins.riskLevel+'</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>PPP Status</span><span>'+(ins.hasPPP?'<span style="color:#10B981">✓ Set</span>':'<span style="color:#EF4444">✗ Missing</span>')+'</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Gaps Found</span><span style="color:#FBBF24;font-weight:700">'+(ins.gaps?ins.gaps.length:0)+'</span></div>';
+    html+='</div>';
+    if(ins.gaps&&ins.gaps.length>0){
+      html+='<div style="margin-top:8px">';
+      html+='<div style="font-size:10px;color:#FBBF24;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">⚠️ Gaps</div>';
+      for(var i=0;i<Math.min(ins.gaps.length,5);i++){
+        html+='<div style="padding:6px 8px;margin-bottom:4px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.1);border-radius:6px;font-size:10px">'+escapeHtml(ins.gaps[i])+'</div>';
+      }
+      if(ins.gaps.length>5)html+='<div style="font-size:10px;color:#64748B">...and '+(ins.gaps.length-5)+' more</div>';
+      html+='</div>';
+    }
+    detailsEl.innerHTML=html;
+  }
+  // Render recommendations
+  var recEl=document.getElementById('ai-recommendations');
+  if(recEl&&ins.recommendations){
+    if(ins.recommendations.length===0){
+      recEl.innerHTML='<div style="padding:8px;font-size:11px;color:#64748B;text-align:center">All items on track. No recommendations.</div>';
+    }else{
+      recEl.innerHTML=ins.recommendations.map(function(r,i){
+        return '<div style="padding:8px 10px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.1);border-radius:6px;font-size:11px"><span style="color:#10B981;font-weight:700">'+(i+1)+'.</span> '+escapeHtml(r)+'</div>';
+      }).join('');
+    }
+  }
+}
+
+var riskColors={LOW:'#10B981',MEDIUM:'#F59E0B',HIGH:'#F97316',CRITICAL:'#EF4444',UNKNOWN:'#94A3B8'};
+
+function escapeHtml(text){
+  if(!text)return'';
+  var d=document.createElement('div');
+  d.textContent=text;
+  return d.innerHTML;
+}
+
 // INIT
 async function INIT(){
   if(window._vdLog)window._vdLog('INIT','=== ENTER ===');
@@ -832,6 +1131,8 @@ function hPP(e){
 }
 
 function ALL(){
+  // Refresh AI insights whenever data changes
+  refreshAICards();
   // Only render the active tab — lazy loading for performance
   if(ACTIVE_TAB==='p'){RM();RS();}
   else if(ACTIVE_TAB==='r'){RREF();RREFTAB();}
@@ -2031,5 +2332,10 @@ INIT();
 <style>
 </style>
 <div style="text-align:right;padding:20px;font-size:11px;color:#5A6B7D;border-top:1px solid #D6DFE8;margin-top:20px">Program Oversight Center &copy; 2026</div>
+  <!-- Floating Ask AI Button -->
+  <button id="ask-ai-fab" onclick="toggleAIPanel()" title="Ask AI" style="position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#7C3AED,#6366F1);color:#fff;border:none;box-shadow:0 4px 16px rgba(124,58,237,0.4);cursor:pointer;z-index:999;font-size:22px;display:flex;align-items:center;justify-content:center;transition:transform .2s,box-shadow .2s" onmouseover="this.style.transform='scale(1.1)';this.style.boxShadow='0 6px 24px rgba(124,58,237,0.5)'" onmouseout="this.style.transform='scale(1)';this.style.boxShadow='0 4px 16px rgba(124,58,237,0.4)'">
+    ✨
+  </button>
+
 </body>
 </html>
