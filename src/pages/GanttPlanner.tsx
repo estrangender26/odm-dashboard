@@ -68,17 +68,46 @@ const normProgress = (p: any): number => {
 // Get progress as 0-1 float (for internal calculations)
 const progressFloat = (p: any): number => normProgress(p) / 100;
 
+/* ─── Zoom level type ─── */
+type ZoomLevel = "autofit" | "year" | "quarter" | "month" | "week" | "day";
+
+const ZOOM_LABELS: Record<ZoomLevel, string> = {
+  autofit: "Auto-fit", year: "Year", quarter: "Quarter", month: "Month", week: "Week", day: "Day",
+};
+
+// Fixed day widths for each zoom level (px per day)
+const ZOOM_DAY_WIDTH: Record<Exclude<ZoomLevel, "autofit">, number> = {
+  year: 0.5, quarter: 2, month: 5, week: 16, day: 48,
+};
+
 /* ─── Native Gantt Chart Component — Planned vs Actual dual bars ─── */
 function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
+  const [containerWidth, setContainerWidth] = useState<number>(800);
 
-  /* Compute project range + per-task bar positions */
-  const { projectStart, projectEnd, totalDays, dayWidth, rows } = useMemo(() => {
+  /* ResizeObserver for responsive container width */
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(Math.max(300, Math.floor(entry.contentRect.width)));
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  /* Compute project range */
+  const { projectStart, projectEnd, totalDays, rows: baseRows } = useMemo(() => {
     if (!tasks.length) {
-      return { projectStart: new Date(), projectEnd: new Date(), totalDays: 30, dayWidth: 18, rows: [] };
+      const ps = new Date();
+      const pe = new Date(ps.getTime() + 30 * 86400000);
+      return { projectStart: ps, projectEnd: pe, totalDays: 30, rows: [] };
     }
 
-    // Collect ALL dates — planned AND actual
     let ps: Date | null = null;
     let pe: Date | null = null;
     const consider = (d: Date | null) => {
@@ -97,71 +126,145 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
     if (!ps) ps = new Date();
     if (!pe) pe = new Date(ps.getTime() + 30 * 86400000);
 
-    // Add padding
     ps = new Date(ps.getTime() - 5 * 86400000);
     pe = new Date(pe.getTime() + 10 * 86400000);
     const td = Math.max(daysBetween(ps, pe), 30);
 
-    // Responsive day width
-    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    const dw = isMobile ? 12 : 18;
-
-    // Build rows
-    const chartRows = tasks
+    // Pre-compute date objects for each task (geometry-independent)
+    const base = tasks
       .filter((t) => t.type !== "project")
-      .map((t) => {
-        const plannedStart = parseDate(t.plannedStart);
-        const plannedEnd = parseDate(t.plannedEnd);
-        const actualStart = parseDate(t.startDate);
-        const actualEnd = parseDate(t.endDate);
+      .map((t) => ({
+        task: t,
+        plannedStart: parseDate(t.plannedStart),
+        plannedEnd: parseDate(t.plannedEnd),
+        actualStart: parseDate(t.startDate),
+        actualEnd: parseDate(t.endDate),
+        isDelayed: parseDate(t.endDate) && parseDate(t.plannedEnd) && parseDate(t.endDate)! > parseDate(t.plannedEnd)!,
+        isMilestone: t.type === "milestone",
+      }));
 
-        // Planned bar geometry
-        const plannedLeft = plannedStart ? Math.max(0, daysBetween(ps, plannedStart)) * dw : null;
-        const plannedWidth = (plannedStart && plannedEnd && daysBetween(plannedStart, plannedEnd) > 0)
-          ? daysBetween(plannedStart, plannedEnd) * dw
-          : null;
-
-        // Actual bar geometry
-        const actualLeft = actualStart ? Math.max(0, daysBetween(ps, actualStart)) * dw : null;
-        const actualWidth = (actualStart && actualEnd && daysBetween(actualStart, actualEnd) > 0)
-          ? daysBetween(actualStart, actualEnd) * dw
-          : actualStart ? (t.duration || 1) * dw : null;
-
-        // Delay check
-        const isDelayed = actualEnd && plannedEnd && actualEnd > plannedEnd;
-        const isMilestone = t.type === "milestone";
-
-        return {
-          task: t,
-          plannedLeft, plannedWidth,
-          actualLeft, actualWidth,
-          isDelayed, isMilestone,
-        };
-      });
-
-    return { projectStart: ps, projectEnd: pe, totalDays: td, dayWidth: dw, rows: chartRows };
+    return { projectStart: ps, projectEnd: pe, totalDays: td, rows: base };
   }, [tasks]);
 
-  // Month header columns
-  const monthColumns = useMemo(() => {
-    const cols: { label: string; left: number; width: number }[] = [];
-    if (!projectStart) return cols;
-    let cur = new Date(projectStart);
-    while (cur <= projectEnd) {
-      const monthStart = new Date(cur);
-      const nextMonth = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
-      const monthEnd = nextMonth < projectEnd ? nextMonth : projectEnd;
-      const left = daysBetween(projectStart, monthStart) * dayWidth;
-      const width = Math.max(1, daysBetween(monthStart, monthEnd) * dayWidth);
-      cols.push({ label: fmtMonth(monthStart), left, width });
-      cur = nextMonth;
+  /* Compute dayWidth based on zoom level */
+  const dayWidth = useMemo(() => {
+    if (zoomLevel === "autofit") {
+      // Auto-fit: divide available width by total days
+      return Math.max(0.3, (containerWidth - 40) / totalDays);
     }
+    return ZOOM_DAY_WIDTH[zoomLevel];
+  }, [zoomLevel, containerWidth, totalDays]);
+
+  /* Compute bar geometry based on dayWidth */
+  const rows = useMemo(() => {
+    return baseRows.map((r) => {
+      const { plannedStart, plannedEnd, actualStart, actualEnd, isDelayed, isMilestone, task } = r;
+
+      const plannedLeft = plannedStart ? Math.max(0, daysBetween(projectStart, plannedStart)) * dayWidth : null;
+      const plannedWidth = (plannedStart && plannedEnd && daysBetween(plannedStart, plannedEnd) > 0)
+        ? daysBetween(plannedStart, plannedEnd) * dayWidth
+        : null;
+
+      const actualLeft = actualStart ? Math.max(0, daysBetween(projectStart, actualStart)) * dayWidth : null;
+      const actualWidth = (actualStart && actualEnd && daysBetween(actualStart, actualEnd) > 0)
+        ? daysBetween(actualStart, actualEnd) * dayWidth
+        : actualStart ? (task.duration || 1) * dayWidth : null;
+
+      return {
+        task,
+        plannedLeft, plannedWidth,
+        actualLeft, actualWidth,
+        isDelayed, isMilestone,
+      };
+    });
+  }, [baseRows, projectStart, dayWidth]);
+
+  /* ─── Header columns based on zoom level ─── */
+  const headerColumns = useMemo(() => {
+    const cols: { label: string; left: number; width: number; subLabel?: string }[] = [];
+    if (!projectStart) return cols;
+    const ps = projectStart;
+    const pe = projectEnd;
+
+    if (zoomLevel === "day") {
+      // Day zoom: show individual days
+      let cur = new Date(ps);
+      while (cur <= pe) {
+        const dayStart = new Date(cur);
+        const nextDay = new Date(cur.getTime() + 86400000);
+        const dayEnd = nextDay < pe ? nextDay : pe;
+        const left = daysBetween(ps, dayStart) * dayWidth;
+        const width = Math.max(1, daysBetween(dayStart, dayEnd) * dayWidth);
+        const dayNum = dayStart.getDate();
+        const monthShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][dayStart.getMonth()];
+        cols.push({
+          label: `${dayNum}`,
+          subLabel: dayStart.getDay() === 0 || dayStart.getDay() === 6 ? "" : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayStart.getDay()],
+          left, width,
+        });
+        cur = nextDay;
+      }
+    } else if (zoomLevel === "week") {
+      // Week zoom: show weeks
+      let cur = new Date(ps);
+      // Align to Sunday
+      const dayOfWeek = cur.getDay();
+      cur = new Date(cur.getTime() - dayOfWeek * 86400000);
+      while (cur <= pe) {
+        const weekStart = new Date(cur);
+        const weekEnd = new Date(cur.getTime() + 7 * 86400000);
+        const end = weekEnd < pe ? weekEnd : pe;
+        const left = daysBetween(ps, weekStart) * dayWidth;
+        const width = Math.max(1, daysBetween(weekStart, end) * dayWidth);
+        const startFmt = fmtShortDate(weekStart);
+        cols.push({ label: `Week ${startFmt}`, left, width });
+        cur = weekEnd;
+      }
+    } else if (zoomLevel === "month" || zoomLevel === "autofit") {
+      // Month zoom: show months
+      let cur = new Date(ps.getFullYear(), ps.getMonth(), 1);
+      while (cur <= pe) {
+        const monthStart = new Date(cur);
+        const nextMonth = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+        const monthEnd = nextMonth < pe ? nextMonth : pe;
+        const left = daysBetween(ps, monthStart) * dayWidth;
+        const width = Math.max(1, daysBetween(monthStart, monthEnd) * dayWidth);
+        cols.push({ label: fmtMonth(monthStart), left, width });
+        cur = nextMonth;
+      }
+    } else if (zoomLevel === "quarter") {
+      // Quarter zoom: show quarters
+      let cur = new Date(ps.getFullYear(), Math.floor(ps.getMonth() / 3) * 3, 1);
+      while (cur <= pe) {
+        const qStart = new Date(cur);
+        const nextQ = new Date(cur.getFullYear(), cur.getMonth() + 3, 1);
+        const qEnd = nextQ < pe ? nextQ : pe;
+        const left = daysBetween(ps, qStart) * dayWidth;
+        const width = Math.max(1, daysBetween(qStart, qEnd) * dayWidth);
+        const qNum = Math.floor(qStart.getMonth() / 3) + 1;
+        cols.push({ label: `Q${qNum} ${qStart.getFullYear()}`, left, width });
+        cur = nextQ;
+      }
+    } else if (zoomLevel === "year") {
+      // Year zoom: show years
+      let cur = new Date(ps.getFullYear(), 0, 1);
+      while (cur <= pe) {
+        const yStart = new Date(cur);
+        const nextY = new Date(cur.getFullYear() + 1, 0, 1);
+        const yEnd = nextY < pe ? nextY : pe;
+        const left = daysBetween(ps, yStart) * dayWidth;
+        const width = Math.max(1, daysBetween(yStart, yEnd) * dayWidth);
+        cols.push({ label: String(yStart.getFullYear()), left, width });
+        cur = nextY;
+      }
+    }
+
     return cols;
-  }, [projectStart, projectEnd, dayWidth]);
+  }, [projectStart, projectEnd, dayWidth, zoomLevel]);
 
   const chartWidth = totalDays * dayWidth;
   const rowHeight = 56;
-  const headerHeight = 40;
+  const headerHeight = zoomLevel === "day" ? 52 : 40;
   const chartHeight = Math.max(350, rows.length * rowHeight + headerHeight + 20);
 
   if (!tasks.length) {
@@ -176,8 +279,69 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
 
   return (
     <div>
+      {/* Toolbar: Zoom controls */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", flexWrap: "wrap" }}>
+        {/* Zoom out / in buttons */}
+        <div style={{ display: "flex", alignItems: "center", gap: 2, background: "#E2E8F0", borderRadius: 6, padding: 2 }}>
+          <button
+            onClick={() => {
+              const order: ZoomLevel[] = ["year", "quarter", "month", "week", "day"];
+              if (zoomLevel === "autofit") { setZoomLevel("month"); return; }
+              const idx = order.indexOf(zoomLevel);
+              if (idx > 0) setZoomLevel(order[idx - 1]);
+            }}
+            title="Zoom out"
+            style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, background: "#fff", border: "none", borderRadius: 4, cursor: "pointer", color: "#475569", lineHeight: 1 }}
+          >
+            −
+          </button>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#475569", padding: "0 4px", whiteSpace: "nowrap", minWidth: 44, textAlign: "center" }}>
+            {ZOOM_LABELS[zoomLevel]}
+          </span>
+          <button
+            onClick={() => {
+              const order: ZoomLevel[] = ["year", "quarter", "month", "week", "day"];
+              if (zoomLevel === "autofit") { setZoomLevel("month"); return; }
+              const idx = order.indexOf(zoomLevel);
+              if (idx < order.length - 1) setZoomLevel(order[idx + 1]);
+            }}
+            title="Zoom in"
+            style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, background: "#fff", border: "none", borderRadius: 4, cursor: "pointer", color: "#475569", lineHeight: 1 }}
+          >
+            +
+          </button>
+        </div>
+
+        {/* Quick zoom level buttons */}
+        {(["autofit", "year", "quarter", "month", "week", "day"] as ZoomLevel[]).map((zl) => (
+          <button
+            key={zl}
+            onClick={() => setZoomLevel(zl)}
+            style={{
+              padding: "4px 10px",
+              fontSize: 10,
+              fontWeight: 600,
+              fontFamily: "Inter, sans-serif",
+              background: zoomLevel === zl ? "#005BAC" : "#fff",
+              color: zoomLevel === zl ? "#fff" : "#5A6B7D",
+              border: `1px solid ${zoomLevel === zl ? "#005BAC" : "#D6DFE8"}`,
+              borderRadius: 5,
+              cursor: "pointer",
+              transition: "all .15s",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {ZOOM_LABELS[zl]}
+          </button>
+        ))}
+
+        <span style={{ marginLeft: "auto", fontSize: 10, color: "#8BA3B8", whiteSpace: "nowrap" }}>
+          {rows.length} tasks · {Math.round(dayWidth * 10) / 10}px/day · {Math.round(chartWidth)}px wide
+        </span>
+      </div>
+
       {/* Legend */}
-      <div style={{ display: "flex", gap: 16, padding: "10px 14px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", fontSize: 11, fontFamily: "Inter, sans-serif", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 16, padding: "8px 14px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", fontSize: 11, fontFamily: "Inter, sans-serif", flexWrap: "wrap" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#93C5FD", borderRadius: 2, border: "1px solid #60A5FA" }} /> Planned</span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#86EFAC", borderRadius: 2, border: "1px solid #4ADE80" }} /> Actual (on time)</span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#FCA5A5", borderRadius: 2, border: "1px solid #F87171" }} /> Actual (delayed)</span>
@@ -203,20 +367,78 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
 
         {/* Right: Scrollable timeline */}
         <div ref={scrollRef} style={{ flex: 1, overflow: "auto", position: "relative" }}>
-          <div style={{ width: chartWidth, position: "relative" }}>
-            {/* Month header row */}
+          <div ref={timelineRef} style={{ width: chartWidth, position: "relative", transition: "width 0.25s ease-out" }}>
+            {/* Header row */}
             <div style={{ height: headerHeight, borderBottom: "1px solid #E2E8F0", display: "flex", position: "relative", background: "#F1F5F9" }}>
-              {monthColumns.map((col, i) => (
-                <div key={i} style={{ position: "absolute", left: col.left, width: col.width, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #E2E8F0", fontWeight: 600, color: "#475569", fontSize: 10, whiteSpace: "nowrap" }}>
-                  {col.label}
+              {headerColumns.map((col, i) => (
+                <div
+                  key={i}
+                  style={{
+                    position: "absolute",
+                    left: col.left,
+                    width: col.width,
+                    height: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRight: "1px solid #E2E8F0",
+                    fontWeight: 600,
+                    color: "#475569",
+                    fontSize: zoomLevel === "day" ? 9 : 10,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    transition: "left 0.25s ease-out, width 0.25s ease-out",
+                  }}
+                  title={col.label}
+                >
+                  <span>{col.label}</span>
+                  {col.subLabel && <span style={{ fontSize: 8, color: "#8BA3B8", fontWeight: 400 }}>{col.subLabel}</span>}
                 </div>
               ))}
             </div>
 
             {/* Grid lines */}
-            {monthColumns.map((col, i) => (
-              <div key={`grid-${i}`} style={{ position: "absolute", left: col.left, top: headerHeight, width: 1, height: rows.length * rowHeight, background: "#F1F5F9", zIndex: 0 }} />
+            {headerColumns.map((col, i) => (
+              <div
+                key={`grid-${i}`}
+                style={{
+                  position: "absolute",
+                  left: col.left,
+                  top: headerHeight,
+                  width: 1,
+                  height: rows.length * rowHeight,
+                  background: "#F1F5F9",
+                  zIndex: 0,
+                  transition: "left 0.25s ease-out",
+                }}
+              />
             ))}
+
+            {/* Today line */}
+            {(() => {
+              const today = new Date();
+              if (today < projectStart || today > projectEnd) return null;
+              const todayLeft = daysBetween(projectStart, today) * dayWidth;
+              return (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: todayLeft,
+                    top: 0,
+                    width: 2,
+                    height: chartHeight - 20,
+                    background: "#DC2626",
+                    zIndex: 5,
+                    opacity: 0.7,
+                    pointerEvents: "none",
+                    transition: "left 0.25s ease-out",
+                  }}
+                >
+                  <span style={{ position: "absolute", top: 2, left: 4, fontSize: 8, fontWeight: 700, color: "#DC2626", background: "rgba(255,255,255,0.9)", padding: "1px 3px", borderRadius: 2 }}>TODAY</span>
+                </div>
+              );
+            })()}
 
             {/* Task rows — dual bars */}
             {rows.map((row, idx) => {
@@ -227,14 +449,14 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                 <div key={task.id}>
                   {isMilestone ? (
                     /* Milestone: diamond only */
-                    <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 7, top: top + rowHeight / 2 - 7, zIndex: 2 }}>
+                    <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 7, top: top + rowHeight / 2 - 7, zIndex: 2, transition: "left 0.25s ease-out" }}>
                       <div style={{ width: 14, height: 14, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
                     </div>
                   ) : (
                     <>
                       {/* Planned bar (top) */}
                       {plannedLeft !== null && plannedWidth !== null && (
-                        <div style={{ position: "absolute", left: plannedLeft, top: top + 6, height: 18, zIndex: 1 }}>
+                        <div style={{ position: "absolute", left: plannedLeft, top: top + 6, height: 18, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
                           <div style={{ width: Math.max(plannedWidth, 2), height: 16, background: "rgba(147,197,253,0.35)", border: "1px dashed #60A5FA", borderRadius: 3, position: "relative" }}>
                             {plannedWidth > 50 && (
                               <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 600, color: "#3B82F6", whiteSpace: "nowrap" }}>Planned</span>
@@ -244,7 +466,7 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                       )}
                       {/* Actual bar (bottom) */}
                       {actualLeft !== null && actualWidth !== null ? (
-                        <div style={{ position: "absolute", left: actualLeft, top: top + 30, height: 18, zIndex: 2 }}>
+                        <div style={{ position: "absolute", left: actualLeft, top: top + 30, height: 18, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
                           <div style={{ width: Math.max(actualWidth, 2), height: 16, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 3, position: "relative" }}>
                             {actualWidth > 50 && (
                               <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 600, color: isDelayed ? "#DC2626" : "#15803D", whiteSpace: "nowrap" }}>
@@ -256,7 +478,7 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                       ) : (
                         /* No actual data yet */
                         plannedLeft !== null && (
-                          <div style={{ position: "absolute", left: plannedLeft, top: top + 30, zIndex: 1 }}>
+                          <div style={{ position: "absolute", left: plannedLeft, top: top + 30, zIndex: 1, transition: "left 0.25s ease-out" }}>
                             <span style={{ fontSize: 8, color: "#CBD5E1", fontStyle: "italic" }}>No actual yet</span>
                           </div>
                         )
