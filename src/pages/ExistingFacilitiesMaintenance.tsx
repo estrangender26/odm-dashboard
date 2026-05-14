@@ -115,13 +115,26 @@ export default function ExistingFacilitiesMaintenance() {
 
   const { data: filterOptions } = trpc.efm.filters.useQuery(undefined, { refetchInterval: 30000 });
 
-  const createMut = trpc.efm.create.useMutation({ onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); } });
-  const updateMut = trpc.efm.update.useMutation({ onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); } });
-  const deleteMut = trpc.efm.delete.useMutation({ onSuccess: () => { utils.efm.list.invalidate(); } });
+  const createMut = trpc.efm.create.useMutation({
+    onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); },
+    onError: (err) => { alert("Create failed: " + err.message); console.error(err); },
+  });
+  const updateMut = trpc.efm.update.useMutation({
+    onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); },
+    onError: (err) => { alert("Update failed: " + err.message); console.error(err); },
+  });
+  const deleteMut = trpc.efm.delete.useMutation({
+    onSuccess: () => { utils.efm.list.invalidate(); },
+    onError: (err) => { alert("Delete failed: " + err.message); console.error(err); },
+  });
   const importMut = trpc.efm.importExcel.useMutation({
     onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); alert("Import successful!"); },
+    onError: (err) => { alert("Import failed: " + err.message); console.error("[IMPORT ERROR]", err); },
   });
-  const seedMut = trpc.efm.seed.useMutation({ onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); } });
+  const seedMut = trpc.efm.seed.useMutation({
+    onSuccess: (data) => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); alert(data.seeded ? `Loaded ${data.count} records!` : data.reason); },
+    onError: (err) => { alert("Seed failed: " + err.message); console.error("[SEED ERROR]", err); },
+  });
   const resetMut = trpc.efm.reset.useMutation({ onSuccess: () => { utils.efm.list.invalidate(); utils.efm.filters.invalidate(); } });
 
   // Group items by equipment type
@@ -172,33 +185,47 @@ export default function ExistingFacilitiesMaintenance() {
 
   // ── Import ──
   const handleImport = useCallback((file: File) => {
+    console.log("[IMPORT] Starting import of file:", file.name, "size:", file.size);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array" });
+        console.log("[IMPORT] Sheets found:", wb.SheetNames);
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rawRows: any[] = XLSX.utils.sheet_to_json(ws);
-        if (!rawRows.length) { alert("No data found"); return; }
+        console.log("[IMPORT] Raw rows parsed:", rawRows.length, rawRows[0]);
+        if (!rawRows.length) { alert("No data found in the Excel file"); return; }
 
-        const rows = rawRows.map((r: any) => ({
-          plant: String(r["Plant"] || r["Plant / Facility"] || r["plant"] || r["Facility"] || "").trim(),
-          equipmentType: String(r["Equipment Type"] || r["Equipment"] || r["equipment_type"] || r["equipmentType"] || "").trim(),
-          task: String(r["Task"] || r["Tasks"] || r["task"] || r["Task Description"] || "").trim(),
-          frequency: String(r["Frequency"] || r["frequency"] || r["Freq"] || "").trim(),
-          implementor: String(r["Implementor"] || r["Implementer"] || r["Responsible"] || r["implementor"] || "").trim(),
-          status: String(r["Status"] || r["status"] || "Active").trim(),
-          lastCompleted: r["Last Completed"] || r["last_completed"] || "",
-          nextDue: r["Next Due"] || r["next_due"] || "",
-          remarks: r["Remarks"] || r["remarks"] || r["Notes"] || "",
-        })).filter((r: any) => r.plant && r.task);
+        const rows = rawRows.map((r: any, idx: number) => {
+          // Log first few rows for debugging
+          if (idx < 3) console.log(`[IMPORT] Row ${idx} keys:`, Object.keys(r), "values:", r);
+          return {
+            plant: String(r["Plant"] || r["plant"] || r["Facility"] || r["facility"] || r["PLANT"] || "").trim(),
+            equipmentType: String(r["Equipment Type"] || r["Equipment"] || r["equipment_type"] || r["equipmentType"] || r["EQUIPMENT TYPE"] || "").trim(),
+            task: String(r["Task"] || r["Tasks"] || r["task"] || r["TASK"] || r["Task Description"] || r["Maintenance Task"] || "").trim(),
+            frequency: String(r["Frequency"] || r["frequency"] || r["FREQ"] || r["Freq"] || "").trim(),
+            implementor: String(r["Implementor"] || r["Implementer"] || r["Responsible"] || r["Personnel"] || r["IMPLEMENTOR"] || "").trim(),
+            status: String(r["Status"] || r["status"] || "Active").trim(),
+            lastCompleted: r["Last Completed"] || r["last_completed"] || "",
+            nextDue: r["Next Due"] || r["next_due"] || "",
+            remarks: r["Remarks"] || r["remarks"] || r["Notes"] || r["notes"] || "",
+          };
+        }).filter((r: any) => {
+          const valid = r.plant && r.task;
+          if (!valid) console.log("[IMPORT] Skipping row (missing plant or task):", r);
+          return valid;
+        });
 
-        if (!rows.length) { alert("No valid rows (need Plant + Task)"); return; }
+        console.log("[IMPORT] Valid rows after filter:", rows.length);
+        if (!rows.length) { alert("No valid rows found. Need Plant + Task columns. Check console for details."); return; }
         importMut.mutate({ rows: rows as any[] });
       } catch (err: any) {
-        alert("Import failed: " + (err.message || "Invalid file"));
+        console.error("[IMPORT] Parse error:", err);
+        alert("Import failed: " + (err.message || "Invalid file format"));
       }
     };
+    reader.onerror = () => alert("Failed to read the file");
     reader.readAsArrayBuffer(file);
   }, [importMut]);
 

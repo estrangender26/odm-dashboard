@@ -4,6 +4,36 @@ import { db } from "./queries/connection";
 import { existingFacilitiesMaintenance } from "@db/schema";
 import { eq, and, like, sql, count } from "drizzle-orm";
 
+// Ensure the table exists (auto-create on first access)
+async function ensureTable() {
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS existing_facilities_maintenance (
+        id SERIAL PRIMARY KEY,
+        plant VARCHAR(255) NOT NULL,
+        equipment_type VARCHAR(255) DEFAULT '',
+        task TEXT NOT NULL,
+        frequency VARCHAR(100) NOT NULL,
+        implementor VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'Active',
+        last_completed VARCHAR(20),
+        next_due VARCHAR(20),
+        remarks TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `));
+    // Create indexes
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS efm_plant_idx ON existing_facilities_maintenance(plant)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS efm_equip_idx ON existing_facilities_maintenance(equipment_type)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS efm_freq_idx ON existing_facilities_maintenance(frequency)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS efm_impl_idx ON existing_facilities_maintenance(implementor)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS efm_status_idx ON existing_facilities_maintenance(status)`));
+  } catch (e) {
+    // Table may already exist, that's fine
+  }
+}
+
 export const efmRouter = createRouter({
   // ── List all records with search/filter/pagination ──
   list: publicQuery
@@ -18,6 +48,7 @@ export const efmRouter = createRouter({
       pageSize: z.number().default(50),
     }).optional())
     .query(async ({ input }) => {
+      await ensureTable();
       const opts = input || {};
       const { search, plantFilter, equipFilter, freqFilter, implFilter, statusFilter, page, pageSize } = opts;
       const offset = ((page || 1) - 1) * (pageSize || 50);
@@ -77,6 +108,7 @@ export const efmRouter = createRouter({
 
   // ── Get unique filter values ──
   filters: publicQuery.query(async () => {
+    await ensureTable();
     const plants = await db.selectDistinct({ plant: existingFacilitiesMaintenance.plant })
       .from(existingFacilitiesMaintenance).orderBy(existingFacilitiesMaintenance.plant);
     const equipTypes = await db.selectDistinct({ equipmentType: existingFacilitiesMaintenance.equipmentType })
@@ -111,6 +143,7 @@ export const efmRouter = createRouter({
       remarks: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
+      await ensureTable();
       const [result] = await db.insert(existingFacilitiesMaintenance).values({
         plant: input.plant,
         equipmentType: input.equipmentType || "",
@@ -140,6 +173,7 @@ export const efmRouter = createRouter({
       remarks: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
+      await ensureTable();
       const { id, ...fields } = input;
       const updates: Record<string, any> = {};
       Object.entries(fields).forEach(([key, val]) => {
@@ -159,6 +193,7 @@ export const efmRouter = createRouter({
   delete: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      await ensureTable();
       await db.delete(existingFacilitiesMaintenance)
         .where(eq(existingFacilitiesMaintenance.id, input.id));
       return { success: true };
@@ -180,6 +215,7 @@ export const efmRouter = createRouter({
       })),
     }))
     .mutation(async ({ input }) => {
+      await ensureTable();
       const inserted = [];
       for (const row of input.rows) {
         const [result] = await db.insert(existingFacilitiesMaintenance).values({
@@ -200,6 +236,7 @@ export const efmRouter = createRouter({
 
   // ── Seed from complete Excel data ──
   seed: publicQuery.mutation(async () => {
+    await ensureTable();
     const count = await db.select({ count: sql<number>`count(*)` })
       .from(existingFacilitiesMaintenance);
     if ((count[0]?.count || 0) > 0) {
@@ -384,6 +421,7 @@ export const efmRouter = createRouter({
 
   // ── Reset all data ──
   reset: publicQuery.mutation(async () => {
+    await ensureTable();
     await db.delete(existingFacilitiesMaintenance);
     return { success: true };
   }),
