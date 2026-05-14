@@ -888,7 +888,8 @@ async function askAI(){
   ansEl.style.display='none';
   try{
     var facility=document.getElementById('fs').value;
-    var resp=await fetch(API_BASE+'/api/governance/ai-chat',{
+    // Use absolute path — NOT API_BASE which is /api/trpc for tRPC
+    var resp=await fetch('/api/governance/ai-chat',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({question:q,facilitySlug:facility,allStates:ST})
@@ -917,7 +918,7 @@ function localAIAsk(q){
   var ql=q.toLowerCase();
   var ms=st.ms||{};
   var completed=0,total=0,missingDates=[];
-  for(var mid in MS){
+  for(var mid in MSD){
     total++;
     if(ms[mid]&&ms[mid].done)completed++;
     else if(!(ms[mid]&&ms[mid].compDate))missingDates.push(mid);
@@ -931,7 +932,7 @@ function localAIAsk(q){
   }
   if(ql.indexOf('gap')>=0||ql.indexOf('missing')>=0){
     if(missingDates.length===0)return 'No critical gaps. All milestones have completion dates or are done.';
-    return 'Gaps found: '+missingDates.map(function(m){return '<b>'+m+'</b> ('+MS[m].n+')';}).join(', ')+'. Set completion dates for these milestones.';
+    return 'Gaps found: '+missingDates.map(function(m){return '<b>'+m+'</b> ('+MSD[m].n+')';}).join(', ')+'. Set completion dates for these milestones.';
   }
   if(ql.indexOf('summary')>=0||ql.indexOf('status')>=0){
     var ppStatus=st.pp?'set ('+fmtDate(st.pp)+')':'<b>NOT SET</b>';
@@ -946,7 +947,8 @@ async function refreshAICards(){
   var bar=document.getElementById('ai-cards-bar');
   bar.style.display='block';
   try{
-    var resp=await fetch(API_BASE+'/api/governance/ai-insights',{
+    // Use absolute path — NOT API_BASE which is /api/trpc for tRPC
+    var resp=await fetch('/api/governance/ai-insights',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({facilitySlug:f,allStates:ST})
@@ -968,7 +970,7 @@ function generateLocalInsights(facility){
   var ms=st.ms||{};
   var completed=0,total=0,readinessSum=0;
   var milestoneAnalysis=[];
-  for(var mid in MS){
+  for(var mid in MSD){
     total++;
     var mState=ms[mid]||{};
     var done=mState.done||false;
@@ -977,7 +979,7 @@ function generateLocalInsights(facility){
     if(done)completed++;
     var r=done?100:hasComp?75:hasPPP?50:10;
     readinessSum+=r;
-    milestoneAnalysis.push({id:mid,name:MS[mid].n,phase:MS[mid].ph,completed:done,readiness:r,hasPPPDate:hasPPP,hasCompDate:hasComp});
+    milestoneAnalysis.push({id:mid,name:MSD[mid].n,phase:MSD[mid].ph,completed:done,readiness:r,hasPPPDate:hasPPP,hasCompDate:hasComp});
   }
   var overall=total>0?Math.round(readinessSum/total):0;
   var risk=overall>=80?'LOW':overall>=50?'MEDIUM':overall>=20?'HIGH':'CRITICAL';
