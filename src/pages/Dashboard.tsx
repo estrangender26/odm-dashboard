@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import AIAssistant from "@/components/AIAssistant";
 
 // Types
 const VALID_OPS = ["", "Operator", "AMD in-house", "Outsourced SLA"] as const;
@@ -666,6 +667,13 @@ export default function Dashboard() {
         Program Oversight Center &copy; 2026
       </footer>
 
+      {/* AI Assistant */}
+      <AIAssistant
+        contextType="odm"
+        data={data?.groups ? data.groups.flatMap((g: any) => g.tasks || []) : []}
+        filters={{ dataset: activeTab, search, operations: personFilter }}
+        title="ODM AI"
+      />
 
     </div>
   );

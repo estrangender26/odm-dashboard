@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import AIAssistant from "@/components/AIAssistant";
 
 /* ─── Badge helpers ─── */
 const FREQ_BG: Record<string, string> = {
@@ -614,6 +615,14 @@ export default function ExistingFacilitiesMaintenance() {
       <footer style={{ borderTop: "1px solid #D6DFE8", padding: "16px 24px", textAlign: "right", fontSize: 11, color: "#5A6B7D" }}>
         Program Oversight Center &copy; 2026
       </footer>
+
+      {/* ── AI Assistant ── */}
+      <AIAssistant
+        contextType="maintenance"
+        data={data?.items || []}
+        filters={{ plant: activePlant, frequency: freqFilter, implementor: implFilter, equipment: equipFilter, status: statusFilter }}
+        title="Maintenance AI"
+      />
 
       {/* ── Styles ── */}
       <style>{`

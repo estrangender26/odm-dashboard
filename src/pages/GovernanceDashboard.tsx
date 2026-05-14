@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import AIAssistant from "@/components/AIAssistant";
 
 /* ───── Static Reference Data ───── */
 const FACILITIES = [
@@ -1239,6 +1240,15 @@ export default function GovernanceDashboard() {
       <footer className="text-right py-5 px-5 text-sm text-gray-500 border-t border-gray-200 mt-6">
         Program Oversight Center &copy; 2026
       </footer>
+
+      {/* AI Assistant */}
+      <AIAssistant
+        contextType="governance"
+        data={milestoneState || []}
+        filters={{ facility: activeFacility }}
+        metadata={{ uploads: uploads || [], facilityName: FACILITIES.find(f => f.slug === activeFacility)?.name }}
+        title="Governance AI"
+      />
     </div>
   );
 }
