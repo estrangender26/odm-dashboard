@@ -23,42 +23,53 @@ async function checkCol(): Promise<boolean> {
   return _colExists;
 }
 
-// ── Raw SQL list query — always works regardless of column existence ──
+// ── Raw SQL list query — safe single-line, no template literal tricks ──
 async function rawList(dataset: string, famFilter?: string) {
-  const hasCol = await checkCol();
-  const famSel = hasCol ? ',t."procedure_familiarity"' : '';
-  const famWhere = hasCol && famFilter ? `AND t."procedure_familiarity" = '${famFilter.replace(/'/g, "''")}'` : '';
+  // Use the simple query we KNOW works (matching the working stats endpoint)
+  const q1 = `SELECT t."id",t."equipment_id",t."task_list",t."frequency",t."responsible_personnel",t."operations",t."amd",t."ard",e."id" as eid,e."name" as ename,e."initials" as einit FROM tasks t INNER JOIN equipment e ON t."equipment_id"=e."id" WHERE t."dataset"=$1 ORDER BY e."name",t."id"`;
 
-  const q = `
-    SELECT t."id",t."equipment_id",t."task_list",t."frequency",
-           t."responsible_personnel",t."operations",t."amd",t."ard"${famSel},
-           e."id" as eid,e."name" as ename,e."initials" as einit
-    FROM tasks t INNER JOIN equipment e ON t."equipment_id"=e."id"
-    WHERE t."dataset"=$1 ${famWhere}
-    ORDER BY e."name",t."id"
-  `;
+  let rows: any[];
   try {
-    const rows = await db.execute(sql.raw(q, [dataset]));
-    return (rows as any[]).map(r => ({
-      task: {
-        id: r.id, equipmentId: r.equipment_id, taskList: r.task_list,
-        frequency: r.frequency, responsiblePersonnel: r.responsible_personnel,
-        operations: r.operations, amd: r.amd, ard: r.ard,
-        dataset,
-        procedureFamiliarity: hasCol ? r.procedure_familiarity : null,
-      },
-      equipment: { id: r.eid, name: r.ename, initials: r.einit },
-    }));
+    rows = await db.execute(sql.raw(q1, [dataset])) as any[];
   } catch (err: any) {
-    console.error("[tasks] rawList failed:", err.message);
-    // Fallback without familiarity
-    const q2 = `SELECT t."id",t."equipment_id",t."task_list",t."frequency",t."responsible_personnel",t."operations",t."amd",t."ard",e."id" as eid,e."name" as ename,e."initials" as einit FROM tasks t INNER JOIN equipment e ON t."equipment_id"=e."id" WHERE t."dataset"=$1 ORDER BY e."name",t."id"`;
-    const rows2 = await db.execute(sql.raw(q2, [dataset]));
-    return (rows2 as any[]).map(r => ({
-      task: { id: r.id, equipmentId: r.equipment_id, taskList: r.task_list, frequency: r.frequency, responsiblePersonnel: r.responsible_personnel, operations: r.operations, amd: r.amd, ard: r.ard, dataset, procedureFamiliarity: null },
-      equipment: { id: r.eid, name: r.ename, initials: r.einit },
-    }));
+    console.error("[tasks] rawList base query failed:", err.message);
+    return [];
   }
+
+  // Try to get familiarity values separately only if column exists
+  let hasCol = false;
+  let famRows: Record<number, string | null> = {};
+  try {
+    const colCheck = await db.execute(
+      sql`SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='procedure_familiarity' LIMIT 1`
+    );
+    hasCol = (colCheck as any[]).length > 0;
+    if (hasCol) {
+      const fr = await db.execute(sql.raw(
+        `SELECT "id","procedure_familiarity" FROM tasks WHERE "dataset"=$1`,
+        [dataset]
+      )) as any[];
+      for (const r of fr) famRows[r.id] = r.procedure_familiarity;
+    }
+  } catch { /* ignore familiarity errors */ }
+
+  // Map results
+  const result = rows.map(r => ({
+    task: {
+      id: r.id, equipmentId: r.equipment_id, taskList: r.task_list,
+      frequency: r.frequency, responsiblePersonnel: r.responsible_personnel,
+      operations: r.operations, amd: r.amd, ard: r.ard,
+      dataset,
+      procedureFamiliarity: hasCol ? famRows[r.id] || null : null,
+    },
+    equipment: { id: r.eid, name: r.ename, initials: r.einit },
+  }));
+
+  // Client-side familiarity filter
+  if (famFilter) {
+    return result.filter(r => r.task.procedureFamiliarity === famFilter);
+  }
+  return result;
 }
 
 export const tasksRouter = createRouter({
@@ -186,20 +197,11 @@ export const tasksRouter = createRouter({
   export: publicQuery
     .input(z.object({ dataset: z.enum(["htt", "aglipay"]), selectedIds: z.array(z.number()).optional() }))
     .query(async ({ input }) => {
-      const hasCol = await checkCol();
-      const famSel = hasCol ? ',t."procedure_familiarity"' : '';
-      const q = `SELECT t."id",t."task_list",t."frequency",t."responsible_personnel",t."operations",t."amd",t."ard"${famSel},e."name" as ename FROM tasks t INNER JOIN equipment e ON t."equipment_id"=e."id" WHERE t."dataset"=$1 ORDER BY e."name",t."id"`;
-      try {
-        const rows = await db.execute(sql.raw(q, [input.dataset]));
-        const mapped = (rows as any[]).map(r => ({ equipmentType: r.ename, taskList: r.task_list, frequency: r.frequency, responsiblePersonnel: r.responsible_personnel, operations: r.operations, amd: r.amd, ard: r.ard, procedureFamiliarity: hasCol ? r.procedure_familiarity : null }));
-        return input.selectedIds?.length ? mapped.filter(r => input.selectedIds!.includes(r.id)) : mapped;
-      } catch (err: any) {
-        console.error("[tasks] export failed:", err.message);
-        const q2 = `SELECT t."id",t."task_list",t."frequency",t."responsible_personnel",t."operations",t."amd",t."ard",e."name" as ename FROM tasks t INNER JOIN equipment e ON t."equipment_id"=e."id" WHERE t."dataset"=$1 ORDER BY e."name",t."id"`;
-        const rows2 = await db.execute(sql.raw(q2, [input.dataset]));
-        const mapped2 = (rows2 as any[]).map(r => ({ equipmentType: r.ename, taskList: r.task_list, frequency: r.frequency, responsiblePersonnel: r.responsible_personnel, operations: r.operations, amd: r.amd, ard: r.ard, procedureFamiliarity: null }));
-        return input.selectedIds?.length ? mapped2.filter(r => input.selectedIds!.includes(r.id)) : mapped2;
-      }
+      // Safe single-line query — no template interpolation in SELECT
+      const q = `SELECT t."id",t."task_list",t."frequency",t."responsible_personnel",t."operations",t."amd",t."ard",e."name" as ename FROM tasks t INNER JOIN equipment e ON t."equipment_id"=e."id" WHERE t."dataset"=$1 ORDER BY e."name",t."id"`;
+      const rows = await db.execute(sql.raw(q, [input.dataset])) as any[];
+      const mapped = rows.map(r => ({ equipmentType: r.ename, taskList: r.task_list, frequency: r.frequency, responsiblePersonnel: r.responsible_personnel, operations: r.operations, amd: r.amd, ard: r.ard, procedureFamiliarity: null }));
+      return input.selectedIds?.length ? mapped.filter(r => input.selectedIds!.includes(r.id)) : mapped;
     }),
 
   import: publicQuery
