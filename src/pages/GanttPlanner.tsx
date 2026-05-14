@@ -341,24 +341,45 @@ export default function GanttPlanner() {
     return Math.max(1, daysBetween(s, e));
   };
 
-  /* ─── Excel Export — exact 10-column format ─── */
+  /* ─── Resolve field with multiple possible key names ─── */
+  const resolveField = (obj: any, ...keys: string[]): any => {
+    for (const k of keys) {
+      if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
+    }
+    return "";
+  };
+
+  /* ─── Excel Export — 15-column format with field variant support ─── */
   const exportExcel = () => {
-    const rows = (tasksQuery.data || []).map((t: any) => {
-      // Planned dates
-      const plannedStart = normalizeExcelDate(t.plannedStart);
-      const plannedEnd = normalizeExcelDate(t.plannedEnd);
-      // Actual dates
-      const actualStart = normalizeExcelDate(t.startDate);
-      const actualEnd = normalizeExcelDate(t.endDate);
-      // Duration: stored value or calculated from planned dates
-      let duration = t.duration || "";
-      if (!duration && plannedStart && plannedEnd) {
-        duration = calcDuration(plannedStart, plannedEnd);
+    // Debug: log the raw data source
+    const rawTasks = tasksQuery.data || [];
+    console.log("[EXPORT TASK COUNT]", rawTasks.length, rawTasks);
+
+    // Build rows from the LIVE data source (same as UI renders)
+    const rows = rawTasks.map((t: any) => {
+      // Resolve fields with variant key names
+      const taskId = resolveField(t, "id", "task_id", "taskId");
+      const parentTask = resolveField(t, "parent", "parentId", "parent_task", "parentTask");
+      const wbsLevel = resolveField(t, "wbsLevel", "wbs_level", "wbs", "level");
+      const taskName = resolveField(t, "text", "name", "task_name", "taskName", "title");
+      const owner = resolveField(t, "owner", "assignee", "responsible");
+      const start = normalizeExcelDate(resolveField(t, "startDate", "start_date", "start", "actualStart"));
+      const finish = normalizeExcelDate(resolveField(t, "endDate", "end_date", "finish", "finish_date", "end", "actualEnd"));
+      const plannedStart = normalizeExcelDate(resolveField(t, "plannedStart", "planned_start", "plannedStartDate"));
+      const plannedFinish = normalizeExcelDate(resolveField(t, "plannedEnd", "planned_end", "plannedFinish", "planned_finish_date"));
+      let duration = resolveField(t, "duration", "dur", "days");
+      if (!duration && start && finish) {
+        duration = calcDuration(start, finish);
       }
-      // Progress as percentage number (0-100)
-      const progressVal = normProgress(t.progress);
-      // Status: stored or auto-calculated
-      let status = t.status || "";
+      if (!duration && plannedStart && plannedFinish) {
+        duration = calcDuration(plannedStart, plannedFinish);
+      }
+      const progressVal = normProgress(resolveField(t, "progress", "percent_complete", "percentComplete", "percent"));
+      const dependency = resolveField(t, "dependency", "predecessorId", "predecessor", "predecessor_id", "link");
+      const dependencyType = resolveField(t, "dependencyType", "dependency_type", "linkType", "link_type", "type");
+      const milestone = resolveField(t, "milestone", "isMilestone", "is_milestone") || (t.type === "milestone" ? "Yes" : "No");
+      const category = resolveField(t, "category", "cat", "group", "phase");
+      let status = resolveField(t, "status", "state", "taskStatus", "task_status");
       if (!status) {
         if (progressVal >= 100) status = "Completed";
         else if (progressVal > 0) {
@@ -367,30 +388,57 @@ export default function GanttPlanner() {
           status = (aEnd && pEnd && aEnd > pEnd) ? "In Progress (Delayed)" : "In Progress";
         } else status = "Not Started";
       }
-      // Remarks: notes field fallback
-      const remarks = t.remarks || t.notes || "";
+      const notes = resolveField(t, "remarks", "notes", "note", "comments", "comment", "description");
 
       return {
-        "Task Name": t.text || "",
-        "Owner": t.owner || "",
-        "Planned Start": plannedStart,
-        "Planned End": plannedEnd,
-        "Actual Start": actualStart,
-        "Actual End": actualEnd,
+        "Task ID": taskId,
+        "Parent Task": parentTask,
+        "WBS Level": wbsLevel,
+        "Task Name": taskName,
+        "Owner": owner,
+        "Start": start,
+        "Finish": finish,
         "Duration": duration,
         "Progress": progressVal,
+        "Dependency": dependency,
+        "Dependency Type": dependencyType,
+        "Milestone": milestone,
+        "Category": category,
         "Status": status,
-        "Remarks": remarks,
+        "Notes": notes,
       };
     });
-    // Create worksheet with explicit column order
-    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // If no task data, export headers-only template
+    if (rows.length === 0) {
+      console.log("[EXPORT] No task data — exporting blank template with headers only");
+    }
+
+    // Build worksheet with explicit column order
+    const COLUMN_ORDER = [
+      "Task ID", "Parent Task", "WBS Level", "Task Name", "Owner",
+      "Start", "Finish", "Duration", "Progress",
+      "Dependency", "Dependency Type", "Milestone", "Category", "Status", "Notes",
+    ];
+
+    // Create a row with headers in exact order (even for empty data)
+    const wsData = rows.length > 0 ? rows : [{}];
+    const ws = XLSX.utils.json_to_sheet(wsData, { header: COLUMN_ORDER });
+
+    // Set column widths for readability
+    const colWidths = [
+      { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 30 }, { wch: 18 },
+      { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
+      { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 20 }, { wch: 25 },
+    ];
+    ws["!cols"] = colWidths;
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Gantt Tasks");
     XLSX.writeFile(wb, "Gantt_Tasks.xlsx");
   };
 
-  /* ─── Excel Import — robust multi-format support ─── */
+  /* ─── Excel Import — 15-column format with full backward compat ─── */
   const importExcel = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -400,44 +448,59 @@ export default function GanttPlanner() {
       const rows: any[] = XLSX.utils.sheet_to_json(ws);
       if (!rows.length) { alert("No data found in the file"); return; }
 
+      console.log("[IMPORT ROW COUNT]", rows.length, rows[0]);
+
       let imported = 0;
       let skipped = 0;
       const errors: string[] = [];
 
       rows.forEach((row: any, idx: number) => {
         // ── Task Name (required) ──
-        const text = (row["Task Name"] || row["Task"] || row["Name"] || row["name"] || row["text"] || "").trim();
+        const text = (row["Task Name"] || row["Task"] || row["Name"] || row["name"] || row["text"] || row["Title"] || row["title"] || "").trim();
         if (!text) { skipped++; return; }
 
-        // ── Owner ──
-        const owner = row["Owner"] || row["owner"] || row["Assignee"] || "";
+        // ── Resolve all fields with variant key names ──
+        const owner = row["Owner"] || row["owner"] || row["Assignee"] || row["assignee"] || "";
+        const parentTask = row["Parent Task"] || row["parent"] || row["parentId"] || row["parent_task"] || "0";
+        const wbsLevel = row["WBS Level"] || row["wbsLevel"] || row["wbs_level"] || row["wbs"] || "";
+        const category = row["Category"] || row["category"] || row["cat"] || row["group"] || row["phase"] || "";
 
-        // ── Planned dates (new format) ──
-        let plannedStart = normalizeExcelDate(row["Planned Start"] || row["planned_start"] || row["plannedStart"] || row["baseline_start"] || "");
-        let plannedEnd = normalizeExcelDate(row["Planned End"] || row["planned_end"] || row["plannedEnd"] || row["baseline_end"] || "");
+        // ── Dates (new 15-col format) ──
+        let start = normalizeExcelDate(row["Start"] || row["start"] || row["Start Date"] || row["start_date"] || row["startDate"] || "");
+        let finish = normalizeExcelDate(row["Finish"] || row["finish"] || row["End"] || row["end"] || row["end_date"] || row["endDate"] || row["finish_date"] || "");
 
-        // ── Actual dates (new format) ──
-        let actualStart = normalizeExcelDate(row["Actual Start"] || row["actual_start"] || row["actualStart"] || "");
-        let actualEnd = normalizeExcelDate(row["Actual End"] || row["actual_end"] || row["actualEnd"] || "");
+        // ── Planned dates ──
+        let plannedStart = normalizeExcelDate(row["Planned Start"] || row["planned_start"] || row["plannedStart"] || row["Planned"] || row["Baseline Start"] || row["baseline_start"] || "");
+        let plannedEnd = normalizeExcelDate(row["Planned End"] || row["planned_end"] || row["plannedEnd"] || row["Planned Finish"] || row["Baseline End"] || row["baseline_end"] || "");
 
-        // ── Backward compat: old format columns ──
-        const oldStart = normalizeExcelDate(row["Start Date"] || row["start_date"] || row["startDate"] || row["Start"] || row["start"] || "");
-        const oldEnd = normalizeExcelDate(row["End Date"] || row["end_date"] || row["endDate"] || row["End"] || row["end"] || "");
+        // If no start/finish but planned dates exist → use planned as actual
+        if (!start && plannedStart) start = plannedStart;
+        if (!finish && plannedEnd) finish = plannedEnd;
 
-        // If no planned dates but old Start exists → use as planned
-        if (!plannedStart && oldStart) plannedStart = oldStart;
-        if (!plannedEnd && oldEnd) plannedEnd = oldEnd;
+        // Backward compat: old single-column date formats
+        const oldStart = normalizeExcelDate(row["Start"] || row["start"] || row["start_date"] || row["startDate"] || row["Date"] || row["date"] || "");
+        const oldEnd = normalizeExcelDate(row["Finish"] || row["finish"] || row["End"] || row["end"] || row["end_date"] || row["endDate"] || "");
+        if (!start && oldStart) start = oldStart;
+        if (!finish && oldEnd) finish = oldEnd;
 
         // ── Duration ──
-        let dur = row["Duration"] || row["duration"] || "";
-        if (!dur && plannedStart && plannedEnd) {
+        let dur = row["Duration"] || row["duration"] || row["dur"] || row["days"] || "";
+        if (!dur && start && finish) {
+          dur = calcDuration(start, finish);
+        } else if (!dur && plannedStart && plannedEnd) {
           dur = calcDuration(plannedStart, plannedEnd);
-        } else if (!dur && actualStart && actualEnd) {
-          dur = calcDuration(actualStart, actualEnd);
         }
         if (!dur) dur = 1;
 
-        // If planned end missing but start + duration exist → calculate end
+        // If finish missing but start + duration exist → calculate finish
+        if (start && !finish && dur) {
+          const s = parseDate(start);
+          if (s) {
+            const e = new Date(s.getTime() + (parseInt(String(dur)) || 1) * 86400000);
+            finish = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,"0")}-${String(e.getDate()).padStart(2,"0")}`;
+          }
+        }
+        // Same for planned end
         if (plannedStart && !plannedEnd && dur) {
           const s = parseDate(plannedStart);
           if (s) {
@@ -447,53 +510,54 @@ export default function GanttPlanner() {
         }
 
         // ── Progress ──
-        const progRaw = row["Progress"] || row["progress"] || "0";
+        const progRaw = row["Progress"] || row["progress"] || row["percent_complete"] || row["percentComplete"] || row["percent"] || "0";
         let prog = parseInt(String(progRaw).toString().replace("%", "")) || 0;
-        // Clamp to 0-100
         prog = Math.min(100, Math.max(0, prog));
 
+        // ── Dependency ──
+        const dependency = row["Dependency"] || row["dependency"] || row["predecessorId"] || row["predecessor"] || row["Predecessor"] || "";
+        const dependencyType = row["Dependency Type"] || row["dependency_type"] || row["dependencyType"] || row["linkType"] || row["link_type"] || "FS";
+
+        // ── Milestone ──
+        const milestoneVal = row["Milestone"] || row["milestone"] || row["isMilestone"] || row["is_milestone"] || "";
+        const isMilestone = String(milestoneVal).toLowerCase() === "yes" || String(milestoneVal).toLowerCase() === "true" || String(milestoneVal) === "1";
+
         // ── Status ──
-        let status = row["Status"] || row["status"] || "";
+        let status = row["Status"] || row["status"] || row["state"] || row["State"] || "";
         if (!status) {
           if (prog >= 100) status = "Completed";
           else if (prog > 0) status = "In Progress";
           else status = "Not Started";
         }
 
-        // ── Remarks ──
-        const remarks = row["Remarks"] || row["remarks"] || row["Notes"] || row["notes"] || "";
+        // ── Notes / Remarks ──
+        const notes = row["Notes"] || row["notes"] || row["note"] || row["Remarks"] || row["remarks"] || row["Comments"] || row["comments"] || row["Description"] || row["description"] || "";
 
-        // ── Type / Parent ──
-        const type = row["Type"] || row["type"] || "task";
-        const parent = parseInt(row["Parent"] || row["parent"] || "0") || 0;
+        // ── Type ──
+        const type = isMilestone ? "milestone" : (row["Type"] || row["type"] || "task");
+        const parent = parseInt(parentTask) || 0;
 
         // ── Validation ──
-        if (plannedStart && plannedEnd) {
-          const ps = parseDate(plannedStart);
-          const pe = parseDate(plannedEnd);
-          if (ps && pe && pe < ps) {
-            errors.push(`Row ${idx + 1}: "${text}" has Planned End before Planned Start`);
-          }
-        }
-        if (actualStart && actualEnd) {
-          const as = parseDate(actualStart);
-          const ae = parseDate(actualEnd);
-          if (as && ae && ae < as) {
-            errors.push(`Row ${idx + 1}: "${text}" has Actual End before Actual Start`);
+        if (start && finish) {
+          const s = parseDate(start);
+          const f = parseDate(finish);
+          if (s && f && f < s) {
+            errors.push(`Row ${idx + 1}: "${text}" has Finish before Start`);
           }
         }
 
         // ── Save ──
         saveTaskMut.mutate({
           text, owner: owner || null,
-          start_date: actualStart || null,
-          end_date: actualEnd || null,
-          planned_start: plannedStart || null,
-          planned_end: plannedEnd || null,
+          start_date: start || null,
+          end_date: finish || null,
+          planned_start: plannedStart || start || null,
+          planned_end: plannedEnd || finish || null,
           duration: parseInt(String(dur)) || 1,
           progress: prog,
           status: status || null,
-          remarks: remarks || null,
+          remarks: notes || null,
+          category: category || null,
           parent, type,
         });
         imported++;
@@ -501,7 +565,7 @@ export default function GanttPlanner() {
 
       const msg = [`Imported ${imported} task(s)`];
       if (skipped > 0) msg.push(`${skipped} row(s) skipped (blank task name)`);
-      if (errors.length > 0) msg.push(`\nWarnings:\n${errors.join("\n")}`);
+      if (errors.length > 0) msg.push(`Warnings:\n${errors.join("\n")}`);
       alert(msg.join("\n"));
     };
     reader.readAsArrayBuffer(file);
