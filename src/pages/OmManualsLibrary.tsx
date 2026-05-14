@@ -48,7 +48,7 @@ interface DocFileFull {
 
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
   const s: Record<string, string> = {
-    error: "bg-red-50   border-red-200   text-red-800",
+    error:   "bg-red-50   border-red-200   text-red-800",
     success: "bg-green-50 border-green-200 text-green-800",
     info:    "bg-blue-50  border-blue-200  text-blue-800",
   };
@@ -56,7 +56,7 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
     <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
       <span>{type === "error" ? "⚠️" : type === "success" ? "✅" : "ℹ️"}</span>
       <span className="flex-1">{message}</span>
-      {onDismiss && <button onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
+      {onDismiss && <button type="button" onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
     </div>
   );
 }
@@ -93,7 +93,6 @@ function getMatchingIds(folders: TreeFolder[], query: string): Set<number> {
   return ids;
 }
 
-// Collect all folder IDs in a tree
 function collectIds(folders: TreeFolder[]): number[] {
   const ids: number[] = [];
   function walk(fs: TreeFolder[]) {
@@ -106,7 +105,6 @@ function collectIds(folders: TreeFolder[]): number[] {
   return ids;
 }
 
-// Filter tree by search query
 function filterTree(folders: TreeFolder[], query: string): TreeFolder[] {
   const q = query.toLowerCase();
   return folders
@@ -125,7 +123,6 @@ function filterTree(folders: TreeFolder[], query: string): TreeFolder[] {
     .filter(Boolean) as TreeFolder[];
 }
 
-// Count items in tree
 function countItems(folders: TreeFolder[]): { folders: number; files: number } {
   let fc = 0, fl = 0;
   function walk(fs: TreeFolder[]) {
@@ -139,7 +136,6 @@ function countItems(folders: TreeFolder[]): { folders: number; files: number } {
   return { folders: fc, files: fl };
 }
 
-// Get path breadcrumbs for a folder
 function getFolderPath(folders: TreeFolder[], targetId: number): TreeFolder[] {
   function walk(fs: TreeFolder[], path: TreeFolder[]): TreeFolder[] | null {
     for (const f of fs) {
@@ -152,12 +148,15 @@ function getFolderPath(folders: TreeFolder[], targetId: number): TreeFolder[] {
   return walk(folders, []) || [];
 }
 
-// Format file size
-function formatBytes(bytes: number | null): string {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+// Download a file to browser
+function triggerDownload(data: string, mime: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = `data:${mime};base64,${data}`;
+  a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => document.body.removeChild(a), 100);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -181,7 +180,7 @@ function ContextMenu({ x, y, items, onClose }: {
   return (
     <div ref={ref} className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]" style={{ left: x, top: y }}>
       {items.map((item, i) => (
-        <button key={i} onClick={() => { item.onClick(); onClose(); }}
+        <button key={i} type="button" onClick={() => { item.onClick(); onClose(); }}
           className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2 ${item.danger ? "text-red-600" : "text-gray-700"}`}>
           <span>{item.icon}</span> {item.label}
         </button>
@@ -198,6 +197,7 @@ function TreeFolderItem({
   folder, level, expanded, onToggle,
   selectedFolderId, selectedFileId, onSelectFolder, onSelectFile,
   onContextMenuFolder, onContextMenuFile,
+  onDownloadFile, onDeleteFile,
   searchQuery, matchedIds,
 }: {
   folder: TreeFolder;
@@ -210,6 +210,8 @@ function TreeFolderItem({
   onSelectFile: (file: TreeFile) => void;
   onContextMenuFolder: (e: React.MouseEvent, folder: TreeFolder) => void;
   onContextMenuFile: (e: React.MouseEvent, file: TreeFile, folderId: number) => void;
+  onDownloadFile: (file: TreeFile) => void;
+  onDeleteFile: (file: TreeFile) => void;
   searchQuery: string;
   matchedIds: Set<number>;
 }) {
@@ -228,6 +230,7 @@ function TreeFolderItem({
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenuFolder(e, folder); }}
       >
         <button
+          type="button"
           className="w-4 h-4 flex items-center justify-center text-gray-400 flex-shrink-0"
           onClick={(e) => { e.stopPropagation(); onToggle(folder.id); }}
         >
@@ -242,7 +245,7 @@ function TreeFolderItem({
             {folder.files.length > 0 && `${folder.files.length}d`}
           </span>
         )}
-        {/* Action menu button — visible on mobile, hover on desktop */}
+        {/* Action menu button */}
         <button
           type="button"
           className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition"
@@ -270,6 +273,8 @@ function TreeFolderItem({
               onSelectFile={onSelectFile}
               onContextMenuFolder={onContextMenuFolder}
               onContextMenuFile={onContextMenuFile}
+              onDownloadFile={onDownloadFile}
+              onDeleteFile={onDeleteFile}
               searchQuery={searchQuery}
               matchedIds={matchedIds}
             />
@@ -281,17 +286,35 @@ function TreeFolderItem({
             return (
               <div
                 key={file.id}
-                className={`flex items-center gap-1.5 cursor-pointer group transition select-none
+                className={`flex items-center gap-1 cursor-pointer group transition select-none
                   ${isSelected ? "bg-blue-50" : "hover:bg-gray-50"}
                   ${fileMatch ? "bg-yellow-50/60" : ""}`}
-                style={{ paddingLeft: `${(level + 1) * 12 + 8}px`, paddingRight: "12px", paddingTop: "3px", paddingBottom: "3px" }}
+                style={{ paddingLeft: `${(level + 1) * 12 + 8}px`, paddingRight: "4px", paddingTop: "4px", paddingBottom: "4px" }}
                 onClick={(e) => { e.stopPropagation(); onSelectFile(file); }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenuFile(e, file, folder.id); }}
               >
                 <span className="w-4 flex-shrink-0" />
                 <span className="text-sm flex-shrink-0">{file.fileType?.includes("pdf") ? "📄" : "📃"}</span>
-                <span className={`text-xs truncate flex-1 ${isSelected ? "text-blue-800 font-semibold" : "text-gray-600"}`}>{file.title || file.fileName}</span>
-                {file.revision && <span className="text-[0.6rem] text-gray-400 bg-gray-100 px-1 rounded flex-shrink-0">{file.revision}</span>}
+                <span className={`text-xs truncate flex-1 min-w-0 ${isSelected ? "text-blue-800 font-semibold" : "text-gray-600"}`}>{file.title || file.fileName}</span>
+                {file.revision && <span className="text-[0.6rem] text-gray-400 bg-gray-100 px-1 rounded flex-shrink-0 mr-1">{file.revision}</span>}
+                {/* Download button */}
+                <button
+                  type="button"
+                  className="w-5 h-5 flex items-center justify-center text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded flex-shrink-0"
+                  onClick={(e) => { e.stopPropagation(); onDownloadFile(file); }}
+                  title="Download"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+                {/* Delete button */}
+                <button
+                  type="button"
+                  className="w-5 h-5 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-100 rounded flex-shrink-0"
+                  onClick={(e) => { e.stopPropagation(); onDeleteFile(file); }}
+                  title="Delete"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 3h6M5 3V2h2v1M4 3v7M6 3v7M8 3v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
               </div>
             );
           })}
@@ -305,13 +328,24 @@ function TreeFolderItem({
 // PDF Viewer Component
 // ═══════════════════════════════════════════════════════════
 
-function PdfViewer({ fileData, fileUrl, title }: { fileData: string | null; fileUrl: string | null; title: string }) {
+function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData: string | null; fileUrl: string | null; title: string; fileName: string; onDelete?: () => void }) {
   const [zoom, setZoom] = useState(1);
   const src = useMemo(() => {
     if (fileData) return `data:application/pdf;base64,${fileData}`;
     if (fileUrl) return fileUrl;
     return null;
   }, [fileData, fileUrl]);
+
+  const handleDownload = useCallback(() => {
+    if (!src) return;
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = fileName || title || "document.pdf";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => document.body.removeChild(a), 100);
+  }, [src, fileName, title]);
 
   if (!src) {
     return (
@@ -328,15 +362,24 @@ function PdfViewer({ fileData, fileUrl, title }: { fileData: string | null; file
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Toolbar */}
-      <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200">
+      <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200 flex-wrap">
         <span className="text-xs font-semibold text-gray-700 truncate flex-1">{title}</span>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">−</button>
-          <span className="text-xs text-gray-500 w-12 text-center">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">+</button>
-          <button onClick={() => setZoom(1)} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 ml-1">Fit</button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button type="button" onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">−</button>
+          <span className="text-xs text-gray-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
+          <button type="button" onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">+</button>
+          <button type="button" onClick={() => setZoom(1)} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200">Fit</button>
         </div>
-        <a href={src} download className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 font-semibold ml-1">⬇ Download</a>
+        <button type="button" onClick={handleDownload} className="px-2.5 py-1.5 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 font-semibold flex items-center gap-1 flex-shrink-0">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          Download
+        </button>
+        {onDelete && (
+          <button type="button" onClick={onDelete} className="px-2.5 py-1.5 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100 font-semibold flex items-center gap-1 flex-shrink-0">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 3h6M5 3V2h2v1M4 3v7M6 3v7M8 3v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Delete
+          </button>
+        )}
       </div>
       {/* PDF iframe */}
       <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-4">
@@ -361,7 +404,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <span className="text-sm font-bold text-gray-800">{title}</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
         </div>
         <div className="p-4">{children}</div>
       </div>
@@ -401,6 +444,43 @@ export default function OmManualsLibrary() {
     if (fileDetail) setSelectedFileData(fileDetail);
   }, [fileDetail]);
 
+  // ── Download file helper ──
+  const handleDownloadFile = useCallback((file: TreeFile) => {
+    if (selectedFileData && selectedFileData.id === file.id && selectedFileData.fileData) {
+      triggerDownload(selectedFileData.fileData, file.fileType || "application/pdf", file.fileName || file.title || "document.pdf");
+      setBanner({ type: "info", message: `Downloading ${file.fileName}...` });
+    } else {
+      setSelectedFileId(file.id);
+      setBanner({ type: "info", message: `Loading ${file.fileName} for download...` });
+      utils.documents.getFile.fetch({ id: file.id }).then((data) => {
+        if (data?.fileData) {
+          triggerDownload(data.fileData, file.fileType || "application/pdf", file.fileName || file.title || "document.pdf");
+          setBanner({ type: "success", message: `Downloaded ${file.fileName}` });
+        } else if (data?.fileUrl) {
+          const a = document.createElement("a");
+          a.href = data.fileUrl;
+          a.download = file.fileName || file.title || "document.pdf";
+          a.target = "_blank";
+          a.style.display = "none";
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => document.body.removeChild(a), 100);
+          setBanner({ type: "success", message: `Downloaded ${file.fileName}` });
+        } else {
+          setBanner({ type: "error", message: "No file data available for download" });
+        }
+      }).catch((e: any) => {
+        setBanner({ type: "error", message: `Download failed: ${e.message}` });
+      });
+    }
+  }, [selectedFileData, utils]);
+
+  // ── Delete file helper ──
+  const handleDeleteFile = useCallback((file: TreeFile) => {
+    setSelectedFileId(file.id);
+    setModal({ type: "deleteFile", fileId: file.id });
+  }, []);
+
   // ── Refresh helper ──
   const refreshTree = useCallback(async (action: string) => {
     console.log(`[OM] Refreshing tree after: ${action}`);
@@ -412,7 +492,7 @@ export default function OmManualsLibrary() {
   // ── Mutations ──
   const createFolder = trpc.documents.createFolder.useMutation({
     onMutate: (vars) => { console.log(`[OM] Creating folder: name="${vars.name}", parentId=${vars.parentId ?? "null (root)"}`); },
-    onSuccess: (data, vars) => {
+    onSuccess: (data) => {
       console.log(`[OM] Folder created: id=${data.id}, name="${data.name}", parentId=${data.parentId ?? "null"}`);
       refreshTree("createFolder");
       setModal(null);
@@ -423,43 +503,32 @@ export default function OmManualsLibrary() {
     onError: (e) => { console.error("[OM] Create folder failed:", e.message); setBanner({ type: "error", message: `Unable to create folder. ${e.message}` }); },
   });
   const renameFolder = trpc.documents.renameFolder.useMutation({
-    onMutate: (vars) => { console.log(`[OM] Renaming folder ${vars.id} to "${vars.name}"`); },
-    onSuccess: (_, vars) => { refreshTree("renameFolder"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "Folder renamed" }); },
-    onError: (e) => { console.error("[OM] Rename folder failed:", e.message); setBanner({ type: "error", message: `Unable to rename folder. ${e.message}` }); },
+    onSuccess: () => { refreshTree("renameFolder"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "Folder renamed" }); },
+    onError: (e) => { setBanner({ type: "error", message: `Unable to rename folder. ${e.message}` }); },
   });
   const deleteFolder = trpc.documents.deleteFolder.useMutation({
-    onMutate: (vars) => { console.log(`[OM] Deleting folder ${vars.id}`); },
     onSuccess: () => { refreshTree("deleteFolder"); setSelectedFolderId(null); setBanner({ type: "success", message: "Folder deleted" }); },
-    onError: (e) => { console.error("[OM] Delete folder failed:", e.message); setBanner({ type: "error", message: `Unable to delete folder. ${e.message}` }); },
+    onError: (e) => { setBanner({ type: "error", message: `Unable to delete folder. ${e.message}` }); },
   });
   const moveFolder = trpc.documents.moveFolder.useMutation({
-    onMutate: (vars) => { console.log(`[OM] Moving folder ${vars.id} to parent ${vars.parentId ?? "root"}`); },
     onSuccess: () => { refreshTree("moveFolder"); setBanner({ type: "success", message: "Folder moved" }); },
-    onError: (e) => { console.error("[OM] Move folder failed:", e.message); setBanner({ type: "error", message: `Unable to move folder. ${e.message}` }); },
+    onError: (e) => { setBanner({ type: "error", message: `Unable to move folder. ${e.message}` }); },
   });
   const uploadFile = trpc.documents.uploadFile.useMutation({
-    onMutate: (vars) => { console.log(`[OM] Uploading file: "${vars.title}" to folder ${vars.folderId}`); },
-    onSuccess: (data) => {
-      console.log(`[OM] File uploaded: id=${data.id}, title="${data.title}"`);
-      refreshTree("uploadFile");
-      setBanner({ type: "success", message: `File "${data.title}" uploaded` });
-    },
-    onError: (e) => { console.error("[OM] Upload file failed:", e.message); setBanner({ type: "error", message: `Upload failed. ${e.message}` }); },
+    onSuccess: (data) => { refreshTree("uploadFile"); setBanner({ type: "success", message: `File "${data.title}" uploaded` }); },
+    onError: (e) => { setBanner({ type: "error", message: `Upload failed. ${e.message}` }); },
   });
   const deleteFile = trpc.documents.deleteFile.useMutation({
-    onMutate: (vars) => { console.log(`[OM] Deleting file ${vars.id}`); },
     onSuccess: () => { refreshTree("deleteFile"); setSelectedFileId(null); setSelectedFileData(null); setBanner({ type: "success", message: "File deleted" }); },
-    onError: (e) => { console.error("[OM] Delete file failed:", e.message); setBanner({ type: "error", message: `Unable to delete file. ${e.message}` }); },
+    onError: (e) => { setBanner({ type: "error", message: `Unable to delete file. ${e.message}` }); },
   });
   const renameFile = trpc.documents.renameFile.useMutation({
-    onMutate: (vars) => { console.log(`[OM] Renaming file ${vars.id} to "${vars.title}"`); },
     onSuccess: () => { refreshTree("renameFile"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "File renamed" }); },
-    onError: (e) => { console.error("[OM] Rename file failed:", e.message); setBanner({ type: "error", message: `Unable to rename file. ${e.message}` }); },
+    onError: (e) => { setBanner({ type: "error", message: `Unable to rename file. ${e.message}` }); },
   });
   const moveFile = trpc.documents.moveFile.useMutation({
-    onMutate: (vars) => { console.log(`[OM] Moving file ${vars.id} to folder ${vars.folderId}`); },
     onSuccess: () => { refreshTree("moveFile"); setBanner({ type: "success", message: "File moved" }); },
-    onError: (e) => { console.error("[OM] Move file failed:", e.message); setBanner({ type: "error", message: `Unable to move file. ${e.message}` }); },
+    onError: (e) => { setBanner({ type: "error", message: `Unable to move file. ${e.message}` }); },
   });
 
   // ── Search ──
@@ -472,13 +541,8 @@ export default function OmManualsLibrary() {
     setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
 
-  const expandAll = useCallback(() => {
-    setExpandedIds(new Set(collectIds(tree)));
-  }, [tree]);
-
-  const collapseAll = useCallback(() => {
-    setExpandedIds(new Set());
-  }, []);
+  const expandAll = useCallback(() => { setExpandedIds(new Set(collectIds(tree))); }, [tree]);
+  const collapseAll = useCallback(() => { setExpandedIds(new Set()); }, []);
 
   // ── Context menus ──
   const handleFolderContextMenu = useCallback((e: React.MouseEvent, folder: TreeFolder) => {
@@ -494,18 +558,19 @@ export default function OmManualsLibrary() {
     });
   }, []);
 
-  const handleFileContextMenu = useCallback((e: React.MouseEvent, file: TreeFile, folderId: number) => {
+  const handleFileContextMenu = useCallback((e: React.MouseEvent, file: TreeFile, _folderId: number) => {
     setSelectedFileId(file.id);
     setContextMenu({
       x: e.clientX, y: e.clientY,
       items: [
         { label: "View", icon: "👁️", onClick: () => { onSelectFile(file); } },
+        { label: "Download", icon: "⬇️", onClick: () => { handleDownloadFile(file); } },
         { label: "Rename", icon: "✏️", onClick: () => { setModal({ type: "renameFile", fileId: file.id }); setModalInput(file.title); } },
         { label: "Move", icon: "📋", onClick: () => { setModal({ type: "moveFile", fileId: file.id }); } },
         { label: "Delete", icon: "🗑️", onClick: () => { setModal({ type: "deleteFile", fileId: file.id }); }, danger: true },
       ],
     });
-  }, []);
+  }, [handleDownloadFile]);
 
   const onSelectFile = useCallback((file: TreeFile) => {
     setSelectedFileId(file.id);
@@ -518,9 +583,6 @@ export default function OmManualsLibrary() {
     setSelectedFileId(null);
     setSelectedFileData(null);
   }, []);
-
-  // ── Seed default folders if empty ──
-  const seedFolders = trpc.documents.createFolder.useMutation();
 
   // ── Handle file upload ──
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -546,7 +608,7 @@ export default function OmManualsLibrary() {
     e.target.value = "";
   }, [selectedFolderId, uploadFile]);
 
-  // ── Breadcrumbs for selected folder ──
+  // ── Breadcrumbs ──
   const breadcrumbs = useMemo(() => selectedFolderId ? getFolderPath(tree, selectedFolderId) : [], [tree, selectedFolderId]);
 
   // ═════════════ RENDER ═════════════
@@ -588,7 +650,7 @@ export default function OmManualsLibrary() {
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search folders and files..."
                 className="w-full pl-8 pr-7 py-1.5 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none" />
-              {search && <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#10005;</button>}
+              {search && <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#10005;</button>}
             </div>
             <div className="flex gap-1.5 flex-wrap">
               <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
@@ -604,8 +666,8 @@ export default function OmManualsLibrary() {
               <button type="button" onClick={collapseAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Collapse</button>
               {search && <button type="button" onClick={() => setSearch("")} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100">Clear</button>}
             </div>
-            {/* Selected folder actions — always visible, mobile-friendly */}
-            {selectedFolderId && (() => {
+            {/* Selected folder actions */}
+            {selectedFolderId && !selectedFileId && (() => {
               const folder = getFolderPath(tree, selectedFolderId).pop();
               return folder ? (
                 <div className="flex gap-1.5 flex-wrap">
@@ -624,6 +686,21 @@ export default function OmManualsLibrary() {
                 </div>
               ) : null;
             })()}
+            {/* Selected file actions */}
+            {selectedFileData && selectedFileId && (
+              <div className="flex gap-1.5 flex-wrap">
+                <button type="button" onClick={() => handleDownloadFile({ id: selectedFileData.id, title: selectedFileData.title, fileName: selectedFileData.fileName, fileType: selectedFileData.fileType, fileSize: selectedFileData.fileSize, revision: selectedFileData.revision, uploadedAt: selectedFileData.uploadedAt })}
+                  className="px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-semibold hover:bg-blue-100 flex items-center gap-1">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Download
+                </button>
+                <button type="button" onClick={() => setModal({ type: "deleteFile", fileId: selectedFileData.id })}
+                  className="px-2 py-1 bg-white border border-gray-300 text-red-600 rounded text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 3h6M5 3V2h2v1M4 3v7M6 3v7M8 3v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Delete
+                </button>
+              </div>
+            )}
             {breadcrumbs.length > 0 && (
               <div className="flex items-center gap-1 text-[0.65rem] text-gray-500 flex-wrap">
                 {breadcrumbs.map((b, i) => (
@@ -644,7 +721,7 @@ export default function OmManualsLibrary() {
               <div className="text-center py-16 text-gray-400">
                 <div className="text-3xl mb-2">📂</div>
                 <div className="text-sm font-semibold text-gray-600">No folders yet</div>
-                <button onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
+                <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
                   className="mt-3 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Create First Folder</button>
               </div>
             ) : (
@@ -661,6 +738,8 @@ export default function OmManualsLibrary() {
                   onSelectFile={onSelectFile}
                   onContextMenuFolder={handleFolderContextMenu}
                   onContextMenuFile={handleFileContextMenu}
+                  onDownloadFile={handleDownloadFile}
+                  onDeleteFile={handleDeleteFile}
                   searchQuery={search}
                   matchedIds={matchedIds}
                 />
@@ -672,7 +751,7 @@ export default function OmManualsLibrary() {
         {/* RIGHT PANEL: Viewer */}
         <div className={`flex-1 flex-col bg-gray-100 overflow-hidden ${mobileView === "detail" ? "flex" : "hidden sm:flex"}`}>
           {/* Mobile back */}
-          <button onClick={() => setMobileView("tree")} className="sm:hidden flex items-center gap-1 text-xs text-blue-600 font-semibold px-4 py-2 bg-white border-b border-gray-200">
+          <button type="button" onClick={() => setMobileView("tree")} className="sm:hidden flex items-center gap-1 text-xs text-blue-600 font-semibold px-4 py-2 bg-white border-b border-gray-200">
             <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M7.5 9.5L4 6L7.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Back to tree
           </button>
@@ -682,6 +761,8 @@ export default function OmManualsLibrary() {
               fileData={selectedFileData.fileData}
               fileUrl={selectedFileData.fileUrl}
               title={selectedFileData.title}
+              fileName={selectedFileData.fileName || "document.pdf"}
+              onDelete={() => { if (selectedFileData) setModal({ type: "deleteFile", fileId: selectedFileData.id }); }}
             />
           ) : selectedFileId && !selectedFileData ? (
             <div className="flex-1 flex items-center justify-center"><div className="text-gray-400 text-sm">Loading document...</div></div>
@@ -692,11 +773,11 @@ export default function OmManualsLibrary() {
                 <h3 className="text-lg font-semibold text-gray-500 mb-2">Document Library</h3>
                 <p className="text-sm">Select a file from the folder tree to view it here.<br />Right-click folders or files for more options.</p>
                 {counts.folders === 0 && (
-                  <button onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
+                  <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
                     className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Create First Folder</button>
                 )}
               </div>
-            </div>
+              </div>
           )}
         </div>
       </div>
@@ -712,7 +793,7 @@ export default function OmManualsLibrary() {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
             <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { console.log(`[OM] Create button clicked: name="${modalInput.trim()}", parentId=null`); createFolder.mutate({ name: modalInput.trim() }); }}
+            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { console.log(`[OM] Create button: name="${modalInput.trim()}"`); createFolder.mutate({ name: modalInput.trim() }); }}
               className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
           </div>
         </Modal>
@@ -725,7 +806,7 @@ export default function OmManualsLibrary() {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
             <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { console.log(`[OM] Create subfolder button clicked: name="${modalInput.trim()}", parentId=${modal.folderId}`); createFolder.mutate({ name: modalInput.trim(), parentId: modal.folderId }); }}
+            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { console.log(`[OM] Create subfolder: name="${modalInput.trim()}", parentId=${modal.folderId}`); createFolder.mutate({ name: modalInput.trim(), parentId: modal.folderId }); }}
               className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
           </div>
         </Modal>
