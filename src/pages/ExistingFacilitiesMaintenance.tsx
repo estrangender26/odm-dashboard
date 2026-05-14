@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, Fragment } from "react";
 import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
@@ -1036,7 +1036,7 @@ export default function ExistingFacilitiesMaintenance() {
                     const freqEntries = Object.entries(summary?.freqDist || {});
                     const implCount = summary?.implementors?.size || 0;
                     return (
-                      <React.Fragment key={`group-${equipType}`}>
+                      <Fragment key={`group-${equipType}`}>
                         {/* ── Equipment Type Group Header ── */}
                         <tr onClick={() => toggleGroup(equipType)} style={{ cursor: "pointer", userSelect: "none" }}>
                           <td colSpan={editMode ? 8 : 7}
@@ -1147,7 +1147,7 @@ export default function ExistingFacilitiesMaintenance() {
                             </tr>
                           );
                         })}
-                      </React.Fragment>
+                      </Fragment>
                     );
                   })
                 )}
