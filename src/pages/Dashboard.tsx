@@ -109,7 +109,7 @@ export default function Dashboard() {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { data, isLoading: isDataLoading, dataUpdatedAt } = trpc.tasks.list.useQuery({
+  const { data, isLoading: isDataLoading, dataUpdatedAt, error: listError } = trpc.tasks.list.useQuery({
     dataset: activeTab,
     search: search || undefined,
     equipFilter: equipFilter || undefined,
@@ -583,17 +583,26 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {isDataLoading ? (
-                  <tr><td colSpan={8} className="text-center py-20 text-gray-500"><div className="flex flex-col items-center gap-3"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading data...</span></div></td></tr>
+                {listError ? (
+                  <tr><td colSpan={9} className="text-center py-16 px-6">
+                    <div className="flex flex-col items-center gap-3 max-w-md mx-auto">
+                      <div className="text-red-500 text-2xl">⚠️</div>
+                      <h3 className="text-lg font-semibold text-red-700">Failed to load records</h3>
+                      <p className="text-sm text-red-600">{listError.message || "Database query failed. Please refresh or contact support."}</p>
+                      <button onClick={() => window.location.reload()} className="mt-2 px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">Retry</button>
+                    </div>
+                  </td></tr>
+                ) : isDataLoading ? (
+                  <tr><td colSpan={9} className="text-center py-20 text-gray-500"><div className="flex flex-col items-center gap-3"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading data...</span></div></td></tr>
                 ) : !data?.groups?.length ? (
-                  <tr><td colSpan={8} className="text-center py-20 text-gray-500"><h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3><p className="text-sm">Try adjusting your search or filters.</p></td></tr>
+                  <tr><td colSpan={9} className="text-center py-20 text-gray-500"><h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3><p className="text-sm">Try adjusting your search or filters.</p></td></tr>
                 ) : (
                   data?.groups?.map((group) => {
                     const isCollapsed = collapsedGroups.has(group?.equipment?.name ?? "");
                     return (
                       <Fragment key={`dt-group-${group?.equipment?.id ?? "unknown"}`}>
                         <tr className="bg-gray-50 cursor-pointer hover:bg-gray-100 transition" onClick={() => toggleGroup(group?.equipment?.name ?? "")}>
-                          <td colSpan={8} className="px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200">
+                          <td colSpan={9} className="px-3 py-2.5 border-b border-gray-200 border-t-2 border-t-gray-200">
                             <div className="flex items-center gap-3">
                               <span className={`text-gray-500 text-xs transition-transform ${isCollapsed ? "-rotate-90" : ""}`}>&#9660;</span>
                               <span className="w-8 h-8 bg-blue-50 text-blue-700 rounded-lg flex items-center justify-center text-xs font-bold">{group?.equipment?.initials ?? "?"}</span>
@@ -650,7 +659,14 @@ export default function Dashboard() {
 
           {/* Mobile Cards (visible only on mobile) */}
           <div className="sm:hidden">
-            {isDataLoading ? (
+            {listError ? (
+              <div className="p-6 text-center">
+                <div className="text-red-500 text-2xl mb-2">⚠️</div>
+                <h3 className="text-base font-semibold text-red-700">Failed to load records</h3>
+                <p className="text-sm text-red-600 mt-1">{listError.message || "Database error"}</p>
+                <button onClick={() => window.location.reload()} className="mt-3 px-4 py-2 bg-red-600 text-white text-sm rounded-lg">Retry</button>
+              </div>
+            ) : isDataLoading ? (
               <div className="flex flex-col items-center gap-3 py-20 text-gray-500"><div className="w-8 h-8 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" /><span>Loading data...</span></div>
             ) : !data?.groups?.length ? (
               <div className="text-center py-20 text-gray-500"><h3 className="text-lg font-semibold text-gray-700 mb-1">No matching records</h3><p className="text-sm">Try adjusting your search or filters.</p></div>
