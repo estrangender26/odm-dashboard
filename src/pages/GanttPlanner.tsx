@@ -43,6 +43,63 @@ interface GanttTask {
   sortorder: number | null;
 }
 
+/* ─── Hierarchy helpers ─── */
+interface TaskNode {
+  task: GanttTask;
+  level: number;
+  children: TaskNode[];
+  isExpanded: boolean;
+  hasChildren: boolean;
+}
+
+function buildTaskTree(tasks: GanttTask[]): TaskNode[] {
+  const taskMap = new Map<number, TaskNode>();
+  const roots: TaskNode[] = [];
+  for (const t of tasks) {
+    if (!t.text) continue;
+    taskMap.set(t.id, { task: t, level: 0, children: [], isExpanded: true, hasChildren: false });
+  }
+  for (const node of taskMap.values()) {
+    if (node.task.parent > 0 && taskMap.has(node.task.parent)) {
+      const parentNode = taskMap.get(node.task.parent)!;
+      parentNode.children.push(node);
+      parentNode.hasChildren = true;
+    } else {
+      roots.push(node);
+    }
+  }
+  function setLevels(nodes: TaskNode[], level: number) {
+    for (const n of nodes) { n.level = level; setLevels(n.children, level + 1); }
+  }
+  setLevels(roots, 0);
+  return roots;
+}
+
+function flattenVisible(nodes: TaskNode[]): { task: GanttTask; level: number; hasChildren: boolean }[] {
+  const result: { task: GanttTask; level: number; hasChildren: boolean }[] = [];
+  function walk(ns: TaskNode[]) {
+    for (const n of ns) {
+      result.push({ task: n.task, level: n.level, hasChildren: n.hasChildren });
+      if (n.isExpanded && n.children.length > 0) walk(n.children);
+    }
+  }
+  walk(nodes);
+  return result;
+}
+
+function autoCalcParent(task: GanttTask, allTasks: GanttTask[]): Partial<GanttTask> | null {
+  const children = allTasks.filter(t => t.parent === task.id && t.text);
+  if (children.length === 0) return null;
+  const childStarts = children.map(c => c.plannedStart).filter(Boolean).map(s => new Date(s!).getTime());
+  const childEnds = children.map(c => c.plannedEnd).filter(Boolean).map(s => new Date(s!).getTime());
+  const childProgs = children.map(c => c.progress).filter(p => !isNaN(p));
+  const updates: Partial<GanttTask> = {};
+  if (childStarts.length > 0) updates.plannedStart = new Date(Math.min(...childStarts)).toISOString().slice(0, 10);
+  if (childEnds.length > 0) updates.plannedEnd = new Date(Math.max(...childEnds)).toISOString().slice(0, 10);
+  if (childProgs.length > 0) updates.progress = Math.round(childProgs.reduce((a, b) => a + b, 0) / childProgs.length);
+  return Object.keys(updates).length > 0 ? updates : null;
+}
+
 /* ─── Date helpers ─── */
 const parseDate = (d: string | null | undefined): Date | null => {
   if (!d) return null;
@@ -99,6 +156,28 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   const timelineRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
   const [containerWidth, setContainerWidth] = useState<number>(800);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  /* Toggle expand/collapse */
+  const toggleExpand = useCallback((id: number) => {
+    setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, []);
+
+  /* Build hierarchy tree */
+  const taskTree = useMemo(() => buildTaskTree(tasks), [tasks]);
+
+  /* Apply expanded state to tree */
+  const applyExpanded = useCallback((nodes: TaskNode[]): TaskNode[] => {
+    return nodes.map(n => ({
+      ...n,
+      isExpanded: !expandedIds.has(n.task.id),
+      children: applyExpanded(n.children),
+    }));
+  }, [expandedIds]);
+
+  const visibleTree = useMemo(() => applyExpanded(taskTree), [taskTree, applyExpanded]);
+  const visibleFlat = useMemo(() => flattenVisible(visibleTree), [visibleTree]);
+  const visibleTaskIds = useMemo(() => new Set(visibleFlat.map(v => v.task.id)), [visibleFlat]);
 
   /* ResizeObserver for responsive container width */
   useEffect(() => {
@@ -168,29 +247,35 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
     return ZOOM_DAY_WIDTH[zoomLevel];
   }, [zoomLevel, containerWidth, totalDays]);
 
-  /* Compute bar geometry based on dayWidth */
+  /* Compute bar geometry based on dayWidth + hierarchy */
   const rows = useMemo(() => {
-    return baseRows.map((r) => {
-      const { plannedStart, plannedEnd, actualStart, actualEnd, isDelayed, isMilestone, task } = r;
-
-      const plannedLeft = plannedStart ? Math.max(0, daysBetween(projectStart, plannedStart)) * dayWidth : null;
-      const plannedWidth = (plannedStart && plannedEnd && daysBetween(plannedStart, plannedEnd) > 0)
-        ? daysBetween(plannedStart, plannedEnd) * dayWidth
-        : null;
-
-      const actualLeft = actualStart ? Math.max(0, daysBetween(projectStart, actualStart)) * dayWidth : null;
-      const actualWidth = (actualStart && actualEnd && daysBetween(actualStart, actualEnd) > 0)
-        ? daysBetween(actualStart, actualEnd) * dayWidth
-        : actualStart ? (task.duration || 1) * dayWidth : null;
-
-      return {
-        task,
-        plannedLeft, plannedWidth,
-        actualLeft, actualWidth,
-        isDelayed, isMilestone,
-      };
-    });
-  }, [baseRows, projectStart, dayWidth]);
+    // Build lookup for hierarchy info
+    const levelMap = new Map<number, number>();
+    const childMap = new Map<number, boolean>();
+    for (const v of visibleFlat) {
+      levelMap.set(v.task.id, v.level);
+      childMap.set(v.task.id, v.hasChildren);
+    }
+    return baseRows
+      .filter(r => visibleTaskIds.has(r.task.id))
+      .map((r) => {
+        const { plannedStart, plannedEnd, actualStart, actualEnd, isDelayed, isMilestone, task } = r;
+        const plannedLeft = plannedStart ? Math.max(0, daysBetween(projectStart, plannedStart)) * dayWidth : null;
+        const plannedWidth = (plannedStart && plannedEnd && daysBetween(plannedStart, plannedEnd) > 0)
+          ? daysBetween(plannedStart, plannedEnd) * dayWidth : null;
+        const actualLeft = actualStart ? Math.max(0, daysBetween(projectStart, actualStart)) * dayWidth : null;
+        const actualWidth = (actualStart && actualEnd && daysBetween(actualStart, actualEnd) > 0)
+          ? daysBetween(actualStart, actualEnd) * dayWidth
+          : actualStart ? (task.duration || 1) * dayWidth : null;
+        return {
+          task,
+          plannedLeft, plannedWidth, actualLeft, actualWidth,
+          isDelayed, isMilestone,
+          level: levelMap.get(task.id) || 0,
+          hasChildren: childMap.get(task.id) || false,
+        };
+      });
+  }, [baseRows, projectStart, dayWidth, visibleTaskIds, visibleFlat]);
 
   /* ─── Header columns based on zoom level ─── */
   const headerColumns = useMemo(() => {
@@ -368,11 +453,47 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
           <div style={{ height: headerHeight, borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", padding: "0 10px", fontWeight: 700, color: "#475569", fontSize: 11, background: "#F1F5F9" }}>
             Task Name
           </div>
-          {/* Task rows */}
-          {rows.map(({ task }) => (
-            <div key={task.id} style={{ height: rowHeight, borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", padding: "0 10px", overflow: "hidden" }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#2D3748", fontWeight: task.parent === 0 ? 600 : 400, fontSize: 11 }} title={task.text}>
-                {task.text || "Untitled"}
+          {/* Task rows with hierarchy */}
+          {rows.map(({ task, level, hasChildren }) => (
+            <div
+              key={task.id}
+              style={{
+                height: rowHeight,
+                borderBottom: "1px solid #F1F5F9",
+                display: "flex",
+                alignItems: "center",
+                padding: "0 6px",
+                paddingLeft: `${6 + level * 14}px`,
+                overflow: "hidden",
+                background: hasChildren ? "#F1F5F9" : "transparent",
+              }}
+            >
+              <span className="flex items-center gap-0.5 min-w-0 flex-1" style={{ overflow: "hidden" }}>
+                {hasChildren && (
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(task.id)}
+                    className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded"
+                    style={{ fontSize: 9, lineHeight: 1, padding: 0 }}
+                  >
+                    {expandedIds.has(task.id) ? "▸" : "▾"}
+                  </button>
+                )}
+                {!hasChildren && <span className="w-3.5 flex-shrink-0" />}
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    color: "#2D3748",
+                    fontWeight: hasChildren ? 700 : 400,
+                    fontSize: 11,
+                    marginLeft: 2,
+                  }}
+                  title={task.text}
+                >
+                  {task.text || "Untitled"}
+                </span>
               </span>
             </div>
           ))}
@@ -976,9 +1097,27 @@ function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
   const [showAdd, setShowAdd] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   // Filter out garbage rows
-  const validTasks = tasks.filter((t) => t.text && t.text.trim() && t.text.trim() !== "-");
+  const validTasks = tasks.filter((t: any) => t.text && t.text.trim() && t.text.trim() !== "-");
+
+  /* Hierarchy tree */
+  const taskTree = useMemo(() => buildTaskTree(validTasks), [validTasks]);
+  const applyExpanded = useCallback((nodes: TaskNode[]): TaskNode[] => {
+    return nodes.map(n => ({ ...n, isExpanded: !expandedIds.has(n.task.id), children: applyExpanded(n.children) }));
+  }, [expandedIds]);
+  const visibleTree = useMemo(() => applyExpanded(taskTree), [taskTree, applyExpanded]);
+  const visibleFlat = useMemo(() => flattenVisible(visibleTree), [visibleTree]);
+
+  const toggleExpand = useCallback((id: number) => {
+    setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, []);
+
+  /* Parent candidates for dropdown */
+  const parentCandidates = useMemo(() => {
+    return validTasks.filter((t: any) => !editingId || t.id !== editingId);
+  }, [validTasks, editingId]);
 
   const startEdit = (t: any) => {
     setEditingId(t.id);
@@ -991,6 +1130,22 @@ function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: 
     setForm(EMPTY_FORM);
     setShowAdd(true);
   };
+
+  /* Auto-calculate parent dates */
+  const handleAutoCalc = useCallback(() => {
+    if (!editingId) return;
+    const task = validTasks.find((t: any) => t.id === editingId);
+    if (!task) return;
+    const updates = autoCalcParent(task, validTasks);
+    if (updates) {
+      setForm((prev: TaskForm) => ({
+        ...prev,
+        ...(updates.plannedStart !== undefined && { plannedStart: String(updates.plannedStart).slice(0, 10) }),
+        ...(updates.plannedEnd !== undefined && { plannedEnd: String(updates.plannedEnd).slice(0, 10) }),
+        ...(updates.progress !== undefined && { progress: updates.progress as number }),
+      }));
+    }
+  }, [editingId, validTasks]);
 
   const submitForm = () => {
     if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
@@ -1064,13 +1219,31 @@ function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: 
           </select>
         </div>
         <div>
+          <label style={labelStyle}>Parent Task</label>
+          <select
+            value={form.parent || ""}
+            onChange={(e) => setForm({ ...form, parent: e.target.value ? parseInt(e.target.value) : 0 })}
+            style={inputStyle}
+          >
+            <option value="">(Root — no parent)</option>
+            {parentCandidates.map((t: any) => (
+              <option key={t.id} value={t.id}>{t.text}</option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label style={labelStyle}>Remarks</label>
           <input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} style={inputStyle} placeholder="Notes..." />
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={submitForm} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Save</button>
-        <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        <button type="button" onClick={submitForm} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Save</button>
+        {editingId && (
+          <button type="button" onClick={handleAutoCalc} title="Auto-calculate parent dates from child tasks" style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 6, cursor: "pointer" }}>
+            🔄 Auto-Calc from Children
+          </button>
+        )}
+        <button type="button" onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
       </div>
     </div>
   );
@@ -1079,7 +1252,7 @@ function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: 
     <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08)", border: "1px solid #D6DFE8", padding: "20px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#16324F" }}>Task List</h3>
-        <span style={{ fontSize: 12, color: "#8BA3B8" }}>{validTasks.length} tasks</span>
+        <span style={{ fontSize: 12, color: "#8BA3B8" }}>{visibleFlat.length} visible / {validTasks.length} total</span>
       </div>
 
       {!showAdd && !editingId && (
@@ -1104,9 +1277,19 @@ function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: 
             </tr>
           </thead>
           <tbody>
-            {validTasks.map((t) => (
-              <tr key={t.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                <td style={{ padding: "8px", color: "#2D3748", fontWeight: 600, whiteSpace: "nowrap" }}>{t.text}</td>
+            {visibleFlat.map(({ task: t, level, hasChildren }) => (
+              <tr key={t.id} style={{ borderBottom: "1px solid #F1F5F9", background: hasChildren ? "#F8FAFC" : "transparent" }}>
+                <td style={{ padding: "8px", paddingLeft: `${8 + level * 16}px`, color: "#2D3748", fontWeight: hasChildren ? 700 : 400, whiteSpace: "nowrap" }}>
+                  <span className="flex items-center gap-1">
+                    {hasChildren && (
+                      <button type="button" onClick={() => toggleExpand(t.id)} className="flex-shrink-0 w-4 h-4 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded" style={{ fontSize: 10, lineHeight: 1 }}>
+                        {expandedIds.has(t.id) ? "▸" : "▾"}
+                      </button>
+                    )}
+                    {!hasChildren && <span className="w-4 flex-shrink-0" />}
+                    <span>{t.text}</span>
+                  </span>
+                </td>
                 <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap" }}>{t.owner || "—"}</td>
                 <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.plannedStart ? String(t.plannedStart).slice(0, 10) : "—"}</td>
                 <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "—"}</td>
