@@ -52,6 +52,22 @@ const fmtShortDate = (d: Date): string => {
   return M[d.getMonth()] + " " + d.getDate();
 };
 
+// Normalize progress — handles both 0-1 float and 0-100 integer formats
+// Returns 0-100 integer
+const normProgress = (p: any): number => {
+  const n = Number(p);
+  if (isNaN(n) || n === null || n === undefined) return 0;
+  if (n <= 0) return 0;
+  if (n >= 100) return 100;
+  // If between 0 and 1, it's a float → multiply by 100
+  if (n < 1) return Math.round(n * 100);
+  // Otherwise it's already 0-100
+  return Math.round(n);
+};
+
+// Get progress as 0-1 float (for internal calculations)
+const progressFloat = (p: any): number => normProgress(p) / 100;
+
 /* ─── Native Gantt Chart Component — Planned vs Actual dual bars ─── */
 function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -232,7 +248,7 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                           <div style={{ width: Math.max(actualWidth, 2), height: 16, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 3, position: "relative" }}>
                             {actualWidth > 50 && (
                               <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 600, color: isDelayed ? "#DC2626" : "#15803D", whiteSpace: "nowrap" }}>
-                                {isDelayed ? "Delayed" : `${Math.round((task.progress || 0) * 100)}%`}
+                                {isDelayed ? "Delayed" : `${normProgress(task.progress)}%`}
                               </span>
                             )}
                           </div>
@@ -283,11 +299,11 @@ export default function GanttPlanner() {
   const calcKpi = useCallback((tasks: any[]): KpiData => {
     const now = new Date();
     const total = tasks.length;
-    const completed = tasks.filter((t: any) => (t.progress || 0) >= 1).length;
-    const inProgress = tasks.filter((t: any) => { const p = t.progress || 0; return p > 0 && p < 1; }).length;
+    const completed = tasks.filter((t: any) => normProgress(t.progress) >= 100).length;
+    const inProgress = tasks.filter((t: any) => { const p = normProgress(t.progress); return p > 0 && p < 100; }).length;
     const overdue = tasks.filter((t: any) => {
       const end = t.endDate ? parseDate(t.endDate) : t.startDate ? new Date(new Date(t.startDate).getTime() + (t.duration || 1) * 86400000) : null;
-      return end && end < now && (t.progress || 0) < 1;
+      return end && end < now && normProgress(t.progress) < 100;
     }).length;
     const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
     const avgDuration = total > 0 ? Math.round(tasks.reduce((s: number, t: any) => s + (t.duration || 0), 0) / total) : 0;
@@ -339,8 +355,8 @@ export default function GanttPlanner() {
       if (!duration && plannedStart && plannedEnd) {
         duration = calcDuration(plannedStart, plannedEnd);
       }
-      // Progress as percentage number
-      const progressVal = Math.round((t.progress || 0) * 100);
+      // Progress as percentage number (0-100)
+      const progressVal = normProgress(t.progress);
       // Status: stored or auto-calculated
       let status = t.status || "";
       if (!status) {
@@ -617,7 +633,7 @@ function taskToForm(t: any): TaskForm {
     actualStart: t.startDate ? String(t.startDate).slice(0, 10) : "",
     actualEnd: t.endDate ? String(t.endDate).slice(0, 10) : "",
     duration: t.duration || 1,
-    progress: Math.round((t.progress || 0) * 100),
+    progress: normProgress(t.progress),
     status: rowStatus(t),
     remarks: t.remarks || "",
     type: t.type || "task",
@@ -626,7 +642,7 @@ function taskToForm(t: any): TaskForm {
 }
 
 function rowStatus(t: any): string {
-  const p = Math.round((t.progress || 0) * 100);
+  const p = normProgress(t.progress);
   if (p >= 100) return "Completed";
   if (p > 0) {
     const aEnd = parseDate(t.endDate);
@@ -790,9 +806,9 @@ function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: 
                 <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.endDate ? String(t.endDate).slice(0, 10) : "—"}</td>
                 <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
                   <div style={{ width: 60, height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ width: `${Math.min(100, (t.progress || 0) * 100)}%`, height: "100%", background: (t.progress || 0) >= 1 ? "#1F9D55" : (t.progress || 0) > 0 ? "#005BAC" : "#94A3B8", borderRadius: 3 }} />
+                    <div style={{ width: `${normProgress(t.progress)}%`, height: "100%", background: normProgress(t.progress) >= 100 ? "#1F9D55" : normProgress(t.progress) > 0 ? "#005BAC" : "#94A3B8", borderRadius: 3 }} />
                   </div>
-                  <span style={{ fontSize: 10, color: "#94A3B8" }}>{Math.round((t.progress || 0) * 100)}%</span>
+                  <span style={{ fontSize: 10, color: "#94A3B8" }}>{normProgress(t.progress)}%</span>
                 </td>
                 <td style={{ padding: "8px", whiteSpace: "nowrap" }}>{statusBadge(rowStatus(t))}</td>
                 <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
@@ -817,7 +833,7 @@ function ResourcesTab({ tasks }: { tasks: any[] }) {
       if (!map[o]) map[o] = { owner: o, tasks: [], totalDays: 0, completed: 0 };
       map[o].tasks.push(t);
       map[o].totalDays += t.duration || 0;
-      if ((t.progress || 0) >= 1) map[o].completed++;
+      if (normProgress(t.progress) >= 100) map[o].completed++;
     }
     return Object.values(map).sort((a, b) => b.totalDays - a.totalDays);
   }, [tasks]);

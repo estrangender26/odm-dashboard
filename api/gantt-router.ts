@@ -192,7 +192,7 @@ export const ganttRouter = createRouter({
       {
         text: "S/4HANA MM Integration",
         owner: "PMO",
-        type: "project", parent: 0, progress: 0.15, duration: 180,
+        type: "project", parent: 0, progress: 15, duration: 180,
         plannedStart: fmt(now),
         plannedEnd: fmt(addDays(now, 180)),
         actualStart: fmt(now),
@@ -202,7 +202,7 @@ export const ganttRouter = createRouter({
       {
         text: "Gap Analysis & Blueprint",
         owner: "Business Analyst",
-        type: "task", parent: 1, progress: 0.80, duration: 30,
+        type: "task", parent: 1, progress: 80, duration: 30,
         plannedStart: fmt(now),
         plannedEnd: fmt(addDays(now, 30)),
         actualStart: fmt(now),
@@ -212,7 +212,7 @@ export const ganttRouter = createRouter({
       {
         text: "System Configuration",
         owner: "Basis Team",
-        type: "task", parent: 1, progress: 0.40, duration: 45,
+        type: "task", parent: 1, progress: 40, duration: 45,
         plannedStart: fmt(addDays(now, 35)),
         plannedEnd: fmt(addDays(now, 80)),
         actualStart: fmt(addDays(now, 35)),
@@ -222,7 +222,7 @@ export const ganttRouter = createRouter({
       {
         text: "Data Migration",
         owner: "Data Team",
-        type: "task", parent: 1, progress: 0.10, duration: 60,
+        type: "task", parent: 1, progress: 10, duration: 60,
         plannedStart: fmt(addDays(now, 75)),
         plannedEnd: fmt(addDays(now, 135)),
         actualStart: fmt(addDays(now, 83)),
