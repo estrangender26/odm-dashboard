@@ -223,8 +223,8 @@ function TreeFolderItem({
         className={`flex items-center gap-1.5 cursor-pointer group transition select-none
           ${isDimmed ? "opacity-40" : "opacity-100"}
           ${selectedFolderId === folder.id ? "bg-blue-50" : "hover:bg-gray-50"}`}
-        style={{ paddingLeft: `${level * 12 + 8}px`, paddingRight: "12px", paddingTop: "4px", paddingBottom: "4px" }}
-        onClick={() => { onToggle(folder.id); onSelectFolder(folder.id); }}
+        style={{ paddingLeft: `${level * 12 + 8}px`, paddingRight: "8px", paddingTop: "4px", paddingBottom: "4px" }}
+        onClick={() => onSelectFolder(folder.id)}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenuFolder(e, folder); }}
       >
         <button
@@ -236,12 +236,21 @@ function TreeFolderItem({
         <span className="text-sm flex-shrink-0">{expanded ? "📂" : "📁"}</span>
         <span className={`text-xs font-semibold truncate flex-1 ${selectedFolderId === folder.id ? "text-blue-800" : "text-gray-700"}`}>{folder.name}</span>
         {(folder.children.length > 0 || folder.files.length > 0) && (
-          <span className="text-[0.6rem] text-gray-400 flex-shrink-0">
+          <span className="text-[0.6rem] text-gray-400 flex-shrink-0 mr-1">
             {folder.children.length > 0 && `${folder.children.length}f`}
             {folder.children.length > 0 && folder.files.length > 0 && " · "}
             {folder.files.length > 0 && `${folder.files.length}d`}
           </span>
         )}
+        {/* Action menu button — visible on mobile, hover on desktop */}
+        <button
+          type="button"
+          className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition"
+          onClick={(e) => { e.stopPropagation(); onContextMenuFolder(e, folder); }}
+          title="Folder actions"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="6" cy="3" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="9" r="1"/></svg>
+        </button>
       </div>
 
       {/* Children */}
@@ -582,19 +591,39 @@ export default function OmManualsLibrary() {
               {search && <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#10005;</button>}
             </div>
             <div className="flex gap-1.5 flex-wrap">
-              <button onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
+              <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
                 className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
                 <span>📁</span> New Folder
               </button>
-              <button onClick={() => { if (selectedFolderId) fileInputRef.current?.click(); else setBanner({ type: "info", message: "Select a folder first" }); }}
+              <button type="button" onClick={() => { if (selectedFolderId) fileInputRef.current?.click(); else setBanner({ type: "info", message: "Select a folder first" }); }}
                 className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
                 <span>📤</span> Upload
               </button>
               <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx" className="hidden" onChange={handleFileUpload} />
-              <button onClick={expandAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Expand</button>
-              <button onClick={collapseAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Collapse</button>
-              {search && <button onClick={() => setSearch("")} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100">Clear</button>}
+              <button type="button" onClick={expandAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Expand</button>
+              <button type="button" onClick={collapseAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Collapse</button>
+              {search && <button type="button" onClick={() => setSearch("")} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100">Clear</button>}
             </div>
+            {/* Selected folder actions — always visible, mobile-friendly */}
+            {selectedFolderId && (() => {
+              const folder = getFolderPath(tree, selectedFolderId).pop();
+              return folder ? (
+                <div className="flex gap-1.5 flex-wrap">
+                  <button type="button" onClick={() => { setModal({ type: "createSubfolder", folderId: selectedFolderId }); setModalInput(""); }}
+                    className="px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-semibold hover:bg-blue-100 flex items-center gap-1">
+                    <span>📁</span> New Subfolder
+                  </button>
+                  <button type="button" onClick={() => { setModal({ type: "renameFolder", folderId: selectedFolderId }); setModalInput(folder.name); }}
+                    className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
+                    <span>✏️</span> Rename
+                  </button>
+                  <button type="button" onClick={() => { setModal({ type: "deleteFolder", folderId: selectedFolderId }); }}
+                    className="px-2 py-1 bg-white border border-gray-300 text-red-600 rounded text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
+                    <span>🗑️</span> Delete
+                  </button>
+                </div>
+              ) : null;
+            })()}
             {breadcrumbs.length > 0 && (
               <div className="flex items-center gap-1 text-[0.65rem] text-gray-500 flex-wrap">
                 {breadcrumbs.map((b, i) => (
