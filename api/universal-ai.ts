@@ -480,6 +480,147 @@ function odmAnswer(question: string, ctx: AIContext, analysis: any): AIResponse 
   return { answer, insights: analysis.insights, confidence: "HIGH", source: "odm-analysis", suggestedQuestions: suggested };
 }
 
+// ─── Finding Analysis (ODM Deep-Dive) ───
+function analyzeFindingData(records: any[]): { insights: AIInsight[]; summary: string; stats: any } {
+  if (!records || records.length === 0) {
+    return { insights: [{ title: "No data", description: "No inspection findings available.", severity: "info" }], summary: "No inspection data loaded.", stats: {} };
+  }
+
+  const total = records.length;
+
+  // Severity classification from findings text
+  const severityKw = { critical: ["critical", "urgent", "emergency", "shutdown", "catastrophic", "danger"], warning: ["leak", "vibration", "loose", "worn", "hot", "overheat", "abnormal", "noisy", "corrosion", "misaligned"], info: ["check", "inspect", "monitor", "clean", "lubricate", "adjust"] };
+  const classifySeverity = (r: any) => {
+    const text = String(r.EntryNotes || r.entryNotes || r.findings || r.Finding || "").toLowerCase();
+    const action = String(r.Action || r.action || r.Recommendation || "").toLowerCase();
+    const combined = text + " " + action;
+    if (severityKw.critical.some(k => combined.includes(k))) return "critical";
+    if (severityKw.warning.some(k => combined.includes(k))) return "warning";
+    return "info";
+  };
+
+  const sevCounts = { critical: 0, warning: 0, info: 0 };
+  records.forEach(r => { sevCounts[classifySeverity(r) as keyof typeof sevCounts]++; });
+
+  // Equipment type distribution
+  const equipDist = records.reduce((acc: Record<string, number>, r) => {
+    const e = r.EquipmentType || r.equipmentType || r.equipment || "Unknown";
+    acc[e] = (acc[e] || 0) + 1;
+    return acc;
+  }, {});
+
+  // Asset-level negative finding count
+  const assetIssues = records.reduce((acc: Record<string, { count: number; severity: string; notes: string[] }>, r) => {
+    const a = r.AssetTag || r.assetTag || r.AssetName || r.assetName || "Unknown";
+    const sev = classifySeverity(r);
+    if (!acc[a]) acc[a] = { count: 0, severity: sev, notes: [] };
+    acc[a].count++;
+    const note = String(r.EntryNotes || r.entryNotes || r.findings || "").trim();
+    if (note) acc[a].notes.push(note);
+    if (sev === "critical" || (sev === "warning" && acc[a].severity !== "critical")) acc[a].severity = sev;
+    return acc;
+  }, {});
+
+  const criticalAssets = Object.entries(assetIssues).filter(([, v]) => (v as any).severity === "critical");
+  const warningAssets = Object.entries(assetIssues).filter(([, v]) => (v as any).severity === "warning");
+
+  // Service provider need detection
+  const svcKw = ["pump", "motor", "blower", "calibration", "electrical", "scada", "instrument", "valve", "transformer", "generator"];
+  const needsVendor = records.filter(r => {
+    const text = String(r.EquipmentType || r.equipmentType || r.EntryNotes || "").toLowerCase();
+    return svcKw.some(k => text.includes(k));
+  });
+
+  // Possible CM-to-PM conversions
+  const cmIndicators = ["replace", "repair", "overhaul", "rewind", "rebuild", "remediate", "corrective"];
+  const cmCandidates = records.filter(r => {
+    const text = String(r.Action || r.action || r.EntryNotes || "").toLowerCase();
+    return cmIndicators.some(k => text.includes(k));
+  });
+
+  const insights: AIInsight[] = [];
+
+  if (sevCounts.critical > 0) {
+    insights.push({
+      title: `${sevCounts.critical} Critical Finding${sevCounts.critical > 1 ? "s" : ""}`,
+      description: `Inspection findings requiring immediate action.`,
+      severity: "critical", metric: sevCounts.critical,
+      recommendation: "Escalate to operations immediately. Schedule emergency inspection or shutdown if safety-critical.",
+    });
+  }
+  if (sevCounts.warning > 0) {
+    insights.push({
+      title: `${sevCounts.warning} Warning Finding${sevCounts.warning > 1 ? "s" : ""}`,
+      description: `Degradation indicators that may lead to failure.`,
+      severity: "warning", metric: sevCounts.warning,
+      recommendation: "Schedule corrective maintenance within 7 days. Monitor trend.",
+    });
+  }
+  if (criticalAssets.length > 0) {
+    insights.push({
+      title: `${criticalAssets.length} Asset${criticalAssets.length > 1 ? "s" : ""} with Critical Findings`,
+      description: `Assets with repeated or severe negative findings.`,
+      severity: "critical", metric: criticalAssets.length,
+      recommendation: "Prepare scope of work for external vendor. Initiate procurement for specialist services.",
+    });
+  }
+  if (needsVendor.length > 0) {
+    insights.push({
+      title: `${needsVendor.length} Finding${needsVendor.length > 1 ? "s" : ""} May Need Vendor Support`,
+      description: `Equipment types typically requiring specialist contractors.`,
+      severity: "warning", metric: needsVendor.length,
+      recommendation: "Generate draft scope of work. Identify vendor category (pump overhaul, motor rewinding, calibration, etc.).",
+    });
+  }
+  if (cmCandidates.length > 0) {
+    insights.push({
+      title: `${cmCandidates.length} Potential Corrective Maintenance`,
+      description: `Findings that may require CM work orders.`,
+      severity: "info", metric: cmCandidates.length,
+      recommendation: "Convert to PM or CM work orders. Prepare SAP fields (functional location, equipment number, cost center).",
+    });
+  }
+
+  const summary = `${total} findings: ${sevCounts.critical} critical, ${sevCounts.warning} warning, ${sevCounts.info} info. ${criticalAssets.length} critical assets. ${needsVendor.length} may need vendors. ${cmCandidates.length} CM candidates.`;
+
+  return { insights, summary, stats: { total, sevCounts, equipDist, criticalAssets: criticalAssets.length, warningAssets: warningAssets.length, needsVendor: needsVendor.length, cmCandidates: cmCandidates.length, assetIssues } };
+}
+
+function findingAnswer(question: string, ctx: AIContext, analysis: any): AIResponse {
+  const q = question.toLowerCase();
+  let answer = "";
+  const suggested: string[] = [];
+  const stats = analysis.stats || {};
+
+  if (q.includes("critical") || q.includes("severity")) {
+    answer = `${stats.sevCounts?.critical || 0} critical findings requiring immediate action. ${stats.sevCounts?.warning || 0} warning findings need attention within 7 days.`;
+    suggested.push("Which assets are critical?", "What actions are needed?");
+  } else if (q.includes("vendor") || q.includes("service") || q.includes("scope")) {
+    answer = `${stats.needsVendor || 0} findings may require external vendor support. Common categories: pump overhaul, motor rewinding, calibration, electrical testing, SCADA troubleshooting.`;
+    suggested.push("Generate scope of work", "Which findings need vendors?");
+  } else if (q.includes("sap") || q.includes("cost center") || q.includes("functional location") || q.includes("wbs")) {
+    answer = `For SAP readiness: ensure Functional Location, Equipment Number, Maintenance Order, Cost Center, and GL Account are assigned. ${stats.cmCandidates || 0} findings may need CM work orders. Prepare PR/PO references for vendor services.`;
+    suggested.push("Which findings need SAP fields?", "Generate SAP readiness summary");
+  } else if (q.includes("cm") || q.includes("corrective") || q.includes("maintenance")) {
+    answer = `${stats.cmCandidates || 0} findings suggest corrective maintenance may be needed. Review each for PM-to-CM conversion eligibility.`;
+    suggested.push("Prioritize findings by severity", "Which findings are most urgent?");
+  } else if (q.includes("asset") || q.includes("equipment")) {
+    const equip = stats.equipDist || {};
+    const sorted = Object.entries(equip).sort((a: any, b: any) => b[1] - a[1]);
+    answer = sorted.length > 0 ? `Equipment with findings: ${sorted.slice(0, 5).map(([e, c]) => `${e}: ${c}`).join(", ")}` : "No equipment data.";
+  } else if (q.includes("prior") || q.includes("urgent")) {
+    answer = `Priority order: 1) ${stats.sevCounts?.critical || 0} critical findings (immediate), 2) ${stats.sevCounts?.warning || 0} warning findings (within 7 days), 3) Vendor support items (${stats.needsVendor || 0}), 4) CM candidates (${stats.cmCandidates || 0}).`;
+  } else if (q.includes("summar") || q.includes("overview")) {
+    answer = analysis.summary;
+    suggested.push("Which findings are critical?", "Which need vendor support?", "What SAP fields are needed?");
+  } else {
+    answer = `${analysis.summary} Ask about: critical findings, vendor support, SAP readiness, corrective maintenance, asset breakdown, or prioritization.`;
+    suggested.push("Summarize critical findings", "Which findings need vendor support?", "Generate scope of work");
+  }
+
+  return { answer, insights: analysis.insights, confidence: "HIGH", source: "finding-analysis", suggestedQuestions: suggested };
+}
+
 // ─── KPI / Scorecard Analysis ───
 function analyzeScorecardData(kpis: any[]): { insights: AIInsight[]; summary: string; stats: any } {
   if (!kpis || kpis.length === 0) {
@@ -736,6 +877,8 @@ export function analyze(context: AIContext): { insights: AIInsight[]; summary: s
       return analyzeMaintenanceData(context.data || []);
     case "odm":
       return analyzeODMData(context.data || []);
+    case "finding":
+      return analyzeFindingData(context.data || []);
     case "kpi":
     case "scorecard":
       return analyzeScorecardData(context.data || []);
@@ -756,6 +899,8 @@ export function ask(context: AIContext, question: string): AIResponse {
       return maintenanceAnswer(question, context, analysis);
     case "odm":
       return odmAnswer(question, context, analysis);
+    case "finding":
+      return findingAnswer(question, context, analysis);
     case "kpi":
     case "scorecard":
       return scorecardAnswer(question, context, analysis);
@@ -775,6 +920,8 @@ export function getSuggestedPrompts(type: DashboardContext): string[] {
       return ["Summarize maintenance status", "What is overdue?", "Which equipment needs attention?", "What is the completion rate?", "Give me recommendations"];
     case "odm":
       return ["Summarize the data", "What are the top issues?", "Which assets are recurring?", "Show inspector performance", "What should we focus on?"];
+    case "finding":
+      return ["Summarize critical findings", "Which findings need vendor support?", "Generate scope of work for this finding", "What SAP fields are needed?", "Which findings may become corrective maintenance?", "Prioritize findings by severity"];
     case "governance":
       return ["Summarize governance status", "What is the readiness score?", "What are the gaps?", "Is PPP date set?", "What are the recommendations?"];
     case "kpi":

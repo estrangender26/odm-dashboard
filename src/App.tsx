@@ -9,6 +9,7 @@ import ExistingFacilitiesMaintenance from "./pages/ExistingFacilitiesMaintenance
 import SmpDashboard from "./pages/SmpDashboard"
 import OmManualsLibrary from "./pages/OmManualsLibrary"
 import ScorecardDashboard from "./pages/ScorecardDashboard"
+import OperatorDrivenMaintenance from "./pages/OperatorDrivenMaintenance"
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
       <Route path="/smp-dashboard" element={<SmpDashboard />} />
       <Route path="/om-manuals-library" element={<OmManualsLibrary />} />
       <Route path="/scorecard-kpi" element={<ScorecardDashboard />} />
+      <Route path="/operator-maintenance" element={<OperatorDrivenMaintenance />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
