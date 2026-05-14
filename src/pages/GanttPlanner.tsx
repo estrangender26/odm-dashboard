@@ -1,9 +1,21 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 import * as XLSX from "xlsx";
+
+/* ─── Banner (replaces alert) ─── */
+function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
+  const s: Record<string, string> = { error: "bg-red-50 border-red-200 text-red-800", success: "bg-green-50 border-green-200 text-green-800", info: "bg-blue-50 border-blue-200 text-blue-800" };
+  return (
+    <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
+      <span>{type === "error" ? "⚠️" : type === "success" ? "✅" : "ℹ️"}</span>
+      <span className="flex-1">{message}</span>
+      {onDismiss && <button onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
+    </div>
+  );
+}
 
 /* ─── KPI type ─── */
 interface KpiData {
@@ -497,6 +509,7 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
 }
 
 export default function GanttPlanner() {
+  const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [activeTab, setActiveTab] = useState<"gantt" |"tasks"|"resources">("gantt");
   const [kpi, setKpi] = useState<KpiData>({
     totalTasks: 0, completed: 0, inProgress: 0, overdue: 0, completionRate: 0, avgDuration: 0,
@@ -669,7 +682,7 @@ export default function GanttPlanner() {
       const workbook = XLSX.read(data, { type: "array" });
       const ws = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[] = XLSX.utils.sheet_to_json(ws);
-      if (!rows.length) { alert("No data found in the file"); return; }
+      if (!rows.length) { setBanner({ type: "error", message: "No data found in the file." }); return; }
 
       console.log("[IMPORT ROW COUNT]", rows.length, rows[0]);
 
@@ -786,10 +799,8 @@ export default function GanttPlanner() {
         imported++;
       });
 
-      const msg = [`Imported ${imported} task(s)`];
-      if (skipped > 0) msg.push(`${skipped} row(s) skipped (blank task name)`);
-      if (errors.length > 0) msg.push(`Warnings:\n${errors.join("\n")}`);
-      alert(msg.join("\n"));
+      const msg = `Imported ${imported} task(s)` + (skipped > 0 ? `, ${skipped} skipped.` : ".");
+      setBanner({ type: errors.length > 0 ? "info" : "success", message: msg + (errors.length > 0 ? ` Warnings: ${errors.join("; ")}` : "") });
     };
     reader.readAsArrayBuffer(file);
   };
@@ -823,6 +834,9 @@ export default function GanttPlanner() {
           </button>
         </div>
       </header>
+
+      {/* Banner */}
+      {banner && <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
 
       {/* KPI Cards */}
       <div style={{ padding: "16px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
@@ -979,7 +993,7 @@ function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: 
   };
 
   const submitForm = () => {
-    if (!form.text.trim()) { alert("Task Name is required"); return; }
+    if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
     const payload: any = {
       text: form.text.trim(),
       owner: form.owner || null,
