@@ -212,65 +212,21 @@ export default function Home() {
           {/* Existing Facilities Maintenance Plans Card */}
           <Link
             to="/existing-facilities"
-            style={{
-              display: 'block',
-              background: 'white',
-              borderRadius: '16px',
-              padding: '28px',
-              boxShadow: '0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)',
-              border: '1px solid #E8EDF2',
-              transition: 'all 0.3s ease',
-              textDecoration: 'none',
-              color: 'inherit',
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-4px)';
-              e.currentTarget.style.boxShadow = '0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.08)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)';
-            }}
+            className="group"
+            style={{ display: 'block', background: '#fff', borderRadius: 14, padding: '22px 24px', border: '1px solid #D6DFE8', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', textDecoration: 'none', color: 'inherit', transition: 'all 0.2s ease', cursor: 'pointer' }}
           >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: '4px',
-                background: 'linear-gradient(90deg, #059669, #10B981)',
-              }}
-            />
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '14px' }}>
-              <div
-                style={{
-                  width: '52px',
-                  height: '52px',
-                  borderRadius: '14px',
-                  background: 'linear-gradient(135deg, #D1FAE5, #A7F3D0)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '26px',
-                  flexShrink: 0,
-                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)',
-                }}
-              >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
                 🏗️
               </div>
-              <div style={{ flex: 1 }}>
-                <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0B1D44', margin: '0 0 6px', lineHeight: 1.2 }}>
-                  Existing Facilities Maintenance Plans
-                </h2>
-                <p style={{ fontSize: '14px', color: '#5A6B7D', margin: 0, lineHeight: 1.5 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3, margin: 0 }}>Existing Facilities Maintenance Plans</h3>
+                <p style={{ fontSize: 12, color: '#8BA3B8', margin: '4px 0 0' }}>
                   Asset Maintenance Department / Programs
                 </p>
               </div>
             </div>
-            <p style={{ fontSize: '14px', color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
+            <p style={{ fontSize: 14, color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
               View and manage maintenance schedules for existing facilities. Track tasks by equipment type, frequency, implementor. Import/export from Excel.
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -294,16 +250,16 @@ export default function Home() {
                 📘
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>Standard Maintenance Procedures</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3, margin: 0 }}>Standard Maintenance Procedures</h3>
                   <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#005BAC', color: '#fff', textTransform: 'uppercase', letterSpacing: '0.5px' }}>New</span>
                 </div>
-                <p style={{ fontSize: 12, color: '#8BA3B8', margin: 0 }}>
-                  Centralized repository for SOPs, SMPs, and preventive maintenance documentation. Upload, view, and download PDF maintenance guides.
+                <p style={{ fontSize: 12, color: '#8BA3B8', margin: '4px 0 0' }}>
+                  Centralized repository for SOPs, SMPs, and preventive maintenance documentation.
                 </p>
               </div>
             </div>
-            <p style={{ fontSize: '14px', color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
+            <p style={{ fontSize: 14, color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
               Browse maintenance procedure documents organized by equipment type and system. PDF viewer with upload/download support. Searchable and filterable document library.
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
