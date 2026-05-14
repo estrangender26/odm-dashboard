@@ -1,9 +1,21 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
+
+/* ── Banner (replaces alert) ── */
+function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
+  const s: Record<string, string> = { error: "bg-red-50 border-red-200 text-red-800", success: "bg-green-50 border-green-200 text-green-800", info: "bg-blue-50 border-blue-200 text-blue-800" };
+  return (
+    <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
+      <span>{type === "error" ? "⚠️" : type === "success" ? "✅" : "ℹ️"}</span>
+      <span className="flex-1">{message}</span>
+      {onDismiss && <button onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
+    </div>
+  );
+}
 
 /* ───── Static Reference Data ───── */
 const FACILITIES = [
@@ -213,6 +225,7 @@ export default function GovernanceDashboard() {
   // Sync status feedback
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [lastSavedAt, setLastSavedAt] = useState<string>("");
+  const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
 
   const saveMilestone = trpc.governance.saveMilestone.useMutation({
     onMutate: () => setSyncStatus("saving"),
@@ -226,7 +239,7 @@ export default function GovernanceDashboard() {
     onError: (err) => {
       setSyncStatus("error");
       console.error("[GOV] Save failed:", err);
-      alert("Save failed: " + (err.message || "Server error"));
+      setBanner({ type: "error", message: "Save failed: " + (err.message || "Server error") });
       setTimeout(() => setSyncStatus("idle"), 3000);
     },
   });
@@ -447,7 +460,7 @@ export default function GovernanceDashboard() {
     const MAX_SIZE_MB = 5;
     if (file.size > MAX_SIZE_MB * 1024 * 1024) {
       showStatus(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max ${MAX_SIZE_MB}MB.`);
-      alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is ${MAX_SIZE_MB}MB.`);
+      setBanner({ type: "error", message: `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is ${MAX_SIZE_MB}MB.` });
       return;
     }
 
@@ -510,7 +523,7 @@ export default function GovernanceDashboard() {
     reader.onerror = () => {
       console.error("[UPLOAD] FileReader error");
       showStatus("Failed to read file");
-      alert("Failed to read file. Please try again.");
+      setBanner({ type: "error", message: "Failed to read file. Please try again." });
     };
     reader.readAsDataURL(file);
   };
@@ -571,6 +584,9 @@ export default function GovernanceDashboard() {
           )}
         </div>
       </header>
+
+      {/* Banner */}
+      {banner && <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
 
       {/* Responsive milestone styles */}
       <style>{`
