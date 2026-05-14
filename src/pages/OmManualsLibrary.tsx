@@ -29,15 +29,9 @@ interface OmManual {
   toc: TocItem[];
 }
 
-interface ProjectNode {
-  name: string;
-  facilities: FacilityNode[];
-}
-
 interface FacilityNode {
   name: string;
-  code: string;
-  manual: OmManual;
+  manuals: OmManual[];
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -165,24 +159,20 @@ const MOCK_MANUALS: OmManual[] = [
   },
 ];
 
-// ── Build hierarchical tree ──
-function buildTree(manuals: OmManual[]): ProjectNode[] {
-  const map = new Map<string, Map<string, OmManual>>();
+// ── Build hierarchical tree: Facility (top) → Manuals → TOC ──
+function buildTree(manuals: OmManual[]): FacilityNode[] {
+  const map = new Map<string, OmManual[]>();
   for (const m of manuals) {
-    if (!map.has(m.project)) map.set(m.project, new Map());
-    map.get(m.project)!.set(m.facility, m);
+    if (!map.has(m.facility)) map.set(m.facility, []);
+    map.get(m.facility)!.push(m);
   }
-  const projects: ProjectNode[] = [];
-  for (const [name, facMap] of map) {
-    const facilities: FacilityNode[] = [];
-    for (const [fname, manual] of facMap) {
-      facilities.push({ name: fname, code: manual.facilityCode, manual });
-    }
-    facilities.sort((a, b) => a.name.localeCompare(b.name));
-    projects.push({ name, facilities });
+  const facilities: FacilityNode[] = [];
+  for (const [name, ms] of map) {
+    ms.sort((a, b) => a.project.localeCompare(b.project));
+    facilities.push({ name, manuals: ms });
   }
-  projects.sort((a, b) => a.name.localeCompare(b.name));
-  return projects;
+  facilities.sort((a, b) => a.name.localeCompare(b.name));
+  return facilities;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -265,8 +255,8 @@ export default function OmManualsLibrary() {
   const [selectedManual, setSelectedManual] = useState<OmManual | null>(null);
   const [selectedTocItem, setSelectedTocItem] = useState<TocItem | null>(null);
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set(["Aglipay STP", "HTT STP"]));
-  const [expandedFacilities, setExpandedFacilities] = useState<Set<string>>(new Set());
+  const [expandedFacilities, setExpandedFacilities] = useState<Set<string>>(new Set(["Automation", "Building & Safety", "Electrical", "Mechanical", "Treatment Process", "Water Supply"]));
+  const [expandedManuals, setExpandedManuals] = useState<Set<string>>(new Set());
   const [mobileView, setMobileView] = useState<"tree" | "detail">("tree");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -296,12 +286,12 @@ export default function OmManualsLibrary() {
     projects: new Set(MOCK_MANUALS.map(d => d.project)).size,
   }), []);
 
-  const toggleProject = useCallback((name: string) => {
-    setExpandedProjects(prev => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; });
+  const toggleFacility = useCallback((name: string) => {
+    setExpandedFacilities(prev => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; });
   }, []);
 
-  const toggleFacility = useCallback((key: string) => {
-    setExpandedFacilities(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const toggleManual = useCallback((id: number) => {
+    setExpandedManuals(prev => { const n = new Set(prev); if (n.has(String(id))) n.delete(String(id)); else n.add(String(id)); return n; });
   }, []);
 
   const handleSelectManual = useCallback((manual: OmManual) => {
@@ -311,10 +301,10 @@ export default function OmManualsLibrary() {
   }, []);
 
   const expandAll = useCallback(() => {
-    const ps = new Set(tree.map(p => p.name));
-    const fs = new Set<string>();
-    for (const p of tree) { for (const f of p.facilities) { fs.add(`${p.name}::${f.name}`); } }
-    setExpandedProjects(ps); setExpandedFacilities(fs);
+    const fs = new Set(tree.map(f => f.name));
+    const ms = new Set<string>();
+    for (const f of tree) { for (const m of f.manuals) { ms.add(String(m.id)); } }
+    setExpandedFacilities(fs); setExpandedManuals(ms);
   }, [tree]);
 
   const clearFilters = useCallback(() => {
@@ -432,7 +422,7 @@ export default function OmManualsLibrary() {
             </div>
           </div>
 
-          {/* Tree */}
+          {/* Tree: Facility → Manual Project Title → TOC */}
           <div className="flex-1 overflow-y-auto">
             {tree.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
@@ -440,58 +430,49 @@ export default function OmManualsLibrary() {
                 <div className="text-sm font-semibold text-gray-600">No manuals found</div>
               </div>
             ) : (
-              tree.map(project => {
-                const pExpanded = expandedProjects.has(project.name);
-                const pTotal = project.facilities.length;
+              tree.map(facility => {
+                const fExpanded = expandedFacilities.has(facility.name);
+                const fCount = facility.manuals.length;
                 return (
-                  <div key={project.name} className="border-b border-gray-200">
-                    {/* Project Header */}
-                    <button onClick={() => toggleProject(project.name)}
-                      className={`w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50 transition ${pExpanded ? "bg-blue-50/50" : ""}`}>
-                      <Chevron expanded={pExpanded} />
-                      <span className="text-lg">&#127980;</span>
-                      <span className="flex-1 text-sm font-bold text-gray-800">{project.name}</span>
-                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-semibold">{pTotal} facilities</span>
+                  <div key={facility.name} className="border-b border-gray-200">
+                    {/* Facility Header */}
+                    <button onClick={() => toggleFacility(facility.name)}
+                      className={`w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50 transition ${fExpanded ? "bg-blue-50/50" : ""}`}>
+                      <Chevron expanded={fExpanded} />
+                      <span className="text-sm">&#9881;</span>
+                      <span className="flex-1 text-sm font-bold text-gray-800">{facility.name}</span>
+                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-semibold">{fCount} manual{fCount > 1 ? "s" : ""}</span>
                     </button>
 
-                    {/* Facilities */}
-                    {pExpanded && project.facilities.map(facility => {
-                      const fKey = `${project.name}::${facility.name}`;
-                      const fExpanded = expandedFacilities.has(fKey);
-                      const isSelected = selectedManual?.id === facility.manual.id;
-                      const tocSt = tocStats(facility.manual.toc);
-                      const ms = MANUAL_STATUS[facility.manual.status] || MANUAL_STATUS.Draft;
+                    {/* Manuals under this facility */}
+                    {fExpanded && facility.manuals.map(manual => {
+                      const mExpanded = expandedManuals.has(String(manual.id));
+                      const isSelected = selectedManual?.id === manual.id;
+                      const tocSt = tocStats(manual.toc);
+                      const ms = MANUAL_STATUS[manual.status] || MANUAL_STATUS.Draft;
                       return (
-                        <div key={fKey}>
-                          {/* Facility Header */}
-                          <button onClick={() => toggleFacility(fKey)}
-                            className={`w-full flex items-center gap-2 pl-9 pr-4 py-2 text-left hover:bg-gray-50 transition border-t border-gray-50 ${fExpanded ? "bg-blue-50/30" : ""}`}>
-                            <Chevron expanded={fExpanded} />
-                            <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1 rounded">{facility.code}</span>
-                            <span className="flex-1 text-xs font-semibold text-gray-700">{facility.name}</span>
-                            {/* Mini progress bar */}
-                            <div className="hidden sm:flex items-center gap-1.5">
-                              <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                <div className="h-full rounded-full" style={{ width: `${tocSt.pct}%`, background: tocSt.pct >= 80 ? "#22C55E" : tocSt.pct >= 50 ? "#3B82F6" : "#F59E0B" }} />
-                              </div>
-                              <span className="text-[0.6rem] text-gray-500 font-semibold">{tocSt.pct}%</span>
-                            </div>
-                            <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded-full" style={{ background: ms.bg, color: ms.text }}>{facility.manual.status}</span>
+                        <div key={manual.id} className="border-t border-gray-50">
+                          {/* O&M Manual Project Title */}
+                          <button onClick={() => toggleManual(manual.id)}
+                            className={`w-full flex items-center gap-2 pl-9 pr-4 py-2 text-left hover:bg-gray-50 transition ${mExpanded ? "bg-blue-50/30" : ""}`}>
+                            <Chevron expanded={mExpanded} />
+                            <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1 rounded">{manual.facilityCode}</span>
+                            <span className="flex-1 text-xs font-semibold text-gray-700 truncate">{manual.manualTitle}</span>
+                            <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: ms.bg, color: ms.text }}>{manual.status}</span>
                           </button>
 
-                          {/* Manual entry under facility */}
-                          {fExpanded && (
-                            <div onClick={() => handleSelectManual(facility.manual)}
+                          {/* Manual summary + TOC micro-bars (when expanded) */}
+                          {mExpanded && (
+                            <div onClick={() => handleSelectManual(manual)}
                               className={`pl-[52px] pr-4 py-3 cursor-pointer transition hover:bg-blue-50/40 border-t border-gray-50 ${isSelected ? "bg-blue-50 border-l-4 border-l-blue-600" : "border-l-4 border-l-transparent"}`}>
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex-1 min-w-0">
-                                  <div className="text-xs font-semibold truncate" style={{ color: isSelected ? "#1E40AF" : "#374151" }}>{facility.manual.manualTitle}</div>
-                                  <div className="text-[0.65rem] text-gray-400 mt-0.5">{facility.manual.revision} &middot; Issued {facility.manual.dateIssued} &middot; {facility.manual.responsibleParty}</div>
+                                  <div className="text-[0.65rem] text-gray-400">{manual.revision} &middot; Issued {manual.dateIssued} &middot; {manual.responsibleParty} &middot; {manual.project}</div>
                                 </div>
                               </div>
                               {/* TOC completion micro-bars */}
                               <div className="flex gap-1 mt-2">
-                                {facility.manual.toc.map(t => (
+                                {manual.toc.map(t => (
                                   <div key={t.id} className="flex-1 h-1 rounded-full" style={{ background: STATUS_STYLE[t.status]?.bar || "#CBD5E1" }} title={`${t.id}. ${t.title} — ${t.status}`} />
                                 ))}
                               </div>
