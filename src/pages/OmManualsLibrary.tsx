@@ -226,6 +226,24 @@ function Chevron({ expanded }: { expanded: boolean }) {
   );
 }
 
+// ── Detailed descriptions for each of the 14 TOC sections (from ANNEX) ──
+const TOC_DESCRIPTIONS: Record<number, string> = {
+  1:  "High-level summary of the O&M Manual covering facility purpose, scope, key operational parameters, and document structure. Provides an at-a-glance overview for management, auditors, and new personnel joining the facility.",
+  2:  "Detailed description of the facility layout, process flow, treatment trains, capacity, design parameters, and key infrastructure. Includes process flow diagrams (PFDs), general arrangement drawings, and equipment inventory.",
+  3:  "Defines the operating philosophy including staffing model, shift structure, process control strategy, safety-first principles, environmental compliance approach, and performance targets. Establishes the decision-making framework for operators.",
+  4:  "Step-by-step procedures for safe facility operation under all conditions: Start-up, Normal operation, Shutdown, Abnormal/upset operating conditions, and Emergency scenarios (power failure, flooding, major equipment failure). Must be unambiguous, identify operator actions and decision points, and reference all applicable alarms, interlocks, safeguards, and safety precautions. SOPs are mandatory acceptance deliverables.",
+  5:  "Defines how maintenance work is performed including required tools, safety controls, execution steps, and acceptance criteria. Mandatory SMP categories: Mechanical equipment, Electrical systems, Instrumentation and control devices. Each SMP must include: Safety requirements including LOTO, Step-by-step maintenance activities, and Post-maintenance testing and return-to-service checks. SMPs form the technical foundation for all preventive maintenance activities.",
+  6:  "Maintenance strategy structured into Preventive Maintenance (PM) and Corrective Maintenance (CM). Strategy defined based on: Equipment criticality, Operational and safety risk, Warranty conditions and OEM requirements. All PM tasks must be derived from approved SMPs — no PM task shall exist without a corresponding SMP. O&M Manual must clearly define in-house vs contractor scope.",
+  7:  "Complete documentation of the SCADA architecture, control logic, instrumentation, telemetry, alarm management, and automation systems. Includes network diagrams, PLC/HMI configurations, I/O lists, and communication protocols. Must cover operator interfaces and remote monitoring capabilities.",
+  8:  "Dry-Commissioning: Mechanical completion verification, Electrical and instrumentation testing. Wet Commissioning: Functional operation demonstration, Control logic integrity verification, Alarm and interlock performance validation. Proving Period: Performance data collection and analysis, Defect logging/rectification/closure, Demonstration of stable and repeatable operation. Commissioning and proving documentation is a non-waivable acceptance requirement.",
+  9:  "Complete and verified as-built drawings and final technical documentation reflecting the installed condition. Must include: PFDs and P&IDs, GA/layout drawings, Electrical single-line diagrams and schematics, Instrument loop diagrams and I/O lists, Network/SCADA architecture and panel drawings. As-built drawings are mandatory acceptance deliverables.",
+  10: "Training covering at a minimum: Facility operations, Maintenance procedures, SCADA and automation systems, Safety and emergency response. Supported by: Attendance records, Certificates of completion, OEM training certificates where applicable. Facilities shall not be accepted unless minimum training and competency requirements are fully satisfied.",
+  11: "Digital structure into Functional locations and Equipment records. Minimum master data: Equipment technical details, Bills of Materials (BOMs), PM task lists, Measurement points, Warranty information. All digital data must be Complete, Accurate, and Validated prior to acceptance. Digital onboarding is a core acceptance gate, not a post-handover activity.",
+  12: "Separate handover deliverable from SAP onboarding. Contractor must submit final list of contractual critical spares to be turned over per asset/package, including quantities and part identification, together with corresponding supplier/vendor details and documented local support/service contact information for each critical spare/equipment package. Completion required prior to Final Acceptance.",
+  13: "Two-stage acceptance process: Provisional Acceptance → Final Acceptance. Final Acceptance only granted when: All documentation complete and approved, All SOPs and SMPs approved, Training requirements fulfilled, Digital onboarding verified, Critical spares handover deliverable completed. Ownership transfers to Operations only after formal Final Acceptance approval.",
+  14: "Facility-specific requirements documented as appendices to this corporate standard, covering: Unique process units, Special safety considerations, Regulatory and compliance requirements.",
+};
+
 // ── TOC completion stats for a manual ──
 function tocStats(toc: TocItem[]) {
   const total = toc.length;
@@ -589,7 +607,7 @@ export default function OmManualsLibrary() {
                         <div className="pt-1">
                           <span className="text-xs text-gray-500">Description</span>
                           <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                            This section covers the requirements for {selectedTocItem.title.replace(" — ANNEX", "").toLowerCase()} as defined in the Standard O&M Manual Governance Framework (IOM dated 7 January 2026).
+                            {TOC_DESCRIPTIONS[selectedTocItem.id]}
                           </p>
                         </div>
                         <div className="pt-2">
