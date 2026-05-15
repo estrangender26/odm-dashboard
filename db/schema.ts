@@ -212,3 +212,30 @@ export const ganttLinks = pgTable("gantt_links", {
   type: varchar("type", { length: 20 }).notNull().default("0"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+/* ─── Gantt Save/Open — Step 1: new tables ─── */
+
+export const ganttProjects = pgTable("gantt_projects", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  tasksData: text("tasks_data").notNull(),      // JSON string of gantt_tasks rows
+  linksData: text("links_data"),                 // JSON string of gantt_links rows
+  description: text("description"),
+  createdBy: varchar("created_by", { length: 255 }),
+  updatedBy: varchar("updated_by", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("gantt_projects_name_idx").on(table.name),
+]);
+
+export const ganttDependencies = pgTable("gantt_dependencies", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),    // FK to gantt_projects
+  sourceTaskId: integer("source_task_id").notNull(),
+  targetTaskId: integer("target_task_id").notNull(),
+  linkType: varchar("link_type", { length: 20 }).notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("gantt_deps_project_idx").on(table.projectId),
+]);
