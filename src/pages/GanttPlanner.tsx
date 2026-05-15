@@ -1081,18 +1081,31 @@ export default function GanttPlanner() {
             <span>Reset</span>
           </button>
           <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
-          {/* Save — quick-save existing, or prompt if new */}
-          <button onClick={handleQuickSave} className="gantt-action-btn" title={currentProjectId ? `Update "${currentProjectName}"` : "Save project"} style={{ background: "rgba(255,255,255,0.12)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          {/* Save — quick-save existing, or prompt if new. Green = primary save action */}
+          <button
+            onClick={handleQuickSave}
+            className="gantt-action-btn gantt-save-btn"
+            title={currentProjectId ? `Update "${currentProjectName}"` : "Save project"}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             <span>{currentProjectId ? "Save" : "Save"}</span>
           </button>
-          {/* Save As — always create new */}
-          <button onClick={() => { setSaveModal(true); setIsSaveAs(true); setProjectName(currentProjectName ? currentProjectName + " Copy" : ""); }} className="gantt-action-btn" title="Save as new project" style={{ background: "rgba(255,255,255,0.08)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/><line x1="16" y1="8" x2="16" y2="12"/><line x1="14" y1="10" x2="18" y2="10"/></svg>
+          {/* Save As — always create new. Amber = new/copy */}
+          <button
+            onClick={() => { setSaveModal(true); setIsSaveAs(true); setProjectName(currentProjectName ? currentProjectName + " Copy" : ""); }}
+            className="gantt-action-btn gantt-saveas-btn"
+            title="Save as new project"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/><line x1="16" y1="8" x2="16" y2="12"/><line x1="14" y1="10" x2="18" y2="10"/></svg>
             <span>Save As</span>
           </button>
-          <button onClick={() => setLoadModal(true)} className="gantt-action-btn" title="Open saved project" style={{ background: "rgba(255,255,255,0.12)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          {/* Open — load saved project. Blue = load/open action */}
+          <button
+            onClick={() => setLoadModal(true)}
+            className="gantt-action-btn gantt-open-btn"
+            title="Open saved project"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><polyline points="10 13 7 10 10 7"/></svg>
             <span>Open</span>
           </button>
         </div>
@@ -1288,6 +1301,9 @@ export default function GanttPlanner() {
         .export-btn { background: #1F9D55; } .export-btn:hover { background: #15803D; }
         .import-btn { background: #005BAC; } .import-btn:hover { background: #004D99; }
         .reset-btn { background: #DC2626; } .reset-btn:hover { background: #B91C1C; }
+        .gantt-save-btn { background: #1F9D55; } .gantt-save-btn:hover { background: #15803D; }
+        .gantt-saveas-btn { background: #D97706; } .gantt-saveas-btn:hover { background: #B45309; }
+        .gantt-open-btn { background: #2563EB; } .gantt-open-btn:hover { background: #1D4ED8; }
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
         }
