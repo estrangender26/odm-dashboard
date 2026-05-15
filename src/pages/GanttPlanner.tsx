@@ -453,22 +453,22 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
           </button>
         ))}
 
-        <span style={{ marginLeft: "auto", fontSize: 10, color: "#8BA3B8", whiteSpace: "nowrap" }}>
+        <span className="gantt-zoom-info" style={{ marginLeft: "auto", fontSize: 10, color: "#8BA3B8", whiteSpace: "nowrap" }}>
           {rows.length} tasks · {Math.round(dayWidth * 10) / 10}px/day · {Math.round(chartWidth)}px wide
         </span>
       </div>
 
       {/* Legend */}
-      <div style={{ display: "flex", gap: 16, padding: "8px 14px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", fontSize: 11, fontFamily: "Inter, sans-serif", flexWrap: "wrap" }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#93C5FD", borderRadius: 2, border: "1px solid #60A5FA" }} /> Planned</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#86EFAC", borderRadius: 2, border: "1px solid #4ADE80" }} /> Actual (on time)</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#FCA5A5", borderRadius: 2, border: "1px solid #F87171" }} /> Actual (delayed)</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 1 }} /> Milestone</span>
+      <div className="gantt-chart-legend" style={{ display: "flex", gap: 16, padding: "8px 14px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", fontSize: 11, fontFamily: "Inter, sans-serif", flexWrap: "wrap" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#93C5FD", borderRadius: 2, border: "1px solid #60A5FA" }} /><span className="gantt-chart-legend-label">Planned</span></span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#86EFAC", borderRadius: 2, border: "1px solid #4ADE80" }} /><span className="gantt-chart-legend-label">Actual (on time)</span></span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#FCA5A5", borderRadius: 2, border: "1px solid #F87171" }} /><span className="gantt-chart-legend-label">Actual (delayed)</span></span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 1 }} /><span className="gantt-chart-legend-label">Milestone</span></span>
       </div>
 
       <div style={{ display: "flex", height: chartHeight, fontFamily: "Inter, sans-serif", fontSize: 12 }}>
         {/* Left: Task names column */}
-        <div style={{ width: 160, minWidth: 160, borderRight: "1px solid #E2E8F0", background: "#FAFBFC", display: "flex", flexDirection: "column", zIndex: 2 }}>
+        <div className="gantt-task-col" style={{ width: 160, minWidth: 160, borderRight: "1px solid #E2E8F0", background: "#FAFBFC", display: "flex", flexDirection: "column", zIndex: 2 }}>
           {/* Header */}
           <div style={{ height: headerHeight, borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", padding: "0 10px", fontWeight: 700, color: "#475569", fontSize: 11, background: "#F1F5F9" }}>
             Task Name
@@ -1056,17 +1056,17 @@ export default function GanttPlanner() {
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
       {/* Header */}
-      <header style={{ background: "#16324F", padding: "12px 24px", display: "flex", alignItems: "center", gap: "16px", position: "sticky", top: 0, zIndex: 100 }}>
-        <Link to="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}>
+      <header className="gantt-header" style={{ background: "#16324F", padding: "12px 24px", position: "sticky", top: 0, zIndex: 100 }}>
+        <Link to="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none", flexShrink: 0 }}>
           <ProgramsEngineeringLogo size={48} borderRadius={8} />
           <div>
-            <div style={{ fontSize: "15px", fontWeight: 700, color: "#fff", letterSpacing: "-0.3px" }}>Gantt Charts</div>
-            <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            <div className="gantt-header-title" style={{ fontSize: "15px", fontWeight: 700, color: "#fff", letterSpacing: "-0.3px" }}>Gantt Charts</div>
+            <div className="gantt-header-sub" style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
               {currentProjectId ? `📁 ${currentProjectName}` : "O & M Project Schedule Visualization"}
             </div>
           </div>
         </Link>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div className="gantt-header-buttons">
           <button onClick={exportExcel} className="gantt-action-btn export-btn" title="Export to Excel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>Export Excel</span>
@@ -1115,8 +1115,8 @@ export default function GanttPlanner() {
       {banner && <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
 
       {/* KPI Cards */}
-      <div style={{ padding: "16px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
+      <div className="gantt-page-wrap" style={{ padding: "16px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+        <div className="gantt-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "12px" }}>
           <KpiCard label="Total Tasks" value={kpi.totalTasks} icon="📋" color="#005BAC" />
           <KpiCard label="Completed" value={kpi.completed} icon="✅" color="#1F9D55" />
           <KpiCard label="In Progress" value={kpi.inProgress} icon="🔄" color="#F59E0B" />
@@ -1127,18 +1127,19 @@ export default function GanttPlanner() {
       </div>
 
       {/* Tab Bar */}
-      <div style={{ padding: "16px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+      <div className="gantt-page-wrap" style={{ padding: "16px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         <div style={{ display: "flex", gap: "2px", background: "#E2E8F0", padding: "4px", borderRadius: "8px" }}>
           {(["gantt", "tasks", "resources"] as const).map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: 1, padding: "8px 16px", border: "none", borderRadius: "6px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer", transition: "all .2s", background: activeTab === tab ? "#005BAC" : "transparent", color: activeTab === tab ? "#fff" : "#5A6B7D", boxShadow: activeTab === tab ? "0 1px 3px rgba(0,0,0,.1)" : "none" }}>
-              {tab === "gantt" ? "📅 Gantt Chart" : tab === "tasks" ? "📝 Task List" : "👥 Resources"}
+            <button key={tab} onClick={() => setActiveTab(tab)} className="gantt-tab-btn" style={{ flex: 1, padding: "8px 16px", border: "none", borderRadius: "6px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer", transition: "all .2s", background: activeTab === tab ? "#005BAC" : "transparent", color: activeTab === tab ? "#fff" : "#5A6B7D", boxShadow: activeTab === tab ? "0 1px 3px rgba(0,0,0,.1)" : "none" }}>
+              <span className="tab-emoji">{tab === "gantt" ? "📅" : tab === "tasks" ? "📝" : "👥"}</span>{" "}
+              <span className="tab-label">{tab === "gantt" ? "Gantt Chart" : tab === "tasks" ? "Task List" : "Resources"}</span>
             </button>
           ))}
         </div>
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+      <div className="gantt-page-wrap" style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         {activeTab === "gantt" && (
           <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
             <NativeGanttChart tasks={(tasksQuery.data || []) as GanttTask[]} />
@@ -1153,7 +1154,7 @@ export default function GanttPlanner() {
       {/* ─── Save Project Modal ─── */}
       {saveModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget && !saveProjectMut.isPending) setSaveModal(false); }}>
-          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 440, padding: "24px 28px", fontFamily: "Inter, sans-serif", position: "relative", overflow: "hidden" }}>
+          <div className="gantt-modal" style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 440, padding: "24px 28px", fontFamily: "Inter, sans-serif", position: "relative", overflow: "hidden" }}>
             {/* Save progress overlay */}
             {saveProjectMut.isPending && (
               <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.85)", zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, borderRadius: 12 }}>
@@ -1199,7 +1200,7 @@ export default function GanttPlanner() {
       {/* ─── Open Project Modal ─── */}
       {loadModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) setLoadModal(false); }}>
-          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 520, maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: "Inter, sans-serif" }}>
+          <div className="gantt-modal" style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 520, maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: "Inter, sans-serif" }}>
             <div style={{ padding: "20px 24px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>Open Saved Project</h3>
               <button onClick={() => { setLoadModal(false); setRenamingId(null); }} style={{ background: "none", border: "none", fontSize: 20, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
@@ -1304,13 +1305,38 @@ export default function GanttPlanner() {
         .gantt-save-btn { background: #1F9D55; } .gantt-save-btn:hover { background: #15803D; }
         .gantt-saveas-btn { background: #D97706; } .gantt-saveas-btn:hover { background: #B45309; }
         .gantt-open-btn { background: #2563EB; } .gantt-open-btn:hover { background: #1D4ED8; }
+
+        /* ─── Responsive header toolbar ─── */
+        .gantt-header { display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; }
+        .gantt-header-buttons { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
+          .gantt-header { flex-wrap: wrap; gap: 10px; padding: 10px 16px !important; }
+          .gantt-header-buttons { margin-left: 0; justify-content: flex-start; width: 100%; gap: 6px; }
+          .gantt-page-wrap { padding: 10px 12px !important; }
+          .gantt-kpi-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+          .gantt-tab-btn { padding: 6px 10px !important; font-size: 11px !important; }
+          .gantt-modal { max-width: 100% !important; padding: 16px 20px !important; }
+          .gantt-chart-legend { gap: 10px !important; font-size: 10px !important; }
+          .gantt-chart-legend-label { display: none !important; }
+          .gantt-task-col { width: 120px !important; min-width: 120px !important; }
+          .gantt-zoom-info { display: none !important; }
         }
+
         @media (max-width: 480px) {
           .gantt-action-btn span { display: none; }
           .gantt-action-btn { padding: 6px 8px; }
+          .gantt-header { padding: 8px 12px !important; }
+          .gantt-header-title { font-size: 13px !important; }
+          .gantt-header-sub { font-size: 9px !important; }
+          .gantt-kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .gantt-tab-btn { padding: 5px 6px !important; font-size: 10px !important; }
+          .gantt-tab-btn .tab-label { display: none; }
+          .gantt-chart-legend { display: none !important; }
+          .gantt-task-col { width: 100px !important; min-width: 100px !important; }
         }
+
         @keyframes ganttSpin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
