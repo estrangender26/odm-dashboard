@@ -658,6 +658,49 @@ export default function GanttPlanner() {
     onError: (e) => setBanner({ type: "error", message: "Save failed: " + e.message }),
   });
 
+  /* ─── STEP 3: Open Project hooks ─── */
+  const { data: projectsListData } = trpc.ganttProjects.list.useQuery(undefined, { retry: 1 });
+  const projectsList = projectsListData?.projects || [];
+  const loadProjectMut = trpc.ganttProjects.get.useMutation({
+    onSuccess: (project) => {
+      try {
+        const parsed = JSON.parse(project.tasksData);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          setBanner({ type: "info", message: "Project is empty." }); return;
+        }
+        // Reset then load tasks one by one
+        resetMut.mutate(undefined, {
+          onSuccess: () => {
+            parsed.forEach((t: any, idx: number) => {
+              saveTaskMut.mutate({
+                text: t.text || "",
+                owner: t.owner || null,
+                start_date: t.startDate || t.start_date || null,
+                end_date: t.endDate || t.end_date || null,
+                planned_start: t.plannedStart || t.planned_start || null,
+                planned_end: t.plannedEnd || t.planned_end || null,
+                duration: t.duration || 1,
+                progress: normProgress(t.progress),
+                parent: t.parent || 0,
+                type: t.type || "task",
+                status: t.status || null,
+                remarks: t.remarks || null,
+                category: t.category || null,
+                open: t.open ?? 1,
+                sortorder: t.sortorder ?? idx,
+              });
+            });
+            setBanner({ type: "success", message: `Loaded "${project.name}" — ${parsed.length} task(s).` });
+          },
+        });
+      } catch (e: any) {
+        setBanner({ type: "error", message: "Failed to parse project: " + e.message });
+      }
+    },
+    onError: (e) => setBanner({ type: "error", message: "Load failed: " + e.message }),
+  });
+  const [showOpenPanel, setShowOpenPanel] = useState(false);
+
   /* ─── Helpers ─── */
   const calcKpi = useCallback((tasks: any[]): KpiData => {
     const now = new Date();
@@ -980,6 +1023,16 @@ export default function GanttPlanner() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             <span>{saveProjectMut.isPending ? "Saving..." : "Save"}</span>
           </button>
+          {/* STEP 3: Open Project button */}
+          <button
+            onClick={() => setShowOpenPanel((p) => !p)}
+            disabled={loadProjectMut.isPending}
+            className="gantt-action-btn open-btn"
+            title="Open saved project"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span>{loadProjectMut.isPending ? "Loading..." : "Open"}</span>
+          </button>
         </div>
       </header>
 
@@ -997,6 +1050,46 @@ export default function GanttPlanner() {
           <KpiCard label="Avg Duration" value={`${kpi.avgDuration}d`} icon="⏱️" color="#0EA5E9" />
         </div>
       </div>
+
+      {/* STEP 3: Open Project Panel */}
+      {showOpenPanel && (
+        <div style={{ padding: "12px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0", padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,.06)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#16324F" }}>Saved Projects</h4>
+              <button onClick={() => setShowOpenPanel(false)} style={{ background: "none", border: "none", fontSize: 18, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>&times;</button>
+            </div>
+            {projectsList.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "24px", color: "#94A3B8", fontSize: 12 }}>
+                <div style={{ fontSize: 24, marginBottom: 6 }}>📂</div>
+                No saved projects yet.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {projectsList.map((p: any) => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, background: "#FAFBFC", border: "1px solid #F1F5F9" }}>
+                    <span style={{ fontSize: 16 }}>📁</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#2D3748", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                      <div style={{ fontSize: 10, color: "#94A3B8" }}>
+                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ""}
+                        {p.description ? " · " + p.description : ""}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { loadProjectMut.mutate({ id: p.id }); setShowOpenPanel(false); }}
+                      disabled={loadProjectMut.isPending}
+                      style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#005BAC", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", flexShrink: 0 }}
+                    >
+                      Load
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tab Bar */}
       <div style={{ padding: "16px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
@@ -1041,6 +1134,7 @@ export default function GanttPlanner() {
         .import-btn { background: #005BAC; } .import-btn:hover { background: #004D99; }
         .reset-btn { background: #DC2626; } .reset-btn:hover { background: #B91C1C; }
         .save-btn { background: #7C3AED; } .save-btn:hover { background: #6D28D9; } .save-btn:disabled { background: #A78BFA; cursor: not-allowed; }
+        .open-btn { background: #0EA5E9; } .open-btn:hover { background: #0284C7; } .open-btn:disabled { background: #7DD3FC; cursor: not-allowed; }
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
         }

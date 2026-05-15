@@ -5,8 +5,46 @@ import { ganttProjects } from "@db/schema";
 import { publicQuery } from "./middleware";
 import { TRPCError } from "@trpc/server";
 
-/* ─── Gantt Project Save/Open Router — STEP 2: save only ─── */
+/* ─── Gantt Project Save/Open Router — STEP 3: save + list + get ─── */
 export const ganttProjectsRouter = {
+  /* List all saved projects (metadata only) */
+  list: publicQuery.query(async () => {
+    try {
+      const rows = await db
+        .select({
+          id: ganttProjects.id,
+          name: ganttProjects.name,
+          description: ganttProjects.description,
+          createdAt: ganttProjects.createdAt,
+          updatedAt: ganttProjects.updatedAt,
+        })
+        .from(ganttProjects)
+        .orderBy(desc(ganttProjects.updatedAt));
+      return { projects: rows, count: rows.length };
+    } catch (err: any) {
+      console.error("[ganttProjects.list] error:", err.message);
+      return { projects: [] as any[], count: 0 };
+    }
+  }),
+
+  /* Get full project (with tasks_data for loading) */
+  get: publicQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      try {
+        const rows = await db
+          .select()
+          .from(ganttProjects)
+          .where(eq(ganttProjects.id, input.id));
+        if (!rows.length) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        return rows[0];
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        console.error("[ganttProjects.get] error:", err.message);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to load project" });
+      }
+    }),
+
   save: publicQuery
     .input(
       z.object({
