@@ -699,7 +699,18 @@ export default function GanttPlanner() {
     },
     onError: (e) => setBanner({ type: "error", message: "Load failed: " + e.message }),
   });
+  /* ─── STEP 4: Rename + Delete hooks ─── */
+  const renameProjectMut = trpc.ganttProjects.rename.useMutation({
+    onSuccess: () => { utils.ganttProjects.list.invalidate(); setRenamingId(null); },
+    onError: (e) => setBanner({ type: "error", message: "Rename failed: " + e.message }),
+  });
+  const deleteProjectMut = trpc.ganttProjects.delete.useMutation({
+    onSuccess: () => { utils.ganttProjects.list.invalidate(); },
+    onError: (e) => setBanner({ type: "error", message: "Delete failed: " + e.message }),
+  });
   const [showOpenPanel, setShowOpenPanel] = useState(false);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   /* ─── Helpers ─── */
   const calcKpi = useCallback((tasks: any[]): KpiData => {
@@ -1070,19 +1081,34 @@ export default function GanttPlanner() {
                   <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, background: "#FAFBFC", border: "1px solid #F1F5F9" }}>
                     <span style={{ fontSize: 16 }}>📁</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#2D3748", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                      {renamingId === p.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter" && renameValue.trim()) { renameProjectMut.mutate({ id: p.id, name: renameValue.trim() }); } if (e.key === "Escape") setRenamingId(null); }}
+                          style={{ width: "100%", padding: "4px 8px", fontSize: 12, border: "1px solid #005BAC", borderRadius: 4, fontFamily: "Inter, sans-serif", boxSizing: "border-box" }}
+                        />
+                      ) : (
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#2D3748", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                      )}
                       <div style={{ fontSize: 10, color: "#94A3B8" }}>
                         {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ""}
                         {p.description ? " · " + p.description : ""}
                       </div>
                     </div>
-                    <button
-                      onClick={() => { loadProjectMut.mutate({ id: p.id }); setShowOpenPanel(false); }}
-                      disabled={loadProjectMut.isPending}
-                      style={{ padding: "5px 14px", fontSize: 11, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#005BAC", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", flexShrink: 0 }}
-                    >
-                      Load
-                    </button>
+                    {renamingId === p.id ? (
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        <button onClick={() => { if (renameValue.trim()) renameProjectMut.mutate({ id: p.id, name: renameValue.trim() }); }} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, background: "#1F9D55", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Save</button>
+                        <button onClick={() => setRenamingId(null)} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 600, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        <button onClick={() => { loadProjectMut.mutate({ id: p.id }); setShowOpenPanel(false); }} disabled={loadProjectMut.isPending} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 600, background: "#005BAC", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Load</button>
+                        <button onClick={() => { setRenamingId(p.id); setRenameValue(p.name); }} title="Rename" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 4, cursor: "pointer" }}>Rename</button>
+                        <button onClick={() => { if (confirm(`Delete "${p.name}"?`)) deleteProjectMut.mutate({ id: p.id }); }} title="Delete" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 4, cursor: "pointer" }}>Delete</button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

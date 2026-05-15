@@ -5,7 +5,7 @@ import { ganttProjects } from "@db/schema";
 import { publicQuery } from "./middleware";
 import { TRPCError } from "@trpc/server";
 
-/* ─── Gantt Project Save/Open Router — STEP 3: save + list + get ─── */
+/* ─── Gantt Project Save/Open Router — STEP 4: save + list + get + rename + delete ─── */
 export const ganttProjectsRouter = {
   /* List all saved projects (metadata only) */
   list: publicQuery.query(async () => {
@@ -69,6 +69,35 @@ export const ganttProjectsRouter = {
       } catch (err: any) {
         console.error("[ganttProjects.save] error:", err.message);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to save project" });
+      }
+    }),
+
+  /* Rename a project */
+  rename: publicQuery
+    .input(z.object({ id: z.number(), name: z.string().min(1).max(255) }))
+    .mutation(async ({ input }) => {
+      try {
+        await db
+          .update(ganttProjects)
+          .set({ name: input.name, updatedAt: new Date() })
+          .where(eq(ganttProjects.id, input.id));
+        return { success: true };
+      } catch (err: any) {
+        console.error("[ganttProjects.rename] error:", err.message);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to rename project" });
+      }
+    }),
+
+  /* Delete a project */
+  delete: publicQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      try {
+        await db.delete(ganttProjects).where(eq(ganttProjects.id, input.id));
+        return { success: true };
+      } catch (err: any) {
+        console.error("[ganttProjects.delete] error:", err.message);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to delete project" });
       }
     }),
 };
