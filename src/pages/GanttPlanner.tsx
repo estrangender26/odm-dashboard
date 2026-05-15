@@ -199,17 +199,23 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   const visibleFlat = useMemo(() => flattenVisible(visibleTree), [visibleTree]);
   const visibleTaskIds = useMemo(() => new Set(visibleFlat.map(v => v.task.id)), [visibleFlat]);
 
-  /* ResizeObserver for responsive container width */
+  /* ResizeObserver: measure the scroll container (visible area), not the inner timeline */
   useEffect(() => {
-    const el = timelineRef.current;
+    const el = scrollRef.current;
     if (!el) return;
+    const measure = () => {
+      setContainerWidth(Math.max(300, Math.floor(el.clientWidth)));
+    };
+    measure();
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         setContainerWidth(Math.max(300, Math.floor(entry.contentRect.width)));
       }
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    return () => { ro.disconnect(); window.removeEventListener("resize", measure); window.removeEventListener("orientationchange", measure); };
   }, []);
 
   /* Compute project range */
@@ -381,9 +387,9 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   }, [projectStart, projectEnd, dayWidth, zoomLevel]);
 
   const chartWidth = totalDays * dayWidth;
-  const rowHeight = 56;
-  const headerHeight = zoomLevel === "day" ? 52 : 40;
-  const chartHeight = Math.max(350, rows.length * rowHeight + headerHeight + 20);
+  const rowHeight = 42;
+  const headerHeight = zoomLevel === "day" ? 44 : 34;
+  const chartHeight = Math.max(300, rows.length * rowHeight + headerHeight + 12);
 
   if (!tasks.length) {
     return (
@@ -468,12 +474,12 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
 
       <div style={{ display: "flex", height: chartHeight, fontFamily: "Inter, sans-serif", fontSize: 12 }}>
         {/* Left: Task names column */}
-        <div className="gantt-task-col" style={{ width: 160, minWidth: 160, borderRight: "1px solid #E2E8F0", background: "#FAFBFC", display: "flex", flexDirection: "column", zIndex: 2 }}>
+        <div className="gantt-task-col" style={{ width: 200, minWidth: 200, borderRight: "1px solid #E2E8F0", background: "#FAFBFC", display: "flex", flexDirection: "column", zIndex: 2 }}>
           {/* Header */}
           <div style={{ height: headerHeight, borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", padding: "0 10px", fontWeight: 700, color: "#475569", fontSize: 11, background: "#F1F5F9" }}>
             Task Name
           </div>
-          {/* Task rows with hierarchy */}
+          {/* Task rows with hierarchy — multi-line wrapping */}
           {rows.map(({ task, level, hasChildren }) => (
             <div
               key={task.id}
@@ -481,34 +487,38 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                 height: rowHeight,
                 borderBottom: "1px solid #F1F5F9",
                 display: "flex",
-                alignItems: "center",
-                padding: "0 6px",
+                alignItems: "flex-start",
+                padding: "3px 6px",
                 paddingLeft: `${6 + level * 14}px`,
                 overflow: "hidden",
                 background: hasChildren ? "#F1F5F9" : "transparent",
               }}
             >
-              <span className="flex items-center gap-0.5 min-w-0 flex-1" style={{ overflow: "hidden" }}>
+              <span className="flex items-start gap-0.5 min-w-0 flex-1" style={{ overflow: "hidden", lineHeight: 1.35 }}>
                 {hasChildren && (
                   <button
                     type="button"
                     onClick={() => toggleExpand(task.id)}
                     className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded"
-                    style={{ fontSize: 9, lineHeight: 1, padding: 0 }}
+                    style={{ fontSize: 9, lineHeight: 1, padding: 0, marginTop: 1 }}
                   >
                     {expandedIds.has(task.id) ? "▸" : "▾"}
                   </button>
                 )}
                 {!hasChildren && <span className="w-3.5 flex-shrink-0" />}
                 <span
+                  className="gantt-task-name"
                   style={{
+                    display: "-webkit-box",
+                    WebkitBoxOrient: "vertical",
+                    WebkitLineClamp: 2,
                     overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
                     color: "#2D3748",
                     fontWeight: hasChildren ? 700 : 400,
                     fontSize: 11,
                     marginLeft: 2,
+                    lineHeight: 1.35,
+                    wordBreak: "break-word",
                   }}
                   title={task.text}
                 >
@@ -603,27 +613,27 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                 <div key={task.id}>
                   {isMilestone ? (
                     /* Milestone: diamond only */
-                    <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 7, top: top + rowHeight / 2 - 7, zIndex: 2, transition: "left 0.25s ease-out" }}>
-                      <div style={{ width: 14, height: 14, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
+                    <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 6, top: top + rowHeight / 2 - 6, zIndex: 2, transition: "left 0.25s ease-out" }}>
+                      <div style={{ width: 12, height: 12, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
                     </div>
                   ) : (
                     <>
                       {/* Planned bar (top) */}
                       {plannedLeft !== null && plannedWidth !== null && (
-                        <div style={{ position: "absolute", left: plannedLeft, top: top + 6, height: 18, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
-                          <div style={{ width: Math.max(plannedWidth, 2), height: 16, background: "rgba(147,197,253,0.35)", border: "1px dashed #60A5FA", borderRadius: 3, position: "relative" }}>
-                            {plannedWidth > 50 && (
-                              <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 600, color: "#3B82F6", whiteSpace: "nowrap" }}>Planned</span>
+                        <div style={{ position: "absolute", left: plannedLeft, top: top + 4, height: 15, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                          <div style={{ width: Math.max(plannedWidth, 2), height: 13, background: "rgba(147,197,253,0.35)", border: "1px dashed #60A5FA", borderRadius: 3, position: "relative" }}>
+                            {plannedWidth > 40 && (
+                              <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: "#3B82F6", whiteSpace: "nowrap" }}>Planned</span>
                             )}
                           </div>
                         </div>
                       )}
                       {/* Actual bar (bottom) */}
                       {actualLeft !== null && actualWidth !== null ? (
-                        <div style={{ position: "absolute", left: actualLeft, top: top + 30, height: 18, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
-                          <div style={{ width: Math.max(actualWidth, 2), height: 16, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 3, position: "relative" }}>
-                            {actualWidth > 50 && (
-                              <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 600, color: isDelayed ? "#DC2626" : "#15803D", whiteSpace: "nowrap" }}>
+                        <div style={{ position: "absolute", left: actualLeft, top: top + 22, height: 15, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                          <div style={{ width: Math.max(actualWidth, 2), height: 13, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 3, position: "relative" }}>
+                            {actualWidth > 40 && (
+                              <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: isDelayed ? "#DC2626" : "#15803D", whiteSpace: "nowrap" }}>
                                 {isDelayed ? "Delayed" : `${normProgress(task.progress)}%`}
                               </span>
                             )}
@@ -632,8 +642,8 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                       ) : (
                         /* No actual data yet */
                         plannedLeft !== null && (
-                          <div style={{ position: "absolute", left: plannedLeft, top: top + 30, zIndex: 1, transition: "left 0.25s ease-out" }}>
-                            <span style={{ fontSize: 8, color: "#CBD5E1", fontStyle: "italic" }}>No actual yet</span>
+                          <div style={{ position: "absolute", left: plannedLeft, top: top + 22, zIndex: 1, transition: "left 0.25s ease-out" }}>
+                            <span style={{ fontSize: 7, color: "#CBD5E1", fontStyle: "italic" }}>No actual yet</span>
                           </div>
                         )
                       )}
@@ -1320,7 +1330,8 @@ export default function GanttPlanner() {
           .gantt-modal { max-width: 100% !important; padding: 16px 20px !important; }
           .gantt-chart-legend { gap: 10px !important; font-size: 10px !important; }
           .gantt-chart-legend-label { display: none !important; }
-          .gantt-task-col { width: 120px !important; min-width: 120px !important; }
+          .gantt-task-col { width: 160px !important; min-width: 160px !important; }
+          .gantt-task-name { font-size: 10px !important; }
           .gantt-zoom-info { display: none !important; }
         }
 
@@ -1334,7 +1345,8 @@ export default function GanttPlanner() {
           .gantt-tab-btn { padding: 5px 6px !important; font-size: 10px !important; }
           .gantt-tab-btn .tab-label { display: none; }
           .gantt-chart-legend { display: none !important; }
-          .gantt-task-col { width: 100px !important; min-width: 100px !important; }
+          .gantt-task-col { width: 130px !important; min-width: 130px !important; }
+          .gantt-task-name { font-size: 9px !important; }
         }
 
         @keyframes ganttSpin { to { transform: rotate(360deg); } }
