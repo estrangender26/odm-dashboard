@@ -150,6 +150,26 @@ const ZOOM_DAY_WIDTH: Record<Exclude<ZoomLevel, "autofit">, number> = {
   year: 0.5, quarter: 2, month: 5, week: 16, day: 48,
 };
 
+/* ─── Spinner Components ─── */
+function Spinner({ size = 24, color = "#005BAC" }: { size?: number; color?: string }) {
+  return (
+    <div style={{ width: size, height: size, position: "relative" }}>
+      <svg width={size} height={size} viewBox="0 0 24 24" style={{ animation: "ganttSpin 1s linear infinite" }}>
+        <circle cx="12" cy="12" r="10" fill="none" stroke={`${color}30`} strokeWidth="3" />
+        <circle cx="12" cy="12" r="10" fill="none" stroke={color} strokeWidth="3" strokeDasharray="30 70" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+}
+function SpinnerInline({ color = "#005BAC" }: { color?: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" style={{ animation: "ganttSpin 0.8s linear infinite", flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="10" fill="none" stroke={`${color}50`} strokeWidth="3" />
+      <circle cx="12" cy="12" r="10" fill="none" stroke={color} strokeWidth="3" strokeDasharray="30 70" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /* ─── Native Gantt Chart Component — Planned vs Actual dual bars ─── */
 function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -660,6 +680,8 @@ export default function GanttPlanner() {
     onError: (e) => setBanner({ type: "error", message: "Save failed: " + e.message }),
   });
   const loadProjectMut = trpc.ganttProjects.get.useMutation({
+    onMutate: ({ id }: { id: number }) => { setLoadingProjectId(id); },
+    onSettled: () => { setLoadingProjectId(null); },
     onSuccess: (data) => {
       try {
         const parsed = JSON.parse(data.tasksData);
@@ -709,6 +731,7 @@ export default function GanttPlanner() {
   const [projectName, setProjectName] = useState("");
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [loadingProjectId, setLoadingProjectId] = useState<number | null>(null);
 
   /* Save handler — serialize current tasks and save */
   const handleSaveProject = useCallback(() => {
@@ -1078,11 +1101,19 @@ export default function GanttPlanner() {
 
       {/* ─── Save Project Modal ─── */}
       {saveModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) setSaveModal(false); }}>
-          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 440, padding: "24px 28px", fontFamily: "Inter, sans-serif" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget && !saveProjectMut.isPending) setSaveModal(false); }}>
+          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 440, padding: "24px 28px", fontFamily: "Inter, sans-serif", position: "relative", overflow: "hidden" }}>
+            {/* Save progress overlay */}
+            {saveProjectMut.isPending && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.85)", zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, borderRadius: 12 }}>
+                <Spinner size={36} color="#1F9D55" />
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#16324F" }}>Saving project...</span>
+                <span style={{ fontSize: 11, color: "#94A3B8" }}>Please wait</span>
+              </div>
+            )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>Save Project</h3>
-              <button onClick={() => setSaveModal(false)} style={{ background: "none", border: "none", fontSize: 20, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
+              <button onClick={() => { if (!saveProjectMut.isPending) setSaveModal(false); }} disabled={saveProjectMut.isPending} style={{ background: "none", border: "none", fontSize: 20, color: saveProjectMut.isPending ? "#D1D5DB" : "#94A3B8", cursor: saveProjectMut.isPending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
             </div>
             <p style={{ margin: "0 0 14px", fontSize: 12, color: "#5A6B7D" }}>Save the current Gantt chart as a named project you can reopen later.</p>
             <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Project Name *</label>
@@ -1090,19 +1121,24 @@ export default function GanttPlanner() {
               autoFocus
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && projectName.trim()) handleSaveProject(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && projectName.trim() && !saveProjectMut.isPending) handleSaveProject(); }}
               placeholder="e.g., Q2 Maintenance Plan"
-              style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: "1px solid #D6DFE8", borderRadius: 6, fontFamily: "Inter, sans-serif", boxSizing: "border-box", marginBottom: 4 }}
+              disabled={saveProjectMut.isPending}
+              style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: "1px solid #D6DFE8", borderRadius: 6, fontFamily: "Inter, sans-serif", boxSizing: "border-box", marginBottom: 4, opacity: saveProjectMut.isPending ? 0.5 : 1 }}
             />
-            {saveProjectMut.isPending && <p style={{ margin: "8px 0 0", fontSize: 11, color: "#005BAC" }}>Saving...</p>}
             <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
-              <button onClick={() => setSaveModal(false)} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => { if (!saveProjectMut.isPending) setSaveModal(false); }} disabled={saveProjectMut.isPending} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: saveProjectMut.isPending ? "#F8FAFC" : "#F1F5F9", color: saveProjectMut.isPending ? "#B0B8C4" : "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: saveProjectMut.isPending ? "not-allowed" : "pointer" }}>Cancel</button>
               <button
                 onClick={handleSaveProject}
                 disabled={!projectName.trim() || saveProjectMut.isPending}
-                style={{ padding: "8px 22px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: projectName.trim() ? "#1F9D55" : "#94A3B8", color: "#fff", border: "none", borderRadius: 6, cursor: projectName.trim() ? "pointer" : "not-allowed", transition: "all .15s" }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 22px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: projectName.trim() && !saveProjectMut.isPending ? "#1F9D55" : "#94A3B8", color: "#fff", border: "none", borderRadius: 6, cursor: projectName.trim() && !saveProjectMut.isPending ? "pointer" : "not-allowed", transition: "all .15s" }}
               >
-                {saveProjectMut.isPending ? "Saving..." : "Save Project"}
+                {saveProjectMut.isPending ? (
+                  <>
+                    <SpinnerInline color="#fff" />
+                    Saving...
+                  </>
+                ) : "Save Project"}
               </button>
             </div>
           </div>
@@ -1118,7 +1154,12 @@ export default function GanttPlanner() {
               <button onClick={() => { setLoadModal(false); setRenamingId(null); }} style={{ background: "none", border: "none", fontSize: 20, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
             </div>
             <div style={{ padding: "16px 24px", flex: 1, overflow: "auto" }}>
-              {(!projectsList || projectsList.length === 0) ? (
+              {projectsListData === undefined ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 20px", gap: 12 }}>
+                  <Spinner size={28} color="#005BAC" />
+                  <span style={{ fontSize: 12, color: "#94A3B8" }}>Loading saved projects...</span>
+                </div>
+              ) : (!projectsList || projectsList.length === 0) ? (
                 <div style={{ textAlign: "center", padding: "40px 20px" }}>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>📂</div>
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#475569" }}>No saved projects yet</p>
@@ -1157,7 +1198,26 @@ export default function GanttPlanner() {
                           </>
                         ) : (
                           <>
-                            <button onClick={() => loadProjectMut.mutate({ id: p.id })} title="Load" style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: "#005BAC", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Open</button>
+                            <button
+                              onClick={() => { if (!loadProjectMut.isPending) loadProjectMut.mutate({ id: p.id }); }}
+                              disabled={loadProjectMut.isPending}
+                              title="Load"
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 4,
+                                padding: "5px 12px", fontSize: 11, fontWeight: 600,
+                                background: loadingProjectId === p.id ? "#93C5FD" : "#005BAC",
+                                color: "#fff", border: "none", borderRadius: 4,
+                                cursor: loadProjectMut.isPending ? "not-allowed" : "pointer",
+                                transition: "all .2s", minWidth: 52, justifyContent: "center",
+                              }}
+                            >
+                              {loadingProjectId === p.id ? (
+                                <>
+                                  <SpinnerInline color="#fff" />
+                                  <span>Loading</span>
+                                </>
+                              ) : "Open"}
+                            </button>
                             <button onClick={() => { setRenamingId(p.id); setRenameValue(p.name); }} title="Rename" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 4, cursor: "pointer" }}>✎</button>
                             <button onClick={() => { if (confirm(`Delete "${p.name}"?`)) deleteProjectMut.mutate({ id: p.id }); }} title="Delete" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 4, cursor: "pointer" }}>🗑</button>
                           </>
@@ -1197,6 +1257,7 @@ export default function GanttPlanner() {
           .gantt-action-btn span { display: none; }
           .gantt-action-btn { padding: 6px 8px; }
         }
+        @keyframes ganttSpin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
