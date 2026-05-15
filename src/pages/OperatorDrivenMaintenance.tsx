@@ -4,6 +4,20 @@ import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 
+/* ── IMMEDIATE REDIRECT: this React page is deprecated ──
+   The stable HTML dashboard lives at /mw-dashboard (served by Hono).
+   Redirect there immediately to avoid showing the broken React version. */
+function OdmImmediateRedirect() {
+  useEffect(() => { window.location.replace('/mw-dashboard'); }, []);
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, fontFamily: 'Inter, sans-serif', color: '#5A6B7D' }}>
+      <div style={{ width: 32, height: 32, border: '3px solid #E2E8F0', borderTop: '3px solid #005BAC', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <span style={{ fontSize: 13 }}>Loading Operator-Driven Maintenance...</span>
+    </div>
+  );
+}
+
 // ── Types ──
 interface InspectionRecord {
   id: number;
@@ -153,6 +167,15 @@ export default function OperatorDrivenMaintenance() {
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [view, setView] = useState<"table" | "ai">("table");
 
+  // ── IMMEDIATE REDIRECT to stable HTML dashboard ──
+  // This React page is deprecated. The stable HTML dashboard at /mw-dashboard
+  // is served directly by Hono and has full database integration.
+  useEffect(() => { window.location.replace('/mw-dashboard'); }, []);
+
+  // Show redirect spinner while navigating (prevents broken UI flash)
+  return <OdmImmediateRedirect />;
+
+  // ── The rest of this component is dead code (never reached) ──
   // Fetch data
   const { data: records, isLoading } = trpc.mw.list.useQuery();
   const rawRecords: InspectionRecord[] = useMemo(() => (records as InspectionRecord[]) || [], [records]);
