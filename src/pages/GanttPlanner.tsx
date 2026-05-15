@@ -618,20 +618,20 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                     </div>
                   ) : (
                     <>
-                      {/* Planned bar (top) */}
+                      {/* Planned bar (top) — flush with actual bar below */}
                       {plannedLeft !== null && plannedWidth !== null && (
-                        <div style={{ position: "absolute", left: plannedLeft, top: top + 4, height: 15, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
-                          <div style={{ width: Math.max(plannedWidth, 2), height: 13, background: "rgba(147,197,253,0.35)", border: "1px dashed #60A5FA", borderRadius: 3, position: "relative" }}>
+                        <div style={{ position: "absolute", left: plannedLeft, top: top + 4, height: 14, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                          <div style={{ width: Math.max(plannedWidth, 2), height: 14, background: "rgba(147,197,253,0.35)", border: "1px dashed #60A5FA", borderRadius: 2, position: "relative" }}>
                             {plannedWidth > 40 && (
                               <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: "#3B82F6", whiteSpace: "nowrap" }}>Planned</span>
                             )}
                           </div>
                         </div>
                       )}
-                      {/* Actual bar (bottom) */}
+                      {/* Actual bar (bottom) — touching planned bar above with zero gap */}
                       {actualLeft !== null && actualWidth !== null ? (
-                        <div style={{ position: "absolute", left: actualLeft, top: top + 22, height: 15, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
-                          <div style={{ width: Math.max(actualWidth, 2), height: 13, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 3, position: "relative" }}>
+                        <div style={{ position: "absolute", left: actualLeft, top: top + 18, height: 14, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                          <div style={{ width: Math.max(actualWidth, 2), height: 14, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 2, position: "relative" }}>
                             {actualWidth > 40 && (
                               <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: isDelayed ? "#DC2626" : "#15803D", whiteSpace: "nowrap" }}>
                                 {isDelayed ? "Delayed" : `${normProgress(task.progress)}%`}
@@ -642,7 +642,7 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                       ) : (
                         /* No actual data yet */
                         plannedLeft !== null && (
-                          <div style={{ position: "absolute", left: plannedLeft, top: top + 22, zIndex: 1, transition: "left 0.25s ease-out" }}>
+                          <div style={{ position: "absolute", left: plannedLeft, top: top + 18, zIndex: 1, transition: "left 0.25s ease-out" }}>
                             <span style={{ fontSize: 7, color: "#CBD5E1", fontStyle: "italic" }}>No actual yet</span>
                           </div>
                         )
