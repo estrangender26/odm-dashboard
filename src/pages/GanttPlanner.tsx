@@ -708,11 +708,15 @@ export default function GanttPlanner() {
                 });
               });
               setBanner({ type: "success", message: `Loaded "${data.name}" — ${parsed.length} task(s).` });
+              setCurrentProjectId(data.id);
+              setCurrentProjectName(data.name);
             }
           });
         } else {
           setBanner({ type: "info", message: "Project is empty — no tasks to load." });
         }
+        setCurrentProjectId(data.id);
+        setCurrentProjectName(data.name);
         setLoadModal(false);
       } catch (e: any) { setBanner({ type: "error", message: "Failed to parse project data: " + e.message }); }
     },
@@ -727,24 +731,47 @@ export default function GanttPlanner() {
 
   /* Save/Open modal state */
   const [saveModal, setSaveModal] = useState(false);
+  const [isSaveAs, setIsSaveAs] = useState(false);
   const [loadModal, setLoadModal] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [loadingProjectId, setLoadingProjectId] = useState<number | null>(null);
+  const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
+  const [currentProjectName, setCurrentProjectName] = useState<string>("");
 
-  /* Save handler — serialize current tasks and save */
+  /* Quick Save — update existing project without modal */
+  const handleQuickSave = useCallback(() => {
+    if (!currentProjectId) { setSaveModal(true); setIsSaveAs(false); setProjectName(""); return; }
+    const currentTasks = tasksQuery.data || [];
+    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save. Add tasks first." }); return; }
+    const tasksJson = JSON.stringify(currentTasks);
+    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
+    saveProjectMut.mutate(
+      { id: currentProjectId, name: currentProjectName, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` },
+      { onSuccess: () => setBanner({ type: "success", message: `"${currentProjectName}" updated.` }) }
+    );
+  }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
+
+  /* Save As / New Save — show modal then create */
   const handleSaveProject = useCallback(() => {
     const name = projectName.trim();
     if (!name) return;
     const currentTasks = tasksQuery.data || [];
-    if (currentTasks.length === 0) {
-      setBanner({ type: "error", message: "No tasks to save. Add tasks first." });
-      return;
-    }
+    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save. Add tasks first." }); return; }
     const tasksJson = JSON.stringify(currentTasks);
     const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
-    saveProjectMut.mutate({ name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` });
+    // Save As always creates new; regular Save (no current project) also creates new
+    saveProjectMut.mutate(
+      { name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` },
+      {
+        onSuccess: (data: any) => {
+          setCurrentProjectId(data.id);
+          setCurrentProjectName(data.name);
+          setBanner({ type: "success", message: `"${data.name}" saved.` });
+        },
+      }
+    );
   }, [projectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
 
   /* ─── Helpers ─── */
@@ -1031,7 +1058,9 @@ export default function GanttPlanner() {
           <ProgramsEngineeringLogo size={48} borderRadius={8} />
           <div>
             <div style={{ fontSize: "15px", fontWeight: 700, color: "#fff", letterSpacing: "-0.3px" }}>Gantt Charts</div>
-            <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>O &amp;M Project Schedule Visualization</div>
+            <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              {currentProjectId ? `📁 ${currentProjectName}` : "O & M Project Schedule Visualization"}
+            </div>
           </div>
         </Link>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1044,14 +1073,20 @@ export default function GanttPlanner() {
             <span>Import Excel</span>
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) importExcel(e.target.files[0]); }} />
-          <button onClick={() => { if (confirm("Reset all tasks and links?")) resetMut.mutate(); }} className="gantt-action-btn reset-btn" title="Reset all data">
+          <button onClick={() => { if (confirm("Reset all tasks and links?")) { resetMut.mutate(); setCurrentProjectId(null); setCurrentProjectName(""); } }} className="gantt-action-btn reset-btn" title="Reset all data">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
             <span>Reset</span>
           </button>
           <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
-          <button onClick={() => { setSaveModal(true); setProjectName(""); }} className="gantt-action-btn" title="Save project" style={{ background: "rgba(255,255,255,0.12)" }}>
+          {/* Save — quick-save existing, or prompt if new */}
+          <button onClick={handleQuickSave} className="gantt-action-btn" title={currentProjectId ? `Update "${currentProjectName}"` : "Save project"} style={{ background: "rgba(255,255,255,0.12)" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            <span>Save</span>
+            <span>{currentProjectId ? "Save" : "Save"}</span>
+          </button>
+          {/* Save As — always create new */}
+          <button onClick={() => { setSaveModal(true); setIsSaveAs(true); setProjectName(currentProjectName ? currentProjectName + " Copy" : ""); }} className="gantt-action-btn" title="Save as new project" style={{ background: "rgba(255,255,255,0.08)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/><line x1="16" y1="8" x2="16" y2="12"/><line x1="14" y1="10" x2="18" y2="10"/></svg>
+            <span>Save As</span>
           </button>
           <button onClick={() => setLoadModal(true)} className="gantt-action-btn" title="Open saved project" style={{ background: "rgba(255,255,255,0.12)" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -1112,7 +1147,7 @@ export default function GanttPlanner() {
               </div>
             )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>Save Project</h3>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>{isSaveAs ? "Save As New Project" : "Save Project"}</h3>
               <button onClick={() => { if (!saveProjectMut.isPending) setSaveModal(false); }} disabled={saveProjectMut.isPending} style={{ background: "none", border: "none", fontSize: 20, color: saveProjectMut.isPending ? "#D1D5DB" : "#94A3B8", cursor: saveProjectMut.isPending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
             </div>
             <p style={{ margin: "0 0 14px", fontSize: 12, color: "#5A6B7D" }}>Save the current Gantt chart as a named project you can reopen later.</p>
