@@ -64,8 +64,8 @@ export const ganttRouter = createRouter({
         await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
         return { id: input.id, action: "updated" };
       } else {
-        const result = await db.insert(ganttTasks).values(setData);
-        return { id: Number(result[0].insertId), action: "created" };
+        const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
+        return { id: result[0].id, action: "created" };
       }
     }),
 
@@ -103,8 +103,8 @@ export const ganttRouter = createRouter({
           source: input.source,
           target: input.target,
           type: input.type,
-        });
-        return { id: Number(result[0].insertId), action: "created" };
+        }).returning({ id: ganttLinks.id });
+        return { id: result[0].id, action: "created" };
       }
     }),
 
