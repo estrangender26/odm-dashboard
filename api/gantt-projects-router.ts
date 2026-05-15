@@ -28,9 +28,10 @@ export const ganttProjectsRouter = {
   }),
 
   // ── Get full project (with tasks_data) ──
+  // Defined as mutation so it can be called on-demand from the UI
   get: publicQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       try {
         const rows = await db
           .select()

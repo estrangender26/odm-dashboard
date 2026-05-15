@@ -636,6 +636,27 @@ export default function GanttPlanner() {
     totalTasks: 0, completed: 0, inProgress: 0, overdue: 0, completionRate: 0, avgDuration: 0,
   });
 
+  /* Save/Open modal state */
+  const [saveModal, setSaveModal] = useState(false);
+  const [loadModal, setLoadModal] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  /* Save handler — serialize current tasks and save */
+  const handleSaveProject = useCallback(() => {
+    const name = projectName.trim();
+    if (!name) return;
+    const currentTasks = tasksQuery.data || [];
+    if (currentTasks.length === 0) {
+      setBanner({ type: "error", message: "No tasks to save. Add tasks first." });
+      return;
+    }
+    const tasksJson = JSON.stringify(currentTasks);
+    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
+    saveProjectMut.mutate({ name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` });
+  }, [projectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
+
   /* tRPC queries */
   const tasksQuery = trpc.gantt.tasks.useQuery();
   const linksQuery = trpc.gantt.links.useQuery();
@@ -650,6 +671,58 @@ export default function GanttPlanner() {
   });
   const seedMut = trpc.gantt.seed.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
+  });
+
+  /* ─── Gantt Project Save/Open ─── */
+  const { data: projectsListData } = trpc.ganttProjects.list.useQuery(undefined, { retry: 1 });
+  const projectsList = projectsListData?.projects || [];
+  const saveProjectMut = trpc.ganttProjects.save.useMutation({
+    onSuccess: () => { utils.ganttProjects.list.invalidate(); setSaveModal(false); setProjectName(""); setBanner({ type: "success", message: "Project saved successfully." }); },
+    onError: (e) => setBanner({ type: "error", message: "Save failed: " + e.message }),
+  });
+  const loadProjectMut = trpc.ganttProjects.get.useMutation({
+    onSuccess: (data) => {
+      try {
+        const parsed = JSON.parse(data.tasksData);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Replace current tasks: first reset, then seed with loaded tasks
+          resetMut.mutate(undefined, {
+            onSuccess: () => {
+              parsed.forEach((t: any, idx: number) => {
+                saveTaskMut.mutate({
+                  text: t.text || "",
+                  owner: t.owner || null,
+                  start_date: t.startDate || t.start_date || null,
+                  end_date: t.endDate || t.end_date || null,
+                  planned_start: t.plannedStart || t.planned_start || t.plannedStartDate || null,
+                  planned_end: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
+                  duration: t.duration || 1,
+                  progress: normProgress(t.progress),
+                  parent: t.parent || 0,
+                  type: t.type || "task",
+                  status: t.status || null,
+                  remarks: t.remarks || t.notes || null,
+                  category: t.category || null,
+                  open: t.open ?? 1,
+                  sortorder: t.sortorder ?? idx,
+                });
+              });
+              setBanner({ type: "success", message: `Loaded "${data.name}" — ${parsed.length} task(s).` });
+            }
+          });
+        } else {
+          setBanner({ type: "info", message: "Project is empty — no tasks to load." });
+        }
+        setLoadModal(false);
+      } catch (e: any) { setBanner({ type: "error", message: "Failed to parse project data: " + e.message }); }
+    },
+    onError: (e) => setBanner({ type: "error", message: "Load failed: " + e.message }),
+  });
+  const deleteProjectMut = trpc.ganttProjects.delete.useMutation({
+    onSuccess: () => utils.ganttProjects.list.invalidate(),
+  });
+  const renameProjectMut = trpc.ganttProjects.rename.useMutation({
+    onSuccess: () => utils.ganttProjects.list.invalidate(),
   });
 
   /* ─── Helpers ─── */
@@ -953,6 +1026,15 @@ export default function GanttPlanner() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
             <span>Reset</span>
           </button>
+          <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
+          <button onClick={() => { setSaveModal(true); setProjectName(""); }} className="gantt-action-btn" title="Save project" style={{ background: "rgba(255,255,255,0.12)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            <span>Save</span>
+          </button>
+          <button onClick={() => setLoadModal(true)} className="gantt-action-btn" title="Open saved project" style={{ background: "rgba(255,255,255,0.12)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span>Open</span>
+          </button>
         </div>
       </header>
 
@@ -990,10 +1072,106 @@ export default function GanttPlanner() {
           </div>
         )}
 
-        {activeTab === "tasks" && <TaskListTab tasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} />}
+        {activeTab === "tasks" && <TaskListTab tasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} />}
 
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
       </div>
+
+      {/* ─── Save Project Modal ─── */}
+      {saveModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) setSaveModal(false); }}>
+          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 440, padding: "24px 28px", fontFamily: "Inter, sans-serif" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>Save Project</h3>
+              <button onClick={() => setSaveModal(false)} style={{ background: "none", border: "none", fontSize: 20, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
+            </div>
+            <p style={{ margin: "0 0 14px", fontSize: 12, color: "#5A6B7D" }}>Save the current Gantt chart as a named project you can reopen later.</p>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Project Name *</label>
+            <input
+              autoFocus
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && projectName.trim()) handleSaveProject(); }}
+              placeholder="e.g., Q2 Maintenance Plan"
+              style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: "1px solid #D6DFE8", borderRadius: 6, fontFamily: "Inter, sans-serif", boxSizing: "border-box", marginBottom: 4 }}
+            />
+            {saveProjectMut.isPending && <p style={{ margin: "8px 0 0", fontSize: 11, color: "#005BAC" }}>Saving...</p>}
+            <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
+              <button onClick={() => setSaveModal(false)} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+              <button
+                onClick={handleSaveProject}
+                disabled={!projectName.trim() || saveProjectMut.isPending}
+                style={{ padding: "8px 22px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: projectName.trim() ? "#1F9D55" : "#94A3B8", color: "#fff", border: "none", borderRadius: 6, cursor: projectName.trim() ? "pointer" : "not-allowed", transition: "all .15s" }}
+              >
+                {saveProjectMut.isPending ? "Saving..." : "Save Project"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Open Project Modal ─── */}
+      {loadModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) setLoadModal(false); }}>
+          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 520, maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: "Inter, sans-serif" }}>
+            <div style={{ padding: "20px 24px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>Open Saved Project</h3>
+              <button onClick={() => { setLoadModal(false); setRenamingId(null); }} style={{ background: "none", border: "none", fontSize: 20, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
+            </div>
+            <div style={{ padding: "16px 24px", flex: 1, overflow: "auto" }}>
+              {(!projectsList || projectsList.length === 0) ? (
+                <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>📂</div>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#475569" }}>No saved projects yet</p>
+                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "#94A3B8" }}>Save a project to see it here.</p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {projectsList.map((p: any) => (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, border: "1px solid #E2E8F0", background: "#FAFBFC", transition: "background .15s" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#EFF6FF")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "#FAFBFC")}
+                    >
+                      <div style={{ fontSize: 20, flexShrink: 0 }}>📁</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {renamingId === p.id ? (
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter" && renameValue.trim()) { renameProjectMut.mutate({ id: p.id, name: renameValue.trim() }); setRenamingId(null); } if (e.key === "Escape") setRenamingId(null); }}
+                            style={{ width: "100%", padding: "5px 8px", fontSize: 12, border: "1px solid #005BAC", borderRadius: 4, fontFamily: "Inter, sans-serif", boxSizing: "border-box" }}
+                          />
+                        ) : (
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#2D3748", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                        )}
+                        <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>
+                          {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ""}
+                          {p.description ? " · " + p.description : ""}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {renamingId === p.id ? (
+                          <>
+                            <button onClick={() => { if (renameValue.trim()) { renameProjectMut.mutate({ id: p.id, name: renameValue.trim() }); setRenamingId(null); } }} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "#1F9D55", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Save</button>
+                            <button onClick={() => setRenamingId(null)} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer" }}>Cancel</button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => loadProjectMut.mutate({ id: p.id })} title="Load" style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: "#005BAC", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Open</button>
+                            <button onClick={() => { setRenamingId(p.id); setRenameValue(p.name); }} title="Rename" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 4, cursor: "pointer" }}>✎</button>
+                            <button onClick={() => { if (confirm(`Delete "${p.name}"?`)) deleteProjectMut.mutate({ id: p.id }); }} title="Delete" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 4, cursor: "pointer" }}>🗑</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer style={{ borderTop: "1px solid #D6DFE8", padding: "16px 24px", textAlign: "right", fontSize: 11, color: "#5A6B7D" }}>
@@ -1093,7 +1271,7 @@ function statusBadge(status: string) {
   return <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: "nowrap" }}>{status}</span>;
 }
 
-function TaskListTab({ tasks, saveTask, deleteTask }: { tasks: any[]; saveTask: any; deleteTask: any }) {
+function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[]; saveTask: any; deleteTask: any; setBanner: (b: {type: "error" | "success" | "info"; message: string} | null) => void }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
   const [showAdd, setShowAdd] = useState(false);
