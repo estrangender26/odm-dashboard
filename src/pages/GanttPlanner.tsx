@@ -636,28 +636,7 @@ export default function GanttPlanner() {
     totalTasks: 0, completed: 0, inProgress: 0, overdue: 0, completionRate: 0, avgDuration: 0,
   });
 
-  /* Save/Open modal state */
-  const [saveModal, setSaveModal] = useState(false);
-  const [loadModal, setLoadModal] = useState(false);
-  const [projectName, setProjectName] = useState("");
-  const [renamingId, setRenamingId] = useState<number | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-
-  /* Save handler — serialize current tasks and save */
-  const handleSaveProject = useCallback(() => {
-    const name = projectName.trim();
-    if (!name) return;
-    const currentTasks = tasksQuery.data || [];
-    if (currentTasks.length === 0) {
-      setBanner({ type: "error", message: "No tasks to save. Add tasks first." });
-      return;
-    }
-    const tasksJson = JSON.stringify(currentTasks);
-    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
-    saveProjectMut.mutate({ name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` });
-  }, [projectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
-
-  /* tRPC queries */
+  /* tRPC queries — MUST be declared before any callbacks that reference them */
   const tasksQuery = trpc.gantt.tasks.useQuery();
   const linksQuery = trpc.gantt.links.useQuery();
   const utils = trpc.useUtils();
@@ -673,7 +652,7 @@ export default function GanttPlanner() {
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
 
-  /* ─── Gantt Project Save/Open ─── */
+  /* ─── Gantt Project Save/Open hooks ─── */
   const { data: projectsListData } = trpc.ganttProjects.list.useQuery(undefined, { retry: 1 });
   const projectsList = projectsListData?.projects || [];
   const saveProjectMut = trpc.ganttProjects.save.useMutation({
@@ -685,7 +664,6 @@ export default function GanttPlanner() {
       try {
         const parsed = JSON.parse(data.tasksData);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Replace current tasks: first reset, then seed with loaded tasks
           resetMut.mutate(undefined, {
             onSuccess: () => {
               parsed.forEach((t: any, idx: number) => {
@@ -724,6 +702,27 @@ export default function GanttPlanner() {
   const renameProjectMut = trpc.ganttProjects.rename.useMutation({
     onSuccess: () => utils.ganttProjects.list.invalidate(),
   });
+
+  /* Save/Open modal state */
+  const [saveModal, setSaveModal] = useState(false);
+  const [loadModal, setLoadModal] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  /* Save handler — serialize current tasks and save */
+  const handleSaveProject = useCallback(() => {
+    const name = projectName.trim();
+    if (!name) return;
+    const currentTasks = tasksQuery.data || [];
+    if (currentTasks.length === 0) {
+      setBanner({ type: "error", message: "No tasks to save. Add tasks first." });
+      return;
+    }
+    const tasksJson = JSON.stringify(currentTasks);
+    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
+    saveProjectMut.mutate({ name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` });
+  }, [projectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
 
   /* ─── Helpers ─── */
   const calcKpi = useCallback((tasks: any[]): KpiData => {
