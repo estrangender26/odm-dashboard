@@ -662,6 +662,7 @@ export default function GanttPlanner() {
   const utils = trpc.useUtils();
 
   const saveTaskMut = trpc.gantt.saveTask.useMutation({ onSuccess: () => utils.gantt.tasks.invalidate() });
+  const saveTaskBatchMut = trpc.gantt.saveTask.useMutation(); // no auto-invalidate — for batch loading
   const deleteTaskMut = trpc.gantt.deleteTask.useMutation({ onSuccess: () => utils.gantt.tasks.invalidate() });
   const saveLinkMut = trpc.gantt.saveLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
   const deleteLinkMut = trpc.gantt.deleteLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
@@ -682,36 +683,38 @@ export default function GanttPlanner() {
   const loadProjectMut = trpc.ganttProjects.get.useMutation({
     onMutate: ({ id }: { id: number }) => { setLoadingProjectId(id); },
     onSettled: () => { setLoadingProjectId(null); },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       try {
         const parsed = JSON.parse(data.tasksData);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          resetMut.mutate(undefined, {
-            onSuccess: () => {
-              parsed.forEach((t: any, idx: number) => {
-                saveTaskMut.mutate({
-                  text: t.text || "",
-                  owner: t.owner || null,
-                  start_date: t.startDate || t.start_date || null,
-                  end_date: t.endDate || t.end_date || null,
-                  planned_start: t.plannedStart || t.planned_start || t.plannedStartDate || null,
-                  planned_end: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
-                  duration: t.duration || 1,
-                  progress: normProgress(t.progress),
-                  parent: t.parent || 0,
-                  type: t.type || "task",
-                  status: t.status || null,
-                  remarks: t.remarks || t.notes || null,
-                  category: t.category || null,
-                  open: t.open ?? 1,
-                  sortorder: t.sortorder ?? idx,
-                });
-              });
-              setBanner({ type: "success", message: `Loaded "${data.name}" — ${parsed.length} task(s).` });
-              setCurrentProjectId(data.id);
-              setCurrentProjectName(data.name);
-            }
-          });
+          // Reset first, then batch-insert all tasks with Promise.all
+          await resetMut.mutateAsync(undefined);
+          const saves = parsed.map((t: any, idx: number) =>
+            saveTaskBatchMut.mutateAsync({
+              text: t.text || "",
+              owner: t.owner || null,
+              start_date: t.startDate || t.start_date || null,
+              end_date: t.endDate || t.end_date || null,
+              planned_start: t.plannedStart || t.planned_start || t.plannedStartDate || null,
+              planned_end: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
+              duration: t.duration || 1,
+              progress: normProgress(t.progress),
+              parent: t.parent || 0,
+              type: t.type || "task",
+              status: t.status || null,
+              remarks: t.remarks || t.notes || null,
+              category: t.category || null,
+              open: t.open ?? 1,
+              sortorder: t.sortorder ?? idx,
+            })
+          );
+          await Promise.all(saves);
+          // Single invalidation after all tasks are committed
+          await utils.gantt.tasks.invalidate();
+          await utils.gantt.links.invalidate();
+          setBanner({ type: "success", message: `Loaded "${data.name}" — ${parsed.length} task(s).` });
+          setCurrentProjectId(data.id);
+          setCurrentProjectName(data.name);
         } else {
           setBanner({ type: "info", message: "Project is empty — no tasks to load." });
         }
