@@ -652,6 +652,12 @@ export default function GanttPlanner() {
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
 
+  /* ─── STEP 2: Save Project mutation ─── */
+  const saveProjectMut = trpc.ganttProjects.save.useMutation({
+    onSuccess: (data) => setBanner({ type: "success", message: `Saved project "${data.name}"` }),
+    onError: (e) => setBanner({ type: "error", message: "Save failed: " + e.message }),
+  });
+
   /* ─── Helpers ─── */
   const calcKpi = useCallback((tasks: any[]): KpiData => {
     const now = new Date();
@@ -953,6 +959,27 @@ export default function GanttPlanner() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
             <span>Reset</span>
           </button>
+          {/* STEP 2: Save Project button */}
+          <button
+            onClick={() => {
+              const currentTasks = tasksQuery.data || [];
+              if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
+              const name = window.prompt("Project name:", "My Gantt Project");
+              if (!name || !name.trim()) return;
+              saveProjectMut.mutate({
+                name: name.trim(),
+                tasksData: JSON.stringify(currentTasks),
+                linksData: linksQuery.data ? JSON.stringify(linksQuery.data) : undefined,
+                description: `${currentTasks.length} tasks`,
+              });
+            }}
+            disabled={saveProjectMut.isPending}
+            className="gantt-action-btn save-btn"
+            title="Save project to database"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            <span>{saveProjectMut.isPending ? "Saving..." : "Save"}</span>
+          </button>
         </div>
       </header>
 
@@ -1013,6 +1040,7 @@ export default function GanttPlanner() {
         .export-btn { background: #1F9D55; } .export-btn:hover { background: #15803D; }
         .import-btn { background: #005BAC; } .import-btn:hover { background: #004D99; }
         .reset-btn { background: #DC2626; } .reset-btn:hover { background: #B91C1C; }
+        .save-btn { background: #7C3AED; } .save-btn:hover { background: #6D28D9; } .save-btn:disabled { background: #A78BFA; cursor: not-allowed; }
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
         }
