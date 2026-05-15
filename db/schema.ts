@@ -212,18 +212,3 @@ export const ganttLinks = pgTable("gantt_links", {
   type: varchar("type", { length: 20 }).notNull().default("0"),
   createdAt: timestamp("created_at").defaultNow(),
 });
-
-// Gantt Chart Projects (Save/Open)
-export const ganttProjects = pgTable("gantt_projects", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  tasksData: text("tasks_data").notNull(), // JSON array of GanttTask
-  linksData: text("links_data"), // JSON array of GanttLink (optional)
-  description: text("description"),
-  createdBy: varchar("created_by", { length: 255 }),
-  updatedBy: varchar("updated_by", { length: 255 }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [
-  index("gantt_projects_name_idx").on(table.name),
-]);
