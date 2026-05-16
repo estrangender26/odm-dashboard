@@ -8,14 +8,19 @@ const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
 export const aiRouter = createRouter({
   /* ── Debug: check AI configuration status ── */
   status: publicQuery.query(() => {
-    const keySet = !!process.env.GROQ_API_KEY;
+    const key = process.env.GROQ_API_KEY;
+    const keySet = !!key;
+    const allKeys = Object.keys(process.env).filter(k => !k.includes("SECRET") && !k.includes("PASS") && !k.includes("TOKEN")).sort();
+    console.log("[AI DEBUG] GROQ_API_KEY present:", keySet, "| Key starts with:", key ? key.slice(0, 8) : "undefined");
+    console.log("[AI DEBUG] Available env vars:", allKeys.join(", "));
     return {
       configured: keySet,
       provider: "groq",
       model: process.env.GROQ_MODEL || "llama-3.1-70b-versatile",
+      envVarList: allKeys,
       message: keySet
         ? "AI is configured and ready"
-        : "GROQ_API_KEY not set. Add it to Render environment variables.",
+        : `GROQ_API_KEY not set. Available env vars: ${allKeys.join(", ")}`,
     };
   }),
 
