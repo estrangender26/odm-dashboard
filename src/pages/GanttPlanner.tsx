@@ -671,7 +671,14 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                       )}
                     </>
                   )}
-
+                  {/* DEBUG: show computed bar position */}
+                  {(!isMilestone) && (
+                    <div style={{ position: "absolute", left: 4, top: top + 28, zIndex: 5 }}>
+                      <span style={{ fontSize: 7, color: plannedLeft !== null ? "#1F9D55" : "#EF4444", background: plannedLeft !== null ? "#DCFCE7" : "#FEE2E2", padding: "1px 3px", borderRadius: 2, fontFamily: "monospace" }}>
+                        {plannedLeft !== null ? `pl:${Math.round(plannedLeft)} pw:${Math.round(plannedWidth||0)}` : `pS:${task.plannedStart?.slice(5)||"?"} aS:${task.startDate?.slice(5)||"?"}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}
