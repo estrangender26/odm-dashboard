@@ -532,10 +532,6 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                 >
                   {task.text || "Untitled"}
                 </span>
-                {/* DEBUG: show parent/type info */}
-                <span style={{ fontSize: 7, color: "#94A3B8", marginLeft: 4, flexShrink: 0, marginTop: 2, fontFamily: "monospace" }}>
-                  p:{task.parent || 0} t:{task.type?.[0] || "?"}
-                </span>
               </span>
             </div>
           );})}
@@ -675,14 +671,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                       )}
                     </>
                   )}
-                  {/* Debug: show computed bar info */}
-                  {(!isMilestone) && (
-                    <div style={{ position: "absolute", left: 4, top: top + 28, zIndex: 5 }}>
-                      <span style={{ fontSize: 7, color: plannedLeft !== null ? "#1F9D55" : "#EF4444", background: plannedLeft !== null ? "#DCFCE7" : "#FEE2E2", padding: "1px 3px", borderRadius: 2, fontFamily: "monospace" }}>
-                        {plannedLeft !== null ? `pl:${Math.round(plannedLeft)} pw:${Math.round(plannedWidth||0)}` : `pS:${task.plannedStart?.slice(5)||"?"}`}
-                      </span>
-                    </div>
-                  )}
+
                 </div>
               );
             })}
