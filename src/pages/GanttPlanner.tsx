@@ -224,7 +224,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
   }, []);
 
   /* Compute project range */
-  const { projectStart, projectEnd, totalDays, rows: baseRows } = useMemo(() => {
+  const { projectStart, projectEnd, totalDays } = useMemo(() => {
     if (!tasks.length) {
       const ps = new Date();
       const pe = new Date(ps.getTime() + 30 * 86400000);
@@ -253,60 +253,44 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
     pe = new Date(pe.getTime() + 10 * 86400000);
     const td = Math.max(daysBetween(ps, pe), 30);
 
-    // Pre-compute date objects for each task (geometry-independent)
-    const base = tasks
-      .filter((t) => t.type !== "project")
-      .map((t) => ({
-        task: t,
-        plannedStart: parseDate(t.plannedStart),
-        plannedEnd: parseDate(t.plannedEnd),
-        actualStart: parseDate(t.startDate),
-        actualEnd: parseDate(t.endDate),
-        isDelayed: parseDate(t.endDate) && parseDate(t.plannedEnd) && parseDate(t.endDate)! > parseDate(t.plannedEnd)!,
-        isMilestone: t.type === "milestone",
-      }));
-
-    return { projectStart: ps, projectEnd: pe, totalDays: td, rows: base };
+    return { projectStart: ps, projectEnd: pe, totalDays: td };
   }, [tasks]);
 
   /* Compute dayWidth based on zoom level */
   const dayWidth = useMemo(() => {
     if (zoomLevel === "autofit") {
-      // Auto-fit: divide available width by total days
       return Math.max(0.3, (containerWidth - 40) / totalDays);
     }
     return ZOOM_DAY_WIDTH[zoomLevel];
   }, [zoomLevel, containerWidth, totalDays]);
 
-  /* Compute bar geometry based on dayWidth + hierarchy */
+  /* Compute bar geometry directly from visibleFlat — guarantees hierarchy */
   const rows = useMemo(() => {
-    // Build lookup for hierarchy info
-    const levelMap = new Map<number, number>();
-    const childMap = new Map<number, boolean>();
-    for (const v of visibleFlat) {
-      levelMap.set(v.task.id, v.level);
-      childMap.set(v.task.id, v.hasChildren);
-    }
-    return baseRows
-      .filter(r => visibleTaskIds.has(r.task.id))
-      .map((r) => {
-        const { plannedStart, plannedEnd, actualStart, actualEnd, isDelayed, isMilestone, task } = r;
-        const plannedLeft = plannedStart ? Math.max(0, daysBetween(projectStart, plannedStart)) * dayWidth : null;
-        const plannedWidth = (plannedStart && plannedEnd && daysBetween(plannedStart, plannedEnd) > 0)
-          ? daysBetween(plannedStart, plannedEnd) * dayWidth : null;
-        const actualLeft = actualStart ? Math.max(0, daysBetween(projectStart, actualStart)) * dayWidth : null;
-        const actualWidth = (actualStart && actualEnd && daysBetween(actualStart, actualEnd) > 0)
-          ? daysBetween(actualStart, actualEnd) * dayWidth
-          : actualStart ? (task.duration || 1) * dayWidth : null;
+    return visibleFlat
+      .filter((v) => v.task.type !== "project")
+      .map((v) => {
+        const { task, level, hasChildren } = v;
+        const pStart = parseDate(task.plannedStart);
+        const pEnd = parseDate(task.plannedEnd);
+        const aStart = parseDate(task.startDate);
+        const aEnd = parseDate(task.endDate);
+        const plannedLeft = pStart ? Math.max(0, daysBetween(projectStart, pStart)) * dayWidth : null;
+        const plannedWidth = (pStart && pEnd && daysBetween(pStart, pEnd) > 0)
+          ? daysBetween(pStart, pEnd) * dayWidth : null;
+        const actualLeft = aStart ? Math.max(0, daysBetween(projectStart, aStart)) * dayWidth : null;
+        const actualWidth = (aStart && aEnd && daysBetween(aStart, aEnd) > 0)
+          ? daysBetween(aStart, aEnd) * dayWidth
+          : aStart ? (task.duration || 1) * dayWidth : null;
         return {
           task,
+          level,
+          hasChildren,
           plannedLeft, plannedWidth, actualLeft, actualWidth,
-          isDelayed, isMilestone,
-          level: levelMap.get(task.id) || 0,
-          hasChildren: childMap.get(task.id) || false,
+          isDelayed: aEnd && pEnd && aEnd > pEnd,
+          isMilestone: task.type === "milestone",
         };
       });
-  }, [baseRows, projectStart, dayWidth, visibleTaskIds, visibleFlat]);
+  }, [visibleFlat, projectStart, dayWidth]);
 
   /* ─── Header columns based on zoom level ─── */
   const headerColumns = useMemo(() => {
@@ -498,7 +482,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                 display: "flex",
                 alignItems: "flex-start",
                 padding: "3px 6px",
-                paddingLeft: `${6 + level * 14}px`,
+                paddingLeft: `${8 + level * 24}px`,
                 overflow: "hidden",
                 background: rowBg,
                 cursor: "pointer",
