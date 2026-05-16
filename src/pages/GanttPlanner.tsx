@@ -671,10 +671,12 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                       )}
                     </>
                   )}
-                  {/* Fallback: task has no dates at all */}
-                  {plannedLeft === null && actualLeft === null && !isMilestone && (
-                    <div style={{ position: "absolute", left: 8, top: top + 10, zIndex: 1 }}>
-                      <span style={{ fontSize: 8, color: "#CBD5E1", fontStyle: "italic" }}>No dates set</span>
+                  {/* Debug: show computed bar info */}
+                  {(!isMilestone) && (
+                    <div style={{ position: "absolute", left: 4, top: top + 28, zIndex: 5 }}>
+                      <span style={{ fontSize: 7, color: plannedLeft !== null ? "#1F9D55" : "#EF4444", background: plannedLeft !== null ? "#DCFCE7" : "#FEE2E2", padding: "1px 3px", borderRadius: 2, fontFamily: "monospace" }}>
+                        {plannedLeft !== null ? `pl:${Math.round(plannedLeft)} pw:${Math.round(plannedWidth||0)}` : `pS:${task.plannedStart?.slice(5)||"?"}`}
+                      </span>
                     </div>
                   )}
                 </div>
