@@ -6,6 +6,19 @@ const SYSTEM_PROMPT = `You are a senior maintenance and reliability engineering 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
 
 export const aiRouter = createRouter({
+  /* ── Debug: check AI configuration status ── */
+  status: publicQuery.query(() => {
+    const keySet = !!process.env.GROQ_API_KEY;
+    return {
+      configured: keySet,
+      provider: "groq",
+      model: process.env.GROQ_MODEL || "llama-3.1-70b-versatile",
+      message: keySet
+        ? "AI is configured and ready"
+        : "GROQ_API_KEY not set. Add it to Render environment variables.",
+    };
+  }),
+
   /* ── Maintenance Expert Chat (via Groq — free, no CC) ── */
   maintenanceChat: publicQuery
     .input(
