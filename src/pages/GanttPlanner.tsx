@@ -697,8 +697,11 @@ export default function GanttPlanner() {
   const linksQuery = trpc.gantt.links.useQuery();
   const utils = trpc.useUtils();
 
-  const saveTaskMut = trpc.gantt.saveTask.useMutation({ onSuccess: () => utils.gantt.tasks.invalidate() });
-  const saveTaskBatchMut = trpc.gantt.saveTask.useMutation(); // no auto-invalidate — for batch loading
+  const saveTaskMut = trpc.gantt.saveTask.useMutation({
+    onSuccess: () => utils.gantt.tasks.invalidate(),
+    onError: (e) => setBanner({ type: "error", message: "Save task failed: " + e.message }),
+  });
+  const saveTaskBatchMut = trpc.gantt.saveTask.useMutation({ onError: () => {} }); // silent fail for batch
   const deleteTaskMut = trpc.gantt.deleteTask.useMutation({ onSuccess: () => utils.gantt.tasks.invalidate() });
   const saveLinkMut = trpc.gantt.saveLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
   const deleteLinkMut = trpc.gantt.deleteLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
