@@ -644,7 +644,7 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
 
 /* CORS for tRPC — allow Kimi static deployment and local dev */
 app.use("/api/trpc/*", cors({
-  origin: ["https://oduhiajrfyneq.kimi.page", "http://localhost:3000", "http://localhost:5173"],
+  origin: ["https://oduhiajrfyneq.kimi.page", "https://dashboard.onrender.com", "http://localhost:3000", "http://localhost:5173"],
   allowMethods: ["GET", "POST", "OPTIONS"],
   allowHeaders: ["Content-Type", "x-trpc-source"],
   credentials: false,
