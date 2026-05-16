@@ -171,7 +171,12 @@ function SpinnerInline({ color = "#005BAC" }: { color?: string }) {
 }
 
 /* ─── Native Gantt Chart Component — Planned vs Actual dual bars ─── */
-function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
+interface NativeGanttChartProps {
+  tasks: GanttTask[];
+  selectedTaskId: number | null;
+  onSelectTask: (id: number | null) => void;
+}
+function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
@@ -480,9 +485,13 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
             Task Name
           </div>
           {/* Task rows with hierarchy — multi-line wrapping */}
-          {rows.map(({ task, level, hasChildren }) => (
+          {rows.map(({ task, level, hasChildren }) => {
+            const isSelected = selectedTaskId === task.id;
+            const rowBg = isSelected ? "#DBEAFE" : hasChildren ? "#F1F5F9" : "transparent";
+            return (
             <div
               key={task.id}
+              onClick={(e) => { if ((e.target as HTMLElement).tagName !== "BUTTON") onSelectTask(isSelected ? null : task.id); }}
               style={{
                 height: rowHeight,
                 borderBottom: "1px solid #F1F5F9",
@@ -491,7 +500,10 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                 padding: "3px 6px",
                 paddingLeft: `${6 + level * 14}px`,
                 overflow: "hidden",
-                background: hasChildren ? "#F1F5F9" : "transparent",
+                background: rowBg,
+                cursor: "pointer",
+                transition: "background .1s",
+                borderLeft: isSelected ? "3px solid #005BAC" : "3px solid transparent",
               }}
             >
               <span className="flex items-start gap-0.5 min-w-0 flex-1" style={{ overflow: "hidden", lineHeight: 1.35 }}>
@@ -526,7 +538,7 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
                 </span>
               </span>
             </div>
-          ))}
+          );})}
         </div>
 
         {/* Right: Scrollable timeline */}
@@ -608,9 +620,23 @@ function NativeGanttChart({ tasks }: { tasks: GanttTask[] }) {
             {rows.map((row, idx) => {
               const { task, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone } = row;
               const top = headerHeight + idx * rowHeight;
+              const isSelected = selectedTaskId === task.id;
 
               return (
-                <div key={task.id}>
+                <div
+                  key={task.id}
+                  onClick={() => onSelectTask(isSelected ? null : task.id)}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top,
+                    width: "100%",
+                    height: rowHeight,
+                    background: isSelected ? "rgba(219,234,254,0.5)" : "transparent",
+                    cursor: "pointer",
+                    zIndex: 0,
+                  }}
+                >
                   {isMilestone ? (
                     /* Milestone: diamond only */
                     <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 6, top: top + rowHeight / 2 - 6, zIndex: 2, transition: "left 0.25s ease-out" }}>
@@ -752,6 +778,67 @@ export default function GanttPlanner() {
   const [loadingProjectId, setLoadingProjectId] = useState<number | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
   const [currentProjectName, setCurrentProjectName] = useState<string>("");
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+
+  /* ─── Indent / Outdent ─── */
+  const handleIndent = useCallback(() => {
+    if (!selectedTaskId || !tasksQuery.data) return;
+    const all = tasksQuery.data;
+    const idx = all.findIndex((t: any) => t.id === selectedTaskId);
+    if (idx <= 0) { setBanner({ type: "info", message: "Cannot indent the first task." }); return; }
+    const target = all[idx];
+    const above = all[idx - 1];
+    if (target.parent === above.id) { setBanner({ type: "info", message: "Already indented under this task." }); return; }
+    const newParent = above.type === "project" || above.parent === 0 ? above.id : above.parent || above.id;
+    saveTaskMut.mutate({
+      id: selectedTaskId,
+      text: target.text,
+      owner: target.owner,
+      start_date: target.startDate || null,
+      end_date: target.endDate || null,
+      planned_start: target.plannedStart || null,
+      planned_end: target.plannedEnd || null,
+      duration: target.duration || 1,
+      progress: normProgress(target.progress),
+      parent: newParent,
+      type: target.type || "task",
+      status: target.status || null,
+      remarks: target.remarks || null,
+      category: target.category || null,
+      open: target.open ?? 1,
+      sortorder: target.sortorder ?? idx,
+    });
+    setBanner({ type: "success", message: `"${target.text}" indented under "${above.text}".` });
+  }, [selectedTaskId, tasksQuery.data, saveTaskMut]);
+
+  const handleOutdent = useCallback(() => {
+    if (!selectedTaskId || !tasksQuery.data) return;
+    const all = tasksQuery.data;
+    const target = all.find((t: any) => t.id === selectedTaskId);
+    if (!target) return;
+    if (!target.parent || target.parent === 0) { setBanner({ type: "info", message: "Already at root level." }); return; }
+    const parentTask = all.find((t: any) => t.id === target.parent);
+    const newParent = parentTask?.parent || 0;
+    saveTaskMut.mutate({
+      id: selectedTaskId,
+      text: target.text,
+      owner: target.owner,
+      start_date: target.startDate || null,
+      end_date: target.endDate || null,
+      planned_start: target.plannedStart || null,
+      planned_end: target.plannedEnd || null,
+      duration: target.duration || 1,
+      progress: normProgress(target.progress),
+      parent: newParent,
+      type: target.type || "task",
+      status: target.status || null,
+      remarks: target.remarks || null,
+      category: target.category || null,
+      open: target.open ?? 1,
+      sortorder: target.sortorder ?? 0,
+    });
+    setBanner({ type: "success", message: `"${target.text}" outdented to ${newParent === 0 ? "root" : "parent"} level.` });
+  }, [selectedTaskId, tasksQuery.data, saveTaskMut]);
 
   /* Quick Save — update existing project without modal */
   const handleQuickSave = useCallback(() => {
@@ -1086,9 +1173,29 @@ export default function GanttPlanner() {
             <span>Import Excel</span>
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) importExcel(e.target.files[0]); }} />
-          <button onClick={() => { if (confirm("Reset all tasks and links?")) { resetMut.mutate(); setCurrentProjectId(null); setCurrentProjectName(""); } }} className="gantt-action-btn reset-btn" title="Reset all data">
+          <button onClick={() => { if (confirm("Reset all tasks and links?")) { resetMut.mutate(); setCurrentProjectId(null); setCurrentProjectName(""); setSelectedTaskId(null); } }} className="gantt-action-btn reset-btn" title="Reset all data">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
             <span>Reset</span>
+          </button>
+          <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
+          {/* Indent / Outdent — hierarchy controls */}
+          <button
+            onClick={handleIndent}
+            disabled={!selectedTaskId}
+            className="gantt-action-btn gantt-indent-btn"
+            title={selectedTaskId ? "Indent selected task" : "Select a task first"}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+            <span>Indent</span>
+          </button>
+          <button
+            onClick={handleOutdent}
+            disabled={!selectedTaskId}
+            className="gantt-action-btn gantt-outdent-btn"
+            title={selectedTaskId ? "Outdent selected task" : "Select a task first"}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+            <span>Outdent</span>
           </button>
           <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
           {/* Save — quick-save existing, or prompt if new. Green = primary save action */}
@@ -1152,7 +1259,11 @@ export default function GanttPlanner() {
       <div className="gantt-page-wrap" style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         {activeTab === "gantt" && (
           <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-            <NativeGanttChart tasks={(tasksQuery.data || []) as GanttTask[]} />
+            <NativeGanttChart
+              tasks={(tasksQuery.data || []) as GanttTask[]}
+              selectedTaskId={selectedTaskId}
+              onSelectTask={setSelectedTaskId}
+            />
           </div>
         )}
 
@@ -1315,6 +1426,10 @@ export default function GanttPlanner() {
         .gantt-save-btn { background: #1F9D55; } .gantt-save-btn:hover { background: #15803D; }
         .gantt-saveas-btn { background: #D97706; } .gantt-saveas-btn:hover { background: #B45309; }
         .gantt-open-btn { background: #2563EB; } .gantt-open-btn:hover { background: #1D4ED8; }
+        .gantt-indent-btn { background: #7C3AED; } .gantt-indent-btn:hover:not(:disabled) { background: #6D28D9; }
+        .gantt-indent-btn:disabled { background: #C4B5FD; cursor: not-allowed; }
+        .gantt-outdent-btn { background: #0891B2; } .gantt-outdent-btn:hover:not(:disabled) { background: #0E7490; }
+        .gantt-outdent-btn:disabled { background: #A5F3FC; cursor: not-allowed; }
 
         /* ─── Responsive header toolbar ─── */
         .gantt-header { display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; }
