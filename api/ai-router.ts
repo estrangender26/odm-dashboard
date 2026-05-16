@@ -16,7 +16,7 @@ export const aiRouter = createRouter({
     return {
       configured: keySet,
       provider: "groq",
-      model: process.env.GROQ_MODEL || "llama-3.1-70b-versatile",
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
       envVarList: allKeys,
       message: keySet
         ? "AI is configured and ready"
@@ -66,7 +66,7 @@ export const aiRouter = createRouter({
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: process.env.GROQ_MODEL || "llama-3.1-70b-versatile",
+            model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
             messages,
             temperature: 0.7,
             max_tokens: 1500,
