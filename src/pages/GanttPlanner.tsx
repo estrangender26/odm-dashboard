@@ -1178,26 +1178,6 @@ export default function GanttPlanner() {
             <span>Reset</span>
           </button>
           <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
-          {/* Indent / Outdent — hierarchy controls */}
-          <button
-            onClick={handleIndent}
-            disabled={!selectedTaskId}
-            className="gantt-action-btn gantt-indent-btn"
-            title={selectedTaskId ? "Indent selected task" : "Select a task first"}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
-            <span>Indent</span>
-          </button>
-          <button
-            onClick={handleOutdent}
-            disabled={!selectedTaskId}
-            className="gantt-action-btn gantt-outdent-btn"
-            title={selectedTaskId ? "Outdent selected task" : "Select a task first"}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
-            <span>Outdent</span>
-          </button>
-          <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
           {/* Save — quick-save existing, or prompt if new. Green = primary save action */}
           <button
             onClick={handleQuickSave}
@@ -1258,12 +1238,40 @@ export default function GanttPlanner() {
       {/* Content */}
       <div className="gantt-page-wrap" style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         {activeTab === "gantt" && (
-          <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-            <NativeGanttChart
-              tasks={(tasksQuery.data || []) as GanttTask[]}
-              selectedTaskId={selectedTaskId}
-              onSelectTask={setSelectedTaskId}
-            />
+          <div>
+            {/* Hierarchy toolbar — right above the chart */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "0 2px" }}>
+              <span style={{ fontSize: 11, color: "#8BA3B8", fontWeight: 600, marginRight: "auto" }}>
+                {selectedTaskId ? tasksQuery.data?.find((t: any) => t.id === selectedTaskId)?.text : "Click a task to select"}
+              </span>
+              <button
+                onClick={handleIndent}
+                disabled={!selectedTaskId}
+                className="gantt-action-btn gantt-indent-btn"
+                title={selectedTaskId ? "Indent selected task" : "Select a task first"}
+                style={{ padding: "5px 10px", fontSize: 11 }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                <span>Indent</span>
+              </button>
+              <button
+                onClick={handleOutdent}
+                disabled={!selectedTaskId}
+                className="gantt-action-btn gantt-outdent-btn"
+                title={selectedTaskId ? "Outdent selected task" : "Select a task first"}
+                style={{ padding: "5px 10px", fontSize: 11 }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                <span>Outdent</span>
+              </button>
+            </div>
+            <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
+              <NativeGanttChart
+                tasks={(tasksQuery.data || []) as GanttTask[]}
+                selectedTaskId={selectedTaskId}
+                onSelectTask={setSelectedTaskId}
+              />
+            </div>
           </div>
         )}
 
