@@ -10,7 +10,6 @@ import ExistingFacilitiesMaintenance from "./pages/ExistingFacilitiesMaintenance
 import SmpDashboard from "./pages/SmpDashboard"
 import OmManualsLibrary from "./pages/OmManualsLibrary"
 import ScorecardDashboard from "./pages/ScorecardDashboard"
-import WebsiteAgent from "./pages/WebsiteAgent"
 
 /* Full-page redirect to Hono-served HTML dashboard */
 function OdmRedirect() {
@@ -37,7 +36,6 @@ export default function App() {
       <Route path="/om-manuals-library" element={<OmManualsLibrary />} />
       <Route path="/scorecard-kpi" element={<ScorecardDashboard />} />
       <Route path="/operator-maintenance" element={<OdmRedirect />} />
-      <Route path="/website-agent" element={<WebsiteAgent />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )

@@ -308,14 +308,8 @@ export default function Home() {
       </main>
 
       {/* Footer */}
-      <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Link to="/website-agent" style={{ color: '#94A3B8', textDecoration: 'none', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4, transition: 'color .15s' }} onMouseEnter={e => (e.currentTarget.style.color = '#005BAC')} onMouseLeave={e => (e.currentTarget.style.color = '#94A3B8')}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-            Website Agent
-          </Link>
-        </div>
-        <span>Program Oversight Center &copy; 2026</span>
+      <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'right', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
+        Program Oversight Center &copy; 2026
       </footer>
 
       {/* AI Maintenance Expert Chat */}
