@@ -75,9 +75,9 @@ export const aiRouter = createRouter({
 
         if (!resp.ok) {
           const err = await resp.text();
-          console.error("Groq error:", err);
+          console.error("[GROQ ERROR] Status:", resp.status, "Body:", err);
           return {
-            reply: "AI service temporarily unavailable. Please try again later.",
+            reply: `AI service error (HTTP ${resp.status}). The API key may be invalid or revoked. Please generate a new key at https://console.groq.com`,
             error: "API_ERROR",
           };
         }
