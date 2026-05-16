@@ -532,6 +532,10 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                 >
                   {task.text || "Untitled"}
                 </span>
+                {/* DEBUG: show parent/type info */}
+                <span style={{ fontSize: 7, color: "#94A3B8", marginLeft: 4, flexShrink: 0, marginTop: 2, fontFamily: "monospace" }}>
+                  p:{task.parent || 0} t:{task.type?.[0] || "?"}
+                </span>
               </span>
             </div>
           );})}
