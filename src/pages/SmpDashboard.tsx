@@ -323,7 +323,7 @@ export default function SmpDashboard() {
       {/* AI Assistant */}
       <AIAssistant
         contextType="maintenance"
-        data={filtered}
+        data={filteredDocs}
         quickQuestions={[
           "Which equipment types are missing SMPs?",
           "Which SMPs are expired or under review?",
