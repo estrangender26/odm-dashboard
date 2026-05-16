@@ -471,7 +471,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
           {/* Task rows with hierarchy — multi-line wrapping */}
           {rows.map(({ task, level, hasChildren }) => {
             const isSelected = selectedTaskId === task.id;
-            const rowBg = isSelected ? "#DBEAFE" : hasChildren ? "#F1F5F9" : "transparent";
+            const rowBg = isSelected ? "#DBEAFE" : hasChildren ? "#E2E8F0" : level > 0 ? "#F8FAFC" : "transparent";
             return (
             <div
               key={task.id}
@@ -482,7 +482,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                 display: "flex",
                 alignItems: "flex-start",
                 padding: "3px 6px",
-                paddingLeft: `${8 + level * 24}px`,
+                paddingLeft: `${8 + level * 36}px`,
                 overflow: "hidden",
                 background: rowBg,
                 cursor: "pointer",
@@ -501,7 +501,20 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                     {expandedIds.has(task.id) ? "▸" : "▾"}
                   </button>
                 )}
-                {!hasChildren && <span className="w-3.5 flex-shrink-0" />}
+                {/* Tree line indicator for subtasks */}
+                {level > 0 && !hasChildren && (
+                  <span style={{ fontSize: 10, color: "#94A3B8", marginRight: 2, marginTop: 1, flexShrink: 0, fontFamily: "monospace" }}>└─</span>
+                )}
+                {level > 0 && hasChildren && (
+                  <span style={{ fontSize: 10, color: "#64748B", marginRight: 2, marginTop: 1, flexShrink: 0, fontFamily: "monospace" }}>├─</span>
+                )}
+                {level === 0 && !hasChildren && <span className="w-3.5 flex-shrink-0" />}
+                {/* Level badge */}
+                {level > 0 && (
+                  <span style={{ fontSize: 7, color: "#fff", background: "#005BAC", borderRadius: 3, padding: "0 3px", marginRight: 3, marginTop: 2, flexShrink: 0, fontWeight: 700, lineHeight: 1.4 }}>
+                    L{level}
+                  </span>
+                )}
                 <span
                   className="gantt-task-name"
                   style={{
@@ -509,9 +522,9 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                     WebkitBoxOrient: "vertical",
                     WebkitLineClamp: 2,
                     overflow: "hidden",
-                    color: "#2D3748",
-                    fontWeight: hasChildren ? 700 : 400,
-                    fontSize: 11,
+                    color: hasChildren ? "#1E3A5F" : "#2D3748",
+                    fontWeight: hasChildren ? 700 : level > 0 ? 500 : 400,
+                    fontSize: hasChildren ? 12 : 11,
                     marginLeft: 2,
                     lineHeight: 1.35,
                     wordBreak: "break-word",
@@ -1440,7 +1453,7 @@ export default function GanttPlanner() {
           .gantt-modal { max-width: 100% !important; padding: 16px 20px !important; }
           .gantt-chart-legend { gap: 10px !important; font-size: 10px !important; }
           .gantt-chart-legend-label { display: none !important; }
-          .gantt-task-col { width: 160px !important; min-width: 160px !important; }
+          .gantt-task-col { width: 180px !important; min-width: 180px !important; }
           .gantt-task-name { font-size: 10px !important; }
           .gantt-zoom-info { display: none !important; }
         }
@@ -1455,7 +1468,7 @@ export default function GanttPlanner() {
           .gantt-tab-btn { padding: 5px 6px !important; font-size: 10px !important; }
           .gantt-tab-btn .tab-label { display: none; }
           .gantt-chart-legend { display: none !important; }
-          .gantt-task-col { width: 130px !important; min-width: 130px !important; }
+          .gantt-task-col { width: 150px !important; min-width: 150px !important; }
           .gantt-task-name { font-size: 9px !important; }
         }
 
