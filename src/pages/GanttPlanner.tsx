@@ -671,6 +671,12 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                       )}
                     </>
                   )}
+                  {/* Fallback: task has no dates at all */}
+                  {plannedLeft === null && actualLeft === null && !isMilestone && (
+                    <div style={{ position: "absolute", left: 8, top: top + 10, zIndex: 1 }}>
+                      <span style={{ fontSize: 8, color: "#CBD5E1", fontStyle: "italic" }}>No dates set</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -785,17 +791,16 @@ export default function GanttPlanner() {
     const parent = allTasks.find((t: any) => t.id === parentId);
     if (!parent) return;
     const updates = autoCalcParent(parent, allTasks);
-    if (!updates) return;
     saveTaskMut.mutate({
       id: parentId,
       text: parent.text,
       owner: parent.owner,
       start_date: parent.startDate || null,
       end_date: parent.endDate || null,
-      planned_start: updates.plannedStart || parent.plannedStart || null,
-      planned_end: updates.plannedEnd || parent.plannedEnd || null,
+      planned_start: updates?.plannedStart || parent.plannedStart || null,
+      planned_end: updates?.plannedEnd || parent.plannedEnd || null,
       duration: parent.duration || 1,
-      progress: updates.progress !== undefined ? updates.progress : normProgress(parent.progress),
+      progress: updates?.progress !== undefined ? updates.progress : normProgress(parent.progress),
       parent: parent.parent || 0,
       type: "project",
       status: parent.status || null,
