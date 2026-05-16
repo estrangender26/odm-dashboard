@@ -3,8 +3,10 @@ import { createRouter, publicQuery } from "./middleware";
 
 const SYSTEM_PROMPT = `You are a senior maintenance and reliability engineering advisor for water and wastewater facilities. You help users analyze maintenance issues, inspection findings, preventive maintenance plans, O&M documentation, SAP PM/CMMS workflows, maintenance KPIs, vendor scoping, and operational risks. Give practical, field-oriented, concise recommendations. Ask clarifying questions only when essential.`;
 
+const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
+
 export const aiRouter = createRouter({
-  /* ── Maintenance Expert Chat ── */
+  /* ── Maintenance Expert Chat (via Groq — free, no CC) ── */
   maintenanceChat: publicQuery
     .input(
       z.object({
@@ -21,10 +23,10 @@ export const aiRouter = createRouter({
       })
     )
     .mutation(async ({ input }) => {
-      const apiKey = process.env.OPENAI_API_KEY;
+      const apiKey = process.env.GROQ_API_KEY;
       if (!apiKey) {
         return {
-          reply: "AI service is not configured. Please set OPENAI_API_KEY environment variable.",
+          reply: "⚠️ GROQ_API_KEY not set.\n\nTo activate the AI chat:\n\n1. Go to https://console.groq.com\n2. Sign up with your email\n3. Create a free API key\n4. Add GROQ_API_KEY to your Render environment variables\n\nGroq is completely free — no credit card required.",
           error: "MISSING_API_KEY",
         };
       }
@@ -39,14 +41,14 @@ export const aiRouter = createRouter({
       ];
 
       try {
-        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        const resp = await fetch(GROQ_API, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: process.env.AI_MODEL || "gpt-4o-mini",
+            model: process.env.GROQ_MODEL || "llama-3.1-70b-versatile",
             messages,
             temperature: 0.7,
             max_tokens: 1500,
@@ -55,7 +57,7 @@ export const aiRouter = createRouter({
 
         if (!resp.ok) {
           const err = await resp.text();
-          console.error("OpenAI error:", err);
+          console.error("Groq error:", err);
           return {
             reply: "AI service temporarily unavailable. Please try again later.",
             error: "API_ERROR",
