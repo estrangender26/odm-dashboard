@@ -671,20 +671,10 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                       )}
                     </>
                   )}
-                  {/* No dates fallback */}
+                  {/* No dates indicator */}
                   {(!isMilestone) && plannedLeft === null && actualLeft === null && (
-                    <div style={{ position: "absolute", left: 8, top: 12, zIndex: 5 }}>
-                      <span style={{ fontSize: 9, color: "#DC2626", background: "#FEE2E2", padding: "2px 8px", borderRadius: 4, fontWeight: 600, border: "1px solid #FECACA" }}>
-                        ⚠ No dates — edit in Task List
-                      </span>
-                    </div>
-                  )}
-                  {/* DEBUG: show computed bar position */}
-                  {(!isMilestone) && (
-                    <div style={{ position: "absolute", left: 4, top: 30, zIndex: 5 }}>
-                      <span style={{ fontSize: 7, color: plannedLeft !== null ? "#1F9D55" : "#EF4444", background: plannedLeft !== null ? "#DCFCE7" : "#FEE2E2", padding: "1px 3px", borderRadius: 2, fontFamily: "monospace" }}>
-                        {plannedLeft !== null ? `pl:${Math.round(plannedLeft)} pw:${Math.round(plannedWidth||0)}` : `pS:${task.plannedStart?.slice(5)||"?"} aS:${task.startDate?.slice(5)||"?"}`}
-                      </span>
+                    <div style={{ position: "absolute", left: 8, top: 14, zIndex: 5 }}>
+                      <span style={{ fontSize: 8, color: "#94A3B8", fontStyle: "italic" }}>No dates</span>
                     </div>
                   )}
                 </div>
@@ -707,6 +697,7 @@ export default function GanttPlanner() {
   /* tRPC queries — MUST be declared before any callbacks that reference them */
   const tasksQuery = trpc.gantt.tasks.useQuery();
   const linksQuery = trpc.gantt.links.useQuery();
+  const { refetch: refetchTasks } = tasksQuery;
   const utils = trpc.useUtils();
 
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
@@ -850,8 +841,10 @@ export default function GanttPlanner() {
       sortorder: target.sortorder ?? idx,
     }, {
       onSuccess: () => {
-        // Recalculate the new parent's dates/progress from its children
-        recalcAndSaveParent(newParent, all);
+        // Force refresh tasks data then recalculate parent
+        refetchTasks().then(() => {
+          recalcAndSaveParent(newParent, all);
+        });
       },
     });
     setBanner({ type: "success", message: `"${target.text}" indented under "${above.text}".` });
@@ -885,8 +878,9 @@ export default function GanttPlanner() {
       sortorder: target.sortorder ?? 0,
     }, {
       onSuccess: () => {
-        // Recalculate old parent's dates/progress (child was removed)
-        recalcAndSaveParent(oldParentId, all);
+        refetchTasks().then(() => {
+          recalcAndSaveParent(oldParentId, all);
+        });
       },
     });
     setBanner({ type: "success", message: `"${target.text}" outdented to ${newParent === 0 ? "root" : "parent"} level.` });
