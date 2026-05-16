@@ -692,13 +692,6 @@ export default function GanttPlanner() {
   /* tRPC queries — MUST be declared before any callbacks that reference them */
   const tasksQuery = trpc.gantt.tasks.useQuery();
   const linksQuery = trpc.gantt.links.useQuery();
-
-  /* DEBUG: log task hierarchy data */
-  useEffect(() => {
-    if (tasksQuery.data && tasksQuery.data.length > 0) {
-      console.table(tasksQuery.data.map((t: any) => ({ id: t.id, text: t.text?.slice(0, 20), parent: t.parent, type: t.type })));
-    }
-  }, [tasksQuery.data]);
   const utils = trpc.useUtils();
 
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
@@ -787,6 +780,33 @@ export default function GanttPlanner() {
   const [currentProjectName, setCurrentProjectName] = useState<string>("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
 
+  /* ─── Auto-recalculate parent dates/progress from children ─── */
+  const recalcAndSaveParent = useCallback((parentId: number, allTasks: any[]) => {
+    if (parentId <= 0) return;
+    const parent = allTasks.find((t: any) => t.id === parentId);
+    if (!parent) return;
+    const updates = autoCalcParent(parent, allTasks);
+    if (!updates) return;
+    saveTaskMut.mutate({
+      id: parentId,
+      text: parent.text,
+      owner: parent.owner,
+      start_date: parent.startDate || null,
+      end_date: parent.endDate || null,
+      planned_start: updates.plannedStart || parent.plannedStart || null,
+      planned_end: updates.plannedEnd || parent.plannedEnd || null,
+      duration: parent.duration || 1,
+      progress: updates.progress !== undefined ? updates.progress : normProgress(parent.progress),
+      parent: parent.parent || 0,
+      type: "project",
+      status: parent.status || null,
+      remarks: parent.remarks || null,
+      category: parent.category || null,
+      open: parent.open ?? 1,
+      sortorder: parent.sortorder ?? 0,
+    });
+  }, [saveTaskMut]);
+
   /* ─── Indent / Outdent ─── */
   const handleIndent = useCallback(() => {
     if (!selectedTaskId || !tasksQuery.data) return;
@@ -814,9 +834,14 @@ export default function GanttPlanner() {
       category: target.category || null,
       open: target.open ?? 1,
       sortorder: target.sortorder ?? idx,
+    }, {
+      onSuccess: () => {
+        // Recalculate the new parent's dates/progress from its children
+        recalcAndSaveParent(newParent, all);
+      },
     });
     setBanner({ type: "success", message: `"${target.text}" indented under "${above.text}".` });
-  }, [selectedTaskId, tasksQuery.data, saveTaskMut]);
+  }, [selectedTaskId, tasksQuery.data, saveTaskMut, recalcAndSaveParent]);
 
   const handleOutdent = useCallback(() => {
     if (!selectedTaskId || !tasksQuery.data) return;
@@ -826,6 +851,7 @@ export default function GanttPlanner() {
     if (!target.parent || target.parent === 0) { setBanner({ type: "info", message: "Already at root level." }); return; }
     const parentTask = all.find((t: any) => t.id === target.parent);
     const newParent = parentTask?.parent || 0;
+    const oldParentId = target.parent;
     saveTaskMut.mutate({
       id: selectedTaskId,
       text: target.text,
@@ -843,9 +869,14 @@ export default function GanttPlanner() {
       category: target.category || null,
       open: target.open ?? 1,
       sortorder: target.sortorder ?? 0,
+    }, {
+      onSuccess: () => {
+        // Recalculate old parent's dates/progress (child was removed)
+        recalcAndSaveParent(oldParentId, all);
+      },
     });
     setBanner({ type: "success", message: `"${target.text}" outdented to ${newParent === 0 ? "root" : "parent"} level.` });
-  }, [selectedTaskId, tasksQuery.data, saveTaskMut]);
+  }, [selectedTaskId, tasksQuery.data, saveTaskMut, recalcAndSaveParent]);
 
   /* Quick Save — update existing project without modal */
   const handleQuickSave = useCallback(() => {
