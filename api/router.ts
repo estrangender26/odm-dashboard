@@ -8,6 +8,7 @@ import { ganttRouter } from "./gantt-router";
 import { efmRouter } from "./efm-router";
 import { documentsRouter } from "./documents-router";
 import { ganttProjectsRouter } from "./gantt-projects-router";
+import { aiRouter } from "./ai-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -22,6 +23,7 @@ export const appRouter = createRouter({
   efm: efmRouter,
   documents: documentsRouter,
   ganttProjects: ganttProjectsRouter,
+  ai: aiRouter,
 });
 
 export type AppRouter = typeof appRouter;

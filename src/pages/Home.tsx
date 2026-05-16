@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import AiChatPanel from "@/components/AiChatPanel";
 
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
@@ -310,6 +311,9 @@ export default function Home() {
       <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'right', fontSize: 12, color: '#5A6B7D', marginTop: 'auto' }}>
         Program Oversight Center &copy; 2026
       </footer>
+
+      {/* AI Maintenance Expert Chat */}
+      <AiChatPanel />
     </div>
   );
 }
