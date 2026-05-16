@@ -1245,16 +1245,6 @@ export default function GanttPlanner() {
                 {selectedTaskId ? tasksQuery.data?.find((t: any) => t.id === selectedTaskId)?.text : "Click a task to select"}
               </span>
               <button
-                onClick={handleIndent}
-                disabled={!selectedTaskId}
-                className="gantt-action-btn gantt-indent-btn"
-                title={selectedTaskId ? "Indent selected task" : "Select a task first"}
-                style={{ padding: "5px 10px", fontSize: 11 }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
-                <span>Indent</span>
-              </button>
-              <button
                 onClick={handleOutdent}
                 disabled={!selectedTaskId}
                 className="gantt-action-btn gantt-outdent-btn"
@@ -1263,6 +1253,16 @@ export default function GanttPlanner() {
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
                 <span>Outdent</span>
+              </button>
+              <button
+                onClick={handleIndent}
+                disabled={!selectedTaskId}
+                className="gantt-action-btn gantt-indent-btn"
+                title={selectedTaskId ? "Indent selected task" : "Select a task first"}
+                style={{ padding: "5px 10px", fontSize: 11 }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                <span>Indent</span>
               </button>
             </div>
             <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
