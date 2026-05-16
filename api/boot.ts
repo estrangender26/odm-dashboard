@@ -647,7 +647,7 @@ app.use("/api/trpc/*", cors({
   origin: ["https://oduhiajrfyneq.kimi.page", "https://dashboard.onrender.com", "http://localhost:3000", "http://localhost:5173"],
   allowMethods: ["GET", "POST", "OPTIONS"],
   allowHeaders: ["Content-Type", "x-trpc-source"],
-  credentials: false,
+  credentials: true,
 }));
 
 app.use("/api/trpc/*", async (c) => {
