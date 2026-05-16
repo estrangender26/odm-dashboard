@@ -1279,7 +1279,7 @@ export default function GanttPlanner() {
             {/* Hierarchy toolbar — right above the chart */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "0 2px" }}>
               <span style={{ fontSize: 11, color: "#8BA3B8", fontWeight: 600, marginRight: "auto", maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {selectedTaskId ? (() => { const t = tasksQuery.data?.find((x: any) => x.id === selectedTaskId); const r = rows.find((x: any) => x.task.id === selectedTaskId); return `${t?.text || "?"} (parent:${t?.parent || 0}, level:${r?.level ?? "?"})`; })() : "Click a task to select"}
+                {selectedTaskId ? (() => { const t = tasksQuery.data?.find((x: any) => x.id === selectedTaskId); return t ? `${t.text?.slice(0, 30) || "?"}` : ""; })() : "Click a task to select"}
               </span>
               <button
                 onClick={handleOutdent}
