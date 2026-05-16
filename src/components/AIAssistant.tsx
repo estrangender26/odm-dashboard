@@ -8,11 +8,15 @@ export type DashboardContext =
   | "smp"
   | "manuals"
   | "scorecard"
+  | "governance"
   | "help";
 
 interface AIAssistantProps {
   contextType: DashboardContext;
   data?: any[];
+  filters?: any;
+  metadata?: any;
+  title?: string;
 }
 
 const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
@@ -52,6 +56,13 @@ const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
     "Suggest improvement actions",
     "Compare with targets",
   ],
+  governance: [
+    "Analyze governance compliance",
+    "Review milestone status",
+    "Check document status",
+    "Identify governance risks",
+    "Suggest policy improvements",
+  ],
   help: [
     "Explain dashboard features",
     "Guide on data import",
@@ -60,7 +71,7 @@ const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
   ],
 };
 
-export default function AIAssistant({ contextType, data }: AIAssistantProps) {
+export default function AIAssistant({ contextType, data, filters, metadata, title }: AIAssistantProps) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
