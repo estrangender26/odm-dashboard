@@ -635,14 +635,14 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                 >
                   {isMilestone ? (
                     /* Milestone: diamond only */
-                    <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 6, top: top + rowHeight / 2 - 6, zIndex: 2, transition: "left 0.25s ease-out" }}>
+                    <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 6, top: rowHeight / 2 - 6, zIndex: 2, transition: "left 0.25s ease-out" }}>
                       <div style={{ width: 12, height: 12, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
                     </div>
                   ) : (
                     <>
                       {/* Planned bar (top) — flush with actual bar below */}
                       {plannedLeft !== null && plannedWidth !== null && (
-                        <div style={{ position: "absolute", left: plannedLeft, top: top + 4, height: 14, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                        <div style={{ position: "absolute", left: plannedLeft, top: 4, height: 14, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
                           <div style={{ width: Math.max(plannedWidth, 2), height: 14, background: "rgba(147,197,253,0.35)", border: "1px dashed #60A5FA", borderRadius: 2, position: "relative" }}>
                             {plannedWidth > 40 && (
                               <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: "#3B82F6", whiteSpace: "nowrap" }}>Planned</span>
@@ -652,7 +652,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                       )}
                       {/* Actual bar (bottom) — touching planned bar above with zero gap */}
                       {actualLeft !== null && actualWidth !== null ? (
-                        <div style={{ position: "absolute", left: actualLeft, top: top + 18, height: 14, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                        <div style={{ position: "absolute", left: actualLeft, top: 18, height: 14, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
                           <div style={{ width: Math.max(actualWidth, 2), height: 14, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 2, position: "relative" }}>
                             {actualWidth > 40 && (
                               <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: isDelayed ? "#DC2626" : "#15803D", whiteSpace: "nowrap" }}>
@@ -664,7 +664,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                       ) : (
                         /* No actual data yet */
                         plannedLeft !== null && (
-                          <div style={{ position: "absolute", left: plannedLeft, top: top + 18, zIndex: 1, transition: "left 0.25s ease-out" }}>
+                          <div style={{ position: "absolute", left: plannedLeft, top: 18, zIndex: 1, transition: "left 0.25s ease-out" }}>
                             <span style={{ fontSize: 7, color: "#CBD5E1", fontStyle: "italic" }}>No actual yet</span>
                           </div>
                         )
@@ -673,7 +673,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                   )}
                   {/* No dates fallback */}
                   {(!isMilestone) && plannedLeft === null && actualLeft === null && (
-                    <div style={{ position: "absolute", left: 8, top: top + 12, zIndex: 5 }}>
+                    <div style={{ position: "absolute", left: 8, top: 12, zIndex: 5 }}>
                       <span style={{ fontSize: 9, color: "#DC2626", background: "#FEE2E2", padding: "2px 8px", borderRadius: 4, fontWeight: 600, border: "1px solid #FECACA" }}>
                         ⚠ No dates — edit in Task List
                       </span>
@@ -681,7 +681,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                   )}
                   {/* DEBUG: show computed bar position */}
                   {(!isMilestone) && (
-                    <div style={{ position: "absolute", left: 4, top: top + 30, zIndex: 5 }}>
+                    <div style={{ position: "absolute", left: 4, top: 30, zIndex: 5 }}>
                       <span style={{ fontSize: 7, color: plannedLeft !== null ? "#1F9D55" : "#EF4444", background: plannedLeft !== null ? "#DCFCE7" : "#FEE2E2", padding: "1px 3px", borderRadius: 2, fontFamily: "monospace" }}>
                         {plannedLeft !== null ? `pl:${Math.round(plannedLeft)} pw:${Math.round(plannedWidth||0)}` : `pS:${task.plannedStart?.slice(5)||"?"} aS:${task.startDate?.slice(5)||"?"}`}
                       </span>
