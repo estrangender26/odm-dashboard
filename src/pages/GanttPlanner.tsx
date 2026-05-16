@@ -267,7 +267,6 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
   /* Compute bar geometry directly from visibleFlat — guarantees hierarchy */
   const rows = useMemo(() => {
     return visibleFlat
-      .filter((v) => v.task.type !== "project")
       .map((v) => {
         const { task, level, hasChildren } = v;
         const pStart = parseDate(task.plannedStart);
