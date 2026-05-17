@@ -1760,7 +1760,7 @@ export default function GanttPlanner() {
           </div>
         )}
 
-        {activeTab === "tasks" && <TaskListTab tasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} />}
+        {activeTab === "tasks" && <TaskListTab tasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} />}
 
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
       </div>
@@ -2127,7 +2127,7 @@ function statusBadge(status: string) {
   return <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: "nowrap" }}>{status}</span>;
 }
 
-function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[]; saveTask: any; deleteTask: any; setBanner: (b: {type: "error" | "success" | "info"; message: string} | null) => void }) {
+function TaskListTab({ tasks, saveTask, deleteTask, setBanner, onEditTask }: { tasks: any[]; saveTask: any; deleteTask: any; setBanner: (b: {type: "error" | "success" | "info"; message: string} | null) => void; onEditTask: (task: any) => void }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
   const [showAdd, setShowAdd] = useState(false);
