@@ -1578,11 +1578,11 @@ export default function GanttPlanner() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const startEdit = useCallback((t: any) => {
+  const startEdit = (t: any) => {
     setEditingId(t.id);
     setForm(taskToForm(t));
     setShowAdd(false);
-  }, []);
+  };
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
