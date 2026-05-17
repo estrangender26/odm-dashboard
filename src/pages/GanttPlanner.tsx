@@ -27,6 +27,10 @@ interface KpiData {
   avgDuration: number;
 }
 
+/* ─── Dependency Types (MS Project) ─── */
+const DEP_TYPE_MAP: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+const DEP_TYPE_REVERSE: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
+
 interface GanttTask {
   id: number;
   text: string;
@@ -150,6 +154,152 @@ const ZOOM_LABELS: Record<ZoomLevel, string> = {
 };
 
 // Fixed day widths for each zoom level (px per day)
+
+/* ─── Dependency Engine (MS Project-style) ─── */
+interface GanttLink { id: number; source: number; target: number; type: string; lag?: number; }
+
+function depTypeName(type: string): string {
+  return DEP_TYPE_MAP[type] || type;
+}
+
+function addBizDays(date: Date, days: number): Date {
+  const r = new Date(date);
+  r.setDate(r.getDate() + days);
+  return r;
+}
+
+/* Apply a dependency constraint: return required successor planned dates */
+function applyDependency(
+  pred: GanttTask,
+  succ: GanttTask,
+  type: string,
+  lag: number
+): { plannedStart: string; plannedEnd: string } | null {
+  const pStart = parseDate(pred.plannedStart);
+  const pEnd = parseDate(pred.plannedEnd);
+  if (!pStart || !pEnd) return null;
+
+  let reqStart: Date | null = null;
+  let reqEnd: Date | null = null;
+
+  switch (type) {
+    case "0": case "FS": // Finish-to-Start
+      reqStart = addBizDays(pEnd, lag);
+      break;
+    case "1": case "SS": // Start-to-Start
+      reqStart = addBizDays(pStart, lag);
+      break;
+    case "2": case "FF": // Finish-to-Finish
+      reqEnd = addBizDays(pEnd, lag);
+      break;
+    case "3": case "SF": // Start-to-Finish
+      reqEnd = addBizDays(pStart, lag);
+      break;
+  }
+
+  if (!reqStart && !reqEnd) return null;
+
+  const dur = succ.duration || 1;
+  if (reqStart && !reqEnd) {
+    reqEnd = addBizDays(reqStart, dur);
+  } else if (reqEnd && !reqStart) {
+    reqStart = addBizDays(reqEnd, -dur);
+  }
+
+  if (reqStart && reqEnd) {
+    return {
+      plannedStart: reqStart.toISOString().slice(0, 10),
+      plannedEnd: reqEnd.toISOString().slice(0, 10),
+    };
+  }
+  return null;
+}
+
+/* Auto-schedule: recalculate successor planned dates from dependencies */
+function autoSchedule(
+  tasks: GanttTask[],
+  links: GanttLink[],
+  changedTaskId?: number
+): Map<number, { plannedStart: string; plannedEnd: string }> {
+  const taskMap = new Map<number, GanttTask>();
+  tasks.forEach(t => taskMap.set(t.id, t));
+
+  const updates = new Map<number, { plannedStart: string; plannedEnd: string }>();
+  const visited = new Set<number>();
+
+  // Build adjacency: predecessor → successor links
+  const successors = new Map<number, GanttLink[]>();
+  links.forEach(lk => {
+    if (!successors.has(lk.source)) successors.set(lk.source, []);
+    successors.get(lk.source)!.push(lk);
+  });
+
+  function visit(taskId: number) {
+    if (visited.has(taskId)) return;
+    visited.add(taskId);
+
+    const myLinks = successors.get(taskId) || [];
+    for (const lk of myLinks) {
+      const pred = taskMap.get(lk.source);
+      const succ = taskMap.get(lk.target);
+      if (!pred || !succ) continue;
+
+      // Use already-updated predecessor dates
+      const effPred = updates.has(lk.source)
+        ? { ...pred, plannedStart: updates.get(lk.source)!.plannedStart, plannedEnd: updates.get(lk.source)!.plannedEnd }
+        : pred;
+
+      const result = applyDependency(effPred, succ, lk.type, lk.lag || 0);
+      if (result) {
+        const currStart = parseDate(succ.plannedStart);
+        const newStart = parseDate(result.plannedStart);
+        // Only push successor later (never earlier)
+        if (!currStart || !newStart || newStart >= currStart) {
+          updates.set(lk.target, result);
+          visit(lk.target);
+        }
+      }
+    }
+  }
+
+  if (changedTaskId) {
+    visit(changedTaskId);
+  } else {
+    tasks.forEach(t => visit(t.id));
+  }
+
+  return updates;
+}
+
+/* Build connector points for SVG dependency lines */
+function buildConnectors(
+  links: GanttLink[],
+  taskPositions: Map<number, { left: number; width: number; row: number }>,
+  headerHeight: number,
+  rowHeight: number
+): { x1: number; y1: number; x2: number; y2: number; type: string }[] {
+  const connectors: { x1: number; y1: number; x2: number; y2: number; type: string }[] = [];
+  for (const lk of links) {
+    const from = taskPositions.get(lk.source);
+    const to = taskPositions.get(lk.target);
+    if (!from || !to) continue;
+
+    // Bar-right of source → bar-left of target
+    const y1 = headerHeight + from.row * rowHeight + rowHeight / 2;
+    const y2 = headerHeight + to.row * rowHeight + rowHeight / 2;
+
+    let x1 = from.left + from.width; // right edge of source bar
+    let x2 = to.left; // left edge of target bar
+
+    if (from.row === to.row) {
+      x1 = from.left + from.width;
+      x2 = to.left;
+    }
+
+    connectors.push({ x1, y1, x2, y2, type: lk.type });
+  }
+  return connectors;
+}
 const ZOOM_DAY_WIDTH: Record<Exclude<ZoomLevel, "autofit">, number> = {
   year: 0.5, quarter: 2, month: 5, week: 16, day: 48,
 };
@@ -179,8 +329,11 @@ interface NativeGanttChartProps {
   tasks: GanttTask[];
   selectedTaskId: number | null;
   onSelectTask: (id: number | null) => void;
+  selectedIds: Set<number>;
+  toggleSelect: (id: number, ctrl: boolean, shift: boolean) => void;
+  links: any[];
 }
-function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttChartProps) {
+function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, toggleSelect, links: _links }: NativeGanttChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
@@ -493,12 +646,12 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
           </div>
           {/* Task rows with hierarchy — multi-line wrapping */}
           {rows.map(({ task, level, hasChildren }) => {
-            const isSelected = selectedTaskId === task.id;
+            const isSelected = selectedTaskId === task.id || selectedIds.has(task.id);
             const rowBg = isSelected ? "#DBEAFE" : hasChildren ? "#E2E8F0" : level > 0 ? "#F8FAFC" : "transparent";
             return (
             <div
               key={task.id}
-              onClick={(e) => { if ((e.target as HTMLElement).tagName !== "BUTTON") onSelectTask(isSelected ? null : task.id); }}
+              onClick={(e) => { if ((e.target as HTMLElement).tagName !== "BUTTON") toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey); }}
               style={{
                 height: rowHeight,
                 borderBottom: "1px solid #F1F5F9",
@@ -636,16 +789,45 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
               );
             })()}
 
+            {/* Dependency connector lines (SVG) */}
+            {(() => {
+              if (!linksQuery.data || linksQuery.data.length === 0) return null;
+              // Build task position map for current visible rows
+              const posMap = new Map<number, { left: number; width: number; row: number }>();
+              rows.forEach((r, i) => {
+                const barLeft = r.plannedLeft ?? r.actualLeft ?? 0;
+                const barW = r.plannedWidth ?? r.actualWidth ?? 80;
+                posMap.set(r.task.id, { left: barLeft, width: barW, row: i });
+              });
+              const conns = buildConnectors(
+                linksQuery.data.map((l: any) => ({ id: l.id, source: l.source, target: l.target, type: l.type, lag: l.lag || 0 })),
+                posMap, headerHeight, rowHeight
+              );
+              if (conns.length === 0) return null;
+              return (
+                <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 10, overflow: "visible" }}>
+                  {conns.map((c, i) => (
+                    <g key={i}>
+                      {/* Line */}
+                      <line x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} stroke="#94A3B8" strokeWidth={1.5} strokeDasharray="4,3" fill="none" />
+                      {/* Arrowhead at target */}
+                      <polygon points={`${c.x2-5},${c.y2-4} ${c.x2+1},${c.y2} ${c.x2-5},${c.y2+4}`} fill="#94A3B8" />
+                    </g>
+                  ))}
+                </svg>
+              );
+            })()}
+
             {/* Task rows — dual bars */}
             {rows.map((row, idx) => {
               const { task, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone, isAutoPopulated } = row;
               const top = headerHeight + idx * rowHeight;
-              const isSelected = selectedTaskId === task.id;
+              const isSelected = selectedTaskId === task.id || selectedIds.has(task.id);
 
               return (
                 <div
                   key={task.id}
-                  onClick={() => onSelectTask(isSelected ? null : task.id)}
+                  onClick={(e) => toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)}
                   style={{
                     position: "absolute",
                     left: 0,
@@ -816,6 +998,13 @@ export default function GanttPlanner() {
   const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
   const [currentProjectName, setCurrentProjectName] = useState<string>("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkType, setLinkType] = useState("0");
+  const [linkLag, setLinkLag] = useState(0);
+  const [depEditorOpen, setDepEditorOpen] = useState(false);
+  const [depEditorTask, setDepEditorTask] = useState<number | null>(null);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
 
   /* ─── Auto-recalculate parent dates/progress from children ─── */
   const recalcAndSaveParent = useCallback((parentId: number, allTasks: any[]) => {
@@ -966,6 +1155,37 @@ export default function GanttPlanner() {
     return { totalTasks: total, completed, inProgress, overdue, completionRate, avgDuration };
   }, []);
 
+
+  /* Multi-select: Ctrl/Cmd toggle, Shift range */
+  const lastSelectedRef = useRef<number | null>(null);
+  const toggleSelect = useCallback((id: number, ctrlKey: boolean, shiftKey: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (shiftKey && lastSelectedRef.current !== null) {
+        const allIds = (tasksQuery.data || []).map((t: any) => t.id);
+        const fromIdx = allIds.indexOf(lastSelectedRef.current);
+        const toIdx = allIds.indexOf(id);
+        if (fromIdx >= 0 && toIdx >= 0) {
+          const [s, e] = fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+          for (let i = s; i <= e; i++) next.add(allIds[i]);
+        }
+      } else if (ctrlKey || multiSelectMode) {
+        next.has(id) ? next.delete(id) : next.add(id);
+      } else {
+        next.clear(); next.add(id);
+      }
+      return next;
+    });
+    lastSelectedRef.current = id;
+    setSelectedTaskId(id);
+  }, [tasksQuery.data, multiSelectMode]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectedTaskId(null);
+    lastSelectedRef.current = null;
+  }, []);
+
   /* ─── KPI from query ─── */
   useEffect(() => {
     if (!tasksQuery.data) return;
@@ -1058,6 +1278,7 @@ export default function GanttPlanner() {
         "Progress": progressVal,
         "Dependency": dependency,
         "Dependency Type": dependencyType,
+        "Lag (days)": resolveField(t, "lag", "lag_days", "lagDays") || "",
         "Milestone": milestone,
         "Category": category,
         "Status": status,
@@ -1074,7 +1295,7 @@ export default function GanttPlanner() {
     const COLUMN_ORDER = [
       "Task ID", "Parent Task", "WBS Level", "Task Name", "Owner",
       "Start", "Finish", "Duration", "Progress",
-      "Dependency", "Dependency Type", "Milestone", "Category", "Status", "Notes",
+      "Dependency", "Dependency Type", "Lag (days)", "Milestone", "Category", "Status", "Notes",
     ];
 
     // Create a row with headers in exact order (even for empty data)
@@ -1085,7 +1306,7 @@ export default function GanttPlanner() {
     const colWidths = [
       { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 30 }, { wch: 18 },
       { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
-      { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 20 }, { wch: 25 },
+      { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 20 }, { wch: 25 },
     ];
     ws["!cols"] = colWidths;
 
@@ -1343,12 +1564,62 @@ export default function GanttPlanner() {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
                 <span>Indent</span>
               </button>
-            </div>
+            
+              {/* Multi-select toggle */}
+              <button
+                onClick={() => setMultiSelectMode(!multiSelectMode)}
+                className="gantt-action-btn"
+                title="Toggle multi-select mode"
+                style={{ padding: "5px 10px", fontSize: 11, background: multiSelectMode ? "#DBEAFE" : "#F1F5F9" }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                <span>{multiSelectMode ? "Multi-ON" : "Multi"}</span>
+              </button>
+
+              {/* Link Tasks button */}
+              <button
+                onClick={() => setLinkModalOpen(true)}
+                disabled={selectedIds.size < 2}
+                className="gantt-action-btn"
+                title={selectedIds.size < 2 ? "Select 2+ tasks first" : `Link ${selectedIds.size} selected tasks`}
+                style={{ padding: "5px 10px", fontSize: 11 }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                <span>Link</span>
+              </button>
+
+              {/* Dependency Editor */}
+              <button
+                onClick={() => { if (selectedTaskId) { setDepEditorTask(selectedTaskId); setDepEditorOpen(true); } }}
+                disabled={!selectedTaskId}
+                className="gantt-action-btn"
+                title={selectedTaskId ? "Edit dependencies" : "Select a task first"}
+                style={{ padding: "5px 10px", fontSize: 11 }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4m-9.66-3.34l2.83-2.83m11.66-7.66l2.83-2.83M1 12h4m14 0h4M3.34 4.34l2.83 2.83m7.66 11.66l2.83 2.83"/></svg>
+                <span>Deps</span>
+              </button>
+
+              {/* Clear Selection */}
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={clearSelection}
+                  className="gantt-action-btn"
+                  title="Clear selection"
+                  style={{ padding: "5px 10px", fontSize: 11 }}
+                >
+                  <span>Clear ({selectedIds.size})</span>
+                </button>
+              )}
+</div>
             <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
               <NativeGanttChart
                 tasks={(tasksQuery.data || []) as GanttTask[]}
                 selectedTaskId={selectedTaskId}
                 onSelectTask={setSelectedTaskId}
+                selectedIds={selectedIds}
+                toggleSelect={toggleSelect}
+                links={linksQuery.data || []}
               />
             </div>
           </div>
@@ -1359,7 +1630,89 @@ export default function GanttPlanner() {
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
       </div>
 
+      
+      {/* ─── Link Tasks Modal ─── */}
+      {linkModalOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 250, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.4)" }}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 380, maxWidth: "90vw", boxShadow: "0 20px 60px rgba(0,0,0,.25)", fontFamily: "Inter, sans-serif" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px", color: "#1E293B" }}>🔗 Create Dependency</h3>
+            <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px" }}>
+              {(() => {
+                const ids = Array.from(selectedIds);
+                const names = ids.map(id => {
+                  const t = (tasksQuery.data || []).find((x: any) => x.id === id);
+                  return t ? t.text.slice(0, 20) : `Task ${id}`;
+                });
+                return `${names.length} tasks selected: ${names.join(", ")}`;
+              })()}
+            </p>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Dependency Type</label>
+            <select value={linkType} onChange={(e) => setLinkType(e.target.value)} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 6, marginBottom: 12, fontFamily: "Inter" }}>
+              <option value="0">FS — Finish-to-Start</option>
+              <option value="1">SS — Start-to-Start</option>
+              <option value="2">FF — Finish-to-Finish</option>
+              <option value="3">SF — Start-to-Finish</option>
+            </select>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Lag (days)</label>
+            <input type="number" value={linkLag} onChange={(e) => setLinkLag(parseInt(e.target.value) || 0)} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 6, marginBottom: 16 }} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => { setLinkModalOpen(false); setLinkLag(0); }} style={{ padding: "8px 16px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 8, background: "#F1F5F9", cursor: "pointer", color: "#475569" }}>Cancel</button>
+              <button onClick={() => {
+                const ids = Array.from(selectedIds);
+                let created = 0;
+                for (let i = 0; i < ids.length - 1; i++) {
+                  saveLinkMut.mutate({ source: ids[i], target: ids[i + 1], type: linkType, lag: linkLag });
+                  created++;
+                }
+                setBanner({ type: "success", message: `Created ${created} link(s) (${depTypeName(linkType)}, lag ${linkLag}d)` });
+                setLinkModalOpen(false);
+                setLinkLag(0);
+                setLinkType("0");
+              }} style={{ padding: "8px 16px", fontSize: 12, border: "none", borderRadius: 8, background: "#005BAC", color: "#fff", cursor: "pointer", fontWeight: 600 }}>Create Links</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Dependency Editor Modal ─── */}
+      {depEditorOpen && depEditorTask && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 250, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.4)" }}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 440, maxWidth: "90vw", maxHeight: "80vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,.25)", fontFamily: "Inter, sans-serif" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px", color: "#1E293B" }}>🔗 Dependencies for {(() => {
+              const t = (tasksQuery.data || []).find((x: any) => x.id === depEditorTask);
+              return t ? t.text?.slice(0, 25) : `Task ${depEditorTask}`;
+            })()}</h3>
+            {(() => {
+              const myLinks = (linksQuery.data || []).filter((l: any) => l.source === depEditorTask || l.target === depEditorTask);
+              if (myLinks.length === 0) return <p style={{ fontSize: 12, color: "#94A3B8" }}>No dependencies.</p>;
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {myLinks.map((lk: any) => {
+                    const from = (tasksQuery.data || []).find((t: any) => t.id === lk.source);
+                    const to = (tasksQuery.data || []).find((t: any) => t.id === lk.target);
+                    return (
+                      <div key={lk.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", background: "#F8FAFC", borderRadius: 6, fontSize: 11 }}>
+                        <span style={{ fontWeight: 600, color: "#005BAC" }}>{from?.text?.slice(0, 15) || "?"}</span>
+                        <span style={{ color: "#8BA3B8" }}>→</span>
+                        <span style={{ fontWeight: 600, color: "#475569" }}>{to?.text?.slice(0, 15) || "?"}</span>
+                        <span style={{ background: "#DBEAFE", color: "#1E40AF", fontSize: 9, fontWeight: 700, padding: "1px 4px", borderRadius: 4 }}>{depTypeName(lk.type)}</span>
+                        {lk.lag ? <span style={{ color: "#F59E0B", fontSize: 9 }}>+{lk.lag}d</span> : null}
+                        <button onClick={() => { deleteLinkMut.mutate({ id: lk.id }); }} style={{ marginLeft: "auto", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }} title="Delete">×</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => { setDepEditorOpen(false); setDepEditorTask(null); }} style={{ padding: "8px 16px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 8, background: "#F1F5F9", cursor: "pointer", color: "#475569" }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ─── Save Project Modal ─── */}
+
       {saveModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget && !saveProjectMut.isPending) setSaveModal(false); }}>
           <div className="gantt-modal" style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 440, padding: "24px 28px", fontFamily: "Inter, sans-serif", position: "relative", overflow: "hidden" }}>

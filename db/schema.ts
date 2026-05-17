@@ -210,6 +210,7 @@ export const ganttLinks = pgTable("gantt_links", {
   source: integer("source").notNull(),
   target: integer("target").notNull(),
   type: varchar("type", { length: 20 }).notNull().default("0"),
+  lag: integer("lag_days").default(0),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

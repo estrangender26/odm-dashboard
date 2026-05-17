@@ -89,13 +89,14 @@ export const ganttRouter = createRouter({
         source: z.number(),
         target: z.number(),
         type: z.string().default("0"),
+        lag: z.number().default(0),
       })
     )
     .mutation(async ({ input }) => {
       if (input.id) {
         await db
           .update(ganttLinks)
-          .set({ source: input.source, target: input.target, type: input.type })
+          .set({ source: input.source, target: input.target, type: input.type, lag: input.lag })
           .where(eq(ganttLinks.id, input.id));
         return { id: input.id, action: "updated" };
       } else {
@@ -103,6 +104,7 @@ export const ganttRouter = createRouter({
           source: input.source,
           target: input.target,
           type: input.type,
+          lag: input.lag,
         }).returning({ id: ganttLinks.id });
         return { id: result[0].id, action: "created" };
       }
@@ -132,6 +134,10 @@ export const ganttRouter = createRouter({
       ADD COLUMN IF NOT EXISTS category VARCHAR(100),
       ADD COLUMN IF NOT EXISTS notes TEXT,
       ADD COLUMN IF NOT EXISTS status VARCHAR(50)
+    `));
+    await db.execute(sql.raw(`
+      ALTER TABLE gantt_links 
+      ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0
     `));
     return { success: true };
   }),
