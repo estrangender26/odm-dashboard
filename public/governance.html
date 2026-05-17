@@ -1110,9 +1110,14 @@ function renderAIInsights(ins){
     if(ins.recommendations.length===0){
       recEl.innerHTML='<div style="padding:8px;font-size:11px;color:#64748B;text-align:center">All items on track. No recommendations.</div>';
     }else{
-      recEl.innerHTML=ins.recommendations.map(function(r,i){
-        return '<div style="padding:8px 10px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.1);border-radius:6px;font-size:11px"><span style="color:#10B981;font-weight:700">'+(i+1)+'.</span> '+escapeHtml(r)+'</div>';
-      }).join('');
+      var idx=0;
+      recEl.innerHTML=ins.recommendations.map(function(r){
+        var isHeaderOnly=r.trim().indexOf(':')===r.trim().length-1;
+        if(isHeaderOnly) return '';
+        var clean=r.replace(/^\*\*|\*\*$/g,'').trim();
+        idx++;
+        return '<div style="padding:10px 12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;font-size:13px;line-height:1.5;color:#0F172A;margin-bottom:6px;word-break:break-word;"><span style="color:#059669;font-weight:700;font-size:14px;">'+idx+'.</span> '+escapeHtml(clean)+'</div>';
+      }).filter(function(s){return s.length>0;}).join('');
     }
   }
 }
