@@ -1580,7 +1580,34 @@ export default function GanttPlanner() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const startEdit = (t: any) => {
+interface TaskForm {
+  text: string; owner: string;
+  plannedStart: string; plannedEnd: string;
+  actualStart: string; actualEnd: string;
+  duration: number; progress: number;
+  status: string; remarks: string;
+  type: string; parent: number;
+}
+
+const EMPTY_FORM: TaskForm = {
+  text: "", owner: "", plannedStart: "", plannedEnd: "", actualStart: "", actualEnd: "",
+  duration: 1, progress: 0, status: "Not Started", remarks: "", type: "task", parent: 0,
+};
+
+function taskToForm(t: any): TaskForm {
+  return {
+    text: t.text || "",
+    owner: t.owner || "",
+    plannedStart: t.plannedStart ? String(t.plannedStart).slice(0, 10) : "",
+    plannedEnd: t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "",
+    actualStart: t.startDate ? String(t.startDate).slice(0, 10) : "",
+    actualEnd: t.endDate ? String(t.endDate).slice(0, 10) : "",
+  };
+}
+
+const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
+
+const startEdit = (t: any) => {
     setEditingId(t.id);
     setForm(taskToForm(t));
     setShowAdd(false);
@@ -2070,38 +2097,6 @@ function KpiCard({ label, value, icon, color }: { label: string; value: string |
   );
 }
 
-/* ─── Task List Tab — Full 10-field CRUD ─── */
-interface TaskForm {
-  text: string; owner: string;
-  plannedStart: string; plannedEnd: string;
-  actualStart: string; actualEnd: string;
-  duration: number; progress: number;
-  status: string; remarks: string;
-  type: string; parent: number;
-}
-
-const EMPTY_FORM: TaskForm = {
-  text: "", owner: "", plannedStart: "", plannedEnd: "", actualStart: "", actualEnd: "",
-  duration: 1, progress: 0, status: "Not Started", remarks: "", type: "task", parent: 0,
-};
-
-function taskToForm(t: any): TaskForm {
-  return {
-    text: t.text || "",
-    owner: t.owner || "",
-    plannedStart: t.plannedStart ? String(t.plannedStart).slice(0, 10) : "",
-    plannedEnd: t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "",
-    actualStart: t.startDate ? String(t.startDate).slice(0, 10) : "",
-    actualEnd: t.endDate ? String(t.endDate).slice(0, 10) : "",
-    duration: t.duration || 1,
-    progress: normProgress(t.progress),
-    status: rowStatus(t),
-    remarks: t.remarks || "",
-    type: t.type || "task",
-    parent: t.parent || 0,
-  };
-}
-
 /* Global "today" for status derivation and bar auto-populate */
 const _today = new Date();
 _today.setHours(0, 0, 0, 0);
@@ -2138,8 +2133,6 @@ function statusBadge(status: string) {
 
 function TaskListTab({ tasks, saveTask, deleteTask, setBanner, onEditTask }: { tasks: any[]; saveTask: any; deleteTask: any; setBanner: (b: {type: "error" | "success" | "info"; message: string} | null) => void; onEditTask: (task: any) => void }) {
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
-  const [showAdd, setShowAdd] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   // Filter out garbage rows
