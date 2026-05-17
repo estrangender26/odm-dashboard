@@ -1043,6 +1043,8 @@ export default function GanttPlanner() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasUnsavedChanges]);
 
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [linkModalOpen, setLinkModalOpen] = useState(false);
