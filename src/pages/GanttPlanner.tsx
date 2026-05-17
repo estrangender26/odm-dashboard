@@ -332,8 +332,9 @@ interface NativeGanttChartProps {
   selectedIds: Set<number>;
   toggleSelect: (id: number, ctrl: boolean, shift: boolean) => void;
   links: any[];
+  onEditTask: (task: GanttTask) => void;
 }
-function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, toggleSelect, links: _links }: NativeGanttChartProps) {
+function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, toggleSelect, links: _links, onEditTask }: NativeGanttChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
@@ -652,6 +653,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
             <div
               key={task.id}
               onClick={(e) => { if ((e.target as HTMLElement).tagName !== "BUTTON") toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey); }}
+              onDoubleClick={() => onEditTask(task)}
               style={{
                 height: rowHeight,
                 borderBottom: "1px solid #F1F5F9",
@@ -828,6 +830,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                 <div
                   key={task.id}
                   onClick={(e) => toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)}
+                  onDoubleClick={() => onEditTask(task)}
                   style={{
                     position: "absolute",
                     left: 0,
@@ -1751,6 +1754,7 @@ export default function GanttPlanner() {
                 selectedIds={selectedIds}
                 toggleSelect={toggleSelect}
                 links={linksQuery.data || []}
+                onEditTask={startEdit}
               />
             </div>
           </div>
