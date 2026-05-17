@@ -269,8 +269,6 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
   }, [zoomLevel, containerWidth, totalDays]);
 
   /* Compute bar geometry directly from visibleFlat — guarantees hierarchy */
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
   const rows = useMemo(() => {
     return visibleFlat
       .map((v) => {
@@ -283,15 +281,22 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
         const plannedWidth = (pStart && pEnd && daysBetween(pStart, pEnd) > 0)
           ? daysBetween(pStart, pEnd) * dayWidth : null;
 
-        /* Auto-populate actual bar for in-progress tasks with no actual finish */
-        const isActive = task.status && /in\s*progress|started|ongoing/i.test(task.status);
+        /*
+         * ACTUAL BAR LOGIC (Project Controls):
+         * - Actual start + no actual finish → bar extends to today (auto-populated)
+         * - Actual start + actual finish → bar shows actual range
+         * - No actual start → no actual bar
+         * Planned dates remain fixed (baseline) and never auto-change.
+         */
         let effAStart = aStart;
         let effAEnd = aEnd;
-        if (isActive && !aEnd && pStart) {
-          /* In-progress with no actual finish: use actual start if available, else planned start */
-          effAStart = aStart || pStart;
-          /* Cap at planned end if plan already finished, else today */
-          effAEnd = pEnd && pEnd < today ? pEnd : today;
+        const hasActualStart = !!aStart;
+        const hasActualFinish = !!aEnd;
+        const isAutoPopulated = hasActualStart && !hasActualFinish;
+
+        if (isAutoPopulated) {
+          /* Task started but not finished: extend bar to today */
+          effAEnd = pEnd && today > pEnd ? today : today;
         }
 
         const actualLeft = effAStart ? Math.max(0, daysBetween(projectStart, effAStart)) * dayWidth : null;
@@ -303,9 +308,9 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
           level,
           hasChildren,
           plannedLeft, plannedWidth, actualLeft, actualWidth,
-          isDelayed: effAEnd && pEnd && effAEnd > pEnd,
+          isDelayed: pEnd ? today > pEnd && !hasActualFinish : false,
           isMilestone: task.type === "milestone",
-          isAutoPopulated: isActive && !aEnd && !!pStart,
+          isAutoPopulated,
         };
       });
   }, [visibleFlat, projectStart, dayWidth]);
@@ -1173,12 +1178,14 @@ export default function GanttPlanner() {
         const milestoneVal = row["Milestone"] || row["milestone"] || row["isMilestone"] || row["is_milestone"] || "";
         const isMilestone = String(milestoneVal).toLowerCase() === "yes" || String(milestoneVal).toLowerCase() === "true" || String(milestoneVal) === "1";
 
-        // ── Status ──
+        // ── Status (derive from actual dates, not progress) ──
         let status = row["Status"] || row["status"] || row["state"] || row["State"] || "";
         if (!status) {
-          if (prog >= 100) status = "Completed";
-          else if (prog > 0) status = "In Progress";
-          else status = "Not Started";
+          // Project controls: status is driven by actual dates
+          const _aStart = parseDate(start);
+          const _aEnd = parseDate(finish);
+          const _pEnd = parseDate(plannedEnd || plannedEnd);
+          status = deriveStatus({ startDate: start, endDate: finish, plannedEnd: plannedEnd });
         }
 
         // ── Notes / Remarks ──
@@ -1595,16 +1602,26 @@ function taskToForm(t: any): TaskForm {
   };
 }
 
-function rowStatus(t: any): string {
-  const p = normProgress(t.progress);
-  if (p >= 100) return "Completed";
-  if (p > 0) {
-    const aEnd = parseDate(t.endDate);
-    const pEnd = parseDate(t.plannedEnd);
-    if (aEnd && pEnd && aEnd > pEnd) return "In Progress (Delayed)";
-    return "In Progress";
+/* Global "today" for status derivation and bar auto-populate */
+const _today = new Date();
+_today.setHours(0, 0, 0, 0);
+const today = _today;
+
+function deriveStatus(t: any): string {
+  const aStart = parseDate(t.startDate);
+  const aEnd = parseDate(t.endDate);
+  const pEnd = parseDate(t.plannedEnd);
+  if (aEnd) return "Completed";
+  if (aStart) {
+    const isDelayed = pEnd ? today > pEnd : false;
+    return isDelayed ? "In Progress (Delayed)" : "In Progress";
   }
   return "Not Started";
+}
+
+function rowStatus(t: any): string {
+  // Prefer stored status if manually set, otherwise derive from actual dates
+  return t.status || deriveStatus(t);
 }
 
 function statusBadge(status: string) {
@@ -1612,6 +1629,7 @@ function statusBadge(status: string) {
     "Completed": { bg: "#DCFCE7", color: "#166534" },
     "In Progress": { bg: "#DBEAFE", color: "#1E40AF" },
     "In Progress (Delayed)": { bg: "#FEE2E2", color: "#991B1B" },
+    "Delayed": { bg: "#FEF3C7", color: "#92400E" },
     "Not Started": { bg: "#F1F5F9", color: "#475569" },
   };
   const s = map[status] || map["Not Started"];
@@ -1687,6 +1705,20 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[];
 
   const submitForm = () => {
     if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
+
+    /* Auto-derive status from actual dates when user selects "Auto" */
+    const autoStatus = deriveStatus({
+      startDate: form.actualStart,
+      endDate: form.actualEnd,
+      plannedEnd: form.plannedEnd,
+      status: null,
+    });
+    const finalStatus = form.status && form.status !== "" ? form.status : autoStatus;
+
+    /* Auto-set progress to 100% when actual finish is entered */
+    let finalProgress = Math.min(100, Math.max(0, form.progress));
+    if (form.actualEnd && finalProgress < 100) finalProgress = 100;
+
     const payload: any = {
       text: form.text.trim(),
       owner: form.owner || null,
@@ -1695,8 +1727,8 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[];
       start_date: form.actualStart || null,
       end_date: form.actualEnd || null,
       duration: form.duration || 1,
-      progress: Math.min(100, Math.max(0, form.progress)),
-      status: form.status || "Not Started",
+      progress: finalProgress,
+      status: finalStatus,
       remarks: form.remarks || null,
       type: form.type || "task",
       parent: form.parent || 0,
@@ -1760,13 +1792,28 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[];
           <input type="number" min={0} max={100} value={form.progress} onChange={(e) => setForm({ ...form, progress: parseInt(e.target.value) || 0 })} style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>Status</label>
+          <label style={labelStyle}>
+            Status
+            <span style={{ fontSize: 9, fontWeight: 500, color: "#94A3B8", marginLeft: 4, textTransform: "none" }}>(auto-derived from actual dates)</span>
+          </label>
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle}>
+            <option value="">Auto (from dates)</option>
             <option>Not Started</option>
             <option>In Progress</option>
             <option>In Progress (Delayed)</option>
             <option>Completed</option>
           </select>
+          <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 2, fontStyle: "italic" }}>
+            {(() => {
+              const s = deriveStatus({
+                startDate: form.actualStart,
+                endDate: form.actualEnd,
+                plannedEnd: form.plannedEnd,
+                status: null,
+              });
+              return `Preview: ${s}`;
+            })()}
+          </div>
         </div>
         <div>
           <label style={labelStyle}>Parent Task</label>
