@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { Link, useBlocker } from "react-router";
+import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
@@ -1042,23 +1042,6 @@ export default function GanttPlanner() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasUnsavedChanges]);
-
-  /* Block SPA navigation when unsaved changes exist */
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
-    return hasUnsavedChanges && currentLocation.pathname !== nextLocation.pathname;
-  });
-
-  useEffect(() => {
-    if (blocker.state === "blocked") {
-      const choice = window.confirm("You have unsaved changes.\n\nOK = Save and leave\nCancel = Stay on this page");
-      if (choice) {
-        handleSave();
-        blocker.proceed();
-      } else {
-        blocker.reset();
-      }
-    }
-  }, [blocker.state]);
 
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
