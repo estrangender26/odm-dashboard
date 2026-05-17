@@ -893,14 +893,29 @@ async function askAI(){
   var facility=document.getElementById('fs').value;
   var st=ST[facility]||{pp:'',ms:{},up:{}};
   var ms=st.ms||{};
-  var completed=0,total=0,missingDates=[];
+  var completed=0,total=0,missingDates=[],overdue=[],upcoming=[];
+  var now=new Date();
+  var thirtyDays=new Date(now.getTime()+30*24*60*60*1000);
+  var pppDate=st.pp?new Date(st.pp):null;
   for(var mid in MSD){
     total++;
+    var def=MSD[mid];
     var mState=ms[mid]||{};
-    if(mState.done)completed++;
-    else if(!(mState.compDate&&mState.compDate.length===10))missingDates.push(MSD[mid].n);
+    if(mState.done){completed++;continue;}
+    if(!(mState.compDate&&mState.compDate.length===10))missingDates.push(def.n);
+    // Calculate target date from PPP + offset months
+    if(pppDate){
+      var target=new Date(pppDate);
+      target.setMonth(target.getMonth()+def.o);
+      var tgtStr=target.toISOString().slice(0,10);
+      if(target<now)overdue.push({name:def.n,target:tgtStr,daysPast:Math.floor((now-target)/(86400000))});
+      else if(target<thirtyDays)upcoming.push({name:def.n,target:tgtStr,daysLeft:Math.floor((target-now)/(86400000))});
+    }
   }
-  var context='Facility: '+facility+'\nPPP Date: '+(st.pp||'NOT SET')+'\nMilestones: '+completed+'/'+total+' completed\nMissing dates: '+missingDates.join(', ')+'\nUploads: '+(st.up?Object.keys(st.up).length:0)+' milestones with files\n\nQuestion: '+q;
+  var dateAnalysis='';
+  if(overdue.length)dateAnalysis+='\nOVERDUE MILESTONES ('+overdue.length+'):\n'+overdue.map(function(o){return '- '+o.name+' (target: '+o.target+', '+o.daysPast+' days past)';}).join('\n');
+  if(upcoming.length)dateAnalysis+='\nUPCOMING DEADLINES ('+upcoming.length+' within 30 days):\n'+upcoming.map(function(u){return '- '+u.name+' (target: '+u.target+', '+u.daysLeft+' days left)';}).join('\n');
+  var context='Facility: '+facility+'\nCurrent Date: '+now.toISOString().slice(0,10)+'\nPPP Date: '+(st.pp||'NOT SET')+'\nMilestones: '+completed+'/'+total+' completed\nMissing dates: '+(missingDates.length?missingDates.join(', '):'none')+'\nUploads: '+(st.up?Object.keys(st.up).length:0)+' milestones with files'+dateAnalysis+'\n\nQuestion: '+q;
   var ansEl=document.getElementById('ai-chat-answer');
   var loadEl=document.getElementById('ai-chat-loading');
   loadEl.style.display='block';
@@ -965,14 +980,28 @@ async function refreshAICards(){
   if(!f)return;
   var st=ST[f]||{pp:'',ms:{},up:{}};
   var ms=st.ms||{};
-  var completed=0,total=0,missingDates=[];
+  var completed=0,total=0,missingDates=[],overdue=[],upcoming=[];
+  var now=new Date();
+  var thirtyDays=new Date(now.getTime()+30*24*60*60*1000);
+  var pppDate=st.pp?new Date(st.pp):null;
   for(var mid in MSD){
     total++;
+    var def=MSD[mid];
     var mState=ms[mid]||{};
-    if(mState.done)completed++;
-    else if(!(mState.compDate&&mState.compDate.length===10))missingDates.push(MSD[mid].n);
+    if(mState.done){completed++;continue;}
+    if(!(mState.compDate&&mState.compDate.length===10))missingDates.push(def.n);
+    if(pppDate){
+      var target=new Date(pppDate);
+      target.setMonth(target.getMonth()+def.o);
+      var tgtStr=target.toISOString().slice(0,10);
+      if(target<now)overdue.push({name:def.n,target:tgtStr,daysPast:Math.floor((now-target)/(86400000))});
+      else if(target<thirtyDays)upcoming.push({name:def.n,target:tgtStr,daysLeft:Math.floor((target-now)/(86400000))});
+    }
   }
-  var context='Analyze this governance data for facility '+f+':\nPPP Date: '+(st.pp||'NOT SET')+'\nMilestones: '+completed+'/'+total+' completed\nMissing completion dates: '+(missingDates.length?missingDates.join(', '):'none')+'\nUploads: '+(st.up?Object.keys(st.up).length:0)+' milestones with files.\nProvide insights on compliance, risks, and recommendations.';
+  var dateAnalysis='';
+  if(overdue.length)dateAnalysis+='\nOVERDUE MILESTONES ('+overdue.length+'):\n'+overdue.map(function(o){return '- '+o.name+' (target: '+o.target+', '+o.daysPast+' days past due)';}).join('\n');
+  if(upcoming.length)dateAnalysis+='\nUPCOMING DEADLINES ('+upcoming.length+' within 30 days):\n'+upcoming.map(function(u){return '- '+u.name+' (target: '+u.target+', '+u.daysLeft+' days remaining)';}).join('\n');
+  var context='Analyze this governance data for facility '+f+':\nCurrent Date: '+now.toISOString().slice(0,10)+'\nPPP Date: '+(st.pp||'NOT SET')+'\nMilestones: '+completed+'/'+total+' completed\nMissing completion dates: '+(missingDates.length?missingDates.join(', '):'none')+'\nUploads: '+(st.up?Object.keys(st.up).length:0)+' milestones with files'+dateAnalysis+'\nProvide insights on compliance, risks, and recommendations.';
   var bar=document.getElementById('ai-cards-bar');
   bar.style.display='block';
   try{
