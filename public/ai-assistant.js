@@ -204,35 +204,115 @@
     // Build rich context from inspection data
     const ctx = buildContext(rows);
     var now = new Date().toISOString().slice(0, 10);
-    var overdue = [];
-    var criticalItems = [];
+
+    // --- PLANT / FACILITY ANALYSIS ---
+    var plantData = {};  // { plantName: { total: 0, negative: 0, assets: Set, issues: [] } }
     var assetList = [];
+    var statusCounts = {};
+    var inspectorData = {};
+    var negativeRows = rows.filter(hasNeg);
+
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
-      if (r.status === 'Overdue' || r.daysOverdue > 0) overdue.push(r.equipment + ' (' + r.daysOverdue + ' days)');
-      if (r.severity === 'Critical' || r.severity === 'High') criticalItems.push(r.equipment + ': ' + r.description);
-      if (assetList.indexOf(r.equipment) === -1) assetList.push(r.equipment);
+      var plant = r.Plant || r.Facility || r.Site || 'Unknown Plant';
+      var asset = r.AssetName || r.AssetTag || 'Unknown';
+      var status = r.Status || (hasNeg(r) ? 'Negative' : 'OK');
+      var inspector = r.Inspector || 'Unknown';
+
+      // Plant stats
+      if (!plantData[plant]) plantData[plant] = { total: 0, negative: 0, assets: {}, inspectors: {} };
+      plantData[plant].total++;
+      if (!plantData[plant].assets[asset]) plantData[plant].assets[asset] = 0;
+      plantData[plant].assets[asset]++;
+      if (!plantData[plant].inspectors[inspector]) plantData[plant].inspectors[inspector] = 0;
+      plantData[plant].inspectors[inspector]++;
+      if (hasNeg(r)) plantData[plant].negative++;
+
+      // Status counts
+      if (!statusCounts[status]) statusCounts[status] = 0;
+      statusCounts[status]++;
+
+      // Unique asset list
+      if (asset !== 'Unknown' && assetList.indexOf(asset) === -1) assetList.push(asset);
+
+      // Inspector stats
+      if (!inspectorData[inspector]) inspectorData[inspector] = { total: 0, negative: 0 };
+      inspectorData[inspector].total++;
+      if (hasNeg(r)) inspectorData[inspector].negative++;
     }
+
+    // Sort plants by negative count (worst first)
+    var plantSummary = Object.keys(plantData).map(function(p) {
+      var d = plantData[p];
+      var distinctAssets = Object.keys(d.assets).length;
+      var negPct = d.total > 0 ? Math.round((d.negative / d.total) * 100) : 0;
+      var topAsset = Object.keys(d.assets).sort(function(a, b) { return d.assets[b] - d.assets[a]; })[0] || 'N/A';
+      return { plant: p, total: d.total, negative: d.negative, negPct: negPct, assets: distinctAssets, topAsset: topAsset };
+    }).sort(function(a, b) { return b.negative - a.negative; });
+
+    // Worst plant
+    var worstPlant = plantSummary[0];
+
+    // Build context prompt
     var contextPrompt = 'You are analyzing an Operator Driven Maintenance (ODM) dashboard for water/wastewater facilities.\n\n' +
-      'CURRENT DATE: ' + now + '\n' +
-      'TOTAL INSPECTIONS: ' + ctx.total + '\n' +
-      'NEGATIVE FINDINGS: ' + ctx.negCount + ' (' + ctx.negPct + '%)\n' +
-      'DISTINCT ASSETS: ' + ctx.totalDistinct + '\n' +
-      'TOP EQUIPMENT CATEGORIES: ' + ctx.cats.slice(0, 5).map(function (c) { return c.category + '(' + c.distinct + ')'; }).join(', ') + '\n' +
-      'DATE RANGE: ' + ctx.dateRange + '\n';
-    if (overdue.length) contextPrompt += 'OVERDUE ITEMS (' + overdue.length + '): ' + overdue.slice(0, 10).join(', ') + '\n';
-    if (criticalItems.length) contextPrompt += 'CRITICAL/HIGH FINDINGS (' + criticalItems.length + '): ' + criticalItems.slice(0, 5).join('; ') + '\n';
-    contextPrompt += 'ASSETS: ' + assetList.slice(0, 15).join(', ') + '\n\n' +
-      'INSPECTION SUMMARY BY STATUS:\n';
-    // Group by status
-    var byStatus = {};
-    for (var j = 0; j < rows.length; j++) {
-      var st = rows[j].status || 'Unknown';
-      if (!byStatus[st]) byStatus[st] = 0;
-      byStatus[st]++;
+      '=== DASHBOARD OVERVIEW ===\n' +
+      'Current Date: ' + now + '\n' +
+      'Total Inspections: ' + ctx.total + '\n' +
+      'Negative Findings: ' + ctx.negCount + ' (' + ctx.negPct + '%)\n' +
+      'Distinct Assets: ' + ctx.totalDistinct + '\n' +
+      'Plants/Facilities: ' + plantSummary.length + '\n' +
+      'Date Range: ' + ctx.dateRange + '\n\n';
+
+    // Plant breakdown
+    contextPrompt += '=== PLANT / FACILITY BREAKDOWN (sorted by negative findings, worst first) ===\n';
+    plantSummary.slice(0, 10).forEach(function(p, idx) {
+      contextPrompt += (idx + 1) + '. ' + p.plant + ': ' + p.total + ' inspections, ' + p.negative + ' negative (' + p.negPct + '%), ' + p.assets + ' distinct assets\n';
+    });
+    if (worstPlant) {
+      contextPrompt += '\nWORST PERFORMING PLANT: ' + worstPlant.plant + ' with ' + worstPlant.negative + ' negative findings (' + worstPlant.negPct + '% of its inspections)\n';
     }
-    for (var s in byStatus) contextPrompt += '- ' + s + ': ' + byStatus[s] + '\n';
-    contextPrompt += '\nUSER QUESTION: ' + question + '\n';
+    contextPrompt += '\n';
+
+    // Status breakdown
+    contextPrompt += '=== INSPECTION STATUS BREAKDOWN ===\n';
+    Object.keys(statusCounts).sort(function(a, b) { return statusCounts[b] - statusCounts[a]; }).forEach(function(s) {
+      contextPrompt += '- ' + s + ': ' + statusCounts[s] + '\n';
+    });
+    contextPrompt += '\n';
+
+    // Top equipment categories
+    contextPrompt += '=== TOP EQUIPMENT CATEGORIES BY ISSUES ===\n';
+    ctx.cats.slice(0, 8).forEach(function(c, idx) {
+      contextPrompt += (idx + 1) + '. ' + c.category + ': ' + c.distinct + ' distinct assets affected, ' + c.total + ' total negative findings\n';
+    });
+    contextPrompt += '\n';
+
+    // Recurring assets
+    if (ctx.recurring.length > 0) {
+      contextPrompt += '=== RECURRING ASSETS (3+ negative findings) ===\n';
+      ctx.recurring.slice(0, 8).forEach(function(a) {
+        contextPrompt += '- ' + a[0] + ': ' + a[1] + ' negative findings\n';
+      });
+      contextPrompt += '\n';
+    }
+
+    // Inspector summary
+    contextPrompt += '=== INSPECTOR SUMMARY ===\n';
+    Object.keys(inspectorData).sort(function(a, b) { return inspectorData[b].total - inspectorData[a].total; }).slice(0, 8).forEach(function(name) {
+      var d = inspectorData[name];
+      var pct = d.total > 0 ? Math.round((d.negative / d.total) * 100) : 0;
+      contextPrompt += '- ' + name + ': ' + d.total + ' inspections, ' + d.negative + ' negative (' + pct + '%)\n';
+    });
+    contextPrompt += '\n';
+
+    // Instruction
+    contextPrompt += '=== INSTRUCTIONS ===\n' +
+      '- Answer the user question using ONLY the data above\n' +
+      '- When asked about worst plant/facility, refer to the PLANT BREAKDOWN sorted worst-first\n' +
+      '- Be specific with numbers and names from the data\n' +
+      '- If data is insufficient, say so clearly\n' +
+      '- Keep answers concise but data-rich\n\n' +
+      'USER QUESTION: ' + question + '\n';
 
     try {
       var resp = await fetch('/api/trpc/ai.maintenanceChat', {
