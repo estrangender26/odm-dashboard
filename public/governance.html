@@ -986,7 +986,24 @@ async function refreshAICards(){
     if(reply){
       // Build insights from local data + AI reply
       var insights=generateLocalInsights(f);
-      insights.recommendations=reply.split('\n').filter(function(l){return l.trim().length>0;});
+      // Smart parse: group multi-line items, filter empty headers
+      var lines=reply.split('\n').map(function(l){return l.trim();}).filter(function(l){return l.length>0;});
+      var recs=[];
+      var buffer='';
+      for(var i=0;i<lines.length;i++){
+        var line=lines[i];
+        // Skip standalone headers (end with colon, no content, next line is also header)
+        if(line.match(/^(Risk|Assessment|Analysis|Summary|Recommendation|Key Finding|Note|Overview|Insight)/i) && line.length<40 && i+1<lines.length && lines[i+1].length<40) continue;
+        // If line starts with number or bullet, it's a new item
+        if(line.match(/^(\d+\.|[-*•]|\*\*)/)){
+          if(buffer) recs.push(buffer.trim());
+          buffer=line.replace(/^\d+\.\s*|[-*•]\s*|\*\*\s*/,'').trim();
+        }else{
+          buffer+=' '+line;
+        }
+      }
+      if(buffer) recs.push(buffer.trim());
+      insights.recommendations=recs;
       insights.aiSummary=reply.substring(0,200);
       _AI_INSIGHTS=insights;
       renderAIInsights(insights);
