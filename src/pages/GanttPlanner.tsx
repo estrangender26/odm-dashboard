@@ -2391,7 +2391,7 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[];
                 </td>
                 <td style={{ padding: "8px", whiteSpace: "nowrap" }}>{statusBadge(rowStatus(t))}</td>
                 <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
-                  <button onClick={() => startEdit(t)} style={{ fontSize: 11, padding: "3px 8px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer" }}>Edit</button>
+                  <button onClick={() => onEditTask(t)} style={{ fontSize: 11, padding: "3px 8px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer" }}>Edit</button>
                   <button onClick={() => { if (confirm("Delete this task?")) deleteTask.mutate({ id: t.id }); }} style={{ fontSize: 11, padding: "3px 8px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Delete</button>
                 </td>
               </tr>
