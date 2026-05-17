@@ -1006,6 +1006,26 @@ export default function GanttPlanner() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const lastSavedJsonRef = useRef<string>("");
   const [importSourceName, setImportSourceName] = useState<string>("");
+
+  /* Persist current project to localStorage so it survives refresh */
+  useEffect(() => {
+    const saved = localStorage.getItem("gantt_current_project");
+    if (saved && !currentProjectId) {
+      try {
+        const p = JSON.parse(saved);
+        if (p.id && p.name) {
+          setCurrentProjectId(p.id);
+          setCurrentProjectName(p.name);
+        }
+      } catch { /* ignore */ }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentProjectId && currentProjectName) {
+      localStorage.setItem("gantt_current_project", JSON.stringify({ id: currentProjectId, name: currentProjectName }));
+    }
+  }, [currentProjectId, currentProjectName]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [linkModalOpen, setLinkModalOpen] = useState(false);
@@ -1203,6 +1223,7 @@ export default function GanttPlanner() {
     setImportSourceName("");
     setHasUnsavedChanges(false);
     lastSavedJsonRef.current = "";
+    localStorage.removeItem("gantt_current_project");
     setSelectedTaskId(null);
     setSelectedIds(new Set());
     setBanner({ type: "info", message: "Project closed." });
