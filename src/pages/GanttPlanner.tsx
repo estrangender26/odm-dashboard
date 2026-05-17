@@ -1211,13 +1211,17 @@ export default function GanttPlanner() {
     );
   }, [projectName, saveMode, tasksQuery.data, linksQuery.data, saveProjectMut, projectsList, currentProjectName]);
 
-  /* CLOSE — clear project state */
-  const handleClose = useCallback(() => {
+  /* CLOSE — clear project state and tasks */
+  const handleClose = useCallback(async () => {
     const currentTasks = tasksQuery.data || [];
     if (hasUnsavedChanges && currentTasks.length > 0) {
       const choice = window.confirm("You have unsaved changes.\n\nOK = Save before closing\nCancel = Don't save and close");
       if (choice) { handleSave(); return; }
     }
+    // Delete all tasks and links to clear the chart
+    await resetMut.mutateAsync(undefined);
+    await utils.gantt.tasks.invalidate();
+    await utils.gantt.links.invalidate();
     setCurrentProjectId(null);
     setCurrentProjectName("");
     setImportSourceName("");
@@ -1227,7 +1231,7 @@ export default function GanttPlanner() {
     setSelectedTaskId(null);
     setSelectedIds(new Set());
     setBanner({ type: "info", message: "Project closed." });
-  }, [hasUnsavedChanges, tasksQuery.data, handleSave, setSelectedIds]);
+  }, [hasUnsavedChanges, tasksQuery.data, handleSave, setSelectedIds, resetMut, utils]);
 
   /* OPEN — with unsaved changes guard */
   const handleOpenClick = useCallback(() => {
