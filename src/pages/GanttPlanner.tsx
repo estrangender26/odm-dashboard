@@ -283,13 +283,14 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
         const plannedWidth = (pStart && pEnd && daysBetween(pStart, pEnd) > 0)
           ? daysBetween(pStart, pEnd) * dayWidth : null;
 
-        /* Auto-populate actual bar for in-progress tasks up to current date */
+        /* Auto-populate actual bar for in-progress tasks with no actual finish */
         const isActive = task.status && /in\s*progress|started|ongoing/i.test(task.status);
         let effAStart = aStart;
         let effAEnd = aEnd;
-        if (isActive && !aStart && pStart) {
-          /* In-progress with no actual dates: bar from planned start to today */
-          effAStart = pStart;
+        if (isActive && !aEnd && pStart) {
+          /* In-progress with no actual finish: use actual start if available, else planned start */
+          effAStart = aStart || pStart;
+          /* Cap at planned end if plan already finished, else today */
           effAEnd = pEnd && pEnd < today ? pEnd : today;
         }
 
@@ -302,9 +303,9 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
           level,
           hasChildren,
           plannedLeft, plannedWidth, actualLeft, actualWidth,
-          isDelayed: aEnd && pEnd && aEnd > pEnd,
+          isDelayed: effAEnd && pEnd && effAEnd > pEnd,
           isMilestone: task.type === "milestone",
-          isAutoPopulated: isActive && !aStart && !!pStart,
+          isAutoPopulated: isActive && !aEnd && !!pStart,
         };
       });
   }, [visibleFlat, projectStart, dayWidth]);
