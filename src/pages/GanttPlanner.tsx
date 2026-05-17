@@ -1131,7 +1131,7 @@ export default function GanttPlanner() {
     const currentTasks = tasksQuery.data || [];
     if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
     // If no current project, open save modal
-    if (!currentProjectId) { setSaveMode("new"); setProjectName(""); setSaveModal(true); return; }
+    if (currentProjectId == null) { setSaveMode("new"); setProjectName(""); setSaveModal(true); return; }
     const tasksJson = JSON.stringify(currentTasks);
     const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
     saveProjectMut.mutate(
