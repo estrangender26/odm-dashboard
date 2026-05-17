@@ -1087,19 +1087,19 @@ function renderAIInsights(ins){
   // Render details in panel
   var detailsEl=document.getElementById('ai-details');
   if(detailsEl&&ins.milestoneAnalysis){
-    var html='<div style="margin-bottom:12px">';
-    html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Overall Readiness</span><span style="color:#fff;font-weight:700">'+ins.overallReadiness+'%</span></div>';
-    html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Risk Level</span><span style="font-weight:700;color:'+(riskColors[ins.riskLevel]||'#fff')+'">'+ins.riskLevel+'</span></div>';
-    html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>PPP Status</span><span>'+(ins.hasPPP?'<span style="color:#10B981">✓ Set</span>':'<span style="color:#EF4444">✗ Missing</span>')+'</span></div>';
-    html+='<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Gaps Found</span><span style="color:#FBBF24;font-weight:700">'+(ins.gaps?ins.gaps.length:0)+'</span></div>';
+    var html='<div style="margin-bottom:12px;font-size:13px;color:#CBD5E1;line-height:1.6">';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#94A3B8">Overall Readiness</span><span style="color:#fff;font-weight:700;font-size:14px">'+ins.overallReadiness+'%</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#94A3B8">Risk Level</span><span style="font-weight:700;color:'+(riskColors[ins.riskLevel]||'#fff')+'">'+ins.riskLevel+'</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#94A3B8">PPP Status</span><span>'+(ins.hasPPP?'<span style="color:#34D399">✓ Set</span>':'<span style="color:#EF4444">✗ Missing</span>')+'</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#94A3B8">Gaps Found</span><span style="color:#FBBF24;font-weight:700">'+(ins.gaps?ins.gaps.length:0)+'</span></div>';
     html+='</div>';
     if(ins.gaps&&ins.gaps.length>0){
       html+='<div style="margin-top:8px">';
-      html+='<div style="font-size:10px;color:#FBBF24;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">⚠️ Gaps</div>';
+      html+='<div style="font-size:11px;color:#FBBF24;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">⚠️ Gaps</div>';
       for(var i=0;i<Math.min(ins.gaps.length,5);i++){
-        html+='<div style="padding:6px 8px;margin-bottom:4px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.1);border-radius:6px;font-size:10px">'+escapeHtml(ins.gaps[i])+'</div>';
+        html+='<div style="padding:8px 10px;margin-bottom:6px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);border-radius:6px;font-size:13px;color:#F1F5F9">'+escapeHtml(ins.gaps[i])+'</div>';
       }
-      if(ins.gaps.length>5)html+='<div style="font-size:10px;color:#64748B">...and '+(ins.gaps.length-5)+' more</div>';
+      if(ins.gaps.length>5)html+='<div style="font-size:11px;color:#94A3B8">...and '+(ins.gaps.length-5)+' more</div>';
       html+='</div>';
     }
     detailsEl.innerHTML=html;
@@ -1116,7 +1116,7 @@ function renderAIInsights(ins){
         if(isHeaderOnly) return '';
         var clean=r.replace(/^\*\*|\*\*$/g,'').trim();
         idx++;
-        return '<div style="padding:10px 12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;font-size:13px;line-height:1.5;color:#0F172A;margin-bottom:6px;word-break:break-word;"><span style="color:#059669;font-weight:700;font-size:14px;">'+idx+'.</span> '+escapeHtml(clean)+'</div>';
+        return '<div style="padding:12px 14px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);border-radius:8px;font-size:14px;line-height:1.6;color:#F1F5F9;margin-bottom:8px;word-break:break-word;"><span style="color:#34D399;font-weight:700;font-size:15px;">'+idx+'.</span> '+escapeHtml(clean)+'</div>';
       }).filter(function(s){return s.length>0;}).join('');
     }
   }
