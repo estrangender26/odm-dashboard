@@ -791,7 +791,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
 
             {/* Dependency connector lines (SVG) */}
             {(() => {
-              if (!linksQuery.data || linksQuery.data.length === 0) return null;
+              if (!_links || _links.length === 0) return null;
               // Build task position map for current visible rows
               const posMap = new Map<number, { left: number; width: number; row: number }>();
               rows.forEach((r, i) => {
@@ -800,7 +800,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                 posMap.set(r.task.id, { left: barLeft, width: barW, row: i });
               });
               const conns = buildConnectors(
-                linksQuery.data.map((l: any) => ({ id: l.id, source: l.source, target: l.target, type: l.type, lag: l.lag || 0 })),
+                _links.map((l: any) => ({ id: l.id, source: l.source, target: l.target, type: l.type, lag: l.lag || 0 })),
                 posMap, headerHeight, rowHeight
               );
               if (conns.length === 0) return null;
