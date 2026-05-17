@@ -1724,19 +1724,31 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[];
         </div>
         <div>
           <label style={labelStyle}>Planned Start</label>
-          <input type="date" value={form.plannedStart} onChange={(e) => setForm({ ...form, plannedStart: e.target.value })} style={inputStyle} />
+          <div style={{ display: "flex", gap: 4 }}>
+            <input type="date" value={form.plannedStart} onChange={(e) => setForm({ ...form, plannedStart: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
+            {form.plannedStart && <button type="button" onClick={() => setForm({ ...form, plannedStart: "" })} style={{ padding: "0 8px", fontSize: 14, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontWeight: 700 }} title="Clear date">×</button>}
+          </div>
         </div>
         <div>
           <label style={labelStyle}>Planned End</label>
-          <input type="date" value={form.plannedEnd} onChange={(e) => setForm({ ...form, plannedEnd: e.target.value })} style={inputStyle} />
+          <div style={{ display: "flex", gap: 4 }}>
+            <input type="date" value={form.plannedEnd} onChange={(e) => setForm({ ...form, plannedEnd: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
+            {form.plannedEnd && <button type="button" onClick={() => setForm({ ...form, plannedEnd: "" })} style={{ padding: "0 8px", fontSize: 14, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontWeight: 700 }} title="Clear date">×</button>}
+          </div>
         </div>
         <div>
           <label style={labelStyle}>Actual Start</label>
-          <input type="date" value={form.actualStart} onChange={(e) => setForm({ ...form, actualStart: e.target.value })} style={inputStyle} />
+          <div style={{ display: "flex", gap: 4 }}>
+            <input type="date" value={form.actualStart} onChange={(e) => setForm({ ...form, actualStart: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
+            {form.actualStart && <button type="button" onClick={() => setForm({ ...form, actualStart: "" })} style={{ padding: "0 8px", fontSize: 14, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontWeight: 700 }} title="Clear date">×</button>}
+          </div>
         </div>
         <div>
           <label style={labelStyle}>Actual End</label>
-          <input type="date" value={form.actualEnd} onChange={(e) => setForm({ ...form, actualEnd: e.target.value })} style={inputStyle} />
+          <div style={{ display: "flex", gap: 4 }}>
+            <input type="date" value={form.actualEnd} onChange={(e) => setForm({ ...form, actualEnd: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
+            {form.actualEnd && <button type="button" onClick={() => setForm({ ...form, actualEnd: "" })} style={{ padding: "0 8px", fontSize: 14, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontWeight: 700 }} title="Clear date">×</button>}
+          </div>
         </div>
         <div>
           <label style={labelStyle}>Duration (days)</label>
