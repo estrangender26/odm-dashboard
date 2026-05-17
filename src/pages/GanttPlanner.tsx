@@ -932,7 +932,7 @@ export default function GanttPlanner() {
   const { data: projectsListData } = trpc.ganttProjects.list.useQuery(undefined, { retry: 1 });
   const projectsList = projectsListData?.projects || [];
   const saveProjectMut = trpc.ganttProjects.save.useMutation({
-    onSuccess: () => { utils.ganttProjects.list.invalidate(); setSaveModal(false); setProjectName(""); setBanner({ type: "success", message: "Project saved successfully." }); },
+    onSuccess: () => { utils.ganttProjects.list.invalidate(); setSaveModal(false); setProjectName(""); setHasUnsavedChanges(false); setBanner({ type: "success", message: "Project saved." }); },
     onError: (e) => setBanner({ type: "error", message: "Save failed: " + e.message }),
   });
   const loadProjectMut = trpc.ganttProjects.get.useMutation({
@@ -970,11 +970,15 @@ export default function GanttPlanner() {
           setBanner({ type: "success", message: `Loaded "${data.name}" — ${parsed.length} task(s).` });
           setCurrentProjectId(data.id);
           setCurrentProjectName(data.name);
+          setHasUnsavedChanges(false);
+          lastSavedJsonRef.current = JSON.stringify(parsed);
         } else {
           setBanner({ type: "info", message: "Project is empty — no tasks to load." });
+          setCurrentProjectId(data.id);
+          setCurrentProjectName(data.name);
+          setHasUnsavedChanges(false);
+          lastSavedJsonRef.current = "";
         }
-        setCurrentProjectId(data.id);
-        setCurrentProjectName(data.name);
         setLoadModal(false);
       } catch (e: any) { setBanner({ type: "error", message: "Failed to parse project data: " + e.message }); }
     },
@@ -987,9 +991,9 @@ export default function GanttPlanner() {
     onSuccess: () => utils.ganttProjects.list.invalidate(),
   });
 
-  /* Save/Open modal state */
+  /* Save/Open/Close workflow state */
   const [saveModal, setSaveModal] = useState(false);
-  const [isSaveAs, setIsSaveAs] = useState(false);
+  const [saveMode, setSaveMode] = useState<"new" | "as">("new");
   const [loadModal, setLoadModal] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -997,6 +1001,8 @@ export default function GanttPlanner() {
   const [loadingProjectId, setLoadingProjectId] = useState<number | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
   const [currentProjectName, setCurrentProjectName] = useState<string>("");
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const lastSavedJsonRef = useRef<string>("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [linkModalOpen, setLinkModalOpen] = useState(false);
@@ -1005,6 +1011,20 @@ export default function GanttPlanner() {
   const [depEditorOpen, setDepEditorOpen] = useState(false);
   const [depEditorTask, setDepEditorTask] = useState<number | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
+
+  /* Detect unsaved changes */
+  useEffect(() => {
+    if (!tasksQuery.data) return;
+    const currentJson = JSON.stringify(tasksQuery.data);
+    if (lastSavedJsonRef.current && lastSavedJsonRef.current !== currentJson) {
+      setHasUnsavedChanges(true);
+    } else if (!lastSavedJsonRef.current && tasksQuery.data.length > 0) {
+      // New unsaved data
+      setHasUnsavedChanges(true);
+    } else {
+      setHasUnsavedChanges(false);
+    }
+  }, [tasksQuery.data]);
 
   /* ─── Auto-recalculate parent dates/progress from children ─── */
   const recalcAndSaveParent = useCallback((parentId: number, allTasks: any[]) => {
@@ -1106,39 +1126,96 @@ export default function GanttPlanner() {
     setBanner({ type: "success", message: `"${target.text}" outdented to ${newParent === 0 ? "root" : "parent"} level.` });
   }, [selectedTaskId, tasksQuery.data, saveTaskMut, recalcAndSaveParent]);
 
-  /* Quick Save — update existing project without modal */
-  const handleQuickSave = useCallback(() => {
-    if (!currentProjectId) { setSaveModal(true); setIsSaveAs(false); setProjectName(""); return; }
+  /* SAVE — update existing project directly, or ask for name if new */
+  const handleSave = useCallback(() => {
     const currentTasks = tasksQuery.data || [];
-    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save. Add tasks first." }); return; }
+    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
+    // If no current project, open save modal
+    if (!currentProjectId) { setSaveMode("new"); setProjectName(""); setSaveModal(true); return; }
     const tasksJson = JSON.stringify(currentTasks);
     const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
     saveProjectMut.mutate(
       { id: currentProjectId, name: currentProjectName, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` },
-      { onSuccess: () => setBanner({ type: "success", message: `"${currentProjectName}" updated.` }) }
+      { onSuccess: (data: any) => { setHasUnsavedChanges(false); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${currentProjectName}" saved.` }); } }
     );
   }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
 
-  /* Save As / New Save — show modal then create */
+  /* SAVE AS — always show modal, check for name collision */
+  const handleSaveAs = useCallback(() => {
+    setSaveMode("as");
+    setProjectName(currentProjectName ? currentProjectName + " Copy" : "");
+    setSaveModal(true);
+  }, [currentProjectName]);
+
+  /* Execute save from modal */
   const handleSaveProject = useCallback(() => {
     const name = projectName.trim();
     if (!name) return;
     const currentTasks = tasksQuery.data || [];
-    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save. Add tasks first." }); return; }
+    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
+    // Check for name collision (Save As only)
+    if (saveMode === "as") {
+      const existing = projectsList.find((p: any) => p.name === name);
+      if (existing) {
+        const choice = window.confirm(`"${name}" already exists.\n\nOK = Replace existing\nCancel = Keep both (will create new)`);
+        if (choice) {
+          // Replace: update existing
+          const tasksJson = JSON.stringify(currentTasks);
+          const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
+          saveProjectMut.mutate(
+            { id: existing.id, name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` },
+            { onSuccess: () => { setCurrentProjectId(existing.id); setCurrentProjectName(name); setHasUnsavedChanges(false); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${name}" replaced.` }); } }
+          );
+          return;
+        }
+        // else fall through to create new with a modified name
+      }
+    }
     const tasksJson = JSON.stringify(currentTasks);
     const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
-    // Save As always creates new; regular Save (no current project) also creates new
     saveProjectMut.mutate(
       { name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` },
       {
         onSuccess: (data: any) => {
           setCurrentProjectId(data.id);
           setCurrentProjectName(data.name);
+          setHasUnsavedChanges(false);
+          lastSavedJsonRef.current = tasksJson;
           setBanner({ type: "success", message: `"${data.name}" saved.` });
         },
       }
     );
-  }, [projectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
+  }, [projectName, saveMode, tasksQuery.data, linksQuery.data, saveProjectMut, projectsList, currentProjectName]);
+
+  /* CLOSE — clear project state */
+  const handleClose = useCallback(() => {
+    const currentTasks = tasksQuery.data || [];
+    if (hasUnsavedChanges && currentTasks.length > 0) {
+      const choice = window.confirm("You have unsaved changes.\n\nOK = Save before closing\nCancel = Don't save and close");
+      if (choice) { handleSave(); return; }
+    }
+    setCurrentProjectId(null);
+    setCurrentProjectName("");
+    setHasUnsavedChanges(false);
+    lastSavedJsonRef.current = "";
+    setSelectedTaskId(null);
+    setSelectedIds(new Set());
+    setBanner({ type: "info", message: "Project closed." });
+  }, [hasUnsavedChanges, tasksQuery.data, handleSave, setSelectedIds]);
+
+  /* OPEN — with unsaved changes guard */
+  const handleOpenClick = useCallback(() => {
+    const currentTasks = tasksQuery.data || [];
+    if (hasUnsavedChanges && currentTasks.length > 0) {
+      const choice = window.confirm("You have unsaved changes.\n\nOK = Save, then open\nCancel = Discard changes and open");
+      if (choice) {
+        handleSave();
+        setTimeout(() => setLoadModal(true), 500);
+        return;
+      }
+    }
+    setLoadModal(true);
+  }, [hasUnsavedChanges, tasksQuery.data, handleSave]);
 
   /* ─── Helpers ─── */
   const calcKpi = useCallback((tasks: any[]): KpiData => {
@@ -1473,38 +1550,45 @@ export default function GanttPlanner() {
             <span>Import Excel</span>
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) importExcel(e.target.files[0]); }} />
-          <button onClick={() => { if (confirm("Reset all tasks and links?")) { resetMut.mutate(); setCurrentProjectId(null); setCurrentProjectName(""); setSelectedTaskId(null); } }} className="gantt-action-btn reset-btn" title="Reset all data">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-            <span>Reset</span>
-          </button>
-          <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
-          {/* Save — quick-save existing, or prompt if new. Green = primary save action */}
+          {/* Save — update existing directly, or ask name if new */}
           <button
-            onClick={handleQuickSave}
+            onClick={handleSave}
             className="gantt-action-btn gantt-save-btn"
             title={currentProjectId ? `Update "${currentProjectName}"` : "Save project"}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            <span>{currentProjectId ? "Save" : "Save"}</span>
+            <span>Save</span>
           </button>
-          {/* Save As — always create new. Amber = new/copy */}
+          {/* Save As — always create new copy */}
           <button
-            onClick={() => { setSaveModal(true); setIsSaveAs(true); setProjectName(currentProjectName ? currentProjectName + " Copy" : ""); }}
+            onClick={handleSaveAs}
             className="gantt-action-btn gantt-saveas-btn"
             title="Save as new project"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/><line x1="16" y1="8" x2="16" y2="12"/><line x1="14" y1="10" x2="18" y2="10"/></svg>
             <span>Save As</span>
           </button>
-          {/* Open — load saved project. Blue = load/open action */}
+          {/* Open — load saved project */}
           <button
-            onClick={() => setLoadModal(true)}
+            onClick={handleOpenClick}
             className="gantt-action-btn gantt-open-btn"
             title="Open saved project"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><polyline points="10 13 7 10 10 7"/></svg>
             <span>Open</span>
           </button>
+          {/* Close — close current project */}
+          {currentProjectId && (
+            <button
+              onClick={handleClose}
+              className="gantt-action-btn"
+              title="Close project"
+              style={{ background: hasUnsavedChanges ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.08)" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              <span>Close</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -1725,7 +1809,7 @@ export default function GanttPlanner() {
               </div>
             )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>{isSaveAs ? "Save As New Project" : "Save Project"}</h3>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>{saveMode === "as" ? "Save As" : "Save Project"}</h3>
               <button onClick={() => { if (!saveProjectMut.isPending) setSaveModal(false); }} disabled={saveProjectMut.isPending} style={{ background: "none", border: "none", fontSize: 20, color: saveProjectMut.isPending ? "#D1D5DB" : "#94A3B8", cursor: saveProjectMut.isPending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
             </div>
             <p style={{ margin: "0 0 14px", fontSize: 12, color: "#5A6B7D" }}>Save the current Gantt chart as a named project you can reopen later.</p>
@@ -1751,7 +1835,7 @@ export default function GanttPlanner() {
                     <SpinnerInline color="#fff" />
                     Saving...
                   </>
-                ) : "Save Project"}
+                ) : saveMode === "as" ? "Save As" : "Save"}
               </button>
             </div>
           </div>
@@ -1764,7 +1848,10 @@ export default function GanttPlanner() {
           <div className="gantt-modal" style={{ background: "#fff", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,.2)", width: "100%", maxWidth: 520, maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: "Inter, sans-serif" }}>
             <div style={{ padding: "20px 24px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#16324F" }}>Open Saved Project</h3>
-              <button onClick={() => { setLoadModal(false); setRenamingId(null); }} style={{ background: "none", border: "none", fontSize: 20, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => { setLoadModal(false); setRenamingId(null); }} style={{ padding: "4px 12px", fontSize: 11, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", fontFamily: "Inter" }}>Cancel</button>
+                <button onClick={() => { setLoadModal(false); setRenamingId(null); }} style={{ background: "none", border: "none", fontSize: 20, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
+              </div>
             </div>
             <div style={{ padding: "16px 24px", flex: 1, overflow: "auto" }}>
               {projectsListData === undefined ? (
