@@ -269,6 +269,8 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
   }, [zoomLevel, containerWidth, totalDays]);
 
   /* Compute bar geometry directly from visibleFlat — guarantees hierarchy */
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const rows = useMemo(() => {
     return visibleFlat
       .map((v) => {
@@ -280,10 +282,21 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
         const plannedLeft = pStart ? Math.max(0, daysBetween(projectStart, pStart)) * dayWidth : null;
         const plannedWidth = (pStart && pEnd && daysBetween(pStart, pEnd) > 0)
           ? daysBetween(pStart, pEnd) * dayWidth : null;
-        const actualLeft = aStart ? Math.max(0, daysBetween(projectStart, aStart)) * dayWidth : null;
-        const actualWidth = (aStart && aEnd && daysBetween(aStart, aEnd) > 0)
-          ? daysBetween(aStart, aEnd) * dayWidth
-          : aStart ? (task.duration || 1) * dayWidth : null;
+
+        /* Auto-populate actual bar for in-progress tasks up to current date */
+        const isActive = task.status && /in\s*progress|started|ongoing/i.test(task.status);
+        let effAStart = aStart;
+        let effAEnd = aEnd;
+        if (isActive && !aStart && pStart) {
+          /* In-progress with no actual dates: bar from planned start to today */
+          effAStart = pStart;
+          effAEnd = pEnd && pEnd < today ? pEnd : today;
+        }
+
+        const actualLeft = effAStart ? Math.max(0, daysBetween(projectStart, effAStart)) * dayWidth : null;
+        const actualWidth = (effAStart && effAEnd && daysBetween(effAStart, effAEnd) > 0)
+          ? daysBetween(effAStart, effAEnd) * dayWidth
+          : effAStart ? (task.duration || 1) * dayWidth : null;
         return {
           task,
           level,
@@ -291,6 +304,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
           plannedLeft, plannedWidth, actualLeft, actualWidth,
           isDelayed: aEnd && pEnd && aEnd > pEnd,
           isMilestone: task.type === "milestone",
+          isAutoPopulated: isActive && !aStart && !!pStart,
         };
       });
   }, [visibleFlat, projectStart, dayWidth]);
@@ -618,7 +632,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
 
             {/* Task rows — dual bars */}
             {rows.map((row, idx) => {
-              const { task, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone } = row;
+              const { task, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone, isAutoPopulated } = row;
               const top = headerHeight + idx * rowHeight;
               const isSelected = selectedTaskId === task.id;
 
@@ -657,10 +671,17 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask }: NativeGanttCh
                       {/* Actual bar (bottom) — touching planned bar above with zero gap */}
                       {actualLeft !== null && actualWidth !== null ? (
                         <div style={{ position: "absolute", left: actualLeft, top: 18, height: 14, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
-                          <div style={{ width: Math.max(actualWidth, 2), height: 14, background: isDelayed ? "rgba(252,165,165,0.5)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : "#4ADE80"}`, borderRadius: 2, position: "relative" }}>
+                          <div style={{
+                            width: Math.max(actualWidth, 2),
+                            height: 14,
+                            background: isDelayed ? "rgba(252,165,165,0.5)" : isAutoPopulated ? "repeating-linear-gradient(90deg, rgba(245,158,11,0.25) 0px, rgba(245,158,11,0.25) 4px, rgba(251,191,36,0.4) 4px, rgba(251,191,36,0.4) 8px)" : "rgba(134,239,172,0.5)",
+                            border: `1px solid ${isDelayed ? "#F87171" : isAutoPopulated ? "#F59E0B" : "#4ADE80"}`,
+                            borderRadius: 2,
+                            position: "relative",
+                          }}>
                             {actualWidth > 40 && (
-                              <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: isDelayed ? "#DC2626" : "#15803D", whiteSpace: "nowrap" }}>
-                                {isDelayed ? "Delayed" : `${normProgress(task.progress)}%`}
+                              <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: isDelayed ? "#DC2626" : isAutoPopulated ? "#B45309" : "#15803D", whiteSpace: "nowrap" }}>
+                                {isDelayed ? "Delayed" : isAutoPopulated ? "In Progress" : `${normProgress(task.progress)}%`}
                               </span>
                             )}
                           </div>
