@@ -986,24 +986,27 @@ async function refreshAICards(){
     if(reply){
       // Build insights from local data + AI reply
       var insights=generateLocalInsights(f);
-      // Smart parse: group multi-line items, filter empty headers
-      var lines=reply.split('\n').map(function(l){return l.trim();}).filter(function(l){return l.length>0;});
+      // Parse: split by numbered items (1. 2. 3.) or (**bold headers**)
       var recs=[];
       var buffer='';
+      var lines=reply.split('\n');
       for(var i=0;i<lines.length;i++){
-        var line=lines[i];
-        // Skip standalone headers (end with colon, no content, next line is also header)
-        if(line.match(/^(Risk|Assessment|Analysis|Summary|Recommendation|Key Finding|Note|Overview|Insight)/i) && line.length<40 && i+1<lines.length && lines[i+1].length<40) continue;
-        // If line starts with number or bullet, it's a new item
-        if(line.match(/^(\d+\.|[-*•]|\*\*)/)){
+        var line=lines[i].trim();
+        if(!line) continue;
+        // Check if new numbered item or bold header starts
+        if(line.match(/^(\d+\.\s|[-*•]\s)/)){
           if(buffer) recs.push(buffer.trim());
-          buffer=line.replace(/^\d+\.\s*|[-*•]\s*|\*\*\s*/,'').trim();
+          buffer=line.replace(/^(\d+\.\s|[-*•]\s)/,'').trim();
+        }else if(line.match(/^\*\*/)){
+          if(buffer) recs.push(buffer.trim());
+          buffer=line.replace(/\*\*/g,'').trim();
         }else{
           buffer+=' '+line;
         }
       }
       if(buffer) recs.push(buffer.trim());
-      insights.recommendations=recs;
+      // Filter out any empty entries
+      insights.recommendations=recs.filter(function(r){return r.length>10;});
       insights.aiSummary=reply.substring(0,200);
       _AI_INSIGHTS=insights;
       renderAIInsights(insights);
