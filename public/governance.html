@@ -382,6 +382,7 @@ window.addEventListener("load",function(){setTimeout(function(){var s=document.g
       <div style="display:flex;gap:8px">
         <input id="ai-question" type="text" placeholder="e.g., Which milestones are missing?" style="flex:1;padding:10px 12px;font-size:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(99,102,241,0.2);border-radius:8px;color:#fff;font-family:Inter,sans-serif" onkeydown="if(event.key==='Enter')askAI()">
         <button onclick="askAI()" style="padding:10px 16px;font-size:12px;font-weight:600;background:linear-gradient(135deg,#7C3AED,#6366F1);color:#fff;border:none;border-radius:8px;cursor:pointer">Ask</button>
+        <button onclick="clearAIGov()" style="padding:10px 12px;font-size:11px;background:rgba(255,255,255,0.08);border:1px solid rgba(99,102,241,0.15);border-radius:8px;color:#94A3B8;cursor:pointer" title="Clear chat">Clear</button>
       </div>
       <div id="ai-chat-loading" style="display:none;margin-top:8px;font-size:11px;color:#A78BFA">🤖 Analyzing governance data...</div>
       <div id="ai-chat-answer" style="display:none;margin-top:12px;padding:12px;background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.15);border-radius:8px;font-size:12px;color:#E2E8F0;line-height:1.6"></div>
@@ -876,6 +877,13 @@ function toggleAIPanel(){
 function quickAsk(q){
   document.getElementById('ai-question').value=q;
   askAI();
+}
+function clearAIGov(){
+  document.getElementById('ai-question').value='';
+  var ansEl=document.getElementById('ai-chat-answer');
+  ansEl.style.display='none';
+  ansEl.innerHTML='';
+  document.getElementById('ai-chat-loading').style.display='none';
 }
 
 async function askAI(){
