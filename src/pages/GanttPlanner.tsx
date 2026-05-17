@@ -1755,13 +1755,13 @@ export default function GanttPlanner() {
                 selectedIds={selectedIds}
                 toggleSelect={toggleSelect}
                 links={linksQuery.data || []}
-                onEditTask={startEdit}
+                onEditTask={(t: any) => { setEditingId(t.id); setForm(taskToForm(t)); setShowAdd(false); }}
               />
             </div>
           </div>
         )}
 
-        {activeTab === "tasks" && <TaskListTab tasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} />}
+        {activeTab === "tasks" && <TaskListTab tasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={(t: any) => { setEditingId(t.id); setForm(taskToForm(t)); setShowAdd(false); }} />}
 
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
       </div>
@@ -2153,12 +2153,6 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner, onEditTask }: { t
   const parentCandidates = useMemo(() => {
     return validTasks.filter((t: any) => !editingId || t.id !== editingId);
   }, [validTasks, editingId]);
-
-  const startEdit = (t: any) => {
-    setEditingId(t.id);
-    setForm(taskToForm(t));
-    setShowAdd(false);
-  };
 
   const startAdd = () => {
     setEditingId(null);
