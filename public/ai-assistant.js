@@ -181,43 +181,76 @@
   async function askDashboardAI(question, rows, options) {
     options = options || {};
 
-    // Phase 2 hook: if external provider is configured, use it
-    if (options.provider && options.apiKey) {
-      return callExternalAI(question, rows, options);
+    // Always try Groq AI first (via backend tRPC), fallback to rule-based
+    try {
+      var aiResult = await callExternalAI(question, rows, options);
+      if (aiResult && aiResult.answer && aiResult.answer.length > 10) {
+        return aiResult;
+      }
+    } catch (e) {
+      console.error('[ODM AI] External AI failed, using fallback:', e);
     }
 
-    // Phase 1: Rule-based
+    // Phase 1: Rule-based fallback
     const ctx = buildContext(rows);
     const answer = ruleBasedAnswer(question, ctx);
     return { answer, source: 'rule-based', context: ctx };
   }
 
   /**
-   * Phase 2: External AI provider integration (stub).
-   * Supports Gemini, OpenAI, Claude, Supabase Edge Function.
+   * Phase 2: External AI via backend tRPC (Groq).
    */
   async function callExternalAI(question, rows, options) {
-    const provider = options.provider;
-    const apiKey = options.apiKey;
-
-    // Build context summary for the AI
+    // Build rich context from inspection data
     const ctx = buildContext(rows);
-    const contextPrompt = 'Dashboard data summary:\n' +
-      'Total inspections: ' + ctx.total + '\n' +
-      'Negative findings: ' + ctx.negCount + ' (' + ctx.negPct + '%)\n' +
-      'Distinct affected assets: ' + ctx.totalDistinct + '\n' +
-      'Top equipment categories: ' + ctx.cats.slice(0,5).map(c => c.category + '(' + c.distinct + ')').join(', ') + '\n' +
-      'Date range: ' + ctx.dateRange + '\n';
+    var now = new Date().toISOString().slice(0, 10);
+    var overdue = [];
+    var criticalItems = [];
+    var assetList = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (r.status === 'Overdue' || r.daysOverdue > 0) overdue.push(r.equipment + ' (' + r.daysOverdue + ' days)');
+      if (r.severity === 'Critical' || r.severity === 'High') criticalItems.push(r.equipment + ': ' + r.description);
+      if (assetList.indexOf(r.equipment) === -1) assetList.push(r.equipment);
+    }
+    var contextPrompt = 'You are analyzing an Operator Driven Maintenance (ODM) dashboard for water/wastewater facilities.\n\n' +
+      'CURRENT DATE: ' + now + '\n' +
+      'TOTAL INSPECTIONS: ' + ctx.total + '\n' +
+      'NEGATIVE FINDINGS: ' + ctx.negCount + ' (' + ctx.negPct + '%)\n' +
+      'DISTINCT ASSETS: ' + ctx.totalDistinct + '\n' +
+      'TOP EQUIPMENT CATEGORIES: ' + ctx.cats.slice(0, 5).map(function (c) { return c.category + '(' + c.distinct + ')'; }).join(', ') + '\n' +
+      'DATE RANGE: ' + ctx.dateRange + '\n';
+    if (overdue.length) contextPrompt += 'OVERDUE ITEMS (' + overdue.length + '): ' + overdue.slice(0, 10).join(', ') + '\n';
+    if (criticalItems.length) contextPrompt += 'CRITICAL/HIGH FINDINGS (' + criticalItems.length + '): ' + criticalItems.slice(0, 5).join('; ') + '\n';
+    contextPrompt += 'ASSETS: ' + assetList.slice(0, 15).join(', ') + '\n\n' +
+      'INSPECTION SUMMARY BY STATUS:\n';
+    // Group by status
+    var byStatus = {};
+    for (var j = 0; j < rows.length; j++) {
+      var st = rows[j].status || 'Unknown';
+      if (!byStatus[st]) byStatus[st] = 0;
+      byStatus[st]++;
+    }
+    for (var s in byStatus) contextPrompt += '- ' + s + ': ' + byStatus[s] + '\n';
+    contextPrompt += '\nUSER QUESTION: ' + question + '\n';
 
-    // TODO: Implement actual API calls for each provider
-    // Example Gemini:
-    // const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=' + apiKey, ...)
-
-    // Example OpenAI:
-    // const res = await fetch('https://api.openai.com/v1/chat/completions', { headers: { Authorization: 'Bearer ' + apiKey }, ...})
-
+    try {
+      var resp = await fetch('/api/trpc/ai.maintenanceChat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { message: contextPrompt } })
+      });
+      var data = await resp.json();
+      var reply = data && data.result && data.result.data && data.result.data.json ? data.result.data.json.reply : null;
+      if (reply) {
+        return { answer: reply, source: 'Groq AI (Llama 3.3 70B)' };
+      }
+    } catch (e) {
+      console.error('[ODM AI] Groq error:', e);
+    }
+    // Fallback to rule-based
     return {
-      answer: '[Phase 2] External AI provider "' + provider + '" not yet implemented. Using rule-based fallback.\n\n' + ruleBasedAnswer(question, ctx),
+      answer: ruleBasedAnswer(question, ctx),
       source: 'rule-based (fallback)'
     };
   }
