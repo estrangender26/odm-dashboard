@@ -1005,8 +1005,15 @@ async function refreshAICards(){
         }
       }
       if(buffer) recs.push(buffer.trim());
-      // Filter out any empty entries
-      insights.recommendations=recs.filter(function(r){return r.length>10;});
+      // Filter: remove pure labels ending with colon (no content after)
+      insights.recommendations=recs.filter(function(r){
+        var trimmed=r.trim();
+        // Keep if: has content after a colon, or no colon at all, and long enough
+        if(trimmed.length<15) return false;
+        var colonIdx=trimmed.indexOf(':');
+        if(colonIdx>0 && colonIdx===trimmed.length-1) return false; // ends with colon only
+        return true;
+      });
       insights.aiSummary=reply.substring(0,200);
       _AI_INSIGHTS=insights;
       renderAIInsights(insights);
