@@ -2131,273 +2131,77 @@ function statusBadge(status: string) {
   return <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: "nowrap" }}>{status}</span>;
 }
 
-function TaskListTab({ tasks, saveTask, deleteTask, setBanner, onEditTask }: { tasks: any[]; saveTask: any; deleteTask: any; setBanner: (b: {type: "error" | "success" | "info"; message: string} | null) => void; onEditTask: (task: any) => void }) {
-  const [editingId, setEditingId] = useState<number | null>(null);
+function TaskListTab({ tasks, deleteTask, setBanner, onEditTask, onAddTask }: { tasks: any[]; deleteTask: any; setBanner: (b: {type: "error" | "success" | "info"; message: string} | null) => void; onEditTask: (task: any) => void; onAddTask: () => void }) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
-  // Filter out garbage rows
   const validTasks = tasks.filter((t: any) => t.text && t.text.trim() && t.text.trim() !== "-");
-
-  /* Hierarchy tree */
   const taskTree = useMemo(() => buildTaskTree(validTasks), [validTasks]);
   const applyExpanded = useCallback((nodes: TaskNode[]): TaskNode[] => {
     return nodes.map(n => ({ ...n, isExpanded: !expandedIds.has(n.task.id), children: applyExpanded(n.children) }));
   }, [expandedIds]);
   const visibleTree = useMemo(() => applyExpanded(taskTree), [taskTree, applyExpanded]);
   const visibleFlat = useMemo(() => flattenVisible(visibleTree), [visibleTree]);
-
   const toggleExpand = useCallback((id: number) => {
     setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
 
-  /* Parent candidates for dropdown */
-  const parentCandidates = useMemo(() => {
-    return validTasks.filter((t: any) => !editingId || t.id !== editingId);
-  }, [validTasks, editingId]);
-
-  const startAdd = () => {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setShowAdd(true);
-  };
-
-  /* Auto-calculate parent dates */
-  const handleAutoCalc = useCallback(() => {
-    if (!editingId) return;
-    const task = validTasks.find((t: any) => t.id === editingId);
-    if (!task) return;
-    const childCount = validTasks.filter((t: any) => t.parent === editingId).length;
-    if (childCount === 0) {
-      setBanner({ type: "error", message: `No child tasks found for "${task.text}". Add sub-tasks first.` });
-      setTimeout(() => setBanner(null), 3000);
-      return;
-    }
-    const updates = autoCalcParent(task, validTasks);
-    if (updates) {
-      setForm((prev: TaskForm) => ({
-        ...prev,
-        ...(updates.plannedStart !== undefined && { plannedStart: String(updates.plannedStart).slice(0, 10) }),
-        ...(updates.plannedEnd !== undefined && { plannedEnd: String(updates.plannedEnd).slice(0, 10) }),
-        ...(updates.progress !== undefined && { progress: updates.progress as number }),
-        ...((updates as any).duration && { duration: (updates as any).duration }),
-      }));
-      const parts: string[] = [];
-      if (updates.plannedStart) parts.push(`start: ${updates.plannedStart}`);
-      if (updates.plannedEnd) parts.push(`end: ${updates.plannedEnd}`);
-      if (updates.progress !== undefined) parts.push(`progress: ${updates.progress}%`);
-      setBanner({ type: "success", message: `Auto-calculated from ${childCount} child(ren) — ${parts.join(", ")}` });
-      setTimeout(() => setBanner(null), 3000);
-    }
-  }, [editingId, validTasks]);
-
-  const submitForm = () => {
-    if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
-
-    /* Auto-derive status from actual dates when user selects "Auto" */
-    const autoStatus = deriveStatus({
-      startDate: form.actualStart,
-      endDate: form.actualEnd,
-      plannedEnd: form.plannedEnd,
-      status: null,
-    });
-    const finalStatus = form.status && form.status !== "" ? form.status : autoStatus;
-
-    /* Auto-set progress to 100% when actual finish is entered */
-    let finalProgress = Math.min(100, Math.max(0, form.progress));
-    if (form.actualEnd && finalProgress < 100) finalProgress = 100;
-
-    const payload: any = {
-      text: form.text.trim(),
-      owner: form.owner || null,
-      planned_start: form.plannedStart || null,
-      planned_end: form.plannedEnd || null,
-      start_date: form.actualStart || null,
-      end_date: form.actualEnd || null,
-      duration: form.duration || 1,
-      progress: finalProgress,
-      status: finalStatus,
-      remarks: form.remarks || null,
-      type: form.type || "task",
-      parent: form.parent || 0,
-    };
-    if (editingId) payload.id = editingId;
-    saveTask.mutate(payload);
-    setEditingId(null);
-    setShowAdd(false);
-    setForm(EMPTY_FORM);
-  };
-
-  const inputStyle: React.CSSProperties = { fontSize: 12, padding: "5px 8px", border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter, sans-serif", width: "100%", boxSizing: "border-box" };
-  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3, display: "block" };
-
-  const renderForm = () => (
-    <div style={{ background: "#FAFBFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "16px", marginBottom: 16 }}>
-      <h4 style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 700, color: "#16324F" }}>{editingId ? "Edit Task" : "Add New Task"}</h4>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px 16px" }}>
-        <div>
-          <label style={labelStyle}>Task Name *</label>
-          <input value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} style={inputStyle} placeholder="Enter task name" />
-        </div>
-        <div>
-          <label style={labelStyle}>Owner</label>
-          <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} style={inputStyle} placeholder="Assignee name" />
-        </div>
-        <div>
-          <label style={labelStyle}>Planned Start</label>
-          <div style={{ display: "flex", gap: 4 }}>
-            <input type="date" value={form.plannedStart} onChange={(e) => setForm({ ...form, plannedStart: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
-            {form.plannedStart && <button type="button" onClick={() => setForm({ ...form, plannedStart: "" })} style={{ padding: "0 8px", fontSize: 14, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontWeight: 700 }} title="Clear date">×</button>}
-          </div>
-        </div>
-        <div>
-          <label style={labelStyle}>Planned End</label>
-          <div style={{ display: "flex", gap: 4 }}>
-            <input type="date" value={form.plannedEnd} onChange={(e) => setForm({ ...form, plannedEnd: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
-            {form.plannedEnd && <button type="button" onClick={() => setForm({ ...form, plannedEnd: "" })} style={{ padding: "0 8px", fontSize: 14, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontWeight: 700 }} title="Clear date">×</button>}
-          </div>
-        </div>
-        <div>
-          <label style={labelStyle}>Actual Start</label>
-          <div style={{ display: "flex", gap: 4 }}>
-            <input type="date" value={form.actualStart} onChange={(e) => setForm({ ...form, actualStart: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
-            {form.actualStart && <button type="button" onClick={() => setForm({ ...form, actualStart: "" })} style={{ padding: "0 8px", fontSize: 14, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontWeight: 700 }} title="Clear date">×</button>}
-          </div>
-        </div>
-        <div>
-          <label style={labelStyle}>Actual End</label>
-          <div style={{ display: "flex", gap: 4 }}>
-            <input type="date" value={form.actualEnd} onChange={(e) => setForm({ ...form, actualEnd: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
-            {form.actualEnd && <button type="button" onClick={() => setForm({ ...form, actualEnd: "" })} style={{ padding: "0 8px", fontSize: 14, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontWeight: 700 }} title="Clear date">×</button>}
-          </div>
-        </div>
-        <div>
-          <label style={labelStyle}>Duration (days)</label>
-          <input type="number" min={1} value={form.duration} onChange={(e) => setForm({ ...form, duration: parseInt(e.target.value) || 1 })} style={inputStyle} />
-        </div>
-        <div>
-          <label style={labelStyle}>Progress %</label>
-          <input type="number" min={0} max={100} value={form.progress} onChange={(e) => setForm({ ...form, progress: parseInt(e.target.value) || 0 })} style={inputStyle} />
-        </div>
-        <div>
-          <label style={labelStyle}>
-            Status
-            <span style={{ fontSize: 9, fontWeight: 500, color: "#94A3B8", marginLeft: 4, textTransform: "none" }}>(auto-derived from actual dates)</span>
-          </label>
-          <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle}>
-            <option value="">Auto (from dates)</option>
-            <option>Not Started</option>
-            <option>In Progress</option>
-            <option>In Progress (Delayed)</option>
-            <option>Completed</option>
-          </select>
-          <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 2, fontStyle: "italic" }}>
-            {(() => {
-              const s = deriveStatus({
-                startDate: form.actualStart,
-                endDate: form.actualEnd,
-                plannedEnd: form.plannedEnd,
-                status: null,
-              });
-              return `Preview: ${s}`;
-            })()}
-          </div>
-        </div>
-        <div>
-          <label style={labelStyle}>Parent Task</label>
-          <select
-            value={form.parent || ""}
-            onChange={(e) => setForm({ ...form, parent: e.target.value ? parseInt(e.target.value) : 0 })}
-            style={inputStyle}
-          >
-            <option value="">(Root — no parent)</option>
-            {parentCandidates.map((t: any) => (
-              <option key={t.id} value={t.id}>{t.text}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label style={labelStyle}>Remarks</label>
-          <input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} style={inputStyle} placeholder="Notes..." />
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-        <button type="button" onClick={submitForm} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Save</button>
-        {editingId && (
-          <button type="button" onClick={handleAutoCalc} title="Auto-calculate parent dates from child tasks" style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 6, cursor: "pointer" }}>
-            🔄 Auto-Calc from Children
-          </button>
-        )}
-        <button type="button" onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ padding: "8px 20px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
-      </div>
-    </div>
-  );
+  const statusColors: Record<string, string> = { "Completed": "#22C55E", "In Progress": "#3B82F6", "In Progress (Delayed)": "#EF4444", "Not Started": "#9CA3AF", "Delayed": "#F59E0B" };
 
   return (
-    <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08)", border: "1px solid #D6DFE8", padding: "20px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#16324F" }}>Task List</h3>
-        <span style={{ fontSize: 12, color: "#8BA3B8" }}>{visibleFlat.length} visible / {validTasks.length} total</span>
+    <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <button onClick={onAddTask} style={{ padding: "8px 14px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Task
+        </button>
       </div>
-
-      {!showAdd && !editingId && (
-        <button onClick={startAdd} style={{ marginBottom: 16, padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", background: "#005BAC", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>+ Add Task</button>
+      <div style={{ display: "table", width: "100%", borderCollapse: "collapse", fontSize: 10, fontFamily: "Inter, sans-serif" }}>
+        <div style={{ display: "table-row", fontWeight: 700, color: "#1F2937", background: "#E2E8F0", fontSize: 9, letterSpacing: "0.3px", textTransform: "uppercase" }}>
+          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Task</div>
+          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Owner</div>
+          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Planned</div>
+          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Actual</div>
+          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Duration</div>
+          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Progress</div>
+          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Status</div>
+          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Actions</div>
+        </div>
+        {visibleFlat.map(({ task, level, hasChildren }: any) => {
+          const canExpand = hasChildren;
+          return (
+            <div key={task.id} style={{ display: "table-row", cursor: "pointer" }} onDoubleClick={() => onEditTask(task)}>
+              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", paddingLeft: `${10 + level * 16}px` }}>
+                {canExpand && (
+                  <button onClick={(e) => { e.stopPropagation(); toggleExpand(task.id); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 9, color: "#64748B", padding: "0 4px 0 0", lineHeight: 1 }}>
+                    {expandedIds.has(task.id) ? "▼" : "▶"}
+                  </button>
+                )}
+                <span style={{ fontWeight: 600, color: "#1E293B" }}>{task.text}</span>
+              </div>
+              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", color: "#4B5563" }}>{task.owner || "—"}</div>
+              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", color: "#6B7280" }}>{task.plannedStart?.slice(5) || "—"} → {task.plannedEnd?.slice(5) || "—"}</div>
+              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", color: "#6B7280" }}>{task.startDate?.slice(5) || "—"} → {task.endDate?.slice(5) || "—"}</div>
+              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", color: "#4B5563" }}>{task.duration}</div>
+              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0" }}>
+                <div style={{ width: "100%", height: 4, background: "#E2E8F0", borderRadius: 2 }}><div style={{ width: `${Math.min(100, normProgress(task.progress))}%`, height: 4, background: statusColors[rowStatus(task)] || "#9CA3AF", borderRadius: 2 }} /></div>
+                <span style={{ fontSize: 8, color: "#6B7280" }}>{normProgress(task.progress)}%</span>
+              </div>
+              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0" }}>
+                <span style={{ color: statusColors[rowStatus(task)] || "#9CA3AF", fontWeight: 600, fontSize: 9 }}>{rowStatus(task)}</span>
+              </div>
+              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>
+                <button onClick={(e) => { e.stopPropagation(); onEditTask(task); }} style={{ fontSize: 9, padding: "2px 6px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer", marginRight: 4 }}>Edit</button>
+                <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${task.text}"?`)) deleteTask.mutate({ id: task.id }); }} style={{ fontSize: 9, padding: "2px 6px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer" }}>Del</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {visibleFlat.length === 0 && (
+        <div style={{ padding: 20, textAlign: "center", color: "#9CA3AF" }}>No tasks found.</div>
       )}
-
-      {(showAdd || editingId) && renderForm()}
-
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 800 }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Task Name</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Owner</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Planned Start</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Planned End</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Actual Start</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Actual End</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Progress</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Status</th>
-              <th style={{ textAlign: "left", padding: "8px", color: "#475569", whiteSpace: "nowrap" }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleFlat.map(({ task: t, level, hasChildren }) => (
-              <tr key={t.id} style={{ borderBottom: "1px solid #F1F5F9", background: hasChildren ? "#F8FAFC" : "transparent" }}>
-                <td style={{ padding: "8px", paddingLeft: `${8 + level * 16}px`, color: "#2D3748", fontWeight: hasChildren ? 700 : 400, whiteSpace: "nowrap" }}>
-                  <span className="flex items-center gap-1">
-                    {hasChildren && (
-                      <button type="button" onClick={() => toggleExpand(t.id)} className="flex-shrink-0 w-4 h-4 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded" style={{ fontSize: 10, lineHeight: 1 }}>
-                        {expandedIds.has(t.id) ? "▸" : "▾"}
-                      </button>
-                    )}
-                    {!hasChildren && <span className="w-4 flex-shrink-0" />}
-                    <span>{t.text}</span>
-                  </span>
-                </td>
-                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap" }}>{t.owner || "—"}</td>
-                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.plannedStart ? String(t.plannedStart).slice(0, 10) : "—"}</td>
-                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "—"}</td>
-                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.startDate ? String(t.startDate).slice(0, 10) : "—"}</td>
-                <td style={{ padding: "8px", color: "#5A6B7D", whiteSpace: "nowrap", fontSize: 11 }}>{t.endDate ? String(t.endDate).slice(0, 10) : "—"}</td>
-                <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
-                  <div style={{ width: 60, height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ width: `${normProgress(t.progress)}%`, height: "100%", background: normProgress(t.progress) >= 100 ? "#1F9D55" : normProgress(t.progress) > 0 ? "#005BAC" : "#94A3B8", borderRadius: 3 }} />
-                  </div>
-                  <span style={{ fontSize: 10, color: "#94A3B8" }}>{normProgress(t.progress)}%</span>
-                </td>
-                <td style={{ padding: "8px", whiteSpace: "nowrap" }}>{statusBadge(rowStatus(t))}</td>
-                <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
-                  <button onClick={() => onEditTask(t)} style={{ fontSize: 11, padding: "3px 8px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer" }}>Edit</button>
-                  <button onClick={() => { if (confirm("Delete this task?")) deleteTask.mutate({ id: t.id }); }} style={{ fontSize: 11, padding: "3px 8px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer", marginLeft: 4 }}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
-}
 
 /* ─── Resources Tab ─── */
 function ResourcesTab({ tasks }: { tasks: any[] }) {
@@ -2433,4 +2237,5 @@ function ResourcesTab({ tasks }: { tasks: any[] }) {
       </div>
     </div>
   );
+}
 }
