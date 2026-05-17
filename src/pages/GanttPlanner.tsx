@@ -88,15 +88,19 @@ function flattenVisible(nodes: TaskNode[]): { task: GanttTask; level: number; ha
 }
 
 function autoCalcParent(task: GanttTask, allTasks: GanttTask[]): Partial<GanttTask> | null {
-  const children = allTasks.filter(t => t.parent === task.id && t.text);
+  const children = allTasks.filter(t => t.parent === task.id);
   if (children.length === 0) return null;
-  const childStarts = children.map(c => c.plannedStart).filter(Boolean).map(s => new Date(s!).getTime());
-  const childEnds = children.map(c => c.plannedEnd).filter(Boolean).map(s => new Date(s!).getTime());
-  const childProgs = children.map(c => c.progress).filter(p => !isNaN(p));
+  const childStarts = children.map(c => c.plannedStart || c.startDate).filter(Boolean).map(s => new Date(s!).getTime());
+  const childEnds = children.map(c => c.plannedEnd || c.endDate).filter(Boolean).map(s => new Date(s!).getTime());
+  const childProgs = children.map(c => normProgress(c.progress)).filter(p => !isNaN(p));
   const updates: Partial<GanttTask> = {};
   if (childStarts.length > 0) updates.plannedStart = new Date(Math.min(...childStarts)).toISOString().slice(0, 10);
   if (childEnds.length > 0) updates.plannedEnd = new Date(Math.max(...childEnds)).toISOString().slice(0, 10);
   if (childProgs.length > 0) updates.progress = Math.round(childProgs.reduce((a, b) => a + b, 0) / childProgs.length);
+  if (updates.plannedStart && updates.plannedEnd) {
+    const d = daysBetween(new Date(updates.plannedStart as string), new Date(updates.plannedEnd as string));
+    if (d > 0) (updates as any).duration = d;
+  }
   return Object.keys(updates).length > 0 ? updates : null;
 }
 
@@ -1635,6 +1639,12 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[];
     if (!editingId) return;
     const task = validTasks.find((t: any) => t.id === editingId);
     if (!task) return;
+    const childCount = validTasks.filter((t: any) => t.parent === editingId).length;
+    if (childCount === 0) {
+      setBanner({ type: "error", message: `No child tasks found for "${task.text}". Add sub-tasks first.` });
+      setTimeout(() => setBanner(null), 3000);
+      return;
+    }
     const updates = autoCalcParent(task, validTasks);
     if (updates) {
       setForm((prev: TaskForm) => ({
@@ -1642,7 +1652,14 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner }: { tasks: any[];
         ...(updates.plannedStart !== undefined && { plannedStart: String(updates.plannedStart).slice(0, 10) }),
         ...(updates.plannedEnd !== undefined && { plannedEnd: String(updates.plannedEnd).slice(0, 10) }),
         ...(updates.progress !== undefined && { progress: updates.progress as number }),
+        ...((updates as any).duration && { duration: (updates as any).duration }),
       }));
+      const parts: string[] = [];
+      if (updates.plannedStart) parts.push(`start: ${updates.plannedStart}`);
+      if (updates.plannedEnd) parts.push(`end: ${updates.plannedEnd}`);
+      if (updates.progress !== undefined) parts.push(`progress: ${updates.progress}%`);
+      setBanner({ type: "success", message: `Auto-calculated from ${childCount} child(ren) — ${parts.join(", ")}` });
+      setTimeout(() => setBanner(null), 3000);
     }
   }, [editingId, validTasks]);
 
