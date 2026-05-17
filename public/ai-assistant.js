@@ -267,6 +267,19 @@
     if (input) setTimeout(() => input.focus(), 100);
   }
 
+  function clearChat() {
+    const responseArea = document.getElementById('aiResponseArea');
+    const input = document.getElementById('aiQuestionInput');
+    if (responseArea) {
+      responseArea.innerHTML = '';
+      responseArea.style.display = 'none';
+    }
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+  }
+
   function closePanel() {
     const panel = document.getElementById('aiPanel');
     const overlay = document.getElementById('aiPanelOverlay');
@@ -345,6 +358,7 @@
     ask,
     openPanel,
     closePanel,
+    clearChat,
     renderSuggestedChips,
     setInput,
     askDashboardAI,
