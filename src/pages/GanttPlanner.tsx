@@ -1026,6 +1026,19 @@ export default function GanttPlanner() {
       localStorage.setItem("gantt_current_project", JSON.stringify({ id: currentProjectId, name: currentProjectName }));
     }
   }, [currentProjectId, currentProjectName]);
+
+  /* Warn before leaving page with unsaved changes */
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasUnsavedChanges]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [linkModalOpen, setLinkModalOpen] = useState(false);
@@ -1567,7 +1580,7 @@ export default function GanttPlanner() {
           <div>
             <div className="gantt-header-title" style={{ fontSize: "15px", fontWeight: 700, color: "#fff", letterSpacing: "-0.3px" }}>Gantt Charts</div>
             <div className="gantt-header-sub" style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              {currentProjectId ? `📁 ${currentProjectName}` : "O & M Project Schedule Visualization"}
+              {currentProjectId && currentProjectName ? `📁 ${currentProjectName}` : "O & M Project Schedule Visualization"}
             </div>
           </div>
         </Link>
