@@ -1133,9 +1133,9 @@ export default function GanttPlanner() {
     // If no current project, open save modal
     if (!currentProjectId) { setSaveMode("new"); setProjectName(""); setSaveModal(true); return; }
     const tasksJson = JSON.stringify(currentTasks);
-    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
+    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
     saveProjectMut.mutate(
-      { id: currentProjectId, name: currentProjectName, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` },
+      { id: currentProjectId, name: currentProjectName, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` },
       { onSuccess: (data: any) => { setHasUnsavedChanges(false); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${currentProjectName}" saved.` }); } }
     );
   }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
@@ -1161,9 +1161,9 @@ export default function GanttPlanner() {
         if (choice) {
           // Replace: update existing
           const tasksJson = JSON.stringify(currentTasks);
-          const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
+          const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
           saveProjectMut.mutate(
-            { id: existing.id, name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` },
+            { id: existing.id, name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` },
             { onSuccess: () => { setCurrentProjectId(existing.id); setCurrentProjectName(name); setHasUnsavedChanges(false); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${name}" replaced.` }); } }
           );
           return;
@@ -1172,9 +1172,9 @@ export default function GanttPlanner() {
       }
     }
     const tasksJson = JSON.stringify(currentTasks);
-    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : null;
+    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
     saveProjectMut.mutate(
-      { name, tasksData: tasksJson, linksData: linksJson, description: `${currentTasks.length} tasks` },
+      { name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` },
       {
         onSuccess: (data: any) => {
           setCurrentProjectId(data.id);

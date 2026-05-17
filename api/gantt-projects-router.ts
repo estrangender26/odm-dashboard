@@ -53,7 +53,7 @@ export const ganttProjectsRouter = {
         id: z.number().optional(),
         name: z.string().min(1).max(255),
         tasksData: z.string(), // JSON string
-        linksData: z.string().optional(),
+        linksData: z.string().optional().nullable(),
         description: z.string().optional(),
         createdBy: z.string().optional(),
       })
