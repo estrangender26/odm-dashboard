@@ -1039,7 +1039,7 @@ export default function GanttPlanner() {
         return e.returnValue;
       }
     };
-    window.addEventListener("beforeunload", handler);
+
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasUnsavedChanges]);
 
@@ -1577,6 +1577,12 @@ export default function GanttPlanner() {
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = useCallback((t: any) => {
+    setEditingId(t.id);
+    setForm(taskToForm(t));
+    setShowAdd(false);
+  }, []);
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
@@ -2153,12 +2159,6 @@ function TaskListTab({ tasks, saveTask, deleteTask, setBanner, onEditTask }: { t
   const parentCandidates = useMemo(() => {
     return validTasks.filter((t: any) => !editingId || t.id !== editingId);
   }, [validTasks, editingId]);
-
-  const startEdit = useCallback((t: any) => {
-    setEditingId(t.id);
-    setForm(taskToForm(t));
-    setShowAdd(false);
-  }, []);
 
   const startAdd = () => {
     setEditingId(null);
