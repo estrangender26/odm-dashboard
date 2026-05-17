@@ -971,12 +971,14 @@ export default function GanttPlanner() {
           setCurrentProjectId(data.id);
           setCurrentProjectName(data.name);
           setHasUnsavedChanges(false);
+          setImportSourceName("");
           lastSavedJsonRef.current = JSON.stringify(parsed);
         } else {
           setBanner({ type: "info", message: "Project is empty — no tasks to load." });
           setCurrentProjectId(data.id);
           setCurrentProjectName(data.name);
           setHasUnsavedChanges(false);
+          setImportSourceName("");
           lastSavedJsonRef.current = "";
         }
         setLoadModal(false);
@@ -1003,6 +1005,7 @@ export default function GanttPlanner() {
   const [currentProjectName, setCurrentProjectName] = useState<string>("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const lastSavedJsonRef = useRef<string>("");
+  const [importSourceName, setImportSourceName] = useState<string>("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [linkModalOpen, setLinkModalOpen] = useState(false);
@@ -1130,15 +1133,15 @@ export default function GanttPlanner() {
   const handleSave = useCallback(() => {
     const currentTasks = tasksQuery.data || [];
     if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
-    // If no current project, open save modal
-    if (currentProjectId == null) { setSaveMode("new"); setProjectName(""); setSaveModal(true); return; }
+    // If no current project, open save modal (use import filename as default if available)
+    if (currentProjectId == null) { setSaveMode("new"); setProjectName(importSourceName); setSaveModal(true); return; }
     const tasksJson = JSON.stringify(currentTasks);
     const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
     saveProjectMut.mutate(
       { id: currentProjectId, name: currentProjectName, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` },
       { onSuccess: (data: any) => { setHasUnsavedChanges(false); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${currentProjectName}" saved.` }); } }
     );
-  }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut]);
+  }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut, importSourceName]);
 
   /* SAVE AS — always show modal, check for name collision */
   const handleSaveAs = useCallback(() => {
@@ -1164,7 +1167,7 @@ export default function GanttPlanner() {
           const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
           saveProjectMut.mutate(
             { id: existing.id, name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` },
-            { onSuccess: () => { setCurrentProjectId(existing.id); setCurrentProjectName(name); setHasUnsavedChanges(false); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${name}" replaced.` }); } }
+            { onSuccess: () => { setCurrentProjectId(existing.id); setCurrentProjectName(name); setHasUnsavedChanges(false); setImportSourceName(""); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${name}" replaced.` }); } }
           );
           return;
         }
@@ -1180,6 +1183,7 @@ export default function GanttPlanner() {
           setCurrentProjectId(data.id);
           setCurrentProjectName(data.name);
           setHasUnsavedChanges(false);
+          setImportSourceName("");
           lastSavedJsonRef.current = tasksJson;
           setBanner({ type: "success", message: `"${data.name}" saved.` });
         },
@@ -1196,6 +1200,7 @@ export default function GanttPlanner() {
     }
     setCurrentProjectId(null);
     setCurrentProjectName("");
+    setImportSourceName("");
     setHasUnsavedChanges(false);
     lastSavedJsonRef.current = "";
     setSelectedTaskId(null);
@@ -1521,6 +1526,7 @@ export default function GanttPlanner() {
 
       const msg = `Imported ${imported} task(s)` + (skipped > 0 ? `, ${skipped} skipped.` : ".");
       setBanner({ type: errors.length > 0 ? "info" : "success", message: msg + (errors.length > 0 ? ` Warnings: ${errors.join("; ")}` : "") });
+      setImportSourceName(file.name.replace(/\.[^.]+$/, ""));
     };
     reader.readAsArrayBuffer(file);
   };
