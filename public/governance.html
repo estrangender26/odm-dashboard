@@ -887,21 +887,21 @@ async function askAI(){
   loadEl.style.display='block';
   ansEl.style.display='none';
   try{
-    var facility=document.getElementById('fs').value;
-    // Use absolute path — NOT API_BASE which is /api/trpc for tRPC
-    var resp=await fetch('/api/governance/ai-chat',{
+    // Use working AI endpoint via tRPC
+    var resp=await fetch('/api/trpc/ai.maintenanceChat',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({question:q,facilitySlug:facility,allStates:ST})
+      body:JSON.stringify({"0":{json:{message:q}}})
     });
     var data=await resp.json();
     loadEl.style.display='none';
-    if(data.success&&data.response){
+    var reply=data&&data[0]&&data[0].result&&data[0].result.data?data[0].result.data.reply:null;
+    if(reply){
       ansEl.style.display='block';
-      ansEl.innerHTML='<div style="color:#A78BFA;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🤖 AI Response</div>'+escapeHtml(data.response.answer)+'<div style="margin-top:8px;font-size:10px;color:#64748B">Sources: '+data.response.sources.join(', ')+' · Confidence: '+data.response.confidence+'</div>';
+      ansEl.innerHTML='<div style="color:#A78BFA;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🤖 AI Response</div>'+escapeHtml(reply)+'<div style="margin-top:8px;font-size:10px;color:#64748B">Powered by Groq AI</div>';
     }else{
       ansEl.style.display='block';
-      ansEl.innerHTML='<div style="color:#F87171">Error: '+(data.error||'Unknown')+'</div>';
+      ansEl.innerHTML='<div style="color:#F87171">Error: AI temporarily unavailable</div>';
     }
   }catch(e){
     loadEl.style.display='none';
@@ -948,20 +948,21 @@ async function refreshAICards(){
   bar.style.display='block';
   try{
     // Use absolute path — NOT API_BASE which is /api/trpc for tRPC
-    var resp=await fetch('/api/governance/ai-insights',{
+    var resp=await fetch('/api/trpc/ai.maintenanceChat',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({facilitySlug:f,allStates:ST})
+      body:JSON.stringify({"0":{json:{message:"Analyze governance compliance for facility "+f}}})
     });
     var data=await resp.json();
-    if(data.success&&data.insights){
-      _AI_INSIGHTS=data.insights;
-      renderAIInsights(data.insights);
+    var reply=data&&data[0]&&data[0].result&&data[0].result.data?data[0].result.data.reply:null;
+    if(reply){
+      var insights=parseInsights(reply);
+      _AI_INSIGHTS=insights;
+      renderAIInsights(insights);
     }
   }catch(e){
-    console.log('[AI] Server unavailable, using local analysis');
-    var localInsights=generateLocalInsights(f);
-    renderAIInsights(localInsights);
+    console.log('[AI] Error:',e);
+    document.getElementById('ai-insight-panel').innerHTML='<div style="color:#F87171;font-size:12px">AI temporarily unavailable. Please try again.</div>';
   }
 }
 
