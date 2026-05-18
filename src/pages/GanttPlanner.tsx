@@ -621,6 +621,10 @@ export default function GanttPlanner() {
   const resetMut = trpc.gantt.resetAll.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
+  const migrateMut = trpc.gantt.migrate.useMutation({
+    onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); setBanner({ type: "success", message: "DB migrated. Refresh the page." }); },
+    onError: (e: any) => setBanner({ type: "error", message: "Migrate failed: " + e.message }),
+  });
   const seedMut = trpc.gantt.seed.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
@@ -1103,6 +1107,9 @@ export default function GanttPlanner() {
           </button>
           <button onClick={handleOpenClick} className="gantt-action-btn gantt-open-btn" title="Open saved project">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><polyline points="10 13 7 10 10 7"/></svg><span>Open</span>
+          </button>
+          <button onClick={() => migrateMut.mutate()} className="gantt-action-btn" title="Add missing DB columns" style={{ background: "#F59E0B", color: "#fff" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 7V4h3M4 17v3h3M20 7V4h-3M20 17v3h-3M9 9h6v6H9z"/></svg><span>Migrate DB</span>
           </button>
           {currentProjectId && (
             <button onClick={handleClose} className="gantt-action-btn" title="Close project" style={{ background: hasUnsavedChanges ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.08)" }}>
