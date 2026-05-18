@@ -46,6 +46,26 @@ function findDistPublic(): string | null {
 const distPath = findDistPublic();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+
+/* ── Automatic DB migration on startup ── */
+(async () => {
+  try {
+    const { db } = await import("./queries/connection");
+    await db.execute(sql.raw(`
+      ALTER TABLE gantt_tasks
+      ADD COLUMN IF NOT EXISTS status VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS remarks TEXT
+    `));
+    await db.execute(sql.raw(`
+      ALTER TABLE gantt_links
+      ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0
+    `));
+    console.log("[boot] Gantt columns migrated OK");
+  } catch (e: any) {
+    console.log("[boot] Gantt migration (may already exist):", e.message);
+  }
+})();
+
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
 // OAuth authorize — redirects to Kimi login

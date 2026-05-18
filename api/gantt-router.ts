@@ -42,7 +42,7 @@ export const ganttRouter = createRouter({
     )
     .mutation(async ({ input }) => {
       const now = new Date();
-      const setData: any = {
+      let setData: any = {
         text: input.text,
         startDate: input.start_date || null,
         endDate: input.end_date || null,
@@ -61,12 +61,28 @@ export const ganttRouter = createRouter({
         remarks: input.remarks || null,
         updatedAt: now,
       };
-      if (input.id) {
-        await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
-        return { id: input.id, action: "updated" };
-      } else {
-        const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
-        return { id: result[0].id, action: "created" };
+      try {
+        if (input.id) {
+          await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
+          return { id: input.id, action: "updated" };
+        } else {
+          const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
+          return { id: result[0].id, action: "created" };
+        }
+      } catch (e: any) {
+        /* Retry without optional columns that may not exist yet */
+        if (e.message && (e.message.includes("status") || e.message.includes("remarks"))) {
+          delete setData.status;
+          delete setData.remarks;
+          if (input.id) {
+            await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
+            return { id: input.id, action: "updated" };
+          } else {
+            const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
+            return { id: result[0].id, action: "created" };
+          }
+        }
+        throw e;
       }
     }),
 
