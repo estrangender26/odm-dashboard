@@ -16,6 +16,19 @@ export const ganttRouter = createRouter({
   links: publicQuery
     .input(z.object({ projectId: z.number().optional() }).optional())
     .query(async ({ input }) => {
+      /* Ensure gantt_dependencies table exists */
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS gantt_dependencies (
+          id SERIAL PRIMARY KEY,
+          project_id INTEGER,
+          predecessor_task_id INTEGER NOT NULL,
+          successor_task_id INTEGER NOT NULL,
+          dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
+          lag_days INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `));
       let rows;
       if (input?.projectId) {
         rows = await db.select().from(ganttDependencies)
@@ -182,6 +195,20 @@ export const ganttRouter = createRouter({
       })
     )
     .mutation(async ({ input }) => {
+      /* Ensure gantt_dependencies table exists */
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS gantt_dependencies (
+          id SERIAL PRIMARY KEY,
+          project_id INTEGER,
+          predecessor_task_id INTEGER NOT NULL,
+          successor_task_id INTEGER NOT NULL,
+          dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
+          lag_days INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `));
+
       const depType = input.type;
       // Normalize type: "0"→"FS", "1"→"SS", "2"→"FF", "3"→"SF"
       const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
