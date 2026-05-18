@@ -5,19 +5,29 @@ import { ganttTasks, ganttDependencies } from "@db/schema";
 import { eq, sql, and } from "drizzle-orm";
 
 export const ganttRouter = createRouter({
-  // ── Get all tasks ──
+  // ── Get all tasks (with UID fields) ──
   tasks: publicQuery.query(async () => {
     const tasks = await db.select().from(ganttTasks).orderBy(ganttTasks.id);
     return tasks;
   }),
 
-  // ── Get all dependencies (optionally filtered by project_id)
-  // Returns frontend-compatible shape: {id, source, target, type, lag, projectId}
+  // ── Resolve frontend UIDs → DB IDs ──
+  resolveUids: publicQuery
+    .input(z.object({ uids: z.array(z.string()) }))
+    .query(async ({ input }) => {
+      const uidMap: Record<string, number> = {};
+      for (const uid of input.uids) {
+        const rows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, uid));
+        if (rows.length > 0) uidMap[uid] = rows[0].id;
+      }
+      return uidMap;
+    }),
+
+  // ── Get all dependencies ──
   links: publicQuery
     .input(z.object({ projectId: z.number().optional() }).optional())
     .query(async ({ input }) => {
       const typeReverse: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
-      /* Use typed Drizzle select for guaranteed array result */
       let rows;
       if (input?.projectId) {
         rows = await db.select().from(ganttDependencies).where(eq(ganttDependencies.projectId, input.projectId));
@@ -36,11 +46,12 @@ export const ganttRouter = createRouter({
       }));
     }),
 
-  // ── Create/update task ──
+  // ── Create/update task (with frontend_task_uid support) ──
   saveTask: publicQuery
     .input(
       z.object({
         id: z.number().optional(),
+        frontend_task_uid: z.string().optional(),
         text: z.string(),
         start_date: z.string().nullable().optional(),
         end_date: z.string().nullable().optional(),
@@ -49,6 +60,7 @@ export const ganttRouter = createRouter({
         duration: z.number().nullable().optional(),
         progress: z.number().default(0),
         parent: z.number().default(0),
+        parent_frontend_uid: z.string().nullable().optional(),
         type: z.string().default("task"),
         wbs_level: z.number().default(0),
         sortorder: z.number().default(0),
@@ -59,6 +71,7 @@ export const ganttRouter = createRouter({
         status: z.string().nullable().optional(),
         remarks: z.string().nullable().optional(),
         predecessor_task_id: z.number().optional(),
+        predecessor_frontend_uid: z.string().nullable().optional(),
         dependency_type: z.string().optional(),
         lag_days: z.number().default(0),
       })
@@ -73,7 +86,8 @@ export const ganttRouter = createRouter({
         plannedEnd: input.planned_end || null,
         duration: input.duration,
         progress: input.progress,
-        parent: input.parent,
+        parent: input.parent ?? 0,
+        parentFrontendUid: input.parent_frontend_uid || null,
         type: input.type,
         wbsLevel: input.wbs_level ?? 0,
         sortorder: input.sortorder,
@@ -84,106 +98,105 @@ export const ganttRouter = createRouter({
         status: input.status || null,
         remarks: input.remarks || null,
         predecessorTaskId: input.predecessor_task_id ?? null,
+        predecessorFrontendUid: input.predecessor_frontend_uid || null,
         dependencyType: input.dependency_type || null,
         lagDays: input.lag_days ?? 0,
         updatedAt: now,
       };
+      /* Preserve frontend_task_uid if provided, or look up existing */
+      if (input.frontend_task_uid) {
+        setData.frontendTaskUid = input.frontend_task_uid;
+      }
+
       try {
         if (input.id) {
-          const updated = await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id)).returning({ id: ganttTasks.id });
+          const updated = await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id)).returning({
+            id: ganttTasks.id, frontendTaskUid: ganttTasks.frontendTaskUid
+          });
           if (updated.length === 0) {
-            throw new Error(`Task id=${input.id} not found — it may have been deleted. Save your work, close the project, and reopen.`);
+            throw new Error(`Task id=${input.id} not found — it may have been deleted.`);
           }
-          return { id: input.id, action: "updated" };
+          return { id: input.id, frontend_task_uid: updated[0].frontendTaskUid, action: "updated" };
         } else {
-          const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
-          return { id: result[0].id, action: "created" };
+          const result = await db.insert(ganttTasks).values(setData).returning({
+            id: ganttTasks.id, frontendTaskUid: ganttTasks.frontendTaskUid
+          });
+          return { id: result[0].id, frontend_task_uid: result[0].frontendTaskUid, action: "created" };
         }
       } catch (e: any) {
-        /* Auto-migrate: if a column is missing, add it and retry */
         const msg = e.message || "";
         let migrated = false;
 
-        if (msg.includes("parent")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0`)); migrated = true; } catch {}
-        }
-        if (msg.includes("wbs_level") || msg.includes("wbsLevel")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0`)); migrated = true; } catch {}
-        }
-        if (msg.includes("status")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS status VARCHAR(50)`)); migrated = true; } catch {}
-        }
-        if (msg.includes("remarks")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS remarks TEXT`)); migrated = true; } catch {}
-        }
-        if (msg.includes("predecessor_task_id") || msg.includes("predecessorTaskId")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS predecessor_task_id INTEGER`)); migrated = true; } catch {}
-        }
-        if (msg.includes("dependency_type") || msg.includes("dependencyType")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS dependency_type VARCHAR(10)`)); migrated = true; } catch {}
-        }
-        if (msg.includes("lag_days") || msg.includes("lagDays")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0`)); migrated = true; } catch {}
-        }
-        if (msg.includes("category")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS category VARCHAR(100)`)); migrated = true; } catch {}
-        }
-        if (msg.includes("notes")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS notes TEXT`)); migrated = true; } catch {}
-        }
-        if (msg.includes("planned_start") || msg.includes("plannedStart")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20)`)); migrated = true; } catch {}
-        }
-        if (msg.includes("planned_end") || msg.includes("plannedEnd")) {
-          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20)`)); migrated = true; } catch {}
-        }
+        /* Auto-migrate: add missing columns */
+        const tryAddCol = async (col: string, def: string) => {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS ${col} ${def}`)); return true; } catch { return false; }
+        };
+        if (msg.includes("frontend_task_uid")) { try { await tryAddCol("frontend_task_uid", "VARCHAR(64) UNIQUE"); migrated = true; } catch {} }
+        if (msg.includes("parent_frontend_uid")) { try { await tryAddCol("parent_frontend_uid", "VARCHAR(64)"); migrated = true; } catch {} }
+        if (msg.includes("predecessor_frontend_uid")) { try { await tryAddCol("predecessor_frontend_uid", "VARCHAR(64)"); migrated = true; } catch {} }
+        if (msg.includes("parent")) { try { await tryAddCol("parent", "INTEGER DEFAULT 0"); migrated = true; } catch {} }
+        if (msg.includes("wbs_level") || msg.includes("wbsLevel")) { try { await tryAddCol("wbs_level", "INTEGER DEFAULT 0"); migrated = true; } catch {} }
+        if (msg.includes("status")) { try { await tryAddCol("status", "VARCHAR(50)"); migrated = true; } catch {} }
+        if (msg.includes("remarks")) { try { await tryAddCol("remarks", "TEXT"); migrated = true; } catch {} }
+        if (msg.includes("predecessor_task_id") || msg.includes("predecessorTaskId")) { try { await tryAddCol("predecessor_task_id", "INTEGER"); migrated = true; } catch {} }
+        if (msg.includes("dependency_type") || msg.includes("dependencyType")) { try { await tryAddCol("dependency_type", "VARCHAR(10)"); migrated = true; } catch {} }
+        if (msg.includes("lag_days") || msg.includes("lagDays")) { try { await tryAddCol("lag_days", "INTEGER DEFAULT 0"); migrated = true; } catch {} }
+        if (msg.includes("category")) { try { await tryAddCol("category", "VARCHAR(100)"); migrated = true; } catch {} }
+        if (msg.includes("notes")) { try { await tryAddCol("notes", "TEXT"); migrated = true; } catch {} }
+        if (msg.includes("planned_start") || msg.includes("plannedStart")) { try { await tryAddCol("planned_start", "VARCHAR(20)"); migrated = true; } catch {} }
+        if (msg.includes("planned_end") || msg.includes("plannedEnd")) { try { await tryAddCol("planned_end", "VARCHAR(20)"); migrated = true; } catch {} }
 
         if (migrated) {
-          /* Column added — retry with FULL payload (nothing deleted) */
           if (input.id) {
             await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
-            return { id: input.id, action: "updated" };
+            return { id: input.id, frontend_task_uid: input.frontend_task_uid, action: "updated" };
           } else {
-            const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
-            return { id: result[0].id, action: "created" };
+            const result = await db.insert(ganttTasks).values(setData).returning({
+              id: ganttTasks.id, frontendTaskUid: ganttTasks.frontendTaskUid
+            });
+            return { id: result[0].id, frontend_task_uid: result[0].frontendTaskUid, action: "created" };
           }
         }
 
-        /* Fallback: column still missing — remove it and retry */
-        if (msg.includes("parent")) delete setData.parent;
-        else if (msg.includes("wbs_level") || msg.includes("wbsLevel")) delete setData.wbsLevel;
-        else if (msg.includes("status")) delete setData.status;
-        else if (msg.includes("remarks")) delete setData.remarks;
-        else if (msg.includes("category")) delete setData.category;
-        else if (msg.includes("notes")) delete setData.notes;
-        else if (msg.includes("planned_start") || msg.includes("plannedStart")) delete setData.plannedStart;
-        else if (msg.includes("planned_end") || msg.includes("plannedEnd")) delete setData.plannedEnd;
-        else if (msg.includes("predecessor_task_id") || msg.includes("predecessorTaskId")) delete setData.predecessorTaskId;
-        else if (msg.includes("dependency_type") || msg.includes("dependencyType")) delete setData.dependencyType;
-        else if (msg.includes("lag_days") || msg.includes("lagDays")) delete setData.lagDays;
+        /* Fallback: strip unknown columns and retry */
+        const stripIfMissing = (key: string, col: string) => { if (msg.includes(col)) { delete setData[key]; } };
+        stripIfMissing("frontendTaskUid", "frontend_task_uid");
+        stripIfMissing("parentFrontendUid", "parent_frontend_uid");
+        stripIfMissing("predecessorFrontendUid", "predecessor_frontend_uid");
+        stripIfMissing("parent", "parent");
+        stripIfMissing("wbsLevel", "wbs_level");
+        stripIfMissing("status", "status");
+        stripIfMissing("remarks", "remarks");
+        stripIfMissing("category", "category");
+        stripIfMissing("notes", "notes");
+        stripIfMissing("plannedStart", "planned_start");
+        stripIfMissing("plannedEnd", "planned_end");
+        stripIfMissing("predecessorTaskId", "predecessor_task_id");
+        stripIfMissing("dependencyType", "dependency_type");
+        stripIfMissing("lagDays", "lag_days");
 
         if (Object.keys(setData).length > 5) {
           if (input.id) {
             await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
-            return { id: input.id, action: "updated" };
+            return { id: input.id, frontend_task_uid: input.frontend_task_uid, action: "updated" };
           } else {
-            const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
-            return { id: result[0].id, action: "created" };
+            const result = await db.insert(ganttTasks).values(setData).returning({
+              id: ganttTasks.id, frontendTaskUid: ganttTasks.frontendTaskUid
+            });
+            return { id: result[0].id, frontend_task_uid: result[0].frontendTaskUid, action: "created" };
           }
         }
         throw e;
       }
     }),
 
-  // ── Delete task (also delete its dependency records) ──
+  // ── Delete task ──
   deleteTask: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      // Delete any dependencies where this task is predecessor OR successor
       await db.delete(ganttDependencies).where(
         sql`${ganttDependencies.predecessorTaskId} = ${input.id} OR ${ganttDependencies.successorTaskId} = ${input.id}`
       );
-      // Delete task
       await db.delete(ganttTasks).where(eq(ganttTasks.id, input.id));
       return { success: true };
     }),
@@ -201,25 +214,24 @@ export const ganttRouter = createRouter({
       })
     )
     .mutation(async ({ input }) => {
-      console.log("[saveLink] START source=", input.source, "target=", input.target, "type=", input.type, "lag=", input.lag);
+      console.log("[saveLink] source=", input.source, "target=", input.target);
 
-      /* 1. VALIDATE: check both predecessor and successor exist in gantt_tasks */
+      /* SOFT-VALIDATE: check both tasks exist — if not, log and skip gracefully */
       const predRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, input.source));
       const succRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, input.target));
-      const predExists = predRows.length > 0;
-      const succExists = succRows.length > 0;
-      console.log("[saveLink] validation predExists=", predExists, "succExists=", succExists);
-
-      if (!predExists || !succExists) {
-        const missing = [!predExists ? `predecessor=${input.source}` : "", !succExists ? `successor=${input.target}` : ""].filter(Boolean).join(", ");
-        throw new Error(`Dependency validation failed — task(s) no longer exist: ${missing}. Please close and reopen the project.`);
+      if (predRows.length === 0 || succRows.length === 0) {
+        console.warn("[saveLink] SKIPPED — task not found:", { source: input.source, predExists: predRows.length > 0, target: input.target, succExists: succRows.length > 0 });
+        return { id: 0, action: "skipped", reason: "Task not found" };
       }
 
-      /* 2. Delete old dependency where this task is the successor (typed Drizzle) */
-      await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, input.target));
-      console.log("[saveLink] deleted old deps for successor=", input.target);
+      /* Delete old dependency for this successor */
+      try {
+        await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, input.target));
+      } catch (delErr: any) {
+        console.warn("[saveLink] delete note:", delErr.message);
+      }
 
-      /* 3. Insert new dependency (typed Drizzle) */
+      /* Insert new dependency */
       const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
       const normalizedType = typeMap[input.type] || input.type || "FS";
 
@@ -231,22 +243,77 @@ export const ganttRouter = createRouter({
           dependencyType: normalizedType,
           lagDays: input.lag,
         }).returning({ id: ganttDependencies.id });
-        console.log("[saveLink] INSERT OK pred=", input.source, "succ=", input.target, "insertedId=", inserted[0]?.id);
+        console.log("[saveLink] OK pred=", input.source, "succ=", input.target);
 
-        /* 4. Also update the task row directly with predecessor info (typed Drizzle) */
+        /* Update task row with predecessor info */
         try {
           await db.update(ganttTasks)
             .set({ predecessorTaskId: input.source, dependencyType: normalizedType, lagDays: input.lag })
             .where(eq(ganttTasks.id, input.target));
-          console.log("[saveLink] updated task row succ=", input.target);
-        } catch (updErr: any) {
-          console.log("[saveLink] task row update note:", updErr.message);
-        }
+        } catch { /* non-critical */ }
 
         return { id: inserted[0]?.id ?? 0, action: "created" };
       } catch (insertErr: any) {
         console.error("[saveLink] INSERT FAILED:", insertErr.message);
-        throw new Error("Dependency insert failed: " + insertErr.message);
+        return { id: 0, action: "error", reason: insertErr.message };
+      }
+    }),
+
+  // ── Save dependency by frontend UID (resolves UIDs → DB IDs internally) ──
+  saveLinkByUid: publicQuery
+    .input(
+      z.object({
+        sourceUid: z.string(),
+        targetUid: z.string(),
+        type: z.string().default("FS"),
+        lag: z.number().default(0),
+        projectId: z.number().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      console.log("[saveLinkByUid] sourceUid=", input.sourceUid, "targetUid=", input.targetUid);
+
+      /* Resolve UIDs → DB IDs */
+      const predRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, input.sourceUid));
+      const succRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, input.targetUid));
+
+      if (predRows.length === 0 || succRows.length === 0) {
+        console.warn("[saveLinkByUid] SKIPPED — UID not found:", { sourceUid: input.sourceUid, predFound: predRows.length, targetUid: input.targetUid, succFound: succRows.length });
+        return { id: 0, action: "skipped", reason: "UID not found" };
+      }
+
+      const sourceDbId = predRows[0].id;
+      const targetDbId = succRows[0].id;
+
+      /* Delete old dependency for this successor */
+      try {
+        await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, targetDbId));
+      } catch { /* non-critical */ }
+
+      /* Insert new dependency */
+      const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+      const normalizedType = typeMap[input.type] || input.type || "FS";
+
+      try {
+        const inserted = await db.insert(ganttDependencies).values({
+          projectId: input.projectId ?? null,
+          predecessorTaskId: sourceDbId,
+          successorTaskId: targetDbId,
+          dependencyType: normalizedType,
+          lagDays: input.lag,
+        }).returning({ id: ganttDependencies.id });
+
+        /* Update task row */
+        try {
+          await db.update(ganttTasks)
+            .set({ predecessorTaskId: sourceDbId, dependencyType: normalizedType, lagDays: input.lag })
+            .where(eq(ganttTasks.id, targetDbId));
+        } catch { /* non-critical */ }
+
+        return { id: inserted[0]?.id ?? 0, action: "created" };
+      } catch (insertErr: any) {
+        console.error("[saveLinkByUid] FAILED:", insertErr.message);
+        return { id: 0, action: "error", reason: insertErr.message };
       }
     }),
 
@@ -258,7 +325,7 @@ export const ganttRouter = createRouter({
       return { success: true };
     }),
 
-  // ── Batch save dependencies (used when opening a project) ──
+  // ── Batch save dependencies (DB IDs only) ──
   saveLinksBatch: publicQuery
     .input(z.array(z.object({
       source: z.number(),
@@ -269,7 +336,15 @@ export const ganttRouter = createRouter({
     })))
     .mutation(async ({ input }) => {
       const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+      let count = 0;
       for (const dep of input) {
+        /* Validate both IDs exist */
+        const predExists = (await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, dep.source))).length > 0;
+        const succExists = (await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, dep.target))).length > 0;
+        if (!predExists || !succExists) {
+          console.warn("[saveLinksBatch] skipping invalid dep:", dep);
+          continue;
+        }
         const normalizedType = typeMap[dep.type] || dep.type || "FS";
         await db.insert(ganttDependencies).values({
           projectId: dep.projectId ?? null,
@@ -278,20 +353,38 @@ export const ganttRouter = createRouter({
           dependencyType: normalizedType,
           lagDays: dep.lag,
         });
+        count++;
       }
-      return { count: input.length };
+      return { count };
     }),
 
-  // ── Reset all (delete everything) ──
+  // ── Reset all ──
   resetAll: publicQuery.mutation(async () => {
     await db.delete(ganttDependencies);
     await db.delete(ganttTasks);
     return { success: true };
   }),
 
-  // ── Migrate: create gantt_dependencies table, migrate from gantt_links ──
+  // ── Migrate ──
   migrate: publicQuery.mutation(async () => {
-    // Create gantt_dependencies table if it doesn't exist
+    await db.execute(sql.raw(`
+      ALTER TABLE gantt_tasks
+      ADD COLUMN IF NOT EXISTS frontend_task_uid VARCHAR(64) UNIQUE,
+      ADD COLUMN IF NOT EXISTS parent_frontend_uid VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS predecessor_frontend_uid VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS status VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS remarks TEXT,
+      ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS notes TEXT,
+      ADD COLUMN IF NOT EXISTS predecessor_task_id INTEGER,
+      ADD COLUMN IF NOT EXISTS dependency_type VARCHAR(10),
+      ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0
+    `));
+
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS gantt_dependencies (
         id SERIAL PRIMARY KEY,
@@ -305,39 +398,16 @@ export const ganttRouter = createRouter({
       )
     `));
 
-    // Migrate data from old gantt_links table (wrap in try — gantt_links may not exist)
-    try {
-      await db.execute(sql.raw(`
-        INSERT INTO gantt_dependencies (predecessor_task_id, successor_task_id, dependency_type, lag_days, created_at)
-        SELECT source, target,
-          CASE type WHEN '0' THEN 'FS' WHEN '1' THEN 'SS' WHEN '2' THEN 'FF' WHEN '3' THEN 'SF' ELSE 'FS' END,
-          COALESCE(lag, 0), created_at
-        FROM gantt_links
-        WHERE NOT EXISTS (SELECT 1 FROM gantt_dependencies WHERE predecessor_task_id = gantt_links.source AND successor_task_id = gantt_links.target)
-      `));
-    } catch { /* gantt_links doesn't exist or already migrated */ }
-
-    // Ensure all columns exist on gantt_tasks
-    await db.execute(sql.raw(`
-      ALTER TABLE gantt_tasks
-      ADD COLUMN IF NOT EXISTS status VARCHAR(50),
-      ADD COLUMN IF NOT EXISTS remarks TEXT,
-      ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
-      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
-      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS notes TEXT
-    `));
-
     return { success: true };
   }),
 
   // ── Seed demo data ──
   seed: publicQuery.mutation(async () => {
-    // Ensure all columns exist
     await db.execute(sql.raw(`
       ALTER TABLE gantt_tasks
+      ADD COLUMN IF NOT EXISTS frontend_task_uid VARCHAR(64) UNIQUE,
+      ADD COLUMN IF NOT EXISTS parent_frontend_uid VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS predecessor_frontend_uid VARCHAR(64),
       ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
       ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
       ADD COLUMN IF NOT EXISTS category VARCHAR(100),
@@ -365,75 +435,57 @@ export const ganttRouter = createRouter({
     `));
 
     const existing = await db.select().from(ganttTasks);
-    const hasInvalid = existing.some((t: any) => {
-      const sd = t.startDate || "";
-      const ed = t.endDate || "";
-      if (sd && !/^\d{4}-\d{2}-\d{2}/.test(sd)) return true;
-      if (ed && !/^\d{4}-\d{2}-\d{2}/.test(ed)) return true;
-      const checkDate = (d: string) => {
-        if (!d) return true;
-        const dt = new Date(d.replace(" ", "T"));
-        if (isNaN(dt.getTime())) return false;
-        const parts = d.slice(0, 10).split("-");
-        return dt.getFullYear() === parseInt(parts[0]) && dt.getMonth() === parseInt(parts[1]) - 1 && dt.getDate() === parseInt(parts[2]);
-      };
-      return !checkDate(sd) || !checkDate(ed);
-    });
-    if (existing.length > 0 && !hasInvalid) return { seeded: false, reason: "Tasks already exist" };
-    if (hasInvalid) {
-      await db.delete(ganttDependencies);
-      await db.delete(ganttTasks);
-    }
+    if (existing.length > 0) return { seeded: false, reason: "Tasks already exist" };
 
     const fmt = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
-    const addDays = (dt: Date, days: number) => {
-      const r = new Date(dt);
-      r.setDate(r.getDate() + days);
-      return r;
-    };
-
+    const addDays = (dt: Date, days: number) => { const r = new Date(dt); r.setDate(r.getDate() + days); return r; };
     const now = new Date();
+    const uid = () => crypto.randomUUID();
 
-    /* Insert root project first, capture its real DB ID */
+    const rootUid = uid();
     const rootResult = await db.insert(ganttTasks).values({
+      frontendTaskUid: rootUid,
       text: "S/4HANA MM Integration", startDate: fmt(now) + " 08:00", endDate: fmt(addDays(now,170)) + " 08:00",
       plannedStart: fmt(now), plannedEnd: fmt(addDays(now,180)),
       duration: 180, progress: 15, parent: 0, type: "project",
-      wbsLevel: 1,
-      owner: "PMO", status: "In Progress", sortorder: 0, open: 1,
-    }).returning({ id: ganttTasks.id });
+      wbsLevel: 1, owner: "PMO", status: "In Progress", sortorder: 0, open: 1,
+    }).returning({ id: ganttTasks.id, frontendTaskUid: ganttTasks.frontendTaskUid });
     const rootId = rootResult[0].id;
 
-    const childTasks = [
-      { text: "Gap Analysis & Blueprint", owner: "Business Analyst", type: "task", wbsLevel: 2, progress: 80, duration: 30, plannedStart: fmt(now), plannedEnd: fmt(addDays(now,30)), actualStart: fmt(now), actualEnd: fmt(addDays(now,33)), status: "Completed" },
-      { text: "System Configuration", owner: "Basis Team", type: "task", wbsLevel: 2, progress: 40, duration: 45, plannedStart: fmt(addDays(now,35)), plannedEnd: fmt(addDays(now,80)), actualStart: fmt(addDays(now,35)), actualEnd: fmt(addDays(now,82)), status: "In Progress (Delayed)" },
-      { text: "Data Migration", owner: "Data Team", type: "task", wbsLevel: 2, progress: 10, duration: 60, plannedStart: fmt(addDays(now,75)), plannedEnd: fmt(addDays(now,135)), actualStart: fmt(addDays(now,83)), actualEnd: null, status: "In Progress" },
-      { text: "Unit Testing", owner: "QA Team", type: "task", wbsLevel: 2, progress: 0, duration: 30, plannedStart: fmt(addDays(now,120)), plannedEnd: fmt(addDays(now,150)), actualStart: null, actualEnd: null, status: "Not Started" },
-      { text: "UAT & Sign-off", owner: "Business Lead", type: "milestone", wbsLevel: 2, progress: 0, duration: 20, plannedStart: fmt(addDays(now,150)), plannedEnd: fmt(addDays(now,170)), actualStart: null, actualEnd: null, status: "Not Started" },
-      { text: "Go-Live Preparation", owner: "Cutover Team", type: "task", wbsLevel: 2, progress: 0, duration: 15, plannedStart: fmt(addDays(now,170)), plannedEnd: fmt(addDays(now,185)), actualStart: null, actualEnd: null, status: "Not Started" },
+    const childDefs = [
+      { text: "Gap Analysis & Blueprint", owner: "Business Analyst", progress: 80, duration: 30, plannedStart: fmt(now), plannedEnd: fmt(addDays(now,30)), actualStart: fmt(now), actualEnd: fmt(addDays(now,33)), status: "Completed" },
+      { text: "System Configuration", owner: "Basis Team", progress: 40, duration: 45, plannedStart: fmt(addDays(now,35)), plannedEnd: fmt(addDays(now,80)), actualStart: fmt(addDays(now,35)), actualEnd: fmt(addDays(now,82)), status: "In Progress (Delayed)" },
+      { text: "Data Migration", owner: "Data Team", progress: 10, duration: 60, plannedStart: fmt(addDays(now,75)), plannedEnd: fmt(addDays(now,135)), actualStart: fmt(addDays(now,83)), status: "In Progress" },
+      { text: "Unit Testing", owner: "QA Team", progress: 0, duration: 30, plannedStart: fmt(addDays(now,120)), plannedEnd: fmt(addDays(now,150)), status: "Not Started" },
+      { text: "UAT & Sign-off", owner: "Business Lead", type: "milestone", progress: 0, duration: 20, plannedStart: fmt(addDays(now,150)), plannedEnd: fmt(addDays(now,170)), status: "Not Started" },
+      { text: "Go-Live Preparation", owner: "Cutover Team", progress: 0, duration: 15, plannedStart: fmt(addDays(now,170)), plannedEnd: fmt(addDays(now,185)), status: "Not Started" },
     ];
 
-    for (const t of childTasks) {
-      const end = t.actualEnd ? t.actualEnd : (t.actualStart ? fmt(addDays(new Date(t.actualStart + "T12:00:00"), t.duration)) : null);
-      const start = t.actualStart ? t.actualStart + " 08:00" : null;
-      await db.insert(ganttTasks).values({
+    const childIds: number[] = [];
+    for (const t of childDefs) {
+      const cUid = uid();
+      const end = (t as any).actualEnd || ((t as any).actualStart ? fmt(addDays(new Date((t as any).actualStart + "T12:00:00"), t.duration)) : null);
+      const start = (t as any).actualStart ? (t as any).actualStart + " 08:00" : null;
+      const r = await db.insert(ganttTasks).values({
+        frontendTaskUid: cUid, parentFrontendUid: rootUid,
         text: t.text, startDate: start, endDate: end ? end + " 08:00" : null,
         plannedStart: t.plannedStart, plannedEnd: t.plannedEnd,
-        duration: t.duration, progress: t.progress, parent: rootId, type: t.type,
-        wbsLevel: t.wbsLevel,
-        owner: t.owner, status: t.status, sortorder: 0, open: 1,
-      });
+        duration: t.duration, progress: t.progress, parent: rootId, type: (t as any).type || "task",
+        wbsLevel: 2, owner: t.owner, status: (t as any).status, sortorder: 0, open: 1,
+      }).returning({ id: ganttTasks.id });
+      childIds.push(r[0].id);
     }
 
-    const allTasks = await db.select().from(ganttTasks).orderBy(ganttTasks.id);
-    if (allTasks.length >= 4) {
+    if (childIds.length >= 2) {
       await db.insert(ganttDependencies).values({
-        predecessorTaskId: allTasks[1].id, successorTaskId: allTasks[2].id, dependencyType: "FS", lagDays: 0
-      });
-      await db.insert(ganttDependencies).values({
-        predecessorTaskId: allTasks[2].id, successorTaskId: allTasks[3].id, dependencyType: "FS", lagDays: 0
+        predecessorTaskId: childIds[0], successorTaskId: childIds[1], dependencyType: "FS", lagDays: 0
       });
     }
-    return { seeded: true, count: 1 + childTasks.length };
+    if (childIds.length >= 3) {
+      await db.insert(ganttDependencies).values({
+        predecessorTaskId: childIds[1], successorTaskId: childIds[2], dependencyType: "FS", lagDays: 0
+      });
+    }
+    return { seeded: true, count: 1 + childDefs.length };
   }),
 });

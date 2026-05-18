@@ -7,6 +7,9 @@ export interface GanttTask {
   progress?: number; status?: string; remarks?: string;
   type?: string; parent?: number; category?: string;
   sortorder?: number; open?: number;
+  frontendTaskUid?: string;
+  parentFrontendUid?: string;
+  predecessorFrontendUid?: string;
 }
 
 export interface GanttLink {

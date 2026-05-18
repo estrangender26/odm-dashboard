@@ -134,6 +134,7 @@ export const governanceFiles = pgTable("governance_files", {
 
 export const ganttTasks = pgTable("gantt_tasks", {
   id: serial("id").primaryKey(),
+  frontendTaskUid: varchar("frontend_task_uid", { length: 64 }).unique(),
   text: varchar("text", { length: 500 }).notNull(),
   startDate: varchar("start_date", { length: 20 }),
   endDate: varchar("end_date", { length: 20 }),
@@ -142,6 +143,7 @@ export const ganttTasks = pgTable("gantt_tasks", {
   duration: integer("duration"),
   progress: integer("progress").default(0),
   parent: integer("parent").default(0),
+  parentFrontendUid: varchar("parent_frontend_uid", { length: 64 }),
   type: varchar("type", { length: 20 }).default("task"),
   wbsLevel: integer("wbs_level").default(0),
   sortorder: integer("sortorder").default(0),
@@ -152,11 +154,14 @@ export const ganttTasks = pgTable("gantt_tasks", {
   status: varchar("status", { length: 50 }),
   remarks: text("remarks"),
   predecessorTaskId: integer("predecessor_task_id"),
+  predecessorFrontendUid: varchar("predecessor_frontend_uid", { length: 64 }),
   dependencyType: varchar("dependency_type", { length: 10 }),
   lagDays: integer("lag_days").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("gantt_tasks_frontend_uid_idx").on(table.frontendTaskUid),
+]);
 
 // Existing Facilities Maintenance Plans table
 export const existingFacilitiesMaintenance = pgTable("existing_facilities_maintenance", {
