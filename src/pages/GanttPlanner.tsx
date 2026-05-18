@@ -576,6 +576,7 @@ export default function GanttPlanner() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [taskList, setTaskList] = useState<any[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [linkModalOpen, setLinkModalOpen] = useState(false);
@@ -951,6 +952,7 @@ export default function GanttPlanner() {
 
   const submitForm = useCallback(async () => {
     if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
+    setIsSaving(true);
 
     /* Capture all form values to locals BEFORE any async work */
     const _predecessorId = form.predecessorId;
@@ -1037,6 +1039,8 @@ export default function GanttPlanner() {
     } catch (e: any) {
       console.error("[save] ERROR:", e.message, e);
       setBanner({ type: "error", message: "Save error: " + (e.message || "Unknown error") });
+    } finally {
+      setIsSaving(false);
     }
   }, [form, editingId, saveTaskMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, linksQuery.data, recalcAndSaveParent, currentProjectId, refetchTasks, refetchLinks]);
 
@@ -1229,7 +1233,10 @@ export default function GanttPlanner() {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button onClick={submitForm} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, background: "#1F9D55", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontFamily: "Inter" }}>Save</button>
+              <button onClick={submitForm} disabled={isSaving} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, background: isSaving ? "#86EFAC" : "#1F9D55", color: "#fff", border: "none", borderRadius: 5, cursor: isSaving ? "not-allowed" : "pointer", fontFamily: "Inter", display: "inline-flex", alignItems: "center", gap: 6, transition: "background .15s" }}>
+                {isSaving && <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "ganttSpin 0.6s linear infinite" }} />}
+                {isSaving ? "Saving..." : "Save"}
+              </button>
               <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 5, cursor: "pointer", fontFamily: "Inter" }}>Cancel</button>
             </div>
           </div>
