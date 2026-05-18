@@ -56,8 +56,9 @@ export const ganttRouter = createRouter({
         owner: input.owner,
         open: input.open,
         category: input.category || null,
-        notes: input.notes || input.remarks || null,
+        notes: input.notes || null,
         status: input.status || null,
+        remarks: input.remarks || null,
         updatedAt: now,
       };
       if (input.id) {
@@ -133,7 +134,8 @@ export const ganttRouter = createRouter({
       ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
       ADD COLUMN IF NOT EXISTS category VARCHAR(100),
       ADD COLUMN IF NOT EXISTS notes TEXT,
-      ADD COLUMN IF NOT EXISTS status VARCHAR(50)
+      ADD COLUMN IF NOT EXISTS status VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS remarks TEXT
     `));
     await db.execute(sql.raw(`
       ALTER TABLE gantt_links 
@@ -151,7 +153,8 @@ export const ganttRouter = createRouter({
       ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
       ADD COLUMN IF NOT EXISTS category VARCHAR(100),
       ADD COLUMN IF NOT EXISTS notes TEXT,
-      ADD COLUMN IF NOT EXISTS status VARCHAR(50)
+      ADD COLUMN IF NOT EXISTS status VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS remarks TEXT
     `));
 
     const existing = await db.select().from(ganttTasks);

@@ -148,6 +148,8 @@ export const ganttTasks = pgTable("gantt_tasks", {
   open: integer("open").default(1),
   category: varchar("category", { length: 100 }),
   notes: text("notes"),
+  status: varchar("status", { length: 50 }),
+  remarks: text("remarks"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

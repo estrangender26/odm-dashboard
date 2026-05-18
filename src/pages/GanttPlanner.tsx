@@ -590,31 +590,8 @@ export default function GanttPlanner() {
     onSuccess: () => utils.gantt.tasks.invalidate(),
     onError: (e) => setBanner({ type: "error", message: "Save task failed: " + e.message }),
   });
-  const saveTaskBatchMut = trpc.gantt.saveTask.useMutation({ onError: () => {} });
   const deleteTaskMut = trpc.gantt.deleteTask.useMutation({
-    onSuccess: () => {
-      utils.gantt.tasks.invalidate();
-      const allTasks = tasksQuery.data || [];
-      recalculateParentRollups(allTasks).forEach((p: GanttTask) => {
-        const orig = allTasks.find((o: any) => o.id === p.id);
-        if (!orig) return;
-        const changed = p.plannedStart !== orig.plannedStart || p.plannedEnd !== orig.plannedEnd ||
-          p.startDate !== orig.startDate || p.endDate !== orig.endDate ||
-          p.duration !== orig.duration || p.progress !== orig.progress || p.status !== orig.status;
-        if (changed) {
-          saveTaskMut.mutate({
-            id: p.id, text: p.text, owner: p.owner || null,
-            start_date: p.startDate || null, end_date: p.endDate || null,
-            planned_start: p.plannedStart || null, planned_end: p.plannedEnd || null,
-            duration: p.duration || 1, progress: normProgress(p.progress),
-            parent: p.parent || 0, type: p.type || "project",
-            status: p.status || null, remarks: p.remarks || null,
-            category: (p as any).category || null,
-            open: (p as any).open ?? 1, sortorder: (p as any).sortorder ?? 0,
-          });
-        }
-      });
-    }
+    onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
   const saveLinkMut = trpc.gantt.saveLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
   const deleteLinkMut = trpc.gantt.deleteLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
@@ -640,8 +617,8 @@ export default function GanttPlanner() {
         const parsed = JSON.parse(data.tasksData);
         if (Array.isArray(parsed) && parsed.length > 0) {
           await resetMut.mutateAsync(undefined);
-          const saves = parsed.map((t: any, idx: number) =>
-            saveTaskBatchMut.mutateAsync({
+          for (const [idx, t] of parsed.entries()) {
+            await saveTaskMut.mutateAsync({
               text: t.text || "", owner: t.owner || null,
               start_date: t.startDate || t.start_date || null,
               end_date: t.endDate || t.end_date || null,
@@ -651,9 +628,8 @@ export default function GanttPlanner() {
               parent: t.parent || 0, type: t.type || "task",
               status: t.status || null, remarks: t.remarks || t.notes || null,
               category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? idx,
-            })
-          );
-          await Promise.all(saves);
+            });
+          }
           await utils.gantt.tasks.invalidate();
           await utils.gantt.links.invalidate();
           setBanner({ type: "success", message: `Loaded "${data.name}" — ${parsed.length} task(s).` });
@@ -758,14 +734,14 @@ export default function GanttPlanner() {
         duration: task.duration || 1, progress: normProgress(task.progress), status: rowStatus(task),
         remarks: task.remarks || null, type: task.type || "task", parent: task.parent || 0,
       };
-      saveTaskBatchMut.mutate(payload);
+      saveTaskMut.mutate(payload);
       updated++;
     });
     if (updated > 0) {
       setBanner({ type: "info", message: `Auto-scheduled ${updated} successor task(s).` });
       setTimeout(() => setBanner(null), 3000);
     }
-  }, [tasksQuery.data, linksQuery.data, saveTaskBatchMut]);
+  }, [tasksQuery.data, linksQuery.data, saveTaskMut]);
 
   /* Recalculate parent rollups and save changed parents */
   const recalcAndSaveParent = useCallback((parentId: number, allTasks: any[]) => {
@@ -917,9 +893,12 @@ export default function GanttPlanner() {
   const startEdit = (t: any) => { setEditingId(t.id); setForm(taskToForm(t)); setShowAdd(false); };
   const startAdd = () => { setEditingId(null); setForm(EMPTY_FORM); setShowAdd(true); };
 
-  const submitForm = () => {
+  const submitForm = useCallback(() => {
     if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
-    const autoStatus = deriveStatus({ startDate: form.actualStart, endDate: form.actualEnd, plannedEnd: form.plannedEnd, status: null });
+    const autoStatus = deriveStatus({
+      startDate: form.actualStart || undefined, endDate: form.actualEnd || undefined,
+      plannedEnd: form.plannedEnd || undefined,
+    } as GanttTask);
     const finalStatus = form.status || autoStatus;
     let finalProgress = Math.min(100, Math.max(0, form.progress));
     if (form.actualEnd && finalProgress < 100) finalProgress = 100;
@@ -931,9 +910,22 @@ export default function GanttPlanner() {
       remarks: form.remarks || null, type: form.type || "task", parent: form.parent || 0,
     };
     if (editingId) payload.id = editingId;
-    saveTaskMut.mutate(payload, { onSuccess: () => runAutoSchedule(editingId || undefined) });
+    saveTaskMut.mutate(payload, {
+      onSuccess: () => {
+        runAutoSchedule(editingId || undefined);
+        // Trigger parent rollups after save
+        const allTasks = tasksQuery.data || [];
+        const parentId = payload.parent;
+        if (parentId > 0) {
+          setTimeout(() => {
+            const freshTasks = tasksQuery.data || allTasks;
+            recalcAndSaveParent(parentId, freshTasks);
+          }, 300);
+        }
+      }
+    });
     setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
-  };
+  }, [form, editingId, saveTaskMut, runAutoSchedule, tasksQuery.data, recalcAndSaveParent]);
 
   const handleImportExcel = (file: File) => {
     const reader = new FileReader();
