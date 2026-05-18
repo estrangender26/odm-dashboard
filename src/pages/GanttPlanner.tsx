@@ -292,6 +292,34 @@ interface NativeGanttChartProps {
   onInsertChild?: (task: GanttTask) => void;
 }
 
+/* ─── Insert Dropdown Menu Button ─── */
+function InsertMenuButton({ sel, onInsertAbove, onInsertBelow, onInsertChild }: {
+  sel: any; onInsertAbove?: (t: any) => void; onInsertBelow?: (t: any) => void; onInsertChild?: (t: any) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { setOpen(false); }, [sel?.id]);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+      <button onClick={() => setOpen(!open)} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+        Insert <span style={{ fontSize: 8 }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 2, background: "#fff", border: "1px solid #D6DFE8", borderRadius: 6, boxShadow: "0 4px 16px rgba(0,0,0,.12)", zIndex: 50, minWidth: 140, padding: "4px 0" }}>
+          {onInsertAbove && <div onClick={() => { onInsertAbove(sel); setOpen(false); }} style={{ padding: "6px 12px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#EFF6FF")} onMouseLeave={e => (e.currentTarget.style.background = "#fff")}>⬆ <span>Insert Above</span></div>}
+          {onInsertBelow && <div onClick={() => { onInsertBelow(sel); setOpen(false); }} style={{ padding: "6px 12px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#EFF6FF")} onMouseLeave={e => (e.currentTarget.style.background = "#fff")}>⬇ <span>Insert Below</span></div>}
+          {onInsertChild && <div onClick={() => { onInsertChild(sel); setOpen(false); }} style={{ padding: "6px 12px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#F0FDF4")} onMouseLeave={e => (e.currentTarget.style.background = "#fff")}>➕ <span>Insert Child</span></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface _TaskNode {
   task: GanttTask; level: number;
   children: _TaskNode[]; isExpanded: boolean; hasChildren: boolean;
@@ -697,15 +725,7 @@ function TaskListTab({ tasks, deleteTask, setBanner, onEditTask, onAddTask }: { 
         {(() => {
           const sel = selectedTaskId ? taskList.find((t: any) => t.id === selectedTaskId) : null;
           if (!sel) return null;
-          return (
-            <>
-              <span style={{ fontSize: 10, color: "#8BA3B8", marginLeft: 4 }}>|</span>
-              <span style={{ fontSize: 10, color: "#475569", fontWeight: 600, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sel.text}>{sel.text?.slice(0, 20) || "Task"}</span>
-              {onInsertAbove && <button onClick={() => onInsertAbove(sel)} title="Insert above" style={{ padding: "5px 8px", fontSize: 10, fontWeight: 600, background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 5, cursor: "pointer" }}>⬆ Above</button>}
-              {onInsertBelow && <button onClick={() => onInsertBelow(sel)} title="Insert below" style={{ padding: "5px 8px", fontSize: 10, fontWeight: 600, background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 5, cursor: "pointer" }}>⬇ Below</button>}
-              {onInsertChild && <button onClick={() => onInsertChild(sel)} title="Insert child" style={{ padding: "5px 8px", fontSize: 10, fontWeight: 600, background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0", borderRadius: 5, cursor: "pointer" }}>➕ Child</button>}
-            </>
-          );
+          return <InsertMenuButton sel={sel} onInsertAbove={onInsertAbove} onInsertBelow={onInsertBelow} onInsertChild={onInsertChild} />;
         })()}
       </div>
       <div style={{ display: "table", width: "100%", borderCollapse: "collapse", fontSize: 10, fontFamily: "Inter, sans-serif" }}>
