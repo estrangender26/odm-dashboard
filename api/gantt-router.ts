@@ -193,7 +193,7 @@ export const ganttRouter = createRouter({
       })
     )
     .mutation(async ({ input }) => {
-      /* 1. Ensure table exists with correct schema (drop+recreate if wrong) */
+      /* 1. Ensure table exists */
       await db.execute(sql.raw(`
         CREATE TABLE IF NOT EXISTS gantt_dependencies (
           id SERIAL PRIMARY KEY,
@@ -212,34 +212,20 @@ export const ganttRouter = createRouter({
       const normalizedType = typeMap[depType] || depType || "FS";
       const pid = input.projectId ?? null;
 
-      /* 2. Use raw SQL insert with db.query() — supports RETURNING */
+      /* 2. Use plain execute() — no RETURNING, no params */
       try {
-        const pidVal = pid === null ? "NULL" : pid;
-        const result = await db.query(sql.raw(`
+        await db.execute(sql.raw(`
           INSERT INTO gantt_dependencies
             (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, updated_at)
-          VALUES
-            (${pidVal}, ${input.source}, ${input.target}, '${normalizedType}', ${input.lag}, NOW())
-          RETURNING id
+          VALUES (${pid === null ? "NULL" : pid}, ${input.source}, ${input.target}, '${normalizedType}', ${input.lag}, NOW())
         `));
-        const insertedId = (result.rows?.[0] as any)?.id || 0;
+
+        /* 3. Get the inserted id with a separate query */
+        const idResult = await db.execute(sql.raw(`SELECT MAX(id) as id FROM gantt_dependencies WHERE predecessor_task_id = ${input.source} AND successor_task_id = ${input.target}`));
+        const insertedId = (idResult.rows?.[0] as any)?.id || 0;
         return { id: insertedId, action: "created" };
       } catch (insertErr: any) {
-        /* Fallback: insert without RETURNING, query for max id */
-        try {
-          const pidVal = pid === null ? "NULL" : pid;
-          await db.execute(sql.raw(`
-            INSERT INTO gantt_dependencies
-              (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, updated_at)
-            VALUES
-              (${pidVal}, ${input.source}, ${input.target}, '${normalizedType}', ${input.lag}, NOW())
-          `));
-          const idResult = await db.query(sql.raw(`SELECT MAX(id) as id FROM gantt_dependencies`));
-          const maxId = (idResult.rows?.[0] as any)?.id || 0;
-          return { id: maxId, action: "created" };
-        } catch (fallbackErr: any) {
-          throw new Error("Dependency insert failed: " + fallbackErr.message);
-        }
+        throw new Error("Dependency insert failed: " + insertErr.message);
       }
     }),
 

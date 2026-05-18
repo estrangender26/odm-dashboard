@@ -1036,19 +1036,27 @@ export default function GanttPlanner() {
       const result = await saveTaskMut.mutateAsync(payload);
       const savedTaskId = _editingId || result?.id;
 
-      /* 2. Save dependency if predecessor selected */
+      /* 2. Save dependency if predecessor selected (non-blocking) */
+      let depSaveError: string | null = null;
       if (_predecessorId && savedTaskId && _predecessorId !== savedTaskId) {
-        const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
-        const typeCode = typeMap[_depType] || "0";
+        try {
+          const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
+          const typeCode = typeMap[_depType] || "0";
 
-        const existing = (linksQuery.data || []).find((l: any) => (l.target === savedTaskId || l.successorTaskId === savedTaskId));
-        if (existing) await deleteLinkMut.mutateAsync({ id: existing.id });
+          const existing = (linksQuery.data || []).find((l: any) => (l.target === savedTaskId || l.successorTaskId === savedTaskId));
+          if (existing) {
+            try { await deleteLinkMut.mutateAsync({ id: existing.id }); } catch { /* ignore delete errors */ }
+          }
 
-        await saveLinkMut.mutateAsync({
-          source: _predecessorId, target: savedTaskId,
-          type: typeCode, lag: _lagDays,
-          projectId: currentProjectId ?? undefined,
-        });
+          await saveLinkMut.mutateAsync({
+            source: _predecessorId, target: savedTaskId,
+            type: typeCode, lag: _lagDays,
+            projectId: currentProjectId ?? undefined,
+          });
+        } catch (depErr: any) {
+          depSaveError = depErr.message || "Dependency save failed";
+          console.error("[save] Dependency save failed (non-blocking):", depSaveError);
+        }
       }
 
       /* 3. Refetch both queries directly — bypass stale cache */
@@ -1072,7 +1080,7 @@ export default function GanttPlanner() {
       runAutoSchedule(savedTaskId);
       if (_parent > 0) recalcAndSaveParent(_parent, freshTasks.data || allTasks);
 
-      setBanner({ type: "success", message: `"${_text}" saved.` });
+      setBanner({ type: "success", message: `"${_text}" saved.${depSaveError ? " (Dep: " + depSaveError + ")" : ""}` });
 
     } catch (e: any) {
       console.error("[save] ERROR:", e.message, e);
