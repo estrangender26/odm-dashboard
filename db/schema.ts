@@ -151,6 +151,9 @@ export const ganttTasks = pgTable("gantt_tasks", {
   notes: text("notes"),
   status: varchar("status", { length: 50 }),
   remarks: text("remarks"),
+  predecessorTaskId: integer("predecessor_task_id"),
+  dependencyType: varchar("dependency_type", { length: 10 }),
+  lagDays: integer("lag_days").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

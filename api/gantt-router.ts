@@ -72,6 +72,9 @@ export const ganttRouter = createRouter({
         notes: z.string().nullable().optional(),
         status: z.string().nullable().optional(),
         remarks: z.string().nullable().optional(),
+        predecessor_task_id: z.number().optional(),
+        dependency_type: z.string().optional(),
+        lag_days: z.number().default(0),
       })
     )
     .mutation(async ({ input }) => {
@@ -94,6 +97,9 @@ export const ganttRouter = createRouter({
         notes: input.notes || null,
         status: input.status || null,
         remarks: input.remarks || null,
+        predecessorTaskId: input.predecessor_task_id ?? null,
+        dependencyType: input.dependency_type || null,
+        lagDays: input.lag_days ?? 0,
         updatedAt: now,
       };
       try {
@@ -120,6 +126,15 @@ export const ganttRouter = createRouter({
         }
         if (msg.includes("remarks")) {
           try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS remarks TEXT`)); migrated = true; } catch {}
+        }
+        if (msg.includes("predecessor_task_id") || msg.includes("predecessorTaskId")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS predecessor_task_id INTEGER`)); migrated = true; } catch {}
+        }
+        if (msg.includes("dependency_type") || msg.includes("dependencyType")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS dependency_type VARCHAR(10)`)); migrated = true; } catch {}
+        }
+        if (msg.includes("lag_days") || msg.includes("lagDays")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0`)); migrated = true; } catch {}
         }
         if (msg.includes("category")) {
           try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS category VARCHAR(100)`)); migrated = true; } catch {}
@@ -154,6 +169,9 @@ export const ganttRouter = createRouter({
         else if (msg.includes("notes")) delete setData.notes;
         else if (msg.includes("planned_start") || msg.includes("plannedStart")) delete setData.plannedStart;
         else if (msg.includes("planned_end") || msg.includes("plannedEnd")) delete setData.plannedEnd;
+        else if (msg.includes("predecessor_task_id") || msg.includes("predecessorTaskId")) delete setData.predecessorTaskId;
+        else if (msg.includes("dependency_type") || msg.includes("dependencyType")) delete setData.dependencyType;
+        else if (msg.includes("lag_days") || msg.includes("lagDays")) delete setData.lagDays;
 
         if (Object.keys(setData).length > 5) {
           if (input.id) {
@@ -192,35 +210,77 @@ export const ganttRouter = createRouter({
       })
     )
     .mutation(async ({ input }) => {
-      /* Ensure table exists */
-      await db.execute(sql.raw(`
-        CREATE TABLE IF NOT EXISTS gantt_dependencies (
-          id SERIAL PRIMARY KEY,
-          project_id INTEGER,
-          predecessor_task_id INTEGER NOT NULL,
-          successor_task_id INTEGER NOT NULL,
-          dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
-          lag_days INTEGER DEFAULT 0,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `));
+      console.log("[saveLink] START source=", input.source, "target=", input.target, "type=", input.type, "lag=", input.lag);
 
+      /* 1. Ensure gantt_dependencies table exists */
+      try {
+        await db.execute(sql.raw(`
+          CREATE TABLE IF NOT EXISTS gantt_dependencies (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER,
+            predecessor_task_id INTEGER NOT NULL,
+            successor_task_id INTEGER NOT NULL,
+            dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
+            lag_days INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `));
+      } catch (tableErr: any) {
+        console.log("[saveLink] table create note:", tableErr.message);
+      }
+
+      /* 2. VALIDATE: check both predecessor and successor exist in gantt_tasks */
+      const predCheck = await db.execute(sql`SELECT id FROM gantt_tasks WHERE id = ${input.source}`);
+      const succCheck = await db.execute(sql`SELECT id FROM gantt_tasks WHERE id = ${input.target}`);
+      const predExists = (predCheck.rows?.length || 0) > 0;
+      const succExists = (succCheck.rows?.length || 0) > 0;
+      console.log("[saveLink] validation predExists=", predExists, "succExists=", succExists);
+
+      if (!predExists || !succExists) {
+        throw new Error(`Dependency validation failed: predecessor=${input.source} exists=${predExists}, successor=${input.target} exists=${succExists}`);
+      }
+
+      /* 3. Delete old dependency where this task is the successor */
+      try {
+        await db.execute(sql`DELETE FROM gantt_dependencies WHERE successor_task_id = ${input.target}`);
+        console.log("[saveLink] deleted old deps for successor=", input.target);
+      } catch (delErr: any) {
+        console.log("[saveLink] delete old dep note:", delErr.message);
+      }
+
+      /* 4. Insert new dependency */
       const depType = input.type;
       const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
       const normalizedType = typeMap[depType] || depType || "FS";
+      const pid = input.projectId ?? null;
 
-      /* Use drizzle-orm/sql template properly — pass values as sql.raw() params */
       try {
         await db.execute(sql`
           INSERT INTO gantt_dependencies
             (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, updated_at)
           VALUES
-            (${input.projectId ?? null}, ${input.source}, ${input.target}, ${normalizedType}, ${input.lag}, NOW())
+            (${pid}, ${input.source}, ${input.target}, ${normalizedType}, ${input.lag}, NOW())
         `);
+        console.log("[saveLink] INSERT OK pred=", input.source, "succ=", input.target);
+
+        /* 5. Also update the task row directly with predecessor info */
+        try {
+          await db.execute(sql`
+            UPDATE gantt_tasks
+            SET predecessor_task_id = ${input.source},
+                dependency_type = ${normalizedType},
+                lag_days = ${input.lag}
+            WHERE id = ${input.target}
+          `);
+          console.log("[saveLink] updated task row succ=", input.target);
+        } catch (updErr: any) {
+          console.log("[saveLink] task row update note:", updErr.message);
+        }
+
         return { id: 0, action: "created" };
       } catch (insertErr: any) {
-        console.error("[saveLink] insert failed:", insertErr.message);
+        console.error("[saveLink] INSERT FAILED:", insertErr.message);
         throw new Error("Dependency insert failed: " + insertErr.message);
       }
     }),
@@ -329,7 +389,11 @@ export const ganttRouter = createRouter({
       ADD COLUMN IF NOT EXISTS notes TEXT,
       ADD COLUMN IF NOT EXISTS status VARCHAR(50),
       ADD COLUMN IF NOT EXISTS remarks TEXT,
-      ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0
+      ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS predecessor_task_id INTEGER,
+      ADD COLUMN IF NOT EXISTS dependency_type VARCHAR(10),
+      ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0
     `));
 
     await db.execute(sql.raw(`

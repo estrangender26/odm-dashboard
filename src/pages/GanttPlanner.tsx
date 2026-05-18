@@ -82,9 +82,13 @@ const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
    ═══════════════════════════════════════════════════════════════════ */
 
 function taskToForm(t: any, links?: any[]): TaskForm {
-  // Find existing dependency where this task is the successor
+  // Find existing dependency where this task is the successor (fallback)
   const existingDep = links?.find((l: any) => l.target === t.id || l.successorTaskId === t.id);
   const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+  // Prefer task-row stored values, fall back to dependency table
+  const rowPred = t.predecessorTaskId || t.predecessor_task_id || 0;
+  const rowType = t.dependencyType || t.dependency_type || "FS";
+  const rowLag = t.lagDays || t.lag_days || 0;
   return {
     text: t.text || "", owner: t.owner || "",
     plannedStart: t.plannedStart ? String(t.plannedStart).slice(0, 10) : "",
@@ -94,9 +98,9 @@ function taskToForm(t: any, links?: any[]): TaskForm {
     duration: t.duration || 1, progress: normProgress(t.progress),
     status: rowStatus(t), remarks: t.remarks || "",
     type: t.type || "task", parent: t.parent || 0,
-    predecessorId: existingDep?.source || existingDep?.predecessorTaskId || 0,
-    depType: typeMap[existingDep?.type] || existingDep?.dependencyType || "FS",
-    lagDays: existingDep?.lag || existingDep?.lagDays || 0,
+    predecessorId: rowPred || existingDep?.source || existingDep?.predecessorTaskId || 0,
+    depType: typeMap[existingDep?.type] || rowType,
+    lagDays: rowLag || existingDep?.lag || existingDep?.lagDays || 0,
   };
 }
 
@@ -1027,6 +1031,9 @@ export default function GanttPlanner() {
       start_date: _actualStart || null, end_date: _actualEnd || null,
       duration: _duration || 1, progress: finalProgress, status: finalStatus,
       wbs_level: wbsLevel, parent: _parent,
+      predecessor_task_id: _predecessorId || null,
+      dependency_type: _depType || null,
+      lag_days: _lagDays,
       remarks: _remarks || null, type: _type || "task",
     };
     if (_editingId) payload.id = _editingId;
@@ -1036,7 +1043,7 @@ export default function GanttPlanner() {
       const result = await saveTaskMut.mutateAsync(payload);
       const savedTaskId = _editingId || result?.id;
 
-      /* 2. Save dependency if predecessor selected (non-blocking) */
+      /* 2. Save dependency if predecessor selected (non-blocking, with task-row fallback) */
       let depSaveError: string | null = null;
       if (_predecessorId && savedTaskId && _predecessorId !== savedTaskId) {
         try {
@@ -1056,6 +1063,7 @@ export default function GanttPlanner() {
         } catch (depErr: any) {
           depSaveError = depErr.message || "Dependency save failed";
           console.error("[save] Dependency save failed (non-blocking):", depSaveError);
+          /* Don't throw — task was saved successfully with predecessor in task row */
         }
       }
 

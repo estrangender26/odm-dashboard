@@ -51,13 +51,20 @@ app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 (async () => {
   try {
     const { db } = await import("./queries/connection");
-    // Ensure gantt_tasks has status, remarks, wbs_level, parent columns
+    // Ensure gantt_tasks has all required columns
     await db.execute(sql.raw(`
       ALTER TABLE gantt_tasks
       ADD COLUMN IF NOT EXISTS status VARCHAR(50),
       ADD COLUMN IF NOT EXISTS remarks TEXT,
       ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0
+      ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS predecessor_task_id INTEGER,
+      ADD COLUMN IF NOT EXISTS dependency_type VARCHAR(10),
+      ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS notes TEXT
     `));
     // Create gantt_dependencies table (replaces gantt_links)
     await db.execute(sql.raw(`
