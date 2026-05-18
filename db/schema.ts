@@ -143,6 +143,7 @@ export const ganttTasks = pgTable("gantt_tasks", {
   progress: integer("progress").default(0),
   parent: integer("parent").default(0),
   type: varchar("type", { length: 20 }).default("task"),
+  wbsLevel: integer("wbs_level").default(0),
   sortorder: integer("sortorder").default(0),
   owner: varchar("owner", { length: 255 }),
   open: integer("open").default(1),

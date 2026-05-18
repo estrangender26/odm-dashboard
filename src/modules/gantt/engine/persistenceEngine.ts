@@ -254,6 +254,12 @@ export function parseImportRow(row: any, idx: number): { payload: any | null; er
   const notes = row["Notes"] || row["notes"] || row["note"] || row["Remarks"] || row["remarks"] || row["Comments"] || row["comments"] || row["Description"] || row["description"] || "";
   const type = isMilestone ? "milestone" : (row["Type"] || row["type"] || "task");
   const parent = parseInt(parentTask) || 0;
+  const wbsLevelRaw = row["WBS Level"] || row["wbsLevel"] || row["wbs_level"] || row["wbs"] || row["level"] || "";
+  let wbsLevel = parseInt(wbsLevelRaw) || 0;
+  if (wbsLevel <= 0) {
+    // Auto-compute from parent: root=1, child=2, etc.
+    wbsLevel = parent > 0 ? 2 : 1;
+  }
 
   if (start && finish) {
     const s = parseDate(start);
@@ -271,6 +277,7 @@ export function parseImportRow(row: any, idx: number): { payload: any | null; er
     planned_end: plannedEnd || finish || null,
     duration: parseInt(String(dur)) || 1,
     progress: prog,
+    wbs_level: wbsLevel,
     status: status || null,
     remarks: notes || null,
     category: category || null,

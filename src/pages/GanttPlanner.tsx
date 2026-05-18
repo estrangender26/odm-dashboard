@@ -25,7 +25,7 @@ import {
   exportTemplate, exportCSV, exportExcel, parseImportFile, parseImportRow,
 } from "@/modules/gantt/engine/persistenceEngine";
 import {
-  buildHierarchyPayload,
+  buildHierarchyPayload, computeWbsLevel,
 } from "@/modules/gantt/engine/hierarchyEngine";
 import {
   calcKpi, statusColor as _statusColor, statusBadgeStyle, rowStatus, fmtMonth, fmtShortDate,
@@ -619,6 +619,7 @@ export default function GanttPlanner() {
         if (Array.isArray(parsed) && parsed.length > 0) {
           await resetMut.mutateAsync(undefined);
           for (const [idx, t] of parsed.entries()) {
+            const wbsLevel = computeWbsLevel(t.id ?? 0, parsed, t.parent ?? 0);
             await saveTaskMut.mutateAsync({
               text: t.text || "", owner: t.owner || null,
               start_date: t.startDate || t.start_date || null,
@@ -626,6 +627,7 @@ export default function GanttPlanner() {
               planned_start: t.plannedStart || t.planned_start || t.plannedStartDate || null,
               planned_end: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
               duration: t.duration || 1, progress: normProgress(t.progress),
+              wbs_level: wbsLevel,
               parent: t.parent || 0, type: t.type || "task",
               status: t.status || null, remarks: t.remarks || t.notes || null,
               category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? idx,
@@ -791,7 +793,7 @@ export default function GanttPlanner() {
     const above = all[idx - 1];
     if (target.parent === above.id) { setBanner({ type: "info", message: "Already indented under this task." }); return; }
     const newParent = above.type === "project" || above.parent === 0 ? above.id : above.parent || above.id;
-    saveTaskMut.mutate(buildHierarchyPayload(target, newParent), {
+    saveTaskMut.mutate(buildHierarchyPayload(target, newParent, all), {
       onSuccess: () => { refetchTasks().then(() => recalcAndSaveParent(newParent, all)); }
     });
     setBanner({ type: "success", message: `"${target.text}" indented under "${above.text}".` });
@@ -807,7 +809,7 @@ export default function GanttPlanner() {
     const parentTask = all.find((t: any) => t.id === target.parent);
     const newParent = parentTask?.parent || 0;
     const oldParentId = target.parent;
-    saveTaskMut.mutate(buildHierarchyPayload(target, newParent), {
+    saveTaskMut.mutate(buildHierarchyPayload(target, newParent, all), {
       onSuccess: () => { refetchTasks().then(() => recalcAndSaveParent(oldParentId, all)); }
     });
     setBanner({ type: "success", message: `"${target.text}" outdented to ${newParent === 0 ? "root" : "parent"} level.` });
@@ -921,12 +923,15 @@ export default function GanttPlanner() {
     const finalStatus = form.status || autoStatus;
     let finalProgress = Math.min(100, Math.max(0, form.progress));
     if (form.actualEnd && finalProgress < 100) finalProgress = 100;
+    const allTasks = tasksQuery.data || [];
+    const wbsLevel = computeWbsLevel(editingId ?? 0, allTasks, form.parent || 0);
     const payload: any = {
       text: form.text.trim(), owner: form.owner || null,
       planned_start: form.plannedStart || null, planned_end: form.plannedEnd || null,
       start_date: form.actualStart || null, end_date: form.actualEnd || null,
       duration: form.duration || 1, progress: finalProgress, status: finalStatus,
-      remarks: form.remarks || null, type: form.type || "task", parent: form.parent || 0,
+      wbs_level: wbsLevel, parent: form.parent || 0,
+      remarks: form.remarks || null, type: form.type || "task",
     };
     if (editingId) payload.id = editingId;
     saveTaskMut.mutate(payload, {

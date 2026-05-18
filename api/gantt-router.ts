@@ -51,6 +51,7 @@ export const ganttRouter = createRouter({
         progress: z.number().default(0),
         parent: z.number().default(0),
         type: z.string().default("task"),
+        wbs_level: z.number().default(0),
         sortorder: z.number().default(0),
         owner: z.string().nullable().optional(),
         open: z.number().default(1),
@@ -72,6 +73,7 @@ export const ganttRouter = createRouter({
         progress: input.progress,
         parent: input.parent,
         type: input.type,
+        wbsLevel: input.wbs_level ?? 0,
         sortorder: input.sortorder,
         owner: input.owner,
         open: input.open,
@@ -91,7 +93,8 @@ export const ganttRouter = createRouter({
         }
       } catch (e: any) {
         /* Retry without optional columns that may not exist yet */
-        if (e.message && (e.message.includes("status") || e.message.includes("remarks"))) {
+        if (e.message && (e.message.includes("status") || e.message.includes("remarks") || e.message.includes("wbs_level"))) {
+          delete setData.wbsLevel;
           delete setData.status;
           delete setData.remarks;
           if (input.id) {
@@ -244,7 +247,8 @@ export const ganttRouter = createRouter({
       ADD COLUMN IF NOT EXISTS category VARCHAR(100),
       ADD COLUMN IF NOT EXISTS notes TEXT,
       ADD COLUMN IF NOT EXISTS status VARCHAR(50),
-      ADD COLUMN IF NOT EXISTS remarks TEXT
+      ADD COLUMN IF NOT EXISTS remarks TEXT,
+      ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0
     `));
 
     await db.execute(sql.raw(`
@@ -290,13 +294,13 @@ export const ganttRouter = createRouter({
 
     const now = new Date();
     const demoTasks = [
-      { text: "S/4HANA MM Integration", owner: "PMO", type: "project", parent: 0, progress: 15, duration: 180, plannedStart: fmt(now), plannedEnd: fmt(addDays(now,180)), actualStart: fmt(now), actualEnd: fmt(addDays(now,170)), status: "In Progress" },
-      { text: "Gap Analysis & Blueprint", owner: "Business Analyst", type: "task", parent: 1, progress: 80, duration: 30, plannedStart: fmt(now), plannedEnd: fmt(addDays(now,30)), actualStart: fmt(now), actualEnd: fmt(addDays(now,33)), status: "Completed" },
-      { text: "System Configuration", owner: "Basis Team", type: "task", parent: 1, progress: 40, duration: 45, plannedStart: fmt(addDays(now,35)), plannedEnd: fmt(addDays(now,80)), actualStart: fmt(addDays(now,35)), actualEnd: fmt(addDays(now,82)), status: "In Progress (Delayed)" },
-      { text: "Data Migration", owner: "Data Team", type: "task", parent: 1, progress: 10, duration: 60, plannedStart: fmt(addDays(now,75)), plannedEnd: fmt(addDays(now,135)), actualStart: fmt(addDays(now,83)), actualEnd: null, status: "In Progress" },
-      { text: "Unit Testing", owner: "QA Team", type: "task", parent: 1, progress: 0, duration: 30, plannedStart: fmt(addDays(now,120)), plannedEnd: fmt(addDays(now,150)), actualStart: null, actualEnd: null, status: "Not Started" },
-      { text: "UAT & Sign-off", owner: "Business Lead", type: "milestone", parent: 1, progress: 0, duration: 20, plannedStart: fmt(addDays(now,150)), plannedEnd: fmt(addDays(now,170)), actualStart: null, actualEnd: null, status: "Not Started" },
-      { text: "Go-Live Preparation", owner: "Cutover Team", type: "task", parent: 1, progress: 0, duration: 15, plannedStart: fmt(addDays(now,170)), plannedEnd: fmt(addDays(now,185)), actualStart: null, actualEnd: null, status: "Not Started" },
+      { text: "S/4HANA MM Integration", owner: "PMO", type: "project", parent: 0, wbsLevel: 1, progress: 15, duration: 180, plannedStart: fmt(now), plannedEnd: fmt(addDays(now,180)), actualStart: fmt(now), actualEnd: fmt(addDays(now,170)), status: "In Progress" },
+      { text: "Gap Analysis & Blueprint", owner: "Business Analyst", type: "task", parent: 1, wbsLevel: 2, progress: 80, duration: 30, plannedStart: fmt(now), plannedEnd: fmt(addDays(now,30)), actualStart: fmt(now), actualEnd: fmt(addDays(now,33)), status: "Completed" },
+      { text: "System Configuration", owner: "Basis Team", type: "task", parent: 1, wbsLevel: 2, progress: 40, duration: 45, plannedStart: fmt(addDays(now,35)), plannedEnd: fmt(addDays(now,80)), actualStart: fmt(addDays(now,35)), actualEnd: fmt(addDays(now,82)), status: "In Progress (Delayed)" },
+      { text: "Data Migration", owner: "Data Team", type: "task", parent: 1, wbsLevel: 2, progress: 10, duration: 60, plannedStart: fmt(addDays(now,75)), plannedEnd: fmt(addDays(now,135)), actualStart: fmt(addDays(now,83)), actualEnd: null, status: "In Progress" },
+      { text: "Unit Testing", owner: "QA Team", type: "task", parent: 1, wbsLevel: 2, progress: 0, duration: 30, plannedStart: fmt(addDays(now,120)), plannedEnd: fmt(addDays(now,150)), actualStart: null, actualEnd: null, status: "Not Started" },
+      { text: "UAT & Sign-off", owner: "Business Lead", type: "milestone", parent: 1, wbsLevel: 2, progress: 0, duration: 20, plannedStart: fmt(addDays(now,150)), plannedEnd: fmt(addDays(now,170)), actualStart: null, actualEnd: null, status: "Not Started" },
+      { text: "Go-Live Preparation", owner: "Cutover Team", type: "task", parent: 1, wbsLevel: 2, progress: 0, duration: 15, plannedStart: fmt(addDays(now,170)), plannedEnd: fmt(addDays(now,185)), actualStart: null, actualEnd: null, status: "Not Started" },
     ];
 
     for (const t of demoTasks) {
@@ -306,6 +310,7 @@ export const ganttRouter = createRouter({
         text: t.text, startDate: start, endDate: end ? end + " 08:00" : null,
         plannedStart: t.plannedStart, plannedEnd: t.plannedEnd,
         duration: t.duration, progress: t.progress, parent: t.parent, type: t.type,
+        wbsLevel: t.wbsLevel,
         owner: t.owner, status: t.status, sortorder: 0, open: 1,
       });
     }

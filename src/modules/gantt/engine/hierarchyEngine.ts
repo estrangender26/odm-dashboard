@@ -1,10 +1,27 @@
-/* ─── Gantt Hierarchy Engine — Indent / Outdent Calculations ─── */
+/* ─── Gantt Hierarchy Engine — Indent / Outdent / WBS Level ─── */
 
 export interface HierarchyResult {
   newParent: number;
   targetTask: any;
   aboveTask?: any;
   oldParentId?: number;
+}
+
+/* Compute WBS level from parent chain (1 = root, 2 = child, 3 = grandchild, ...) */
+export function computeWbsLevel(taskId: number, allTasks: any[], parentId?: number): number {
+  const effectiveParent = parentId !== undefined ? parentId : (allTasks.find((t: any) => t.id === taskId)?.parent ?? 0);
+  if (effectiveParent <= 0) return 1; // Root level
+  let level = 1;
+  let current = effectiveParent;
+  const visited = new Set<number>();
+  while (current > 0 && level < 20) {
+    if (visited.has(current)) break; // Cycle guard
+    visited.add(current);
+    level++;
+    const parent = allTasks.find((t: any) => t.id === current);
+    current = parent?.parent ?? 0;
+  }
+  return level;
 }
 
 /* Calculate indent: find the new parent for a task */
@@ -30,7 +47,8 @@ export function calcOutdent(taskId: number, allTasks: any[]): HierarchyResult | 
 }
 
 /* Build save payload for indent/outdent operation */
-export function buildHierarchyPayload(target: any, newParent: number): any {
+export function buildHierarchyPayload(target: any, newParent: number, allTasks?: any[]): any {
+  const wbsLevel = allTasks ? computeWbsLevel(target.id, allTasks, newParent) : (newParent > 0 ? 2 : 1);
   return {
     id: target.id,
     text: target.text,
@@ -41,6 +59,7 @@ export function buildHierarchyPayload(target: any, newParent: number): any {
     planned_end: target.plannedEnd || null,
     duration: target.duration || 1,
     progress: target.progress || 0,
+    wbs_level: wbsLevel,
     parent: newParent,
     type: target.type || "task",
     status: target.status || null,
