@@ -553,9 +553,9 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
   }, [projectStart, projectEnd, dayWidth, zoomLevel]);
 
   const chartWidth = totalDays * dayWidth;
-  const rowHeight = 42;
-  const headerHeight = zoomLevel === "day" ? 44 : 34;
-  const chartHeight = Math.max(300, rows.length * rowHeight + headerHeight + 12);
+  const rowHeight = 32;
+  const headerHeight = zoomLevel === "day" ? 36 : 28;
+  const chartHeight = Math.max(260, rows.length * rowHeight + headerHeight + 8);
 
   if (!tasks.length) {
     return (
@@ -570,7 +570,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
   return (
     <div>
       {/* Toolbar: Zoom controls */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", flexWrap: "wrap" }}>
         {/* Zoom out / in buttons */}
         <div style={{ display: "flex", alignItems: "center", gap: 2, background: "#E2E8F0", borderRadius: 6, padding: 2 }}>
           <button
@@ -631,7 +631,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
       </div>
 
       {/* Legend */}
-      <div className="gantt-chart-legend" style={{ display: "flex", gap: 16, padding: "8px 14px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", fontSize: 11, fontFamily: "Inter, sans-serif", flexWrap: "wrap" }}>
+      <div className="gantt-chart-legend" style={{ display: "flex", gap: 10, padding: "4px 10px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", fontSize: 10, fontFamily: "Inter, sans-serif", flexWrap: "wrap" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#93C5FD", borderRadius: 2, border: "1px solid #60A5FA" }} /><span className="gantt-chart-legend-label">Planned</span></span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#86EFAC", borderRadius: 2, border: "1px solid #4ADE80" }} /><span className="gantt-chart-legend-label">Actual (on time)</span></span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 18, height: 8, background: "#FCA5A5", borderRadius: 2, border: "1px solid #F87171" }} /><span className="gantt-chart-legend-label">Actual (delayed)</span></span>
@@ -1616,7 +1616,7 @@ const startEdit = (t: any) => {
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
       {/* Header */}
-      <header className="gantt-header" style={{ background: "#16324F", padding: "12px 24px", position: "sticky", top: 0, zIndex: 100 }}>
+      <header className="gantt-header" style={{ background: "#16324F", padding: "8px 16px", position: "sticky", top: 0, zIndex: 100 }}>
         <Link to="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none", flexShrink: 0 }}>
           <ProgramsEngineeringLogo size={48} borderRadius={8} />
           <div>
@@ -1682,7 +1682,7 @@ const startEdit = (t: any) => {
       {banner && <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
 
       {/* KPI Cards */}
-      <div className="gantt-page-wrap" style={{ padding: "16px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+      <div className="gantt-page-wrap" style={{ padding: "8px 16px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         <div className="gantt-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "12px" }}>
           <KpiCard label="Total Tasks" value={kpi.totalTasks} icon="📋" color="#005BAC" />
           <KpiCard label="Completed" value={kpi.completed} icon="✅" color="#1F9D55" />
@@ -1694,10 +1694,10 @@ const startEdit = (t: any) => {
       </div>
 
       {/* Tab Bar */}
-      <div className="gantt-page-wrap" style={{ padding: "16px 24px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+      <div className="gantt-page-wrap" style={{ padding: "8px 16px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         <div style={{ display: "flex", gap: "2px", background: "#E2E8F0", padding: "4px", borderRadius: "8px" }}>
           {(["gantt", "tasks", "resources"] as const).map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className="gantt-tab-btn" style={{ flex: 1, padding: "8px 16px", border: "none", borderRadius: "6px", fontSize: 12, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer", transition: "all .2s", background: activeTab === tab ? "#005BAC" : "transparent", color: activeTab === tab ? "#fff" : "#5A6B7D", boxShadow: activeTab === tab ? "0 1px 3px rgba(0,0,0,.1)" : "none" }}>
+            <button key={tab} onClick={() => setActiveTab(tab)} className="gantt-tab-btn" style={{ flex: 1, padding: "5px 10px", border: "none", borderRadius: "5px", fontSize: 11, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer", transition: "all .2s", background: activeTab === tab ? "#005BAC" : "transparent", color: activeTab === tab ? "#fff" : "#5A6B7D", boxShadow: activeTab === tab ? "0 1px 3px rgba(0,0,0,.1)" : "none" }}>
               <span className="tab-emoji">{tab === "gantt" ? "📅" : tab === "tasks" ? "📝" : "👥"}</span>{" "}
               <span className="tab-label">{tab === "gantt" ? "Gantt Chart" : tab === "tasks" ? "Task List" : "Resources"}</span>
             </button>
@@ -2033,7 +2033,7 @@ const startEdit = (t: any) => {
 
       {/* Styles */}
       <style>{`
-        .gantt-action-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600; font-family: Inter, sans-serif; border: none; border-radius: 6px; cursor: pointer; transition: all .15s; white-space: nowrap; color: #fff; }
+        .gantt-action-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; font-size: 11px; font-weight: 600; font-family: Inter, sans-serif; border: none; border-radius: 5px; cursor: pointer; transition: all .15s; white-space: nowrap; color: #fff; }
         .export-btn { background: #1F9D55; } .export-btn:hover { background: #15803D; }
         .import-btn { background: #005BAC; } .import-btn:hover { background: #004D99; }
         .reset-btn { background: #DC2626; } .reset-btn:hover { background: #B91C1C; }
@@ -2148,7 +2148,7 @@ function TaskListTab({ tasks, deleteTask, setBanner, onEditTask, onAddTask }: { 
   const statusColors: Record<string, string> = { "Completed": "#22C55E", "In Progress": "#3B82F6", "In Progress (Delayed)": "#EF4444", "Not Started": "#9CA3AF", "Delayed": "#F59E0B" };
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <button onClick={onAddTask} style={{ padding: "8px 14px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -2223,7 +2223,7 @@ function ResourcesTab({ tasks }: { tasks: any[] }) {
       {owners.length === 0 && <p style={{ color: "#8BA3B8", fontSize: 12 }}>No resource assignments yet.</p>}
       <div style={{ display: "grid", gap: "10px" }}>
         {owners.map((o) => (
-          <div key={o.owner} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px", background: "#FAFBFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+          <div key={o.owner} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", background: "#FAFBFC", borderRadius: 6, border: "1px solid #E2E8F0" }}>
             <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#005BAC15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#005BAC" }}>{o.owner.charAt(0).toUpperCase()}</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#2D3748" }}>{o.owner}</div>
