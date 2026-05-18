@@ -36,7 +36,7 @@ export function calculateParentFromChildren(parent: any, allTasks: any[]): Paren
     };
   }
 
-  // Collect all child dates
+  /* Collect child dates */
   const plannedStarts: Date[] = [];
   const plannedEnds: Date[] = [];
   const actualStarts: Date[] = [];
@@ -47,6 +47,7 @@ export function calculateParentFromChildren(parent: any, allTasks: any[]): Paren
   let inProgressCount = 0;
   let delayedCount = 0;
   let notStartedCount = 0;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
 
   for (const child of children) {
     const ps = parseDate(child.plannedStart);
@@ -71,19 +72,36 @@ export function calculateParentFromChildren(parent: any, allTasks: any[]): Paren
     else notStartedCount++;
   }
 
-  // Calculate dates
+  /* ── PLANNED dates (from all children) ── */
   const minPlannedStart = plannedStarts.length > 0
-    ? new Date(Math.min(...plannedStarts.map(d => d.getTime())))
-    : null;
+    ? new Date(Math.min(...plannedStarts.map(d => d.getTime()))) : null;
   const maxPlannedEnd = plannedEnds.length > 0
-    ? new Date(Math.max(...plannedEnds.map(d => d.getTime())))
-    : null;
-  const minActualStart = actualStarts.length > 0
-    ? new Date(Math.min(...actualStarts.map(d => d.getTime())))
-    : null;
-  const maxActualEnd = actualEnds.length > 0
-    ? new Date(Math.max(...actualEnds.map(d => d.getTime())))
-    : null;
+    ? new Date(Math.max(...plannedEnds.map(d => d.getTime()))) : null;
+
+  /* ── ACTUAL dates (from child actuals ONLY — no fallback to planned) ── */
+  let minActualStart: Date | null = actualStarts.length > 0
+    ? new Date(Math.min(...actualStarts.map(d => d.getTime()))) : null;
+  let maxActualEnd: Date | null = null;
+
+  if (actualEnds.length > 0) {
+    /* Some children have actual finish — use latest */
+    maxActualEnd = new Date(Math.max(...actualEnds.map(d => d.getTime())));
+  } else if (actualStarts.length > 0 && inProgressCount > 0) {
+    /* No child has actual finish, but some are in progress —
+       extend actual to "current progress point" = today or latest child's progress endpoint */
+    let latestProgressEnd = today;
+    for (const child of children) {
+      const as = parseDate(child.startDate);
+      if (!as) continue;
+      const dur = child.duration || 1;
+      const prog = normProgress(child.progress);
+      /* Progress endpoint = actual start + (duration * progress%) */
+      const progressMs = as.getTime() + (dur * prog / 100) * 86400000;
+      if (progressMs > latestProgressEnd.getTime()) latestProgressEnd = new Date(progressMs);
+    }
+    maxActualEnd = latestProgressEnd;
+  }
+  /* If no child has actual start → minActualStart stays null → no actual bar rendered */
 
   const fmt = (d: Date | null): string => {
     if (!d) return "";
@@ -92,8 +110,9 @@ export function calculateParentFromChildren(parent: any, allTasks: any[]): Paren
 
   const plannedStartStr = fmt(minPlannedStart);
   const plannedEndStr = fmt(maxPlannedEnd);
-  const startDateStr = fmt(minActualStart) || plannedStartStr;
-  const endDateStr = fmt(maxActualEnd) || plannedEndStr;
+  /* Actual dates: ONLY from child actuals — NO fallback to planned */
+  const startDateStr = fmt(minActualStart);
+  const endDateStr = fmt(maxActualEnd);
 
   const duration = (minPlannedStart && maxPlannedEnd)
     ? Math.max(1, daysBetween(minPlannedStart, maxPlannedEnd))
@@ -101,7 +120,7 @@ export function calculateParentFromChildren(parent: any, allTasks: any[]): Paren
 
   const progress = totalDuration > 0 ? Math.round(weightedProgress / totalDuration) : 0;
 
-  // Derive status from children
+  /* Derive status from children */
   let status: string;
   if (completedCount === children.length) status = "Completed";
   else if (delayedCount > 0) status = "Delayed";

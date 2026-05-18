@@ -525,25 +525,66 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                       <div style={{ width: 12, height: 12, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
                     </div>
                   ) : _isParent ? (
-                    /* PARENT BAR — thin navy line with bracket ends (MS Project / Primavera style) */
+                    /* PARENT BAR — Planned bracket (navy) + Actual execution (green) + Variance (red tail) */
                     <>
+                      {/* ── PLANNED summary bracket ── */}
                       {plannedLeft !== null && plannedWidth !== null && (
                         <div
-                          style={{ position: "absolute", left: plannedLeft, top: rowHeight / 2 - 1.5, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out", cursor: "pointer" }}
+                          style={{ position: "absolute", left: plannedLeft, top: rowHeight / 2 - 3, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out", cursor: "pointer" }}
                           onMouseEnter={e => showTooltip(task, e)} onMouseLeave={hideTooltip} onTouchStart={e => showTooltip(task, e as any)}
                         >
-                          {/* Thin horizontal summary line */}
                           <div style={{ position: "relative", width: Math.max(plannedWidth, 4), height: 3, background: "#1E3A8F" }}>
-                            {/* Left bracket: downward triangle */}
+                            {/* Left bracket triangle */}
                             <svg width="7" height="7" viewBox="0 0 7 7" style={{ position: "absolute", left: -3, top: -2 }}>
                               <polygon points="0,0 6,0 3,6" fill="#1E3A8F" />
                             </svg>
-                            {/* Right bracket: downward triangle */}
+                            {/* Right bracket triangle */}
                             <svg width="7" height="7" viewBox="0 0 7 7" style={{ position: "absolute", right: -3, top: -2 }}>
                               <polygon points="0,0 6,0 3,6" fill="#1E3A8F" />
                             </svg>
                           </div>
                         </div>
+                      )}
+                      {/* ── ACTUAL execution bar (below planned bracket) ── */}
+                      {actualLeft !== null && actualWidth !== null && actualWidth > 0 && (
+                        <>
+                          <div
+                            style={{ position: "absolute", left: actualLeft, top: rowHeight / 2 + 3, zIndex: 3, transition: "left 0.25s ease-out, width 0.25s ease-out", cursor: "pointer" }}
+                            onMouseEnter={e => showTooltip(task, e)} onMouseLeave={hideTooltip} onTouchStart={e => showTooltip(task, e as any)}
+                          >
+                            {/* Green actual execution line */}
+                            <div style={{ position: "relative", width: Math.max(actualWidth, 2), height: 3, background: "#15803D" }}>
+                              {/* Actual start marker */}
+                              <svg width="5" height="5" viewBox="0 0 5 5" style={{ position: "absolute", left: -2, top: -1 }}>
+                                <polygon points="0,0 4,0 2,4" fill="#15803D" />
+                              </svg>
+                              {/* Actual end marker */}
+                              <svg width="5" height="5" viewBox="0 0 5 5" style={{ position: "absolute", right: -2, top: -1 }}>
+                                <polygon points="0,0 4,0 2,4" fill="#15803D" />
+                              </svg>
+                              {/* Progress % label (compact, only if bar is wide enough) */}
+                              {actualWidth > 50 && (
+                                <span style={{ position: "absolute", left: "50%", top: -10, transform: "translateX(-50%)", fontSize: 7, fontWeight: 700, color: "#15803D", whiteSpace: "nowrap", background: "rgba(255,255,255,0.85)", padding: "0 2px", borderRadius: 2, lineHeight: 1.2 }}>
+                                  {normProgress(task.progress)}%
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {/* ── VARIANCE: subtle red tail when actual exceeds planned ── */}
+                          {(() => {
+                            const pEndPx = plannedLeft !== null && plannedWidth !== null ? plannedLeft + plannedWidth : 0;
+                            const aEndPx = actualLeft! + actualWidth!;
+                            if (aEndPx > pEndPx + 2) {
+                              return (
+                                <div
+                                  style={{ position: "absolute", left: pEndPx, top: rowHeight / 2 + 3, width: aEndPx - pEndPx, height: 3, zIndex: 4, background: "repeating-linear-gradient(90deg, #DC2626 0px, #DC2626 3px, transparent 3px, transparent 6px)", opacity: 0.6 }}
+                                  title="Actual exceeds planned"
+                                />
+                              );
+                            }
+                            return null;
+                          })()}
+                        </>
                       )}
                     </>
                   ) : (
