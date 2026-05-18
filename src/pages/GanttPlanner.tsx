@@ -98,16 +98,33 @@ const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
    MODULE-LEVEL PURE HELPERS (no hooks, no React dependencies)
    ═══════════════════════════════════════════════════════════════════ */
 
-function taskToForm(t: any, links?: any[]): TaskForm {
+function taskToForm(t: any, links?: any[], allTasks?: any[]): TaskForm {
   const existingDep = links?.find((l: any) => l.target === t.id || l.successorTaskId === t.id);
   const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
   /* UID-based identity: prefer frontend UIDs, fall back to DB ID */
   const uid = t.frontendTaskUid || t.frontend_task_uid || "";
-  const parentUid = t.parentFrontendUid || t.parent_frontend_uid || "";
-  const predUid = t.predecessorFrontendUid || t.predecessor_frontend_uid || "";
+  let parentUid = t.parentFrontendUid || t.parent_frontend_uid || "";
+  let predUid = t.predecessorFrontendUid || t.predecessor_frontend_uid || "";
   const rowPred = t.predecessorTaskId || t.predecessor_task_id || 0;
   const rowType = t.dependencyType || t.dependency_type || "FS";
   const rowLag = t.lagDays || t.lag_days || 0;
+
+  /* Resolve parent ID → UID if UID missing but parent set */
+  if (!parentUid && t.parent && allTasks) {
+    const parentTask = allTasks.find((pt: any) => pt.id === t.parent);
+    if (parentTask) parentUid = parentTask.frontendTaskUid || parentTask.frontend_task_uid || "";
+  }
+  /* Resolve predecessor ID → UID if UID missing but predecessor set */
+  if (!predUid && rowPred && allTasks) {
+    const predTask = allTasks.find((pt: any) => pt.id === rowPred);
+    if (predTask) predUid = predTask.frontendTaskUid || predTask.frontend_task_uid || "";
+  }
+  /* Also resolve from existingDep (dependency table) if still missing */
+  if (!predUid && existingDep && allTasks) {
+    const predTask = allTasks.find((pt: any) => pt.id === existingDep.source || pt.id === existingDep.predecessorTaskId);
+    if (predTask) predUid = predTask.frontendTaskUid || predTask.frontend_task_uid || "";
+  }
+
   return {
     text: t.text || "", owner: t.owner || "",
     plannedStart: t.plannedStart ? String(t.plannedStart).slice(0, 10) : "",
@@ -1154,11 +1171,12 @@ export default function GanttPlanner() {
     const freshTask = taskList.find((ft: any) => ft.id === t.id) || t;
     /* Refetch links to get latest dependency data */
     const freshLinks = await refetchLinks();
-    const newForm = taskToForm(freshTask, freshLinks.data || []);
+    const newForm = taskToForm(freshTask, freshLinks.data || [], taskList);
     /* Validate predecessor ID exists in current task list — clear if stale/deleted */
     if (newForm.predecessorId && !taskList.some((tl: any) => tl.id === newForm.predecessorId)) {
       console.log("[startEdit] clearing stale predecessorId=", newForm.predecessorId);
       newForm.predecessorId = 0;
+      newForm.predecessorFrontendUid = "";
       newForm.depType = "FS";
       newForm.lagDays = 0;
     }
@@ -1196,8 +1214,18 @@ export default function GanttPlanner() {
     const _editingId     = editingId;
     /* UID-based identity — stable across saves */
     const _taskUid       = form.frontendTaskUid || generateUid();
-    const _parentUid     = form.parentFrontendUid || "";
-    const _predUid       = form.predecessorFrontendUid || "";
+    let _parentUid       = form.parentFrontendUid || "";
+    let _predUid         = form.predecessorFrontendUid || "";
+
+    /* Fallback: resolve UID from DB ID if UID missing (e.g. task from before UID migration) */
+    if (!_parentUid && _parent && taskList) {
+      const pTask = taskList.find((t: any) => t.id === _parent);
+      if (pTask) _parentUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
+    }
+    if (!_predUid && _predecessorId && taskList) {
+      const pTask = taskList.find((t: any) => t.id === _predecessorId);
+      if (pTask) _predUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
+    }
 
     const autoStatus = deriveStatus({
       startDate: _actualStart || undefined, endDate: _actualEnd || undefined,
@@ -1239,46 +1267,64 @@ export default function GanttPlanner() {
       const freshLinkArr = freshLinks.data || [];
       setTaskList(freshTaskArr);
 
-      /* ── PHASE 3: Resolve predecessor UID → DB ID, then save dependency ── */
-      if (_predUid && _predUid !== _taskUid) {
-        /* Find predecessor by UID in fresh data */
-        const predTask = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _predUid);
-        const succTask = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _taskUid);
+      /* ── PHASE 3: Save dependency ── */
+      if ((_predUid || _predecessorId) && _predecessorId !== savedTaskId) {
+        const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
+        const typeCode = typeMap[_depType] || "0";
 
-        if (predTask && succTask) {
+        /* Delete existing dependency for this successor */
+        const succForDelete = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _taskUid) || freshTaskArr.find((t: any) => t.id === savedTaskId);
+        if (succForDelete) {
+          const existing = freshLinkArr.find((l: any) => l.target === succForDelete.id || l.successorTaskId === succForDelete.id);
+          if (existing) {
+            try { await deleteLinkMut.mutateAsync({ id: existing.id }); } catch { /* ignore */ }
+          }
+        }
+
+        /* Try UID-based save first, fall back to DB-ID-based save */
+        if (_predUid && _predUid !== _taskUid) {
           try {
-            const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
-            const typeCode = typeMap[_depType] || "0";
-
-            /* Delete existing dependency for this successor (by DB ID) */
-            const existing = freshLinkArr.find((l: any) => l.target === succTask.id || l.successorTaskId === succTask.id);
-            if (existing) {
-              try { await deleteLinkMut.mutateAsync({ id: existing.id }); } catch { /* ignore */ }
-            }
-
-            /* Use saveLinkByUid — backend resolves UIDs to DB IDs safely */
             await saveLinkByUidMut.mutateAsync({
-              sourceUid: _predUid,
-              targetUid: _taskUid,
-              type: typeCode,
-              lag: _lagDays,
+              sourceUid: _predUid, targetUid: _taskUid,
+              type: typeCode, lag: _lagDays,
               projectId: currentProjectId ?? undefined,
             });
             console.log("[save] dependency saved by UID:", _predUid, "→", _taskUid);
           } catch (depErr: any) {
-            depSaveError = depErr.message || "Dependency save failed";
-            console.error("[save] Dependency save failed (non-blocking):", depSaveError);
+            /* UID save failed — try DB-ID fallback */
+            console.warn("[save] UID dep save failed, trying DB-ID fallback:", depErr.message);
+            try {
+              await saveLinkMut.mutateAsync({
+                source: _predecessorId, target: savedTaskId,
+                type: typeCode, lag: _lagDays,
+                projectId: currentProjectId ?? undefined,
+              });
+              console.log("[save] dependency saved by DB ID (fallback):", _predecessorId, "→", savedTaskId);
+            } catch (fallbackErr: any) {
+              depSaveError = fallbackErr.message || "Dependency save failed";
+              console.error("[save] DB-ID fallback also failed:", depSaveError);
+            }
           }
-        } else {
-          depSaveError = `Cannot save dependency — predecessor or successor task not found by UID`;
-          console.warn("[save]", depSaveError, { predFound: !!predTask, succFound: !!succTask });
+        } else if (_predecessorId && savedTaskId) {
+          /* No UID — use DB-ID-based save directly */
+          try {
+            await saveLinkMut.mutateAsync({
+              source: _predecessorId, target: savedTaskId,
+              type: typeCode, lag: _lagDays,
+              projectId: currentProjectId ?? undefined,
+            });
+            console.log("[save] dependency saved by DB ID:", _predecessorId, "→", savedTaskId);
+          } catch (depErr: any) {
+            depSaveError = depErr.message || "Dependency save failed";
+            console.error("[save] DB-ID dep save failed (non-blocking):", depSaveError);
+          }
         }
       }
 
       /* ── PHASE 4: Rebuild form from fresh data ── */
       const savedTask = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _taskUid);
       if (savedTask) {
-        const newForm = taskToForm(savedTask, freshLinkArr);
+        const newForm = taskToForm(savedTask, freshLinkArr, freshTaskArr);
         setEditingId(savedTask.id);
         setForm(newForm);
         setShowAdd(false);
@@ -1296,7 +1342,7 @@ export default function GanttPlanner() {
     } finally {
       setIsSaving(false);
     }
-  }, [form, editingId, saveTaskMut, saveLinkByUidMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, recalcAndSaveParent, currentProjectId, refetchTasks, refetchLinks]);
+  }, [form, editingId, saveTaskMut, saveLinkByUidMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, taskList, recalcAndSaveParent, currentProjectId, refetchTasks, refetchLinks]);
 
   const handleImportExcel = (file: File) => {
     const reader = new FileReader();
@@ -1521,7 +1567,11 @@ export default function GanttPlanner() {
 
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Status</label><select value={form.status} onChange={e => setForm({...form, status: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">Auto</option><option>Not Started</option><option>In Progress</option><option>In Progress (Delayed)</option><option>Completed</option></select></div>
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="task">Task</option><option value="milestone">Milestone</option><option value="project">Project</option></select></div>
-                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Parent</label><select value={form.parent||""} onChange={e => setForm({...form, parent: e.target.value?parseInt(e.target.value):0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(taskList||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Parent</label><select value={form.parent||""} onChange={e => {
+  const pid = e.target.value ? parseInt(e.target.value) : 0;
+  const pTask = pid ? (taskList||[]).find((t:any)=>t.id===pid) : null;
+  setForm({...form, parent: pid, parentFrontendUid: pTask ? (pTask.frontendTaskUid||pTask.frontend_task_uid||"") : ""});
+}} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(taskList||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Remarks</label><input value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Notes..." /></div>
               </div>
 
@@ -1531,7 +1581,11 @@ export default function GanttPlanner() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px 12px" }}>
                   <div>
                     <label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Predecessor Task</label>
-                    <select value={form.predecessorId || ""} onChange={e => setForm({...form, predecessorId: e.target.value ? parseInt(e.target.value) : 0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
+                    <select value={form.predecessorId || ""} onChange={e => {
+                      const pid = e.target.value ? parseInt(e.target.value) : 0;
+                      const pTask = pid ? (taskList || []).find((t: any) => t.id === pid) : null;
+                      setForm({...form, predecessorId: pid, predecessorFrontendUid: pTask ? (pTask.frontendTaskUid || pTask.frontend_task_uid || "") : ""});
+                    }} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
                       <option value="">(None)</option>
                       {(taskList || []).filter((t: any) => t.id !== editingId).map((t: any) => <option key={t.id} value={t.id}>{t.text}</option>)}
                     </select>
