@@ -64,6 +64,89 @@ interface TaskForm {
   lagDays: number;
 }
 
+/* ═══════════════════════════════════════════
+   EXPLICIT DB ↔ FORM MAPPING FUNCTIONS
+   These isolate all field name translation
+   in one place for easy maintenance.
+   ═══════════════════════════════════════════ */
+
+function mapDbRowToForm(t: any, links?: any[], allTasks?: any[]): TaskForm {
+  const existingDep = links?.find((l: any) => l.target === t.id || l.successorTaskId === t.id);
+  const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+
+  /* DB columns (new) with fallback to backward-compatible aliases */
+  const uid = t.frontendTaskUid || t.frontend_task_uid || "";
+  let parentUid = t.parentFrontendUid || t.parent_frontend_uid || "";
+  let predUid = t.predecessorFrontendUid || t.predecessor_frontend_uid || "";
+  const rowPred = t.predecessorTaskId ?? t.predecessor_task_id ?? 0;
+  const rowType = t.dependencyType ?? t.dependency_type ?? "FS";
+  const rowLag = t.lagDays ?? t.lag_days ?? 0;
+
+  /* Resolve missing UIDs from allTasks lookup */
+  if (!parentUid && (t.parentTaskId ?? t.parent) && allTasks) {
+    const pTask = allTasks.find((pt: any) => pt.id === (t.parentTaskId ?? t.parent));
+    if (pTask) parentUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
+  }
+  if (!predUid && rowPred && allTasks) {
+    const pTask = allTasks.find((pt: any) => pt.id === rowPred);
+    if (pTask) predUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
+  }
+  if (!predUid && existingDep && allTasks) {
+    const pTask = allTasks.find((pt: any) => pt.id === (existingDep.source ?? existingDep.predecessorTaskId));
+    if (pTask) predUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
+  }
+
+  return {
+    text: t.taskName ?? t.text ?? "",
+    owner: t.owner ?? "",
+    plannedStart: (t.plannedStart ?? "").toString().slice(0, 10),
+    plannedEnd: (t.plannedFinish ?? t.plannedEnd ?? "").toString().slice(0, 10),
+    actualStart: (t.actualStart ?? t.startDate ?? "").toString().slice(0, 10),
+    actualEnd: (t.actualFinish ?? t.endDate ?? "").toString().slice(0, 10),
+    duration: t.plannedDuration ?? t.duration ?? 1,
+    progress: normProgress(t.progressPercent ?? t.progress),
+    status: rowStatus(t),
+    remarks: t.remarks ?? "",
+    type: t.taskType ?? t.type ?? "task",
+    parent: t.parentTaskId ?? t.parent ?? 0,
+    frontendTaskUid: uid || generateUid(),
+    parentFrontendUid: parentUid,
+    predecessorFrontendUid: predUid,
+    predecessorId: rowPred || existingDep?.source || existingDep?.predecessorTaskId || 0,
+    depType: typeMap[existingDep?.type] || rowType,
+    lagDays: rowLag || existingDep?.lag || 0,
+  };
+}
+
+function mapFormToPayload(form: TaskForm, editingId: number | null): Record<string, any> {
+  /* Convert TaskForm → backend payload (uses new DB field names) */
+  return {
+    id: editingId ?? undefined,
+    frontend_task_uid: form.frontendTaskUid || generateUid(),
+    task_name: form.text.trim(),
+    parent_task_id: form.parent || 0,
+    predecessor_task_id: form.predecessorId || null,
+    dependency_type: form.depType || null,
+    lag_days: form.lagDays || 0,
+    wbs_level: 0, /* computed server-side or by caller */
+    sort_order: 0, /* computed server-side or by caller */
+    planned_start: form.plannedStart || null,
+    planned_finish: form.plannedEnd || null,
+    planned_duration: form.duration || 1,
+    actual_start: form.actualStart || null,
+    actual_finish: form.actualEnd || null,
+    actual_duration: form.duration || 1,
+    progress_percent: Math.min(100, Math.max(0, form.progress)),
+    status: form.status || null,
+    owner: form.owner || null,
+    category: null,
+    notes: form.remarks || null,
+    remarks: form.remarks || null,
+    task_type: form.type || "task",
+    is_milestone: form.type === "milestone" ? 1 : 0,
+  };
+}
+
 interface KpiData {
   totalTasks: number; completed: number; inProgress: number;
   overdue: number; completionRate: number; avgDuration: number;
@@ -97,51 +180,6 @@ const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 /* ═══════════════════════════════════════════════════════════════════
    MODULE-LEVEL PURE HELPERS (no hooks, no React dependencies)
    ═══════════════════════════════════════════════════════════════════ */
-
-function taskToForm(t: any, links?: any[], allTasks?: any[]): TaskForm {
-  const existingDep = links?.find((l: any) => l.target === t.id || l.successorTaskId === t.id);
-  const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
-  /* UID-based identity: prefer frontend UIDs, fall back to DB ID */
-  const uid = t.frontendTaskUid || t.frontend_task_uid || "";
-  let parentUid = t.parentFrontendUid || t.parent_frontend_uid || "";
-  let predUid = t.predecessorFrontendUid || t.predecessor_frontend_uid || "";
-  const rowPred = t.predecessorTaskId || t.predecessor_task_id || 0;
-  const rowType = t.dependencyType || t.dependency_type || "FS";
-  const rowLag = t.lagDays || t.lag_days || 0;
-
-  /* Resolve parent ID → UID if UID missing but parent set */
-  if (!parentUid && t.parent && allTasks) {
-    const parentTask = allTasks.find((pt: any) => pt.id === t.parent);
-    if (parentTask) parentUid = parentTask.frontendTaskUid || parentTask.frontend_task_uid || "";
-  }
-  /* Resolve predecessor ID → UID if UID missing but predecessor set */
-  if (!predUid && rowPred && allTasks) {
-    const predTask = allTasks.find((pt: any) => pt.id === rowPred);
-    if (predTask) predUid = predTask.frontendTaskUid || predTask.frontend_task_uid || "";
-  }
-  /* Also resolve from existingDep (dependency table) if still missing */
-  if (!predUid && existingDep && allTasks) {
-    const predTask = allTasks.find((pt: any) => pt.id === existingDep.source || pt.id === existingDep.predecessorTaskId);
-    if (predTask) predUid = predTask.frontendTaskUid || predTask.frontend_task_uid || "";
-  }
-
-  return {
-    text: t.text || "", owner: t.owner || "",
-    plannedStart: t.plannedStart ? String(t.plannedStart).slice(0, 10) : "",
-    plannedEnd: t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "",
-    actualStart: t.startDate ? String(t.startDate).slice(0, 10) : "",
-    actualEnd: t.endDate ? String(t.endDate).slice(0, 10) : "",
-    duration: t.duration || 1, progress: normProgress(t.progress),
-    status: rowStatus(t), remarks: t.remarks || "",
-    type: t.type || "task", parent: t.parent || 0,
-    frontendTaskUid: uid || generateUid(),
-    parentFrontendUid: parentUid || "",
-    predecessorFrontendUid: predUid || "",
-    predecessorId: rowPred || existingDep?.source || existingDep?.predecessorTaskId || 0,
-    depType: typeMap[existingDep?.type] || rowType,
-    lagDays: rowLag || existingDep?.lag || existingDep?.lagDays || 0,
-  };
-}
 
 function depTypeName(type: string): string { return DEP_TYPE_MAP[type] || type; }
 
@@ -822,7 +860,7 @@ export default function GanttPlanner() {
     onSuccess: () => utils.gantt.tasks.invalidate(),
     onError: (e: any) => console.error("[reorderTasks] FAILED:", e.message),
   });
-  const resetMut = trpc.gantt.resetAll.useMutation({
+  const resetMut = trpc.gantt.resetGantt.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
   const migrateMut = trpc.gantt.migrate.useMutation({
@@ -1185,7 +1223,7 @@ export default function GanttPlanner() {
     const freshTask = taskList.find((ft: any) => ft.id === t.id) || t;
     /* Refetch links to get latest dependency data */
     const freshLinks = await refetchLinks();
-    const newForm = taskToForm(freshTask, freshLinks.data || [], taskList);
+    const newForm = mapDbRowToForm(freshTask, freshLinks.data || [], taskList);
     /* Validate predecessor ID exists in current task list — clear if stale/deleted */
     if (newForm.predecessorId && !taskList.some((tl: any) => tl.id === newForm.predecessorId)) {
       console.log("[startEdit] clearing stale predecessorId=", newForm.predecessorId);
@@ -1209,7 +1247,7 @@ export default function GanttPlanner() {
   const normalizeSortOrder = useCallback(async (tasks: any[]) => {
     /* Sort by current sortorder, then assign sequential integers */
     const sorted = [...tasks].sort((a, b) => (a.sortorder ?? a.id) - (b.sortorder ?? b.id));
-    const reorders = sorted.map((t, i) => ({ id: t.id, sortorder: (i + 1) * 10 }));
+    const reorders = sorted.map((t, i) => ({ id: t.id, sort_order: (i + 1) * 10 }));
     if (reorders.length > 0) {
       try { await reorderTasksMut.mutateAsync(reorders); } catch { /* non-critical */ }
     }
@@ -1360,22 +1398,17 @@ export default function GanttPlanner() {
     const allTasks = tasksQuery.data || [];
     const wbsLevel = computeWbsLevel(_editingId ?? 0, allTasks, _parent);
 
-    /* ── PHASE 1: Save task with UID fields ── */
-    const payload: any = {
-      frontend_task_uid: _taskUid,
-      text: _text, owner: _owner || null,
-      planned_start: _plannedStart || null, planned_end: _plannedEnd || null,
-      start_date: _actualStart || null, end_date: _actualEnd || null,
-      duration: _duration || 1, progress: finalProgress, status: finalStatus,
-      wbs_level: wbsLevel, parent: _parent,
-      parent_frontend_uid: _parentUid || null,
-      predecessor_task_id: _predecessorId || null,
-      predecessor_frontend_uid: _predUid || null,
-      dependency_type: _depType || null,
-      lag_days: _lagDays,
-      remarks: _remarks || null, type: _type || "task",
-    };
-    if (_editingId) payload.id = _editingId;
+    /* ── PHASE 1: Save task with clean payload ── */
+    const payload: any = mapFormToPayload(form, _editingId);
+    /* Override with computed values */
+    payload.frontend_task_uid = _taskUid;
+    payload.status = finalStatus;
+    payload.progress_percent = finalProgress;
+    payload.wbs_level = wbsLevel;
+    payload.parent_task_id = _parent;
+    payload.predecessor_task_id = _predecessorId || null;
+    payload.dependency_type = _depType || null;
+    payload.lag_days = _lagDays;
 
     let depSaveError: string | null = null;
     try {
@@ -1446,7 +1479,7 @@ export default function GanttPlanner() {
       /* ── PHASE 4: Rebuild form from fresh data ── */
       const savedTask = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _taskUid);
       if (savedTask) {
-        const newForm = taskToForm(savedTask, freshLinkArr, freshTaskArr);
+        const newForm = mapDbRowToForm(savedTask, freshLinkArr, freshTaskArr);
         setEditingId(savedTask.id);
         setForm(newForm);
         setShowAdd(false);
