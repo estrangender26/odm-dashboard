@@ -1238,60 +1238,65 @@ export default function GanttPlanner() {
         {activeTab === "tasks" && <TaskListTab tasks={taskList} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} />}
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
 
-        {/* Task Edit/Add Form */}
+        {/* Task Edit/Add Modal */}
         {(showAdd || editingId) && (
-          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #D6DFE8", boxShadow: "0 4px 16px rgba(0,0,0,.12)", padding: "12px 16px", margin: "8px 0", fontFamily: "Inter, sans-serif" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#16324F" }}>{editingId ? "Edit Task" : "Add New Task"}</h4>
-              <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ background: "none", border: "none", fontSize: 16, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px 10px" }}>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Task Name *</label><input value={form.text} onChange={e => setForm({...form, text: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Enter task name" /></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Owner</label><input value={form.owner} onChange={e => setForm({...form, owner: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Assignee" /></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Planned Start</label><input type="date" value={form.plannedStart} onChange={e => setForm({...form, plannedStart: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Planned End</label><input type="date" value={form.plannedEnd} onChange={e => setForm({...form, plannedEnd: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Actual Start</label><input type="date" value={form.actualStart} onChange={e => setForm({...form, actualStart: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Actual End</label><input type="date" value={form.actualEnd} onChange={e => setForm({...form, actualEnd: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Duration</label><input type="number" min={1} value={form.duration} onChange={e => setForm({...form, duration: parseInt(e.target.value)||1})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Progress %</label><input type="number" min={0} max={100} value={form.progress} onChange={e => setForm({...form, progress: parseInt(e.target.value)||0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Status</label><select value={form.status} onChange={e => setForm({...form, status: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">Auto</option><option>Not Started</option><option>In Progress</option><option>In Progress (Delayed)</option><option>Completed</option></select></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="task">Task</option><option value="milestone">Milestone</option><option value="project">Project</option></select></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Parent</label><select value={form.parent||""} onChange={e => setForm({...form, parent: e.target.value?parseInt(e.target.value):0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(taskList||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Remarks</label><input value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Notes..." /></div>
-            </div>
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: "Inter, sans-serif" }}
+            onClick={(e) => { if (e.target === e.currentTarget) { setEditingId(null); setShowAdd(false); } }}
+          >
+            <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #D6DFE8", boxShadow: "0 20px 60px rgba(0,0,0,.25)", width: "100%", maxWidth: 720, maxHeight: "90vh", overflow: "auto", padding: "20px 24px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, position: "sticky", top: 0, background: "#fff", padding: "4px 0", zIndex: 2 }}>
+                <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#16324F" }}>{editingId ? "Edit Task" : "Add New Task"}</h4>
+                <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ background: "none", border: "none", fontSize: 22, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, transition: "background .15s" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>&times;</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px 12px" }}>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Task Name *</label><input value={form.text} onChange={e => setForm({...form, text: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Enter task name" /></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Owner</label><input value={form.owner} onChange={e => setForm({...form, owner: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Assignee" /></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Planned Start</label><input type="date" value={form.plannedStart} onChange={e => setForm({...form, plannedStart: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Planned End</label><input type="date" value={form.plannedEnd} onChange={e => setForm({...form, plannedEnd: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Actual Start</label><input type="date" value={form.actualStart} onChange={e => setForm({...form, actualStart: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Actual End</label><input type="date" value={form.actualEnd} onChange={e => setForm({...form, actualEnd: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Duration</label><input type="number" min={1} value={form.duration} onChange={e => setForm({...form, duration: parseInt(e.target.value)||1})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Progress %</label><input type="number" min={0} max={100} value={form.progress} onChange={e => setForm({...form, progress: parseInt(e.target.value)||0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Status</label><select value={form.status} onChange={e => setForm({...form, status: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">Auto</option><option>Not Started</option><option>In Progress</option><option>In Progress (Delayed)</option><option>Completed</option></select></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="task">Task</option><option value="milestone">Milestone</option><option value="project">Project</option></select></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Parent</label><select value={form.parent||""} onChange={e => setForm({...form, parent: e.target.value?parseInt(e.target.value):0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(taskList||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
+                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Remarks</label><input value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Notes..." /></div>
+              </div>
 
-            {/* ── Scheduling Dependencies ── */}
-            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #E2E8F0" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#7C3AED", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8 }}>🔗 Scheduling Dependencies</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "8px 10px" }}>
-                <div>
-                  <label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Predecessor Task</label>
-                  <select value={form.predecessorId || ""} onChange={e => setForm({...form, predecessorId: e.target.value ? parseInt(e.target.value) : 0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}>
-                    <option value="">(None)</option>
-                    {(taskList || []).filter((t: any) => t.id !== editingId).map((t: any) => <option key={t.id} value={t.id}>{t.text}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Dependency Type</label>
-                  <select value={form.depType} onChange={e => setForm({...form, depType: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}>
-                    <option value="FS">FS — Finish-to-Start</option>
-                    <option value="SS">SS — Start-to-Start</option>
-                    <option value="FF">FF — Finish-to-Finish</option>
-                    <option value="SF">SF — Start-to-Finish</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Lag / Lead (days)</label>
-                  <input type="number" value={form.lagDays} onChange={e => setForm({...form, lagDays: parseInt(e.target.value) || 0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} title="Positive = lag (delay), Negative = lead (overlap)" />
+              {/* ── Scheduling Dependencies ── */}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>🔗 Scheduling Dependencies</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px 12px" }}>
+                  <div>
+                    <label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Predecessor Task</label>
+                    <select value={form.predecessorId || ""} onChange={e => setForm({...form, predecessorId: e.target.value ? parseInt(e.target.value) : 0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
+                      <option value="">(None)</option>
+                      {(taskList || []).filter((t: any) => t.id !== editingId).map((t: any) => <option key={t.id} value={t.id}>{t.text}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Dependency Type</label>
+                    <select value={form.depType} onChange={e => setForm({...form, depType: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
+                      <option value="FS">FS — Finish-to-Start</option>
+                      <option value="SS">SS — Start-to-Start</option>
+                      <option value="FF">FF — Finish-to-Finish</option>
+                      <option value="SF">SF — Start-to-Finish</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Lag / Lead (days)</label>
+                    <input type="number" value={form.lagDays} onChange={e => setForm({...form, lagDays: parseInt(e.target.value) || 0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} title="Positive = lag (delay), Negative = lead (overlap)" />
+                  </div>
                 </div>
               </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button onClick={submitForm} disabled={isSaving} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, background: isSaving ? "#86EFAC" : "#1F9D55", color: "#fff", border: "none", borderRadius: 5, cursor: isSaving ? "not-allowed" : "pointer", fontFamily: "Inter", display: "inline-flex", alignItems: "center", gap: 6, transition: "background .15s" }}>
-                {isSaving && <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "ganttSpin 0.6s linear infinite" }} />}
-                {isSaving ? "Saving..." : "Save"}
-              </button>
-              <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 5, cursor: "pointer", fontFamily: "Inter" }}>Cancel</button>
+              <div style={{ display: "flex", gap: 10, marginTop: 16, paddingTop: 12, borderTop: "1px solid #F1F5F9", justifyContent: "flex-end" }}>
+                <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 600, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 6, cursor: "pointer", fontFamily: "Inter" }}>Cancel</button>
+                <button onClick={submitForm} disabled={isSaving} style={{ padding: "8px 22px", fontSize: 12, fontWeight: 600, background: isSaving ? "#86EFAC" : "#1F9D55", color: "#fff", border: "none", borderRadius: 6, cursor: isSaving ? "not-allowed" : "pointer", fontFamily: "Inter", display: "inline-flex", alignItems: "center", gap: 6, transition: "background .15s" }}>
+                  {isSaving && <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "ganttSpin 0.6s linear infinite" }} />}
+                  {isSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
             </div>
           </div>
         )}
