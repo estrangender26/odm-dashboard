@@ -902,8 +902,16 @@ export default function GanttPlanner() {
     setCurrentProjectId(null); setCurrentProjectName(""); setImportSourceName(""); setHasUnsavedChanges(false);
     lastSavedJsonRef.current = ""; localStorage.removeItem("gantt_current_project");
     setSelectedTaskId(null); setSelectedIds(new Set());
-    setBanner({ type: "info", message: "Project closed." });
-    try { await resetMut.mutateAsync(undefined); await utils.gantt.tasks.invalidate(); await utils.gantt.links.invalidate(); } catch (e) { /* ignore */ }
+    setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
+    setBanner({ type: "info", message: "Project closed — clearing data..." });
+    try {
+      await resetMut.mutateAsync(undefined);
+      /* Force clear UI immediately */
+      setTaskList([]);
+      await utils.gantt.tasks.invalidate();
+      await utils.gantt.links.invalidate();
+      setBanner({ type: "info", message: "Project closed." });
+    } catch (e) { setBanner({ type: "error", message: "Close failed — refresh the page." }); }
   }, [hasUnsavedChanges, tasksQuery.data, handleSave, resetMut, utils]);
 
   /* Open project with unsaved guard */
