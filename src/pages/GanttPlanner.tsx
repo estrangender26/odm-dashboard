@@ -935,8 +935,10 @@ export default function GanttPlanner() {
   /* ═══════ SECTION 6: PLAIN FUNCTIONS (SIXTH — after all hooks) ═══════ */
 
   const startEdit = (t: any) => {
+    /* Look up fresh task from taskList by ID — avoid stale data from TaskListTab */
+    const freshTask = taskList.find((ft: any) => ft.id === t.id) || t;
     setEditingId(t.id);
-    setForm(taskToForm(t, linksQuery.data || []));
+    setForm(taskToForm(freshTask, linksQuery.data || []));
     setShowAdd(false);
   };
   const startAdd = () => { setEditingId(null); setForm(EMPTY_FORM); setShowAdd(true); };
@@ -1166,7 +1168,7 @@ export default function GanttPlanner() {
             </div>
           </div>
         )}
-        {activeTab === "tasks" && <TaskListTab tasks={tasksQuery.data || []} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} />}
+        {activeTab === "tasks" && <TaskListTab tasks={taskList} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} />}
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
 
         {/* Task Edit/Add Form */}
