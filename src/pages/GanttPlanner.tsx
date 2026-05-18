@@ -1014,11 +1014,6 @@ function TaskListTab({ tasks, deleteTask, setBanner, onEditTask, onAddTask }: { 
         <button onClick={onAddTask} style={{ padding: "8px 14px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Task
         </button>
-        {(() => {
-          const sel = selectedTaskId ? taskList.find((t: any) => t.id === selectedTaskId) : null;
-          if (!sel) return null;
-          return <InsertMenuButton sel={sel} onInsertAbove={onInsertAbove} onInsertBelow={onInsertBelow} onInsertChild={onInsertChild} />;
-        })()}
       </div>
       <div style={{ display: "table", width: "100%", borderCollapse: "collapse", fontSize: 10, fontFamily: "Inter, sans-serif" }}>
         <div style={{ display: "table-row", fontWeight: 700, color: "#1F2937", background: "#E2E8F0", fontSize: 9, letterSpacing: "0.3px", textTransform: "uppercase" }}>
