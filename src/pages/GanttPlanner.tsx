@@ -934,11 +934,13 @@ export default function GanttPlanner() {
 
   /* ═══════ SECTION 6: PLAIN FUNCTIONS (SIXTH — after all hooks) ═══════ */
 
-  const startEdit = (t: any) => {
+  const startEdit = async (t: any) => {
     /* Look up fresh task from taskList by ID — avoid stale data from TaskListTab */
     const freshTask = taskList.find((ft: any) => ft.id === t.id) || t;
+    /* Refetch links to get latest dependency data */
+    const freshLinks = await refetchLinks();
     setEditingId(t.id);
-    setForm(taskToForm(freshTask, linksQuery.data || []));
+    setForm(taskToForm(freshTask, freshLinks.data || []));
     setShowAdd(false);
   };
   const startAdd = () => { setEditingId(null); setForm(EMPTY_FORM); setShowAdd(true); };
