@@ -604,9 +604,18 @@ export default function GanttPlanner() {
   const deleteTaskMut = trpc.gantt.deleteTask.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
-  const saveLinkMut = trpc.gantt.saveLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
-  const deleteLinkMut = trpc.gantt.deleteLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
-  const saveLinksBatchMut = trpc.gantt.saveLinksBatch.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
+  const saveLinkMut = trpc.gantt.saveLink.useMutation({
+    onSuccess: () => utils.gantt.links.invalidate(),
+    onError: (e: any) => console.error("[saveLink] FAILED:", e.message, e.data),
+  });
+  const deleteLinkMut = trpc.gantt.deleteLink.useMutation({
+    onSuccess: () => utils.gantt.links.invalidate(),
+    onError: (e: any) => console.error("[deleteLink] FAILED:", e.message),
+  });
+  const saveLinksBatchMut = trpc.gantt.saveLinksBatch.useMutation({
+    onSuccess: () => utils.gantt.links.invalidate(),
+    onError: (e: any) => console.error("[saveLinksBatch] FAILED:", e.message),
+  });
   const resetMut = trpc.gantt.resetAll.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
@@ -925,10 +934,10 @@ export default function GanttPlanner() {
   const startEdit = (t: any) => { setEditingId(t.id); setForm(taskToForm(t, linksQuery.data || [])); setShowAdd(false); };
   const startAdd = () => { setEditingId(null); setForm(EMPTY_FORM); setShowAdd(true); };
 
-  const submitForm = useCallback(() => {
+  const submitForm = useCallback(async () => {
     if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
 
-    /* Capture form values NOW — before any async operations reset them */
+    /* Capture all form values to locals BEFORE any async work */
     const _predecessorId = form.predecessorId;
     const _depType       = form.depType;
     const _lagDays       = form.lagDays;
@@ -945,6 +954,8 @@ export default function GanttPlanner() {
     const _remarks       = form.remarks;
     const _type          = form.type;
     const _editingId     = editingId;
+
+    console.log("[submitForm] start  pred=", _predecessorId, "parent=", _parent, "depType=", _depType, "lag=", _lagDays);
 
     const autoStatus = deriveStatus({
       startDate: _actualStart || undefined, endDate: _actualEnd || undefined,
@@ -967,42 +978,52 @@ export default function GanttPlanner() {
     };
     if (_editingId) payload.id = _editingId;
 
-    saveTaskMut.mutate(payload, {
-      onSuccess: (result: any) => {
-        const savedTaskId = _editingId || result?.id;
+    try {
+      /* 1. Save task */
+      const result = await saveTaskMut.mutateAsync(payload);
+      const savedTaskId = _editingId || result?.id;
+      console.log("[submitForm] task saved  id=", savedTaskId);
 
-        /* Save dependency if predecessor selected */
-        if (_predecessorId && savedTaskId && _predecessorId !== savedTaskId) {
-          const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
-          const existing = (linksQuery.data || []).find((l: any) => l.target === savedTaskId || l.successorTaskId === savedTaskId);
-          if (existing) deleteLinkMut.mutate({ id: existing.id });
-          saveLinkMut.mutate({
-            source: _predecessorId,
-            target: savedTaskId,
-            type: typeMap[_depType] || "0",
-            lag: _lagDays,
-            projectId: currentProjectId ?? undefined,
-          });
+      /* 2. Save dependency if predecessor selected */
+      if (_predecessorId && savedTaskId && _predecessorId !== savedTaskId) {
+        const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
+        const typeCode = typeMap[_depType] || "0";
+        console.log("[submitForm] saving dep  pred=", _predecessorId, "succ=", savedTaskId, "type=", typeCode, "lag=", _lagDays);
+
+        /* Delete existing dependency where this task is successor */
+        const existing = (linksQuery.data || []).find((l: any) => (l.target === savedTaskId || l.successorTaskId === savedTaskId));
+        if (existing) {
+          console.log("[submitForm] deleting existing dep  id=", existing.id);
+          await deleteLinkMut.mutateAsync({ id: existing.id });
         }
 
-        runAutoSchedule(_editingId || undefined);
-
-        /* Trigger parent rollups after save */
-        if (_parent > 0) {
-          setTimeout(() => {
-            const freshTasks = tasksQuery.data || allTasks;
-            recalcAndSaveParent(_parent, freshTasks);
-          }, 300);
-        }
-
-        /* Reset form AFTER everything succeeds */
-        setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
-      },
-      onError: () => {
-        /* Keep form open on error so user can retry */
-        setBanner({ type: "error", message: "Save failed. Check fields and retry." });
+        /* Create new dependency */
+        await saveLinkMut.mutateAsync({
+          source: _predecessorId,
+          target: savedTaskId,
+          type: typeCode,
+          lag: _lagDays,
+          projectId: currentProjectId ?? undefined,
+        });
+        console.log("[submitForm] dependency saved OK");
       }
-    });
+
+      /* 3. Auto-schedule */
+      runAutoSchedule(_editingId || undefined);
+
+      /* 4. Parent rollups */
+      if (_parent > 0) {
+        setTimeout(() => recalcAndSaveParent(_parent, tasksQuery.data || allTasks), 300);
+      }
+
+      /* 5. Reset form */
+      setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
+      setBanner({ type: "success", message: `"${_text}" saved.` });
+
+    } catch (e: any) {
+      console.error("[submitForm] ERROR:", e.message, e);
+      setBanner({ type: "error", message: "Save error: " + (e.message || "Unknown error") });
+    }
   }, [form, editingId, saveTaskMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, linksQuery.data, recalcAndSaveParent, currentProjectId]);
 
   const handleImportExcel = (file: File) => {
