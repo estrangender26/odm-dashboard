@@ -1005,8 +1005,16 @@ export default function GanttPlanner() {
     const freshTask = taskList.find((ft: any) => ft.id === t.id) || t;
     /* Refetch links to get latest dependency data */
     const freshLinks = await refetchLinks();
+    const newForm = taskToForm(freshTask, freshLinks.data || []);
+    /* Validate predecessor ID exists in current task list — clear if stale/deleted */
+    if (newForm.predecessorId && !taskList.some((tl: any) => tl.id === newForm.predecessorId)) {
+      console.log("[startEdit] clearing stale predecessorId=", newForm.predecessorId);
+      newForm.predecessorId = 0;
+      newForm.depType = "FS";
+      newForm.lagDays = 0;
+    }
     setEditingId(t.id);
-    setForm(taskToForm(freshTask, freshLinks.data || []));
+    setForm(newForm);
     setShowAdd(false);
   };
   const startAdd = () => { setEditingId(null); setForm(EMPTY_FORM); setShowAdd(true); };
@@ -1062,13 +1070,17 @@ export default function GanttPlanner() {
       const result = await saveTaskMut.mutateAsync(payload);
       const savedTaskId = _editingId || result?.id;
 
-      /* 2. Save dependency if predecessor selected (non-blocking, with task-row fallback) */
+      /* 2. Save dependency if predecessor selected AND both tasks exist */
       let depSaveError: string | null = null;
-      if (_predecessorId && savedTaskId && _predecessorId !== savedTaskId) {
+      const allTasksBefore = tasksQuery.data || [];
+      const predExists = allTasksBefore.some((t: any) => t.id === _predecessorId);
+      const succExists = allTasksBefore.some((t: any) => t.id === savedTaskId);
+      if (_predecessorId && savedTaskId && _predecessorId !== savedTaskId && predExists && succExists) {
         try {
           const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
           const typeCode = typeMap[_depType] || "0";
 
+          /* Delete existing dependency for this successor */
           const existing = (linksQuery.data || []).find((l: any) => (l.target === savedTaskId || l.successorTaskId === savedTaskId));
           if (existing) {
             try { await deleteLinkMut.mutateAsync({ id: existing.id }); } catch { /* ignore delete errors */ }
@@ -1082,8 +1094,13 @@ export default function GanttPlanner() {
         } catch (depErr: any) {
           depSaveError = depErr.message || "Dependency save failed";
           console.error("[save] Dependency save failed (non-blocking):", depSaveError);
-          /* Don't throw — task was saved successfully with predecessor in task row */
         }
+      } else if (_predecessorId && !predExists) {
+        depSaveError = `Predecessor task (${_predecessorId}) no longer exists — dependency skipped`;
+        console.warn("[save]", depSaveError);
+      } else if (!succExists) {
+        depSaveError = `Current task (${savedTaskId}) no longer exists — please reopen the project`;
+        console.error("[save]", depSaveError);
       }
 
       /* 3. Refetch both queries directly — bypass stale cache */

@@ -16,37 +16,23 @@ export const ganttRouter = createRouter({
   links: publicQuery
     .input(z.object({ projectId: z.number().optional() }).optional())
     .query(async ({ input }) => {
-      /* Ensure gantt_dependencies table exists */
-      await db.execute(sql.raw(`
-        CREATE TABLE IF NOT EXISTS gantt_dependencies (
-          id SERIAL PRIMARY KEY,
-          project_id INTEGER,
-          predecessor_task_id INTEGER NOT NULL,
-          successor_task_id INTEGER NOT NULL,
-          dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
-          lag_days INTEGER DEFAULT 0,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `));
-
-      /* Use drizzle sql template for parameterized queries */
-      let result;
-      if (input?.projectId) {
-        result = await db.execute(sql`SELECT * FROM gantt_dependencies WHERE project_id = ${input.projectId}`);
-      } else {
-        result = await db.execute(sql`SELECT * FROM gantt_dependencies`);
-      }
       const typeReverse: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
-      return (result.rows || []).map((r: any) => ({
+      /* Use typed Drizzle select for guaranteed array result */
+      let rows;
+      if (input?.projectId) {
+        rows = await db.select().from(ganttDependencies).where(eq(ganttDependencies.projectId, input.projectId));
+      } else {
+        rows = await db.select().from(ganttDependencies);
+      }
+      return rows.map((r: any) => ({
         id: r.id,
-        source: r.predecessor_task_id,
-        target: r.successor_task_id,
-        type: typeReverse[r.dependency_type] || r.dependency_type || "0",
-        lag: r.lag_days ?? 0,
-        projectId: r.project_id,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
+        source: r.predecessorTaskId,
+        target: r.successorTaskId,
+        type: typeReverse[r.dependencyType] || r.dependencyType || "0",
+        lag: r.lagDays ?? 0,
+        projectId: r.projectId,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
       }));
     }),
 
@@ -104,7 +90,10 @@ export const ganttRouter = createRouter({
       };
       try {
         if (input.id) {
-          await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
+          const updated = await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id)).returning({ id: ganttTasks.id });
+          if (updated.length === 0) {
+            throw new Error(`Task id=${input.id} not found — it may have been deleted. Save your work, close the project, and reopen.`);
+          }
           return { id: input.id, action: "updated" };
         } else {
           const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
@@ -190,10 +179,12 @@ export const ganttRouter = createRouter({
   deleteTask: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      // Delete any dependencies where this task is predecessor OR successor
+      await db.delete(ganttDependencies).where(
+        sql`${ganttDependencies.predecessorTaskId} = ${input.id} OR ${ganttDependencies.successorTaskId} = ${input.id}`
+      );
       // Delete task
       await db.delete(ganttTasks).where(eq(ganttTasks.id, input.id));
-      // Delete any dependencies where this task is predecessor OR successor
-      await db.execute(sql`DELETE FROM gantt_dependencies WHERE predecessor_task_id = ${input.id} OR successor_task_id = ${input.id}`);
       return { success: true };
     }),
 
@@ -212,73 +203,47 @@ export const ganttRouter = createRouter({
     .mutation(async ({ input }) => {
       console.log("[saveLink] START source=", input.source, "target=", input.target, "type=", input.type, "lag=", input.lag);
 
-      /* 1. Ensure gantt_dependencies table exists */
-      try {
-        await db.execute(sql.raw(`
-          CREATE TABLE IF NOT EXISTS gantt_dependencies (
-            id SERIAL PRIMARY KEY,
-            project_id INTEGER,
-            predecessor_task_id INTEGER NOT NULL,
-            successor_task_id INTEGER NOT NULL,
-            dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
-            lag_days INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `));
-      } catch (tableErr: any) {
-        console.log("[saveLink] table create note:", tableErr.message);
-      }
-
-      /* 2. VALIDATE: check both predecessor and successor exist in gantt_tasks */
-      const predCheck = await db.execute(sql`SELECT id FROM gantt_tasks WHERE id = ${input.source}`);
-      const succCheck = await db.execute(sql`SELECT id FROM gantt_tasks WHERE id = ${input.target}`);
-      const predExists = (predCheck.rows?.length || 0) > 0;
-      const succExists = (succCheck.rows?.length || 0) > 0;
+      /* 1. VALIDATE: check both predecessor and successor exist in gantt_tasks */
+      const predRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, input.source));
+      const succRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, input.target));
+      const predExists = predRows.length > 0;
+      const succExists = succRows.length > 0;
       console.log("[saveLink] validation predExists=", predExists, "succExists=", succExists);
 
       if (!predExists || !succExists) {
-        throw new Error(`Dependency validation failed: predecessor=${input.source} exists=${predExists}, successor=${input.target} exists=${succExists}`);
+        const missing = [!predExists ? `predecessor=${input.source}` : "", !succExists ? `successor=${input.target}` : ""].filter(Boolean).join(", ");
+        throw new Error(`Dependency validation failed — task(s) no longer exist: ${missing}. Please close and reopen the project.`);
       }
 
-      /* 3. Delete old dependency where this task is the successor */
-      try {
-        await db.execute(sql`DELETE FROM gantt_dependencies WHERE successor_task_id = ${input.target}`);
-        console.log("[saveLink] deleted old deps for successor=", input.target);
-      } catch (delErr: any) {
-        console.log("[saveLink] delete old dep note:", delErr.message);
-      }
+      /* 2. Delete old dependency where this task is the successor (typed Drizzle) */
+      await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, input.target));
+      console.log("[saveLink] deleted old deps for successor=", input.target);
 
-      /* 4. Insert new dependency */
-      const depType = input.type;
+      /* 3. Insert new dependency (typed Drizzle) */
       const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
-      const normalizedType = typeMap[depType] || depType || "FS";
-      const pid = input.projectId ?? null;
+      const normalizedType = typeMap[input.type] || input.type || "FS";
 
       try {
-        await db.execute(sql`
-          INSERT INTO gantt_dependencies
-            (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, updated_at)
-          VALUES
-            (${pid}, ${input.source}, ${input.target}, ${normalizedType}, ${input.lag}, NOW())
-        `);
-        console.log("[saveLink] INSERT OK pred=", input.source, "succ=", input.target);
+        const inserted = await db.insert(ganttDependencies).values({
+          projectId: input.projectId ?? null,
+          predecessorTaskId: input.source,
+          successorTaskId: input.target,
+          dependencyType: normalizedType,
+          lagDays: input.lag,
+        }).returning({ id: ganttDependencies.id });
+        console.log("[saveLink] INSERT OK pred=", input.source, "succ=", input.target, "insertedId=", inserted[0]?.id);
 
-        /* 5. Also update the task row directly with predecessor info */
+        /* 4. Also update the task row directly with predecessor info (typed Drizzle) */
         try {
-          await db.execute(sql`
-            UPDATE gantt_tasks
-            SET predecessor_task_id = ${input.source},
-                dependency_type = ${normalizedType},
-                lag_days = ${input.lag}
-            WHERE id = ${input.target}
-          `);
+          await db.update(ganttTasks)
+            .set({ predecessorTaskId: input.source, dependencyType: normalizedType, lagDays: input.lag })
+            .where(eq(ganttTasks.id, input.target));
           console.log("[saveLink] updated task row succ=", input.target);
         } catch (updErr: any) {
           console.log("[saveLink] task row update note:", updErr.message);
         }
 
-        return { id: 0, action: "created" };
+        return { id: inserted[0]?.id ?? 0, action: "created" };
       } catch (insertErr: any) {
         console.error("[saveLink] INSERT FAILED:", insertErr.message);
         throw new Error("Dependency insert failed: " + insertErr.message);
@@ -289,7 +254,7 @@ export const ganttRouter = createRouter({
   deleteLink: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      await db.execute(sql`DELETE FROM gantt_dependencies WHERE id = ${input.id}`);
+      await db.delete(ganttDependencies).where(eq(ganttDependencies.id, input.id));
       return { success: true };
     }),
 
@@ -303,26 +268,16 @@ export const ganttRouter = createRouter({
       projectId: z.number().optional(),
     })))
     .mutation(async ({ input }) => {
-      /* Ensure table exists */
-      await db.execute(sql.raw(`
-        CREATE TABLE IF NOT EXISTS gantt_dependencies (
-          id SERIAL PRIMARY KEY,
-          project_id INTEGER,
-          predecessor_task_id INTEGER NOT NULL,
-          successor_task_id INTEGER NOT NULL,
-          dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
-          lag_days INTEGER DEFAULT 0,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `));
       const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
       for (const dep of input) {
         const normalizedType = typeMap[dep.type] || dep.type || "FS";
-        await db.execute(sql`
-          INSERT INTO gantt_dependencies (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, updated_at)
-          VALUES (${dep.projectId ?? null}, ${dep.source}, ${dep.target}, ${normalizedType}, ${dep.lag}, NOW())
-        `);
+        await db.insert(ganttDependencies).values({
+          projectId: dep.projectId ?? null,
+          predecessorTaskId: dep.source,
+          successorTaskId: dep.target,
+          dependencyType: normalizedType,
+          lagDays: dep.lag,
+        });
       }
       return { count: input.length };
     }),
