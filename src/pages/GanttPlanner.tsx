@@ -165,6 +165,54 @@ function KpiCard({ label, value, icon, color }: { label: string; value: string |
   );
 }
 
+/* ─── Tooltip Data + Component ─── */
+interface TooltipData { task: GanttTask; x: number; y: number; visible: boolean; }
+
+function GanttTooltip({ data }: { data: TooltipData }) {
+  if (!data.visible) return null;
+  const t = data.task;
+  const status = rowStatus(t);
+  const statusColors: Record<string, string> = {
+    "Completed": "#1F9D55", "In Progress": "#005BAC", "In Progress (Delayed)": "#F59E0B",
+    "Not Started": "#8BA3B8", "Overdue": "#DC2626", "Delayed": "#DC2626",
+  };
+  const statusColor = statusColors[status] || "#5A6B7D";
+  return (
+    <div style={{
+      position: "fixed", left: data.x, top: data.y, zIndex: 9999, pointerEvents: "none",
+      background: "#fff", border: "1px solid #D6DFE8", borderRadius: 10,
+      boxShadow: "0 8px 32px rgba(0,0,0,.15), 0 2px 8px rgba(0,0,0,.08)",
+      padding: "12px 16px", minWidth: 220, maxWidth: 300,
+      fontFamily: "Inter, sans-serif", fontSize: 11, color: "#1E293B",
+      animation: "ganttTooltipIn 0.15s ease-out",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, borderBottom: "1px solid #E2E8F0", paddingBottom: 6 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
+        <div style={{ fontWeight: 700, fontSize: 12, color: "#16324F", lineHeight: 1.4, wordBreak: "break-word" }}>{t.text || "Untitled"}</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 8px" }}>
+        <TooltipField label="Status" value={<span style={{ color: statusColor, fontWeight: 600 }}>{status}</span>} />
+        <TooltipField label="Progress" value={`${normProgress(t.progress)}%`} />
+        <TooltipField label="Duration" value={`${t.duration || "—"}d`} />
+        <TooltipField label="Owner" value={t.owner || "—"} />
+        <TooltipField label="Planned Start" value={t.plannedStart ? String(t.plannedStart).slice(0, 10) : "—"} />
+        <TooltipField label="Planned End" value={t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "—"} />
+        <TooltipField label="Actual Start" value={t.startDate ? String(t.startDate).slice(0, 10) : "—"} />
+        <TooltipField label="Actual End" value={t.endDate ? String(t.endDate).slice(0, 10) : "—"} />
+      </div>
+      <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #E2E8F0", fontSize: 10, color: "#5A6B7D", fontStyle: t.remarks ? "normal" : "italic", lineHeight: 1.4 }}>{t.remarks || "No notes available"}</div>
+    </div>
+  );
+}
+function TooltipField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 9, color: "#8BA3B8", textTransform: "uppercase", letterSpacing: "0.4px", fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 11, fontWeight: 500, color: "#1E293B" }}>{value}</div>
+    </div>
+  );
+}
+
 interface NativeGanttChartProps {
   tasks: GanttTask[];
   selectedTaskId: number | null;
@@ -221,6 +269,22 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [tooltip, setTooltip] = useState<TooltipData>({ task: {} as GanttTask, x: 0, y: 0, visible: false });
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showTooltip = useCallback((task: GanttTask, e: React.MouseEvent) => {
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    let x = rect.left + rect.width / 2 + 12;
+    let y = rect.top - 10;
+    /* Prevent overflow */
+    if (x + 260 > window.innerWidth) x = rect.left - 270;
+    if (y < 0) y = rect.bottom + 10;
+    setTooltip({ task, x, y, visible: true });
+  }, []);
+  const hideTooltip = useCallback(() => {
+    tooltipTimerRef.current = setTimeout(() => setTooltip(prev => ({ ...prev, visible: false })), 150);
+  }, []);
 
   const toggleExpand = useCallback((id: number) => {
     setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -435,18 +499,30 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                 <div key={task.id} onClick={(e) => toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)} onDoubleClick={() => onEditTask(task)}
                   style={{ position: "absolute", left: 0, top, width: "100%", height: rowHeight, background: isSelected ? "rgba(219,234,254,0.5)" : "transparent", cursor: "pointer", zIndex: 0 }}>
                   {isMilestone ? (
-                    <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 6, top: rowHeight / 2 - 6, zIndex: 2, transition: "left 0.25s ease-out" }}><div style={{ width: 12, height: 12, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} /></div>
+                    <div
+                      style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 6, top: rowHeight / 2 - 6, zIndex: 2, transition: "left 0.25s ease-out", cursor: "pointer" }}
+                      onMouseEnter={e => showTooltip(task, e)} onMouseLeave={hideTooltip} onTouchStart={e => showTooltip(task, e as any)}
+                    >
+                      <div style={{ width: 12, height: 12, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
+                    </div>
                   ) : _isParent ? (
-                    /* PARENT BAR — thicker, darker navy, bracket ends */
+                    /* PARENT BAR — thin navy line with bracket ends (MS Project / Primavera style) */
                     <>
                       {plannedLeft !== null && plannedWidth !== null && (
-                        <div style={{ position: "absolute", left: plannedLeft, top: 2, height: 20, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
-                          <div style={{ width: Math.max(plannedWidth, 2), height: 20, background: "rgba(30,58,138,0.2)", border: "2px solid #1E3A8F", borderRadius: 4, position: "relative" }}>
-                            {/* Bracket-style left end */}
-                            <div style={{ position: "absolute", left: -3, top: "50%", transform: "translateY(-50%)", width: 6, height: 14, borderLeft: "2px solid #1E3A8F", borderTop: "2px solid #1E3A8F", borderBottom: "2px solid #1E3A8F", borderRadius: "2px 0 0 2px" }} />
-                            {/* Bracket-style right end */}
-                            <div style={{ position: "absolute", right: -3, top: "50%", transform: "translateY(-50%)", width: 6, height: 14, borderRight: "2px solid #1E3A8F", borderTop: "2px solid #1E3A8F", borderBottom: "2px solid #1E3A8F", borderRadius: "0 2px 2px 0" }} />
-                            {plannedWidth > 60 && <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 700, color: "#1E3A8F", whiteSpace: "nowrap" }}>Summary {task.progress || 0}%</span>}
+                        <div
+                          style={{ position: "absolute", left: plannedLeft, top: rowHeight / 2 - 1.5, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out", cursor: "pointer" }}
+                          onMouseEnter={e => showTooltip(task, e)} onMouseLeave={hideTooltip} onTouchStart={e => showTooltip(task, e as any)}
+                        >
+                          {/* Thin horizontal summary line */}
+                          <div style={{ position: "relative", width: Math.max(plannedWidth, 4), height: 3, background: "#1E3A8F" }}>
+                            {/* Left bracket: downward triangle */}
+                            <svg width="7" height="7" viewBox="0 0 7 7" style={{ position: "absolute", left: -3, top: -2 }}>
+                              <polygon points="0,0 6,0 3,6" fill="#1E3A8F" />
+                            </svg>
+                            {/* Right bracket: downward triangle */}
+                            <svg width="7" height="7" viewBox="0 0 7 7" style={{ position: "absolute", right: -3, top: -2 }}>
+                              <polygon points="0,0 6,0 3,6" fill="#1E3A8F" />
+                            </svg>
                           </div>
                         </div>
                       )}
@@ -454,14 +530,20 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                   ) : (
                     <>
                       {plannedLeft !== null && plannedWidth !== null && (
-                        <div style={{ position: "absolute", left: plannedLeft, top: 4, height: 14, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                        <div
+                          style={{ position: "absolute", left: plannedLeft, top: 4, height: 14, zIndex: 1, transition: "left 0.25s ease-out, width 0.25s ease-out", cursor: "pointer" }}
+                          onMouseEnter={e => showTooltip(task, e)} onMouseLeave={hideTooltip} onTouchStart={e => showTooltip(task, e as any)}
+                        >
                           <div style={{ width: Math.max(plannedWidth, 2), height: 14, background: "rgba(147,197,253,0.35)", border: "1px dashed #60A5FA", borderRadius: 2, position: "relative" }}>
                             {plannedWidth > 40 && <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: "#3B82F6", whiteSpace: "nowrap" }}>Planned</span>}
                           </div>
                         </div>
                       )}
                       {actualLeft !== null && actualWidth !== null ? (
-                        <div style={{ position: "absolute", left: actualLeft, top: 18, height: 14, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                        <div
+                          style={{ position: "absolute", left: actualLeft, top: 18, height: 14, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out", cursor: "pointer" }}
+                          onMouseEnter={e => showTooltip(task, e)} onMouseLeave={hideTooltip} onTouchStart={e => showTooltip(task, e as any)}
+                        >
                           <div style={{ width: Math.max(actualWidth, 2), height: 14, background: isDelayed ? "rgba(252,165,165,0.5)" : isAutoPopulated ? "repeating-linear-gradient(90deg, rgba(245,158,11,0.25) 0px, rgba(245,158,11,0.25) 4px, rgba(251,191,36,0.4) 4px, rgba(251,191,36,0.4) 8px)" : "rgba(134,239,172,0.5)", border: `1px solid ${isDelayed ? "#F87171" : isAutoPopulated ? "#F59E0B" : "#4ADE80"}`, borderRadius: 2, position: "relative" }}>
                             {actualWidth > 40 && <span style={{ position: "absolute", left: 3, top: "50%", transform: "translateY(-50%)", fontSize: 7, fontWeight: 600, color: isDelayed ? "#DC2626" : isAutoPopulated ? "#B45309" : "#15803D", whiteSpace: "nowrap" }}>{isDelayed ? "Delayed" : isAutoPopulated ? "In Progress" : `${normProgress(task.progress)}%`}</span>}
                           </div>
@@ -476,6 +558,9 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
           </div>
         </div>
       </div>
+
+      {/* Tooltip — follows mouse over any bar */}
+      <GanttTooltip data={tooltip} />
     </div>
   );
 }
@@ -1577,6 +1662,7 @@ export default function GanttPlanner() {
         .gantt-header { display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; }
         .gantt-header-buttons { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
         @keyframes ganttSpin { to { transform: rotate(360deg); } }
+        @keyframes ganttTooltipIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
           .gantt-header { flex-wrap: wrap; gap: 10px; padding: 10px 16px !important; }
