@@ -92,20 +92,56 @@ export const ganttRouter = createRouter({
           return { id: result[0].id, action: "created" };
         }
       } catch (e: any) {
-        /* Retry removing only the specific column that failed */
+        /* Auto-migrate: if a column is missing, add it and retry */
         const msg = e.message || "";
-        if (msg.includes("wbs_level") || msg.includes("wbsLevel")) delete setData.wbsLevel;
+        let migrated = false;
+
+        if (msg.includes("parent")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0`)); migrated = true; } catch {}
+        }
+        if (msg.includes("wbs_level") || msg.includes("wbsLevel")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0`)); migrated = true; } catch {}
+        }
+        if (msg.includes("status")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS status VARCHAR(50)`)); migrated = true; } catch {}
+        }
+        if (msg.includes("remarks")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS remarks TEXT`)); migrated = true; } catch {}
+        }
+        if (msg.includes("category")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS category VARCHAR(100)`)); migrated = true; } catch {}
+        }
+        if (msg.includes("notes")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS notes TEXT`)); migrated = true; } catch {}
+        }
+        if (msg.includes("planned_start") || msg.includes("plannedStart")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20)`)); migrated = true; } catch {}
+        }
+        if (msg.includes("planned_end") || msg.includes("plannedEnd")) {
+          try { await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20)`)); migrated = true; } catch {}
+        }
+
+        if (migrated) {
+          /* Column added — retry with FULL payload (nothing deleted) */
+          if (input.id) {
+            await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
+            return { id: input.id, action: "updated" };
+          } else {
+            const result = await db.insert(ganttTasks).values(setData).returning({ id: ganttTasks.id });
+            return { id: result[0].id, action: "created" };
+          }
+        }
+
+        /* Fallback: column still missing — remove it and retry */
+        if (msg.includes("parent")) delete setData.parent;
+        else if (msg.includes("wbs_level") || msg.includes("wbsLevel")) delete setData.wbsLevel;
         else if (msg.includes("status")) delete setData.status;
         else if (msg.includes("remarks")) delete setData.remarks;
-        else if (msg.includes("parent")) delete setData.parent;
         else if (msg.includes("category")) delete setData.category;
         else if (msg.includes("notes")) delete setData.notes;
-        else if (msg.includes("planned_start")) delete setData.plannedStart;
-        else if (msg.includes("planned_end")) delete setData.plannedEnd;
-        else if (msg.includes("wbs_level") || msg.includes("wbsLevel") || msg.includes("status") || msg.includes("remarks") || msg.includes("parent")) {
-          /* Fallback: if any optional column mentioned, try removing all */
-          delete setData.wbsLevel; delete setData.status; delete setData.remarks; delete setData.parent;
-        }
+        else if (msg.includes("planned_start") || msg.includes("plannedStart")) delete setData.plannedStart;
+        else if (msg.includes("planned_end") || msg.includes("plannedEnd")) delete setData.plannedEnd;
+
         if (Object.keys(setData).length > 5) {
           if (input.id) {
             await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
