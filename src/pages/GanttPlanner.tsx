@@ -575,6 +575,7 @@ export default function GanttPlanner() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [taskList, setTaskList] = useState<any[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [linkModalOpen, setLinkModalOpen] = useState(false);
@@ -738,10 +739,11 @@ export default function GanttPlanner() {
     else { setHasUnsavedChanges(false); }
   }, [tasksQuery.data]);
 
-  /* KPI update */
+  /* KPI update + taskList sync */
   useEffect(() => {
     if (!tasksQuery.data) return;
     setKpi(calcKpi(tasksQuery.data));
+    setTaskList(tasksQuery.data);
   }, [tasksQuery.data]);
 
   /* Export menu click-outside */
@@ -1003,12 +1005,15 @@ export default function GanttPlanner() {
 
       /* 3. Refetch both queries directly — bypass stale cache */
       const [freshTasks, freshLinks] = await Promise.all([refetchTasks(), refetchLinks()]);
-      console.log("[save] refetch tasks=", freshTasks.data?.length, "links=", freshLinks.data?.length);
+      const freshTaskArr = freshTasks.data || [];
+      const freshLinkArr = freshLinks.data || [];
+      setTaskList(freshTaskArr);
+      console.log("[save] refetch tasks=", freshTaskArr.length, "links=", freshLinkArr.length);
 
       /* 4. Rebuild form from fresh data */
-      const savedTask = freshTasks.data?.find((t: any) => t.id === savedTaskId);
+      const savedTask = freshTaskArr.find((t: any) => t.id === savedTaskId);
       if (savedTask) {
-        const newForm = taskToForm(savedTask, freshLinks.data || []);
+        const newForm = taskToForm(savedTask, freshLinkArr);
         console.log("[save] rebuild parent=", newForm.parent, "pred=", newForm.predecessorId);
         setEditingId(savedTaskId);
         setForm(newForm);
@@ -1182,7 +1187,7 @@ export default function GanttPlanner() {
               <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Progress %</label><input type="number" min={0} max={100} value={form.progress} onChange={e => setForm({...form, progress: parseInt(e.target.value)||0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
               <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Status</label><select value={form.status} onChange={e => setForm({...form, status: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">Auto</option><option>Not Started</option><option>In Progress</option><option>In Progress (Delayed)</option><option>Completed</option></select></div>
               <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="task">Task</option><option value="milestone">Milestone</option><option value="project">Project</option></select></div>
-              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Parent</label><select value={form.parent||""} onChange={e => setForm({...form, parent: e.target.value?parseInt(e.target.value):0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(tasksQuery.data||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Parent</label><select value={form.parent||""} onChange={e => setForm({...form, parent: e.target.value?parseInt(e.target.value):0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(taskList||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
               <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Remarks</label><input value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Notes..." /></div>
             </div>
 
@@ -1194,7 +1199,7 @@ export default function GanttPlanner() {
                   <label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Predecessor Task</label>
                   <select value={form.predecessorId || ""} onChange={e => setForm({...form, predecessorId: e.target.value ? parseInt(e.target.value) : 0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}>
                     <option value="">(None)</option>
-                    {(tasksQuery.data || []).filter((t: any) => t.id !== editingId).map((t: any) => <option key={t.id} value={t.id}>{t.text}</option>)}
+                    {(taskList || []).filter((t: any) => t.id !== editingId).map((t: any) => <option key={t.id} value={t.id}>{t.text}</option>)}
                   </select>
                 </div>
                 <div>
