@@ -645,29 +645,59 @@ export default function GanttPlanner() {
         const parsed = JSON.parse(data.tasksData);
         if (Array.isArray(parsed) && parsed.length > 0) {
           await resetMut.mutateAsync(undefined);
+
+          /* PASS 1: Create all tasks with parent=0, track old→new ID mapping */
+          const idMap = new Map<number, number>(); // oldId → newId
           for (const [idx, t] of parsed.entries()) {
-            const wbsLevel = computeWbsLevel(t.id ?? 0, parsed, t.parent ?? 0);
-            await saveTaskMut.mutateAsync({
+            const result = await saveTaskMut.mutateAsync({
               text: t.text || "", owner: t.owner || null,
               start_date: t.startDate || t.start_date || null,
               end_date: t.endDate || t.end_date || null,
               planned_start: t.plannedStart || t.planned_start || t.plannedStartDate || null,
               planned_end: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
               duration: t.duration || 1, progress: normProgress(t.progress),
-              wbs_level: wbsLevel,
-              parent: t.parent || 0, type: t.type || "task",
+              wbs_level: 1, /* temporary, will update in pass 2 */
+              parent: 0, /* temporary, will update in pass 2 */
+              type: t.type || "task",
               status: t.status || null, remarks: t.remarks || t.notes || null,
               category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? idx,
             });
+            idMap.set(t.id, result.id);
           }
+
+          /* PASS 2: Update parent references using new IDs */
+          const freshTasks = await refetchTasks();
+          for (const t of parsed) {
+            const newId = idMap.get(t.id);
+            const oldParent = t.parent || 0;
+            const newParent = oldParent > 0 ? (idMap.get(oldParent) || 0) : 0;
+            const wbsLevel = computeWbsLevel(t.id ?? 0, parsed, newParent);
+            if (newId && (newParent !== 0 || oldParent === 0)) {
+              await saveTaskMut.mutateAsync({
+                id: newId,
+                text: t.text || "", owner: t.owner || null,
+                start_date: t.startDate || t.start_date || null,
+                end_date: t.endDate || t.end_date || null,
+                planned_start: t.plannedStart || t.planned_start || null,
+                planned_end: t.plannedEnd || t.planned_end || null,
+                duration: t.duration || 1, progress: normProgress(t.progress),
+                wbs_level: wbsLevel,
+                parent: newParent,
+                type: t.type || "task",
+                status: t.status || null, remarks: t.remarks || t.notes || null,
+                category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? 0,
+              });
+            }
+          }
+
           // Load dependencies from linksData into gantt_dependencies table
           if (data.linksData) {
             try {
               const linksParsed = JSON.parse(data.linksData);
               if (Array.isArray(linksParsed) && linksParsed.length > 0) {
                 const depsToSave = linksParsed.map((l: any) => ({
-                  source: l.source || l.predecessorTaskId,
-                  target: l.target || l.successorTaskId,
+                  source: idMap.get(l.source || l.predecessorTaskId) || l.source,
+                  target: idMap.get(l.target || l.successorTaskId) || l.target,
                   type: l.type || l.dependencyType || "0",
                   lag: l.lag || l.lagDays || 0,
                   projectId: data.id,
