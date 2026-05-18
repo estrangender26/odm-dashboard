@@ -263,21 +263,29 @@ export const ganttRouter = createRouter({
       )
     `));
 
-    // Migrate data from old gantt_links table
-    await db.execute(sql.raw(`
-      INSERT INTO gantt_dependencies (predecessor_task_id, successor_task_id, dependency_type, lag_days, created_at)
-      SELECT source, target,
-        CASE type WHEN '0' THEN 'FS' WHEN '1' THEN 'SS' WHEN '2' THEN 'FF' WHEN '3' THEN 'SF' ELSE 'FS' END,
-        COALESCE(lag_days, 0), created_at
-      FROM gantt_links
-      WHERE NOT EXISTS (SELECT 1 FROM gantt_dependencies WHERE predecessor_task_id = gantt_links.source AND successor_task_id = gantt_links.target)
-    `));
+    // Migrate data from old gantt_links table (wrap in try — gantt_links may not exist)
+    try {
+      await db.execute(sql.raw(`
+        INSERT INTO gantt_dependencies (predecessor_task_id, successor_task_id, dependency_type, lag_days, created_at)
+        SELECT source, target,
+          CASE type WHEN '0' THEN 'FS' WHEN '1' THEN 'SS' WHEN '2' THEN 'FF' WHEN '3' THEN 'SF' ELSE 'FS' END,
+          COALESCE(lag, 0), created_at
+        FROM gantt_links
+        WHERE NOT EXISTS (SELECT 1 FROM gantt_dependencies WHERE predecessor_task_id = gantt_links.source AND successor_task_id = gantt_links.target)
+      `));
+    } catch { /* gantt_links doesn't exist or already migrated */ }
 
-    // Ensure status/remarks columns exist on gantt_tasks
+    // Ensure all columns exist on gantt_tasks
     await db.execute(sql.raw(`
       ALTER TABLE gantt_tasks
       ADD COLUMN IF NOT EXISTS status VARCHAR(50),
-      ADD COLUMN IF NOT EXISTS remarks TEXT
+      ADD COLUMN IF NOT EXISTS remarks TEXT,
+      ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS notes TEXT
     `));
 
     return { success: true };
