@@ -931,7 +931,11 @@ export default function GanttPlanner() {
 
   /* ═══════ SECTION 6: PLAIN FUNCTIONS (SIXTH — after all hooks) ═══════ */
 
-  const startEdit = (t: any) => { setEditingId(t.id); setForm(taskToForm(t, linksQuery.data || [])); setShowAdd(false); };
+  const startEdit = (t: any) => {
+    setEditingId(t.id);
+    setForm(taskToForm(t, linksQuery.data || []));
+    setShowAdd(false);
+  };
   const startAdd = () => { setEditingId(null); setForm(EMPTY_FORM); setShowAdd(true); };
 
   const submitForm = useCallback(async () => {
@@ -954,8 +958,6 @@ export default function GanttPlanner() {
     const _remarks       = form.remarks;
     const _type          = form.type;
     const _editingId     = editingId;
-
-    console.log("[submitForm] start  pred=", _predecessorId, "parent=", _parent, "depType=", _depType, "lag=", _lagDays);
 
     const autoStatus = deriveStatus({
       startDate: _actualStart || undefined, endDate: _actualEnd || undefined,
@@ -982,49 +984,47 @@ export default function GanttPlanner() {
       /* 1. Save task */
       const result = await saveTaskMut.mutateAsync(payload);
       const savedTaskId = _editingId || result?.id;
-      console.log("[submitForm] task saved  id=", savedTaskId);
 
       /* 2. Save dependency if predecessor selected */
       if (_predecessorId && savedTaskId && _predecessorId !== savedTaskId) {
         const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
         const typeCode = typeMap[_depType] || "0";
-        console.log("[submitForm] saving dep  pred=", _predecessorId, "succ=", savedTaskId, "type=", typeCode, "lag=", _lagDays);
 
-        /* Delete existing dependency where this task is successor */
         const existing = (linksQuery.data || []).find((l: any) => (l.target === savedTaskId || l.successorTaskId === savedTaskId));
-        if (existing) {
-          console.log("[submitForm] deleting existing dep  id=", existing.id);
-          await deleteLinkMut.mutateAsync({ id: existing.id });
-        }
+        if (existing) await deleteLinkMut.mutateAsync({ id: existing.id });
 
-        /* Create new dependency */
         await saveLinkMut.mutateAsync({
-          source: _predecessorId,
-          target: savedTaskId,
-          type: typeCode,
-          lag: _lagDays,
+          source: _predecessorId, target: savedTaskId,
+          type: typeCode, lag: _lagDays,
           projectId: currentProjectId ?? undefined,
         });
-        console.log("[submitForm] dependency saved OK");
       }
 
-      /* 3. Auto-schedule */
-      runAutoSchedule(_editingId || undefined);
+      /* 3. Explicitly refetch queries — get fresh data from DB */
+      await utils.gantt.tasks.invalidate();
+      await utils.gantt.links.invalidate();
 
-      /* 4. Parent rollups */
-      if (_parent > 0) {
-        setTimeout(() => recalcAndSaveParent(_parent, tasksQuery.data || allTasks), 300);
+      /* 4. Rebuild form from DB-fresh task data */
+      const freshTasks = await refetchTasks();
+      const savedTask = freshTasks.data?.find((t: any) => t.id === savedTaskId);
+      const freshLinks = linksQuery.data || [];
+      if (savedTask) {
+        setEditingId(savedTaskId);
+        setForm(taskToForm(savedTask, freshLinks));
+        setShowAdd(false);
       }
 
-      /* 5. Reset form */
-      setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
-      setBanner({ type: "success", message: `"${_text}" saved.` });
+      /* 5. Auto-schedule + rollups */
+      runAutoSchedule(savedTaskId);
+      if (_parent > 0) recalcAndSaveParent(_parent, freshTasks.data || allTasks);
+
+      setBanner({ type: "success", message: `"${_text}" saved. Parent=${_parent}, Pred=${_predecessorId || 'none'}.` });
 
     } catch (e: any) {
       console.error("[submitForm] ERROR:", e.message, e);
       setBanner({ type: "error", message: "Save error: " + (e.message || "Unknown error") });
     }
-  }, [form, editingId, saveTaskMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, linksQuery.data, recalcAndSaveParent, currentProjectId]);
+  }, [form, editingId, saveTaskMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, linksQuery.data, recalcAndSaveParent, currentProjectId, refetchTasks, utils]);
 
   const handleImportExcel = (file: File) => {
     const reader = new FileReader();
