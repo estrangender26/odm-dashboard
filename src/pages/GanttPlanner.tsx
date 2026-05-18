@@ -291,6 +291,10 @@ interface ToolbarProps {
   onImport: () => void;
   onExportExcel: () => void; onExportCSV: () => void; onExportTemplate: () => void;
   onMigrate: () => void; onReset: () => void; onLoadDemo: () => void;
+  onIndent?: () => void; onOutdent?: () => void;
+  onLink?: () => void; onClear?: () => void;
+  multiSelectMode?: boolean; onToggleMulti?: () => void;
+  selectedIdsSize?: number;
   tasksExist: boolean;
 }
 
@@ -298,7 +302,10 @@ function GanttToolbar({
   currentProjectId, currentProjectName, hasUnsavedChanges,
   onSave, onSaveAs, onOpen, onClose, onImport,
   onExportExcel, onExportCSV, onExportTemplate,
-  onMigrate, onReset, onLoadDemo, tasksExist,
+  onMigrate, onReset, onLoadDemo,
+  onIndent, onOutdent, onLink, onClear,
+  multiSelectMode, onToggleMulti, selectedIdsSize,
+  tasksExist,
 }: ToolbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -389,6 +396,31 @@ function GanttToolbar({
 
         {sep}
 
+        {/* TASK STRUCTURE GROUP */}
+        <button onClick={onOutdent} disabled={!onOutdent} title="Outdent task (Ctrl+[)" style={{ ...btnBase, opacity: onOutdent ? 0.85 : 0.35, cursor: onOutdent ? "pointer" : "not-allowed" }} onMouseEnter={onOutdent ? btnHover : undefined} onMouseLeave={onOutdent ? btnLeave : undefined}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg><span className="toolbar-label">Outdent</span>
+        </button>
+        <button onClick={onIndent} disabled={!onIndent} title="Indent task (Ctrl+])" style={{ ...btnBase, opacity: onIndent ? 0.85 : 0.35, cursor: onIndent ? "pointer" : "not-allowed" }} onMouseEnter={onIndent ? btnHover : undefined} onMouseLeave={onIndent ? btnLeave : undefined}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg><span className="toolbar-label">Indent</span>
+        </button>
+
+        {sep}
+
+        {/* SELECTION GROUP */}
+        <button onClick={onToggleMulti} title="Toggle multi-select" style={{ ...btnBase, background: multiSelectMode ? "rgba(124,58,237,0.35)" : btnBase.background, color: multiSelectMode ? "#C4B5FD" : btnBase.color, borderColor: multiSelectMode ? "rgba(124,58,237,0.5)" : btnBase.borderColor }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span className="toolbar-label">{multiSelectMode ? "Multi-ON" : "Multi"}</span>
+        </button>
+        {selectedIdsSize && selectedIdsSize > 0 ? (
+          <button onClick={onClear} title="Clear selection" style={{ ...btnBase, color: "#FCA5A5" }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg><span className="toolbar-label">({selectedIdsSize})</span>
+          </button>
+        ) : null}
+        <button onClick={onLink} disabled={!onLink} title="Link selected tasks" style={{ ...btnBase, opacity: onLink ? 0.85 : 0.35, cursor: onLink ? "pointer" : "not-allowed" }} onMouseEnter={onLink ? btnHover : undefined} onMouseLeave={onLink ? btnLeave : undefined}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span className="toolbar-label">Link</span>
+        </button>
+
+        {sep}
+
         {/* ADMIN GROUP */}
         <div ref={adminRef} style={{ position: "relative" }}>
           <button onClick={() => setAdminOpen(!adminOpen)} title="Admin" style={{ ...btnBase, opacity: 0.7, fontSize: 10 }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
@@ -438,6 +470,85 @@ function Tbm({ icon, label, onClick }: { icon: React.ReactNode; label: string; o
 function Mmi({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", padding: "10px 14px", fontSize: 13, fontWeight: 500, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "rgba(255,255,255,0.9)", borderRadius: 6, transition: "background .1s", width: "100%" }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>{label}</button>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   QUICK ACTION BAR — high-frequency pill buttons
+   ═══════════════════════════════════════════ */
+
+interface QuickActionProps {
+  onAdd: () => void;
+  onInsertAbove?: () => void; onInsertBelow?: () => void; onInsertChild?: () => void;
+  onIndent?: () => void; onOutdent?: () => void;
+  onDelete?: () => void;
+  onMulti: () => void; multiSelectMode: boolean;
+  onClear: () => void; selectionSize: number;
+  onLink: () => void;
+  onSave: () => void;
+  selectedTaskId: number | null;
+}
+
+function QuickActionBar({
+  onAdd, onInsertAbove, onInsertBelow, onInsertChild,
+  onIndent, onOutdent, onDelete,
+  onMulti, multiSelectMode, onClear, selectionSize, onLink, onSave,
+  selectedTaskId,
+}: QuickActionProps) {
+  const pill: React.CSSProperties = {
+    display: "flex", alignItems: "center", gap: 4,
+    padding: "4px 10px", fontSize: 10, fontWeight: 600,
+    fontFamily: "Inter, sans-serif", border: "1px solid #D6DFE8",
+    borderRadius: 20, cursor: "pointer", background: "#fff",
+    color: "#475569", transition: "all .15s", lineHeight: 1, whiteSpace: "nowrap",
+  };
+  const pillHover = (e: React.MouseEvent) => { const t = e.currentTarget as HTMLButtonElement; t.style.background = "#EFF6FF"; t.style.borderColor = "#005BAC"; t.style.color = "#005BAC"; };
+  const pillLeave = (e: React.MouseEvent) => { const t = e.currentTarget as HTMLButtonElement; t.style.background = "#fff"; t.style.borderColor = "#D6DFE8"; t.style.color = "#475569"; };
+  const disabledPill = (enabled: boolean) => enabled ? {} : { opacity: 0.35, cursor: "not-allowed" as const };
+
+  const selName = selectedTaskId ? (() => { const t = (window as any).__ganttTaskList?.find((x: any) => x.id === selectedTaskId); return t ? t.text?.slice(0, 22) || "Task" : null; })() : null;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0", flexWrap: "wrap" }}>
+      {selName && <span style={{ fontSize: 10, color: "#64748B", marginRight: 4, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selName}</span>}
+
+      <button onClick={onAdd} title="Add Task" style={{ ...pill, background: "#1F9D55", color: "#fff", borderColor: "#1F9D55" }} onMouseEnter={e => (e.currentTarget.style.background = "#15803D")} onMouseLeave={e => (e.currentTarget.style.background = "#1F9D55")}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add
+      </button>
+
+      {selectedTaskId && (
+        <>
+          {onInsertAbove && <button onClick={onInsertAbove} title="Insert Above" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}>⬆</button>}
+          {onInsertBelow && <button onClick={onInsertBelow} title="Insert Below" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}>⬇</button>}
+          {onInsertChild && <button onClick={onInsertChild} title="Insert Child" style={{ ...pill, borderColor: "#BBF7D0" }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>➕</button>}
+        </>
+      )}
+
+      <span style={{ width: 1, height: 14, background: "#E2E8F0", margin: "0 2px" }} />
+
+      <button onClick={onOutdent} disabled={!selectedTaskId || !onOutdent} title="Outdent" style={{ ...pill, ...disabledPill(!!selectedTaskId && !!onOutdent) }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>Outdent
+      </button>
+      <button onClick={onIndent} disabled={!selectedTaskId || !onIndent} title="Indent" style={{ ...pill, ...disabledPill(!!selectedTaskId && !!onIndent) }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>Indent
+      </button>
+
+      <span style={{ width: 1, height: 14, background: "#E2E8F0", margin: "0 2px" }} />
+
+      <button onClick={onMulti} title="Multi-select mode" style={{ ...pill, background: multiSelectMode ? "rgba(124,58,237,0.08)" : pill.background, borderColor: multiSelectMode ? "#C4B5FD" : pill.borderColor, color: multiSelectMode ? "#7C3AED" : pill.color }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Multi
+      </button>
+      {selectionSize > 0 && <button onClick={onClear} title="Clear selection" style={{ ...pill, color: "#EF4444", borderColor: "#FECACA" }} onMouseEnter={e => { const t = e.currentTarget; t.style.background = "#FEF2F2"; }} onMouseLeave={pillLeave}>Clear ({selectionSize})</button>}
+
+      <span style={{ width: 1, height: 14, background: "#E2E8F0", margin: "0 2px" }} />
+
+      <button onClick={onLink} disabled={selectionSize < 2} title="Link selected tasks" style={{ ...pill, ...disabledPill(selectionSize >= 2), borderColor: "#C7D2FE" }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Link
+      </button>
+      <button onClick={onSave} title="Save project" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Save
+      </button>
+    </div>
   );
 }
 
@@ -1709,8 +1820,29 @@ export default function GanttPlanner() {
         onMigrate={() => migrateMut.mutate()}
         onReset={() => resetMut.mutate()}
         onLoadDemo={() => seedMut.mutate()}
+        onIndent={handleIndent} onOutdent={handleOutdent}
+        onLink={() => setLinkModalOpen(true)}
+        onClear={clearSelection}
+        multiSelectMode={multiSelectMode} onToggleMulti={() => setMultiSelectMode(!multiSelectMode)}
+        selectedIdsSize={selectedIds.size}
         tasksExist={(tasksQuery.data || []).length > 0}
       />
+
+      {/* Quick Action Bar */}
+      <div className="gantt-page-wrap" style={{ padding: "0 16px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+        <QuickActionBar
+          onAdd={startAdd}
+          onInsertAbove={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskAbove(t); } : undefined}
+          onInsertBelow={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskBelow(t); } : undefined}
+          onInsertChild={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskChild(t); } : undefined}
+          onIndent={handleIndent} onOutdent={handleOutdent}
+          onMulti={() => setMultiSelectMode(!multiSelectMode)} multiSelectMode={multiSelectMode}
+          onClear={clearSelection} selectionSize={selectedIds.size}
+          onLink={() => setLinkModalOpen(true)}
+          onSave={handleSave}
+          selectedTaskId={selectedTaskId}
+        />
+      </div>
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) handleImportExcel(e.target.files[0]); }} />
 
       {/* Banner */}
@@ -1742,30 +1874,7 @@ export default function GanttPlanner() {
       {/* Content */}
       <div className="gantt-page-wrap" style={{ flex: 1, padding: "16px 24px 24px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         {activeTab === "gantt" && (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "0 2px" }}>
-              <span style={{ fontSize: 11, color: "#8BA3B8", fontWeight: 600, marginRight: "auto", maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {selectedTaskId ? (() => { const t = tasksQuery.data?.find((x: any) => x.id === selectedTaskId); return t ? `${t.text?.slice(0, 30) || "?"}` : ""; })() : "Click a task to select"}
-              </span>
-              <button onClick={handleOutdent} disabled={!selectedTaskId} className="gantt-action-btn gantt-outdent-btn" title={selectedTaskId ? "Outdent selected task" : "Select a task first"} style={{ padding: "5px 10px", fontSize: 11 }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg><span>Outdent</span>
-              </button>
-              <button onClick={handleIndent} disabled={!selectedTaskId} className="gantt-action-btn gantt-indent-btn" title={selectedTaskId ? "Indent selected task" : "Select a task first"} style={{ padding: "5px 10px", fontSize: 11 }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg><span>Indent</span>
-              </button>
-              <button onClick={() => setMultiSelectMode(!multiSelectMode)} className="gantt-action-btn" title="Toggle multi-select mode" style={{ padding: "5px 10px", fontSize: 11, background: multiSelectMode ? "#2563EB" : "#3B82F6", color: "#fff", boxShadow: multiSelectMode ? "0 0 0 2px #93C5FD" : "none", opacity: 1 }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span>{multiSelectMode ? "Multi-ON" : "Multi"}</span>
-              </button>
-              <button onClick={() => setLinkModalOpen(true)} disabled={selectedIds.size < 2} className="gantt-action-btn" title={selectedIds.size < 2 ? "Select 2+ tasks first" : `Link ${selectedIds.size} selected tasks`} style={{ padding: "5px 10px", fontSize: 11, background: selectedIds.size < 2 ? "#A78BFA" : "#7C3AED" }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span>Link</span>
-              </button>
-              <button onClick={() => { if (selectedTaskId) { setDepEditorTask(selectedTaskId); setDepEditorOpen(true); } }} disabled={!selectedTaskId} className="gantt-action-btn" title={selectedTaskId ? "Edit dependencies" : "Select a task first"} style={{ padding: "5px 10px", fontSize: 11, background: !selectedTaskId ? "#FCD34D" : "#F59E0B" }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4m-9.66-3.34l2.83-2.83m11.66-7.66l2.83-2.83M1 12h4m14 0h4M3.34 4.34l2.83 2.83m7.66 11.66l2.83 2.83"/></svg><span>Deps</span>
-              </button>
-              {selectedIds.size > 0 && (
-                <button onClick={clearSelection} className="gantt-action-btn" title="Clear selection" style={{ padding: "5px 10px", fontSize: 11, background: "#EF4444" }}><span>Clear ({selectedIds.size})</span></button>
-              )}
-            </div>
+          <div style={{ marginTop: 8 }}>
             <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
               <NativeGanttChart tasks={(tasksQuery.data || []) as GanttTask[]} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} onEditTask={startEdit} onInsertAbove={insertTaskAbove} onInsertBelow={insertTaskBelow} onInsertChild={insertTaskChild} />
             </div>
