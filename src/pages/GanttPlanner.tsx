@@ -596,6 +596,7 @@ export default function GanttPlanner() {
   const tasksQuery = trpc.gantt.tasks.useQuery();
   const linksQuery = trpc.gantt.links.useQuery();
   const { refetch: refetchTasks } = tasksQuery;
+  const { refetch: refetchLinks } = linksQuery;
 
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
     onSuccess: () => utils.gantt.tasks.invalidate(),
@@ -1000,17 +1001,17 @@ export default function GanttPlanner() {
         });
       }
 
-      /* 3. Explicitly refetch queries — get fresh data from DB */
-      await utils.gantt.tasks.invalidate();
-      await utils.gantt.links.invalidate();
+      /* 3. Refetch both queries directly — bypass stale cache */
+      const [freshTasks, freshLinks] = await Promise.all([refetchTasks(), refetchLinks()]);
+      console.log("[save] refetch tasks=", freshTasks.data?.length, "links=", freshLinks.data?.length);
 
-      /* 4. Rebuild form from DB-fresh task data */
-      const freshTasks = await refetchTasks();
+      /* 4. Rebuild form from fresh data */
       const savedTask = freshTasks.data?.find((t: any) => t.id === savedTaskId);
-      const freshLinks = linksQuery.data || [];
       if (savedTask) {
+        const newForm = taskToForm(savedTask, freshLinks.data || []);
+        console.log("[save] rebuild parent=", newForm.parent, "pred=", newForm.predecessorId);
         setEditingId(savedTaskId);
-        setForm(taskToForm(savedTask, freshLinks));
+        setForm(newForm);
         setShowAdd(false);
       }
 
@@ -1018,13 +1019,13 @@ export default function GanttPlanner() {
       runAutoSchedule(savedTaskId);
       if (_parent > 0) recalcAndSaveParent(_parent, freshTasks.data || allTasks);
 
-      setBanner({ type: "success", message: `"${_text}" saved. Parent=${_parent}, Pred=${_predecessorId || 'none'}.` });
+      setBanner({ type: "success", message: `"${_text}" saved.` });
 
     } catch (e: any) {
-      console.error("[submitForm] ERROR:", e.message, e);
+      console.error("[save] ERROR:", e.message, e);
       setBanner({ type: "error", message: "Save error: " + (e.message || "Unknown error") });
     }
-  }, [form, editingId, saveTaskMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, linksQuery.data, recalcAndSaveParent, currentProjectId, refetchTasks, utils]);
+  }, [form, editingId, saveTaskMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, linksQuery.data, recalcAndSaveParent, currentProjectId, refetchTasks, refetchLinks]);
 
   const handleImportExcel = (file: File) => {
     const reader = new FileReader();
