@@ -1291,25 +1291,37 @@ export default function GanttPlanner() {
                   <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
                     Planned Start {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
-                  <input type="date" value={form.plannedStart} onChange={e => setForm({...form, plannedStart: e.target.value})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <input type="date" value={form.plannedStart} onChange={e => setForm({...form, plannedStart: e.target.value})} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                    {!editingIsParent && form.plannedStart && <button onClick={() => setForm({...form, plannedStart: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
+                  </div>
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
                     Planned End {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
-                  <input type="date" value={form.plannedEnd} onChange={e => setForm({...form, plannedEnd: e.target.value})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <input type="date" value={form.plannedEnd} onChange={e => setForm({...form, plannedEnd: e.target.value})} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                    {!editingIsParent && form.plannedEnd && <button onClick={() => setForm({...form, plannedEnd: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
+                  </div>
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
                     Actual Start {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
-                  <input type="date" value={form.actualStart} onChange={e => setForm({...form, actualStart: e.target.value})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <input type="date" value={form.actualStart} onChange={e => setForm({...form, actualStart: e.target.value})} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                    {!editingIsParent && form.actualStart && <button onClick={() => setForm({...form, actualStart: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
+                  </div>
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
                     Actual End {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
-                  <input type="date" value={form.actualEnd} onChange={e => setForm({...form, actualEnd: e.target.value})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <input type="date" value={form.actualEnd} onChange={e => setForm({...form, actualEnd: e.target.value})} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                    {!editingIsParent && form.actualEnd && <button onClick={() => setForm({...form, actualEnd: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
+                  </div>
                 </div>
 
                 {/* Duration + Progress — disabled for parent tasks */}
