@@ -271,34 +271,6 @@ function autoSchedule(
   return updates;
 }
 
-/* Apply autoSchedule results: update successor planned dates */
-const runAutoSchedule = useCallback((changedTaskId?: number) => {
-  const allTasks = tasksQuery.data || [];
-  const allLinks = linksQuery.data || [];
-  if (allLinks.length === 0) return;
-  const linkObjs = allLinks.map((l: any) => ({ id: l.id, source: l.source, target: l.target, type: l.type, lag: l.lag || 0 }));
-  const updates = autoSchedule(allTasks, linkObjs, changedTaskId);
-  if (updates.size === 0) return;
-  let updated = 0;
-  updates.forEach((dates, taskId) => {
-    const task = allTasks.find((t: any) => t.id === taskId);
-    if (!task) return;
-    const payload: any = {
-      id: taskId,
-      text: task.text, owner: task.owner || null,
-      planned_start: dates.plannedStart, planned_end: dates.plannedEnd,
-      start_date: task.startDate || null, end_date: task.endDate || null,
-      duration: task.duration || 1, progress: normProgress(task.progress), status: rowStatus(task),
-      remarks: task.remarks || null, type: task.type || "task", parent: task.parent || 0,
-    };
-    saveTaskBatchMut.mutate(payload);
-    updated++;
-  });
-  if (updated > 0) {
-    setBanner({ type: "info", message: `Auto-scheduled ${updated} successor task(s).` });
-    setTimeout(() => setBanner(null), 3000);
-  }
-}, [tasksQuery.data, linksQuery.data, saveTaskBatchMut]);
 
 /* Build connector points for SVG dependency lines */
 function buildConnectors(
@@ -950,6 +922,36 @@ export default function GanttPlanner() {
     onError: (e) => setBanner({ type: "error", message: "Save task failed: " + e.message }),
   });
   const saveTaskBatchMut = trpc.gantt.saveTask.useMutation({ onError: () => {} }); // silent fail for batch
+
+/* Apply autoSchedule results: update successor planned dates */
+const runAutoSchedule = useCallback((changedTaskId?: number) => {
+  const allTasks = tasksQuery.data || [];
+  const allLinks = linksQuery.data || [];
+  if (allLinks.length === 0) return;
+  const linkObjs = allLinks.map((l: any) => ({ id: l.id, source: l.source, target: l.target, type: l.type, lag: l.lag || 0 }));
+  const updates = autoSchedule(allTasks, linkObjs, changedTaskId);
+  if (updates.size === 0) return;
+  let updated = 0;
+  updates.forEach((dates, taskId) => {
+    const task = allTasks.find((t: any) => t.id === taskId);
+    if (!task) return;
+    const payload: any = {
+      id: taskId,
+      text: task.text, owner: task.owner || null,
+      planned_start: dates.plannedStart, planned_end: dates.plannedEnd,
+      start_date: task.startDate || null, end_date: task.endDate || null,
+      duration: task.duration || 1, progress: normProgress(task.progress), status: rowStatus(task),
+      remarks: task.remarks || null, type: task.type || "task", parent: task.parent || 0,
+    };
+    saveTaskBatchMut.mutate(payload);
+    updated++;
+  });
+  if (updated > 0) {
+    setBanner({ type: "info", message: `Auto-scheduled ${updated} successor task(s).` });
+    setTimeout(() => setBanner(null), 3000);
+  }
+}, [tasksQuery.data, linksQuery.data, saveTaskBatchMut]);
+
   const deleteTaskMut = trpc.gantt.deleteTask.useMutation({ onSuccess: () => utils.gantt.tasks.invalidate() });
   const saveLinkMut = trpc.gantt.saveLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
   const deleteLinkMut = trpc.gantt.deleteLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
