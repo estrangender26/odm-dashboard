@@ -91,21 +91,84 @@ function flattenVisible(nodes: TaskNode[]): { task: GanttTask; level: number; ha
   return result;
 }
 
-function autoCalcParent(task: GanttTask, allTasks: GanttTask[]): Partial<GanttTask> | null {
-  const children = allTasks.filter(t => t.parent === task.id);
-  if (children.length === 0) return null;
-  const childStarts = children.map(c => c.plannedStart || c.startDate).filter(Boolean).map(s => new Date(s!).getTime());
-  const childEnds = children.map(c => c.plannedEnd || c.endDate).filter(Boolean).map(s => new Date(s!).getTime());
-  const childProgs = children.map(c => normProgress(c.progress)).filter(p => !isNaN(p));
-  const updates: Partial<GanttTask> = {};
-  if (childStarts.length > 0) updates.plannedStart = new Date(Math.min(...childStarts)).toISOString().slice(0, 10);
-  if (childEnds.length > 0) updates.plannedEnd = new Date(Math.max(...childEnds)).toISOString().slice(0, 10);
-  if (childProgs.length > 0) updates.progress = Math.round(childProgs.reduce((a, b) => a + b, 0) / childProgs.length);
-  if (updates.plannedStart && updates.plannedEnd) {
-    const d = daysBetween(new Date(updates.plannedStart as string), new Date(updates.plannedEnd as string));
-    if (d > 0) (updates as any).duration = d;
+/* ─── recalculateParentRollups — bottom-up parent auto-calculation ─── */
+function recalculateParentRollups(allTasks: GanttTask[]): GanttTask[] {
+  // Build child index
+  const childMap = new Map<number, GanttTask[]>();
+  allTasks.forEach(t => {
+    if (!childMap.has(t.parent)) childMap.set(t.parent, []);
+    childMap.get(t.parent)!.push(t);
+  });
+
+  // Get all descendants (recursively) for a task
+  function getDescendants(taskId: number): GanttTask[] {
+    const direct = childMap.get(taskId) || [];
+    let result = [...direct];
+    direct.forEach(c => { result = result.concat(getDescendants(c.id)); });
+    return result;
   }
-  return Object.keys(updates).length > 0 ? updates : null;
+
+  let changed = false;
+  const result = allTasks.map(t => ({ ...t }));
+
+  result.forEach(parent => {
+    const descendants = getDescendants(parent.id);
+    if (descendants.length === 0) return; // leaf task — skip
+
+    const directChildren = childMap.get(parent.id) || [];
+    const allDescendants = descendants; // includes nested grandchildren
+
+    // ── Planned dates ──
+    const pStarts = allDescendants.map(c => c.plannedStart || c.startDate).filter(Boolean);
+    const pEnds = allDescendants.map(c => c.plannedEnd || c.endDate).filter(Boolean);
+    const newPStart = pStarts.length > 0 ? new Date(Math.min(...pStarts.map(s => new Date(s!).getTime()))).toISOString().slice(0, 10) : parent.plannedStart;
+    const newPEnd = pEnds.length > 0 ? new Date(Math.max(...pEnds.map(s => new Date(s!).getTime()))).toISOString().slice(0, 10) : parent.plannedEnd;
+
+    // ── Actual dates ──
+    const aStarts = allDescendants.map(c => c.startDate).filter(Boolean);
+    const aEnds = allDescendants.map(c => c.endDate).filter(Boolean);
+    const newAStart = aStarts.length > 0 ? new Date(Math.min(...aStarts.map(s => new Date(s!).getTime()))).toISOString().slice(0, 10) : parent.startDate;
+    const newAEnd = aEnds.length > 0 ? new Date(Math.max(...aEnds.map(s => new Date(s!).getTime()))).toISOString().slice(0, 10) : parent.endDate;
+
+    // ── Duration ──
+    let newDuration = parent.duration || 1;
+    if (newPStart && newPEnd) {
+      const d = daysBetween(new Date(newPStart), new Date(newPEnd));
+      if (d > 0) newDuration = d;
+    }
+
+    // ── Progress: weighted average by child duration ──
+    const childrenWithDur = directChildren.filter(c => (c.duration || 1) > 0);
+    const totalChildDur = childrenWithDur.reduce((sum, c) => sum + (c.duration || 1), 0);
+    let newProgress = parent.progress || 0;
+    if (totalChildDur > 0) {
+      const weighted = childrenWithDur.reduce((sum, c) => {
+        const childDur = c.duration || 1;
+        const childProg = normProgress(c.progress);
+        return sum + (childProg * childDur);
+      }, 0);
+      newProgress = Math.round(weighted / totalChildDur);
+    }
+
+    // ── Status ──
+    const childStatuses = directChildren.map(c => c.status || deriveStatus(c));
+    let newStatus: string;
+    if (childStatuses.every(s => s === "Completed")) newStatus = "Completed";
+    else if (childStatuses.some(s => s === "In Progress (Delayed)")) newStatus = "In Progress (Delayed)";
+    else if (childStatuses.some(s => s === "In Progress")) newStatus = "In Progress";
+    else newStatus = "Not Started";
+
+    // Apply changes
+    if (newPStart && newPStart !== parent.plannedStart) { parent.plannedStart = newPStart; changed = true; }
+    if (newPEnd && newPEnd !== parent.plannedEnd) { parent.plannedEnd = newPEnd; changed = true; }
+    if (newAStart && newAStart !== parent.startDate) { parent.startDate = newAStart; changed = true; }
+    if (newAEnd && newAEnd !== parent.endDate) { parent.endDate = newAEnd; changed = true; }
+    if (newDuration !== parent.duration) { parent.duration = newDuration; changed = true; }
+    if (newProgress !== normProgress(parent.progress)) { parent.progress = newProgress; changed = true; }
+    if (newStatus !== (parent.status || "Not Started")) { parent.status = newStatus; changed = true; }
+  });
+
+  return changed ? result : allTasks;
 }
 
 /* ─── Date helpers ─── */
@@ -952,7 +1015,32 @@ const runAutoSchedule = useCallback((changedTaskId?: number) => {
   }
 }, [tasksQuery.data, linksQuery.data, saveTaskBatchMut]);
 
-  const deleteTaskMut = trpc.gantt.deleteTask.useMutation({ onSuccess: () => utils.gantt.tasks.invalidate() });
+  const deleteTaskMut = trpc.gantt.deleteTask.useMutation({
+    onSuccess: () => {
+      utils.gantt.tasks.invalidate();
+      // Recalculate parents after delete
+      const allTasks = tasksQuery.data || [];
+      recalculateParentRollups(allTasks).forEach((p: GanttTask) => {
+        const orig = allTasks.find((o: any) => o.id === p.id);
+        if (!orig) return;
+        const changed = p.plannedStart !== orig.plannedStart || p.plannedEnd !== orig.plannedEnd ||
+          p.startDate !== orig.startDate || p.endDate !== orig.endDate ||
+          p.duration !== orig.duration || p.progress !== orig.progress || p.status !== orig.status;
+        if (changed) {
+          saveTaskMut.mutate({
+            id: p.id, text: p.text, owner: p.owner || null,
+            start_date: p.startDate || null, end_date: p.endDate || null,
+            planned_start: p.plannedStart || null, planned_end: p.plannedEnd || null,
+            duration: p.duration || 1, progress: normProgress(p.progress),
+            parent: p.parent || 0, type: p.type || "project",
+            status: p.status || null, remarks: p.remarks || null,
+            category: (p as any).category || null,
+            open: (p as any).open ?? 1, sortorder: (p as any).sortorder ?? 0,
+          });
+        }
+      });
+    }
+  });
   const saveLinkMut = trpc.gantt.saveLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
   const deleteLinkMut = trpc.gantt.deleteLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
   const resetMut = trpc.gantt.resetAll.useMutation({
@@ -1101,28 +1189,41 @@ const runAutoSchedule = useCallback((changedTaskId?: number) => {
   }, [tasksQuery.data]);
 
   /* ─── Auto-recalculate parent dates/progress from children ─── */
+  /* Recalculate all parent rollups and save changed parents */
   const recalcAndSaveParent = useCallback((parentId: number, allTasks: any[]) => {
     if (parentId <= 0) return;
-    const parent = allTasks.find((t: any) => t.id === parentId);
-    if (!parent) return;
-    const updates = autoCalcParent(parent, allTasks);
-    saveTaskMut.mutate({
-      id: parentId,
-      text: parent.text,
-      owner: parent.owner,
-      start_date: parent.startDate || null,
-      end_date: parent.endDate || null,
-      planned_start: updates?.plannedStart || parent.plannedStart || null,
-      planned_end: updates?.plannedEnd || parent.plannedEnd || null,
-      duration: parent.duration || 1,
-      progress: updates?.progress !== undefined ? updates.progress : normProgress(parent.progress),
-      parent: parent.parent || 0,
-      type: "project",
-      status: parent.status || null,
-      remarks: parent.remarks || null,
-      category: parent.category || null,
-      open: parent.open ?? 1,
-      sortorder: parent.sortorder ?? 0,
+    const rolled = recalculateParentRollups(allTasks);
+    // Save the requested parent + any ancestors that changed
+    const changedParents = rolled.filter((t: GanttTask) => {
+      const orig = allTasks.find((o: any) => o.id === t.id);
+      if (!orig) return false;
+      return t.plannedStart !== orig.plannedStart ||
+        t.plannedEnd !== orig.plannedEnd ||
+        t.startDate !== orig.startDate ||
+        t.endDate !== orig.endDate ||
+        t.duration !== orig.duration ||
+        t.progress !== orig.progress ||
+        t.status !== orig.status;
+    });
+    changedParents.forEach((p: GanttTask) => {
+      saveTaskMut.mutate({
+        id: p.id,
+        text: p.text,
+        owner: p.owner || null,
+        start_date: p.startDate || null,
+        end_date: p.endDate || null,
+        planned_start: p.plannedStart || null,
+        planned_end: p.plannedEnd || null,
+        duration: p.duration || 1,
+        progress: normProgress(p.progress),
+        parent: p.parent || 0,
+        type: p.type || "project",
+        status: p.status || null,
+        remarks: p.remarks || null,
+        category: (p as any).category || null,
+        open: (p as any).open ?? 1,
+        sortorder: (p as any).sortorder ?? 0,
+      });
     });
   }, [saveTaskMut]);
 
