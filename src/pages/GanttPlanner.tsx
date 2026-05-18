@@ -487,65 +487,84 @@ interface QuickActionProps {
   onLink: () => void;
   onSave: () => void;
   selectedTaskId: number | null;
+  selectedTaskName?: string;
 }
 
 function QuickActionBar({
   onAdd, onInsertAbove, onInsertBelow, onInsertChild,
   onIndent, onOutdent, onDelete,
   onMulti, multiSelectMode, onClear, selectionSize, onLink, onSave,
-  selectedTaskId,
+  selectedTaskId, selectedTaskName,
 }: QuickActionProps) {
+  /* High-contrast pill button base */
   const pill: React.CSSProperties = {
-    display: "flex", alignItems: "center", gap: 4,
-    padding: "4px 10px", fontSize: 10, fontWeight: 600,
-    fontFamily: "Inter, sans-serif", border: "1px solid #D6DFE8",
-    borderRadius: 20, cursor: "pointer", background: "#fff",
-    color: "#475569", transition: "all .15s", lineHeight: 1, whiteSpace: "nowrap",
+    display: "flex", alignItems: "center", gap: 5,
+    padding: "5px 11px", fontSize: 11, fontWeight: 700,
+    fontFamily: "Inter, sans-serif", border: "1px solid #CBD5E1",
+    borderRadius: 20, cursor: "pointer", background: "#FFFFFF",
+    color: "#0F172A", transition: "all .15s", lineHeight: 1, whiteSpace: "nowrap",
+    boxShadow: "0 1px 2px rgba(0,0,0,.06)",
   };
-  const pillHover = (e: React.MouseEvent) => { const t = e.currentTarget as HTMLButtonElement; t.style.background = "#EFF6FF"; t.style.borderColor = "#005BAC"; t.style.color = "#005BAC"; };
-  const pillLeave = (e: React.MouseEvent) => { const t = e.currentTarget as HTMLButtonElement; t.style.background = "#fff"; t.style.borderColor = "#D6DFE8"; t.style.color = "#475569"; };
-  const disabledPill = (enabled: boolean) => enabled ? {} : { opacity: 0.35, cursor: "not-allowed" as const };
+  const pillHover = (e: React.MouseEvent) => { const t = e.currentTarget as HTMLButtonElement; t.style.background = "#EFF6FF"; t.style.borderColor = "#005BAC"; t.style.color = "#005BAC"; t.style.boxShadow = "0 2px 6px rgba(0,91,172,.15)"; };
+  const pillLeave = (e: React.MouseEvent) => { const t = e.currentTarget as HTMLButtonElement; t.style.background = "#FFFFFF"; t.style.borderColor = "#CBD5E1"; t.style.color = "#0F172A"; t.style.boxShadow = "0 1px 2px rgba(0,0,0,.06)"; };
+  const disabledPill = (enabled: boolean) => enabled ? {} : { opacity: 0.45, cursor: "not-allowed" as const, color: "#94A3B8", borderColor: "#E2E8F0", background: "#F8FAFC" };
 
-  const selName = selectedTaskId ? (() => { const t = (window as any).__ganttTaskList?.find((x: any) => x.id === selectedTaskId); return t ? t.text?.slice(0, 22) || "Task" : null; })() : null;
+  /* Selected task name for context */
+  const selName = selectedTaskName || null;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0", flexWrap: "wrap" }}>
-      {selName && <span style={{ fontSize: 10, color: "#64748B", marginRight: 4, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selName}</span>}
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      {/* Selected task context */}
+      {selName && <span style={{ fontSize: 11, fontWeight: 600, color: "#1E3A5F", marginRight: 4, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selName}</span>}
 
-      <button onClick={onAdd} title="Add Task" style={{ ...pill, background: "#1F9D55", color: "#fff", borderColor: "#1F9D55" }} onMouseEnter={e => (e.currentTarget.style.background = "#15803D")} onMouseLeave={e => (e.currentTarget.style.background = "#1F9D55")}>
+      {/* ── ADD GROUP ── */}
+      <button onClick={onAdd} title="Add Task (Ctrl+N)" style={{ ...pill, background: "#1F9D55", color: "#fff", borderColor: "#1F9D55", boxShadow: "0 2px 6px rgba(31,157,85,.25)" }} onMouseEnter={e => (e.currentTarget.style.background = "#15803D")} onMouseLeave={e => (e.currentTarget.style.background = "#1F9D55")}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add
       </button>
 
       {selectedTaskId && (
         <>
-          {onInsertAbove && <button onClick={onInsertAbove} title="Insert Above" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}>⬆</button>}
-          {onInsertBelow && <button onClick={onInsertBelow} title="Insert Below" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}>⬇</button>}
-          {onInsertChild && <button onClick={onInsertChild} title="Insert Child" style={{ ...pill, borderColor: "#BBF7D0" }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>➕</button>}
+          {onInsertAbove && <button onClick={onInsertAbove} title="Insert Above" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}><span style={{ fontSize: 12 }}>⬆</span></button>}
+          {onInsertBelow && <button onClick={onInsertBelow} title="Insert Below" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}><span style={{ fontSize: 12 }}>⬇</span></button>}
+          {onInsertChild && <button onClick={onInsertChild} title="Insert Child" style={{ ...pill, borderColor: "#86EFAC", color: "#15803D" }} onMouseEnter={e => { const t = e.currentTarget; t.style.background = "#F0FDF4"; t.style.borderColor = "#15803D"; }} onMouseLeave={pillLeave}><span style={{ fontSize: 12 }}>➕</span></button>}
         </>
       )}
 
-      <span style={{ width: 1, height: 14, background: "#E2E8F0", margin: "0 2px" }} />
+      <span style={{ width: 1, height: 16, background: "#CBD5E1", margin: "0 2px", flexShrink: 0 }} />
 
-      <button onClick={onOutdent} disabled={!selectedTaskId || !onOutdent} title="Outdent" style={{ ...pill, ...disabledPill(!!selectedTaskId && !!onOutdent) }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+      {/* ── STRUCTURE GROUP ── */}
+      <button onClick={onOutdent} disabled={!selectedTaskId || !onOutdent} title="Outdent Task" style={{ ...pill, ...disabledPill(!!selectedTaskId && !!onOutdent) }} onMouseEnter={!selectedTaskId ? undefined : pillHover} onMouseLeave={!selectedTaskId ? undefined : pillLeave}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>Outdent
       </button>
-      <button onClick={onIndent} disabled={!selectedTaskId || !onIndent} title="Indent" style={{ ...pill, ...disabledPill(!!selectedTaskId && !!onIndent) }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+      <button onClick={onIndent} disabled={!selectedTaskId || !onIndent} title="Indent Task" style={{ ...pill, ...disabledPill(!!selectedTaskId && !!onIndent) }} onMouseEnter={!selectedTaskId ? undefined : pillHover} onMouseLeave={!selectedTaskId ? undefined : pillLeave}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>Indent
       </button>
 
-      <span style={{ width: 1, height: 14, background: "#E2E8F0", margin: "0 2px" }} />
+      <span style={{ width: 1, height: 16, background: "#CBD5E1", margin: "0 2px", flexShrink: 0 }} />
 
-      <button onClick={onMulti} title="Multi-select mode" style={{ ...pill, background: multiSelectMode ? "rgba(124,58,237,0.08)" : pill.background, borderColor: multiSelectMode ? "#C4B5FD" : pill.borderColor, color: multiSelectMode ? "#7C3AED" : pill.color }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Multi
+      {/* ── SELECTION GROUP ── */}
+      <button onClick={onMulti} title="Toggle Multi-Select" style={{
+        ...pill,
+        background: multiSelectMode ? "#EDE9FE" : pill.background,
+        borderColor: multiSelectMode ? "#7C3AED" : pill.borderColor,
+        color: multiSelectMode ? "#5B21B6" : pill.color,
+        boxShadow: multiSelectMode ? "0 2px 6px rgba(124,58,237,.2)" : pill.boxShadow,
+      }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>{multiSelectMode ? "Multi-ON" : "Multi"}
       </button>
-      {selectionSize > 0 && <button onClick={onClear} title="Clear selection" style={{ ...pill, color: "#EF4444", borderColor: "#FECACA" }} onMouseEnter={e => { const t = e.currentTarget; t.style.background = "#FEF2F2"; }} onMouseLeave={pillLeave}>Clear ({selectionSize})</button>}
+      {selectionSize > 0 && (
+        <button onClick={onClear} title="Clear Selection" style={{ ...pill, color: "#991B1B", borderColor: "#FCA5A5", background: "#FEF2F2" }} onMouseEnter={e => { const t = e.currentTarget; t.style.background = "#FEE2E2"; t.style.borderColor = "#EF4444"; }} onMouseLeave={e => { const t = e.currentTarget; t.style.background = "#FEF2F2"; t.style.borderColor = "#FCA5A5"; }}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>Clear ({selectionSize})
+        </button>
+      )}
 
-      <span style={{ width: 1, height: 14, background: "#E2E8F0", margin: "0 2px" }} />
+      <span style={{ width: 1, height: 16, background: "#CBD5E1", margin: "0 2px", flexShrink: 0 }} />
 
-      <button onClick={onLink} disabled={selectionSize < 2} title="Link selected tasks" style={{ ...pill, ...disabledPill(selectionSize >= 2), borderColor: "#C7D2FE" }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+      {/* ── LINK + SAVE ── */}
+      <button onClick={onLink} disabled={selectionSize < 2} title="Link Selected Tasks (2+ required)" style={{ ...pill, ...disabledPill(selectionSize >= 2), borderColor: "#C7D2FE", color: selectionSize >= 2 ? "#3730A3" : undefined }} onMouseEnter={selectionSize >= 2 ? pillHover : undefined} onMouseLeave={selectionSize >= 2 ? pillLeave : undefined}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Link
       </button>
-      <button onClick={onSave} title="Save project" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+      <button onClick={onSave} title="Save Project" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Save
       </button>
     </div>
@@ -1828,9 +1847,10 @@ export default function GanttPlanner() {
         tasksExist={(tasksQuery.data || []).length > 0}
       />
 
-      {/* Quick Action Bar */}
-      <div className="gantt-page-wrap" style={{ padding: "0 16px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
-        <QuickActionBar
+      {/* Quick Action Bar — sticky below main toolbar */}
+      <div style={{ position: "sticky", top: 76, zIndex: 90, background: "#F1F5F9", borderBottom: "1px solid #D6DFE8", boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}>
+        <div className="gantt-page-wrap" style={{ padding: "6px 16px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+          <QuickActionBar
           onAdd={startAdd}
           onInsertAbove={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskAbove(t); } : undefined}
           onInsertBelow={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskBelow(t); } : undefined}
@@ -1841,7 +1861,9 @@ export default function GanttPlanner() {
           onLink={() => setLinkModalOpen(true)}
           onSave={handleSave}
           selectedTaskId={selectedTaskId}
+          selectedTaskName={selectedTaskId ? taskList.find((t: any) => t.id === selectedTaskId)?.text?.slice(0, 22) || undefined : undefined}
         />
+        </div>
       </div>
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) handleImportExcel(e.target.files[0]); }} />
 
