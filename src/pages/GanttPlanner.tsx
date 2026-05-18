@@ -1009,6 +1009,7 @@ export default function GanttPlanner() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const lastSavedJsonRef = useRef<string>("");
   const [importSourceName, setImportSourceName] = useState<string>("");
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   /* Persist current project to localStorage so it survives refresh */
   useEffect(() => {
@@ -1354,6 +1355,95 @@ export default function GanttPlanner() {
     return "";
   };
 
+  /* ─── Export Template — Empty Excel with headers + sample row ─── */
+  const exportTemplate = () => {
+    const COLUMN_ORDER = [
+      "Task ID", "Parent Task", "WBS Level", "Task Name", "Owner",
+      "Start", "Finish", "Duration", "Progress",
+      "Dependency", "Dependency Type", "Lag (days)", "Milestone", "Category", "Status", "Notes",
+    ];
+    const sampleRows = [
+      { "Task ID": 1, "Parent Task": 0, "WBS Level": 1, "Task Name": "Sample Project", "Owner": "Engineer A", "Start": "2025-01-01", "Finish": "2025-06-30", "Duration": 180, "Progress": 0, "Dependency": "", "Dependency Type": "", "Lag (days)": 0, "Milestone": "No", "Category": "General", "Status": "Not Started", "Notes": "Project kickoff" },
+      { "Task ID": 2, "Parent Task": 1, "WBS Level": 2, "Task Name": "Site Inspection", "Owner": "Engineer B", "Start": "2025-01-01", "Finish": "2025-01-15", "Duration": 14, "Progress": 50, "Dependency": 1, "Dependency Type": "FS", "Lag (days)": 0, "Milestone": "No", "Category": "Inspection", "Status": "In Progress", "Notes": "Initial site walk" },
+      { "Task ID": 3, "Parent Task": 1, "WBS Level": 2, "Task Name": "Equipment Install", "Owner": "Technician C", "Start": "2025-01-16", "Finish": "2025-03-15", "Duration": 58, "Progress": 0, "Dependency": 2, "Dependency Type": "FS", "Lag (days)": 0, "Milestone": "No", "Category": "Installation", "Status": "Not Started", "Notes": "Wait for inspection" },
+      { "Task ID": 4, "Parent Task": 0, "WBS Level": 1, "Task Name": "Milestone: Handover", "Owner": "Manager D", "Start": "2025-06-30", "Finish": "2025-06-30", "Duration": 1, "Progress": 0, "Dependency": "", "Dependency Type": "", "Lag (days)": 0, "Milestone": "Yes", "Category": "Milestone", "Status": "Not Started", "Notes": "Project completion" },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sampleRows, { header: COLUMN_ORDER });
+    const colWidths = [
+      { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 30 }, { wch: 18 },
+      { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
+      { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 20 }, { wch: 25 },
+    ];
+    ws["!cols"] = colWidths;
+    // Add header style note as first comment
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Gantt Tasks");
+    // Add instruction sheet
+    const instructions = [
+      { "Column": "Task ID", "Description": "Unique numeric ID for each task", "Required": "Yes", "Example": "1, 2, 3" },
+      { "Column": "Parent Task", "Description": "Task ID of parent (0 = root level)", "Required": "No", "Example": "0, 1, 1" },
+      { "Column": "WBS Level", "Description": "Hierarchy level (1 = project, 2 = phase, etc.)", "Required": "No", "Example": "1, 2, 2" },
+      { "Column": "Task Name", "Description": "Name of the task", "Required": "Yes", "Example": "Site Inspection" },
+      { "Column": "Owner", "Description": "Person responsible", "Required": "No", "Example": "Engineer A" },
+      { "Column": "Start", "Description": "Actual start date (YYYY-MM-DD)", "Required": "No", "Example": "2025-01-01" },
+      { "Column": "Finish", "Description": "Actual finish date (YYYY-MM-DD)", "Required": "No", "Example": "2025-01-15" },
+      { "Column": "Duration", "Description": "Duration in days (auto-calculated if dates provided)", "Required": "No", "Example": "14" },
+      { "Column": "Progress", "Description": "Completion percentage (0-100)", "Required": "No", "Example": "50" },
+      { "Column": "Dependency", "Description": "Task ID of predecessor", "Required": "No", "Example": "1" },
+      { "Column": "Dependency Type", "Description": "FS, SS, FF, or SF", "Required": "No", "Example": "FS" },
+      { "Column": "Lag (days)", "Description": "Lag/lead days for dependency", "Required": "No", "Example": "0" },
+      { "Column": "Milestone", "Description": "Yes = milestone, No = regular task", "Required": "No", "Example": "No" },
+      { "Column": "Category", "Description": "Task category or phase", "Required": "No", "Example": "Inspection" },
+      { "Column": "Status", "Description": "Auto-derived from dates if left blank", "Required": "No", "Example": "In Progress" },
+      { "Column": "Notes", "Description": "Additional notes or remarks", "Required": "No", "Example": "Notes here" },
+    ];
+    const wsInst = XLSX.utils.json_to_sheet(instructions);
+    wsInst["!cols"] = [{ wch: 20 }, { wch: 50 }, { wch: 10 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(wb, wsInst, "Instructions");
+    XLSX.writeFile(wb, "Gantt_Task_Template.xlsx");
+    setBanner({ type: "info", message: "Template downloaded. Fill in your tasks and import." });
+  };
+
+  /* ─── Export CSV — 15-column format ─── */
+  const exportCSV = () => {
+    const rawTasks = tasksQuery.data || [];
+    const rows = rawTasks.map((t: any) => ({
+      "Task ID": resolveField(t, "id", "task_id", "taskId"),
+      "Parent Task": resolveField(t, "parent", "parentId", "parent_task"),
+      "WBS Level": resolveField(t, "wbsLevel", "wbs_level", "wbs"),
+      "Task Name": resolveField(t, "text", "name", "task_name"),
+      "Owner": resolveField(t, "owner", "assignee"),
+      "Start": normalizeExcelDate(resolveField(t, "startDate", "start", "actualStart")),
+      "Finish": normalizeExcelDate(resolveField(t, "endDate", "finish", "actualEnd")),
+      "Duration": resolveField(t, "duration", "dur"),
+      "Progress": normProgress(resolveField(t, "progress", "percent")),
+      "Dependency": resolveField(t, "dependency", "predecessorId", "predecessor"),
+      "Dependency Type": resolveField(t, "dependencyType", "linkType") || "FS",
+      "Lag (days)": resolveField(t, "lag", "lag_days") || "0",
+      "Milestone": t.type === "milestone" ? "Yes" : "No",
+      "Category": resolveField(t, "category", "cat"),
+      "Status": resolveField(t, "status") || rowStatus(t),
+      "Notes": resolveField(t, "remarks", "notes"),
+    }));
+
+    const COLUMN_ORDER = [
+      "Task ID", "Parent Task", "WBS Level", "Task Name", "Owner",
+      "Start", "Finish", "Duration", "Progress",
+      "Dependency", "Dependency Type", "Lag (days)", "Milestone", "Category", "Status", "Notes",
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{}], { header: COLUMN_ORDER });
+    const csv = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = rawTasks.length > 0 ? "Gantt_Tasks.csv" : "Gantt_Task_Template.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  };
+
   /* ─── Excel Export — 15-column format with field variant support ─── */
   const exportExcel = () => {
     // Debug: log the raw data source
@@ -1579,6 +1669,17 @@ export default function GanttPlanner() {
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showExportMenu]);
 
 interface TaskForm {
   text: string; owner: string;
@@ -1627,10 +1728,30 @@ const startEdit = (t: any) => {
           </div>
         </Link>
         <div className="gantt-header-buttons">
-          <button onClick={exportExcel} className="gantt-action-btn export-btn" title="Export to Excel">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span>Export Excel</span>
-          </button>
+          {/* Export dropdown */}
+          <div ref={exportMenuRef} style={{ position: "relative", display: "inline-flex" }}>
+            <button onClick={() => { setShowExportMenu(v => !v); }} className="gantt-action-btn export-btn" title="Export options">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Export ▾</span>
+            </button>
+            {showExportMenu && (
+              <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 150, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.15)", minWidth: 180, marginTop: 4, fontFamily: "Inter, sans-serif" }}>
+                <button onClick={() => { exportExcel(); setShowExportMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1E293B" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  Export Excel
+                </button>
+                <button onClick={() => { exportCSV(); setShowExportMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1E293B" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  Export CSV
+                </button>
+                <button onClick={() => { exportTemplate(); setShowExportMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1E293B", borderTop: "1px solid #E2E8F0" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                  Download Template
+                </button>
+              </div>
+            )}
+          </div>
+          {/* Import button */}
           <button onClick={() => fileInputRef.current?.click()} className="gantt-action-btn import-btn" title="Import from Excel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <span>Import Excel</span>
