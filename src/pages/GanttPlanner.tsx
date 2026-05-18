@@ -521,6 +521,11 @@ function QuickActionBar({
       <button onClick={onAdd} title="Add Task (Ctrl+N)" style={{ ...pill, background: "#1F9D55", color: "#fff", borderColor: "#1F9D55", boxShadow: "0 2px 6px rgba(31,157,85,.25)" }} onMouseEnter={e => (e.currentTarget.style.background = "#15803D")} onMouseLeave={e => (e.currentTarget.style.background = "#1F9D55")}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add
       </button>
+      {selectedTaskId && onDelete && (
+        <button onClick={onDelete} title="Delete selected task" style={{ ...pill, color: "#DC2626", borderColor: "#FECACA", background: "#FEF2F2" }} onMouseEnter={e => { const t = e.currentTarget; t.style.background = "#FEE2E2"; t.style.borderColor = "#EF4444"; }} onMouseLeave={e => { const t = e.currentTarget; t.style.background = "#FEF2F2"; t.style.borderColor = "#FECACA"; }}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Delete
+        </button>
+      )}
 
       {selectedTaskId && (
         <>
@@ -1851,6 +1856,7 @@ export default function GanttPlanner() {
           onInsertBelow={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskBelow(t); } : undefined}
           onInsertChild={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskChild(t); } : undefined}
           onIndent={handleIndent} onOutdent={handleOutdent}
+          onDelete={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t && confirm(`Delete "${t.text || 'this task'}"?`)) deleteTaskMut.mutate({ id: selectedTaskId }); } : undefined}
           onMulti={() => setMultiSelectMode(!multiSelectMode)} multiSelectMode={multiSelectMode}
           onClear={clearSelection} selectionSize={selectedIds.size}
           onLink={() => setLinkModalOpen(true)}
