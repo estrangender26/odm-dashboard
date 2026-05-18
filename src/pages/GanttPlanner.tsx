@@ -42,6 +42,10 @@ interface TaskForm {
   duration: number; progress: number;
   status: string; remarks: string;
   type: string; parent: number;
+  /* Scheduling Dependencies */
+  predecessorId: number;
+  depType: string;
+  lagDays: number;
 }
 
 interface KpiData {
@@ -59,6 +63,7 @@ const EMPTY_FORM: TaskForm = {
   text: "", owner: "", plannedStart: "", plannedEnd: "",
   actualStart: "", actualEnd: "", duration: 1, progress: 0,
   status: "", remarks: "", type: "task", parent: 0,
+  predecessorId: 0, depType: "FS", lagDays: 0,
 };
 
 const ZOOM_LABELS: Record<ZoomLevel, string> = {
@@ -76,7 +81,10 @@ const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
    MODULE-LEVEL PURE HELPERS (no hooks, no React dependencies)
    ═══════════════════════════════════════════════════════════════════ */
 
-function taskToForm(t: any): TaskForm {
+function taskToForm(t: any, links?: any[]): TaskForm {
+  // Find existing dependency where this task is the successor
+  const existingDep = links?.find((l: any) => l.target === t.id || l.successorTaskId === t.id);
+  const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
   return {
     text: t.text || "", owner: t.owner || "",
     plannedStart: t.plannedStart ? String(t.plannedStart).slice(0, 10) : "",
@@ -86,6 +94,9 @@ function taskToForm(t: any): TaskForm {
     duration: t.duration || 1, progress: normProgress(t.progress),
     status: rowStatus(t), remarks: t.remarks || "",
     type: t.type || "task", parent: t.parent || 0,
+    predecessorId: existingDep?.source || existingDep?.predecessorTaskId || 0,
+    depType: typeMap[existingDep?.type] || existingDep?.dependencyType || "FS",
+    lagDays: existingDep?.lag || existingDep?.lagDays || 0,
   };
 }
 
@@ -911,7 +922,7 @@ export default function GanttPlanner() {
 
   /* ═══════ SECTION 6: PLAIN FUNCTIONS (SIXTH — after all hooks) ═══════ */
 
-  const startEdit = (t: any) => { setEditingId(t.id); setForm(taskToForm(t)); setShowAdd(false); };
+  const startEdit = (t: any) => { setEditingId(t.id); setForm(taskToForm(t, linksQuery.data || [])); setShowAdd(false); };
   const startAdd = () => { setEditingId(null); setForm(EMPTY_FORM); setShowAdd(true); };
 
   const submitForm = useCallback(() => {
@@ -935,7 +946,24 @@ export default function GanttPlanner() {
     };
     if (editingId) payload.id = editingId;
     saveTaskMut.mutate(payload, {
-      onSuccess: () => {
+      onSuccess: (result: any) => {
+        const savedTaskId = editingId || result?.id;
+        // Save dependency if predecessor selected
+        if (form.predecessorId && savedTaskId && form.predecessorId !== savedTaskId) {
+          const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
+          // Delete any existing dependency where this task is the successor
+          const existing = (linksQuery.data || []).find((l: any) => l.target === savedTaskId || l.successorTaskId === savedTaskId);
+          if (existing) {
+            deleteLinkMut.mutate({ id: existing.id });
+          }
+          saveLinkMut.mutate({
+            source: form.predecessorId,
+            target: savedTaskId,
+            type: typeMap[form.depType] || "0",
+            lag: form.lagDays,
+            projectId: currentProjectId ?? undefined,
+          });
+        }
         runAutoSchedule(editingId || undefined);
         // Trigger parent rollups after save
         const allTasks = tasksQuery.data || [];
@@ -1108,6 +1136,33 @@ export default function GanttPlanner() {
               <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="task">Task</option><option value="milestone">Milestone</option><option value="project">Project</option></select></div>
               <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Parent</label><select value={form.parent||""} onChange={e => setForm({...form, parent: e.target.value?parseInt(e.target.value):0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(tasksQuery.data||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
               <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Remarks</label><input value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Notes..." /></div>
+            </div>
+
+            {/* ── Scheduling Dependencies ── */}
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #E2E8F0" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#7C3AED", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8 }}>🔗 Scheduling Dependencies</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "8px 10px" }}>
+                <div>
+                  <label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Predecessor Task</label>
+                  <select value={form.predecessorId || ""} onChange={e => setForm({...form, predecessorId: e.target.value ? parseInt(e.target.value) : 0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}>
+                    <option value="">(None)</option>
+                    {(tasksQuery.data || []).filter((t: any) => t.id !== editingId).map((t: any) => <option key={t.id} value={t.id}>{t.text}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Dependency Type</label>
+                  <select value={form.depType} onChange={e => setForm({...form, depType: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}>
+                    <option value="FS">FS — Finish-to-Start</option>
+                    <option value="SS">SS — Start-to-Start</option>
+                    <option value="FF">FF — Finish-to-Finish</option>
+                    <option value="SF">SF — Start-to-Finish</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Lag / Lead (days)</label>
+                  <input type="number" value={form.lagDays} onChange={e => setForm({...form, lagDays: parseInt(e.target.value) || 0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} title="Positive = lag (delay), Negative = lead (overlap)" />
+                </div>
+              </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
               <button onClick={submitForm} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, background: "#1F9D55", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontFamily: "Inter" }}>Save</button>
