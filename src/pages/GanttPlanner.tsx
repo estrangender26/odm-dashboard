@@ -257,6 +257,9 @@ interface NativeGanttChartProps {
   toggleSelect: (id: number, ctrl: boolean, shift: boolean) => void;
   links: any[];
   onEditTask: (task: GanttTask) => void;
+  onInsertAbove?: (task: GanttTask) => void;
+  onInsertBelow?: (task: GanttTask) => void;
+  onInsertChild?: (task: GanttTask) => void;
 }
 
 interface _TaskNode {
@@ -299,7 +302,7 @@ function _flattenVisible(nodes: _TaskNode[]): { task: GanttTask; level: number; 
   return result;
 }
 
-function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, toggleSelect, links: _links, onEditTask }: NativeGanttChartProps) {
+function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, toggleSelect, links: _links, onEditTask, onInsertAbove, onInsertBelow, onInsertChild }: NativeGanttChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
@@ -494,6 +497,12 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                   {level === 0 && !hasChildren && <span className="w-3.5 flex-shrink-0" />}
                   {level > 0 && <span style={{ fontSize: 7, color: "#fff", background: "#005BAC", borderRadius: 3, padding: "0 3px", marginRight: 3, marginTop: 2, flexShrink: 0, fontWeight: 700, lineHeight: 1.4 }}>L{level}</span>}
                   <span className="gantt-task-name" style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", color: hasChildren ? "#1E3A5F" : "#2D3748", fontWeight: hasChildren ? 700 : level > 0 ? 500 : 400, fontSize: hasChildren ? 12 : 11, marginLeft: 2, lineHeight: 1.35, wordBreak: "break-word" }} title={task.text}>{task.text || "Untitled"}</span>
+                </span>
+                {/* Insert action buttons — hover-reveal */}
+                <span className="gantt-insert-actions" style={{ display: "flex", gap: 1, opacity: isSelected ? 1 : 0, transition: "opacity 0.15s", flexShrink: 0, marginLeft: 2 }}>
+                  {onInsertAbove && <button type="button" title="Insert above" onClick={(e) => { e.stopPropagation(); onInsertAbove(task); }} style={{ fontSize: 8, padding: "1px 3px", background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 3, cursor: "pointer", lineHeight: 1 }}>⬆</button>}
+                  {onInsertBelow && <button type="button" title="Insert below" onClick={(e) => { e.stopPropagation(); onInsertBelow(task); }} style={{ fontSize: 8, padding: "1px 3px", background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 3, cursor: "pointer", lineHeight: 1 }}>⬇</button>}
+                  {onInsertChild && <button type="button" title="Insert child" onClick={(e) => { e.stopPropagation(); onInsertChild(task); }} style={{ fontSize: 8, padding: "1px 3px", background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0", borderRadius: 3, cursor: "pointer", lineHeight: 1 }}>➕</button>}
                 </span>
               </div>
             );
@@ -764,6 +773,7 @@ export default function GanttPlanner() {
   const [isSaving, setIsSaving] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkType, setLinkType] = useState("0");
   const [linkLag, setLinkLag] = useState(0);
@@ -807,6 +817,10 @@ export default function GanttPlanner() {
   const saveLinksBatchMut = trpc.gantt.saveLinksBatch.useMutation({
     onSuccess: () => utils.gantt.links.invalidate(),
     onError: (e: any) => console.error("[saveLinksBatch] FAILED:", e.message),
+  });
+  const reorderTasksMut = trpc.gantt.reorderTasks.useMutation({
+    onSuccess: () => utils.gantt.tasks.invalidate(),
+    onError: (e: any) => console.error("[reorderTasks] FAILED:", e.message),
   });
   const resetMut = trpc.gantt.resetAll.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
@@ -1191,6 +1205,114 @@ export default function GanttPlanner() {
     setShowAdd(true);
   };
 
+  /* ─── INSERT TASK HELPERS ─── */
+  const normalizeSortOrder = useCallback(async (tasks: any[]) => {
+    /* Sort by current sortorder, then assign sequential integers */
+    const sorted = [...tasks].sort((a, b) => (a.sortorder ?? a.id) - (b.sortorder ?? b.id));
+    const reorders = sorted.map((t, i) => ({ id: t.id, sortorder: (i + 1) * 10 }));
+    if (reorders.length > 0) {
+      try { await reorderTasksMut.mutateAsync(reorders); } catch { /* non-critical */ }
+    }
+  }, [reorderTasksMut]);
+
+  const insertTaskAbove = useCallback(async (targetTask: any) => {
+    const currentTasks = tasksQuery.data || [];
+    const targetSort = targetTask.sortorder ?? targetTask.sort_order ?? currentTasks.length * 10;
+    const newUid = generateUid();
+    const newSort = targetSort - 5; /* insert between */
+    const payload = {
+      frontend_task_uid: newUid,
+      text: "New Task",
+      duration: 1, progress: 0,
+      sortorder: newSort,
+      wbs_level: targetTask.wbs_level ?? targetTask.wbsLevel ?? 0,
+      type: "task", parent: targetTask.parent ?? 0,
+      parent_frontend_uid: targetTask.parentFrontendUid || targetTask.parent_frontend_uid || null,
+      start_date: null, end_date: null,
+      planned_start: null, planned_end: null,
+      status: "Not Started",
+    };
+    try {
+      await saveTaskMut.mutateAsync(payload);
+      await utils.gantt.tasks.invalidate();
+      const fresh = await refetchTasks();
+      const freshArr = fresh.data || [];
+      setTaskList(freshArr);
+      await normalizeSortOrder(freshArr);
+      /* Find and edit the new task */
+      const newTask = freshArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === newUid);
+      if (newTask) startEdit(newTask);
+      else setBanner({ type: "success", message: "Task inserted above." });
+    } catch (e: any) { setBanner({ type: "error", message: "Insert failed: " + e.message }); }
+  }, [tasksQuery.data, saveTaskMut, utils, refetchTasks, normalizeSortOrder, startEdit]);
+
+  const insertTaskBelow = useCallback(async (targetTask: any) => {
+    const currentTasks = tasksQuery.data || [];
+    const targetSort = targetTask.sortorder ?? targetTask.sort_order ?? currentTasks.length * 10;
+    const newUid = generateUid();
+    const newSort = targetSort + 5; /* insert between */
+    const payload = {
+      frontend_task_uid: newUid,
+      text: "New Task",
+      duration: 1, progress: 0,
+      sortorder: newSort,
+      wbs_level: targetTask.wbs_level ?? targetTask.wbsLevel ?? 0,
+      type: "task", parent: targetTask.parent ?? 0,
+      parent_frontend_uid: targetTask.parentFrontendUid || targetTask.parent_frontend_uid || null,
+      start_date: null, end_date: null,
+      planned_start: null, planned_end: null,
+      status: "Not Started",
+    };
+    try {
+      await saveTaskMut.mutateAsync(payload);
+      await utils.gantt.tasks.invalidate();
+      const fresh = await refetchTasks();
+      const freshArr = fresh.data || [];
+      setTaskList(freshArr);
+      await normalizeSortOrder(freshArr);
+      const newTask = freshArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === newUid);
+      if (newTask) startEdit(newTask);
+      else setBanner({ type: "success", message: "Task inserted below." });
+    } catch (e: any) { setBanner({ type: "error", message: "Insert failed: " + e.message }); }
+  }, [tasksQuery.data, saveTaskMut, utils, refetchTasks, normalizeSortOrder, startEdit]);
+
+  const insertTaskChild = useCallback(async (targetTask: any) => {
+    const currentTasks = tasksQuery.data || [];
+    const parentId = targetTask.id;
+    const parentUid = targetTask.frontendTaskUid || targetTask.frontend_task_uid || "";
+    /* Find max sortorder among existing children */
+    const siblings = currentTasks.filter((t: any) => (t.parent ?? 0) === parentId);
+    const maxSort = siblings.length > 0
+      ? Math.max(...siblings.map((t: any) => t.sortorder ?? t.sort_order ?? 0))
+      : (targetTask.sortorder ?? targetTask.sort_order ?? 0);
+    const newUid = generateUid();
+    const payload = {
+      frontend_task_uid: newUid,
+      text: "New Subtask",
+      duration: 1, progress: 0,
+      sortorder: maxSort + 10,
+      wbs_level: (targetTask.wbs_level ?? targetTask.wbsLevel ?? 0) + 1,
+      type: "task", parent: parentId,
+      parent_frontend_uid: parentUid || null,
+      start_date: null, end_date: null,
+      planned_start: null, planned_end: null,
+      status: "Not Started",
+    };
+    try {
+      await saveTaskMut.mutateAsync(payload);
+      await utils.gantt.tasks.invalidate();
+      const fresh = await refetchTasks();
+      const freshArr = fresh.data || [];
+      setTaskList(freshArr);
+      await normalizeSortOrder(freshArr);
+      /* Auto-expand parent */
+      setExpandedIds(prev => { const n = new Set(prev); n.add(parentId); return n; });
+      const newTask = freshArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === newUid);
+      if (newTask) startEdit(newTask);
+      else setBanner({ type: "success", message: "Child task inserted." });
+    } catch (e: any) { setBanner({ type: "error", message: "Insert child failed: " + e.message }); }
+  }, [tasksQuery.data, saveTaskMut, utils, refetchTasks, normalizeSortOrder, startEdit]);
+
   const submitForm = useCallback(async () => {
     if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
     setIsSaving(true);
@@ -1477,7 +1599,7 @@ export default function GanttPlanner() {
               )}
             </div>
             <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-              <NativeGanttChart tasks={(tasksQuery.data || []) as GanttTask[]} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} onEditTask={startEdit} />
+              <NativeGanttChart tasks={(tasksQuery.data || []) as GanttTask[]} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} onEditTask={startEdit} onInsertAbove={insertTaskAbove} onInsertBelow={insertTaskBelow} onInsertChild={insertTaskChild} />
             </div>
           </div>
         )}

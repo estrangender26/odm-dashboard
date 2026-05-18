@@ -5,9 +5,9 @@ import { ganttTasks, ganttDependencies } from "@db/schema";
 import { eq, sql, and } from "drizzle-orm";
 
 export const ganttRouter = createRouter({
-  // ── Get all tasks (with UID fields) ──
+  // ── Get all tasks (ordered by sortorder for display sequence) ──
   tasks: publicQuery.query(async () => {
-    const tasks = await db.select().from(ganttTasks).orderBy(ganttTasks.id);
+    const tasks = await db.select().from(ganttTasks).orderBy(ganttTasks.sortorder, ganttTasks.id);
     return tasks;
   }),
 
@@ -488,4 +488,14 @@ export const ganttRouter = createRouter({
     }
     return { seeded: true, count: 1 + childDefs.length };
   }),
+
+  // ── Reorder tasks: batch update sortorder ──
+  reorderTasks: publicQuery
+    .input(z.array(z.object({ id: z.number(), sortorder: z.number() })))
+    .mutation(async ({ input }) => {
+      for (const item of input) {
+        await db.update(ganttTasks).set({ sortorder: item.sortorder }).where(eq(ganttTasks.id, item.id));
+      }
+      return { updated: input.length };
+    }),
 });
