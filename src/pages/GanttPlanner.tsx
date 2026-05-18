@@ -348,7 +348,7 @@ function GanttToolbar({
           </div>
         </Link>
         {/* Mobile hamburger */}
-        <button className="gantt-mobile-hamburger" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} style={{ display: "none", background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 4 }}>
+        <button className="gantt-mobile-hamburger" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 4 }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
@@ -2214,7 +2214,7 @@ export default function GanttPlanner() {
         @keyframes ganttTooltipIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
         /* Toolbar responsive */
         .gantt-desktop-toolbar { display: flex; }
-        .gantt-mobile-hamburger { display: none; }
+        .gantt-mobile-hamburger { display: none !important; }
         .toolbar-label { display: inline; }
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
@@ -2229,7 +2229,12 @@ export default function GanttPlanner() {
           .gantt-task-col { width: 180px !important; min-width: 180px !important; }
           .gantt-task-name { font-size: 10px !important; }
           .gantt-zoom-info { display: none !important; }
-          /* Toolbar: show hamburger, hide desktop bar */
+          /* Toolbar: icon-only mode at 768px */
+          .toolbar-label { display: none !important; }
+          .gantt-desktop-toolbar { gap: 2px !important; padding: "4px 8px" !important; overflow-x: auto !important; }
+        }
+        @media (max-width: 540px) {
+          /* Only at very small widths: show hamburger, hide desktop bar */
           .gantt-desktop-toolbar { display: none !important; }
           .gantt-mobile-hamburger { display: flex !important; }
         }
