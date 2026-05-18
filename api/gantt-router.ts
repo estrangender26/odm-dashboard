@@ -248,7 +248,7 @@ export const ganttRouter = createRouter({
   }),
 
   // ── Migrate: create gantt_dependencies table, migrate from gantt_links ──
-  migrate: publicQuery.query(async () => {
+  migrate: publicQuery.mutation(async () => {
     // Create gantt_dependencies table if it doesn't exist
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS gantt_dependencies (
