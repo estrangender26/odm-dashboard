@@ -1000,63 +1000,164 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
   );
 }
 
-function TaskListTab({ tasks, deleteTask, setBanner, onEditTask, onAddTask }: { tasks: any[]; deleteTask: any; setBanner: (b: {type: "error" | "success" | "info"; message: string} | null) => void; onEditTask: (task: any) => void; onAddTask: () => void }) {
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const validTasks = tasks.filter((t: any) => t.text && t.text.trim() && t.text.trim() !== "-");
-  const taskTree = useMemo(() => buildTaskTree(validTasks), [validTasks]);
-  const applyExpanded = useCallback((nodes: any[]): any[] => {
-    return nodes.map((n: any) => ({ ...n, isExpanded: !expandedIds.has(n.task.id), children: applyExpanded(n.children) }));
-  }, [expandedIds]);
-  const visibleTree = useMemo(() => applyExpanded(taskTree), [taskTree, applyExpanded]);
-  const visibleFlat = useMemo(() => flattenVisible(visibleTree), [visibleTree]);
-  const toggleExpand = useCallback((id: number) => {
-    setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  }, []);
+interface TaskListTabProps {
+  tasks: any[];
+  allTasks: any[];
+  saveTask: any;
+  deleteTask: any;
+  setBanner: (b: { type: "error" | "success" | "info"; message: string } | null) => void;
+  onEditTask: (task: any) => void;
+  onAddTask: () => void;
+}
+
+const GRID_COLS = [
+  { key: "text", label: "Task Name", w: 200, type: "text" },
+  { key: "owner", label: "Owner", w: 90, type: "text" },
+  { key: "parent", label: "Parent", w: 130, type: "parent" },
+  { key: "predecessor", label: "Predecessor", w: 130, type: "predecessor" },
+  { key: "plannedStart", label: "Planned Start", w: 110, type: "date" },
+  { key: "plannedEnd", label: "Planned End", w: 110, type: "date" },
+  { key: "actualStart", label: "Actual Start", w: 110, type: "date" },
+  { key: "actualEnd", label: "Actual End", w: 110, type: "date" },
+  { key: "duration", label: "Dur", w: 45, type: "number" },
+  { key: "progress", label: "%", w: 45, type: "number" },
+  { key: "status", label: "Status", w: 110, type: "status" },
+  { key: "type", label: "Type", w: 70, type: "text" },
+  { key: "notes", label: "Notes", w: 140, type: "text" },
+];
+const STATUS_OPTS = ["Not Started", "In Progress", "In Progress (Delayed)", "Completed", "Overdue", "Delayed", "Planned"];
+const CALC_FIELDS = ["plannedStart", "plannedEnd", "actualStart", "actualEnd", "duration", "progress"];
+
+function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask }: TaskListTabProps) {
+  const [editing, setEditing] = useState<{ rowId: number; colKey: string } | null>(null);
+  const [editVal, setEditVal] = useState("");
+  const [dirty, setDirty] = useState<Set<number>>(new Set());
+  const inpRef = useRef<any>(null);
+  useEffect(() => { if (editing) { setTimeout(() => { inpRef.current?.focus(); inpRef.current?.select?.(); }, 0); } }, [editing]);
+
+  const isParentR = (t: any) => hasChildren(t.id, allTasks);
+  const isReadOnly = (t: any, ck: string) => isParentR(t) && CALC_FIELDS.includes(ck);
+
+  const getVal = (t: any, ck: string) => {
+    if (ck === "parent") return String(t.parent ?? t.parentTaskId ?? 0);
+    if (ck === "predecessor") return String(t.predecessorTaskId ?? t.predecessor_task_id ?? 0);
+    return t[ck] ?? "";
+  };
+
+  const beginEdit = (t: any, col: any) => {
+    if (isReadOnly(t, col.key)) return;
+    setEditing({ rowId: t.id, colKey: col.key });
+    setEditVal(getVal(t, col.key));
+  };
+
+  const doSave = async (t: any, col: any) => {
+    if (!editing || editing.rowId !== t.id || editing.colKey !== col.key) return;
+    let v: any = editVal;
+    if (col.type === "number") { v = parseInt(v) || 0; if (col.key === "progress") v = Math.min(100, Math.max(0, v)); }
+    if (col.key === "parent" || col.key === "predecessor") v = parseInt(v) || 0;
+    const payload: any = { id: t.id, task_name: t.taskName ?? t.text ?? "" };
+    if (col.key === "text") payload.task_name = v;
+    else if (col.key === "owner") payload.owner = v || null;
+    else if (col.key === "parent") payload.parent_task_id = v;
+    else if (col.key === "predecessor") payload.predecessor_task_id = v || null;
+    else if (col.key === "plannedStart") payload.planned_start = v || null;
+    else if (col.key === "plannedEnd") payload.planned_finish = v || null;
+    else if (col.key === "actualStart") payload.actual_start = v || null;
+    else if (col.key === "actualEnd") payload.actual_finish = v || null;
+    else if (col.key === "duration") payload.planned_duration = v;
+    else if (col.key === "progress") payload.progress_percent = v;
+    else if (col.key === "status") payload.status = v || null;
+    else if (col.key === "type") { payload.task_type = v; payload.is_milestone = v === "milestone" ? 1 : 0; }
+    else if (col.key === "notes") payload.notes = v || null;
+    payload.frontend_task_uid = t.frontendTaskUid || t.frontend_task_uid || undefined;
+    payload.wbs_level = t.wbsLevel ?? t.wbs_level ?? 0;
+    payload.sort_order = t.sortOrder ?? t.sortorder ?? 0;
+    try { await saveTask.mutateAsync(payload); setDirty(p => { const n = new Set(p); n.delete(t.id); return n; }); }
+    catch (e: any) { setBanner({ type: "error", message: "Save failed: " + e.message }); }
+    setEditing(null);
+  };
+
+  const onKey = (e: React.KeyboardEvent, t: any, col: any, ci: number, ri: number) => {
+    if (e.key === "Enter") { e.preventDefault(); doSave(t, col); }
+    else if (e.key === "Escape") { e.preventDefault(); setEditing(null); }
+    else if (e.key === "Tab") { e.preventDefault(); doSave(t, col); const ni = e.shiftKey ? (ci - 1 + GRID_COLS.length) % GRID_COLS.length : (ci + 1) % GRID_COLS.length; const nr = e.shiftKey ? (ni === GRID_COLS.length - 1 ? ri - 1 : ri) : (ni === 0 ? ri + 1 : ri); if (nr >= 0 && nr < tasks.length) beginEdit(tasks[nr], GRID_COLS[ni]); }
+  };
+
+  const renderCell = (t: any, col: any, ci: number, ri: number) => {
+    const isEd = editing?.rowId === t.id && editing?.colKey === col.key;
+    const isRo = isReadOnly(t, col.key);
+    const val = getVal(t, col.key);
+
+    if (isRo) return <span style={{ color: "#94A3B8", fontStyle: "italic" }}>{val || "—"}</span>;
+    if (isEd) {
+      const inpStyle = { width: "100%", fontSize: 11, padding: "3px 4px", border: "1.5px solid #005BAC", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" as const, outline: "none", background: "#fff" };
+      if (col.type === "date") return <input ref={inpRef} type="date" value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle} />;
+      if (col.type === "number") return <input ref={inpRef} type="number" min={col.key === "progress" ? 0 : undefined} max={col.key === "progress" ? 100 : undefined} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle} />;
+      if (col.key === "parent") return (
+        <select ref={inpRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle}>
+          <option value="0">(Root)</option>
+          {allTasks.filter((x: any) => x.id !== t.id).map((x: any) => <option key={x.id} value={x.id}>{(x.taskName ?? x.text ?? `Task ${x.id}`).slice(0, 25)}</option>)}
+        </select>
+      );
+      if (col.key === "predecessor") return (
+        <select ref={inpRef} value={editVal} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle}>
+          <option value="0">(None)</option>
+          {allTasks.filter((x: any) => x.id !== t.id).map((x: any) => <option key={x.id} value={x.id}>{(x.taskName ?? x.text ?? `Task ${x.id}`).slice(0, 25)}</option>)}
+        </select>
+      );
+      if (col.key === "status") return (
+        <select ref={inpRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle}>
+          {STATUS_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      );
+      return <input ref={inpRef} type="text" value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle} />;
+    }
+
+    /* display */
+    if (col.key === "status") return <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 10, background: statusBg(val), color: statusColor(val), fontSize: 9, fontWeight: 600 }}>{rowStatus(t)}</span>;
+    if (col.key === "progress") return <span style={{ fontWeight: 700, color: normProgress(val) >= 100 ? "#1F9D55" : "#005BAC" }}>{normProgress(val)}%</span>;
+    if (col.key === "parent" || col.key === "predecessor") { const rt = allTasks.find((x: any) => x.id === (parseInt(val) || 0)); return <span style={{ color: rt ? "#1E293B" : "#94A3B8" }}>{rt ? (rt.taskName ?? rt.text ?? `T${rt.id}`).slice(0, 18) : (val !== "0" && val ? "?" : "—")}</span>; }
+    return <span style={{ color: val ? "#1E293B" : "#94A3B8" }}>{val || "—"}</span>;
+  };
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button onClick={onAddTask} style={{ padding: "8px 14px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Task
-        </button>
-      </div>
-      <div style={{ display: "table", width: "100%", borderCollapse: "collapse", fontSize: 10, fontFamily: "Inter, sans-serif" }}>
-        <div style={{ display: "table-row", fontWeight: 700, color: "#1F2937", background: "#E2E8F0", fontSize: 9, letterSpacing: "0.3px", textTransform: "uppercase" }}>
-          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Task</div>
-          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Owner</div>
-          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Planned</div>
-          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Actual</div>
-          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Duration</div>
-          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Progress</div>
-          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Status</div>
-          <div style={{ display: "table-cell", padding: "6px 8px", borderBottom: "2px solid #CBD5E1" }}>Actions</div>
+    <div style={{ background: "#fff", borderRadius: 10, boxShadow: "0 1px 3px rgba(0,0,0,.08)", border: "1px solid #D6DFE8", overflow: "hidden", display: "flex", flexDirection: "column", flex: 1 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid #D6DFE8", flexShrink: 0 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: "#1E293B", margin: 0 }}>Task Grid ({tasks.length})</h3>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, color: "#8BA3B8" }}>Click cell · Tab navigate · Enter save · Esc cancel</span>
+          <button onClick={onAddTask} style={{ padding: "5px 10px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", gap: 4 }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add
+          </button>
         </div>
-        {visibleFlat.map(({ task, level, hasChildren }: any) => {
-          const canExpand = hasChildren;
-          return (
-            <div key={task.id} style={{ display: "table-row", cursor: "pointer" }} onDoubleClick={() => onEditTask(task)}>
-              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", paddingLeft: `${10 + level * 16}px` }}>
-                {canExpand && <button onClick={(e) => { e.stopPropagation(); toggleExpand(task.id); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 9, color: "#64748B", padding: "0 4px 0 0", lineHeight: 1 }}>{expandedIds.has(task.id) ? "▼" : "▶"}</button>}
-                <span style={{ fontWeight: 600, color: "#1E293B" }}>{task.text}</span>
-              </div>
-              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", color: "#4B5563" }}>{task.owner || "—"}</div>
-              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", color: "#6B7280" }}>{task.plannedStart?.slice(5) || "—"} → {task.plannedEnd?.slice(5) || "—"}</div>
-              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", color: "#6B7280" }}>{task.startDate?.slice(5) || "—"} → {task.endDate?.slice(5) || "—"}</div>
-              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", color: "#4B5563" }}>{task.duration}</div>
-              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0" }}>
-                <div style={{ width: "100%", height: 4, background: "#E2E8F0", borderRadius: 2 }}><div style={{ width: `${Math.min(100, normProgress(task.progress))}%`, height: 4, background: _statusColor(rowStatus(task)), borderRadius: 2 }} /></div>
-                <span style={{ fontSize: 8, color: "#6B7280" }}>{normProgress(task.progress)}%</span>
-              </div>
-              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0" }}><span style={{ color: _statusColor(rowStatus(task)), fontWeight: 600, fontSize: 9 }}>{rowStatus(task)}</span></div>
-              <div style={{ display: "table-cell", padding: "4px 8px", borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>
-                <button onClick={(e) => { e.stopPropagation(); onEditTask(task); }} style={{ fontSize: 9, padding: "2px 6px", background: "#EFF6FF", color: "#005BAC", border: "none", borderRadius: 4, cursor: "pointer", marginRight: 4 }}>Edit</button>
-                <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${task.text}"?`)) deleteTask.mutate({ id: task.id }); }} style={{ fontSize: 9, padding: "2px 6px", background: "#FEF2F2", color: "#DC2626", border: "none", borderRadius: 4, cursor: "pointer" }}>Del</button>
-              </div>
-            </div>
-          );
-        })}
       </div>
-      {visibleFlat.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "#9CA3AF" }}>No tasks found.</div>}
+      <div style={{ overflow: "auto", flex: 1 }}>
+        <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: "Inter, sans-serif", tableLayout: "fixed" }}>
+          <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
+            <tr style={{ background: "#F1F5F9", borderBottom: "2px solid #CBD5E1" }}>
+              {GRID_COLS.map(col => <th key={col.key} style={{ width: col.w, minWidth: col.w, textAlign: col.type === "number" ? "center" : "left", padding: "5px 6px", fontSize: 9, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.4px", borderRight: "1px solid #E2E8F0" }}>{col.label}</th>)}
+              <th style={{ width: 50, minWidth: 50, textAlign: "center", padding: "5px 6px", fontSize: 9, fontWeight: 700, color: "#475569" }}>×</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tasks.map((t: any, ri: number) => {
+              const isP = isParentR(t);
+              return (
+                <tr key={t.id} style={{ borderBottom: "1px solid #F1F5F9", background: isP ? "#EFF6FF" : dirty.has(t.id) ? "#FEF9C3" : "transparent" }}>
+                  {GRID_COLS.map((col, ci) => (
+                    <td key={col.key} onClick={() => beginEdit(t, col)} style={{ padding: "3px 5px", borderRight: "1px solid #F1F5F9", cursor: isReadOnly(t, col.key) ? "default" : "text", overflow: "hidden" }}>
+                      {renderCell(t, col, ci, ri)}
+                    </td>
+                  ))}
+                  <td style={{ padding: "3px 5px", textAlign: "center" }}>
+                    <button onClick={() => { const name = (t.taskName ?? t.text) || "this task"; if (confirm("Delete " + name + "?")) { deleteTask.mutate({ id: t.id }); setBanner({ type: "success", message: "Deleted" }); } }} style={{ padding: "1px 4px", fontSize: 9, fontWeight: 700, background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 3, cursor: "pointer" }}>×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1903,7 +2004,7 @@ export default function GanttPlanner() {
             </div>
           </div>
         )}
-        {activeTab === "tasks" && <TaskListTab tasks={taskList} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} />}
+        {activeTab === "tasks" && <TaskListTab tasks={taskList} allTasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} />}
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
 
         {/* Task Edit/Add Modal */}
