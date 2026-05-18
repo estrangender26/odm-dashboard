@@ -1714,6 +1714,26 @@ const startEdit = (t: any) => {
     setShowAdd(false);
   };
 
+  const startAdd = () => { setEditingId(null); setForm(EMPTY_FORM); setShowAdd(true); };
+
+  const submitForm = () => {
+    if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
+    const autoStatus = deriveStatus({ startDate: form.actualStart, endDate: form.actualEnd, plannedEnd: form.plannedEnd, status: null });
+    const finalStatus = form.status || autoStatus;
+    let finalProgress = Math.min(100, Math.max(0, form.progress));
+    if (form.actualEnd && finalProgress < 100) finalProgress = 100;
+    const payload: any = {
+      text: form.text.trim(), owner: form.owner || null,
+      planned_start: form.plannedStart || null, planned_end: form.plannedEnd || null,
+      start_date: form.actualStart || null, end_date: form.actualEnd || null,
+      duration: form.duration || 1, progress: finalProgress, status: finalStatus,
+      remarks: form.remarks || null, type: form.type || "task", parent: form.parent || 0,
+    };
+    if (editingId) payload.id = editingId;
+    saveTaskMut.mutate(payload);
+    setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
+  };
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
       {/* Header */}
@@ -1920,6 +1940,34 @@ const startEdit = (t: any) => {
         {activeTab === "tasks" && <TaskListTab tasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} />}
 
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
+
+        {/* ─── Task Edit/Add Form ─── */}
+        {(showAdd || editingId) && (
+          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #D6DFE8", boxShadow: "0 4px 16px rgba(0,0,0,.12)", padding: "12px 16px", margin: "8px 0", fontFamily: "Inter, sans-serif" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#16324F" }}>{editingId ? "Edit Task" : "Add New Task"}</h4>
+              <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ background: "none", border: "none", fontSize: 16, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0 }}>&times;</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px 10px" }}>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Task Name *</label><input value={form.text} onChange={e => setForm({...form, text: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Enter task name" /></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Owner</label><input value={form.owner} onChange={e => setForm({...form, owner: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Assignee" /></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Planned Start</label><input type="date" value={form.plannedStart} onChange={e => setForm({...form, plannedStart: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Planned End</label><input type="date" value={form.plannedEnd} onChange={e => setForm({...form, plannedEnd: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Actual Start</label><input type="date" value={form.actualStart} onChange={e => setForm({...form, actualStart: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Actual End</label><input type="date" value={form.actualEnd} onChange={e => setForm({...form, actualEnd: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Duration</label><input type="number" min={1} value={form.duration} onChange={e => setForm({...form, duration: parseInt(e.target.value)||1})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Progress %</label><input type="number" min={0} max={100} value={form.progress} onChange={e => setForm({...form, progress: parseInt(e.target.value)||0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Status</label><select value={form.status} onChange={e => setForm({...form, status: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">Auto</option><option>Not Started</option><option>In Progress</option><option>In Progress (Delayed)</option><option>Completed</option></select></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="task">Task</option><option value="milestone">Milestone</option><option value="project">Project</option></select></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Parent</label><select value={form.parent||""} onChange={e => setForm({...form, parent: e.target.value?parseInt(e.target.value):0})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(tasksQuery.data||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
+              <div><label style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>Remarks</label><input value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} style={{ width: "100%", padding: "4px 8px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 4, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Notes..." /></div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button onClick={submitForm} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, background: "#1F9D55", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontFamily: "Inter" }}>Save</button>
+              <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ padding: "6px 16px", fontSize: 11, fontWeight: 600, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 5, cursor: "pointer", fontFamily: "Inter" }}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
 
       
