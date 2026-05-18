@@ -51,18 +51,45 @@ app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 (async () => {
   try {
     const { db } = await import("./queries/connection");
+    // Ensure gantt_tasks has status and remarks columns
     await db.execute(sql.raw(`
       ALTER TABLE gantt_tasks
       ADD COLUMN IF NOT EXISTS status VARCHAR(50),
       ADD COLUMN IF NOT EXISTS remarks TEXT
     `));
+    // Create gantt_dependencies table (replaces gantt_links)
     await db.execute(sql.raw(`
-      ALTER TABLE gantt_links
-      ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0
+      CREATE TABLE IF NOT EXISTS gantt_dependencies (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER,
+        predecessor_task_id INTEGER NOT NULL,
+        successor_task_id INTEGER NOT NULL,
+        dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
+        lag_days INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `));
-    console.log("[boot] Gantt columns migrated OK");
+    // Migrate data from old gantt_links table if it exists
+    try {
+      await db.execute(sql.raw(`
+        INSERT INTO gantt_dependencies (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, created_at)
+        SELECT NULL, source, target,
+          CASE type WHEN '0' THEN 'FS' WHEN '1' THEN 'SS' WHEN '2' THEN 'FF' WHEN '3' THEN 'SF' ELSE 'FS' END,
+          COALESCE(lag_days, 0), created_at
+        FROM gantt_links
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gantt_dependencies
+          WHERE predecessor_task_id = gantt_links.source AND successor_task_id = gantt_links.target
+        )
+      `));
+      console.log("[boot] Migrated links → dependencies");
+    } catch (migrateErr: any) {
+      console.log("[boot] Link migration (gantt_links may not exist):", migrateErr.message);
+    }
+    console.log("[boot] Gantt DB migrated OK");
   } catch (e: any) {
-    console.log("[boot] Gantt migration (may already exist):", e.message);
+    console.log("[boot] Gantt migration error:", e.message);
   }
 })();
 

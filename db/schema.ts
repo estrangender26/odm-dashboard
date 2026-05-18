@@ -207,14 +207,21 @@ export const docFiles = pgTable("doc_files", {
   index("doc_files_folder_idx").on(table.folderId),
 ]);
 
-export const ganttLinks = pgTable("gantt_links", {
+/* ── Gantt Task Dependencies ── */
+export const ganttDependencies = pgTable("gantt_dependencies", {
   id: serial("id").primaryKey(),
-  source: integer("source").notNull(),
-  target: integer("target").notNull(),
-  type: varchar("type", { length: 20 }).notNull().default("0"),
-  lag: integer("lag_days").default(0),
+  projectId: integer("project_id"),
+  predecessorTaskId: integer("predecessor_task_id").notNull(),
+  successorTaskId: integer("successor_task_id").notNull(),
+  dependencyType: varchar("dependency_type", { length: 10 }).notNull().default("FS"),
+  lagDays: integer("lag_days").default(0),
   createdAt: timestamp("created_at").defaultNow(),
-});
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("gantt_dep_project_idx").on(table.projectId),
+  index("gantt_dep_pred_idx").on(table.predecessorTaskId),
+  index("gantt_dep_succ_idx").on(table.successorTaskId),
+]);
 
 /* ── Gantt Chart Saved Projects ── */
 export const ganttProjects = pgTable("gantt_projects", {

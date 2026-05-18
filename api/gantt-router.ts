@@ -1,23 +1,43 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
-import { ganttTasks, ganttLinks } from "@db/schema";
-import { eq, sql } from "drizzle-orm";
+import { ganttTasks, ganttDependencies } from "@db/schema";
+import { eq, sql, and } from "drizzle-orm";
 
 export const ganttRouter = createRouter({
-  // Get all tasks
+  // ── Get all tasks ──
   tasks: publicQuery.query(async () => {
     const tasks = await db.select().from(ganttTasks).orderBy(ganttTasks.id);
     return tasks;
   }),
 
-  // Get all links
-  links: publicQuery.query(async () => {
-    const links = await db.select().from(ganttLinks);
-    return links;
-  }),
+  // ── Get all dependencies (optionally filtered by project_id)
+  // Returns frontend-compatible shape: {id, source, target, type, lag, projectId}
+  links: publicQuery
+    .input(z.object({ projectId: z.number().optional() }).optional())
+    .query(async ({ input }) => {
+      let rows;
+      if (input?.projectId) {
+        rows = await db.select().from(ganttDependencies)
+          .where(eq(ganttDependencies.projectId, input.projectId));
+      } else {
+        rows = await db.select().from(ganttDependencies);
+      }
+      // Map DB columns → frontend shape (source/target/type/lag)
+      const typeReverse: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
+      return rows.map(r => ({
+        id: r.id,
+        source: r.predecessorTaskId,
+        target: r.successorTaskId,
+        type: typeReverse[r.dependencyType] || r.dependencyType || "0",
+        lag: r.lagDays ?? 0,
+        projectId: r.projectId,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }));
+    }),
 
-  // Create/update task
+  // ── Create/update task ──
   saveTask: publicQuery
     .input(
       z.object({
@@ -86,85 +106,139 @@ export const ganttRouter = createRouter({
       }
     }),
 
-  // Delete task
+  // ── Delete task (also delete its dependency records) ──
   deleteTask: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      // Delete task
       await db.delete(ganttTasks).where(eq(ganttTasks.id, input.id));
-      // Also delete associated links
-      await db
-        .delete(ganttLinks)
-        .where(eq(ganttLinks.source, input.id));
+      // Delete any dependencies where this task is predecessor OR successor
+      await db.delete(ganttDependencies)
+        .where(eq(ganttDependencies.predecessorTaskId, input.id));
+      await db.delete(ganttDependencies)
+        .where(eq(ganttDependencies.successorTaskId, input.id));
       return { success: true };
     }),
 
-  // Save link
+  // ── Save dependency ──
   saveLink: publicQuery
     .input(
       z.object({
         id: z.number().optional(),
         source: z.number(),
         target: z.number(),
-        type: z.string().default("0"),
+        type: z.string().default("FS"),
         lag: z.number().default(0),
+        projectId: z.number().optional(),
       })
     )
     .mutation(async ({ input }) => {
+      const depType = input.type;
+      // Normalize type: "0"→"FS", "1"→"SS", "2"→"FF", "3"→"SF"
+      const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+      const normalizedType = typeMap[depType] || depType || "FS";
+
+      const setData = {
+        predecessorTaskId: input.source,
+        successorTaskId: input.target,
+        dependencyType: normalizedType,
+        lagDays: input.lag,
+        projectId: input.projectId ?? null,
+        updatedAt: new Date(),
+      };
+
       if (input.id) {
-        await db
-          .update(ganttLinks)
-          .set({ source: input.source, target: input.target, type: input.type, lag: input.lag })
-          .where(eq(ganttLinks.id, input.id));
+        await db.update(ganttDependencies).set(setData)
+          .where(eq(ganttDependencies.id, input.id));
         return { id: input.id, action: "updated" };
       } else {
-        const result = await db.insert(ganttLinks).values({
-          source: input.source,
-          target: input.target,
-          type: input.type,
-          lag: input.lag,
-        }).returning({ id: ganttLinks.id });
+        const result = await db.insert(ganttDependencies).values(setData)
+          .returning({ id: ganttDependencies.id });
         return { id: result[0].id, action: "created" };
       }
     }),
 
-  // Delete link
+  // ── Delete dependency ──
   deleteLink: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      await db.delete(ganttLinks).where(eq(ganttLinks.id, input.id));
+      await db.delete(ganttDependencies).where(eq(ganttDependencies.id, input.id));
       return { success: true };
     }),
 
-  // Reset all (delete everything)
+  // ── Batch save dependencies (used when opening a project) ──
+  saveLinksBatch: publicQuery
+    .input(z.array(z.object({
+      source: z.number(),
+      target: z.number(),
+      type: z.string(),
+      lag: z.number().default(0),
+      projectId: z.number().optional(),
+    })))
+    .mutation(async ({ input }) => {
+      const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+      for (const dep of input) {
+        const normalizedType = typeMap[dep.type] || dep.type || "FS";
+        await db.insert(ganttDependencies).values({
+          predecessorTaskId: dep.source,
+          successorTaskId: dep.target,
+          dependencyType: normalizedType,
+          lagDays: dep.lag,
+          projectId: dep.projectId ?? null,
+          updatedAt: new Date(),
+        });
+      }
+      return { count: input.length };
+    }),
+
+  // ── Reset all (delete everything) ──
   resetAll: publicQuery.mutation(async () => {
-    await db.delete(ganttLinks);
+    await db.delete(ganttDependencies);
     await db.delete(ganttTasks);
     return { success: true };
   }),
 
-  // Migrate: add missing columns
+  // ── Migrate: create gantt_dependencies table, migrate from gantt_links ──
   migrate: publicQuery.query(async () => {
+    // Create gantt_dependencies table if it doesn't exist
     await db.execute(sql.raw(`
-      ALTER TABLE gantt_tasks 
-      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
-      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
-      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS notes TEXT,
+      CREATE TABLE IF NOT EXISTS gantt_dependencies (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER,
+        predecessor_task_id INTEGER NOT NULL,
+        successor_task_id INTEGER NOT NULL,
+        dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
+        lag_days INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `));
+
+    // Migrate data from old gantt_links table
+    await db.execute(sql.raw(`
+      INSERT INTO gantt_dependencies (predecessor_task_id, successor_task_id, dependency_type, lag_days, created_at)
+      SELECT source, target,
+        CASE type WHEN '0' THEN 'FS' WHEN '1' THEN 'SS' WHEN '2' THEN 'FF' WHEN '3' THEN 'SF' ELSE 'FS' END,
+        COALESCE(lag_days, 0), created_at
+      FROM gantt_links
+      WHERE NOT EXISTS (SELECT 1 FROM gantt_dependencies WHERE predecessor_task_id = gantt_links.source AND successor_task_id = gantt_links.target)
+    `));
+
+    // Ensure status/remarks columns exist on gantt_tasks
+    await db.execute(sql.raw(`
+      ALTER TABLE gantt_tasks
       ADD COLUMN IF NOT EXISTS status VARCHAR(50),
       ADD COLUMN IF NOT EXISTS remarks TEXT
     `));
-    await db.execute(sql.raw(`
-      ALTER TABLE gantt_links 
-      ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0
-    `));
+
     return { success: true };
   }),
 
-  // Seed demo data if empty (or if existing data has invalid dates)
+  // ── Seed demo data ──
   seed: publicQuery.mutation(async () => {
     // Ensure all columns exist
     await db.execute(sql.raw(`
-      ALTER TABLE gantt_tasks 
+      ALTER TABLE gantt_tasks
       ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
       ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
       ADD COLUMN IF NOT EXISTS category VARCHAR(100),
@@ -173,15 +247,25 @@ export const ganttRouter = createRouter({
       ADD COLUMN IF NOT EXISTS remarks TEXT
     `));
 
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS gantt_dependencies (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER,
+        predecessor_task_id INTEGER NOT NULL,
+        successor_task_id INTEGER NOT NULL,
+        dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
+        lag_days INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `));
+
     const existing = await db.select().from(ganttTasks);
-    // Check if any existing data has invalid dates — if so, clear and re-seed
     const hasInvalid = existing.some((t: any) => {
       const sd = t.startDate || "";
       const ed = t.endDate || "";
-      // Check for obviously invalid dates like "2026-10-33"
       if (sd && !/^\d{4}-\d{2}-\d{2}/.test(sd)) return true;
       if (ed && !/^\d{4}-\d{2}-\d{2}/.test(ed)) return true;
-      // Check day/month validity
       const checkDate = (d: string) => {
         if (!d) return true;
         const dt = new Date(d.replace(" ", "T"));
@@ -193,17 +277,11 @@ export const ganttRouter = createRouter({
     });
     if (existing.length > 0 && !hasInvalid) return { seeded: false, reason: "Tasks already exist" };
     if (hasInvalid) {
-      await db.delete(ganttLinks);
+      await db.delete(ganttDependencies);
       await db.delete(ganttTasks);
     }
 
-    // Helper: format Date → "YYYY-MM-DD"
-    const fmt = (dt: Date) => {
-      return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
-    };
-    // Helper: format Date → "YYYY-MM-DD HH:mm"
-    const fmtFull = (dt: Date) => fmt(dt) + " 08:00";
-    // Helper: add days to a date
+    const fmt = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
     const addDays = (dt: Date, days: number) => {
       const r = new Date(dt);
       r.setDate(r.getDate() + days);
@@ -211,108 +289,36 @@ export const ganttRouter = createRouter({
     };
 
     const now = new Date();
-
-    // Complete demo tasks with BOTH planned AND actual dates
     const demoTasks = [
-      {
-        text: "S/4HANA MM Integration",
-        owner: "PMO",
-        type: "project", parent: 0, progress: 15, duration: 180,
-        plannedStart: fmt(now),
-        plannedEnd: fmt(addDays(now, 180)),
-        actualStart: fmt(now),
-        actualEnd: fmt(addDays(now, 170)),
-        status: "In Progress",
-      },
-      {
-        text: "Gap Analysis & Blueprint",
-        owner: "Business Analyst",
-        type: "task", parent: 1, progress: 80, duration: 30,
-        plannedStart: fmt(now),
-        plannedEnd: fmt(addDays(now, 30)),
-        actualStart: fmt(now),
-        actualEnd: fmt(addDays(now, 33)),
-        status: "Completed",
-      },
-      {
-        text: "System Configuration",
-        owner: "Basis Team",
-        type: "task", parent: 1, progress: 40, duration: 45,
-        plannedStart: fmt(addDays(now, 35)),
-        plannedEnd: fmt(addDays(now, 80)),
-        actualStart: fmt(addDays(now, 35)),
-        actualEnd: fmt(addDays(now, 82)),
-        status: "In Progress (Delayed)",
-      },
-      {
-        text: "Data Migration",
-        owner: "Data Team",
-        type: "task", parent: 1, progress: 10, duration: 60,
-        plannedStart: fmt(addDays(now, 75)),
-        plannedEnd: fmt(addDays(now, 135)),
-        actualStart: fmt(addDays(now, 83)),
-        actualEnd: null,
-        status: "In Progress",
-      },
-      {
-        text: "Unit Testing",
-        owner: "QA Team",
-        type: "task", parent: 1, progress: 0, duration: 30,
-        plannedStart: fmt(addDays(now, 120)),
-        plannedEnd: fmt(addDays(now, 150)),
-        actualStart: null,
-        actualEnd: null,
-        status: "Not Started",
-      },
-      {
-        text: "UAT & Sign-off",
-        owner: "Business Lead",
-        type: "milestone", parent: 1, progress: 0, duration: 20,
-        plannedStart: fmt(addDays(now, 150)),
-        plannedEnd: fmt(addDays(now, 170)),
-        actualStart: null,
-        actualEnd: null,
-        status: "Not Started",
-      },
-      {
-        text: "Go-Live Preparation",
-        owner: "Cutover Team",
-        type: "task", parent: 1, progress: 0, duration: 15,
-        plannedStart: fmt(addDays(now, 170)),
-        plannedEnd: fmt(addDays(now, 185)),
-        actualStart: null,
-        actualEnd: null,
-        status: "Not Started",
-      },
+      { text: "S/4HANA MM Integration", owner: "PMO", type: "project", parent: 0, progress: 15, duration: 180, plannedStart: fmt(now), plannedEnd: fmt(addDays(now,180)), actualStart: fmt(now), actualEnd: fmt(addDays(now,170)), status: "In Progress" },
+      { text: "Gap Analysis & Blueprint", owner: "Business Analyst", type: "task", parent: 1, progress: 80, duration: 30, plannedStart: fmt(now), plannedEnd: fmt(addDays(now,30)), actualStart: fmt(now), actualEnd: fmt(addDays(now,33)), status: "Completed" },
+      { text: "System Configuration", owner: "Basis Team", type: "task", parent: 1, progress: 40, duration: 45, plannedStart: fmt(addDays(now,35)), plannedEnd: fmt(addDays(now,80)), actualStart: fmt(addDays(now,35)), actualEnd: fmt(addDays(now,82)), status: "In Progress (Delayed)" },
+      { text: "Data Migration", owner: "Data Team", type: "task", parent: 1, progress: 10, duration: 60, plannedStart: fmt(addDays(now,75)), plannedEnd: fmt(addDays(now,135)), actualStart: fmt(addDays(now,83)), actualEnd: null, status: "In Progress" },
+      { text: "Unit Testing", owner: "QA Team", type: "task", parent: 1, progress: 0, duration: 30, plannedStart: fmt(addDays(now,120)), plannedEnd: fmt(addDays(now,150)), actualStart: null, actualEnd: null, status: "Not Started" },
+      { text: "UAT & Sign-off", owner: "Business Lead", type: "milestone", parent: 1, progress: 0, duration: 20, plannedStart: fmt(addDays(now,150)), plannedEnd: fmt(addDays(now,170)), actualStart: null, actualEnd: null, status: "Not Started" },
+      { text: "Go-Live Preparation", owner: "Cutover Team", type: "task", parent: 1, progress: 0, duration: 15, plannedStart: fmt(addDays(now,170)), plannedEnd: fmt(addDays(now,185)), actualStart: null, actualEnd: null, status: "Not Started" },
     ];
 
     for (const t of demoTasks) {
-      const end = t.actualEnd ? t.actualEnd : (t.actualStart ? fmt(addDays(new Date(t.actualStart.replace("T", "T") + "T12:00:00"), t.duration)) : null);
+      const end = t.actualEnd ? t.actualEnd : (t.actualStart ? fmt(addDays(new Date(t.actualStart.replace("T","T")+"T12:00:00"), t.duration)) : null);
       const start = t.actualStart ? t.actualStart + " 08:00" : null;
       await db.insert(ganttTasks).values({
-        text: t.text,
-        startDate: start,
-        endDate: end ? end + " 08:00" : null,
-        plannedStart: t.plannedStart,
-        plannedEnd: t.plannedEnd,
-        duration: t.duration,
-        progress: t.progress,
-        parent: t.parent,
-        type: t.type,
-        owner: t.owner,
-        status: t.status,
-        sortorder: 0,
-        open: 1,
+        text: t.text, startDate: start, endDate: end ? end + " 08:00" : null,
+        plannedStart: t.plannedStart, plannedEnd: t.plannedEnd,
+        duration: t.duration, progress: t.progress, parent: t.parent, type: t.type,
+        owner: t.owner, status: t.status, sortorder: 0, open: 1,
       });
     }
 
-    // Add dependency links
     const allTasks = await db.select().from(ganttTasks).orderBy(ganttTasks.id);
     if (allTasks.length >= 4) {
-      await db.insert(ganttLinks).values({ source: allTasks[1].id, target: allTasks[2].id, type: "0" });
-      await db.insert(ganttLinks).values({ source: allTasks[2].id, target: allTasks[3].id, type: "0" });
+      await db.insert(ganttDependencies).values({
+        predecessorTaskId: allTasks[1].id, successorTaskId: allTasks[2].id, dependencyType: "FS", lagDays: 0
+      });
+      await db.insert(ganttDependencies).values({
+        predecessorTaskId: allTasks[2].id, successorTaskId: allTasks[3].id, dependencyType: "FS", lagDays: 0
+      });
     }
-
     return { seeded: true, count: demoTasks.length };
   }),
 });

@@ -595,6 +595,7 @@ export default function GanttPlanner() {
   });
   const saveLinkMut = trpc.gantt.saveLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
   const deleteLinkMut = trpc.gantt.deleteLink.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
+  const saveLinksBatchMut = trpc.gantt.saveLinksBatch.useMutation({ onSuccess: () => utils.gantt.links.invalidate() });
   const resetMut = trpc.gantt.resetAll.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
@@ -629,6 +630,24 @@ export default function GanttPlanner() {
               status: t.status || null, remarks: t.remarks || t.notes || null,
               category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? idx,
             });
+          }
+          // Load dependencies from linksData into gantt_dependencies table
+          if (data.linksData) {
+            try {
+              const linksParsed = JSON.parse(data.linksData);
+              if (Array.isArray(linksParsed) && linksParsed.length > 0) {
+                const depsToSave = linksParsed.map((l: any) => ({
+                  source: l.source || l.predecessorTaskId,
+                  target: l.target || l.successorTaskId,
+                  type: l.type || l.dependencyType || "0",
+                  lag: l.lag || l.lagDays || 0,
+                  projectId: data.id,
+                })).filter((d: any) => d.source && d.target);
+                if (depsToSave.length > 0) {
+                  await saveLinksBatchMut.mutateAsync(depsToSave);
+                }
+              }
+            } catch { /* ignore link parse errors */ }
           }
           await utils.gantt.tasks.invalidate();
           await utils.gantt.links.invalidate();
@@ -1115,7 +1134,7 @@ export default function GanttPlanner() {
               <button onClick={() => {
                 const ids = Array.from(selectedIds);
                 let created = 0;
-                for (let i = 0; i < ids.length - 1; i++) { saveLinkMut.mutate({ source: ids[i], target: ids[i + 1], type: linkType, lag: linkLag }); created++; }
+                for (let i = 0; i < ids.length - 1; i++) { saveLinkMut.mutate({ source: ids[i], target: ids[i + 1], type: linkType, lag: linkLag, projectId: currentProjectId ?? undefined }); created++; }
                 setTimeout(() => runAutoSchedule(), 500);
                 setBanner({ type: "success", message: `Created ${created} link(s) (${depTypeName(linkType)}, lag ${linkLag}d). Successors auto-scheduled.` });
                 setLinkModalOpen(false); setLinkLag(0); setLinkType("0");
