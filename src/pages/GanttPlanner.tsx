@@ -13,7 +13,7 @@ import AIAssistant from "@/components/AIAssistant";
 /* ─── Engine imports — pure logic extracted from component ─── */
 import {
   GanttTask, GanttLink, parseDate, daysBetween, normProgress,
-  DEP_TYPE_MAP, buildTaskTree, flattenVisible,
+  DEP_TYPE_MAP, buildTaskTree, flattenVisible, deriveStatus,
 } from "@/modules/gantt/engine/schedulingEngine";
 import {
   applyDependency, autoSchedule, buildConnectors,
