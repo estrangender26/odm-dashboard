@@ -1881,7 +1881,7 @@ const startEdit = (t: any) => {
                 onClick={() => setMultiSelectMode(!multiSelectMode)}
                 className="gantt-action-btn"
                 title="Toggle multi-select mode"
-                style={{ padding: "5px 10px", fontSize: 11, background: multiSelectMode ? "#DBEAFE" : "#F1F5F9" }}
+                style={{ padding: "5px 10px", fontSize: 11, background: multiSelectMode ? "#2563EB" : "#3B82F6", color: "#fff", boxShadow: multiSelectMode ? "0 0 0 2px #93C5FD" : "none", opacity: 1 }}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
                 <span>{multiSelectMode ? "Multi-ON" : "Multi"}</span>
@@ -1893,7 +1893,7 @@ const startEdit = (t: any) => {
                 disabled={selectedIds.size < 2}
                 className="gantt-action-btn"
                 title={selectedIds.size < 2 ? "Select 2+ tasks first" : `Link ${selectedIds.size} selected tasks`}
-                style={{ padding: "5px 10px", fontSize: 11 }}
+                style={{ padding: "5px 10px", fontSize: 11, background: selectedIds.size < 2 ? "#A78BFA" : "#7C3AED" }}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 <span>Link</span>
@@ -1905,7 +1905,7 @@ const startEdit = (t: any) => {
                 disabled={!selectedTaskId}
                 className="gantt-action-btn"
                 title={selectedTaskId ? "Edit dependencies" : "Select a task first"}
-                style={{ padding: "5px 10px", fontSize: 11 }}
+                style={{ padding: "5px 10px", fontSize: 11, background: !selectedTaskId ? "#FCD34D" : "#F59E0B" }}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4m-9.66-3.34l2.83-2.83m11.66-7.66l2.83-2.83M1 12h4m14 0h4M3.34 4.34l2.83 2.83m7.66 11.66l2.83 2.83"/></svg>
                 <span>Deps</span>
@@ -1917,7 +1917,7 @@ const startEdit = (t: any) => {
                   onClick={clearSelection}
                   className="gantt-action-btn"
                   title="Clear selection"
-                  style={{ padding: "5px 10px", fontSize: 11 }}
+                  style={{ padding: "5px 10px", fontSize: 11, background: "#EF4444" }}
                 >
                   <span>Clear ({selectedIds.size})</span>
                 </button>
@@ -2202,7 +2202,7 @@ const startEdit = (t: any) => {
 
       {/* Styles */}
       <style>{`
-        .gantt-action-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; font-size: 11px; font-weight: 600; font-family: Inter, sans-serif; border: none; border-radius: 5px; cursor: pointer; transition: all .15s; white-space: nowrap; color: #fff; }
+        .gantt-action-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; font-size: 11px; font-weight: 600; font-family: Inter, sans-serif; border: none; border-radius: 5px; cursor: pointer; transition: all .15s; white-space: nowrap; color: #fff; line-height: 1.4; }
         .export-btn { background: #1F9D55; } .export-btn:hover { background: #15803D; }
         .import-btn { background: #005BAC; } .import-btn:hover { background: #004D99; }
         .reset-btn { background: #DC2626; } .reset-btn:hover { background: #B91C1C; }
