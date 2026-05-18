@@ -93,10 +93,11 @@ export const ganttRouter = createRouter({
         }
       } catch (e: any) {
         /* Retry without optional columns that may not exist yet */
-        if (e.message && (e.message.includes("status") || e.message.includes("remarks") || e.message.includes("wbs_level"))) {
+        if (e.message && (e.message.includes("status") || e.message.includes("remarks") || e.message.includes("wbs_level") || e.message.includes("parent"))) {
           delete setData.wbsLevel;
           delete setData.status;
           delete setData.remarks;
+          delete setData.parent;
           if (input.id) {
             await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id));
             return { id: input.id, action: "updated" };
