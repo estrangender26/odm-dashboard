@@ -254,35 +254,27 @@ function GanttTooltip({ data }: { data: TooltipData }) {
   return (
     <div style={{
       position: "fixed", left: data.x, top: data.y, zIndex: 9999, pointerEvents: "none",
-      background: "#fff", border: "1px solid #D6DFE8", borderRadius: 10,
-      boxShadow: "0 8px 32px rgba(0,0,0,.15), 0 2px 8px rgba(0,0,0,.08)",
-      padding: "12px 16px", minWidth: 220, maxWidth: 300,
+      background: "#fff", border: "1px solid #D6DFE8", borderRadius: 8,
+      boxShadow: "0 4px 16px rgba(0,0,0,.12)",
+      padding: "10px 14px", minWidth: 180, maxWidth: 260,
       fontFamily: "Inter, sans-serif", fontSize: 11, color: "#1E293B",
-      animation: "ganttTooltipIn 0.15s ease-out",
+      animation: "ganttTooltipIn 0.12s ease-out",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, borderBottom: "1px solid #E2E8F0", paddingBottom: 6 }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
-        <div style={{ fontWeight: 700, fontSize: 12, color: "#16324F", lineHeight: 1.4, wordBreak: "break-word" }}>{t.text || "Untitled"}</div>
+      {/* Task name */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
+        <div style={{ fontWeight: 700, fontSize: 11, color: "#16324F", lineHeight: 1.3, wordBreak: "break-word" }}>{t.text || "Untitled"}</div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 8px" }}>
-        <TooltipField label="Status" value={<span style={{ color: statusColor, fontWeight: 600 }}>{status}</span>} />
-        <TooltipField label="Progress" value={`${normProgress(t.progress)}%`} />
-        <TooltipField label="Duration" value={`${t.duration || "—"}d`} />
-        <TooltipField label="Owner" value={t.owner || "—"} />
-        <TooltipField label="Planned Start" value={t.plannedStart ? String(t.plannedStart).slice(0, 10) : "—"} />
-        <TooltipField label="Planned End" value={t.plannedEnd ? String(t.plannedEnd).slice(0, 10) : "—"} />
-        <TooltipField label="Actual Start" value={t.startDate ? String(t.startDate).slice(0, 10) : "—"} />
-        <TooltipField label="Actual End" value={t.endDate ? String(t.endDate).slice(0, 10) : "—"} />
+      {/* Compact status + progress line */}
+      <div style={{ fontSize: 10, color: "#5A6B7D", marginBottom: 6, display: "flex", gap: 10 }}>
+        <span><span style={{ color: statusColor, fontWeight: 600 }}>{status}</span></span>
+        <span>{normProgress(t.progress)}%</span>
+        <span>{t.duration || "—"}d</span>
       </div>
-      <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #E2E8F0", fontSize: 10, color: "#5A6B7D", fontStyle: t.remarks ? "normal" : "italic", lineHeight: 1.4 }}>{t.remarks || "No notes available"}</div>
-    </div>
-  );
-}
-function TooltipField({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <div style={{ fontSize: 9, color: "#8BA3B8", textTransform: "uppercase", letterSpacing: "0.4px", fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 11, fontWeight: 500, color: "#1E293B" }}>{value}</div>
+      {/* Notes (the key info) */}
+      <div style={{ fontSize: 10, color: "#5A6B7D", fontStyle: t.remarks ? "normal" : "italic", lineHeight: 1.4, borderTop: "1px solid #E2E8F0", paddingTop: 6 }}>
+        {t.remarks || "No notes available"}
+      </div>
     </div>
   );
 }
@@ -536,12 +528,6 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                   {level > 0 && <span style={{ fontSize: 7, color: "#fff", background: "#005BAC", borderRadius: 3, padding: "0 3px", marginRight: 3, marginTop: 2, flexShrink: 0, fontWeight: 700, lineHeight: 1.4 }}>L{level}</span>}
                   <span className="gantt-task-name" style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", color: hasChildren ? "#1E3A5F" : "#2D3748", fontWeight: hasChildren ? 700 : level > 0 ? 500 : 400, fontSize: hasChildren ? 12 : 11, marginLeft: 2, lineHeight: 1.35, wordBreak: "break-word" }} title={task.text}>{task.text || "Untitled"}</span>
                 </span>
-                {/* Insert action buttons — hover-reveal */}
-                <span className="gantt-insert-actions" style={{ display: "flex", gap: 1, opacity: isSelected ? 1 : 0, transition: "opacity 0.15s", flexShrink: 0, marginLeft: 2 }}>
-                  {onInsertAbove && <button type="button" title="Insert above" onClick={(e) => { e.stopPropagation(); onInsertAbove(task); }} style={{ fontSize: 8, padding: "1px 3px", background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 3, cursor: "pointer", lineHeight: 1 }}>⬆</button>}
-                  {onInsertBelow && <button type="button" title="Insert below" onClick={(e) => { e.stopPropagation(); onInsertBelow(task); }} style={{ fontSize: 8, padding: "1px 3px", background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 3, cursor: "pointer", lineHeight: 1 }}>⬇</button>}
-                  {onInsertChild && <button type="button" title="Insert child" onClick={(e) => { e.stopPropagation(); onInsertChild(task); }} style={{ fontSize: 8, padding: "1px 3px", background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0", borderRadius: 3, cursor: "pointer", lineHeight: 1 }}>➕</button>}
-                </span>
               </div>
             );
           })}
@@ -704,10 +690,23 @@ function TaskListTab({ tasks, deleteTask, setBanner, onEditTask, onAddTask }: { 
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <button onClick={onAddTask} style={{ padding: "8px 14px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Task
         </button>
+        {(() => {
+          const sel = selectedTaskId ? taskList.find((t: any) => t.id === selectedTaskId) : null;
+          if (!sel) return null;
+          return (
+            <>
+              <span style={{ fontSize: 10, color: "#8BA3B8", marginLeft: 4 }}>|</span>
+              <span style={{ fontSize: 10, color: "#475569", fontWeight: 600, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sel.text}>{sel.text?.slice(0, 20) || "Task"}</span>
+              {onInsertAbove && <button onClick={() => onInsertAbove(sel)} title="Insert above" style={{ padding: "5px 8px", fontSize: 10, fontWeight: 600, background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 5, cursor: "pointer" }}>⬆ Above</button>}
+              {onInsertBelow && <button onClick={() => onInsertBelow(sel)} title="Insert below" style={{ padding: "5px 8px", fontSize: 10, fontWeight: 600, background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 5, cursor: "pointer" }}>⬇ Below</button>}
+              {onInsertChild && <button onClick={() => onInsertChild(sel)} title="Insert child" style={{ padding: "5px 8px", fontSize: 10, fontWeight: 600, background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0", borderRadius: 5, cursor: "pointer" }}>➕ Child</button>}
+            </>
+          );
+        })()}
       </div>
       <div style={{ display: "table", width: "100%", borderCollapse: "collapse", fontSize: 10, fontFamily: "Inter, sans-serif" }}>
         <div style={{ display: "table-row", fontWeight: 700, color: "#1F2937", background: "#E2E8F0", fontSize: 9, letterSpacing: "0.3px", textTransform: "uppercase" }}>
