@@ -279,6 +279,168 @@ function GanttTooltip({ data }: { data: TooltipData }) {
   );
 }
 
+/* ═══════════════════════════════════════════
+   ENTERPRISE TOOLBAR / MENU BAR
+   MS Project / Primavera-style grouped toolbar
+   ═══════════════════════════════════════════ */
+
+interface ToolbarProps {
+  currentProjectId: number | null; currentProjectName: string;
+  hasUnsavedChanges: boolean;
+  onSave: () => void; onSaveAs: () => void; onOpen: () => void; onClose: () => void;
+  onImport: () => void;
+  onExportExcel: () => void; onExportCSV: () => void; onExportTemplate: () => void;
+  onMigrate: () => void; onReset: () => void; onLoadDemo: () => void;
+  tasksExist: boolean;
+}
+
+function GanttToolbar({
+  currentProjectId, currentProjectName, hasUnsavedChanges,
+  onSave, onSaveAs, onOpen, onClose, onImport,
+  onExportExcel, onExportCSV, onExportTemplate,
+  onMigrate, onReset, onLoadDemo, tasksExist,
+}: ToolbarProps) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const mobileRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
+  const adminRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (mobileRef.current && !mobileRef.current.contains(e.target as Node)) setMobileMenuOpen(false);
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setExportOpen(false);
+      if (adminRef.current && !adminRef.current.contains(e.target as Node)) setAdminOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const btnBase: React.CSSProperties = {
+    display: "flex", alignItems: "center", gap: 5, padding: "5px 10px",
+    fontSize: 11, fontWeight: 600, fontFamily: "Inter, sans-serif",
+    border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, cursor: "pointer",
+    background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.8)", transition: "all .15s", lineHeight: 1,
+  };
+  const btnHover = (e: React.MouseEvent) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.15)"; };
+  const btnLeave = (e: React.MouseEvent) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.07)"; };
+  const sep = <span style={{ width: 1, height: 18, background: "rgba(255,255,255,0.12)", margin: "0 2px", flexShrink: 0 }} />;
+
+  return (
+    <div style={{ background: "#16324F", position: "sticky", top: 0, zIndex: 100 }}>
+      {/* Title row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px 4px" }}>
+        <Link to="/" style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none" }}>
+          <ProgramsEngineeringLogo size={36} borderRadius={6} />
+          <div>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#fff", letterSpacing: "-0.2px" }}>Gantt Charts</div>
+            <div style={{ fontSize: "9px", color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              {currentProjectId && currentProjectName ? currentProjectName : "O & M Project Schedule"}
+            </div>
+          </div>
+        </Link>
+        {/* Mobile hamburger */}
+        <button className="gantt-mobile-hamburger" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} style={{ display: "none", background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 4 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+
+      {/* Toolbar row — desktop */}
+      <div className="gantt-desktop-toolbar" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 12px 6px", overflowX: "auto" }}>
+
+        {/* FILE GROUP */}
+        <button onClick={onSave} title={currentProjectId ? `Update "${currentProjectName}"` : "Save project"} style={{ ...btnBase, background: "#1F9D55", color: "#fff", borderColor: "#1F9D55" }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#15803D"; }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "#1F9D55"; }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg><span className="toolbar-label">Save</span>
+          {hasUnsavedChanges && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#FBBF24", flexShrink: 0 }} />}
+        </button>
+
+        <button onClick={onImport} title="Import Excel" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span className="toolbar-label">Import</span>
+        </button>
+
+        <div ref={exportRef} style={{ position: "relative" }}>
+          <button onClick={() => setExportOpen(!exportOpen)} title="Export" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span className="toolbar-label">Export ▾</span>
+          </button>
+          {exportOpen && (
+            <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 150, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.15)", minWidth: 160, fontFamily: "Inter, sans-serif", padding: "4px 0" }}>
+              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} label="Excel" onClick={() => { onExportExcel(); setExportOpen(false); }} />
+              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} label="CSV" onClick={() => { onExportCSV(); setExportOpen(false); }} />
+              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>} label="Template" onClick={() => { onExportTemplate(); setExportOpen(false); }} />
+            </div>
+          )}
+        </div>
+
+        {sep}
+
+        {/* PROJECT GROUP */}
+        <button onClick={onOpen} title="Open" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span className="toolbar-label">Open</span>
+        </button>
+        <button onClick={onSaveAs} title="Save As" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg><span className="toolbar-label">Save As</span>
+        </button>
+        {currentProjectId && (
+          <button onClick={onClose} title="Close" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg><span className="toolbar-label">Close</span>
+          </button>
+        )}
+
+        {sep}
+
+        {/* ADMIN GROUP */}
+        <div ref={adminRef} style={{ position: "relative" }}>
+          <button onClick={() => setAdminOpen(!adminOpen)} title="Admin" style={{ ...btnBase, opacity: 0.7, fontSize: 10 }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span className="toolbar-label">Admin ▾</span>
+          </button>
+          {adminOpen && (
+            <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 150, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.15)", minWidth: 170, fontFamily: "Inter, sans-serif", padding: "4px 0" }}>
+              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><path d="M4 7V4h3M4 17v3h3M20 7V4h-3M20 17v3h-3M9 9h6v6H9z"/></svg>} label="Migrate DB" onClick={() => { onMigrate(); setAdminOpen(false); }} />
+              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>} label="Reset Data" onClick={() => { if (confirm("Delete all Gantt data?")) { onReset(); setAdminOpen(false); } }} />
+              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#005BAC" strokeWidth="2"><path d="M12 2v4m0 12v4m-7.66-9.34l2.83 2.83m9.66-2.83l2.83-2.83M4 12h4m12 0h-4M6.34 6.34l2.83 2.83m9.66 0l2.83-2.83"/></svg>} label="Load Demo" onClick={() => { onLoadDemo(); setAdminOpen(false); }} />
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginLeft: "auto" }} />
+        {hasUnsavedChanges && (
+          <span style={{ fontSize: 10, color: "#FBBF24", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#FBBF24" }} />Unsaved
+          </span>
+        )}
+      </div>
+
+      {/* Mobile dropdown */}
+      {mobileMenuOpen && (
+        <div ref={mobileRef} style={{ background: "#0F2440", borderTop: "1px solid rgba(255,255,255,0.1)", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
+          <Mmi label="Save" onClick={() => { onSave(); setMobileMenuOpen(false); }} />
+          <Mmi label="Import Excel" onClick={() => { onImport(); setMobileMenuOpen(false); }} />
+          <Mmi label="Export Excel" onClick={() => { onExportExcel(); setMobileMenuOpen(false); }} />
+          <Mmi label="Open Project" onClick={() => { onOpen(); setMobileMenuOpen(false); }} />
+          <Mmi label="Save As" onClick={() => { onSaveAs(); setMobileMenuOpen(false); }} />
+          <div style={{ height: 1, background: "rgba(255,255,255,0.1)", margin: "4px 0" }} />
+          <Mmi label="Migrate DB" onClick={() => { onMigrate(); setMobileMenuOpen(false); }} />
+          <Mmi label="Reset Data" onClick={() => { if (confirm("Delete all Gantt data?")) { onReset(); setMobileMenuOpen(false); } }} />
+          <Mmi label="Load Demo" onClick={() => { onLoadDemo(); setMobileMenuOpen(false); }} />
+          {currentProjectId && <Mmi label="Close Project" onClick={() => { onClose(); setMobileMenuOpen(false); }} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Tbm({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 14px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>{icon}<span>{label}</span></button>
+  );
+}
+function Mmi({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{ display: "flex", alignItems: "center", padding: "10px 14px", fontSize: 13, fontWeight: 500, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "rgba(255,255,255,0.9)", borderRadius: 6, transition: "background .1s", width: "100%" }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>{label}</button>
+  );
+}
+
 interface NativeGanttChartProps {
   tasks: GanttTask[];
   selectedTaskId: number | null;
@@ -823,7 +985,7 @@ export default function GanttPlanner() {
   const [currentProjectName, setCurrentProjectName] = useState<string>("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [importSourceName, setImportSourceName] = useState<string>("");
-  const [showExportMenu, setShowExportMenu] = useState(false);
+  /* Export menu state removed — handled by GanttToolbar */
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [taskList, setTaskList] = useState<any[]>([]);
@@ -842,7 +1004,7 @@ export default function GanttPlanner() {
   /* ═══════ SECTION 2: ALL useRef hooks (SECOND) ═══════ */
   const lastSavedJsonRef = useRef<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
+  /* exportMenuRef removed — handled by GanttToolbar */
   const lastSelectedRef = useRef<number | null>(null);
 
   /* ═══════ SECTION 3: ALL tRPC hooks (THIRD) ═══════ */
@@ -1041,15 +1203,7 @@ export default function GanttPlanner() {
     setTaskList(tasksQuery.data);
   }, [tasksQuery.data]);
 
-  /* Export menu click-outside */
-  useEffect(() => {
-    if (!showExportMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setShowExportMenu(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showExportMenu]);
+  /* Export menu click-outside removed — handled by GanttToolbar */
 
   /* ═══════ SECTION 5: ALL useCallback definitions (FIFTH) ═══════
      Every callback that references hooks must be defined AFTER those hooks. */
@@ -1543,59 +1697,21 @@ export default function GanttPlanner() {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F4F7FA" }}>
-      {/* Header */}
-      <header className="gantt-header" style={{ background: "#16324F", padding: "8px 16px", position: "sticky", top: 0, zIndex: 100 }}>
-        <Link to="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none", flexShrink: 0 }}>
-          <ProgramsEngineeringLogo size={48} borderRadius={8} />
-          <div>
-            <div className="gantt-header-title" style={{ fontSize: "15px", fontWeight: 700, color: "#fff", letterSpacing: "-0.3px" }}>Gantt Charts</div>
-            <div className="gantt-header-sub" style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              {currentProjectId && currentProjectName ? `📁 ${currentProjectName}` : "O & M Project Schedule Visualization"}
-            </div>
-          </div>
-        </Link>
-        <div className="gantt-header-buttons">
-          <div ref={exportMenuRef} style={{ position: "relative", display: "inline-flex" }}>
-            <button onClick={() => setShowExportMenu(v => !v)} className="gantt-action-btn export-btn" title="Export options">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Export ▾</span>
-            </button>
-            {showExportMenu && (
-              <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 150, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.15)", minWidth: 180, marginTop: 4, fontFamily: "Inter, sans-serif" }}>
-                <button onClick={() => { exportExcel(tasksQuery.data || []); setShowExportMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1E293B" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Export Excel
-                </button>
-                <button onClick={() => { exportCSV(tasksQuery.data || []); setShowExportMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1E293B" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Export CSV
-                </button>
-                <button onClick={() => { exportTemplate(); setShowExportMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1E293B", borderTop: "1px solid #E2E8F0" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Download Template
-                </button>
-              </div>
-            )}
-          </div>
-          <button onClick={() => fileInputRef.current?.click()} className="gantt-action-btn import-btn" title="Import from Excel">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span>Import Excel</span>
-          </button>
-          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) handleImportExcel(e.target.files[0]); }} />
-          <button onClick={handleSave} className="gantt-action-btn gantt-save-btn" title={currentProjectId ? `Update "${currentProjectName}"` : "Save project"}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg><span>Save</span>
-          </button>
-          <button onClick={handleSaveAs} className="gantt-action-btn gantt-saveas-btn" title="Save as new project">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/><line x1="16" y1="8" x2="16" y2="12"/><line x1="14" y1="10" x2="18" y2="10"/></svg><span>Save As</span>
-          </button>
-          <button onClick={handleOpenClick} className="gantt-action-btn gantt-open-btn" title="Open saved project">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><polyline points="10 13 7 10 10 7"/></svg><span>Open</span>
-          </button>
-          <button onClick={() => migrateMut.mutate()} className="gantt-action-btn" title="Add missing DB columns" style={{ background: "#F59E0B", color: "#fff" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 7V4h3M4 17v3h3M20 7V4h-3M20 17v3h-3M9 9h6v6H9z"/></svg><span>Migrate DB</span>
-          </button>
-          {currentProjectId && (
-            <button onClick={handleClose} className="gantt-action-btn" title="Close project" style={{ background: hasUnsavedChanges ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.08)" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg><span>Close</span>
-            </button>
-          )}
-        </div>
-      </header>
+      {/* Header + Enterprise Toolbar */}
+      <GanttToolbar
+        currentProjectId={currentProjectId} currentProjectName={currentProjectName}
+        hasUnsavedChanges={hasUnsavedChanges}
+        onSave={handleSave} onSaveAs={handleSaveAs} onOpen={handleOpenClick} onClose={handleClose}
+        onImport={() => fileInputRef.current?.click()}
+        onExportExcel={() => exportExcel(tasksQuery.data || [])}
+        onExportCSV={() => exportCSV(tasksQuery.data || [])}
+        onExportTemplate={exportTemplate}
+        onMigrate={() => migrateMut.mutate()}
+        onReset={() => resetMut.mutate()}
+        onLoadDemo={() => seedMut.mutate()}
+        tasksExist={(tasksQuery.data || []).length > 0}
+      />
+      <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) handleImportExcel(e.target.files[0]); }} />
 
       {/* Banner */}
       {banner && <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
@@ -1970,6 +2086,10 @@ export default function GanttPlanner() {
         .gantt-header-buttons { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
         @keyframes ganttSpin { to { transform: rotate(360deg); } }
         @keyframes ganttTooltipIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        /* Toolbar responsive */
+        .gantt-desktop-toolbar { display: flex; }
+        .gantt-mobile-hamburger { display: none; }
+        .toolbar-label { display: inline; }
         @media (max-width: 768px) {
           .gantt-action-btn { padding: 6px 10px; font-size: 11px; }
           .gantt-header { flex-wrap: wrap; gap: 10px; padding: 10px 16px !important; }
@@ -1983,6 +2103,9 @@ export default function GanttPlanner() {
           .gantt-task-col { width: 180px !important; min-width: 180px !important; }
           .gantt-task-name { font-size: 10px !important; }
           .gantt-zoom-info { display: none !important; }
+          /* Toolbar: show hamburger, hide desktop bar */
+          .gantt-desktop-toolbar { display: none !important; }
+          .gantt-mobile-hamburger { display: flex !important; }
         }
         @media (max-width: 480px) {
           .gantt-action-btn span { display: none; }
