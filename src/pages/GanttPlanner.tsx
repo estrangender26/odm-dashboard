@@ -28,6 +28,9 @@ import {
   buildHierarchyPayload, computeWbsLevel,
 } from "@/modules/gantt/engine/hierarchyEngine";
 import {
+  isParent, isFieldEditable,
+} from "@/modules/gantt/engine/parentEngine";
+import {
   calcKpi, statusColor as _statusColor, statusBadgeStyle, rowStatus, fmtMonth, fmtShortDate,
 } from "@/modules/gantt/engine/uiUtilsEngine";
 
@@ -424,7 +427,8 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
               return <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 10, overflow: "visible" }}>{conns.map((c, i) => <g key={i}><line x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} stroke="#94A3B8" strokeWidth={1.5} strokeDasharray="4,3" fill="none" /><polygon points={`${c.x2-5},${c.y2-4} ${c.x2+1},${c.y2} ${c.x2-5},${c.y2+4}`} fill="#94A3B8" /></g>)}</svg>;
             })()}
             {rows.map((row, idx) => {
-              const { task, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone, isAutoPopulated } = row;
+              const { task, level, hasChildren, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone, isAutoPopulated } = row;
+              const _isParent = hasChildren;
               const top = headerHeight + idx * rowHeight;
               const isSelected = selectedTaskId === task.id || selectedIds.has(task.id);
               return (
@@ -432,6 +436,21 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                   style={{ position: "absolute", left: 0, top, width: "100%", height: rowHeight, background: isSelected ? "rgba(219,234,254,0.5)" : "transparent", cursor: "pointer", zIndex: 0 }}>
                   {isMilestone ? (
                     <div style={{ position: "absolute", left: (actualLeft ?? plannedLeft ?? 0) - 6, top: rowHeight / 2 - 6, zIndex: 2, transition: "left 0.25s ease-out" }}><div style={{ width: 12, height: 12, background: "#7C3AED", transform: "rotate(45deg)", borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} /></div>
+                  ) : _isParent ? (
+                    /* PARENT BAR — thicker, darker navy, bracket ends */
+                    <>
+                      {plannedLeft !== null && plannedWidth !== null && (
+                        <div style={{ position: "absolute", left: plannedLeft, top: 2, height: 20, zIndex: 2, transition: "left 0.25s ease-out, width 0.25s ease-out" }}>
+                          <div style={{ width: Math.max(plannedWidth, 2), height: 20, background: "rgba(30,58,138,0.2)", border: "2px solid #1E3A8F", borderRadius: 4, position: "relative" }}>
+                            {/* Bracket-style left end */}
+                            <div style={{ position: "absolute", left: -3, top: "50%", transform: "translateY(-50%)", width: 6, height: 14, borderLeft: "2px solid #1E3A8F", borderTop: "2px solid #1E3A8F", borderBottom: "2px solid #1E3A8F", borderRadius: "2px 0 0 2px" }} />
+                            {/* Bracket-style right end */}
+                            <div style={{ position: "absolute", right: -3, top: "50%", transform: "translateY(-50%)", width: 6, height: 14, borderRight: "2px solid #1E3A8F", borderTop: "2px solid #1E3A8F", borderBottom: "2px solid #1E3A8F", borderRadius: "0 2px 2px 0" }} />
+                            {plannedWidth > 60 && <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", fontSize: 8, fontWeight: 700, color: "#1E3A8F", whiteSpace: "nowrap" }}>Summary {task.progress || 0}%</span>}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <>
                       {plannedLeft !== null && plannedWidth !== null && (
@@ -450,7 +469,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
                       ) : plannedLeft !== null && <div style={{ position: "absolute", left: plannedLeft, top: 18, zIndex: 1, transition: "left 0.25s ease-out" }}><span style={{ fontSize: 7, color: "#CBD5E1", fontStyle: "italic" }}>No actual yet</span></div>}
                     </>
                   )}
-                  {(!isMilestone) && plannedLeft === null && actualLeft === null && <div style={{ position: "absolute", left: 8, top: 14, zIndex: 5 }}><span style={{ fontSize: 8, color: "#94A3B8", fontStyle: "italic" }}>No dates</span></div>}
+                  {(!isMilestone && !_isParent) && plannedLeft === null && actualLeft === null && <div style={{ position: "absolute", left: 8, top: 14, zIndex: 5 }}><span style={{ fontSize: 8, color: "#94A3B8", fontStyle: "italic" }}>No dates</span></div>}
                 </div>
               );
             })}
@@ -1244,20 +1263,69 @@ export default function GanttPlanner() {
             style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: "Inter, sans-serif" }}
             onClick={(e) => { if (e.target === e.currentTarget) { setEditingId(null); setShowAdd(false); } }}
           >
+            {(() => {
+              const editingTask = editingId ? taskList.find((t: any) => t.id === editingId) : null;
+              const editingIsParent = editingTask ? isParent(editingTask.id, taskList) : false;
+              return (
             <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #D6DFE8", boxShadow: "0 20px 60px rgba(0,0,0,.25)", width: "100%", maxWidth: 720, maxHeight: "90vh", overflow: "auto", padding: "20px 24px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, position: "sticky", top: 0, background: "#fff", padding: "4px 0", zIndex: 2 }}>
-                <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#16324F" }}>{editingId ? "Edit Task" : "Add New Task"}</h4>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#16324F" }}>{editingId ? "Edit Task" : "Add New Task"}</h4>
+                  {editingIsParent && <span style={{ fontSize: 9, fontWeight: 700, color: "#1E3A8F", background: "#DBEAFE", padding: "2px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Summary Task</span>}
+                </div>
                 <button onClick={() => { setEditingId(null); setShowAdd(false); }} style={{ background: "none", border: "none", fontSize: 22, color: "#94A3B8", cursor: "pointer", lineHeight: 1, padding: 0, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, transition: "background .15s" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>&times;</button>
               </div>
+
+              {editingIsParent && (
+                <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: 11, color: "#1E40AF" }}>
+                  <span style={{ fontWeight: 700 }}>Auto-calculated:</span> Start, End, Duration, and Progress are calculated from child tasks.
+                </div>
+              )}
+
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px 12px" }}>
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Task Name *</label><input value={form.text} onChange={e => setForm({...form, text: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Enter task name" /></div>
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Owner</label><input value={form.owner} onChange={e => setForm({...form, owner: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} placeholder="Assignee" /></div>
-                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Planned Start</label><input type="date" value={form.plannedStart} onChange={e => setForm({...form, plannedStart: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Planned End</label><input type="date" value={form.plannedEnd} onChange={e => setForm({...form, plannedEnd: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Actual Start</label><input type="date" value={form.actualStart} onChange={e => setForm({...form, actualStart: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Actual End</label><input type="date" value={form.actualEnd} onChange={e => setForm({...form, actualEnd: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Duration</label><input type="number" min={1} value={form.duration} onChange={e => setForm({...form, duration: parseInt(e.target.value)||1})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
-                <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Progress %</label><input type="number" min={0} max={100} value={form.progress} onChange={e => setForm({...form, progress: parseInt(e.target.value)||0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} /></div>
+
+                {/* Dates — disabled for parent tasks */}
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
+                    Planned Start {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
+                  </label>
+                  <input type="date" value={form.plannedStart} onChange={e => setForm({...form, plannedStart: e.target.value})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
+                    Planned End {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
+                  </label>
+                  <input type="date" value={form.plannedEnd} onChange={e => setForm({...form, plannedEnd: e.target.value})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
+                    Actual Start {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
+                  </label>
+                  <input type="date" value={form.actualStart} onChange={e => setForm({...form, actualStart: e.target.value})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
+                    Actual End {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
+                  </label>
+                  <input type="date" value={form.actualEnd} onChange={e => setForm({...form, actualEnd: e.target.value})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                </div>
+
+                {/* Duration + Progress — disabled for parent tasks */}
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
+                    Duration {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
+                  </label>
+                  <input type="number" min={1} value={form.duration} onChange={e => setForm({...form, duration: parseInt(e.target.value)||1})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
+                    Progress % {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
+                  </label>
+                  <input type="number" min={0} max={100} value={form.progress} onChange={e => setForm({...form, progress: parseInt(e.target.value)||0})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                </div>
+
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Status</label><select value={form.status} onChange={e => setForm({...form, status: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">Auto</option><option>Not Started</option><option>In Progress</option><option>In Progress (Delayed)</option><option>Completed</option></select></div>
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="task">Task</option><option value="milestone">Milestone</option><option value="project">Project</option></select></div>
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Parent</label><select value={form.parent||""} onChange={e => setForm({...form, parent: e.target.value?parseInt(e.target.value):0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">(Root)</option>{(taskList||[]).filter((t:any)=>t.id!==editingId).map((t:any)=><option key={t.id} value={t.id}>{t.text}</option>)}</select></div>
@@ -1298,6 +1366,8 @@ export default function GanttPlanner() {
                 </button>
               </div>
             </div>
+            );
+            })()}
           </div>
         )}
       </div>
