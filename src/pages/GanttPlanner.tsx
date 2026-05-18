@@ -927,57 +927,83 @@ export default function GanttPlanner() {
 
   const submitForm = useCallback(() => {
     if (!form.text.trim()) { setBanner({ type: "error", message: "Task Name is required." }); return; }
+
+    /* Capture form values NOW — before any async operations reset them */
+    const _predecessorId = form.predecessorId;
+    const _depType       = form.depType;
+    const _lagDays       = form.lagDays;
+    const _parent        = form.parent || 0;
+    const _text          = form.text.trim();
+    const _owner         = form.owner;
+    const _plannedStart  = form.plannedStart;
+    const _plannedEnd    = form.plannedEnd;
+    const _actualStart   = form.actualStart;
+    const _actualEnd     = form.actualEnd;
+    const _duration      = form.duration;
+    const _progress      = form.progress;
+    const _status        = form.status;
+    const _remarks       = form.remarks;
+    const _type          = form.type;
+    const _editingId     = editingId;
+
     const autoStatus = deriveStatus({
-      startDate: form.actualStart || undefined, endDate: form.actualEnd || undefined,
-      plannedEnd: form.plannedEnd || undefined,
+      startDate: _actualStart || undefined, endDate: _actualEnd || undefined,
+      plannedEnd: _plannedEnd || undefined,
     } as GanttTask);
-    const finalStatus = form.status || autoStatus;
-    let finalProgress = Math.min(100, Math.max(0, form.progress));
-    if (form.actualEnd && finalProgress < 100) finalProgress = 100;
+    const finalStatus = _status || autoStatus;
+    let finalProgress = Math.min(100, Math.max(0, _progress));
+    if (_actualEnd && finalProgress < 100) finalProgress = 100;
+
     const allTasks = tasksQuery.data || [];
-    const wbsLevel = computeWbsLevel(editingId ?? 0, allTasks, form.parent || 0);
+    const wbsLevel = computeWbsLevel(_editingId ?? 0, allTasks, _parent);
+
     const payload: any = {
-      text: form.text.trim(), owner: form.owner || null,
-      planned_start: form.plannedStart || null, planned_end: form.plannedEnd || null,
-      start_date: form.actualStart || null, end_date: form.actualEnd || null,
-      duration: form.duration || 1, progress: finalProgress, status: finalStatus,
-      wbs_level: wbsLevel, parent: form.parent || 0,
-      remarks: form.remarks || null, type: form.type || "task",
+      text: _text, owner: _owner || null,
+      planned_start: _plannedStart || null, planned_end: _plannedEnd || null,
+      start_date: _actualStart || null, end_date: _actualEnd || null,
+      duration: _duration || 1, progress: finalProgress, status: finalStatus,
+      wbs_level: wbsLevel, parent: _parent,
+      remarks: _remarks || null, type: _type || "task",
     };
-    if (editingId) payload.id = editingId;
+    if (_editingId) payload.id = _editingId;
+
     saveTaskMut.mutate(payload, {
       onSuccess: (result: any) => {
-        const savedTaskId = editingId || result?.id;
-        // Save dependency if predecessor selected
-        if (form.predecessorId && savedTaskId && form.predecessorId !== savedTaskId) {
+        const savedTaskId = _editingId || result?.id;
+
+        /* Save dependency if predecessor selected */
+        if (_predecessorId && savedTaskId && _predecessorId !== savedTaskId) {
           const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
-          // Delete any existing dependency where this task is the successor
           const existing = (linksQuery.data || []).find((l: any) => l.target === savedTaskId || l.successorTaskId === savedTaskId);
-          if (existing) {
-            deleteLinkMut.mutate({ id: existing.id });
-          }
+          if (existing) deleteLinkMut.mutate({ id: existing.id });
           saveLinkMut.mutate({
-            source: form.predecessorId,
+            source: _predecessorId,
             target: savedTaskId,
-            type: typeMap[form.depType] || "0",
-            lag: form.lagDays,
+            type: typeMap[_depType] || "0",
+            lag: _lagDays,
             projectId: currentProjectId ?? undefined,
           });
         }
-        runAutoSchedule(editingId || undefined);
-        // Trigger parent rollups after save
-        const allTasks = tasksQuery.data || [];
-        const parentId = payload.parent;
-        if (parentId > 0) {
+
+        runAutoSchedule(_editingId || undefined);
+
+        /* Trigger parent rollups after save */
+        if (_parent > 0) {
           setTimeout(() => {
             const freshTasks = tasksQuery.data || allTasks;
-            recalcAndSaveParent(parentId, freshTasks);
+            recalcAndSaveParent(_parent, freshTasks);
           }, 300);
         }
+
+        /* Reset form AFTER everything succeeds */
+        setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
+      },
+      onError: () => {
+        /* Keep form open on error so user can retry */
+        setBanner({ type: "error", message: "Save failed. Check fields and retry." });
       }
     });
-    setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
-  }, [form, editingId, saveTaskMut, runAutoSchedule, tasksQuery.data, recalcAndSaveParent]);
+  }, [form, editingId, saveTaskMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, linksQuery.data, recalcAndSaveParent, currentProjectId]);
 
   const handleImportExcel = (file: File) => {
     const reader = new FileReader();
