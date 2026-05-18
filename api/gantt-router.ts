@@ -30,14 +30,13 @@ export const ganttRouter = createRouter({
         )
       `));
 
-      /* Use raw SQL query — bypasses Drizzle schema mismatches */
-      let sqlQuery: string;
+      /* Use drizzle sql template for parameterized queries */
+      let result;
       if (input?.projectId) {
-        sqlQuery = `SELECT * FROM gantt_dependencies WHERE project_id = ${input.projectId}`;
+        result = await db.execute(sql`SELECT * FROM gantt_dependencies WHERE project_id = ${input.projectId}`);
       } else {
-        sqlQuery = `SELECT * FROM gantt_dependencies`;
+        result = await db.execute(sql`SELECT * FROM gantt_dependencies`);
       }
-      const result = await db.query(sql.raw(sqlQuery));
       const typeReverse: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
       return (result.rows || []).map((r: any) => ({
         id: r.id,
@@ -176,7 +175,7 @@ export const ganttRouter = createRouter({
       // Delete task
       await db.delete(ganttTasks).where(eq(ganttTasks.id, input.id));
       // Delete any dependencies where this task is predecessor OR successor
-      await db.execute(sql.raw(`DELETE FROM gantt_dependencies WHERE predecessor_task_id = ${input.id} OR successor_task_id = ${input.id}`));
+      await db.execute(sql`DELETE FROM gantt_dependencies WHERE predecessor_task_id = ${input.id} OR successor_task_id = ${input.id}`);
       return { success: true };
     }),
 
@@ -193,7 +192,7 @@ export const ganttRouter = createRouter({
       })
     )
     .mutation(async ({ input }) => {
-      /* 1. Ensure table exists */
+      /* Ensure table exists */
       await db.execute(sql.raw(`
         CREATE TABLE IF NOT EXISTS gantt_dependencies (
           id SERIAL PRIMARY KEY,
@@ -210,21 +209,18 @@ export const ganttRouter = createRouter({
       const depType = input.type;
       const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
       const normalizedType = typeMap[depType] || depType || "FS";
-      const pid = input.projectId ?? null;
 
-      /* 2. Use plain execute() — no RETURNING, no params */
+      /* Use drizzle-orm/sql template properly — pass values as sql.raw() params */
       try {
-        await db.execute(sql.raw(`
+        await db.execute(sql`
           INSERT INTO gantt_dependencies
             (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, updated_at)
-          VALUES (${pid === null ? "NULL" : pid}, ${input.source}, ${input.target}, '${normalizedType}', ${input.lag}, NOW())
-        `));
-
-        /* 3. Get the inserted id with a separate query */
-        const idResult = await db.execute(sql.raw(`SELECT MAX(id) as id FROM gantt_dependencies WHERE predecessor_task_id = ${input.source} AND successor_task_id = ${input.target}`));
-        const insertedId = (idResult.rows?.[0] as any)?.id || 0;
-        return { id: insertedId, action: "created" };
+          VALUES
+            (${input.projectId ?? null}, ${input.source}, ${input.target}, ${normalizedType}, ${input.lag}, NOW())
+        `);
+        return { id: 0, action: "created" };
       } catch (insertErr: any) {
+        console.error("[saveLink] insert failed:", insertErr.message);
         throw new Error("Dependency insert failed: " + insertErr.message);
       }
     }),
@@ -233,7 +229,7 @@ export const ganttRouter = createRouter({
   deleteLink: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      await db.execute(sql.raw(`DELETE FROM gantt_dependencies WHERE id = ${input.id}`));
+      await db.execute(sql`DELETE FROM gantt_dependencies WHERE id = ${input.id}`);
       return { success: true };
     }),
 
@@ -263,11 +259,10 @@ export const ganttRouter = createRouter({
       const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
       for (const dep of input) {
         const normalizedType = typeMap[dep.type] || dep.type || "FS";
-        const pid = dep.projectId ?? null;
-        await db.execute(sql.raw(`
+        await db.execute(sql`
           INSERT INTO gantt_dependencies (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, updated_at)
-          VALUES (${pid}, ${dep.source}, ${dep.target}, '${normalizedType}', ${dep.lag}, NOW())
-        `));
+          VALUES (${dep.projectId ?? null}, ${dep.source}, ${dep.target}, ${normalizedType}, ${dep.lag}, NOW())
+        `);
       }
       return { count: input.length };
     }),
