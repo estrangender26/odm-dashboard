@@ -21,6 +21,14 @@ interface SmpDoc {
   uploadedAt?: string;
 }
 
+interface StoredPdf {
+  docId: number;
+  fileName: string;
+  fileType: string;
+  fileData: string;
+  uploadedAt: string;
+}
+
 // ── Mock data ──
 const MOCK_DOCS: SmpDoc[] = [
   { id: 1, code: "SMP-EQP-001", title: "Pump Preventive Maintenance - Monthly", revision: "Rev. 2", equipmentType: "Pumps", system: "Water Supply", dateIssued: "2024-01-15", nextReview: "2025-01-15", status: "Active", responsibleParty: "Maintenance" },
@@ -67,6 +75,101 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
   );
 }
 
+// ── Helpers ──
+function base64ToBlobUrl(b64: string, mime: string): string {
+  try {
+    const byteChars = atob(b64);
+    const byteNums = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([new Uint8Array(byteNums)], { type: mime });
+    return URL.createObjectURL(blob);
+  } catch { return ""; }
+}
+
+// ── PDF Viewer ──
+function PdfViewer({ fileData, fileUrl, title, fileName, onDownload }: {
+  fileData: string | null; fileUrl: string | null; title: string; fileName: string; onDownload?: () => void;
+}) {
+  const [zoom, setZoom] = useState(1);
+  const [loadError, setLoadError] = useState(false);
+  const [revokeUrl, setRevokeUrl] = useState<string | null>(null);
+
+  const src = useMemo(() => {
+    if (revokeUrl) { URL.revokeObjectURL(revokeUrl); setRevokeUrl(null); }
+    const b64 = fileData?.trim();
+    if (b64 && b64.length > 100) {
+      const url = base64ToBlobUrl(b64, "application/pdf");
+      if (url) { setRevokeUrl(url); return url; }
+    }
+    if (fileUrl?.trim()) return fileUrl.trim();
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileData, fileUrl]);
+
+  useEffect(() => () => { if (revokeUrl) URL.revokeObjectURL(revokeUrl); }, [revokeUrl]);
+  useEffect(() => { setLoadError(false); }, [src]);
+
+  if (!src) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center max-w-md text-gray-400">
+          <div className="text-6xl mb-4">📄</div>
+          <h3 className="text-lg font-semibold text-gray-500 mb-2">No PDF Available</h3>
+          <p className="text-sm">This document has no PDF file attached.</p>
+          {onDownload && (
+            <button onClick={onDownload} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto">
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Upload PDF
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center max-w-md text-gray-400">
+          <div className="text-5xl mb-4">⚠️</div>
+          <h3 className="text-lg font-semibold text-gray-600 mb-2">Cannot Preview PDF</h3>
+          <button onClick={onDownload || (() => {})} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto">
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Download PDF
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200 flex-wrap">
+        <span className="text-xs font-semibold text-gray-700 truncate flex-1" title={title}>{title}</span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">−</button>
+          <span className="text-xs text-gray-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
+          <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">+</button>
+          <button onClick={() => setZoom(1)} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200">Fit</button>
+        </div>
+        {onDownload && (
+          <button onClick={onDownload} className="px-2.5 py-1.5 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 font-semibold flex items-center gap-1 flex-shrink-0">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Download
+          </button>
+        )}
+      </div>
+      {/* PDF iframe with transform zoom */}
+      <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-4">
+        <div style={{ transform: `scale(${zoom})`, transformOrigin: "top center", transition: "transform 0.15s ease", width: "850px", height: "1100px", maxWidth: "100%" }}>
+          <iframe src={src} title={title} className="bg-white shadow-lg" style={{ width: "100%", height: "100%", border: "none", display: "block" }} onLoad={() => setLoadError(false)} onError={() => setLoadError(true)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════
@@ -76,6 +179,7 @@ export default function SmpDashboard() {
   const [sysFilter, setSysFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedDoc, setSelectedDoc] = useState<SmpDoc | null>(null);
+  const [storedPdfs, setStoredPdfs] = useState<Map<number, StoredPdf>>(new Map());
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -126,13 +230,56 @@ export default function SmpDashboard() {
   }, [filteredDocs]);
 
   const handleUpload = useCallback((file: File) => {
-    setBanner({ type: "info", message: `Uploading "${file.name}"... (PDF viewer integration coming soon)` });
-  }, []);
+    if (!selectedDoc) { setBanner({ type: "error", message: "Select a document first" }); return; }
+    setBanner({ type: "info", message: `Reading "${file.name}"...` });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(",")[1];
+      if (!base64 || base64.length < 100) {
+        setBanner({ type: "error", message: "Invalid or empty PDF file" }); return;
+      }
+      setStoredPdfs(prev => {
+        const next = new Map(prev);
+        next.set(selectedDoc.id, { docId: selectedDoc.id, fileName: file.name, fileType: file.type || "application/pdf", fileData: base64, uploadedAt: new Date().toISOString() });
+        return next;
+      });
+      setBanner({ type: "success", message: `PDF "${file.name}" uploaded for ${selectedDoc.code}` });
+    };
+    reader.onerror = () => setBanner({ type: "error", message: `Failed to read "${file.name}"` });
+    reader.readAsDataURL(file);
+  }, [selectedDoc]);
 
   const handleDownload = useCallback(() => {
     if (!selectedDoc) { setBanner({ type: "error", message: "Select a document first." }); return; }
-    setBanner({ type: "info", message: `Downloading ${selectedDoc.code}... (file storage integration coming soon)` });
-  }, [selectedDoc]);
+    const stored = storedPdfs.get(selectedDoc.id);
+    if (stored?.fileData) {
+      const url = base64ToBlobUrl(stored.fileData, stored.fileType || "application/pdf");
+      if (url) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = stored.fileName || `${selectedDoc.code}.pdf`;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+        setBanner({ type: "success", message: `Downloaded ${stored.fileName}` });
+        return;
+      }
+    }
+    if (selectedDoc.fileUrl) {
+      const a = document.createElement("a");
+      a.href = selectedDoc.fileUrl;
+      a.download = `${selectedDoc.code}.pdf`;
+      a.target = "_blank";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => document.body.removeChild(a), 100);
+      setBanner({ type: "success", message: `Downloaded ${selectedDoc.code}` });
+    } else {
+      setBanner({ type: "error", message: `No PDF file available for ${selectedDoc.code}. Upload one first.` });
+    }
+  }, [selectedDoc, storedPdfs]);
 
   // ═════════════ RENDER ═════════════
   return (
@@ -282,28 +429,14 @@ export default function SmpDashboard() {
                   </div>
                 </div>
               </div>
-              {/* PDF Placeholder */}
-              <div className="flex-1 flex items-center justify-center p-8">
-                <div className="text-center max-w-md">
-                  <div className="text-6xl mb-4">&#128196;</div>
-                  <h3 className="text-lg font-semibold text-gray-700 mb-2">PDF Viewer</h3>
-                  <p className="text-sm text-gray-500 mb-4">
-                    Document: <strong>{selectedDoc.code}</strong> — {selectedDoc.title}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    PDF viewing integration with <code>react-pdf</code> is ready for implementation.
-                    Upload a PDF file to view it here.
-                  </p>
-                  <div className="mt-6 flex gap-3 justify-center">
-                    <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">
-                      Upload PDF
-                    </button>
-                    <button onClick={handleDownload} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50">
-                      Download
-                    </button>
-                  </div>
-                </div>
-              </div>
+              {/* PDF Viewer */}
+              <PdfViewer
+                fileData={storedPdfs.get(selectedDoc.id)?.fileData || null}
+                fileUrl={selectedDoc.fileUrl || null}
+                title={`${selectedDoc.code} — ${selectedDoc.title}`}
+                fileName={storedPdfs.get(selectedDoc.id)?.fileName || `${selectedDoc.code}.pdf`}
+                onDownload={handleDownload}
+              />
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
