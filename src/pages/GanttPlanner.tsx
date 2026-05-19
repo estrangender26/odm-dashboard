@@ -479,18 +479,34 @@ function QuickActionBar({
   onMulti, multiSelectMode, onClear, selectionSize, onLink, onSave,
   selectedTaskId, selectedTaskName,
 }: QuickActionProps) {
-  /* High-contrast pill button base */
+  /* ═── Rich Color Palette ──══════════════════════════════════ */
   const pill: React.CSSProperties = {
     display: "flex", alignItems: "center", gap: 5,
     padding: "5px 11px", fontSize: 11, fontWeight: 700,
-    fontFamily: "Inter, sans-serif", border: "1px solid #CBD5E1",
-    borderRadius: 20, cursor: "pointer", background: "#FFFFFF",
-    color: "#0F172A", transition: "all .15s", lineHeight: 1, whiteSpace: "nowrap",
-    boxShadow: "0 1px 2px rgba(0,0,0,.06)",
+    fontFamily: "Inter, sans-serif", border: "1px solid",
+    borderRadius: 20, cursor: "pointer", transition: "all .15s",
+    lineHeight: 1, whiteSpace: "nowrap",
   };
-  const pillHover = (e: React.MouseEvent) => { const t = e.currentTarget as HTMLButtonElement; t.style.background = "#EFF6FF"; t.style.borderColor = "#005BAC"; t.style.color = "#005BAC"; t.style.boxShadow = "0 2px 6px rgba(0,91,172,.15)"; };
-  const pillLeave = (e: React.MouseEvent) => { const t = e.currentTarget as HTMLButtonElement; t.style.background = "#FFFFFF"; t.style.borderColor = "#CBD5E1"; t.style.color = "#0F172A"; t.style.boxShadow = "0 1px 2px rgba(0,0,0,.06)"; };
-  const disabledPill = (enabled: boolean) => enabled ? {} : { opacity: 0.45, cursor: "not-allowed" as const, color: "#94A3B8", borderColor: "#E2E8F0", background: "#F8FAFC" };
+  /* ── Color Presets ── */
+  const COLORS = {
+    slate:    { bg: "#F1F5F9", border: "#CBD5E1", text: "#334155", hoverBg: "#E2E8F0", hoverBorder: "#94A3B8", shadow: "0 1px 2px rgba(51,65,85,.08)" },
+    blue:     { bg: "#EFF6FF", border: "#93C5FD", text: "#1D4ED8", hoverBg: "#DBEAFE", hoverBorder: "#3B82F6", shadow: "0 1px 3px rgba(29,78,216,.12)" },
+    green:    { bg: "#1F9D55", border: "#1F9D55", text: "#FFFFFF", hoverBg: "#15803D", hoverBorder: "#15803D", shadow: "0 2px 6px rgba(31,157,85,.30)" },
+    red:      { bg: "#FEF2F2", border: "#FCA5A5", text: "#DC2626", hoverBg: "#FEE2E2", hoverBorder: "#EF4444", shadow: "0 1px 3px rgba(220,38,38,.10)" },
+    amber:    { bg: "#FFFBEB", border: "#FCD34D", text: "#B45309", hoverBg: "#FEF3C7", hoverBorder: "#F59E0B", shadow: "0 1px 3px rgba(180,83,9,.10)" },
+    violet:   { bg: "#F5F3FF", border: "#C4B5FD", text: "#6D28D9", hoverBg: "#EDE9FE", hoverBorder: "#8B5CF6", shadow: "0 1px 3px rgba(109,40,217,.10)" },
+    disabled: { bg: "#F8FAFC", border: "#E2E8F0", text: "#94A3B8", hoverBg: "#F8FAFC", hoverBorder: "#E2E8F0", shadow: "none" },
+  };
+  const applyColors = (c: typeof COLORS.slate): React.CSSProperties => ({
+    ...pill, background: c.bg, borderColor: c.border, color: c.text, boxShadow: c.shadow,
+  });
+  const setHover = (e: React.MouseEvent, c: typeof COLORS.slate) => {
+    const t = e.currentTarget; t.style.background = c.hoverBg; t.style.borderColor = c.hoverBorder; t.style.boxShadow = c.shadow.replace(/\d+\.?\d*/g, m => String(parseFloat(m) * 1.5));
+  };
+  const setLeave = (e: React.MouseEvent, c: typeof COLORS.slate) => {
+    const t = e.currentTarget; t.style.background = c.bg; t.style.borderColor = c.border; t.style.boxShadow = c.shadow;
+  };
+  const disabledPill = (enabled: boolean) => enabled ? {} : { opacity: 0.45, cursor: "not-allowed" as const, ...applyColors(COLORS.disabled) };
 
   /* Selected task name for context */
   const selName = selectedTaskName || null;
@@ -501,58 +517,52 @@ function QuickActionBar({
       {selName && <span style={{ fontSize: 11, fontWeight: 600, color: "#1E3A5F", marginRight: 4, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selName}</span>}
 
       {/* ── ADD GROUP ── */}
-      <button onClick={onAdd} title="Add Task (Ctrl+N)" style={{ ...pill, background: "#1F9D55", color: "#fff", borderColor: "#1F9D55", boxShadow: "0 2px 6px rgba(31,157,85,.25)" }} onMouseEnter={e => (e.currentTarget.style.background = "#15803D")} onMouseLeave={e => (e.currentTarget.style.background = "#1F9D55")}>
+      <button onClick={onAdd} title="Add Task (Ctrl+N)" style={applyColors(COLORS.green)} onMouseEnter={e => { const t = e.currentTarget; t.style.background = COLORS.green.hoverBg; t.style.borderColor = COLORS.green.hoverBorder; t.style.boxShadow = "0 3px 8px rgba(31,157,85,.35)"; }} onMouseLeave={e => { const t = e.currentTarget; t.style.background = COLORS.green.bg; t.style.borderColor = COLORS.green.border; t.style.boxShadow = COLORS.green.shadow; }}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add
       </button>
       {selectedTaskId && onDelete && (
-        <button onClick={onDelete} title="Delete selected task" style={{ ...pill, color: "#DC2626", borderColor: "#FECACA", background: "#FEF2F2" }} onMouseEnter={e => { const t = e.currentTarget; t.style.background = "#FEE2E2"; t.style.borderColor = "#EF4444"; }} onMouseLeave={e => { const t = e.currentTarget; t.style.background = "#FEF2F2"; t.style.borderColor = "#FECACA"; }}>
+        <button onClick={onDelete} title="Delete selected task" style={applyColors(COLORS.red)} onMouseEnter={e => setHover(e, COLORS.red)} onMouseLeave={e => setLeave(e, COLORS.red)}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Delete
         </button>
       )}
 
       {selectedTaskId && (
         <>
-          {onInsertAbove && <button onClick={onInsertAbove} title="Insert Above" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}><span style={{ fontSize: 12 }}>⬆</span></button>}
-          {onInsertBelow && <button onClick={onInsertBelow} title="Insert Below" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}><span style={{ fontSize: 12 }}>⬇</span></button>}
-          {onInsertChild && <button onClick={onInsertChild} title="Insert Child" style={{ ...pill, borderColor: "#86EFAC", color: "#15803D" }} onMouseEnter={e => { const t = e.currentTarget; t.style.background = "#F0FDF4"; t.style.borderColor = "#15803D"; }} onMouseLeave={pillLeave}><span style={{ fontSize: 12 }}>➕</span></button>}
+          {onInsertAbove && <button onClick={onInsertAbove} title="Insert Above" style={applyColors(COLORS.blue)} onMouseEnter={e => setHover(e, COLORS.blue)} onMouseLeave={e => setLeave(e, COLORS.blue)}><span style={{ fontSize: 12 }}>⬆</span>Above</button>}
+          {onInsertBelow && <button onClick={onInsertBelow} title="Insert Below" style={applyColors(COLORS.blue)} onMouseEnter={e => setHover(e, COLORS.blue)} onMouseLeave={e => setLeave(e, COLORS.blue)}><span style={{ fontSize: 12 }}>⬇</span>Below</button>}
+          {onInsertChild && <button onClick={onInsertChild} title="Insert Child" style={applyColors(COLORS.violet)} onMouseEnter={e => setHover(e, COLORS.violet)} onMouseLeave={e => setLeave(e, COLORS.violet)}><span style={{ fontSize: 12 }}>➕</span>Child</button>}
         </>
       )}
 
-      <span style={{ width: 1, height: 16, background: "#CBD5E1", margin: "0 2px", flexShrink: 0 }} />
+      <span style={{ width: 1, height: 16, background: "#94A3B8", margin: "0 2px", flexShrink: 0 }} />
 
       {/* ── STRUCTURE GROUP ── */}
-      <button onClick={onOutdent} disabled={!selectedTaskId || !onOutdent} title="Outdent Task" style={{ ...pill, ...disabledPill(!!selectedTaskId && !!onOutdent) }} onMouseEnter={!selectedTaskId ? undefined : pillHover} onMouseLeave={!selectedTaskId ? undefined : pillLeave}>
+      <button onClick={onOutdent} disabled={!selectedTaskId || !onOutdent} title="Outdent Task" style={{ ...applyColors(COLORS.slate), ...disabledPill(!!selectedTaskId && !!onOutdent) }} onMouseEnter={!selectedTaskId ? undefined : e => setHover(e, COLORS.slate)} onMouseLeave={!selectedTaskId ? undefined : e => setLeave(e, COLORS.slate)}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>Outdent
       </button>
-      <button onClick={onIndent} disabled={!selectedTaskId || !onIndent} title="Indent Task" style={{ ...pill, ...disabledPill(!!selectedTaskId && !!onIndent) }} onMouseEnter={!selectedTaskId ? undefined : pillHover} onMouseLeave={!selectedTaskId ? undefined : pillLeave}>
+      <button onClick={onIndent} disabled={!selectedTaskId || !onIndent} title="Indent Task" style={{ ...applyColors(COLORS.slate), ...disabledPill(!!selectedTaskId && !!onIndent) }} onMouseEnter={!selectedTaskId ? undefined : e => setHover(e, COLORS.slate)} onMouseLeave={!selectedTaskId ? undefined : e => setLeave(e, COLORS.slate)}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>Indent
       </button>
 
-      <span style={{ width: 1, height: 16, background: "#CBD5E1", margin: "0 2px", flexShrink: 0 }} />
+      <span style={{ width: 1, height: 16, background: "#94A3B8", margin: "0 2px", flexShrink: 0 }} />
 
       {/* ── SELECTION GROUP ── */}
-      <button onClick={onMulti} title="Toggle Multi-Select" style={{
-        ...pill,
-        background: multiSelectMode ? "#EDE9FE" : pill.background,
-        borderColor: multiSelectMode ? "#7C3AED" : pill.borderColor,
-        color: multiSelectMode ? "#5B21B6" : pill.color,
-        boxShadow: multiSelectMode ? "0 2px 6px rgba(124,58,237,.2)" : pill.boxShadow,
-      }} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+      <button onClick={onMulti} title="Toggle Multi-Select" style={multiSelectMode ? applyColors(COLORS.violet) : applyColors(COLORS.amber)} onMouseEnter={e => setHover(e, multiSelectMode ? COLORS.violet : COLORS.amber)} onMouseLeave={e => setLeave(e, multiSelectMode ? COLORS.violet : COLORS.amber)}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>{multiSelectMode ? "Multi-ON" : "Multi"}
       </button>
       {selectionSize > 0 && (
-        <button onClick={onClear} title="Clear Selection" style={{ ...pill, color: "#991B1B", borderColor: "#FCA5A5", background: "#FEF2F2" }} onMouseEnter={e => { const t = e.currentTarget; t.style.background = "#FEE2E2"; t.style.borderColor = "#EF4444"; }} onMouseLeave={e => { const t = e.currentTarget; t.style.background = "#FEF2F2"; t.style.borderColor = "#FCA5A5"; }}>
+        <button onClick={onClear} title="Clear Selection" style={applyColors(COLORS.red)} onMouseEnter={e => setHover(e, COLORS.red)} onMouseLeave={e => setLeave(e, COLORS.red)}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>Clear ({selectionSize})
         </button>
       )}
 
-      <span style={{ width: 1, height: 16, background: "#CBD5E1", margin: "0 2px", flexShrink: 0 }} />
+      <span style={{ width: 1, height: 16, background: "#94A3B8", margin: "0 2px", flexShrink: 0 }} />
 
       {/* ── LINK + SAVE ── */}
-      <button onClick={onLink} disabled={selectionSize < 2} title="Link Selected Tasks (2+ required)" style={{ ...pill, ...disabledPill(selectionSize >= 2), borderColor: "#C7D2FE", color: selectionSize >= 2 ? "#3730A3" : undefined }} onMouseEnter={selectionSize >= 2 ? pillHover : undefined} onMouseLeave={selectionSize >= 2 ? pillLeave : undefined}>
+      <button onClick={onLink} disabled={selectionSize < 2} title="Link Selected Tasks (2+ required)" style={{ ...applyColors(selectionSize >= 2 ? COLORS.blue : COLORS.disabled), ...disabledPill(selectionSize >= 2) }} onMouseEnter={selectionSize >= 2 ? e => setHover(e, COLORS.blue) : undefined} onMouseLeave={selectionSize >= 2 ? e => setLeave(e, COLORS.blue) : undefined}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Link
       </button>
-      <button onClick={onSave} title="Save Project" style={pill} onMouseEnter={pillHover} onMouseLeave={pillLeave}>
+      <button onClick={onSave} title="Save Project" style={applyColors(COLORS.green)} onMouseEnter={e => setHover(e, COLORS.green)} onMouseLeave={e => setLeave(e, COLORS.green)}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Save
       </button>
     </div>
