@@ -317,15 +317,29 @@ function GanttToolbar({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  /* Dropdown menu button component */
-  const MenuBtn = ({ label, icon, menuKey, children }: { label: string; icon: React.ReactNode; menuKey: string; children: React.ReactNode }) => (
-    <div style={{ position: "relative" }}>
-      <button onClick={() => setOpenMenu(openMenu === menuKey ? null : menuKey)} style={{ ...btnBase, borderColor: openMenu === menuKey ? "#005BAC" : btnBase.borderColor, background: openMenu === menuKey ? "rgba(255,255,255,0.2)" : btnBase.background }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
-        {icon}<span>{label} ▾</span>
-      </button>
-      {openMenu === menuKey && <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 200, background: "#fff", border: "1px solid #D6DFE8", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,.18)", minWidth: 170, fontFamily: "Inter, sans-serif", padding: "4px 0" }}>{children}</div>}
-    </div>
-  );
+  /* Dropdown menu button — uses position:fixed to escape overflow:clip */
+  const MenuBtn = ({ label, icon, menuKey, children }: { label: string; icon: React.ReactNode; menuKey: string; children: React.ReactNode }) => {
+    const btnRef = useRef<HTMLButtonElement>(null);
+    const [pos, setPos] = useState({ top: 0, left: 0 });
+    useEffect(() => {
+      if (openMenu === menuKey && btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect();
+        setPos({ top: r.bottom + 4, left: r.left });
+      }
+    }, [openMenu, menuKey]);
+    return (
+      <div>
+        <button ref={btnRef} onClick={() => setOpenMenu(openMenu === menuKey ? null : menuKey)} style={{ ...btnBase, borderColor: openMenu === menuKey ? "#005BAC" : btnBase.borderColor, background: openMenu === menuKey ? "rgba(255,255,255,0.2)" : btnBase.background }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+          {icon}<span>{label} ▾</span>
+        </button>
+        {openMenu === menuKey && (
+          <div style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999, background: "#fff", border: "1px solid #D6DFE8", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,.18)", minWidth: 180, fontFamily: "Inter, sans-serif", padding: "4px 0" }}>
+            {children}
+          </div>
+        )}
+      </div>
+    );
+  };
   const Mi = ({ icon, label, onClick, danger }: { icon?: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) => (
     <button onClick={() => { onClick(); setOpenMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 14px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: danger ? "#DC2626" : "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>{icon}{label}</button>
   );
