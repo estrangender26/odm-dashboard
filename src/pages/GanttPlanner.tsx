@@ -314,6 +314,14 @@ function GanttToolbar({
   const exportRef = useRef<HTMLDivElement>(null);
   const adminRef = useRef<HTMLDivElement>(null);
 
+  /* Group wrapper: label + vertical separator */
+  const Grp = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 3, padding: "0 4px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>{children}</div>
+      <span className="toolbar-group-label" style={{ fontSize: 8, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.4px", fontWeight: 600, writingMode: "vertical-rl", transform: "rotate(180deg)", whiteSpace: "nowrap", marginLeft: 2 }}>{label}</span>
+    </div>
+  );
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (mobileRef.current && !mobileRef.current.contains(e.target as Node)) setMobileMenuOpen(false);
@@ -357,71 +365,78 @@ function GanttToolbar({
       <div className="gantt-desktop-toolbar" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 12px 6px", overflowX: "auto" }}>
 
         {/* FILE GROUP */}
-        <button onClick={onSave} title={currentProjectId ? `Update "${currentProjectName}"` : "Save project"} style={{ ...btnBase, background: "#1F9D55", color: "#fff", borderColor: "#1F9D55" }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#15803D"; }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "#1F9D55"; }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg><span className="toolbar-label">Save</span>
-          {hasUnsavedChanges && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#FBBF24", flexShrink: 0 }} />}
-        </button>
-
-        <button onClick={onImport} title="Import Excel" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span className="toolbar-label">Import</span>
-        </button>
-
-        <div ref={exportRef} style={{ position: "relative" }}>
-          <button onClick={() => setExportOpen(!exportOpen)} title="Export" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span className="toolbar-label">Export ▾</span>
+        <Grp label="File">
+          <button onClick={onSave} title={currentProjectId ? `Update "${currentProjectName}"` : "Save project"} style={{ ...btnBase, background: "#1F9D55", color: "#fff", borderColor: "#1F9D55" }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#15803D"; }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "#1F9D55"; }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg><span className="toolbar-label">Save</span>
+            {hasUnsavedChanges && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#FBBF24", flexShrink: 0 }} />}
           </button>
-          {exportOpen && (
-            <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 150, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.15)", minWidth: 160, fontFamily: "Inter, sans-serif", padding: "4px 0" }}>
-              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} label="Excel" onClick={() => { onExportExcel(); setExportOpen(false); }} />
-              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} label="CSV" onClick={() => { onExportCSV(); setExportOpen(false); }} />
-              <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>} label="Template" onClick={() => { onExportTemplate(); setExportOpen(false); }} />
-            </div>
-          )}
-        </div>
+          <button onClick={onImport} title="Import Excel" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span className="toolbar-label">Import</span>
+          </button>
+          <div ref={exportRef} style={{ position: "relative" }}>
+            <button onClick={() => setExportOpen(!exportOpen)} title="Export" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span className="toolbar-label">Export ▾</span>
+            </button>
+            {exportOpen && (
+              <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 150, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.15)", minWidth: 160, fontFamily: "Inter, sans-serif", padding: "4px 0" }}>
+                <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} label="Excel" onClick={() => { onExportExcel(); setExportOpen(false); }} />
+                <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} label="CSV" onClick={() => { onExportCSV(); setExportOpen(false); }} />
+                <Tbm icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>} label="Template" onClick={() => { onExportTemplate(); setExportOpen(false); }} />
+              </div>
+            )}
+          </div>
+        </Grp>
 
         {sep}
 
         {/* PROJECT GROUP */}
-        <button onClick={onOpen} title="Open" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span className="toolbar-label">Open</span>
-        </button>
-        <button onClick={onSaveAs} title="Save As" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg><span className="toolbar-label">Save As</span>
-        </button>
-        {currentProjectId && (
-          <button onClick={onClose} title="Close" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg><span className="toolbar-label">Close</span>
+        <Grp label="Project">
+          <button onClick={onOpen} title="Open" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span className="toolbar-label">Open</span>
           </button>
-        )}
+          <button onClick={onSaveAs} title="Save As" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg><span className="toolbar-label">Save As</span>
+          </button>
+          {currentProjectId && (
+            <button onClick={onClose} title="Close" style={btnBase} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg><span className="toolbar-label">Close</span>
+            </button>
+          )}
+        </Grp>
 
         {sep}
 
         {/* TASK STRUCTURE GROUP */}
-        <button onClick={onOutdent} disabled={!onOutdent} title="Outdent task (Ctrl+[)" style={{ ...btnBase, opacity: onOutdent ? 0.85 : 0.35, cursor: onOutdent ? "pointer" : "not-allowed" }} onMouseEnter={onOutdent ? btnHover : undefined} onMouseLeave={onOutdent ? btnLeave : undefined}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg><span className="toolbar-label">Outdent</span>
-        </button>
-        <button onClick={onIndent} disabled={!onIndent} title="Indent task (Ctrl+])" style={{ ...btnBase, opacity: onIndent ? 0.85 : 0.35, cursor: onIndent ? "pointer" : "not-allowed" }} onMouseEnter={onIndent ? btnHover : undefined} onMouseLeave={onIndent ? btnLeave : undefined}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg><span className="toolbar-label">Indent</span>
-        </button>
+        <Grp label="Task">
+          <button onClick={onOutdent} disabled={!onOutdent} title="Outdent (Ctrl+[)" style={{ ...btnBase, opacity: onOutdent ? 0.85 : 0.35, cursor: onOutdent ? "pointer" : "not-allowed" }} onMouseEnter={onOutdent ? btnHover : undefined} onMouseLeave={onOutdent ? btnLeave : undefined}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg><span className="toolbar-label">Outdent</span>
+          </button>
+          <button onClick={onIndent} disabled={!onIndent} title="Indent (Ctrl+])" style={{ ...btnBase, opacity: onIndent ? 0.85 : 0.35, cursor: onIndent ? "pointer" : "not-allowed" }} onMouseEnter={onIndent ? btnHover : undefined} onMouseLeave={onIndent ? btnLeave : undefined}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg><span className="toolbar-label">Indent</span>
+          </button>
+        </Grp>
 
         {sep}
 
         {/* SELECTION GROUP */}
-        <button onClick={onToggleMulti} title="Toggle multi-select" style={{ ...btnBase, background: multiSelectMode ? "rgba(124,58,237,0.35)" : btnBase.background, color: multiSelectMode ? "#C4B5FD" : btnBase.color, borderColor: multiSelectMode ? "rgba(124,58,237,0.5)" : btnBase.borderColor }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span className="toolbar-label">{multiSelectMode ? "Multi-ON" : "Multi"}</span>
-        </button>
-        {selectedIdsSize && selectedIdsSize > 0 ? (
-          <button onClick={onClear} title="Clear selection" style={{ ...btnBase, color: "#FCA5A5" }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg><span className="toolbar-label">({selectedIdsSize})</span>
+        <Grp label="Select">
+          <button onClick={onToggleMulti} title="Toggle multi-select" style={{ ...btnBase, background: multiSelectMode ? "rgba(124,58,237,0.35)" : btnBase.background, color: multiSelectMode ? "#C4B5FD" : btnBase.color, borderColor: multiSelectMode ? "rgba(124,58,237,0.5)" : btnBase.borderColor }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span className="toolbar-label">{multiSelectMode ? "Multi-ON" : "Multi"}</span>
           </button>
-        ) : null}
-        <button onClick={onLink} disabled={!onLink} title="Link selected tasks" style={{ ...btnBase, opacity: onLink ? 0.85 : 0.35, cursor: onLink ? "pointer" : "not-allowed" }} onMouseEnter={onLink ? btnHover : undefined} onMouseLeave={onLink ? btnLeave : undefined}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span className="toolbar-label">Link</span>
-        </button>
+          {selectedIdsSize && selectedIdsSize > 0 ? (
+            <button onClick={onClear} title="Clear selection" style={{ ...btnBase, color: "#FCA5A5" }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg><span className="toolbar-label">({selectedIdsSize})</span>
+            </button>
+          ) : null}
+          <button onClick={onLink} disabled={!onLink} title="Link tasks" style={{ ...btnBase, opacity: onLink ? 0.85 : 0.35, cursor: onLink ? "pointer" : "not-allowed" }} onMouseEnter={onLink ? btnHover : undefined} onMouseLeave={onLink ? btnLeave : undefined}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span className="toolbar-label">Link</span>
+          </button>
+        </Grp>
 
         {sep}
 
         {/* ADMIN GROUP */}
+        <Grp label="Admin">
         <div ref={adminRef} style={{ position: "relative" }}>
           <button onClick={() => setAdminOpen(!adminOpen)} title="Admin" style={{ ...btnBase, opacity: 0.7, fontSize: 10 }} onMouseEnter={btnHover} onMouseLeave={btnLeave}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span className="toolbar-label">Admin ▾</span>
@@ -434,6 +449,7 @@ function GanttToolbar({
             </div>
           )}
         </div>
+        </Grp>
 
         <div style={{ marginLeft: "auto" }} />
         {hasUnsavedChanges && (
