@@ -398,9 +398,9 @@ function GanttToolbar({
 
         {/* TASK MENU */}
         <MenuBtn label="Task" icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>} menuKey="task">
-          {onInsertAbove && <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1D4ED8" strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 11 12 5 18 11"/></svg>} label="Insert Above" onClick={onInsertAbove} />}
-          {onInsertBelow && <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1D4ED8" strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 13 12 19 18 13"/></svg>} label="Insert Below" onClick={onInsertBelow} />}
-          {onInsertChild && <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 13 12 19 18 13"/></svg>} label="Insert Child" onClick={onInsertChild} />}
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={onInsertAbove ? "#1D4ED8" : "#CBD5E1"} strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 11 12 5 18 11"/></svg>} label="Insert Above" onClick={onInsertAbove || (() => {})} />
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={onInsertBelow ? "#1D4ED8" : "#CBD5E1"} strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 13 12 19 18 13"/></svg>} label="Insert Below" onClick={onInsertBelow || (() => {})} />
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={onInsertChild ? "#15803D" : "#CBD5E1"} strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 13 12 19 18 13"/></svg>} label="Insert Child" onClick={onInsertChild || (() => {})} />
           <div style={{ height: 1, background: "#E2E8F0", margin: "4px 8px" }} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>} label="Outdent" onClick={() => onOutdent?.()} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>} label="Indent" onClick={() => onIndent?.()} />
