@@ -292,6 +292,7 @@ interface ToolbarProps {
   onExportExcel: () => void; onExportCSV: () => void; onExportTemplate: () => void;
   onMigrate: () => void; onReset: () => void; onLoadDemo: () => void;
   onIndent?: () => void; onOutdent?: () => void;
+  onInsertAbove?: () => void; onInsertBelow?: () => void; onInsertChild?: () => void;
   onLink?: () => void; onClear?: () => void;
   multiSelectMode?: boolean; onToggleMulti?: () => void;
   selectedIdsSize?: number;
@@ -303,7 +304,8 @@ function GanttToolbar({
   onSave, onSaveAs, onOpen, onClose, onImport,
   onExportExcel, onExportCSV, onExportTemplate,
   onMigrate, onReset, onLoadDemo,
-  onIndent, onOutdent, onLink, onClear,
+  onIndent, onOutdent, onInsertAbove, onInsertBelow, onInsertChild,
+  onLink, onClear,
   multiSelectMode, onToggleMulti, selectedIdsSize,
   tasksExist,
 }: ToolbarProps) {
@@ -396,8 +398,12 @@ function GanttToolbar({
 
         {/* TASK MENU */}
         <MenuBtn label="Task" icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>} menuKey="task">
-          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1E293B" strokeWidth="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>} label="Outdent" onClick={() => onOutdent?.()} />
-          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1E293B" strokeWidth="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>} label="Indent" onClick={() => onIndent?.()} />
+          {onInsertAbove && <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1D4ED8" strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 11 12 5 18 11"/></svg>} label="Insert Above" onClick={onInsertAbove} />}
+          {onInsertBelow && <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1D4ED8" strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 13 12 19 18 13"/></svg>} label="Insert Below" onClick={onInsertBelow} />}
+          {onInsertChild && <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2"><polyline points="12 5 12 19"/><polyline points="6 13 12 19 18 13"/></svg>} label="Insert Child" onClick={onInsertChild} />}
+          <div style={{ height: 1, background: "#E2E8F0", margin: "4px 8px" }} />
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>} label="Outdent" onClick={() => onOutdent?.()} />
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>} label="Indent" onClick={() => onIndent?.()} />
         </MenuBtn>
 
         {sep}
@@ -1943,6 +1949,9 @@ export default function GanttPlanner() {
         onReset={() => resetMut.mutate()}
         onLoadDemo={() => seedMut.mutate()}
         onIndent={handleIndent} onOutdent={handleOutdent}
+        onInsertAbove={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskAbove(t); } : undefined}
+        onInsertBelow={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskBelow(t); } : undefined}
+        onInsertChild={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskChild(t); } : undefined}
         onLink={() => setLinkModalOpen(true)}
         onClear={clearSelection}
         multiSelectMode={multiSelectMode} onToggleMulti={() => setMultiSelectMode(!multiSelectMode)}
