@@ -1120,7 +1120,7 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     }
 
     /* display */
-    if (col.key === "status") return <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 10, background: statusBg(val), color: statusColor(val), fontSize: 9, fontWeight: 600 }}>{rowStatus(t)}</span>;
+    if (col.key === "status") return <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 10, background: statusBg(val), color: _statusColor(val), fontSize: 9, fontWeight: 600 }}>{rowStatus(t)}</span>;
     if (col.key === "progress") return <span style={{ fontWeight: 700, color: normProgress(val) >= 100 ? "#1F9D55" : "#005BAC" }}>{normProgress(val)}%</span>;
     if (col.key === "parent" || col.key === "predecessor") { const rt = allTasks.find((x: any) => x.id === (parseInt(val) || 0)); return <span style={{ color: rt ? "#1E293B" : "#94A3B8" }}>{rt ? (rt.taskName ?? rt.text ?? `T${rt.id}`).slice(0, 18) : (val !== "0" && val ? "?" : "—")}</span>; }
     return <span style={{ color: val ? "#1E293B" : "#94A3B8" }}>{val || "—"}</span>;
