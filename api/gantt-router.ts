@@ -476,6 +476,52 @@ export const ganttRouter = createRouter({
         )`));
     }
 
+    /* ── Schema migration: if gantt_projects exists but lacks new columns, recreate ── */
+    try {
+      const cols = await db.execute(sql.raw(`
+        SELECT column_name FROM information_schema.columns WHERE table_name = 'gantt_projects'
+      `));
+      const colNames = (cols.rows || []).map((r: any) => r.column_name);
+      if (!colNames.includes("name")) {
+        /* Old schema — drop and recreate all Gantt tables */
+        try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}
+        try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
+        try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_projects CASCADE`)); } catch {}
+        await db.execute(sql.raw(`
+          CREATE TABLE gantt_projects (
+            id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, project_name VARCHAR(255),
+            start_date VARCHAR(20), finish_date VARCHAR(20), status VARCHAR(50),
+            tasks_data TEXT NOT NULL DEFAULT '{}', links_data TEXT,
+            description TEXT, created_by VARCHAR(255), updated_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )`));
+        await db.execute(sql.raw(`
+          CREATE TABLE gantt_tasks (
+            id SERIAL PRIMARY KEY, project_id INTEGER, frontend_task_uid VARCHAR(64) UNIQUE,
+            task_name VARCHAR(500) NOT NULL, parent_task_id INTEGER DEFAULT 0,
+            predecessor_task_id INTEGER, dependency_type VARCHAR(10), lag_days INTEGER DEFAULT 0,
+            wbs_level INTEGER DEFAULT 0, sort_order INTEGER DEFAULT 0,
+            planned_start VARCHAR(20), planned_finish VARCHAR(20), planned_duration INTEGER,
+            actual_start VARCHAR(20), actual_finish VARCHAR(20), actual_duration INTEGER,
+            progress_percent INTEGER DEFAULT 0, status VARCHAR(50), owner VARCHAR(255),
+            category VARCHAR(100), notes TEXT, remarks TEXT, task_type VARCHAR(20) DEFAULT 'task',
+            is_milestone INTEGER DEFAULT 0, is_parent INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )`));
+        await db.execute(sql.raw(`CREATE INDEX gantt_tasks_project_idx ON gantt_tasks(project_id)`));
+        await db.execute(sql.raw(`CREATE INDEX gantt_tasks_parent_idx ON gantt_tasks(parent_task_id)`));
+        await db.execute(sql.raw(`CREATE INDEX gantt_tasks_uid_idx ON gantt_tasks(frontend_task_uid)`));
+        await db.execute(sql.raw(`CREATE INDEX gantt_tasks_sort_idx ON gantt_tasks(sort_order)`));
+        await db.execute(sql.raw(`
+          CREATE TABLE gantt_dependencies (
+            id SERIAL PRIMARY KEY, project_id INTEGER,
+            predecessor_task_id INTEGER NOT NULL, successor_task_id INTEGER NOT NULL,
+            dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS', lag_days INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )`));
+      }
+    } catch { /* table doesn't exist — will be handled below */ }
+
     /* Check if data already exists */
     let existing: any[] = [];
     try { existing = await db.select().from(ganttTasks); } catch {}
