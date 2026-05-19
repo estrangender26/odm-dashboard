@@ -147,11 +147,12 @@ export const ganttRouter = createRouter({
       /* Project */
       project_id: z.number().optional(),
       projectId: z.number().optional(),
-      /* Task name — old: text, new: task_name */
+      /* Task name — old: text, new: task_name, also: taskName (camelCase) */
       task_name: z.string().optional(),
       text: z.string().optional(),
       name: z.string().optional(),
       title: z.string().optional(),
+      taskName: z.string().optional(),
       /* Parent — old: parent, new: parent_task_id */
       parent_task_id: z.number().default(0),
       parent: z.number().default(0),
@@ -241,7 +242,8 @@ export const ganttRouter = createRouter({
       /* ── Normalize: pick first available value from old/new field names ── */
       const pick = (...vals: any[]) => { for (const v of vals) if (v !== undefined && v !== null && v !== "") return v; return undefined; };
 
-      const taskName = pick(input.task_name, input.text, input.name, input.title);
+      /* BUG #1 FIX: Added taskName (camelCase) to pick list */
+      const taskName = pick(input.task_name, input.text, input.name, input.title, input.taskName);
       if (!taskName || !String(taskName).trim()) {
         throw new Error("task_name (or text) is required");
       }

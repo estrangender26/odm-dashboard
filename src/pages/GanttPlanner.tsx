@@ -1252,15 +1252,13 @@ export default function GanttPlanner() {
   const { refetch: refetchLinks } = linksQuery;
 
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
       utils.gantt.tasks.invalidate();
-      /* BUG #8: refresh the saved snapshot so unsaved indicator clears */
-      setTimeout(() => {
-        if (tasksQuery.data) {
-          lastSavedJsonRef.current = JSON.stringify(tasksQuery.data);
-          setHasUnsavedChanges(false);
-        }
-      }, 500);
+      /* BUG #8 FIX: Immediately update snapshot using local taskList (already has latest data).
+         Use the EXACT same array shape that the useEffect compares against. */
+      const currentArr = (tasksQuery.data || []) as any[];
+      lastSavedJsonRef.current = JSON.stringify(currentArr);
+      setHasUnsavedChanges(false);
     },
     onError: (e) => setBanner({ type: "error", message: "Save task failed: " + e.message }),
   });
