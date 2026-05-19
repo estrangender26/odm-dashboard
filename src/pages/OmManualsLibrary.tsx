@@ -62,6 +62,47 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
   );
 }
 
+/* ═── Progress Overlay ──═══════════════════════════════ */
+function ProgressOverlay({ visible, label, sublabel, progress }: { visible: boolean; label: string; sublabel?: string; progress?: number }) {
+  if (!visible) return null;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(13,33,55,0.55)", backdropFilter: "blur(2px)" }}>
+      <div className="bg-white rounded-xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4 min-w-[260px]">
+        {/* Spinner */}
+        <div className="relative w-14 h-14">
+          <div className="absolute inset-0 rounded-full border-4 border-gray-200" />
+          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 animate-spin" style={{ animationDuration: "0.8s" }} />
+        </div>
+        {/* Label */}
+        <div className="text-center">
+          <p className="text-sm font-bold text-gray-800">{label}</p>
+          {sublabel && <p className="text-xs text-gray-500 mt-1">{sublabel}</p>}
+        </div>
+        {/* Progress bar */}
+        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-300 ease-out"
+            style={{
+              width: progress !== undefined ? `${Math.min(100, Math.max(5, progress))}%` : "60%",
+              background: "linear-gradient(90deg, #2563EB 0%, #3B82F6 50%, #2563EB 100%)",
+              backgroundSize: "200% 100%",
+              animation: progress !== undefined ? "none" : "progressShimmer 1.5s ease-in-out infinite",
+            }}
+          />
+        </div>
+        {/* Cancel hint */}
+        <p className="text-[0.65rem] text-gray-400">Please wait...</p>
+      </div>
+      <style>{`
+        @keyframes progressShimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}>
@@ -507,13 +548,20 @@ export default function OmManualsLibrary() {
   const [modalInput, setModalInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Progress states ──
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadLabel, setUploadLabel] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadLabel, setDownloadLabel] = useState("");
+
   // ── Fetch tree ──
   const { data: treeData, isLoading } = trpc.documents.getTree.useQuery();
   const tree = treeData?.tree || [];
   const utils = trpc.useUtils();
 
   // ── Fetch single file for viewer ──
-  const { data: fileDetail } = trpc.documents.getFile.useQuery(
+  const { data: fileDetail, isLoading: isFileLoading } = trpc.documents.getFile.useQuery(
     { id: selectedFileId! },
     { enabled: !!selectedFileId }
   );
@@ -527,30 +575,33 @@ export default function OmManualsLibrary() {
     if (selectedFileData && selectedFileData.id === file.id && selectedFileData.fileData) {
       triggerDownload(selectedFileData.fileData, file.fileType || "application/pdf", file.fileName || file.title || "document.pdf");
       setBanner({ type: "info", message: `Downloading ${file.fileName}...` });
-    } else {
-      setSelectedFileId(file.id);
-      setBanner({ type: "info", message: `Loading ${file.fileName} for download...` });
-      utils.documents.getFile.fetch({ id: file.id }).then((data) => {
-        if (data?.fileData) {
-          triggerDownload(data.fileData, file.fileType || "application/pdf", file.fileName || file.title || "document.pdf");
-          setBanner({ type: "success", message: `Downloaded ${file.fileName}` });
-        } else if (data?.fileUrl) {
-          const a = document.createElement("a");
-          a.href = data.fileUrl;
-          a.download = file.fileName || file.title || "document.pdf";
-          a.target = "_blank";
-          a.style.display = "none";
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => document.body.removeChild(a), 100);
-          setBanner({ type: "success", message: `Downloaded ${file.fileName}` });
-        } else {
-          setBanner({ type: "error", message: "No file data available for download" });
-        }
-      }).catch((e: any) => {
-        setBanner({ type: "error", message: `Download failed: ${e.message}` });
-      });
+      return;
     }
+    setIsDownloading(true);
+    setDownloadLabel(`Downloading "${file.fileName || file.title}"...`);
+    setSelectedFileId(file.id);
+    utils.documents.getFile.fetch({ id: file.id }).then((data) => {
+      setIsDownloading(false);
+      if (data?.fileData) {
+        triggerDownload(data.fileData, file.fileType || "application/pdf", file.fileName || file.title || "document.pdf");
+        setBanner({ type: "success", message: `Downloaded ${file.fileName}` });
+      } else if (data?.fileUrl) {
+        const a = document.createElement("a");
+        a.href = data.fileUrl;
+        a.download = file.fileName || file.title || "document.pdf";
+        a.target = "_blank";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => document.body.removeChild(a), 100);
+        setBanner({ type: "success", message: `Downloaded ${file.fileName}` });
+      } else {
+        setBanner({ type: "error", message: "No file data available for download" });
+      }
+    }).catch((e: any) => {
+      setIsDownloading(false);
+      setBanner({ type: "error", message: `Download failed: ${e.message}` });
+    });
   }, [selectedFileData, utils]);
 
   // ── Delete file helper ──
@@ -593,8 +644,18 @@ export default function OmManualsLibrary() {
     onError: (e) => { setBanner({ type: "error", message: `Unable to move folder. ${e.message}` }); },
   });
   const uploadFile = trpc.documents.uploadFile.useMutation({
-    onSuccess: (data) => { refreshTree("uploadFile"); setBanner({ type: "success", message: `File "${data.title}" uploaded` }); },
-    onError: (e) => { setBanner({ type: "error", message: `Upload failed. ${e.message}` }); },
+    onMutate: () => { setUploadProgress(75); },
+    onSuccess: (data) => {
+      setUploadProgress(100);
+      setTimeout(() => { setIsUploading(false); setUploadProgress(0); }, 600);
+      refreshTree("uploadFile");
+      setBanner({ type: "success", message: `File "${data.title}" uploaded` });
+    },
+    onError: (e) => {
+      setIsUploading(false);
+      setUploadProgress(0);
+      setBanner({ type: "error", message: `Upload failed. ${e.message}` });
+    },
   });
   const deleteFile = trpc.documents.deleteFile.useMutation({
     onSuccess: () => { refreshTree("deleteFile"); setSelectedFileId(null); setSelectedFileData(null); setBanner({ type: "success", message: "File deleted" }); },
@@ -669,8 +730,28 @@ export default function OmManualsLibrary() {
     const targetFolder = selectedFolderId;
     if (!targetFolder) { setBanner({ type: "error", message: "Select a folder first" }); return; }
 
+    setIsUploading(true);
+    setUploadProgress(0);
+    setUploadLabel(`Reading "${file.name}"...`);
+
     const reader = new FileReader();
+
+    reader.onprogress = (ev) => {
+      if (ev.lengthComputable) {
+        const pct = Math.round((ev.loaded / ev.total) * 50);
+        setUploadProgress(pct);
+        setUploadLabel(`Reading "${file.name}"... ${Math.round((ev.loaded / ev.total) * 100)}%`);
+      }
+    };
+
+    reader.onloadstart = () => {
+      setUploadProgress(5);
+      setUploadLabel(`Reading "${file.name}"...`);
+    };
+
     reader.onload = () => {
+      setUploadProgress(60);
+      setUploadLabel(`Uploading "${file.name}"...`);
       const base64 = (reader.result as string).split(",")[1];
       uploadFile.mutate({
         folderId: targetFolder,
@@ -682,6 +763,13 @@ export default function OmManualsLibrary() {
         uploadedBy: "User",
       });
     };
+
+    reader.onerror = () => {
+      setIsUploading(false);
+      setUploadProgress(0);
+      setBanner({ type: "error", message: `Failed to read "${file.name}"` });
+    };
+
     reader.readAsDataURL(file);
     e.target.value = "";
   }, [selectedFolderId, uploadFile]);
@@ -693,6 +781,11 @@ export default function OmManualsLibrary() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
       {banner && <div className="flex-shrink-0 px-4 pt-3"><Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} /></div>}
+
+      {/* Progress Overlays */}
+      <ProgressOverlay visible={isUploading} label={uploadLabel || "Uploading..."} sublabel={uploadLabel.includes("%") ? undefined : "Transferring file to server"} progress={uploadProgress} />
+      <ProgressOverlay visible={isDownloading} label={downloadLabel || "Downloading..."} sublabel="Fetching file from server" />
+      <ProgressOverlay visible={!!selectedFileId && isFileLoading && !isUploading && !isDownloading} label="Loading file..." sublabel="Reading document data from server" />
 
       {/* Header */}
       <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}>
