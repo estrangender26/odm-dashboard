@@ -137,202 +137,116 @@ export const ganttRouter = createRouter({
       }));
     }),
 
-  /* ── 4. SAVE TASK (accepts BOTH old + new field names for full backward compat) ── */
+  /* ── 4. SAVE TASK — raw SQL, zero ambiguity ── */
   saveTask: publicQuery
-    .input(z.object({
-      id: z.number().optional(),
-      /* UID */
-      frontend_task_uid: z.string().optional(),
-      frontendTaskUid: z.string().optional(),
-      /* Project */
-      project_id: z.number().optional(),
-      projectId: z.number().optional(),
-      /* Task name — old: text, new: task_name, also: taskName (camelCase) */
-      task_name: z.string().optional(),
-      text: z.string().optional(),
-      name: z.string().optional(),
-      title: z.string().optional(),
-      taskName: z.string().optional(),
-      /* Parent — old: parent, new: parent_task_id */
-      parent_task_id: z.number().default(0),
-      parent: z.number().default(0),
-      parentId: z.number().default(0),
-      /* Predecessor */
-      predecessor_task_id: z.number().nullable().optional(),
-      predecessorId: z.number().nullable().optional(),
-      predecessor: z.number().nullable().optional(),
-      dependency: z.number().nullable().optional(),
-      /* Dependency type */
-      dependency_type: z.string().nullable().optional(),
-      dependencyType: z.string().nullable().optional(),
-      linkType: z.string().nullable().optional(),
-      type: z.string().nullable().optional(), // only maps to dependency_type if task_type is not present
-      /* Lag */
-      lag_days: z.number().default(0),
-      lagDays: z.number().default(0),
-      lag: z.number().default(0),
-      /* WBS */
-      wbs_level: z.number().default(0),
-      wbsLevel: z.number().default(0),
-      wbs: z.number().default(0),
-      /* Sort order */
-      sort_order: z.number().default(0),
-      sortOrder: z.number().default(0),
-      sortorder: z.number().default(0),
-      /* Planned dates */
-      planned_start: z.string().nullable().optional(),
-      plannedStart: z.string().nullable().optional(),
-      planned_finish: z.string().nullable().optional(),
-      plannedEnd: z.string().nullable().optional(),
-      planned_end: z.string().nullable().optional(),
-      /* Planned duration */
-      planned_duration: z.number().nullable().optional(),
-      duration: z.number().nullable().optional(),
-      dur: z.number().nullable().optional(),
-      days: z.number().nullable().optional(),
-      /* Actual dates — old: start_date/end_date, new: actual_start/actual_finish */
-      actual_start: z.string().nullable().optional(),
-      start_date: z.string().nullable().optional(),
-      startDate: z.string().nullable().optional(),
-      actual_finish: z.string().nullable().optional(),
-      end_date: z.string().nullable().optional(),
-      endDate: z.string().nullable().optional(),
-      actual_end: z.string().nullable().optional(),
-      /* Actual duration */
-      actual_duration: z.number().nullable().optional(),
-      /* Progress — old: progress, new: progress_percent */
-      progress_percent: z.number().default(0),
-      progress: z.number().default(0),
-      percent: z.number().default(0),
-      percent_complete: z.number().default(0),
-      percentComplete: z.number().default(0),
-      /* Status */
-      status: z.string().nullable().optional(),
-      state: z.string().nullable().optional(),
-      /* Owner */
-      owner: z.string().nullable().optional(),
-      assignee: z.string().nullable().optional(),
-      responsible: z.string().nullable().optional(),
-      /* Category */
-      category: z.string().nullable().optional(),
-      cat: z.string().nullable().optional(),
-      group: z.string().nullable().optional(),
-      phase: z.string().nullable().optional(),
-      /* Notes — old: remarks, new: notes */
-      notes: z.string().nullable().optional(),
-      remarks: z.string().nullable().optional(),
-      note: z.string().nullable().optional(),
-      description: z.string().nullable().optional(),
-      comments: z.string().nullable().optional(),
-      comment: z.string().nullable().optional(),
-      /* Task type */
-      task_type: z.string().default("task"),
-      taskType: z.string().default("task"),
-      /* Milestone flag */
-      is_milestone: z.number().default(0),
-      isMilestone: z.number().default(0),
-      milestone: z.union([z.string(), z.number()]).default(0),
-      /* Parent flag */
-      is_parent: z.number().default(0),
-      isParent: z.number().default(0),
-      /* Open flag (for tree expand/collapse) */
-      open: z.number().default(1),
-    }))
+    .input(z.any())
     .mutation(async ({ input }) => {
-      /* ── BUG #1 FIX v3: Explicit if/else — no ?? operator ambiguity ── */
       const v = input as Record<string, any>;
 
-      /* Helper: get first defined non-null value */
-      const get = (...keys: string[]) => {
-        for (const k of keys) {
-          if (v[k] !== undefined && v[k] !== null && v[k] !== "") return v[k];
-        }
-        return undefined;
-      };
+      /* 1. Extract taskName */
+      let taskName: string = v.taskName ?? v.task_name ?? v.text ?? v.name ?? v.title ?? "";
+      if (!taskName.trim()) throw new Error("task_name is required");
+      taskName = taskName.trim().replace(/'/g, "''");
 
-      /* 1. Task name — MUST read taskName camelCase from frontend */
-      let taskName = get("task_name");
-      if (taskName === undefined) taskName = get("text");
-      if (taskName === undefined) taskName = get("name");
-      if (taskName === undefined) taskName = get("title");
-      if (taskName === undefined) taskName = get("taskName");
-      if (!taskName || !String(taskName).trim()) {
-        throw new Error("task_name is required — received keys: " + Object.keys(v).join(", "));
-      }
-
-      /* 2. Planned dates — frontend sends plannedStart/plannedEnd (camelCase) */
+      /* 2. Extract planned dates (BUG #1: explicit per-key checks) */
       let plannedStart: string | null = null;
-      if (v.plannedStart !== undefined && v.plannedStart !== null && v.plannedStart !== "") plannedStart = v.plannedStart;
-      else if (v.planned_start !== undefined && v.planned_start !== null && v.planned_start !== "") plannedStart = v.planned_start;
+      if (typeof v.plannedStart === "string" && v.plannedStart) plannedStart = v.plannedStart;
+      else if (typeof v.planned_start === "string" && v.planned_start) plannedStart = v.planned_start;
 
       let plannedFinish: string | null = null;
-      if (v.plannedEnd !== undefined && v.plannedEnd !== null && v.plannedEnd !== "") plannedFinish = v.plannedEnd;
-      else if (v.planned_finish !== undefined && v.planned_finish !== null && v.planned_finish !== "") plannedFinish = v.planned_finish;
-      else if (v.planned_end !== undefined && v.planned_end !== null && v.planned_end !== "") plannedFinish = v.planned_end;
+      if (typeof v.plannedEnd === "string" && v.plannedEnd) plannedFinish = v.plannedEnd;
+      else if (typeof v.planned_finish === "string" && v.planned_finish) plannedFinish = v.planned_finish;
+      else if (typeof v.planned_end === "string" && v.planned_end) plannedFinish = v.planned_end;
 
-      /* 3. Owner */
+      /* 3. Extract owner (allow empty string) */
       let owner: string | null = null;
-      if (v.owner !== undefined && v.owner !== null && v.owner !== "") owner = v.owner;
+      if (typeof v.owner === "string") owner = v.owner || null;
 
-      /* 4. Other fields */
-      const parentTaskId = get("parent_task_id") ?? get("parent") ?? 0;
-      const predecessorTaskId = get("predecessor_task_id") ?? get("predecessorId") ?? null;
-      const depType = get("dependency_type") ?? get("dependencyType") ?? null;
-      const lagDays = get("lag_days") ?? get("lagDays") ?? 0;
-      const wbsLevel = get("wbs_level") ?? get("wbsLevel") ?? 0;
-      const sortOrder = get("sort_order") ?? get("sortOrder") ?? get("sortorder") ?? 0;
-      const plannedDuration = get("planned_duration") ?? get("duration") ?? null;
-      const actualStart = get("actual_start") ?? get("start_date") ?? null;
-      const actualFinish = get("actual_finish") ?? get("end_date") ?? null;
-      const actualDuration = get("actual_duration") ?? null;
-      const progressPercent = get("progress_percent") ?? get("progress") ?? 0;
-      const status = get("status") ?? null;
-      const category = get("category") ?? null;
-      const notes = get("notes") ?? get("remarks") ?? null;
-      const taskType = get("task_type") ?? get("taskType") ?? "task";
-      const isMilestone = (get("is_milestone") ?? 0) ? 1 : 0;
-      const isParent = (get("is_parent") ?? 0) ? 1 : 0;
-      const frontendTaskUid = get("frontend_task_uid") ?? get("frontendTaskUid") ?? null;
-      const projectId = get("project_id") ?? get("projectId") ?? null;
-
+      /* 4. Extract everything else */
+      const parentTaskId = typeof v.parent_task_id === "number" ? v.parent_task_id : (typeof v.parent === "number" ? v.parent : 0);
+      const predecessorTaskId = typeof v.predecessor_task_id === "number" ? v.predecessor_task_id : (typeof v.predecessorId === "number" ? v.predecessorId : null);
+      const depType = v.dependency_type ?? v.dependencyType ?? null;
+      const lagDays = typeof v.lag_days === "number" ? v.lag_days : 0;
+      const wbsLevel = typeof v.wbs_level === "number" ? v.wbs_level : 0;
+      const sortOrder = typeof v.sort_order === "number" ? v.sort_order : (typeof v.sortOrder === "number" ? v.sortOrder : 0);
+      const plannedDuration = typeof v.planned_duration === "number" ? v.planned_duration : (typeof v.duration === "number" ? v.duration : null);
+      const actualStart = v.actual_start ?? v.start_date ?? null;
+      const actualFinish = v.actual_finish ?? v.end_date ?? null;
+      const actualDuration = typeof v.actual_duration === "number" ? v.actual_duration : null;
+      const progressPercent = typeof v.progress_percent === "number" ? v.progress_percent : (typeof v.progress === "number" ? v.progress : 0);
+      const status = v.status ?? null;
+      const category = v.category ?? null;
+      const notes = v.notes ?? v.remarks ?? null;
+      const taskType = v.task_type ?? v.taskType ?? "task";
+      const isMilestone = (v.is_milestone ?? v.isMilestone ?? 0) ? 1 : 0;
+      const isParent = (v.is_parent ?? v.isParent ?? 0) ? 1 : 0;
+      const frontendTaskUid = v.frontend_task_uid ?? v.frontendTaskUid ?? null;
+      const projectId = v.project_id ?? v.projectId ?? null;
       const now = new Date();
-      const setData = {
-        frontendTaskUid,
-        projectId,
-        taskName: String(taskName).trim(),
-        parentTaskId,
-        predecessorTaskId,
-        dependencyType: depType,
-        lagDays,
-        wbsLevel,
-        sortOrder,
-        plannedStart,
-        plannedFinish,
-        plannedDuration,
-        actualStart,
-        actualFinish,
-        actualDuration,
-        progressPercent,
-        status,
-        owner,
-        category,
-        notes,
-        remarks: notes, // keep remarks in sync
-        taskType,
-        isMilestone,
-        isParent,
-        updatedAt: now,
-      };
 
-      if (input.id) {
-        const updated = await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id)).returning({ id: ganttTasks.id, frontendTaskUid: ganttTasks.frontendTaskUid });
-        if (updated.length === 0) throw new Error(`Task id=${input.id} not found`);
-        return { id: input.id, frontend_task_uid: updated[0].frontendTaskUid, action: "updated" };
-      } else {
-        const result = await db.insert(ganttTasks).values({ ...setData, createdAt: now }).returning({ id: ganttTasks.id, frontendTaskUid: ganttTasks.frontendTaskUid });
-        return { id: result[0].id, frontend_task_uid: result[0].frontendTaskUid, action: "created" };
+      /* 5. RAW SQL */
+      const sqlStr = input.id
+        ? `UPDATE gantt_tasks SET
+             frontend_task_uid = ${frontendTaskUid ? `'${frontendTaskUid}'` : 'NULL'},
+             project_id = ${projectId ?? 'NULL'},
+             task_name = '${taskName}',
+             parent_task_id = ${parentTaskId},
+             predecessor_task_id = ${predecessorTaskId ?? 'NULL'},
+             dependency_type = ${depType ? `'${depType}'` : 'NULL'},
+             lag_days = ${lagDays},
+             wbs_level = ${wbsLevel},
+             sort_order = ${sortOrder},
+             planned_start = ${plannedStart ? `'${plannedStart}'` : 'NULL'},
+             planned_finish = ${plannedFinish ? `'${plannedFinish}'` : 'NULL'},
+             planned_duration = ${plannedDuration ?? 'NULL'},
+             actual_start = ${actualStart ? `'${actualStart}'` : 'NULL'},
+             actual_finish = ${actualFinish ? `'${actualFinish}'` : 'NULL'},
+             actual_duration = ${actualDuration ?? 'NULL'},
+             progress_percent = ${progressPercent},
+             status = ${status ? `'${status}'` : 'NULL'},
+             owner = ${owner ? `'${owner.replace(/'/g, "''")}'` : 'NULL'},
+             category = ${category ? `'${category}'` : 'NULL'},
+             notes = ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'},
+             remarks = ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'},
+             task_type = '${taskType}',
+             is_milestone = ${isMilestone},
+             is_parent = ${isParent},
+             updated_at = NOW()
+           WHERE id = ${input.id}
+           RETURNING id, frontend_task_uid`
+        : `INSERT INTO gantt_tasks (
+             frontend_task_uid, project_id, task_name, parent_task_id, predecessor_task_id,
+             dependency_type, lag_days, wbs_level, sort_order,
+             planned_start, planned_finish, planned_duration,
+             actual_start, actual_finish, actual_duration,
+             progress_percent, status, owner, category, notes, remarks,
+             task_type, is_milestone, is_parent, created_at, updated_at
+           ) VALUES (
+             ${frontendTaskUid ? `'${frontendTaskUid}'` : 'NULL'}, ${projectId ?? 'NULL'}, '${taskName}',
+             ${parentTaskId}, ${predecessorTaskId ?? 'NULL'}, ${depType ? `'${depType}'` : 'NULL'},
+             ${lagDays}, ${wbsLevel}, ${sortOrder},
+             ${plannedStart ? `'${plannedStart}'` : 'NULL'}, ${plannedFinish ? `'${plannedFinish}'` : 'NULL'}, ${plannedDuration ?? 'NULL'},
+             ${actualStart ? `'${actualStart}'` : 'NULL'}, ${actualFinish ? `'${actualFinish}'` : 'NULL'}, ${actualDuration ?? 'NULL'},
+             ${progressPercent}, ${status ? `'${status}'` : 'NULL'}, ${owner ? `'${owner.replace(/'/g, "''")}'` : 'NULL'},
+             ${category ? `'${category}'` : 'NULL'}, ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'}, ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'},
+             '${taskType}', ${isMilestone}, ${isParent}, NOW(), NOW()
+           )
+           RETURNING id, frontend_task_uid`;
+
+      try {
+        const result: any = await db.execute(sql.raw(sqlStr));
+        const row = result.rows?.[0] ?? result[0];
+        return {
+          id: row?.id ?? input.id,
+          frontend_task_uid: row?.frontend_task_uid ?? frontendTaskUid,
+          taskName, plannedStart, plannedFinish, owner,
+          action: input.id ? "updated" : "created",
+        };
+      } catch (e: any) {
+        throw new Error(`Save failed: ${e.message}`);
       }
     }),
+
 
   /* ── 5. DELETE TASK (+ cleanup dependencies) ── */
   deleteTask: publicQuery
