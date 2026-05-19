@@ -239,38 +239,42 @@ export const ganttRouter = createRouter({
       open: z.number().default(1),
     }))
     .mutation(async ({ input }) => {
-      /* ── Normalize: pick first available value from old/new field names ── */
-      const pick = (...vals: any[]) => { for (const v of vals) if (v !== undefined && v !== null && v !== "") return v; return undefined; };
+      /* ── DIRECT FIELD MAPPING — zero ambiguity ── */
+      const v = input as Record<string, any>;
 
-      /* BUG #1 FIX: Added taskName (camelCase) to pick list */
-      const taskName = pick(input.task_name, input.text, input.name, input.title, input.taskName);
+      /* 1. Task name */
+      const taskName = (v.task_name ?? v.text ?? v.name ?? v.title ?? v.taskName ?? "");
       if (!taskName || !String(taskName).trim()) {
-        throw new Error("task_name (or text) is required");
+        throw new Error("task_name is required — keys: " + Object.keys(v).join(", "));
       }
 
-      const parentTaskId = pick(input.parent_task_id, input.parent, input.parentId) ?? 0;
-      const predecessorTaskId = pick(input.predecessor_task_id, input.predecessorId, input.predecessor, input.dependency) ?? null;
-      const depType = pick(input.dependency_type, input.dependencyType, input.linkType) ?? null;
-      const lagDays = pick(input.lag_days, input.lagDays, input.lag) ?? 0;
-      const wbsLevel = pick(input.wbs_level, input.wbsLevel, input.wbs) ?? 0;
-      const sortOrder = pick(input.sort_order, input.sortOrder, input.sortorder) ?? 0;
-      const plannedStart = pick(input.planned_start, input.plannedStart) ?? null;
-      const plannedFinish = pick(input.planned_finish, input.plannedEnd, input.planned_end) ?? null;
-      const plannedDuration = pick(input.planned_duration, input.duration, input.dur, input.days) ?? null;
-      const actualStart = pick(input.actual_start, input.start_date, input.startDate) ?? null;
-      const actualFinish = pick(input.actual_finish, input.end_date, input.endDate, input.actual_end) ?? null;
-      const actualDuration = pick(input.actual_duration) ?? null;
-      const progressPercent = pick(input.progress_percent, input.progress, input.percent, input.percent_complete, input.percentComplete) ?? 0;
-      const status = pick(input.status, input.state) ?? null;
-      const owner = pick(input.owner, input.assignee, input.responsible) ?? null;
-      const category = pick(input.category, input.cat, input.group, input.phase) ?? null;
-      const notes = pick(input.notes, input.remarks, input.note, input.description, input.comments, input.comment) ?? null;
-      const taskType = pick(input.task_type, input.taskType) ?? "task";
-      const isMilestoneRaw = pick(input.is_milestone, input.isMilestone, input.milestone) ?? 0;
-      const isMilestone = typeof isMilestoneRaw === "string" ? (isMilestoneRaw.toLowerCase() === "yes" || isMilestoneRaw.toLowerCase() === "true" ? 1 : 0) : (isMilestoneRaw ? 1 : 0);
-      const isParent = pick(input.is_parent, input.isParent) ?? 0;
-      const frontendTaskUid = pick(input.frontend_task_uid, input.frontendTaskUid) ?? null;
-      const projectId = pick(input.project_id, input.projectId) ?? null;
+      /* 2. Dates */
+      const plannedStart = v.planned_start ?? v.plannedStart ?? null;
+      const plannedFinish = v.planned_finish ?? v.plannedEnd ?? v.planned_end ?? null;
+
+      /* 3. Owner */
+      const owner = v.owner ?? null;
+
+      /* 4. Other fields */
+      const parentTaskId = v.parent_task_id ?? v.parent ?? 0;
+      const predecessorTaskId = v.predecessor_task_id ?? v.predecessorId ?? null;
+      const depType = v.dependency_type ?? v.dependencyType ?? null;
+      const lagDays = v.lag_days ?? v.lagDays ?? 0;
+      const wbsLevel = v.wbs_level ?? v.wbsLevel ?? 0;
+      const sortOrder = v.sort_order ?? v.sortOrder ?? v.sortorder ?? 0;
+      const plannedDuration = v.planned_duration ?? v.duration ?? null;
+      const actualStart = v.actual_start ?? v.start_date ?? null;
+      const actualFinish = v.actual_finish ?? v.end_date ?? null;
+      const actualDuration = v.actual_duration ?? null;
+      const progressPercent = v.progress_percent ?? v.progress ?? 0;
+      const status = v.status ?? null;
+      const category = v.category ?? null;
+      const notes = v.notes ?? v.remarks ?? null;
+      const taskType = v.task_type ?? v.taskType ?? "task";
+      const isMilestone = (v.is_milestone ?? 0) ? 1 : 0;
+      const isParent = (v.is_parent ?? 0) ? 1 : 0;
+      const frontendTaskUid = v.frontend_task_uid ?? v.frontendTaskUid ?? null;
+      const projectId = v.project_id ?? v.projectId ?? null;
 
       const now = new Date();
       const setData = {
