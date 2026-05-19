@@ -331,6 +331,9 @@ function TreeFolderItem({
 
 function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData: string | null; fileUrl: string | null; title: string; fileName: string; onDelete?: () => void }) {
   const [zoom, setZoom] = useState(1);
+  const [loadError, setLoadError] = useState(false);
+  const embedRef = useRef<HTMLEmbedElement>(null);
+
   const src = useMemo(() => {
     if (fileData) return `data:application/pdf;base64,${fileData}`;
     if (fileUrl) return fileUrl;
@@ -348,6 +351,10 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
     setTimeout(() => document.body.removeChild(a), 100);
   }, [src, fileName, title]);
 
+  useEffect(() => {
+    setLoadError(false);
+  }, [src]);
+
   if (!src) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -360,11 +367,37 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center max-w-md text-gray-400">
+          <div className="text-5xl mb-4">⚠️</div>
+          <h3 className="text-lg font-semibold text-gray-600 mb-2">Cannot Preview PDF</h3>
+          <p className="text-sm mb-4">Your browser cannot render this PDF inline.</p>
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto"
+          >
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Download PDF
+          </button>
+          {onDelete && (
+            <button type="button" onClick={onDelete} className="mt-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100 flex items-center gap-2 mx-auto">
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M3 3h6M5 3V2h2v1M4 3v7M6 3v7M8 3v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Delete File
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Toolbar */}
       <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200 flex-wrap">
-        <span className="text-xs font-semibold text-gray-700 truncate flex-1">{title}</span>
+        <span className="text-xs font-semibold text-gray-700 truncate flex-1" title={title}>{title}</span>
         <div className="flex items-center gap-1 flex-shrink-0">
           <button type="button" onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">−</button>
           <span className="text-xs text-gray-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
@@ -382,14 +415,28 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
           </button>
         )}
       </div>
-      {/* PDF iframe */}
+      {/* PDF embed with zoom via CSS transform */}
       <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-4">
-        <iframe
-          src={src}
-          title={title}
-          className="bg-white shadow-lg"
-          style={{ width: `${zoom * 100}%`, maxWidth: `${zoom * 850}px`, height: "calc(100vh - 200px)", minHeight: "500px" }}
-        />
+        <div
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: "top center",
+            transition: "transform 0.15s ease",
+            width: "850px",
+            height: "1100px",
+            maxWidth: "100%",
+          }}
+        >
+          <embed
+            ref={embedRef}
+            src={src}
+            type="application/pdf"
+            title={title}
+            className="bg-white shadow-lg"
+            style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+            onError={() => setLoadError(true)}
+          />
+        </div>
       </div>
     </div>
   );
