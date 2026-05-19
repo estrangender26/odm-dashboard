@@ -4,9 +4,42 @@ import { db } from "./queries/connection";
 import { smpDocuments } from "@db/schema";
 import { createRouter, publicQuery } from "./middleware";
 
+// ── Auto-create smp_documents table if it doesn't exist ──
+async function ensureSmpTable() {
+  try {
+    await db.execute(sql.raw(`SELECT 1 FROM smp_documents LIMIT 1`));
+  } catch {
+    console.log("[SMP] Creating smp_documents table...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS smp_documents (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(50) NOT NULL,
+        title VARCHAR(500) NOT NULL,
+        revision VARCHAR(50) DEFAULT 'Rev. 1',
+        equipment_type VARCHAR(100),
+        system VARCHAR(100),
+        date_issued VARCHAR(20),
+        next_review VARCHAR(20),
+        status VARCHAR(50) DEFAULT 'Active',
+        responsible_party VARCHAR(255),
+        file_data TEXT,
+        file_type VARCHAR(100),
+        file_name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS smp_equip_idx ON smp_documents(equipment_type)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS smp_system_idx ON smp_documents(system)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS smp_status_idx ON smp_documents(status)`));
+    console.log("[SMP] smp_documents table created.");
+  }
+}
+
 export const smpRouter = createRouter({
   /* ── 1. LIST ALL ── */
   list: publicQuery.query(async () => {
+    await ensureSmpTable();
     const rows = await db.select().from(smpDocuments).orderBy(smpDocuments.code);
     return { items: rows, count: rows.length };
   }),
@@ -15,6 +48,7 @@ export const smpRouter = createRouter({
   get: publicQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
+      await ensureSmpTable();
       const rows = await db.select().from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
       return rows[0] || null;
     }),
@@ -36,6 +70,7 @@ export const smpRouter = createRouter({
       fileName: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
+      await ensureSmpTable();
       const result = await db.insert(smpDocuments).values({
         code: input.code,
         title: input.title,
@@ -71,6 +106,7 @@ export const smpRouter = createRouter({
       fileName: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
+      await ensureSmpTable();
       const { id, ...data } = input;
       const clean: Record<string, any> = {};
       if (data.code !== undefined) clean.code = data.code;
@@ -94,12 +130,14 @@ export const smpRouter = createRouter({
   delete: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      await ensureSmpTable();
       await db.delete(smpDocuments).where(eq(smpDocuments.id, input.id));
       return { deleted: true, id: input.id };
     }),
 
   /* ── 6. SEED (load 15 demo docs) ── */
   seed: publicQuery.mutation(async () => {
+    await ensureSmpTable();
     const existing = await db.select().from(smpDocuments);
     if (existing.length > 0) return { seeded: false, reason: "Documents already exist" };
 
