@@ -293,6 +293,7 @@ interface ToolbarProps {
   onMigrate: () => void; onReset: () => void; onLoadDemo: () => void;
   onIndent?: () => void; onOutdent?: () => void;
   onInsertAbove?: () => void; onInsertBelow?: () => void; onInsertChild?: () => void;
+  onDelete?: () => void;
   onLink?: () => void; onClear?: () => void;
   multiSelectMode?: boolean; onToggleMulti?: () => void;
   selectedIdsSize?: number;
@@ -305,6 +306,7 @@ function GanttToolbar({
   onExportExcel, onExportCSV, onExportTemplate,
   onMigrate, onReset, onLoadDemo,
   onIndent, onOutdent, onInsertAbove, onInsertBelow, onInsertChild,
+  onDelete,
   onLink, onClear,
   multiSelectMode, onToggleMulti, selectedIdsSize,
   tasksExist,
@@ -1977,6 +1979,7 @@ export default function GanttPlanner() {
         onInsertAbove={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskAbove(t); } : undefined}
         onInsertBelow={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskBelow(t); } : undefined}
         onInsertChild={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskChild(t); } : undefined}
+        onDelete={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t && confirm(`Delete "${t.text || 'this task'}"?`)) deleteTaskMut.mutate({ id: selectedTaskId }); } : undefined}
         onLink={() => setLinkModalOpen(true)}
         onClear={clearSelection}
         multiSelectMode={multiSelectMode} onToggleMulti={() => setMultiSelectMode(!multiSelectMode)}
