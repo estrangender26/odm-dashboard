@@ -17,18 +17,25 @@ export const ganttRouter = createRouter({
     try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
     try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_projects CASCADE`)); } catch {}
 
-    /* Create gantt_projects */
+    /* Create gantt_projects (full schema — includes name, tasks_data, links_data) */
     await db.execute(sql.raw(`
       CREATE TABLE gantt_projects (
         id SERIAL PRIMARY KEY,
-        project_name VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        project_name VARCHAR(255),
         start_date VARCHAR(20),
         finish_date VARCHAR(20),
         status VARCHAR(50),
+        tasks_data TEXT NOT NULL DEFAULT '{}',
+        links_data TEXT,
+        description TEXT,
+        created_by VARCHAR(255),
+        updated_by VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS gantt_projects_name_idx ON gantt_projects(name)`));
 
     /* Create gantt_tasks (clean — matches UI fields exactly) */
     await db.execute(sql.raw(`
@@ -64,7 +71,6 @@ export const ganttRouter = createRouter({
     `));
     await db.execute(sql.raw(`CREATE INDEX gantt_tasks_project_idx ON gantt_tasks(project_id)`));
     await db.execute(sql.raw(`CREATE INDEX gantt_tasks_parent_idx ON gantt_tasks(parent_task_id)`));
-    await db.execute(sql.raw(`CREATE INDEX gantt_tasks_predecessor_idx ON gantt_tasks(predecessor_task_id)`));
     await db.execute(sql.raw(`CREATE INDEX gantt_tasks_uid_idx ON gantt_tasks(frontend_task_uid)`));
     await db.execute(sql.raw(`CREATE INDEX gantt_tasks_sort_idx ON gantt_tasks(sort_order)`));
 
@@ -478,14 +484,13 @@ export const ganttRouter = createRouter({
     const now = new Date();
     const uid = () => crypto.randomUUID();
 
-    /* Create a default project */
-    const projResult = await db.insert(ganttProjects).values({
-      name: "S/4HANA MM Integration",
-      projectName: "S/4HANA MM Integration",
-      startDate: fmt(now), status: "In Progress",
-      tasksData: "{}",
-    }).returning({ id: ganttProjects.id });
-    const projectId = projResult[0].id;
+    /* Create a default project via raw SQL (bypasses any Drizzle schema mismatches) */
+    const projResult = await db.execute(sql.raw(`
+      INSERT INTO gantt_projects (name, project_name, start_date, status, tasks_data, created_at, updated_at)
+      VALUES ('S/4HANA MM Integration', 'S/4HANA MM Integration', '${fmt(now)}', 'In Progress', '{}', NOW(), NOW())
+      RETURNING id
+    `));
+    const projectId = (projResult.rows?.[0] as any)?.id || 1;
 
     const rootUid = uid();
     const rootResult = await db.insert(ganttTasks).values({
