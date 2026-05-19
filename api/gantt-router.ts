@@ -426,16 +426,21 @@ export const ganttRouter = createRouter({
     try {
       await db.execute(sql.raw(`SELECT 1 FROM gantt_tasks LIMIT 1`));
     } catch {
-      /* Tables missing — run reset to create them */
+      /* Tables missing — create them to match the Drizzle schema */
       try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}
       try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
       try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_projects CASCADE`)); } catch {}
+      /* gantt_projects — must match db/schema.ts (name + tasks_data are required) */
       await db.execute(sql.raw(`
         CREATE TABLE gantt_projects (
-          id SERIAL PRIMARY KEY, project_name VARCHAR(255) NOT NULL,
+          id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, project_name VARCHAR(255),
           start_date VARCHAR(20), finish_date VARCHAR(20), status VARCHAR(50),
+          tasks_data TEXT NOT NULL DEFAULT '{}', links_data TEXT,
+          description TEXT, created_by VARCHAR(255), updated_by VARCHAR(255),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`));
+      await db.execute(sql.raw(`CREATE INDEX gantt_projects_name_idx ON gantt_projects(name)`));
+      /* gantt_tasks — must match db/schema.ts exactly */
       await db.execute(sql.raw(`
         CREATE TABLE gantt_tasks (
           id SERIAL PRIMARY KEY, project_id INTEGER, frontend_task_uid VARCHAR(64) UNIQUE,
@@ -453,6 +458,7 @@ export const ganttRouter = createRouter({
       await db.execute(sql.raw(`CREATE INDEX gantt_tasks_parent_idx ON gantt_tasks(parent_task_id)`));
       await db.execute(sql.raw(`CREATE INDEX gantt_tasks_uid_idx ON gantt_tasks(frontend_task_uid)`));
       await db.execute(sql.raw(`CREATE INDEX gantt_tasks_sort_idx ON gantt_tasks(sort_order)`));
+      /* gantt_dependencies */
       await db.execute(sql.raw(`
         CREATE TABLE gantt_dependencies (
           id SERIAL PRIMARY KEY, project_id INTEGER,
@@ -474,8 +480,10 @@ export const ganttRouter = createRouter({
 
     /* Create a default project */
     const projResult = await db.insert(ganttProjects).values({
+      name: "S/4HANA MM Integration",
       projectName: "S/4HANA MM Integration",
       startDate: fmt(now), status: "In Progress",
+      tasksData: "{}",
     }).returning({ id: ganttProjects.id });
     const projectId = projResult[0].id;
 
