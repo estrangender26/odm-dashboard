@@ -329,15 +329,42 @@ function TreeFolderItem({
 // PDF Viewer Component
 // ═══════════════════════════════════════════════════════════
 
+/* Convert base64 string → Blob URL (more reliable than data: URI for PDFs) */
+function base64ToBlobUrl(b64: string, mime: string): string {
+  try {
+    const byteChars = atob(b64);
+    const byteNums = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([new Uint8Array(byteNums)], { type: mime });
+    return URL.createObjectURL(blob);
+  } catch {
+    return "";
+  }
+}
+
 function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData: string | null; fileUrl: string | null; title: string; fileName: string; onDelete?: () => void }) {
   const [zoom, setZoom] = useState(1);
   const [loadError, setLoadError] = useState(false);
-  const embedRef = useRef<HTMLEmbedElement>(null);
+  const [revokeUrl, setRevokeUrl] = useState<string | null>(null);
 
+  /* Build src — prefer Blob URL from base64, fallback to fileUrl */
   const src = useMemo(() => {
-    if (fileData) return `data:application/pdf;base64,${fileData}`;
-    if (fileUrl) return fileUrl;
+    // Cleanup previous blob URL
+    if (revokeUrl) { URL.revokeObjectURL(revokeUrl); setRevokeUrl(null); }
+
+    const b64 = fileData?.trim();
+    if (b64 && b64.length > 100) {
+      const url = base64ToBlobUrl(b64, "application/pdf");
+      if (url) { setRevokeUrl(url); return url; }
+    }
+    if (fileUrl?.trim()) return fileUrl.trim();
     return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileData, fileUrl]);
+
+  const hasData = useMemo(() => {
+    const b64 = fileData?.trim();
+    return (b64 && b64.length > 100) || !!fileUrl?.trim();
   }, [fileData, fileUrl]);
 
   const handleDownload = useCallback(() => {
@@ -355,30 +382,34 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
     setLoadError(false);
   }, [src]);
 
-  if (!src) {
+  /* Cleanup blob URL on unmount */
+  useEffect(() => () => { if (revokeUrl) URL.revokeObjectURL(revokeUrl); }, [revokeUrl]);
+
+  if (!hasData) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md text-gray-400">
           <div className="text-6xl mb-4">📄</div>
           <h3 className="text-lg font-semibold text-gray-500 mb-2">No PDF Available</h3>
-          <p className="text-sm">This document has no file data attached.</p>
+          <p className="text-sm">This document has no file data attached.<br />Upload a PDF or check the file URL.</p>
+          {onDelete && (
+            <button type="button" onClick={onDelete} className="mt-4 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100">
+              🗑️ Delete File
+            </button>
+          )}
         </div>
       </div>
     );
   }
 
-  if (loadError) {
+  if (loadError || !src) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md text-gray-400">
           <div className="text-5xl mb-4">⚠️</div>
           <h3 className="text-lg font-semibold text-gray-600 mb-2">Cannot Preview PDF</h3>
           <p className="text-sm mb-4">Your browser cannot render this PDF inline.</p>
-          <button
-            type="button"
-            onClick={handleDownload}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto"
-          >
+          <button type="button" onClick={handleDownload} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto">
             <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Download PDF
           </button>
@@ -415,7 +446,7 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
           </button>
         )}
       </div>
-      {/* PDF embed with zoom via CSS transform */}
+      {/* PDF viewer using iframe with Blob URL */}
       <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-4">
         <div
           style={{
@@ -427,13 +458,12 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
             maxWidth: "100%",
           }}
         >
-          <embed
-            ref={embedRef}
+          <iframe
             src={src}
-            type="application/pdf"
             title={title}
             className="bg-white shadow-lg"
             style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+            onLoad={() => setLoadError(false)}
             onError={() => setLoadError(true)}
           />
         </div>
