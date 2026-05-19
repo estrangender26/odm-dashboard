@@ -27,7 +27,7 @@ export const ganttRouter = createRouter({
         finish_date VARCHAR(20),
         status VARCHAR(50),
         tasks_data TEXT NOT NULL DEFAULT '{}',
-        links_data TEXT,
+        links_data TEXT DEFAULT '{}',
         description TEXT,
         created_by VARCHAR(255),
         updated_by VARCHAR(255),
@@ -484,14 +484,15 @@ export const ganttRouter = createRouter({
     const now = new Date();
     const uid = () => crypto.randomUUID();
 
-    /* Create a default project via plain SQL */
-    const insertSql = `
-      INSERT INTO gantt_projects (name, project_name, start_date, status, tasks_data, created_at, updated_at)
-      VALUES ('S/4HANA MM Integration', 'S/4HANA MM Integration', '${fmt(now)}', 'In Progress', '{}', NOW(), NOW())
-      RETURNING id
-    `;
-    const projResult: any = await db.execute(insertSql);
-    const projectId = projResult.rows?.[0]?.id || 1;
+    /* Create a default project using Drizzle */
+    const projResult = await db.insert(ganttProjects).values({
+      name: "S/4HANA MM Integration",
+      projectName: "S/4HANA MM Integration",
+      startDate: fmt(now),
+      status: "In Progress",
+      tasksData: "{}",
+    }).returning({ id: ganttProjects.id });
+    const projectId = projResult[0].id;
 
     const rootUid = uid();
     const rootResult = await db.insert(ganttTasks).values({
