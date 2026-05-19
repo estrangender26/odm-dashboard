@@ -44,6 +44,18 @@ export function statusColor(status: string): string {
   return map[status] || "#9CA3AF";
 }
 
+export function statusBg(status: string): string {
+  const map: Record<string, string> = {
+    "Completed": "#DCFCE7",
+    "In Progress": "#DBEAFE",
+    "In Progress (Delayed)": "#FEE2E2",
+    "Not Started": "#F1F5F9",
+    "Delayed": "#FEF3C7",
+    "Overdue": "#FEE2E2",
+  };
+  return map[status] || "#F1F5F9";
+}
+
 export function statusBadgeStyle(status: string): { bg: string; color: string } {
   const map: Record<string, { bg: string; color: string }> = {
     "Completed": { bg: "#DCFCE7", color: "#166534" },
