@@ -63,6 +63,42 @@ function statusBadge(s: string) {
   return map[s] || { bg: "#F1F5F9", text: "#64748B" };
 }
 
+// ── Progress Overlay ──
+function ProgressOverlay({ visible, label, sublabel, progress }: { visible: boolean; label: string; sublabel?: string; progress?: number }) {
+  if (!visible) return null;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(13,33,55,0.55)", backdropFilter: "blur(2px)" }}>
+      <div className="bg-white rounded-xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4 min-w-[260px]">
+        <div className="relative w-14 h-14">
+          <div className="absolute inset-0 rounded-full border-4 border-gray-200" />
+          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 animate-spin" style={{ animationDuration: "0.8s" }} />
+        </div>
+        <div className="text-center">
+          <p className="text-sm font-bold text-gray-800">{label}</p>
+          {sublabel && <p className="text-xs text-gray-500 mt-1">{sublabel}</p>}
+        </div>
+        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-300 ease-out"
+            style={{
+              width: progress !== undefined ? `${Math.min(100, Math.max(5, progress))}%` : "60%",
+              background: "linear-gradient(90deg, #2563EB 0%, #3B82F6 50%, #2563EB 100%)",
+              backgroundSize: "200% 100%",
+              animation: progress !== undefined ? "none" : "progressShimmer 1.5s ease-in-out infinite",
+            }}
+          />
+        </div>
+        <p className="text-[0.65rem] text-gray-400">Please wait...</p>
+      </div>
+      <style>{`
+        @keyframes progressShimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ── Banner ──
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
   const s: Record<string, string> = { error: "bg-red-50 border-red-200 text-red-800", success: "bg-green-50 border-green-200 text-green-800", info: "bg-blue-50 border-blue-200 text-blue-800" };
@@ -183,6 +219,13 @@ export default function SmpDashboard() {
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Progress states ──
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadLabel, setUploadLabel] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadLabel, setDownloadLabel] = useState("");
+
   // ── Filtered docs ──
   const filteredDocs = useMemo(() => {
     let d = MOCK_DOCS;
@@ -231,28 +274,62 @@ export default function SmpDashboard() {
 
   const handleUpload = useCallback((file: File) => {
     if (!selectedDoc) { setBanner({ type: "error", message: "Select a document first" }); return; }
-    setBanner({ type: "info", message: `Reading "${file.name}"...` });
+    setIsUploading(true);
+    setUploadProgress(0);
+    setUploadLabel(`Reading "${file.name}"...`);
+
     const reader = new FileReader();
+
+    reader.onprogress = (ev) => {
+      if (ev.lengthComputable) {
+        const pct = Math.round((ev.loaded / ev.total) * 50);
+        setUploadProgress(pct);
+        setUploadLabel(`Reading "${file.name}"... ${Math.round((ev.loaded / ev.total) * 100)}%`);
+      }
+    };
+
+    reader.onloadstart = () => {
+      setUploadProgress(5);
+      setUploadLabel(`Reading "${file.name}"...`);
+    };
+
     reader.onload = () => {
+      setUploadProgress(60);
+      setUploadLabel(`Processing "${file.name}"...`);
       const base64 = (reader.result as string).split(",")[1];
       if (!base64 || base64.length < 100) {
+        setIsUploading(false);
+        setUploadProgress(0);
         setBanner({ type: "error", message: "Invalid or empty PDF file" }); return;
       }
+      setUploadProgress(85);
       setStoredPdfs(prev => {
         const next = new Map(prev);
         next.set(selectedDoc.id, { docId: selectedDoc.id, fileName: file.name, fileType: file.type || "application/pdf", fileData: base64, uploadedAt: new Date().toISOString() });
         return next;
       });
+      setUploadProgress(100);
+      setTimeout(() => { setIsUploading(false); setUploadProgress(0); }, 500);
       setBanner({ type: "success", message: `PDF "${file.name}" uploaded for ${selectedDoc.code}` });
     };
-    reader.onerror = () => setBanner({ type: "error", message: `Failed to read "${file.name}"` });
+
+    reader.onerror = () => {
+      setIsUploading(false);
+      setUploadProgress(0);
+      setBanner({ type: "error", message: `Failed to read "${file.name}"` });
+    };
+
     reader.readAsDataURL(file);
   }, [selectedDoc]);
 
   const handleDownload = useCallback(() => {
     if (!selectedDoc) { setBanner({ type: "error", message: "Select a document first." }); return; }
+    setIsDownloading(true);
+    setDownloadLabel(`Preparing "${selectedDoc.code}"...`);
+
     const stored = storedPdfs.get(selectedDoc.id);
     if (stored?.fileData) {
+      setDownloadLabel(`Generating download...`);
       const url = base64ToBlobUrl(stored.fileData, stored.fileType || "application/pdf");
       if (url) {
         const a = document.createElement("a");
@@ -262,11 +339,13 @@ export default function SmpDashboard() {
         document.body.appendChild(a);
         a.click();
         setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+        setIsDownloading(false);
         setBanner({ type: "success", message: `Downloaded ${stored.fileName}` });
         return;
       }
     }
     if (selectedDoc.fileUrl) {
+      setDownloadLabel(`Fetching from server...`);
       const a = document.createElement("a");
       a.href = selectedDoc.fileUrl;
       a.download = `${selectedDoc.code}.pdf`;
@@ -275,8 +354,10 @@ export default function SmpDashboard() {
       document.body.appendChild(a);
       a.click();
       setTimeout(() => document.body.removeChild(a), 100);
+      setIsDownloading(false);
       setBanner({ type: "success", message: `Downloaded ${selectedDoc.code}` });
     } else {
+      setIsDownloading(false);
       setBanner({ type: "error", message: `No PDF file available for ${selectedDoc.code}. Upload one first.` });
     }
   }, [selectedDoc, storedPdfs]);
@@ -286,6 +367,10 @@ export default function SmpDashboard() {
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
       {/* Banner */}
       {banner && <div className="flex-shrink-0 px-4 pt-3"><Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} /></div>}
+
+      {/* Progress Overlays */}
+      <ProgressOverlay visible={isUploading} label={uploadLabel || "Uploading..."} sublabel={uploadLabel.includes("%") ? undefined : "Reading file..."} progress={uploadProgress} />
+      <ProgressOverlay visible={isDownloading} label={downloadLabel || "Downloading..."} sublabel="Preparing file..." />
 
       {/* Header */}
       <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)", boxShadow: "0 4px 12px rgba(22,50,79,0.10)" }}>
