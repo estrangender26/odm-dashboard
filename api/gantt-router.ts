@@ -239,42 +239,61 @@ export const ganttRouter = createRouter({
       open: z.number().default(1),
     }))
     .mutation(async ({ input }) => {
-      /* ── DIRECT FIELD MAPPING — zero ambiguity ── */
+      /* ── BUG #1 FIX v3: Explicit if/else — no ?? operator ambiguity ── */
       const v = input as Record<string, any>;
 
-      /* 1. Task name */
-      const taskName = (v.task_name ?? v.text ?? v.name ?? v.title ?? v.taskName ?? "");
+      /* Helper: get first defined non-null value */
+      const get = (...keys: string[]) => {
+        for (const k of keys) {
+          if (v[k] !== undefined && v[k] !== null && v[k] !== "") return v[k];
+        }
+        return undefined;
+      };
+
+      /* 1. Task name — MUST read taskName camelCase from frontend */
+      let taskName = get("task_name");
+      if (taskName === undefined) taskName = get("text");
+      if (taskName === undefined) taskName = get("name");
+      if (taskName === undefined) taskName = get("title");
+      if (taskName === undefined) taskName = get("taskName");
       if (!taskName || !String(taskName).trim()) {
-        throw new Error("task_name is required — keys: " + Object.keys(v).join(", "));
+        throw new Error("task_name is required — received keys: " + Object.keys(v).join(", "));
       }
 
-      /* 2. Dates */
-      const plannedStart = v.planned_start ?? v.plannedStart ?? null;
-      const plannedFinish = v.planned_finish ?? v.plannedEnd ?? v.planned_end ?? null;
+      /* 2. Planned dates — frontend sends plannedStart/plannedEnd (camelCase) */
+      let plannedStart: string | null = null;
+      if (v.plannedStart !== undefined && v.plannedStart !== null && v.plannedStart !== "") plannedStart = v.plannedStart;
+      else if (v.planned_start !== undefined && v.planned_start !== null && v.planned_start !== "") plannedStart = v.planned_start;
+
+      let plannedFinish: string | null = null;
+      if (v.plannedEnd !== undefined && v.plannedEnd !== null && v.plannedEnd !== "") plannedFinish = v.plannedEnd;
+      else if (v.planned_finish !== undefined && v.planned_finish !== null && v.planned_finish !== "") plannedFinish = v.planned_finish;
+      else if (v.planned_end !== undefined && v.planned_end !== null && v.planned_end !== "") plannedFinish = v.planned_end;
 
       /* 3. Owner */
-      const owner = v.owner ?? null;
+      let owner: string | null = null;
+      if (v.owner !== undefined && v.owner !== null && v.owner !== "") owner = v.owner;
 
       /* 4. Other fields */
-      const parentTaskId = v.parent_task_id ?? v.parent ?? 0;
-      const predecessorTaskId = v.predecessor_task_id ?? v.predecessorId ?? null;
-      const depType = v.dependency_type ?? v.dependencyType ?? null;
-      const lagDays = v.lag_days ?? v.lagDays ?? 0;
-      const wbsLevel = v.wbs_level ?? v.wbsLevel ?? 0;
-      const sortOrder = v.sort_order ?? v.sortOrder ?? v.sortorder ?? 0;
-      const plannedDuration = v.planned_duration ?? v.duration ?? null;
-      const actualStart = v.actual_start ?? v.start_date ?? null;
-      const actualFinish = v.actual_finish ?? v.end_date ?? null;
-      const actualDuration = v.actual_duration ?? null;
-      const progressPercent = v.progress_percent ?? v.progress ?? 0;
-      const status = v.status ?? null;
-      const category = v.category ?? null;
-      const notes = v.notes ?? v.remarks ?? null;
-      const taskType = v.task_type ?? v.taskType ?? "task";
-      const isMilestone = (v.is_milestone ?? 0) ? 1 : 0;
-      const isParent = (v.is_parent ?? 0) ? 1 : 0;
-      const frontendTaskUid = v.frontend_task_uid ?? v.frontendTaskUid ?? null;
-      const projectId = v.project_id ?? v.projectId ?? null;
+      const parentTaskId = get("parent_task_id") ?? get("parent") ?? 0;
+      const predecessorTaskId = get("predecessor_task_id") ?? get("predecessorId") ?? null;
+      const depType = get("dependency_type") ?? get("dependencyType") ?? null;
+      const lagDays = get("lag_days") ?? get("lagDays") ?? 0;
+      const wbsLevel = get("wbs_level") ?? get("wbsLevel") ?? 0;
+      const sortOrder = get("sort_order") ?? get("sortOrder") ?? get("sortorder") ?? 0;
+      const plannedDuration = get("planned_duration") ?? get("duration") ?? null;
+      const actualStart = get("actual_start") ?? get("start_date") ?? null;
+      const actualFinish = get("actual_finish") ?? get("end_date") ?? null;
+      const actualDuration = get("actual_duration") ?? null;
+      const progressPercent = get("progress_percent") ?? get("progress") ?? 0;
+      const status = get("status") ?? null;
+      const category = get("category") ?? null;
+      const notes = get("notes") ?? get("remarks") ?? null;
+      const taskType = get("task_type") ?? get("taskType") ?? "task";
+      const isMilestone = (get("is_milestone") ?? 0) ? 1 : 0;
+      const isParent = (get("is_parent") ?? 0) ? 1 : 0;
+      const frontendTaskUid = get("frontend_task_uid") ?? get("frontendTaskUid") ?? null;
+      const projectId = get("project_id") ?? get("projectId") ?? null;
 
       const now = new Date();
       const setData = {
