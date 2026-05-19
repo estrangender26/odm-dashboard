@@ -240,7 +240,7 @@ function TreeFolderItem({
   selectedFolderId, selectedFileId, onSelectFolder, onSelectFile,
   onContextMenuFolder, onContextMenuFile,
   onDownloadFile, onDeleteFile,
-  searchQuery, matchedIds,
+  searchQuery, matchedIds, expandedIds,
 }: {
   folder: TreeFolder;
   level: number;
@@ -256,6 +256,7 @@ function TreeFolderItem({
   onDeleteFile: (file: TreeFile) => void;
   searchQuery: string;
   matchedIds: Set<number>;
+  expandedIds: Set<number>;
 }) {
   const hasContent = folder.children.length > 0 || folder.files.length > 0;
   const isDimmed = searchQuery.length > 0 && !matchedIds.has(folder.id) && !folder.files.some(f => f.title.toLowerCase().includes(searchQuery.toLowerCase()) || f.fileName.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -307,7 +308,7 @@ function TreeFolderItem({
               key={child.id}
               folder={child}
               level={level + 1}
-              expanded={true}
+              expanded={expandedIds.has(child.id)}
               onToggle={onToggle}
               selectedFolderId={selectedFolderId}
               selectedFileId={selectedFileId}
@@ -319,6 +320,7 @@ function TreeFolderItem({
               onDeleteFile={onDeleteFile}
               searchQuery={searchQuery}
               matchedIds={matchedIds}
+              expandedIds={expandedIds}
             />
           ))}
           {/* Files */}
@@ -913,6 +915,7 @@ export default function OmManualsLibrary() {
                   onDeleteFile={handleDeleteFile}
                   searchQuery={search}
                   matchedIds={matchedIds}
+                  expandedIds={expandedIds}
                 />
               ))
             )}
