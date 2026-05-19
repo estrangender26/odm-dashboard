@@ -104,6 +104,8 @@ export const ganttRouter = createRouter({
       text: r.taskName,
       startDate: r.actualStart,
       endDate: r.actualFinish,
+      plannedStart: r.plannedStart,
+      plannedEnd: r.plannedFinish,
       duration: r.plannedDuration,
       progress: r.progressPercent,
       parent: r.parentTaskId,

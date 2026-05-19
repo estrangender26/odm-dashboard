@@ -1035,7 +1035,7 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
   const inpRef = useRef<any>(null);
   useEffect(() => { if (editing) { setTimeout(() => { inpRef.current?.focus(); inpRef.current?.select?.(); }, 0); } }, [editing]);
 
-  const isParentR = (t: any) => hasChildren(t.id, allTasks);
+  const isParentR = (t: any) => isParent(t.id, allTasks);
   const isReadOnly = (t: any, ck: string) => isParentR(t) && CALC_FIELDS.includes(ck);
 
   const getVal = (t: any, ck: string) => {
@@ -1246,7 +1246,16 @@ export default function GanttPlanner() {
   const { refetch: refetchLinks } = linksQuery;
 
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
-    onSuccess: () => utils.gantt.tasks.invalidate(),
+    onSuccess: () => {
+      utils.gantt.tasks.invalidate();
+      /* BUG #8: refresh the saved snapshot so unsaved indicator clears */
+      setTimeout(() => {
+        if (tasksQuery.data) {
+          lastSavedJsonRef.current = JSON.stringify(tasksQuery.data);
+          setHasUnsavedChanges(false);
+        }
+      }, 500);
+    },
     onError: (e) => setBanner({ type: "error", message: "Save task failed: " + e.message }),
   });
   const deleteTaskMut = trpc.gantt.deleteTask.useMutation({
@@ -1442,6 +1451,17 @@ export default function GanttPlanner() {
     setKpi(calcKpi(tasksQuery.data));
     setTaskList(tasksQuery.data);
   }, [tasksQuery.data]);
+
+  /* ── BUG #8 FIX: Auto-clear unsaved flag when refetched data matches DB ── */
+  useEffect(() => {
+    if (!tasksQuery.data || tasksQuery.isFetching) return;
+    /* After a successful save mutation, the DB data comes back clean.
+       If the current data matches what we last saved, clear the unsaved flag. */
+    const currentJson = JSON.stringify(tasksQuery.data);
+    if (lastSavedJsonRef.current && lastSavedJsonRef.current === currentJson) {
+      setHasUnsavedChanges(false);
+    }
+  }, [tasksQuery.isFetching]);
 
   /* Export menu click-outside removed — handled by GanttToolbar */
 

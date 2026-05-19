@@ -35,49 +35,64 @@ export function resolveField(obj: any, ...keys: string[]): any {
 
 /* ─── Export Template — Empty Excel with headers + sample row ─── */
 export function exportTemplate() {
-  const COLUMN_ORDER = [
-    "Task ID", "Parent Task", "WBS Level", "Task Name", "Owner",
-    "Start", "Finish", "Duration", "Progress",
-    "Dependency", "Dependency Type", "Lag (days)", "Milestone", "Category", "Status", "Notes",
-  ];
-  const sampleRows = [
-    { "Task ID": 1, "Parent Task": 0, "WBS Level": 1, "Task Name": "Sample Project", "Owner": "Engineer A", "Start": "2025-01-01", "Finish": "2025-06-30", "Duration": 180, "Progress": 0, "Dependency": "", "Dependency Type": "", "Lag (days)": 0, "Milestone": "No", "Category": "General", "Status": "Not Started", "Notes": "Project kickoff" },
-    { "Task ID": 2, "Parent Task": 1, "WBS Level": 2, "Task Name": "Site Inspection", "Owner": "Engineer B", "Start": "2025-01-01", "Finish": "2025-01-15", "Duration": 14, "Progress": 50, "Dependency": 1, "Dependency Type": "FS", "Lag (days)": 0, "Milestone": "No", "Category": "Inspection", "Status": "In Progress", "Notes": "Initial site walk" },
-    { "Task ID": 3, "Parent Task": 1, "WBS Level": 2, "Task Name": "Equipment Install", "Owner": "Technician C", "Start": "2025-01-16", "Finish": "2025-03-15", "Duration": 58, "Progress": 0, "Dependency": 2, "Dependency Type": "FS", "Lag (days)": 0, "Milestone": "No", "Category": "Installation", "Status": "Not Started", "Notes": "Wait for inspection" },
-    { "Task ID": 4, "Parent Task": 0, "WBS Level": 1, "Task Name": "Milestone: Handover", "Owner": "Manager D", "Start": "2025-06-30", "Finish": "2025-06-30", "Duration": 1, "Progress": 0, "Dependency": "", "Dependency Type": "", "Lag (days)": 0, "Milestone": "Yes", "Category": "Milestone", "Status": "Not Started", "Notes": "Project completion" },
-  ];
-  const ws = XLSX.utils.json_to_sheet(sampleRows, { header: COLUMN_ORDER });
-  const colWidths = [
-    { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 30 }, { wch: 18 },
-    { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
-    { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 20 }, { wch: 25 },
-  ];
-  ws["!cols"] = colWidths;
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Gantt Tasks");
-  // Instruction sheet
-  const instructions = [
-    { "Column": "Task ID", "Description": "Unique numeric ID for each task", "Required": "Yes", "Example": "1, 2, 3" },
-    { "Column": "Parent Task", "Description": "Task ID of parent (0 = root level)", "Required": "No", "Example": "0, 1, 1" },
-    { "Column": "WBS Level", "Description": "Hierarchy level (1 = project, 2 = phase, etc.)", "Required": "No", "Example": "1, 2, 2" },
-    { "Column": "Task Name", "Description": "Name of the task", "Required": "Yes", "Example": "Site Inspection" },
-    { "Column": "Owner", "Description": "Person responsible", "Required": "No", "Example": "Engineer A" },
-    { "Column": "Start", "Description": "Actual start date (YYYY-MM-DD)", "Required": "No", "Example": "2025-01-01" },
-    { "Column": "Finish", "Description": "Actual finish date (YYYY-MM-DD)", "Required": "No", "Example": "2025-01-15" },
-    { "Column": "Duration", "Description": "Duration in days (auto-calculated if dates provided)", "Required": "No", "Example": "14" },
-    { "Column": "Progress", "Description": "Completion percentage (0-100)", "Required": "No", "Example": "50" },
-    { "Column": "Dependency", "Description": "Task ID of predecessor", "Required": "No", "Example": "1" },
-    { "Column": "Dependency Type", "Description": "FS, SS, FF, or SF", "Required": "No", "Example": "FS" },
-    { "Column": "Lag (days)", "Description": "Lag/lead days for dependency", "Required": "No", "Example": "0" },
-    { "Column": "Milestone", "Description": "Yes = milestone, No = regular task", "Required": "No", "Example": "No" },
-    { "Column": "Category", "Description": "Task category or phase", "Required": "No", "Example": "Inspection" },
-    { "Column": "Status", "Description": "Auto-derived from dates if left blank", "Required": "No", "Example": "In Progress" },
-    { "Column": "Notes", "Description": "Additional notes or remarks", "Required": "No", "Example": "Notes here" },
-  ];
-  const wsInst = XLSX.utils.json_to_sheet(instructions);
-  wsInst["!cols"] = [{ wch: 20 }, { wch: 50 }, { wch: 10 }, { wch: 25 }];
-  XLSX.utils.book_append_sheet(wb, wsInst, "Instructions");
-  XLSX.writeFile(wb, "Gantt_Task_Template.xlsx");
+  try {
+    const COLUMN_ORDER = [
+      "Task ID", "Parent Task", "WBS Level", "Task Name", "Owner",
+      "Start", "Finish", "Duration", "Progress",
+      "Dependency", "Dependency Type", "Lag (days)", "Milestone", "Category", "Status", "Notes",
+    ];
+    const sampleRows = [
+      { "Task ID": 1, "Parent Task": 0, "WBS Level": 1, "Task Name": "Sample Project", "Owner": "Engineer A", "Start": "2025-01-01", "Finish": "2025-06-30", "Duration": 180, "Progress": 0, "Dependency": "", "Dependency Type": "", "Lag (days)": 0, "Milestone": "No", "Category": "General", "Status": "Not Started", "Notes": "Project kickoff" },
+      { "Task ID": 2, "Parent Task": 1, "WBS Level": 2, "Task Name": "Site Inspection", "Owner": "Engineer B", "Start": "2025-01-01", "Finish": "2025-01-15", "Duration": 14, "Progress": 50, "Dependency": 1, "Dependency Type": "FS", "Lag (days)": 0, "Milestone": "No", "Category": "Inspection", "Status": "In Progress", "Notes": "Initial site walk" },
+      { "Task ID": 3, "Parent Task": 1, "WBS Level": 2, "Task Name": "Equipment Install", "Owner": "Technician C", "Start": "2025-01-16", "Finish": "2025-03-15", "Duration": 58, "Progress": 0, "Dependency": 2, "Dependency Type": "FS", "Lag (days)": 0, "Milestone": "No", "Category": "Installation", "Status": "Not Started", "Notes": "Wait for inspection" },
+      { "Task ID": 4, "Parent Task": 0, "WBS Level": 1, "Task Name": "Milestone: Handover", "Owner": "Manager D", "Start": "2025-06-30", "Finish": "2025-06-30", "Duration": 1, "Progress": 0, "Dependency": "", "Dependency Type": "", "Lag (days)": 0, "Milestone": "Yes", "Category": "Milestone", "Status": "Not Started", "Notes": "Project completion" },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sampleRows, { header: COLUMN_ORDER });
+    const colWidths = [
+      { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 30 }, { wch: 18 },
+      { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
+      { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 20 }, { wch: 25 },
+    ];
+    ws["!cols"] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Gantt Tasks");
+    const instructions = [
+      { "Column": "Task ID", "Description": "Unique numeric ID for each task", "Required": "Yes", "Example": "1, 2, 3" },
+      { "Column": "Parent Task", "Description": "Task ID of parent (0 = root level)", "Required": "No", "Example": "0, 1, 1" },
+      { "Column": "WBS Level", "Description": "Hierarchy level (1 = project, 2 = phase, etc.)", "Required": "No", "Example": "1, 2, 2" },
+      { "Column": "Task Name", "Description": "Name of the task", "Required": "Yes", "Example": "Site Inspection" },
+      { "Column": "Owner", "Description": "Person responsible", "Required": "No", "Example": "Engineer A" },
+      { "Column": "Start", "Description": "Actual start date (YYYY-MM-DD)", "Required": "No", "Example": "2025-01-01" },
+      { "Column": "Finish", "Description": "Actual finish date (YYYY-MM-DD)", "Required": "No", "Example": "2025-01-15" },
+      { "Column": "Duration", "Description": "Duration in days (auto-calculated if dates provided)", "Required": "No", "Example": "14" },
+      { "Column": "Progress", "Description": "Completion percentage (0-100)", "Required": "No", "Example": "50" },
+      { "Column": "Dependency", "Description": "Task ID of predecessor", "Required": "No", "Example": "1" },
+      { "Column": "Dependency Type", "Description": "FS, SS, FF, or SF", "Required": "No", "Example": "FS" },
+      { "Column": "Lag (days)", "Description": "Lag/lead days for dependency", "Required": "No", "Example": "0" },
+      { "Column": "Milestone", "Description": "Yes = milestone, No = regular task", "Required": "No", "Example": "No" },
+      { "Column": "Category", "Description": "Task category or phase", "Required": "No", "Example": "Inspection" },
+      { "Column": "Status", "Description": "Auto-derived from dates if left blank", "Required": "No", "Example": "In Progress" },
+      { "Column": "Notes", "Description": "Additional notes or remarks", "Required": "No", "Example": "Notes here" },
+    ];
+    const wsInst = XLSX.utils.json_to_sheet(instructions);
+    wsInst["!cols"] = [{ wch: 20 }, { wch: 50 }, { wch: 10 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(wb, wsInst, "Instructions");
+    XLSX.writeFile(wb, "Gantt_Task_Template.xlsx");
+    return true;
+  } catch (e: any) {
+    /* Fallback: download CSV template */
+    const headers = ["Task ID","Parent Task","WBS Level","Task Name","Owner","Start","Finish","Duration","Progress","Dependency","Dependency Type","Lag (days)","Milestone","Category","Status","Notes"];
+    const csv = headers.join(",") + "\n";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "gantt-template.csv";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 200);
+    return false;
+  }
 }
 
 /* ─── Export CSV — 15-column format ─── */
