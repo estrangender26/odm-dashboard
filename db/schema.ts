@@ -240,6 +240,29 @@ export const ganttDependencies = pgTable("gantt_dependencies", {
   index("gantt_dep_succ_idx").on(table.successorTaskId),
 ]);
 
+/* ── SMP Documents ── */
+export const smpDocuments = pgTable("smp_documents", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 50 }).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  revision: varchar("revision", { length: 50 }).default("Rev. 1"),
+  equipmentType: varchar("equipment_type", { length: 100 }),
+  system: varchar("system", { length: 100 }),
+  dateIssued: varchar("date_issued", { length: 20 }),
+  nextReview: varchar("next_review", { length: 20 }),
+  status: varchar("status", { length: 50 }).default("Active"),
+  responsibleParty: varchar("responsible_party", { length: 255 }),
+  fileData: text("file_data"),
+  fileType: varchar("file_type", { length: 100 }),
+  fileName: varchar("file_name", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("smp_equip_idx").on(table.equipmentType),
+  index("smp_system_idx").on(table.system),
+  index("smp_status_idx").on(table.status),
+]);
+
 /* ── Gantt Chart Saved Projects ── */
 export const ganttProjects = pgTable("gantt_projects", {
   id: serial("id").primaryKey(),
