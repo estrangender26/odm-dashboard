@@ -270,18 +270,21 @@ export function parseImportRow(row: any, idx: number): { payload: any | null; er
   }
 
   const payload = {
-    text, owner: owner || null,
-    start_date: start || null,
-    end_date: finish || null,
+    /* New schema field names (backend saveTask accepts both old + new) */
+    task_name: text,
+    owner: owner || null,
+    actual_start: start || null,
+    actual_finish: finish || null,
     planned_start: plannedStart || start || null,
-    planned_end: plannedEnd || finish || null,
-    duration: parseInt(String(dur)) || 1,
-    progress: prog,
+    planned_finish: plannedEnd || finish || null,
+    planned_duration: parseInt(String(dur)) || 1,
+    progress_percent: prog,
     wbs_level: wbsLevel,
     status: status || null,
-    remarks: notes || null,
+    notes: notes || null,
     category: category || null,
-    parent, type,
+    parent_task_id: parent,
+    task_type: type,
   };
 
   return { payload, error: null };

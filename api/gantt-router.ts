@@ -129,62 +129,165 @@ export const ganttRouter = createRouter({
       }));
     }),
 
-  /* ── 4. SAVE TASK (accepts frontend field names, maps to DB columns) ── */
+  /* ── 4. SAVE TASK (accepts BOTH old + new field names for full backward compat) ── */
   saveTask: publicQuery
     .input(z.object({
       id: z.number().optional(),
+      /* UID */
       frontend_task_uid: z.string().optional(),
+      frontendTaskUid: z.string().optional(),
+      /* Project */
       project_id: z.number().optional(),
-      task_name: z.string(),
+      projectId: z.number().optional(),
+      /* Task name — old: text, new: task_name */
+      task_name: z.string().optional(),
+      text: z.string().optional(),
+      name: z.string().optional(),
+      title: z.string().optional(),
+      /* Parent — old: parent, new: parent_task_id */
       parent_task_id: z.number().default(0),
+      parent: z.number().default(0),
+      parentId: z.number().default(0),
+      /* Predecessor */
       predecessor_task_id: z.number().nullable().optional(),
+      predecessorId: z.number().nullable().optional(),
+      predecessor: z.number().nullable().optional(),
+      dependency: z.number().nullable().optional(),
+      /* Dependency type */
       dependency_type: z.string().nullable().optional(),
+      dependencyType: z.string().nullable().optional(),
+      linkType: z.string().nullable().optional(),
+      type: z.string().nullable().optional(), // only maps to dependency_type if task_type is not present
+      /* Lag */
       lag_days: z.number().default(0),
+      lagDays: z.number().default(0),
+      lag: z.number().default(0),
+      /* WBS */
       wbs_level: z.number().default(0),
+      wbsLevel: z.number().default(0),
+      wbs: z.number().default(0),
+      /* Sort order */
       sort_order: z.number().default(0),
+      sortOrder: z.number().default(0),
+      sortorder: z.number().default(0),
+      /* Planned dates */
       planned_start: z.string().nullable().optional(),
+      plannedStart: z.string().nullable().optional(),
       planned_finish: z.string().nullable().optional(),
+      plannedEnd: z.string().nullable().optional(),
+      planned_end: z.string().nullable().optional(),
+      /* Planned duration */
       planned_duration: z.number().nullable().optional(),
+      duration: z.number().nullable().optional(),
+      dur: z.number().nullable().optional(),
+      days: z.number().nullable().optional(),
+      /* Actual dates — old: start_date/end_date, new: actual_start/actual_finish */
       actual_start: z.string().nullable().optional(),
+      start_date: z.string().nullable().optional(),
+      startDate: z.string().nullable().optional(),
       actual_finish: z.string().nullable().optional(),
+      end_date: z.string().nullable().optional(),
+      endDate: z.string().nullable().optional(),
+      actual_end: z.string().nullable().optional(),
+      /* Actual duration */
       actual_duration: z.number().nullable().optional(),
+      /* Progress — old: progress, new: progress_percent */
       progress_percent: z.number().default(0),
+      progress: z.number().default(0),
+      percent: z.number().default(0),
+      percent_complete: z.number().default(0),
+      percentComplete: z.number().default(0),
+      /* Status */
       status: z.string().nullable().optional(),
+      state: z.string().nullable().optional(),
+      /* Owner */
       owner: z.string().nullable().optional(),
+      assignee: z.string().nullable().optional(),
+      responsible: z.string().nullable().optional(),
+      /* Category */
       category: z.string().nullable().optional(),
+      cat: z.string().nullable().optional(),
+      group: z.string().nullable().optional(),
+      phase: z.string().nullable().optional(),
+      /* Notes — old: remarks, new: notes */
       notes: z.string().nullable().optional(),
       remarks: z.string().nullable().optional(),
+      note: z.string().nullable().optional(),
+      description: z.string().nullable().optional(),
+      comments: z.string().nullable().optional(),
+      comment: z.string().nullable().optional(),
+      /* Task type */
       task_type: z.string().default("task"),
+      taskType: z.string().default("task"),
+      /* Milestone flag */
       is_milestone: z.number().default(0),
+      isMilestone: z.number().default(0),
+      milestone: z.union([z.string(), z.number()]).default(0),
+      /* Parent flag */
       is_parent: z.number().default(0),
+      isParent: z.number().default(0),
+      /* Open flag (for tree expand/collapse) */
+      open: z.number().default(1),
     }))
     .mutation(async ({ input }) => {
+      /* ── Normalize: pick first available value from old/new field names ── */
+      const pick = (...vals: any[]) => { for (const v of vals) if (v !== undefined && v !== null && v !== "") return v; return undefined; };
+
+      const taskName = pick(input.task_name, input.text, input.name, input.title);
+      if (!taskName || !String(taskName).trim()) {
+        throw new Error("task_name (or text) is required");
+      }
+
+      const parentTaskId = pick(input.parent_task_id, input.parent, input.parentId) ?? 0;
+      const predecessorTaskId = pick(input.predecessor_task_id, input.predecessorId, input.predecessor, input.dependency) ?? null;
+      const depType = pick(input.dependency_type, input.dependencyType, input.linkType) ?? null;
+      const lagDays = pick(input.lag_days, input.lagDays, input.lag) ?? 0;
+      const wbsLevel = pick(input.wbs_level, input.wbsLevel, input.wbs) ?? 0;
+      const sortOrder = pick(input.sort_order, input.sortOrder, input.sortorder) ?? 0;
+      const plannedStart = pick(input.planned_start, input.plannedStart) ?? null;
+      const plannedFinish = pick(input.planned_finish, input.plannedEnd, input.planned_end) ?? null;
+      const plannedDuration = pick(input.planned_duration, input.duration, input.dur, input.days) ?? null;
+      const actualStart = pick(input.actual_start, input.start_date, input.startDate) ?? null;
+      const actualFinish = pick(input.actual_finish, input.end_date, input.endDate, input.actual_end) ?? null;
+      const actualDuration = pick(input.actual_duration) ?? null;
+      const progressPercent = pick(input.progress_percent, input.progress, input.percent, input.percent_complete, input.percentComplete) ?? 0;
+      const status = pick(input.status, input.state) ?? null;
+      const owner = pick(input.owner, input.assignee, input.responsible) ?? null;
+      const category = pick(input.category, input.cat, input.group, input.phase) ?? null;
+      const notes = pick(input.notes, input.remarks, input.note, input.description, input.comments, input.comment) ?? null;
+      const taskType = pick(input.task_type, input.taskType) ?? "task";
+      const isMilestoneRaw = pick(input.is_milestone, input.isMilestone, input.milestone) ?? 0;
+      const isMilestone = typeof isMilestoneRaw === "string" ? (isMilestoneRaw.toLowerCase() === "yes" || isMilestoneRaw.toLowerCase() === "true" ? 1 : 0) : (isMilestoneRaw ? 1 : 0);
+      const isParent = pick(input.is_parent, input.isParent) ?? 0;
+      const frontendTaskUid = pick(input.frontend_task_uid, input.frontendTaskUid) ?? null;
+      const projectId = pick(input.project_id, input.projectId) ?? null;
+
       const now = new Date();
       const setData = {
-        frontendTaskUid: input.frontend_task_uid || null,
-        projectId: input.project_id ?? null,
-        taskName: input.task_name,
-        parentTaskId: input.parent_task_id ?? 0,
-        predecessorTaskId: input.predecessor_task_id ?? null,
-        dependencyType: input.dependency_type || null,
-        lagDays: input.lag_days ?? 0,
-        wbsLevel: input.wbs_level ?? 0,
-        sortOrder: input.sort_order ?? 0,
-        plannedStart: input.planned_start || null,
-        plannedFinish: input.planned_finish || null,
-        plannedDuration: input.planned_duration ?? null,
-        actualStart: input.actual_start || null,
-        actualFinish: input.actual_finish || null,
-        actualDuration: input.actual_duration ?? null,
-        progressPercent: input.progress_percent ?? 0,
-        status: input.status || null,
-        owner: input.owner || null,
-        category: input.category || null,
-        notes: input.notes || null,
-        remarks: input.remarks || null,
-        taskType: input.task_type || "task",
-        isMilestone: input.is_milestone ?? 0,
-        isParent: input.is_parent ?? 0,
+        frontendTaskUid,
+        projectId,
+        taskName: String(taskName).trim(),
+        parentTaskId,
+        predecessorTaskId,
+        dependencyType: depType,
+        lagDays,
+        wbsLevel,
+        sortOrder,
+        plannedStart,
+        plannedFinish,
+        plannedDuration,
+        actualStart,
+        actualFinish,
+        actualDuration,
+        progressPercent,
+        status,
+        owner,
+        category,
+        notes,
+        remarks: notes, // keep remarks in sync
+        taskType,
+        isMilestone,
+        isParent,
         updatedAt: now,
       };
 
@@ -319,7 +422,49 @@ export const ganttRouter = createRouter({
 
   /* ── 11. SEED DEMO DATA ── */
   seed: publicQuery.mutation(async () => {
-    const existing = await db.select().from(ganttTasks);
+    /* Auto-create tables if they don't exist yet */
+    try {
+      await db.execute(sql.raw(`SELECT 1 FROM gantt_tasks LIMIT 1`));
+    } catch {
+      /* Tables missing — run reset to create them */
+      try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}
+      try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
+      try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_projects CASCADE`)); } catch {}
+      await db.execute(sql.raw(`
+        CREATE TABLE gantt_projects (
+          id SERIAL PRIMARY KEY, project_name VARCHAR(255) NOT NULL,
+          start_date VARCHAR(20), finish_date VARCHAR(20), status VARCHAR(50),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`));
+      await db.execute(sql.raw(`
+        CREATE TABLE gantt_tasks (
+          id SERIAL PRIMARY KEY, project_id INTEGER, frontend_task_uid VARCHAR(64) UNIQUE,
+          task_name VARCHAR(500) NOT NULL, parent_task_id INTEGER DEFAULT 0,
+          predecessor_task_id INTEGER, dependency_type VARCHAR(10), lag_days INTEGER DEFAULT 0,
+          wbs_level INTEGER DEFAULT 0, sort_order INTEGER DEFAULT 0,
+          planned_start VARCHAR(20), planned_finish VARCHAR(20), planned_duration INTEGER,
+          actual_start VARCHAR(20), actual_finish VARCHAR(20), actual_duration INTEGER,
+          progress_percent INTEGER DEFAULT 0, status VARCHAR(50), owner VARCHAR(255),
+          category VARCHAR(100), notes TEXT, remarks TEXT, task_type VARCHAR(20) DEFAULT 'task',
+          is_milestone INTEGER DEFAULT 0, is_parent INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`));
+      await db.execute(sql.raw(`CREATE INDEX gantt_tasks_project_idx ON gantt_tasks(project_id)`));
+      await db.execute(sql.raw(`CREATE INDEX gantt_tasks_parent_idx ON gantt_tasks(parent_task_id)`));
+      await db.execute(sql.raw(`CREATE INDEX gantt_tasks_uid_idx ON gantt_tasks(frontend_task_uid)`));
+      await db.execute(sql.raw(`CREATE INDEX gantt_tasks_sort_idx ON gantt_tasks(sort_order)`));
+      await db.execute(sql.raw(`
+        CREATE TABLE gantt_dependencies (
+          id SERIAL PRIMARY KEY, project_id INTEGER,
+          predecessor_task_id INTEGER NOT NULL, successor_task_id INTEGER NOT NULL,
+          dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS', lag_days INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`));
+    }
+
+    /* Check if data already exists */
+    let existing: any[] = [];
+    try { existing = await db.select().from(ganttTasks); } catch {}
     if (existing.length > 0) return { seeded: false, reason: "Tasks already exist" };
 
     const fmt = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;

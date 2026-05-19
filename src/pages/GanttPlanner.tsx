@@ -1263,7 +1263,16 @@ export default function GanttPlanner() {
     onError: (e: any) => setBanner({ type: "error", message: "Migrate failed: " + e.message }),
   });
   const seedMut = trpc.gantt.seed.useMutation({
-    onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
+    onSuccess: (data: any) => {
+      utils.gantt.tasks.invalidate();
+      utils.gantt.links.invalidate();
+      if (data?.seeded) {
+        setBanner({ type: "success", message: `Demo data loaded: ${data.count || 7} tasks created.` });
+      } else if (data?.reason) {
+        setBanner({ type: "info", message: `Seed skipped: ${data.reason}. Use Reset DB first if you want fresh demo data.` });
+      }
+    },
+    onError: (e: any) => setBanner({ type: "error", message: "Demo load failed: " + e.message }),
   });
 
   /* Project save/load hooks */
