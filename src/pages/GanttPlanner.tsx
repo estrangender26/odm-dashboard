@@ -1838,6 +1838,8 @@ export default function GanttPlanner() {
 
     /* ── PHASE 1: Save task with clean payload ── */
     const payload: any = mapFormToPayload(form, _editingId);
+    /* DEBUG */
+    console.log("[DEBUG] payload before overrides:", JSON.stringify(payload, null, 2));
     /* Override with computed values */
     payload.frontend_task_uid = _taskUid;
     payload.status = finalStatus;
