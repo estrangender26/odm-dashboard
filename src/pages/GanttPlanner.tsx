@@ -31,8 +31,17 @@ import {
   isParent, isFieldEditable,
 } from "@/modules/gantt/engine/parentEngine";
 import {
-  calcKpi, statusColor as _statusColor, statusBg, statusBadgeStyle, rowStatus, fmtMonth, fmtShortDate,
+  calcKpi, statusColor as _statusColor, statusBg as _statusBg, statusBadgeStyle, rowStatus, fmtMonth, fmtShortDate,
 } from "@/modules/gantt/engine/uiUtilsEngine";
+
+/* LOCAL statusBg — workaround for Vite tree-shaking bug that removes imported function */
+const statusBg = (status: string): string => {
+  const map: Record<string, string> = {
+    "Completed": "#DCFCE7", "In Progress": "#DBEAFE", "In Progress (Delayed)": "#FEE2E2",
+    "Not Started": "#F1F5F9", "Delayed": "#FEF3C7", "Overdue": "#FEE2E2",
+  };
+  return map[status] || "#F1F5F9";
+};
 
 /* ═══════════════════════════════════════════════════════════════════
    TYPES (module-level, no hooks)
@@ -1253,13 +1262,11 @@ export default function GanttPlanner() {
   const { refetch: refetchLinks } = linksQuery;
 
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
-    onSuccess: (result, variables) => {
+    onSuccess: () => {
       utils.gantt.tasks.invalidate();
-      /* BUG #8 FIX: Immediately update snapshot using local taskList (already has latest data).
-         Use the EXACT same array shape that the useEffect compares against. */
-      const currentArr = (tasksQuery.data || []) as any[];
-      lastSavedJsonRef.current = JSON.stringify(currentArr);
-      setHasUnsavedChanges(false);
+      /* BUG B FIX: Mark that we just saved. The useEffect below will clear
+         the unsaved indicator when fresh data arrives after refetch. */
+      lastSavedJsonRef.current = "__JUST_SAVED__";
     },
     onError: (e) => setBanner({ type: "error", message: "Save task failed: " + e.message }),
   });
@@ -1444,6 +1451,12 @@ export default function GanttPlanner() {
   /* Detect unsaved changes */
   useEffect(() => {
     if (!tasksQuery.data) return;
+    /* BUG B FIX: If we just saved, accept the fresh data as the new baseline */
+    if (lastSavedJsonRef.current === "__JUST_SAVED__") {
+      lastSavedJsonRef.current = JSON.stringify(tasksQuery.data);
+      setHasUnsavedChanges(false);
+      return;
+    }
     const currentJson = JSON.stringify(tasksQuery.data);
     if (lastSavedJsonRef.current && lastSavedJsonRef.current !== currentJson) { setHasUnsavedChanges(true); }
     else if (!lastSavedJsonRef.current && tasksQuery.data.length > 0) { setHasUnsavedChanges(true); }
