@@ -184,66 +184,41 @@ export const ganttRouter = createRouter({
       const projectId = v.project_id ?? v.projectId ?? null;
       const now = new Date();
 
-      /* 5. RAW SQL */
-      const sqlStr = input.id
-        ? `UPDATE gantt_tasks SET
-             frontend_task_uid = ${frontendTaskUid ? `'${frontendTaskUid}'` : 'NULL'},
-             project_id = ${projectId ?? 'NULL'},
-             task_name = '${taskName}',
-             parent_task_id = ${parentTaskId},
-             predecessor_task_id = ${predecessorTaskId ?? 'NULL'},
-             dependency_type = ${depType ? `'${depType}'` : 'NULL'},
-             lag_days = ${lagDays},
-             wbs_level = ${wbsLevel},
-             sort_order = ${sortOrder},
-             planned_start = ${plannedStart ? `'${plannedStart}'` : 'NULL'},
-             planned_finish = ${plannedFinish ? `'${plannedFinish}'` : 'NULL'},
-             planned_duration = ${plannedDuration ?? 'NULL'},
-             actual_start = ${actualStart ? `'${actualStart}'` : 'NULL'},
-             actual_finish = ${actualFinish ? `'${actualFinish}'` : 'NULL'},
-             actual_duration = ${actualDuration ?? 'NULL'},
-             progress_percent = ${progressPercent},
-             status = ${status ? `'${status}'` : 'NULL'},
-             owner = ${owner ? `'${owner.replace(/'/g, "''")}'` : 'NULL'},
-             category = ${category ? `'${category}'` : 'NULL'},
-             notes = ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'},
-             remarks = ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'},
-             task_type = '${taskType}',
-             is_milestone = ${isMilestone},
-             is_parent = ${isParent},
-             updated_at = NOW()
-           WHERE id = ${input.id}
-           RETURNING id, frontend_task_uid`
-        : `INSERT INTO gantt_tasks (
-             frontend_task_uid, project_id, task_name, parent_task_id, predecessor_task_id,
-             dependency_type, lag_days, wbs_level, sort_order,
-             planned_start, planned_finish, planned_duration,
-             actual_start, actual_finish, actual_duration,
-             progress_percent, status, owner, category, notes, remarks,
-             task_type, is_milestone, is_parent, created_at, updated_at
-           ) VALUES (
-             ${frontendTaskUid ? `'${frontendTaskUid}'` : 'NULL'}, ${projectId ?? 'NULL'}, '${taskName}',
-             ${parentTaskId}, ${predecessorTaskId ?? 'NULL'}, ${depType ? `'${depType}'` : 'NULL'},
-             ${lagDays}, ${wbsLevel}, ${sortOrder},
-             ${plannedStart ? `'${plannedStart}'` : 'NULL'}, ${plannedFinish ? `'${plannedFinish}'` : 'NULL'}, ${plannedDuration ?? 'NULL'},
-             ${actualStart ? `'${actualStart}'` : 'NULL'}, ${actualFinish ? `'${actualFinish}'` : 'NULL'}, ${actualDuration ?? 'NULL'},
-             ${progressPercent}, ${status ? `'${status}'` : 'NULL'}, ${owner ? `'${owner.replace(/'/g, "''")}'` : 'NULL'},
-             ${category ? `'${category}'` : 'NULL'}, ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'}, ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'},
-             '${taskType}', ${isMilestone}, ${isParent}, NOW(), NOW()
-           )
-           RETURNING id, frontend_task_uid`;
-
+      /* 5. Use Drizzle parameterized sql`` template — not sql.raw() */
       try {
-        const result: any = await db.execute(sql.raw(sqlStr));
-        const row = result.rows?.[0] ?? result[0];
+        let result: any;
+        if (input.id) {
+          result = await db.update(ganttTasks).set({
+            frontendTaskUid, projectId,
+            taskName: String(taskName).trim(),
+            parentTaskId, predecessorTaskId,
+            dependencyType: depType, lagDays, wbsLevel, sortOrder,
+            plannedStart, plannedFinish, plannedDuration,
+            actualStart, actualFinish, actualDuration,
+            progressPercent, status, owner, category,
+            notes, remarks: notes, taskType, isMilestone, isParent,
+            updatedAt: now,
+          }).where(eq(ganttTasks.id, input.id)).returning({ id: ganttTasks.id });
+        } else {
+          result = await db.insert(ganttTasks).values({
+            frontendTaskUid, projectId,
+            taskName: String(taskName).trim(),
+            parentTaskId, predecessorTaskId,
+            dependencyType: depType, lagDays, wbsLevel, sortOrder,
+            plannedStart, plannedFinish, plannedDuration,
+            actualStart, actualFinish, actualDuration,
+            progressPercent, status, owner, category,
+            notes, remarks: notes, taskType, isMilestone, isParent,
+            createdAt: now, updatedAt: now,
+          }).returning({ id: ganttTasks.id });
+        }
         return {
-          id: row?.id ?? input.id,
-          frontend_task_uid: row?.frontend_task_uid ?? frontendTaskUid,
+          id: result[0]?.id ?? input.id,
           taskName, plannedStart, plannedFinish, owner,
           action: input.id ? "updated" : "created",
         };
       } catch (e: any) {
-        throw new Error(`Save failed: ${e.message}`);
+        throw new Error(`Save failed: ${e.message} | taskName=${taskName} plannedStart=${plannedStart} plannedFinish=${plannedFinish} owner=${owner}`);
       }
     }),
 
