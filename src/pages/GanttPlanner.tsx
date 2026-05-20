@@ -1837,8 +1837,13 @@ export default function GanttPlanner() {
     const wbsLevel = computeWbsLevel(_editingId ?? 0, allTasks, _parent);
 
     /* ── PHASE 1: Save task with clean payload ── */
+    /* DEBUG: log raw form state */
+    console.log("[DEBUG] === FORM STATE ===");
+    console.log("[DEBUG] form.text (task name):", JSON.stringify(form.text));
+    console.log("[DEBUG] form.plannedStart:", JSON.stringify(form.plannedStart));
+    console.log("[DEBUG] form.plannedEnd:", JSON.stringify(form.plannedEnd));
+    console.log("[DEBUG] form.owner:", JSON.stringify(form.owner));
     const payload: any = mapFormToPayload(form, _editingId);
-    /* DEBUG */
     console.log("[DEBUG] payload before overrides:", JSON.stringify(payload, null, 2));
     /* Override with computed values */
     payload.frontend_task_uid = _taskUid;
