@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { db } from "./queries/connection";
 import { ganttProjects } from "@db/schema";
 import { publicQuery } from "./middleware";
@@ -52,7 +52,7 @@ export const ganttProjectsRouter = {
       z.object({
         id: z.number().optional(),
         name: z.string().min(1).max(255),
-        tasksData: z.string(), // JSON string
+        tasksData: z.string().optional().default("[]"), // JSON string
         linksData: z.string().optional().nullable(),
         description: z.string().optional(),
         createdBy: z.string().optional(),
@@ -60,13 +60,37 @@ export const ganttProjectsRouter = {
     )
     .mutation(async ({ input }) => {
       try {
+        /* Ensure gantt_projects table exists (auto-create if missing) */
+        try {
+          await db.execute(sql.raw(`SELECT 1 FROM gantt_projects LIMIT 1`));
+        } catch {
+          await db.execute(sql.raw(`
+            CREATE TABLE IF NOT EXISTS gantt_projects (
+              id SERIAL PRIMARY KEY,
+              name VARCHAR(255) NOT NULL,
+              project_name VARCHAR(255),
+              start_date VARCHAR(20),
+              finish_date VARCHAR(20),
+              status VARCHAR(50),
+              tasks_data TEXT NOT NULL DEFAULT '[]',
+              links_data TEXT,
+              description TEXT,
+              created_by VARCHAR(255),
+              updated_by VARCHAR(255),
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `));
+          await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS gantt_projects_name_idx ON gantt_projects(name)`));
+        }
+
         if (input.id) {
           // Update
           const result = await db
             .update(ganttProjects)
             .set({
               name: input.name,
-              tasksData: input.tasksData,
+              tasksData: input.tasksData || "[]",
               linksData: input.linksData ?? null,
               description: input.description ?? null,
               updatedBy: input.createdBy ?? null,
@@ -81,7 +105,7 @@ export const ganttProjectsRouter = {
             .insert(ganttProjects)
             .values({
               name: input.name,
-              tasksData: input.tasksData,
+              tasksData: input.tasksData || "[]",
               linksData: input.linksData ?? null,
               description: input.description ?? null,
               createdBy: input.createdBy ?? null,
@@ -90,8 +114,8 @@ export const ganttProjectsRouter = {
           return { id: result[0].id, name: result[0].name, action: "created" };
         }
       } catch (err: any) {
-        console.error("[ganttProjects.save] error:", err.message);
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to save project" });
+        console.error("[ganttProjects.save] error:", err.message, err.stack);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to save project: " + err.message });
       }
     }),
 

@@ -97,6 +97,9 @@ export const ganttRouter = createRouter({
   /* ── 2. LIST TASKS (ordered by sort_order) ── */
   tasks: publicQuery.query(async () => {
     const rows = await db.select().from(ganttTasks).orderBy(asc(ganttTasks.sortOrder), asc(ganttTasks.id));
+    /* Build a map of id → taskName for predecessor lookup */
+    const nameMap = new Map<number, string>();
+    for (const r of rows) nameMap.set(r.id, r.taskName || `Task ${r.id}`);
     /* Return in a shape compatible with the frontend's current expectations */
     return rows.map(r => ({
       ...r,
@@ -104,6 +107,7 @@ export const ganttRouter = createRouter({
       text: r.taskName,
       startDate: r.actualStart,
       endDate: r.actualFinish,
+      actualEnd: r.actualFinish,        /* BUG 6 FIX: actualEnd alias for Task List */
       plannedStart: r.plannedStart,
       plannedEnd: r.plannedFinish,
       duration: r.plannedDuration,
@@ -111,6 +115,7 @@ export const ganttRouter = createRouter({
       parent: r.parentTaskId,
       sortorder: r.sortOrder,
       type: r.taskType,
+      predecessorName: r.predecessorTaskId ? (nameMap.get(r.predecessorTaskId) || `Task ${r.predecessorTaskId}`) : null,
     }));
   }),
 
@@ -137,88 +142,143 @@ export const ganttRouter = createRouter({
       }));
     }),
 
-  /* ── 4. SAVE TASK — raw SQL, zero ambiguity ── */
+  /* ── 4. SAVE TASK — partial merge for UPDATE, full for INSERT ── */
   saveTask: publicQuery
     .input(z.any())
     .mutation(async ({ input }) => {
       const v = input as Record<string, any>;
-
-      /* 1. Extract taskName */
-      let taskName: string = v.taskName ?? v.task_name ?? v.text ?? v.name ?? v.title ?? "";
-      if (!taskName.trim()) throw new Error("task_name is required");
-      taskName = taskName.trim().replace(/'/g, "''");
-
-      /* 2. Extract planned dates (BUG #1: explicit per-key checks) */
-      let plannedStart: string | null = null;
-      if (typeof v.plannedStart === "string" && v.plannedStart) plannedStart = v.plannedStart;
-      else if (typeof v.planned_start === "string" && v.planned_start) plannedStart = v.planned_start;
-
-      let plannedFinish: string | null = null;
-      if (typeof v.plannedEnd === "string" && v.plannedEnd) plannedFinish = v.plannedEnd;
-      else if (typeof v.planned_finish === "string" && v.planned_finish) plannedFinish = v.planned_finish;
-      else if (typeof v.planned_end === "string" && v.planned_end) plannedFinish = v.planned_end;
-
-      /* 3. Extract owner (allow empty string) */
-      let owner: string | null = null;
-      if (typeof v.owner === "string") owner = v.owner || null;
-
-      /* 4. Extract everything else */
-      const parentTaskId = typeof v.parent_task_id === "number" ? v.parent_task_id : (typeof v.parent === "number" ? v.parent : 0);
-      const predecessorTaskId = typeof v.predecessor_task_id === "number" ? v.predecessor_task_id : (typeof v.predecessorId === "number" ? v.predecessorId : null);
-      const depType = v.dependency_type ?? v.dependencyType ?? null;
-      const lagDays = typeof v.lag_days === "number" ? v.lag_days : 0;
-      const wbsLevel = typeof v.wbs_level === "number" ? v.wbs_level : 0;
-      const sortOrder = typeof v.sort_order === "number" ? v.sort_order : (typeof v.sortOrder === "number" ? v.sortOrder : 0);
-      const plannedDuration = typeof v.planned_duration === "number" ? v.planned_duration : (typeof v.duration === "number" ? v.duration : null);
-      const actualStart = v.actual_start ?? v.start_date ?? null;
-      const actualFinish = v.actual_finish ?? v.end_date ?? null;
-      const actualDuration = typeof v.actual_duration === "number" ? v.actual_duration : null;
-      const progressPercent = typeof v.progress_percent === "number" ? v.progress_percent : (typeof v.progress === "number" ? v.progress : 0);
-      const status = v.status ?? null;
-      const category = v.category ?? null;
-      const notes = v.notes ?? v.remarks ?? null;
-      const taskType = v.task_type ?? v.taskType ?? "task";
-      const isMilestone = (v.is_milestone ?? v.isMilestone ?? 0) ? 1 : 0;
-      const isParent = (v.is_parent ?? v.isParent ?? 0) ? 1 : 0;
-      const frontendTaskUid = v.frontend_task_uid ?? v.frontendTaskUid ?? null;
-      const projectId = v.project_id ?? v.projectId ?? null;
+      const isUpdate = !!input.id;
       const now = new Date();
 
-      /* 5. Use Drizzle parameterized sql`` template — not sql.raw() */
+      /* HELPER: check if a key is explicitly present in the payload */
+      const has = (key: string) => key in v;
+      const hasAny = (keys: string[]) => keys.some(k => k in v);
+
+      /* 1. taskName — ALWAYS required for INSERT; for UPDATE only if provided */
+      let taskName: string | undefined;
+      if (hasAny(["taskName", "task_name", "text", "name", "title"])) {
+        taskName = (v.taskName ?? v.task_name ?? v.text ?? v.name ?? v.title ?? "").trim().replace(/'/g, "''");
+      }
+      if (!isUpdate && (!taskName || !taskName.trim())) throw new Error("task_name is required");
+
+      /* 2. Build setData — ONLY include fields explicitly present in payload for UPDATE */
+      const setData: Record<string, any> = {};
+
+      if (taskName !== undefined) setData.taskName = taskName;
+      if (has("frontend_task_uid") || has("frontendTaskUid")) setData.frontendTaskUid = v.frontend_task_uid ?? v.frontendTaskUid ?? null;
+      if (has("project_id") || has("projectId")) setData.projectId = v.project_id ?? v.projectId ?? null;
+
+      /* Parent / Predecessor */
+      if (has("parent_task_id") || has("parent")) {
+        setData.parentTaskId = typeof v.parent_task_id === "number" ? v.parent_task_id : (typeof v.parent === "number" ? v.parent : 0);
+      }
+      if (has("predecessor_task_id") || has("predecessorId")) {
+        setData.predecessorTaskId = typeof v.predecessor_task_id === "number" ? v.predecessor_task_id : (typeof v.predecessorId === "number" ? v.predecessorId : null);
+      }
+      if (has("dependency_type") || has("dependencyType")) setData.dependencyType = v.dependency_type ?? v.dependencyType ?? null;
+      if (has("lag_days")) setData.lagDays = typeof v.lag_days === "number" ? v.lag_days : 0;
+      if (has("wbs_level")) setData.wbsLevel = typeof v.wbs_level === "number" ? v.wbs_level : 0;
+      if (has("sort_order") || has("sortOrder")) {
+        setData.sortOrder = typeof v.sort_order === "number" ? v.sort_order : (typeof v.sortOrder === "number" ? v.sortOrder : 0);
+      }
+
+      /* Planned dates */
+      if (has("planned_start") || has("plannedStart")) {
+        const ps = v.planned_start ?? v.plannedStart;
+        setData.plannedStart = (typeof ps === "string" && ps) ? ps : null;
+      }
+      if (has("planned_finish") || has("plannedEnd") || has("planned_end")) {
+        const pf = v.planned_finish ?? v.plannedEnd ?? v.planned_end;
+        setData.plannedFinish = (typeof pf === "string" && pf) ? pf : null;
+      }
+      if (has("planned_duration") || has("duration")) {
+        setData.plannedDuration = typeof v.planned_duration === "number" ? v.planned_duration : (typeof v.duration === "number" ? v.duration : null);
+      }
+
+      /* Actual dates */
+      if (has("actual_start") || has("actualStart") || has("start_date")) {
+        const ast = v.actual_start ?? v.actualStart ?? v.start_date;
+        setData.actualStart = (typeof ast === "string" && ast) ? ast : null;
+      }
+      if (has("actual_finish") || has("actualEnd") || has("actual_end") || has("end_date")) {
+        const af = v.actual_finish ?? v.actualEnd ?? v.actual_end ?? v.end_date;
+        setData.actualFinish = (typeof af === "string" && af) ? af : null;
+      }
+      if (has("actual_duration")) setData.actualDuration = typeof v.actual_duration === "number" ? v.actual_duration : null;
+
+      /* Progress / Status / Owner */
+      if (has("progress_percent") || has("progress")) {
+        setData.progressPercent = typeof v.progress_percent === "number" ? v.progress_percent : (typeof v.progress === "number" ? v.progress : 0);
+      }
+      if (has("status")) setData.status = v.status || null;
+      if (has("owner")) setData.owner = (typeof v.owner === "string") ? (v.owner || null) : null;
+      if (has("category")) setData.category = v.category || null;
+
+      /* Notes */
+      if (has("notes") || has("remarks")) setData.notes = v.notes ?? v.remarks ?? null;
+      if (has("notes") || has("remarks")) setData.remarks = v.notes ?? v.remarks ?? null;
+
+      /* Type / Milestone / Parent flags */
+      if (has("task_type") || has("taskType")) {
+        setData.taskType = v.task_type ?? v.taskType ?? "task";
+      }
+      if (has("is_milestone") || has("isMilestone")) {
+        setData.isMilestone = (v.is_milestone ?? v.isMilestone ?? 0) ? 1 : 0;
+      }
+      if (has("is_parent") || has("isParent")) {
+        setData.isParent = (v.is_parent ?? v.isParent ?? 0) ? 1 : 0;
+      }
+
+      /* ── If this is a predecessor update, also sync the gantt_dependencies row ── */
+      if ((has("predecessor_task_id") || has("predecessorId")) && setData.predecessorTaskId) {
+        try {
+          await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, input.id));
+          await db.insert(ganttDependencies).values({
+            predecessorTaskId: setData.predecessorTaskId,
+            successorTaskId: input.id,
+            dependencyType: setData.dependencyType || "FS",
+            lagDays: setData.lagDays || 0,
+            projectId: setData.projectId ?? null,
+          });
+        } catch (depErr) { /* non-critical, don't block task save */ }
+      }
+
+      setData.updatedAt = now;
+
       try {
         let result: any;
-        if (input.id) {
-          result = await db.update(ganttTasks).set({
-            frontendTaskUid, projectId,
-            taskName: String(taskName).trim(),
-            parentTaskId, predecessorTaskId,
-            dependencyType: depType, lagDays, wbsLevel, sortOrder,
-            plannedStart, plannedFinish, plannedDuration,
-            actualStart, actualFinish, actualDuration,
-            progressPercent, status, owner, category,
-            notes, remarks: notes, taskType, isMilestone, isParent,
-            updatedAt: now,
-          }).where(eq(ganttTasks.id, input.id)).returning({ id: ganttTasks.id });
+        if (isUpdate) {
+          /* UPDATE: only fields present in payload */
+          if (Object.keys(setData).length === 1 && "updatedAt" in setData) {
+            /* Nothing to update except timestamp */
+            return { id: input.id, action: "no-op" };
+          }
+          result = await db.update(ganttTasks).set(setData).where(eq(ganttTasks.id, input.id)).returning({ id: ganttTasks.id });
         } else {
-          result = await db.insert(ganttTasks).values({
-            frontendTaskUid, projectId,
-            taskName: String(taskName).trim(),
-            parentTaskId, predecessorTaskId,
-            dependencyType: depType, lagDays, wbsLevel, sortOrder,
-            plannedStart, plannedFinish, plannedDuration,
-            actualStart, actualFinish, actualDuration,
-            progressPercent, status, owner, category,
-            notes, remarks: notes, taskType, isMilestone, isParent,
-            createdAt: now, updatedAt: now,
-          }).returning({ id: ganttTasks.id });
+          /* INSERT: must provide all required fields */
+          const insertData: Record<string, any> = { ...setData };
+          if (!insertData.taskName) throw new Error("task_name is required");
+          if (insertData.plannedStart === undefined) insertData.plannedStart = null;
+          if (insertData.plannedFinish === undefined) insertData.plannedFinish = null;
+          if (insertData.actualStart === undefined) insertData.actualStart = null;
+          if (insertData.actualFinish === undefined) insertData.actualFinish = null;
+          if (insertData.plannedDuration === undefined) insertData.plannedDuration = 1;
+          if (insertData.progressPercent === undefined) insertData.progressPercent = 0;
+          if (insertData.parentTaskId === undefined) insertData.parentTaskId = 0;
+          if (insertData.sortOrder === undefined) insertData.sortOrder = 0;
+          if (insertData.wbsLevel === undefined) insertData.wbsLevel = 0;
+          if (insertData.taskType === undefined) insertData.taskType = "task";
+          if (insertData.isMilestone === undefined) insertData.isMilestone = 0;
+          if (insertData.isParent === undefined) insertData.isParent = 0;
+          insertData.createdAt = now;
+          result = await db.insert(ganttTasks).values(insertData).returning({ id: ganttTasks.id });
         }
         return {
           id: result[0]?.id ?? input.id,
-          taskName, plannedStart, plannedFinish, owner,
-          action: input.id ? "updated" : "created",
+          action: isUpdate ? "updated" : "created",
         };
       } catch (e: any) {
-        throw new Error(`Save failed: ${e.message} | taskName=${taskName} plannedStart=${plannedStart} plannedFinish=${plannedFinish} owner=${owner}`);
+        throw new Error(`Save failed: ${e.message} | keys=${Object.keys(setData).join(",")}`);
       }
     }),
 

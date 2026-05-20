@@ -1056,7 +1056,7 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
 
   const getVal = (t: any, ck: string) => {
     if (ck === "parent") return String(t.parent ?? t.parentTaskId ?? 0);
-    if (ck === "predecessor") return String(t.predecessorTaskId ?? t.predecessor_task_id ?? 0);
+    if (ck === "predecessor") return String(t.predecessorTaskId ?? t.predecessor_task_id ?? t.predecessorId ?? 0);
     return t[ck] ?? "";
   };
 
@@ -1071,7 +1071,10 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     let v: any = editVal;
     if (col.type === "number") { v = parseInt(v) || 0; if (col.key === "progress") v = Math.min(100, Math.max(0, v)); }
     if (col.key === "parent" || col.key === "predecessor") v = parseInt(v) || 0;
-    const payload: any = { id: t.id, task_name: t.taskName ?? t.text ?? "" };
+    /* ── Build partial payload with ONLY the changed field ──
+       The backend now does partial merge for UPDATE — only provided
+       fields are written; all others are preserved. */
+    const payload: any = { id: t.id };
     if (col.key === "text") payload.task_name = v;
     else if (col.key === "owner") payload.owner = v || null;
     else if (col.key === "parent") payload.parent_task_id = v;
@@ -1086,8 +1089,6 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     else if (col.key === "type") { payload.task_type = v; payload.is_milestone = v === "milestone" ? 1 : 0; }
     else if (col.key === "notes") payload.notes = v || null;
     payload.frontend_task_uid = t.frontendTaskUid || t.frontend_task_uid || undefined;
-    payload.wbs_level = t.wbsLevel ?? t.wbs_level ?? 0;
-    payload.sort_order = t.sortOrder ?? t.sortorder ?? 0;
     try { await saveTask.mutateAsync(payload); setDirty(p => { const n = new Set(p); n.delete(t.id); return n; }); }
     catch (e: any) { setBanner({ type: "error", message: "Save failed: " + e.message }); }
     setEditing(null);
@@ -1126,13 +1127,21 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
           {STATUS_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       );
+      if (col.key === "type") return (
+        <select ref={inpRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle}>
+          <option value="task">Task</option>
+          <option value="milestone">Milestone</option>
+          <option value="project">Project</option>
+        </select>
+      );
       return <input ref={inpRef} type="text" value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle} />;
     }
 
     /* display */
     if (col.key === "status") return <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 10, background: statusBg(val), color: _statusColor(val), fontSize: 9, fontWeight: 600 }}>{rowStatus(t)}</span>;
     if (col.key === "progress") return <span style={{ fontWeight: 700, color: normProgress(val) >= 100 ? "#1F9D55" : "#005BAC" }}>{normProgress(val)}%</span>;
-    if (col.key === "parent" || col.key === "predecessor") { const rt = allTasks.find((x: any) => x.id === (parseInt(val) || 0)); return <span style={{ color: rt ? "#1E293B" : "#94A3B8" }}>{rt ? (rt.taskName ?? rt.text ?? `T${rt.id}`).slice(0, 18) : (val !== "0" && val ? "?" : "—")}</span>; }
+    if (col.key === "parent") { const rt = allTasks.find((x: any) => x.id === (parseInt(val) || 0)); return <span style={{ color: rt ? "#1E293B" : "#94A3B8" }}>{rt ? (rt.taskName ?? rt.text ?? `T${rt.id}`).slice(0, 18) : (val !== "0" && val ? "?" : "—")}</span>; }
+    if (col.key === "predecessor") { const rt = allTasks.find((x: any) => x.id === (parseInt(val) || 0)); return <span style={{ color: rt ? "#1E293B" : "#94A3B8" }}>{rt ? (rt.taskName ?? rt.text ?? `T${rt.id}`).slice(0, 18) : (val !== "0" && val ? (t.predecessorName ? t.predecessorName.slice(0, 18) : "?") : "—")}</span>; }
     return <span style={{ color: val ? "#1E293B" : "#94A3B8" }}>{val || "—"}</span>;
   };
 
@@ -1843,8 +1852,10 @@ export default function GanttPlanner() {
       plannedEnd: _plannedEnd || undefined,
     } as GanttTask);
     const finalStatus = _status || autoStatus;
+    /* BUG 7 FIX: Respect user's explicit progress setting. Only force 100% when
+       actual end is set AND progress was left at 0 (not explicitly set). */
     let finalProgress = Math.min(100, Math.max(0, _progress));
-    if (_actualEnd && finalProgress < 100) finalProgress = 100;
+    if (_actualEnd && _progress === 0 && !_status) finalProgress = 100;
 
     const allTasks = tasksQuery.data || [];
     const wbsLevel = computeWbsLevel(_editingId ?? 0, allTasks, _parent);
