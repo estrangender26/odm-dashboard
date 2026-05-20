@@ -1849,6 +1849,7 @@ export default function GanttPlanner() {
     payload.predecessor_task_id = _predecessorId || null;
     payload.dependency_type = _depType || null;
     payload.lag_days = _lagDays;
+    console.log("[DEBUG] payload AFTER overrides (sent to API):", JSON.stringify(payload, null, 2));
 
     let depSaveError: string | null = null;
     try {
