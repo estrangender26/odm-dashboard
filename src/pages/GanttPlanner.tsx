@@ -1971,21 +1971,59 @@ export default function GanttPlanner() {
 
   const handleImportExcel = (file: File) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const result = parseImportFile(new Uint8Array(e.target?.result as ArrayBuffer));
       if (!result) { setBanner({ type: "error", message: "No data found in the file." }); return; }
       const { rows } = result;
       let imported = 0; let skipped = 0; const errors: string[] = [];
-      rows.forEach((row: any, idx: number) => {
+      const idMap = new Map<number, number>();
+      const pendingDeps: Array<{ source: number; target: number; type: string; lag: number; projectId?: number }> = [];
+      const depTypeMap: Record<string, string> = { FS: "0", SS: "1", FF: "2", SF: "3", "0": "0", "1": "1", "2": "2", "3": "3" };
+
+      for (const [idx, row] of rows.entries()) {
         const { payload, error } = parseImportRow(row, idx);
-        if (error) { errors.push(error); return; }
-        if (!payload) { skipped++; return; }
-        saveTaskMut.mutate(payload);
+        if (error) { errors.push(error); continue; }
+        if (!payload) { skipped++; continue; }
+
+        const saved = await saveTaskMut.mutateAsync(payload);
         imported++;
-      });
+
+        const rowTaskId = parseInt(String(row["Task ID"] || row["task_id"] || row["id"] || ""), 10);
+        if (!Number.isNaN(rowTaskId) && rowTaskId > 0) idMap.set(rowTaskId, saved.id);
+
+        const depRaw = row["Dependency"] || row["dependency"] || row["predecessorId"] || row["predecessor"] || row["Predecessor"] || "";
+        const depId = parseInt(String(depRaw), 10);
+        if (!Number.isNaN(depId) && depId > 0 && !Number.isNaN(rowTaskId) && rowTaskId > 0) {
+          const rawType = String(row["Dependency Type"] || row["dependency_type"] || row["dependencyType"] || row["linkType"] || row["link_type"] || "FS").toUpperCase();
+          const depType = depTypeMap[rawType] || "0";
+          const lagRaw = row["Lag (days)"] || row["lag"] || row["lagDays"] || row["lag_days"] || 0;
+          const lag = parseInt(String(lagRaw), 10) || 0;
+          pendingDeps.push({ source: depId, target: rowTaskId, type: depType, lag, projectId: currentProjectId ?? undefined });
+        }
+      }
+
+      if (pendingDeps.length > 0) {
+        const existing = (await refetchLinks()).data || [];
+        const existingKeys = new Set(existing.map((l: any) => `${l.source}->${l.target}|${String(l.type || "0")}|${parseInt(String(l.lag || 0), 10) || 0}`));
+        const dedup = new Set<string>();
+        const depsToSave = pendingDeps
+          .map((d) => ({ ...d, source: idMap.get(d.source) || 0, target: idMap.get(d.target) || 0 }))
+          .filter((d) => d.source > 0 && d.target > 0)
+          .filter((d) => {
+            const key = `${d.source}->${d.target}|${d.type}|${d.lag}`;
+            if (existingKeys.has(key) || dedup.has(key)) return false;
+            dedup.add(key);
+            return true;
+          });
+
+        if (depsToSave.length > 0) await saveLinksBatchMut.mutateAsync(depsToSave);
+      }
+
       const msg = `Imported ${imported} task(s)` + (skipped > 0 ? `, ${skipped} skipped.` : ".");
       setBanner({ type: errors.length > 0 ? "info" : "success", message: msg + (errors.length > 0 ? ` Warnings: ${errors.join("; ")}` : "") });
       setImportSourceName(file.name.replace(/\.[^.]+$/, ""));
+      await utils.gantt.tasks.invalidate();
+      await utils.gantt.links.invalidate();
     };
     reader.readAsArrayBuffer(file);
   };
