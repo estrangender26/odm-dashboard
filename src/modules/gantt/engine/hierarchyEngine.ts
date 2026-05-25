@@ -56,7 +56,7 @@ export function buildHierarchyPayload(target: any, newParent: number, allTasks?:
     start_date: target.startDate || null,
     end_date: target.endDate || null,
     planned_start: target.plannedStart || null,
-    planned_end: target.plannedEnd || null,
+    planned_finish: target.plannedEnd || null,
     duration: target.duration || 1,
     progress: target.progress || 0,
     wbs_level: wbsLevel,
