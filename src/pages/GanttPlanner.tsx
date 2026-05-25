@@ -180,6 +180,24 @@ const ZOOM_LABELS: Record<ZoomLevel, string> = {
   month: "Month", week: "Week", day: "Day",
 };
 
+function toIsoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function calcDurationFromDates(start?: string, end?: string): number | null {
+  const s = parseDate(start);
+  const e = parseDate(end);
+  if (!s || !e) return null;
+  return Math.max(1, daysBetween(s, e));
+}
+
+function calcEndFromStartAndDuration(start?: string, duration?: number): string {
+  const s = parseDate(start);
+  const safeDur = Math.max(1, Number(duration) || 1);
+  if (!s) return "";
+  return toIsoDate(addDays(s, safeDur));
+}
+
 const ZOOM_DAY_WIDTH: Record<Exclude<ZoomLevel, "autofit">, number> = {
   year: 0.5, quarter: 2, month: 5, week: 16, day: 48,
 };
@@ -2168,7 +2186,12 @@ export default function GanttPlanner() {
                     Actual Start {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                    <input type="date" value={form.actualStart} onChange={e => setForm({...form, actualStart: e.target.value})} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                    <input type="date" value={form.actualStart} onChange={e => setForm(prev => {
+                      const actualStart = e.target.value;
+                      const duration = Math.max(1, Number(prev.duration) || 1);
+                      const actualEnd = prev.actualEnd || (actualStart ? calcEndFromStartAndDuration(actualStart, duration) : "");
+                      return { ...prev, actualStart, duration, actualEnd };
+                    })} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
                     {!editingIsParent && form.actualStart && <button onClick={() => setForm({...form, actualStart: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
                   </div>
                 </div>
@@ -2177,7 +2200,11 @@ export default function GanttPlanner() {
                     Actual End {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                    <input type="date" value={form.actualEnd} onChange={e => setForm({...form, actualEnd: e.target.value})} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                    <input type="date" value={form.actualEnd} onChange={e => setForm(prev => {
+                      const actualEnd = e.target.value;
+                      const duration = calcDurationFromDates(prev.actualStart, actualEnd) ?? Math.max(1, Number(prev.duration) || 1);
+                      return { ...prev, actualEnd, duration };
+                    })} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
                     {!editingIsParent && form.actualEnd && <button onClick={() => setForm({...form, actualEnd: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
                   </div>
                 </div>
@@ -2187,7 +2214,11 @@ export default function GanttPlanner() {
                   <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
                     Duration {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
-                  <input type="number" min={1} value={form.duration} onChange={e => setForm({...form, duration: parseInt(e.target.value)||1})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                  <input type="number" min={1} value={form.duration} onChange={e => setForm(prev => {
+                    const duration = Math.max(1, parseInt(e.target.value) || 1);
+                    const actualEnd = prev.actualStart ? calcEndFromStartAndDuration(prev.actualStart, duration) : prev.actualEnd;
+                    return { ...prev, duration, actualEnd };
+                  })} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
