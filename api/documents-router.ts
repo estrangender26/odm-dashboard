@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "./queries/connection";
 import { docFolders, docFiles } from "@db/schema";
 import { publicQuery } from "./middleware";
@@ -14,24 +14,35 @@ interface TreeFolder {
   children: TreeFolder[];
   files: { id: number; title: string; fileName: string; fileType: string | null; fileSize: number | null; revision: string | null; uploadedAt: Date | null }[];
 }
+type TreeFileRow = Pick<typeof docFiles.$inferSelect, "id" | "folderId" | "title" | "fileName" | "fileType" | "fileSize" | "revision" | "uploadedAt">;
 
 // ── Helper: build recursive tree ──
 function buildTree(
   allFolders: typeof docFolders.$inferSelect[],
-  allFiles: typeof docFiles.$inferSelect[],
+  allFiles: TreeFileRow[],
   parentId: number | null = null
 ): TreeFolder[] {
-  const folders = allFolders.filter((f) => f.parentId === parentId);
+  const folderChildrenByParentId = new Map<number | null, typeof docFolders.$inferSelect[]>();
+  for (const folder of allFolders) {
+    const key = folder.parentId ?? null;
+    if (!folderChildrenByParentId.has(key)) folderChildrenByParentId.set(key, []);
+    folderChildrenByParentId.get(key)!.push(folder);
+  }
+  const filesByFolderId = new Map<number, typeof docFiles.$inferSelect[]>();
+  for (const file of allFiles) {
+    if (!filesByFolderId.has(file.folderId)) filesByFolderId.set(file.folderId, []);
+    filesByFolderId.get(file.folderId)!.push(file);
+  }
+  function walk(currentParentId: number | null): TreeFolder[] {
+    const folders = folderChildrenByParentId.get(currentParentId) ?? [];
   folders.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
-  return folders.map((f) => ({
-    id: f.id,
-    name: f.name,
-    parentId: f.parentId,
-    sortOrder: f.sortOrder ?? 0,
-    children: buildTree(allFolders, allFiles, f.id),
-    files: allFiles
-      .filter((file) => file.folderId === f.id)
-      .map((file) => ({
+    return folders.map((f) => ({
+      id: f.id,
+      name: f.name,
+      parentId: f.parentId,
+      sortOrder: f.sortOrder ?? 0,
+      children: walk(f.id),
+      files: (filesByFolderId.get(f.id) ?? []).map((file) => ({
         id: file.id,
         title: file.title,
         fileName: file.fileName,
@@ -40,7 +51,9 @@ function buildTree(
         revision: file.revision,
         uploadedAt: file.uploadedAt,
       })),
-  }));
+    }));
+  }
+  return walk(parentId);
 }
 
 // ── Helper: collect all descendant IDs (for move validation) ──
@@ -62,7 +75,16 @@ export const documentsRouter = {
   getTree: publicQuery.query(async () => {
     try {
       const allFolders = await db.select().from(docFolders);
-      const allFiles = await db.select().from(docFiles);
+      const allFiles = await db.select({
+        id: docFiles.id,
+        folderId: docFiles.folderId,
+        title: docFiles.title,
+        fileName: docFiles.fileName,
+        fileType: docFiles.fileType,
+        fileSize: docFiles.fileSize,
+        revision: docFiles.revision,
+        uploadedAt: docFiles.uploadedAt,
+      }).from(docFiles);
       return { tree: buildTree(allFolders, allFiles), count: allFolders.length + allFiles.length };
     } catch (err: any) {
       console.error("[docTree] Error:", err.message);
