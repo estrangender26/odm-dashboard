@@ -539,6 +539,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 export default function OmManualsLibrary() {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
@@ -558,7 +559,12 @@ export default function OmManualsLibrary() {
   const [downloadLabel, setDownloadLabel] = useState("");
 
   // ── Fetch tree ──
-  const { data: treeData, isLoading } = trpc.documents.getTree.useQuery();
+  const { data: treeData, isLoading } = trpc.documents.getTree.useQuery(undefined, {
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
   const tree = treeData?.tree || [];
   const utils = trpc.useUtils();
 
@@ -571,6 +577,11 @@ export default function OmManualsLibrary() {
   useEffect(() => {
     if (fileDetail) setSelectedFileData(fileDetail);
   }, [fileDetail]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedSearch(search.trim()), 180);
+    return () => window.clearTimeout(handle);
+  }, [search]);
 
   // ── Download file helper ──
   const handleDownloadFile = useCallback((file: TreeFile) => {
@@ -673,8 +684,8 @@ export default function OmManualsLibrary() {
   });
 
   // ── Search ──
-  const matchedIds = useMemo(() => search.length > 2 ? getMatchingIds(tree, search) : new Set<number>(), [tree, search]);
-  const displayTree = useMemo(() => search.length > 2 ? filterTree(tree, search) : tree, [tree, search]);
+  const matchedIds = useMemo(() => debouncedSearch.length > 2 ? getMatchingIds(tree, debouncedSearch) : new Set<number>(), [tree, debouncedSearch]);
+  const displayTree = useMemo(() => debouncedSearch.length > 2 ? filterTree(tree, debouncedSearch) : tree, [tree, debouncedSearch]);
   const counts = useMemo(() => countItems(tree), [tree]);
 
   // ── Toggle expand ──
