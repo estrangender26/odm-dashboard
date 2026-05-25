@@ -1346,7 +1346,7 @@ export default function GanttPlanner() {
               start_date: t.startDate || t.start_date || null,
               end_date: t.endDate || t.end_date || null,
               planned_start: t.plannedStart || t.planned_start || t.plannedStartDate || null,
-              planned_end: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
+              planned_finish: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
               duration: t.duration || 1, progress: normProgress(t.progress),
               wbs_level: 1, /* temporary, will update in pass 2 */
               parent: 0, /* temporary, will update in pass 2 */
@@ -1371,7 +1371,7 @@ export default function GanttPlanner() {
                 start_date: t.startDate || t.start_date || null,
                 end_date: t.endDate || t.end_date || null,
                 planned_start: t.plannedStart || t.planned_start || null,
-                planned_end: t.plannedEnd || t.planned_end || null,
+                planned_finish: t.plannedEnd || t.planned_end || null,
                 duration: t.duration || 1, progress: normProgress(t.progress),
                 wbs_level: wbsLevel,
                 parent: newParent,
@@ -1509,7 +1509,7 @@ export default function GanttPlanner() {
       if (!task) return;
       const payload: any = {
         id: taskId, text: task.text, owner: task.owner || null,
-        planned_start: dates.plannedStart, planned_end: dates.plannedEnd,
+        planned_start: dates.plannedStart, planned_finish: dates.plannedEnd,
         start_date: task.startDate || null, end_date: task.endDate || null,
         duration: task.duration || 1, progress: normProgress(task.progress), status: rowStatus(task),
         remarks: task.remarks || null, type: task.type || "task", parent: task.parent || 0,
@@ -1532,7 +1532,7 @@ export default function GanttPlanner() {
       saveTaskMut.mutate({
         id: p.id, text: p.text, owner: p.owner || null,
         start_date: p.startDate || null, end_date: p.endDate || null,
-        planned_start: p.plannedStart || null, planned_end: p.plannedEnd || null,
+        planned_start: p.plannedStart || null, planned_finish: p.plannedEnd || null,
         duration: p.duration || 1, progress: normProgress(p.progress),
         parent: p.parent || 0, type: p.type || "project",
         status: p.status || null, remarks: p.remarks || null,
@@ -1727,7 +1727,7 @@ export default function GanttPlanner() {
       type: "task", parent: targetTask.parent ?? 0,
       parent_frontend_uid: targetTask.parentFrontendUid || targetTask.parent_frontend_uid || null,
       start_date: null, end_date: null,
-      planned_start: null, planned_end: null,
+      planned_start: null, planned_finish: null,
       status: "Not Started",
     };
     try {
@@ -1758,7 +1758,7 @@ export default function GanttPlanner() {
       type: "task", parent: targetTask.parent ?? 0,
       parent_frontend_uid: targetTask.parentFrontendUid || targetTask.parent_frontend_uid || null,
       start_date: null, end_date: null,
-      planned_start: null, planned_end: null,
+      planned_start: null, planned_finish: null,
       status: "Not Started",
     };
     try {
@@ -1793,7 +1793,7 @@ export default function GanttPlanner() {
       type: "task", parent: parentId,
       parent_frontend_uid: parentUid || null,
       start_date: null, end_date: null,
-      planned_start: null, planned_end: null,
+      planned_start: null, planned_finish: null,
       status: "Not Started",
     };
     try {
