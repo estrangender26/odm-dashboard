@@ -34,57 +34,6 @@ function getDbFingerprint() {
 }
 
 
-async function ensureGanttProjectsSchema() {
-  await db.execute(sql.raw(`
-    CREATE TABLE IF NOT EXISTS gantt_projects (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      project_name VARCHAR(255),
-      start_date VARCHAR(20),
-      finish_date VARCHAR(20),
-      status VARCHAR(50),
-      tasks_data TEXT NOT NULL DEFAULT '[]',
-      links_data TEXT,
-      description TEXT,
-      created_by VARCHAR(255),
-      updated_by VARCHAR(255),
-      user_id INTEGER,
-      owner_id INTEGER,
-      tenant_id VARCHAR(255),
-      org_id VARCHAR(255),
-      session_id VARCHAR(255),
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `));
-
-  const alterStatements = [
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS project_name VARCHAR(255)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS start_date VARCHAR(20)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS finish_date VARCHAR(20)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS status VARCHAR(50)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS tasks_data TEXT`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS links_data TEXT`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS description TEXT`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS created_by VARCHAR(255)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS updated_by VARCHAR(255)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS user_id INTEGER`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS owner_id INTEGER`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(255)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS org_id VARCHAR(255)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS session_id VARCHAR(255)`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
-    `ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
-  ];
-
-  for (const statement of alterStatements) {
-    await db.execute(sql.raw(statement));
-  }
-
-  await db.execute(sql.raw(`ALTER TABLE gantt_projects ALTER COLUMN tasks_data SET DEFAULT '[]'`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS gantt_projects_name_idx ON gantt_projects(name)`));
-  console.log('[ganttProjects.schema] ensured columns for gantt_projects');
-}
 
 export const ganttProjectsRouter = {
   debug: publicQuery.query(async () => {
@@ -102,7 +51,6 @@ export const ganttProjectsRouter = {
       masked = "invalid DATABASE_URL";
     }
 
-    await ensureGanttProjectsSchema();
 
     const [countResult, latestRows, columns] = await Promise.all([
       db.execute(sql.raw(`SELECT COUNT(*)::int AS count FROM gantt_projects`)),
@@ -141,7 +89,6 @@ export const ganttProjectsRouter = {
   // ── List all projects (name + id + dates only, no tasks_data) ──
   list: publicQuery.query(async ({ ctx }) => {
     try {
-      await ensureGanttProjectsSchema();
       const userId = ctx.user?.id;
       const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
       const visibilityFilter = buildVisibilityFilter(userId, sessionId);
@@ -181,11 +128,15 @@ export const ganttProjectsRouter = {
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       try {
-        await ensureGanttProjectsSchema();
         const userId = ctx.user?.id;
         const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
         const visibilityFilter = buildVisibilityFilter(userId, sessionId);
+        const dbInfo = await db.execute(sql.raw(`SELECT current_schema() AS schema, current_database() AS database`));
         console.log("[ganttProjects.get] identity", { userId: userId ?? null, sessionId, id: input.id });
+        console.log("[ganttProjects.get] db_context", {
+          currentSchema: dbInfo.rows?.[0]?.schema ?? null,
+          currentDatabase: dbInfo.rows?.[0]?.database ?? null,
+        });
         const rows = await db
           .select()
           .from(ganttProjects)
@@ -244,7 +195,6 @@ export const ganttProjectsRouter = {
       })
     )
     .mutation(async ({ input, ctx }) => {
-      await ensureGanttProjectsSchema();
       const userId = ctx.user?.id;
       const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
       const payloadSize = Buffer.byteLength(
@@ -370,8 +320,7 @@ export const ganttProjectsRouter = {
     .input(z.object({ id: z.number(), name: z.string().min(1).max(255) }))
     .mutation(async ({ input }) => {
       try {
-        await ensureGanttProjectsSchema();
-        await db
+            await db
           .update(ganttProjects)
           .set({ name: input.name, updatedAt: new Date() })
           .where(eq(ganttProjects.id, input.id));
@@ -387,8 +336,7 @@ export const ganttProjectsRouter = {
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       try {
-        await ensureGanttProjectsSchema();
-        await db.delete(ganttProjects).where(eq(ganttProjects.id, input.id));
+            await db.delete(ganttProjects).where(eq(ganttProjects.id, input.id));
         return { success: true };
       } catch (err: any) {
         console.error("[ganttProjects.delete] error:", err.message);
