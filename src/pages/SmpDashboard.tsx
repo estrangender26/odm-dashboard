@@ -645,7 +645,7 @@ export default function SmpDashboard() {
         "Summarize SMP coverage by system.",
         "Which responsible parties have the most SMPs?",
         "What is the overall SMP completion status?",
-      ]} />
+      ]} position="bottom-right" />
     </div>
   );
 }

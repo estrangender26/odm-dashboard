@@ -393,9 +393,9 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
         onClick={() => setOpen(!open)}
         style={{
           position: "fixed",
-          bottom: 20,
-          right: position === "bottom-right" ? 20 : undefined,
-          left: position === "bottom-left" ? 20 : undefined,
+          bottom: "calc(1rem + env(safe-area-inset-bottom))",
+          right: position === "bottom-right" ? "1rem" : undefined,
+          left: position === "bottom-left" ? "1rem" : undefined,
           zIndex: 200,
           width: 48,
           height: 48,
@@ -421,9 +421,9 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
         <div
           style={{
             position: "fixed",
-            bottom: 80,
-            right: position === "bottom-right" ? 20 : undefined,
-            left: position === "bottom-left" ? 20 : undefined,
+            bottom: "calc(5.5rem + env(safe-area-inset-bottom))",
+            right: position === "bottom-right" ? "1rem" : undefined,
+            left: position === "bottom-left" ? "1rem" : undefined,
             zIndex: 200,
             width: "min(380px, calc(100vw - 40px))",
             height: "min(480px, calc(100vh - 120px))",
