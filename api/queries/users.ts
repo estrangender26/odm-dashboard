@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import * as schema from "@db/schema";
 import type { InsertUser } from "@db/schema";
 import { db } from "./connection";
@@ -29,11 +30,23 @@ export async function upsertUser(data: InsertUser) {
     updateSet.role = "admin";
   }
 
-  await db
-    .insert(schema.users)
-    .values(values)
-    .onConflictDoUpdate({
-      target: schema.users.unionId,
-      set: updateSet,
-    });
+  const result = await db.execute(sql`
+    INSERT INTO users (union_id, name, avatar, role, last_sign_in_at)
+    VALUES (
+      ${values.unionId},
+      ${values.name ?? null},
+      ${values.avatar ?? null},
+      ${values.role ?? null},
+      ${values.lastSignInAt ?? null}
+    )
+    ON CONFLICT (union_id)
+    DO UPDATE SET
+      name = ${updateSet.name ?? null},
+      avatar = ${updateSet.avatar ?? null},
+      role = ${updateSet.role ?? null},
+      last_sign_in_at = ${updateSet.lastSignInAt ?? null}
+    RETURNING *
+  `);
+
+  return result.rows.at(0);
 }
