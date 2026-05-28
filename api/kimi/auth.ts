@@ -101,12 +101,15 @@ export function createOAuthCallbackHandler() {
         throw new Error("Failed to fetch user profile from Kimi Open");
       }
 
-      await upsertUser({
+      const upsertedUser = await upsertUser({
         unionId: userId,
         name: userProfile.name,
         avatar: userProfile.avatar_url,
         lastSignInAt: new Date(),
       });
+      if (!upsertedUser) {
+        throw new Error("Failed to persist user record");
+      }
 
       const token = await signSessionToken({
         unionId: userId,
