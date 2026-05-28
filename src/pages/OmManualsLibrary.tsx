@@ -190,6 +190,18 @@ function getFolderPath(folders: TreeFolder[], targetId: number): TreeFolder[] {
   return walk(folders, []) || [];
 }
 
+function folderExists(folders: TreeFolder[], targetId: number): boolean {
+  return getFolderPath(folders, targetId).length > 0;
+}
+
+function fileExists(folders: TreeFolder[], targetId: number): boolean {
+  for (const folder of folders) {
+    if (folder.files.some((f) => f.id === targetId)) return true;
+    if (fileExists(folder.children, targetId)) return true;
+  }
+  return false;
+}
+
 // Download a file to browser
 function triggerDownload(data: string, mime: string, filename: string) {
   const a = document.createElement("a");
@@ -631,9 +643,15 @@ export default function OmManualsLibrary() {
   // ── Refresh helper ──
   const refreshTree = useCallback(async (action: string) => {
     console.log(`[OM] Refreshing tree after: ${action}`);
-    await utils.documents.getTree.invalidate();
-    const fresh = await utils.documents.getTree.fetch();
-    console.log(`[OM] Tree refreshed. Folders: ${fresh?.tree?.length ?? 0}, total items: ${fresh?.count ?? 0}`);
+    try {
+      await utils.documents.getTree.invalidate();
+      const fresh = await utils.documents.getTree.fetch();
+      console.log(`[OM] Tree refreshed. Folders: ${fresh?.tree?.length ?? 0}, total items: ${fresh?.count ?? 0}`);
+      return fresh;
+    } catch (e: any) {
+      setBanner({ type: "error", message: `Failed to refresh library tree. ${e?.message || "Unknown error"}` });
+      throw e;
+    }
   }, [utils]);
 
   // ── Mutations ──
@@ -687,6 +705,19 @@ export default function OmManualsLibrary() {
     onSuccess: () => { refreshTree("moveFile"); setBanner({ type: "success", message: "File moved" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to move file. ${e.message}` }); },
   });
+
+  useEffect(() => {
+    if (!treeData?.tree) return;
+    if (selectedFolderId !== null && !folderExists(treeData.tree, selectedFolderId)) {
+      setSelectedFolderId(null);
+      setBanner((prev) => prev ?? { type: "info", message: "Selected folder no longer exists and was cleared." });
+    }
+    if (selectedFileId !== null && !fileExists(treeData.tree, selectedFileId)) {
+      setSelectedFileId(null);
+      setSelectedFileData(null);
+      setBanner((prev) => prev ?? { type: "info", message: "Selected file no longer exists and was cleared." });
+    }
+  }, [treeData, selectedFolderId, selectedFileId]);
 
   // ── Search ──
   const matchedIds = useMemo(() => debouncedSearch.length > 2 ? getMatchingIds(tree, debouncedSearch) : new Set<number>(), [tree, debouncedSearch]);
