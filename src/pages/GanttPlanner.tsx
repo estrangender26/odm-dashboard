@@ -2584,7 +2584,12 @@ export default function GanttPlanner() {
       <footer style={{ borderTop: "1px solid #D6DFE8", padding: "16px 24px", textAlign: "right", fontSize: 11, color: "#5A6B7D" }}>Program Oversight Center &copy; 2026</footer>
 
       {/* AI Assistant */}
-      <AIAssistant contextType="gantt" data={tasksQuery.data || []} title="Gantt AI" />
+      <AIAssistant
+        contextType="gantt"
+        data={taskList}
+        metadata={{ currentProjectId, currentProjectName, source: "live-task-store" }}
+        title="Gantt AI"
+      />
 
       {/* Styles */}
       <style>{`
