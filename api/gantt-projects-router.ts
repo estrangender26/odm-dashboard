@@ -96,7 +96,12 @@ export const ganttProjectsRouter = {
         .from(ganttProjects)
         .where(visibilityFilter)
         .orderBy(desc(ganttProjects.updatedAt));
-      console.log("[ganttProjects.list] filters", { userId: userId ?? null, sessionId, count: rows.length });
+      console.log("[ganttProjects.list] filters", {
+        userId: userId ?? null,
+        sessionId,
+        rowsFound: rows.length,
+        projectIds: rows.map((r) => r.id),
+      });
       return { projects: rows, count: rows.length };
     } catch (err: any) {
       console.error("[ganttProjects.list] error:", err.message);
@@ -118,9 +123,40 @@ export const ganttProjectsRouter = {
           .select()
           .from(ganttProjects)
           .where(and(eq(ganttProjects.id, input.id), visibilityFilter));
-        if (!rows.length) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-        console.log("[ganttProjects.get] filters", { userId: userId ?? null, sessionId, id: input.id, visible: true });
-        return rows[0];
+
+        console.log("[ganttProjects.get] lookup", {
+          userId: userId ?? null,
+          sessionId,
+          requestedId: input.id,
+          rowsFound: rows.length,
+        });
+
+        if (!rows.length) {
+          console.warn("[ganttProjects.get] not_found", {
+            userId: userId ?? null,
+            sessionId,
+            requestedId: input.id,
+            reason: "no row matched id + visibility filter",
+          });
+          throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        }
+
+        const row = rows[0];
+        const safeTasksData = row.tasksData && row.tasksData.trim().length > 0 ? row.tasksData : "[]";
+        const safeLinksData = row.linksData && row.linksData.trim().length > 0 ? row.linksData : "[]";
+
+        console.log("[ganttProjects.get] success", {
+          projectId: row.id,
+          projectName: row.name,
+          tasksDataWasNullish: !row.tasksData,
+          linksDataWasNullish: !row.linksData,
+        });
+
+        return {
+          ...row,
+          tasksData: safeTasksData,
+          linksData: safeLinksData,
+        };
       } catch (err: any) {
         if (err instanceof TRPCError) throw err;
         console.error("[ganttProjects.get] error:", err.message);

@@ -1462,13 +1462,10 @@ export default function GanttPlanner() {
     onError: (e) => {
       const isMissingProject = /project not found/i.test(e.message);
       if (isMissingProject) {
-        const saved = localStorage.getItem("gantt_current_project");
-        if (saved) localStorage.removeItem("gantt_current_project");
-        if (currentProjectId) {
-          setCurrentProjectId(null);
-          setCurrentProjectName("");
-        }
-        setBanner({ type: "info", message: "That saved project no longer exists. Please pick another project." });
+        setBanner({
+          type: "info",
+          message: "Project could not be opened right now. It was not removed; please retry or refresh.",
+        });
         return;
       }
       setBanner({ type: "error", message: "Load failed: " + e.message });
