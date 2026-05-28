@@ -1344,13 +1344,18 @@ export default function GanttPlanner() {
   const { data: projectsListData } = trpc.ganttProjects.list.useQuery(undefined, { retry: 1 });
   const projectsList = projectsListData?.projects || [];
   const normalizeProjectId = useCallback((value: unknown): number | null => {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : null;
     if (typeof value === "string") {
-      const parsed = Number.parseInt(value, 10);
-      return Number.isFinite(parsed) ? parsed : null;
+      const trimmed = value.trim();
+      if (!/^\d+$/.test(trimmed)) return null;
+      const parsed = Number(trimmed);
+      return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
     }
     return null;
   }, []);
+  const getProjectId = useCallback((projectLike: any): number | null => {
+    return normalizeProjectId(projectLike?.id ?? projectLike?.projectId);
+  }, [normalizeProjectId]);
   const saveProjectMut = trpc.ganttProjects.save.useMutation({
     onSuccess: async (data) => {
       await utils.ganttProjects.list.invalidate();
@@ -1484,23 +1489,23 @@ export default function GanttPlanner() {
     if (saved && !currentProjectId) {
       try {
         const p = JSON.parse(saved);
-        const restoredId = normalizeProjectId(p?.id ?? p?.projectId);
+        const restoredId = getProjectId(p);
         if (restoredId && p?.name) { setCurrentProjectId(restoredId); setCurrentProjectName(p.name); }
       } catch { /* ignore */ }
     }
-  }, [currentProjectId, normalizeProjectId]);
+  }, [currentProjectId, getProjectId]);
 
   /* Validate restored project against current server list */
   useEffect(() => {
     if (!currentProjectId || projectsListData === undefined) return;
-    const exists = projectsList.some((p: any) => normalizeProjectId(p?.id) === currentProjectId);
+    const exists = projectsList.some((p: any) => getProjectId(p) === currentProjectId);
     if (!exists) {
       setCurrentProjectId(null);
       setCurrentProjectName("");
       localStorage.removeItem("gantt_current_project");
       setBanner({ type: "info", message: "Your previously selected project was removed, so we cleared it." });
     }
-  }, [currentProjectId, projectsListData, projectsList, normalizeProjectId]);
+  }, [currentProjectId, projectsListData, projectsList, getProjectId]);
 
   /* Persist current project to localStorage */
   useEffect(() => {
@@ -2489,7 +2494,7 @@ export default function GanttPlanner() {
                           <>
                             <button onClick={() => {
                               if (loadProjectMut.isPending) return;
-                              const selectedId = normalizeProjectId(p?.id ?? p?.projectId);
+                              const selectedId = getProjectId(p);
                               if (!selectedId) {
                                 setBanner({ type: "error", message: "Cannot open this project because its ID is invalid." });
                                 return;
