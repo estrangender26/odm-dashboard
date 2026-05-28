@@ -83,6 +83,15 @@ const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
 function buildDataContext(data: any[] | any, contextType: DashboardContext, filters?: any, metadata?: any): string {
   let ctx = "";
   const now = new Date().toISOString().slice(0, 10);
+  const ganttPayload = contextType === "gantt" && data && !Array.isArray(data) && typeof data === "object"
+    ? {
+      tasks: Array.isArray(data.tasks) ? data.tasks : [],
+      links: Array.isArray(data.links) ? data.links : [],
+      projectId: data.projectId ?? null,
+      projectName: data.projectName ?? null,
+    }
+    : null;
+  const normalizedData = ganttPayload ? ganttPayload.tasks : data;
 
   ctx += `=== DASHBOARD CONTEXT ===\n`;
   ctx += `Current Date: ${now}\n`;
@@ -128,22 +137,22 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
   }
 
   // Data analysis
-  if (!data) {
+  if (!normalizedData) {
     ctx += `Status: No data loaded\n`;
     return ctx;
   }
 
   // Handle arrays
-  if (Array.isArray(data)) {
-    ctx += `Total Records: ${data.length}\n\n`;
+  if (Array.isArray(normalizedData)) {
+    ctx += `Total Records: ${normalizedData.length}\n\n`;
 
-    if (data.length === 0) {
+    if (normalizedData.length === 0) {
       ctx += `Dataset is empty.\n`;
       return ctx;
     }
 
     // Field names from first item
-    const first = data[0];
+    const first = normalizedData[0];
     const fields = Object.keys(first || {});
 
     // --- MAINTENANCE / EFM dashboard ---
@@ -154,7 +163,7 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       const overdueItems: string[] = [];
       let pmCount = 0, cmCount = 0;
 
-      data.forEach((r: any) => {
+      normalizedData.forEach((r: any) => {
         const st = r.Status || r.status || "Unknown";
         statusMap[st] = (statusMap[st] || 0) + 1;
 
@@ -220,15 +229,15 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         return "Not Started";
       };
 
-      const totalTasks = data.length;
-      const milestones = data.filter((t: any) => (t.type || "").toLowerCase() === "milestone").length;
-      const projects = data.filter((t: any) => (t.type || "").toLowerCase() === "project").length;
-      const parentTasks = data.filter((t: any) => t.parent === 0 || t.parent === undefined || t.parent === null).length;
-      const childTasks = data.filter((t: any) => t.parent && t.parent !== 0).length;
-      const taskById = new Map(data.map((t: any) => [t.id, t]));
+      const totalTasks = normalizedData.length;
+      const milestones = normalizedData.filter((t: any) => (t.type || "").toLowerCase() === "milestone").length;
+      const projects = normalizedData.filter((t: any) => (t.type || "").toLowerCase() === "project").length;
+      const parentTasks = normalizedData.filter((t: any) => t.parent === 0 || t.parent === undefined || t.parent === null).length;
+      const childTasks = normalizedData.filter((t: any) => t.parent && t.parent !== 0).length;
+      const taskById = new Map(normalizedData.map((t: any) => [t.id, t]));
       const today = new Date();
       const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-      const normalizedTasks = data.map((t: any) => {
+      const normalizedTasks = normalizedData.map((t: any) => {
         const progress = Math.max(0, Math.min(100, asNum(t.progressPercent ?? t.progress_percent ?? t.progress, 0)));
         const duration = Math.max(0, asNum(t.duration, 0));
         const statusRaw = `${t.status ?? t.Status ?? ""}`.trim();
@@ -291,6 +300,8 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         : "0.0";
 
       ctx += `=== GANTT SUMMARY ===\n`;
+      ctx += `- Active Project ID: ${ganttPayload?.projectId ?? "none"}\n`;
+      ctx += `- Active Project Name: ${ganttPayload?.projectName ?? "unsaved/current view"}\n`;
       ctx += `- Total Tasks: ${totalTasks}\n`;
       ctx += `- Milestones: ${milestones}\n`;
       ctx += `- Projects: ${projects}\n`;
@@ -299,12 +310,13 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       ctx += `- Completed: ${completedCount}\n`;
       ctx += `- In Progress: ${inProgressCount}\n`;
       ctx += `- Overdue: ${overdueCount}\n`;
+      ctx += `- Dependencies: ${ganttPayload?.links?.length ?? 0}\n`;
       ctx += `- Completion %: ${completionPct}%\n`;
       ctx += `- Average Duration: ${avgDuration} days\n`;
 
       // Date range
-      const starts = data.map((t: any) => t.start_date).filter(Boolean).sort();
-      const ends = data.map((t: any) => t.end_date).filter(Boolean).sort();
+      const starts = normalizedData.map((t: any) => t.start_date).filter(Boolean).sort();
+      const ends = normalizedData.map((t: any) => t.end_date).filter(Boolean).sort();
       if (starts.length && ends.length) {
         ctx += `- Date Range: ${starts[0]} to ${ends[ends.length - 1]}\n`;
       }
@@ -323,7 +335,7 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     // --- GOVERNANCE dashboard ---
     else if (contextType === "governance" && fields.includes("milestone")) {
       const statusMap: Record<string, number> = {};
-      data.forEach((r: any) => {
+      normalizedData.forEach((r: any) => {
         const st = r.status || r.Status || "Unknown";
         statusMap[st] = (statusMap[st] || 0) + 1;
       });
@@ -334,13 +346,13 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     // --- SMP dashboard ---
     else if (contextType === "smp" || (fields.includes("smp") || fields.includes("SMP") || fields.includes("document") || fields.includes("Document"))) {
       ctx += `=== SMP DOCUMENTS ===\n`;
-      ctx += `Total Documents: ${data.length}\n`;
+      ctx += `Total Documents: ${normalizedData.length}\n`;
 
       const statusMap: Record<string, number> = {};
       const equipMap: Record<string, number> = {};
       const respMap: Record<string, number> = {};
 
-      data.forEach((r: any) => {
+      normalizedData.forEach((r: any) => {
         const st = r.Status || r.status || "Unknown";
         statusMap[st] = (statusMap[st] || 0) + 1;
         const eq = r.EquipmentType || r.equipmentType || r.System || r.system || "Unknown";
@@ -362,9 +374,9 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     // --- SCORECARD dashboard ---
     else if (contextType === "scorecard" || (fields.includes("kpi") || fields.includes("KPI"))) {
       ctx += `=== KPI DATA ===\n`;
-      ctx += `Total KPIs: ${data.length}\n\n`;
+      ctx += `Total KPIs: ${normalizedData.length}\n\n`;
 
-      data.slice(0, 20).forEach((r: any, i: number) => {
+      normalizedData.slice(0, 20).forEach((r: any, i: number) => {
         const name = r.kpi || r.KPI || r.name || r.Name || `KPI ${i + 1}`;
         const actual = r.actual ?? r.Actual ?? r.value ?? r.Value ?? "N/A";
         const target = r.target ?? r.Target ?? r.benchmark ?? r.Benchmark ?? "N/A";
@@ -400,7 +412,7 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
 
       // Show first 10 records as sample
       ctx += `=== SAMPLE RECORDS (first ${Math.min(10, data.length)}) ===\n`;
-      data.slice(0, 10).forEach((r: any, i: number) => {
+      normalizedData.slice(0, 10).forEach((r: any, i: number) => {
         const summary = fields.slice(0, 5).map((f) => `${f}=${JSON.stringify(r[f]).slice(0, 40)}`).join(", ");
         ctx += `${i + 1}. ${summary}\n`;
       });
@@ -476,6 +488,43 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
 
     // Build data context and prepend to message
     const dataContext = buildDataContext(data, contextType, filters, metadata);
+    if (contextType === "gantt") {
+      const ganttData = data && !Array.isArray(data) && typeof data === "object" ? data : { tasks: Array.isArray(data) ? data : [], links: [] };
+      const tasks = Array.isArray(ganttData.tasks) ? ganttData.tasks : [];
+      const links = Array.isArray(ganttData.links) ? ganttData.links : [];
+      const asNum = (value: any, fallback = 0): number => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+      };
+      const isCompletedStatus = (statusRaw: string): boolean => {
+        const normalized = statusRaw.toLowerCase();
+        return normalized.includes("complete") || normalized.includes("done") || normalized === "closed";
+      };
+      const completedTaskCount = tasks.filter((t: any) => {
+        const statusRaw = `${t.status ?? t.Status ?? ""}`.trim();
+        const progress = Math.max(0, Math.min(100, asNum(t.progressPercent ?? t.progress_percent ?? t.progress, 0)));
+        return progress >= 100 || isCompletedStatus(statusRaw);
+      }).length;
+      const today = new Date();
+      const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const overdueTaskCount = tasks.filter((t: any) => {
+        const endRaw = t.actual_end ?? t.actualEnd ?? t.actual_end_date ?? t.actualEndDate ?? t.end_date ?? t.endDate;
+        const endDate = endRaw ? new Date(endRaw) : null;
+        if (!endDate || Number.isNaN(endDate.getTime())) return false;
+        const statusRaw = `${t.status ?? t.Status ?? ""}`.trim();
+        const progress = Math.max(0, Math.min(100, asNum(t.progressPercent ?? t.progress_percent ?? t.progress, 0)));
+        const completed = progress >= 100 || isCompletedStatus(statusRaw);
+        return endDate.getTime() < todayMs && !completed;
+      }).length;
+      console.info("[Gantt AI] context payload", {
+        activeProjectId: ganttData.projectId ?? null,
+        activeProjectName: ganttData.projectName ?? null,
+        taskCount: tasks.length,
+        completedTaskCount,
+        overdueTaskCount,
+        dependencyCount: links.length,
+      });
+    }
     const baseInstruction = contextType === "gantt"
       ? "Answer based ONLY on the dashboard data provided above. Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records. If a task is completed, do not classify it as delayed or overdue even if planned finish date is in the past."
       : "Answer based ONLY on the dashboard data provided above. Be specific with numbers and names.";
