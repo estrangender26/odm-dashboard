@@ -566,6 +566,11 @@ export default function OmManualsLibrary() {
     refetchOnReconnect: false,
   });
   const tree = treeData?.tree || [];
+  const { data: aiContext } = trpc.documents.getAiContext.useQuery({ includeSample: true }, {
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
   const utils = trpc.useUtils();
 
   // ── Fetch single file for viewer ──
@@ -1081,15 +1086,18 @@ export default function OmManualsLibrary() {
 
       {/* AI Assistant */}
       <AIAssistant
-        contextType="maintenance"
+        contextType="manuals"
         data={{ folders: counts.folders, files: counts.files, tree }}
+        metadata={{ aiContext }}
+        position="bottom-right"
         quickQuestions={[
+          "Which facility types (WTP/WWTP/WPS/WWLS) have missing manuals?",
+          "What is the approval status distribution of manuals?",
+          "Which manuals appear obsolete or overdue?",
+          "Which manuals have multiple revisions and what is likely the latest revision?",
+          "Summarize document completeness by facility.",
           "Which facilities have the most documents?",
-          "Which folders have no files?",
-          "What is the overall document coverage?",
-          "Which facilities lack manuals?",
-          "Summarize the document library.",
-          "Which folders need more documents?",
+          "How many PDFs are available in the library?",
         ]}
       />
     </div>
