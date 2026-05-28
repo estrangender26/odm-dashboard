@@ -22,6 +22,7 @@ interface AIAssistantProps {
 }
 
 const MAX_AI_CONTEXT_CHARS = 3900;
+const MAX_GANTT_TASK_ROWS = 40;
 
 const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
   maintenance: [
@@ -191,11 +192,60 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
 
     // --- GANTT dashboard ---
     else if (contextType === "gantt" && (fields.includes("text") || fields.includes("name"))) {
+      const toDate = (value: any): Date | null => {
+        if (!value) return null;
+        const d = new Date(value);
+        return Number.isNaN(d.getTime()) ? null : d;
+      };
+      const asNum = (value: any, fallback = 0): number => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+      };
+      const toStatus = (t: any, overdue: boolean, progress: number): string => {
+        const st = `${t.status || t.Status || ""}`.trim();
+        if (st) return st;
+        if (progress >= 100) return "Completed";
+        if (overdue) return "Overdue";
+        if (progress > 0) return "In Progress";
+        return "Not Started";
+      };
+
       const totalTasks = data.length;
       const milestones = data.filter((t: any) => (t.type || "").toLowerCase() === "milestone").length;
       const projects = data.filter((t: any) => (t.type || "").toLowerCase() === "project").length;
       const parentTasks = data.filter((t: any) => t.parent === 0 || t.parent === undefined || t.parent === null).length;
       const childTasks = data.filter((t: any) => t.parent && t.parent !== 0).length;
+      const taskById = new Map(data.map((t: any) => [t.id, t]));
+      const today = new Date();
+      const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const normalizedTasks = data.map((t: any) => {
+        const progress = Math.max(0, Math.min(100, asNum(t.progressPercent ?? t.progress, 0)));
+        const duration = Math.max(0, asNum(t.duration, 0));
+        const start = toDate(t.start_date ?? t.startDate);
+        const end = toDate(t.end_date ?? t.endDate);
+        const isOverdue = !!(end && end.getTime() < todayMs && progress < 100);
+        const predecessorId = t.predecessorTaskId ?? t.predecessor_task_id ?? t.predecessorId ?? t.predecessor ?? null;
+        return {
+          id: t.id,
+          taskName: t.text || t.name || `Task ${t.id ?? "?"}`,
+          parentId: t.parentTaskId ?? t.parent ?? 0,
+          startRaw: t.start_date ?? t.startDate ?? "",
+          endRaw: t.end_date ?? t.endDate ?? "",
+          duration,
+          progress,
+          status: toStatus(t, isOverdue, progress),
+          overdue: isOverdue,
+          predecessorId: predecessorId || null,
+        };
+      });
+
+      const completedCount = normalizedTasks.filter((t) => t.progress >= 100 || t.status.toLowerCase().includes("complete")).length;
+      const inProgressCount = normalizedTasks.filter((t) => t.progress > 0 && t.progress < 100).length;
+      const overdueCount = normalizedTasks.filter((t) => t.overdue).length;
+      const completionPct = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 1000) / 10 : 0;
+      const avgDuration = normalizedTasks.length > 0
+        ? (normalizedTasks.reduce((sum, t) => sum + t.duration, 0) / normalizedTasks.length).toFixed(1)
+        : "0.0";
 
       ctx += `=== GANTT SUMMARY ===\n`;
       ctx += `- Total Tasks: ${totalTasks}\n`;
@@ -203,12 +253,27 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       ctx += `- Projects: ${projects}\n`;
       ctx += `- Parent Tasks: ${parentTasks}\n`;
       ctx += `- Sub-tasks: ${childTasks}\n`;
+      ctx += `- Completed: ${completedCount}\n`;
+      ctx += `- In Progress: ${inProgressCount}\n`;
+      ctx += `- Overdue: ${overdueCount}\n`;
+      ctx += `- Completion %: ${completionPct}%\n`;
+      ctx += `- Average Duration: ${avgDuration} days\n`;
 
       // Date range
       const starts = data.map((t: any) => t.start_date).filter(Boolean).sort();
       const ends = data.map((t: any) => t.end_date).filter(Boolean).sort();
       if (starts.length && ends.length) {
         ctx += `- Date Range: ${starts[0]} to ${ends[ends.length - 1]}\n`;
+      }
+
+      ctx += `\n=== TASK RECORDS (max ${MAX_GANTT_TASK_ROWS}) ===\n`;
+      normalizedTasks.slice(0, MAX_GANTT_TASK_ROWS).forEach((t, i) => {
+        const parentName = t.parentId && taskById.get(t.parentId) ? (taskById.get(t.parentId)?.text || taskById.get(t.parentId)?.name || `Task ${t.parentId}`) : "ROOT";
+        const predName = t.predecessorId && taskById.get(t.predecessorId) ? (taskById.get(t.predecessorId)?.text || taskById.get(t.predecessorId)?.name || `Task ${t.predecessorId}`) : "None";
+        ctx += `${i + 1}. ${t.taskName} | parent=${parentName} (${t.parentId || 0}) | start=${t.startRaw || "-"} | end=${t.endRaw || "-"} | dur=${t.duration}d | prog=${t.progress}% | status=${t.status} | overdue=${t.overdue ? "Y" : "N"} | pred=${predName}${t.predecessorId ? ` (${t.predecessorId})` : ""}\n`;
+      });
+      if (normalizedTasks.length > MAX_GANTT_TASK_ROWS) {
+        ctx += `... ${normalizedTasks.length - MAX_GANTT_TASK_ROWS} more tasks not shown.\n`;
       }
     }
 
@@ -368,9 +433,12 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
 
     // Build data context and prepend to message
     const dataContext = buildDataContext(data, contextType, filters, metadata);
-    let fullMessage = dataContext + `USER QUESTION: ${msg}\n\nAnswer based ONLY on the dashboard data provided above. Be specific with numbers and names.`;
+    const baseInstruction = contextType === "gantt"
+      ? "Answer based ONLY on the dashboard data provided above. Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records."
+      : "Answer based ONLY on the dashboard data provided above. Be specific with numbers and names.";
+    let fullMessage = dataContext + `USER QUESTION: ${msg}\n\n${baseInstruction}`;
     if (fullMessage.length > MAX_AI_CONTEXT_CHARS) {
-      const keepTail = `\n\nUSER QUESTION: ${msg}\n\nAnswer based ONLY on the dashboard data provided above. Be specific with numbers and names.`;
+      const keepTail = `\n\nUSER QUESTION: ${msg}\n\n${baseInstruction}`;
       const allowedContext = Math.max(0, MAX_AI_CONTEXT_CHARS - keepTail.length);
       const summarized = dataContext.slice(0, allowedContext);
       fullMessage = `${summarized}\n[context summarized due to size]${keepTail}`;
