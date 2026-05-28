@@ -4,6 +4,7 @@ import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { sql, eq, and } from "drizzle-orm";
+import { ensureDbReady, getDb } from "./queries/connection";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
@@ -47,60 +48,6 @@ const distPath = findDistPublic();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 
-/* ── Automatic DB migration on startup ── */
-(async () => {
-  try {
-    const { db } = await import("./queries/connection");
-    // Ensure gantt_tasks has all required columns
-    await db.execute(sql.raw(`
-      ALTER TABLE gantt_tasks
-      ADD COLUMN IF NOT EXISTS status VARCHAR(50),
-      ADD COLUMN IF NOT EXISTS remarks TEXT,
-      ADD COLUMN IF NOT EXISTS wbs_level INTEGER DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS parent INTEGER DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS predecessor_task_id INTEGER,
-      ADD COLUMN IF NOT EXISTS dependency_type VARCHAR(10),
-      ADD COLUMN IF NOT EXISTS lag_days INTEGER DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
-      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
-      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS notes TEXT
-    `));
-    // Create gantt_dependencies table (replaces gantt_links)
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS gantt_dependencies (
-        id SERIAL PRIMARY KEY,
-        project_id INTEGER,
-        predecessor_task_id INTEGER NOT NULL,
-        successor_task_id INTEGER NOT NULL,
-        dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
-        lag_days INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `));
-    // Migrate data from old gantt_links table if it exists
-    try {
-      await db.execute(sql.raw(`
-        INSERT INTO gantt_dependencies (project_id, predecessor_task_id, successor_task_id, dependency_type, lag_days, created_at)
-        SELECT NULL, source, target,
-          CASE type WHEN '0' THEN 'FS' WHEN '1' THEN 'SS' WHEN '2' THEN 'FF' WHEN '3' THEN 'SF' ELSE 'FS' END,
-          COALESCE(lag_days, 0), created_at
-        FROM gantt_links
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gantt_dependencies
-          WHERE predecessor_task_id = gantt_links.source AND successor_task_id = gantt_links.target
-        )
-      `));
-      console.log("[boot] Migrated links → dependencies");
-    } catch (migrateErr: any) {
-      console.log("[boot] Link migration (gantt_links may not exist):", migrateErr.message);
-    }
-    console.log("[boot] Gantt DB migrated OK");
-  } catch (e: any) {
-    console.log("[boot] Gantt migration error:", e.message);
-  }
-})();
 
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
@@ -158,18 +105,9 @@ app.get("/mw-dashboard", async (c) => {
 app.get("/_health", async (c) => {
   try {
     // Test actual database query
-    const { getDb } = await import("./queries/connection");
     const db = getDb();
     const result = await db.select({ count: sql`count(*)` }).from(sql`mw_inspections`);
     const dbRecords = result[0]?.count || 0;
-    
-    // Lazy migration: ensure gantt planned columns exist
-    try {
-      await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20)`));
-      await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20)`));
-      await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS category VARCHAR(100)`));
-      await db.execute(sql.raw(`ALTER TABLE gantt_tasks ADD COLUMN IF NOT EXISTS notes TEXT`));
-    } catch (_) { /* columns may already exist */ }
     
     return c.json({ 
       status: "ok",
@@ -720,6 +658,8 @@ export default app;
 
 if (env.isProduction) {
   const { serve } = await import("@hono/node-server");
+  await ensureDbReady();
+  await getDb().execute(sql`SELECT 1 FROM gantt_projects LIMIT 1`);
   
   // Startup verification — log dist path before serving
   const dp = distPath || findDistPublic();

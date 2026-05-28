@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -5,6 +6,7 @@ import * as schema from "../../db/schema";
 import { join } from "path";
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
+let _dbReady: Promise<void> | null = null;
 
 // In-memory cache for read-after-write consistency
 // Supabase pooler has replica lag — writes go to primary, reads hit lagging replicas
@@ -74,13 +76,24 @@ export function getDb() {
   console.log("[DB] Connected!");
   void logConnectionTest(client, databaseUrl);
 
-  // Run migrations async (fire-and-forget) — getDb must stay synchronous for the Proxy
   const migrationsPath = join(process.cwd(), "db/migrations");
-  migrate(_db, { migrationsFolder: migrationsPath })
-    .then(() => console.log("[DB] Migrations applied!"))
-    .catch((err: any) => console.error("[DB] Migration error:", err.message));
+  _dbReady = (async () => {
+    console.log("[db] running migrations");
+    await migrate(_db!, { migrationsFolder: migrationsPath });
+    // Explicitly verify expected migration artifact table exists after migration run.
+    await _db!.execute(sql`SELECT 1 FROM gantt_projects LIMIT 1`);
+    console.log("[db] migrations complete");
+  })().catch((err: any) => {
+    console.error("[DB] Migration/startup verification error:", err.message);
+    throw err;
+  });
 
   return _db;
+}
+
+export async function ensureDbReady(): Promise<void> {
+  getDb();
+  if (_dbReady) await _dbReady;
 }
 
 export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
