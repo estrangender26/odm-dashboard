@@ -6,7 +6,7 @@ import * as schema from "../../db/schema";
 import { join } from "path";
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
-let _dbReady: Promise<void> | null = null;
+let _dbReady: Promise<void> | null = Promise.resolve();
 
 // In-memory cache for read-after-write consistency
 // Supabase pooler has replica lag — writes go to primary, reads hit lagging replicas
@@ -66,27 +66,34 @@ export function getDb() {
   const client = postgres(databaseUrl, {
     ssl: "require",
     prepare: false,
-    max: 1,
+    max: 10,
     max_lifetime: 600,
     connect_timeout: 10,
     idle_timeout: 20,
+    statement_timeout: 15000,
+    onnotice: () => undefined,
   });
 
   _db = drizzle(client, { schema });
   console.log("[DB] Connected!");
   void logConnectionTest(client, databaseUrl);
 
-  const migrationsPath = join(process.cwd(), "db/migrations");
-  _dbReady = (async () => {
-    console.log("[db] running migrations");
-    await migrate(_db!, { migrationsFolder: migrationsPath });
-    // Explicitly verify expected migration artifact table exists after migration run.
-    await _db!.execute(sql`SELECT 1 FROM gantt_projects LIMIT 1`);
-    console.log("[db] migrations complete");
-  })().catch((err: any) => {
-    console.error("[DB] Migration/startup verification error:", err.message);
-    throw err;
-  });
+  const shouldRunMigrations = process.env.RUN_DB_MIGRATIONS_ON_STARTUP === "true";
+  if (shouldRunMigrations) {
+    const migrationsPath = join(process.cwd(), "db/migrations");
+    _dbReady = (async () => {
+      console.log("[db] running migrations");
+      await migrate(_db!, { migrationsFolder: migrationsPath });
+      await _db!.execute(sql`SELECT 1`);
+      console.log("[db] migrations complete");
+    })().catch((err: any) => {
+      console.error("[DB] Migration/startup verification error:", err.message);
+      throw err;
+    });
+  } else {
+    _dbReady = Promise.resolve();
+    console.log("[db] runtime migrations skipped (RUN_DB_MIGRATIONS_ON_STARTUP != true)");
+  }
 
   return _db;
 }

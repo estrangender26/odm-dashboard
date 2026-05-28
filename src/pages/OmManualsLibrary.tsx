@@ -559,7 +559,7 @@ export default function OmManualsLibrary() {
   const [downloadLabel, setDownloadLabel] = useState("");
 
   // ── Fetch tree ──
-  const { data: treeData, isLoading } = trpc.documents.getTree.useQuery(undefined, {
+  const { data: treeData, isLoading, error: treeError } = trpc.documents.getTree.useQuery(undefined, {
     staleTime: 60_000,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,
@@ -906,6 +906,8 @@ export default function OmManualsLibrary() {
           <div className="flex-1 overflow-y-auto py-1">
             {isLoading ? (
               <div className="flex items-center justify-center py-16 text-gray-400 text-sm">Loading document library...</div>
+            ) : treeError ? (
+              <div className="flex items-center justify-center py-16 text-red-600 text-sm">Failed to load library: {treeError.message}</div>
             ) : displayTree.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
                 <div className="text-3xl mb-2">📂</div>
