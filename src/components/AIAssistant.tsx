@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/providers/trpc";
 import { normProgress, rowStatus } from "@/modules/gantt/engine/schedulingEngine";
+import { calcProjectCompletion, normalizeTaskStatus, taskCompletionPercent } from "@/modules/gantt/engine/uiUtilsEngine";
 
 export type DashboardContext =
   | "maintenance"
@@ -292,10 +293,18 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         }
       });
 
-      const completedCount = normalizedTasks.filter((t) => t.isCompleted).length;
-      const inProgressCount = normalizedTasks.filter((t) => !t.isCompleted && t.progress > 0 && t.progress < 100).length;
-      const overdueCount = normalizedTasks.filter((t) => !t.isCompleted && t.isOverdue).length;
-      const completionPct = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 1000) / 10 : 0;
+      const completedCount = normalizedTasks.filter((t) => normalizeTaskStatus(t.status) === "completed").length;
+      const inProgressCount = normalizedTasks.filter((t) => normalizeTaskStatus(t.status) === "in progress").length;
+      const notStartedCount = normalizedTasks.filter((t) => normalizeTaskStatus(t.status) === "not started").length;
+      const overdueCount = normalizedTasks.filter((t) => {
+        const end = pickDate(t.actualEndRaw, t.plannedEndRaw);
+        return !!(end && end.getTime() < todayMs && normalizeTaskStatus(t.status) !== "completed");
+      }).length;
+      const completionPct = calcProjectCompletion(normalizedTasks.map((t) => ({
+        status: t.status,
+        progress_percent: taskCompletionPercent(t),
+        duration_days: t.duration,
+      })));
       const avgDuration = normalizedTasks.length > 0
         ? (normalizedTasks.reduce((sum, t) => sum + t.duration, 0) / normalizedTasks.length).toFixed(1)
         : "0.0";
@@ -308,6 +317,7 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       ctx += `- Sub-tasks: ${childTasks}\n`;
       ctx += `- Completed: ${completedCount}\n`;
       ctx += `- In Progress: ${inProgressCount}\n`;
+      ctx += `- Not Started: ${notStartedCount}\n`;
       ctx += `- Overdue: ${overdueCount}\n`;
       ctx += `- Completion %: ${completionPct}%\n`;
       ctx += `- Average Duration: ${avgDuration} days\n`;
