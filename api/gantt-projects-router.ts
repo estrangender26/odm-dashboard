@@ -218,8 +218,7 @@ export const ganttProjectsRouter = {
         payloadBytes: payloadSize,
       });
       try {
-        // Keep insert/update and verification on the same tx client so pooler routing
-        // cannot split write/read visibility across different backend sessions.
+        // Keep INSERT/UPDATE ... RETURNING on the same tx client for pooler compatibility.
         const persisted = await db.transaction(async (tx) => {
           const txIdentity = await tx.execute(sql`SELECT txid_current() AS txid`);
           console.log("[ganttProjects.save] tx_identity", {
@@ -269,17 +268,7 @@ export const ganttProjectsRouter = {
             throw new Error(`Insert failed: expected 1 row, got ${created.length}`);
           }
 
-          const verifyRows = await tx.execute(sql`
-            SELECT id
-            FROM gantt_projects
-            WHERE id = ${created[0].id}
-          `);
-
-          if ((verifyRows.rows?.length ?? 0) !== 1) {
-            throw new Error(`Persistence verification failed for project id ${created[0].id}`);
-          }
-
-          console.log("[ganttProjects.save] insert result", { rowCount: created.length, id: created[0].id, verifyCount: verifyRows.rows?.length ?? 0 });
+          console.log("[ganttProjects.save] insert result", { rowCount: created.length, id: created[0].id });
           return { row: created[0], action: "created" as const };
         });
 
