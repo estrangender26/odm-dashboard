@@ -21,6 +21,8 @@ interface AIAssistantProps {
   position?: "bottom-left" | "bottom-right";
 }
 
+const MAX_AI_CONTEXT_CHARS = 3900;
+
 const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
   maintenance: [
     "Analyze PM compliance trends",
@@ -98,8 +100,28 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     if (metadata.facilityName) ctx += `Facility: ${metadata.facilityName}\n`;
     if (metadata.uploads?.length) ctx += `Uploads: ${metadata.uploads.length} documents\n`;
     if (metadata.aiContext && contextType === "manuals") {
+      const aiCtx = metadata.aiContext;
+      const safeEntries = (record: Record<string, number> | undefined, limit = 10) =>
+        Object.entries(record || {})
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, limit)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(", ");
       ctx += `\n=== O&M MANUALS DATABASE METADATA ===\n`;
-      ctx += `${JSON.stringify(metadata.aiContext, null, 2)}\n`;
+      ctx += `Total folders: ${aiCtx?.totals?.folders ?? 0}\n`;
+      ctx += `Total files: ${aiCtx?.totals?.files ?? 0}\n`;
+      ctx += `PDF count: ${aiCtx?.totals?.pdfCount ?? 0}\n`;
+      ctx += `Counts by facility: ${safeEntries(aiCtx?.distribution?.facility)}\n`;
+      ctx += `Counts by category: ${safeEntries(aiCtx?.distribution?.category)}\n`;
+      ctx += `Counts by approval/status: ${safeEntries(aiCtx?.distribution?.approvalStatus)}\n`;
+      ctx += `Latest revisions summary: ${(aiCtx?.latestRevisionHints || []).slice(0, 5).join(" | ") || "None"}\n`;
+      ctx += `Indicators (missing/obsolete/overdue): ${aiCtx?.totals?.missingIndicators ?? 0}/${aiCtx?.totals?.obsoleteIndicators ?? 0}/${aiCtx?.totals?.overdueIndicators ?? 0}\n`;
+      if (Array.isArray(aiCtx?.sampleRecords) && aiCtx.sampleRecords.length > 0) {
+        ctx += `Sample records (max 5):\n`;
+        aiCtx.sampleRecords.slice(0, 5).forEach((s: any, i: number) => {
+          ctx += `${i + 1}. ${s.title || "Untitled"} | ${s.revision || "No rev"} | ${s.facilityPath || "No path"}\n`;
+        });
+      }
       ctx += `Use this metadata as primary evidence for counts, facilities, status, revisions, and completeness answers.\n`;
     }
   }
@@ -346,7 +368,13 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
 
     // Build data context and prepend to message
     const dataContext = buildDataContext(data, contextType, filters, metadata);
-    const fullMessage = dataContext + `USER QUESTION: ${msg}\n\nAnswer based ONLY on the dashboard data provided above. Be specific with numbers and names.`;
+    let fullMessage = dataContext + `USER QUESTION: ${msg}\n\nAnswer based ONLY on the dashboard data provided above. Be specific with numbers and names.`;
+    if (fullMessage.length > MAX_AI_CONTEXT_CHARS) {
+      const keepTail = `\n\nUSER QUESTION: ${msg}\n\nAnswer based ONLY on the dashboard data provided above. Be specific with numbers and names.`;
+      const allowedContext = Math.max(0, MAX_AI_CONTEXT_CHARS - keepTail.length);
+      const summarized = dataContext.slice(0, allowedContext);
+      fullMessage = `${summarized}\n[context summarized due to size]${keepTail}`;
+    }
 
     const history = messages.slice(-6).map((m) => ({
       role: m.role as "user" | "assistant",
