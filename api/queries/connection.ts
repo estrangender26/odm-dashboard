@@ -12,25 +12,34 @@ let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 const queryCache: Map<string, { data: unknown; ts: number }> = new Map();
 const CACHE_TTL = 30000; // 30 seconds
 
+function getUrlFingerprint(databaseUrl: string): string {
+  return databaseUrl
+    .replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@")
+    .replace(/([?&](?:password|pwd|token|apikey)=)[^&]+/gi, "$1***");
+}
+
+function normalizeDatabaseUrl(rawDatabaseUrl: string): string {
+  const normalized = rawDatabaseUrl.replace(":6543", ":5432");
+
+  if (normalized.includes(":6543")) {
+    throw new Error("DATABASE_URL still contains transaction pooler port 6543 after normalization");
+  }
+
+  return normalized;
+}
+
 export function getDb() {
   if (_db) return _db;
-  
-  let databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
+
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  if (!rawDatabaseUrl) {
     console.error("[DB] DATABASE_URL not set!");
     throw new Error("DATABASE_URL not set");
   }
-  
-  // Keep runtime DATABASE_URL as source of truth, but normalize known
-  // Supabase transaction-pooler URLs (6543) to session-pooler (5432).
-  // This avoids read-after-write lag and connection instability that can
-  // manifest as frontend hangs during initial page data fetches.
-  if (databaseUrl.includes(":6543/")) {
-    const normalized = databaseUrl.replace(":6543/", ":5432/");
-    console.log("[DB] Normalized pooler port 6543 -> 5432");
-    databaseUrl = normalized;
-  }
-  
+
+  const databaseUrl = normalizeDatabaseUrl(rawDatabaseUrl);
+  console.log(`[DB] Final normalized DATABASE_URL fingerprint: ${getUrlFingerprint(databaseUrl)}`);
+
   console.log("[DB] Connecting to database...");
   const client = postgres(databaseUrl, {
     ssl: "require",
@@ -40,7 +49,7 @@ export function getDb() {
     connect_timeout: 10,
     idle_timeout: 20,
   });
-  
+
   _db = drizzle(client, { schema });
   console.log("[DB] Connected!");
 
