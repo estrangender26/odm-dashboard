@@ -218,15 +218,15 @@ export const ganttProjectsRouter = {
         payloadBytes: payloadSize,
       });
       try {
-        const dbInfo = await db.execute(sql.raw(`SELECT current_schema() AS schema, current_database() AS database`));
-        console.log("[ganttProjects.save] db_context", {
-          databaseUrlFingerprint: getDbFingerprint(),
-          currentSchema: dbInfo.rows?.[0]?.schema ?? null,
-          currentDatabase: dbInfo.rows?.[0]?.database ?? null,
-        });
-        // Schema is ensured at the start of this mutation.
-
+        // Keep insert/update and verification on the same tx client so pooler routing
+        // cannot split write/read visibility across different backend sessions.
         const persisted = await db.transaction(async (tx) => {
+          const txIdentity = await tx.execute(sql`SELECT txid_current() AS txid`);
+          console.log("[ganttProjects.save] tx_identity", {
+            txid: txIdentity.rows?.[0]?.txid ?? null,
+            userId: userId ?? null,
+            sessionId,
+          });
           const visibilityFilter = buildVisibilityFilter(userId, sessionId);
           if (input.id) {
             const updated = await tx
@@ -264,42 +264,27 @@ export const ganttProjectsRouter = {
               sessionId,
             })
             .returning();
-          console.log("[ganttProjects.save] insert result", { rowCount: created.length, id: created[0]?.id ?? null });
+
+          if (created.length !== 1) {
+            throw new Error(`Insert failed: expected 1 row, got ${created.length}`);
+          }
+
+          const verifyRows = await tx.execute(sql`
+            SELECT id
+            FROM gantt_projects
+            WHERE id = ${created[0].id}
+          `);
+
+          if ((verifyRows.rows?.length ?? 0) !== 1) {
+            throw new Error(`Persistence verification failed for project id ${created[0].id}`);
+          }
+
+          console.log("[ganttProjects.save] insert result", { rowCount: created.length, id: created[0].id, verifyCount: verifyRows.rows?.length ?? 0 });
           return { row: created[0], action: "created" as const };
         });
 
-        const verifyRows = await db.execute(sql`
-          SELECT id, name, session_id, user_id, created_at
-          FROM gantt_projects
-          WHERE id = ${persisted.row.id}
-        `);
-        const persistedCount = verifyRows.rows?.length ?? 0;
-        const totalRows = await db.execute(sql.raw(`SELECT COUNT(*)::int AS count FROM gantt_projects`));
-        console.log("[ganttProjects.save] verify", {
-          action: persisted.action,
-          returnedId: persisted.row.id,
-          userId: persisted.row.userId ?? null,
-          ownerId: persisted.row.ownerId ?? null,
-          tenantId: persisted.row.tenantId ?? null,
-          orgId: persisted.row.orgId ?? null,
-          sessionId: persisted.row.sessionId ?? null,
-          insertedRow: verifyRows.rows?.[0] ?? null,
-          verifyCount: persistedCount,
-          totalRows: totalRows.rows?.[0]?.count ?? null,
-        });
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        const delayedVerify = await db.execute(sql`
-          SELECT id, name, session_id, user_id, created_at
-          FROM gantt_projects
-          WHERE id = ${persisted.row.id}
-        `);
-        console.log("[ganttProjects.save] verify_delayed", {
-          returnedId: persisted.row.id,
-          delayedVerifyCount: delayedVerify.rows?.length ?? 0,
-          delayedRow: delayedVerify.rows?.[0] ?? null,
-        });
-        if (persistedCount !== 1) {
-          throw new Error(`Persistence verification failed for project id ${persisted.row.id}`);
+        if (!persisted.row) {
+          throw new Error("Save failed: insert/update did not return a project row");
         }
         return { id: persisted.row.id, name: persisted.row.name, action: persisted.action };
       } catch (err: any) {
