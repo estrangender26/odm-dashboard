@@ -1343,6 +1343,14 @@ export default function GanttPlanner() {
   /* Project save/load hooks */
   const { data: projectsListData } = trpc.ganttProjects.list.useQuery(undefined, { retry: 1 });
   const projectsList = projectsListData?.projects || [];
+  const normalizeProjectId = useCallback((value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }, []);
   const saveProjectMut = trpc.ganttProjects.save.useMutation({
     onSuccess: () => { utils.ganttProjects.list.invalidate(); setSaveModal(false); setProjectName(""); setHasUnsavedChanges(false); setBanner({ type: "success", message: "Project saved." }); },
     onError: (e) => setBanner({ type: "error", message: "Save failed: " + e.message }),
@@ -1437,7 +1445,20 @@ export default function GanttPlanner() {
         setLoadModal(false);
       } catch (e: any) { setBanner({ type: "error", message: "Failed to parse project data: " + e.message }); }
     },
-    onError: (e) => setBanner({ type: "error", message: "Load failed: " + e.message }),
+    onError: (e) => {
+      const isMissingProject = /project not found/i.test(e.message);
+      if (isMissingProject) {
+        const saved = localStorage.getItem("gantt_current_project");
+        if (saved) localStorage.removeItem("gantt_current_project");
+        if (currentProjectId) {
+          setCurrentProjectId(null);
+          setCurrentProjectName("");
+        }
+        setBanner({ type: "info", message: "That saved project no longer exists. Please pick another project." });
+        return;
+      }
+      setBanner({ type: "error", message: "Load failed: " + e.message });
+    },
   });
   const deleteProjectMut = trpc.ganttProjects.delete.useMutation({
     onSuccess: () => utils.ganttProjects.list.invalidate(),
@@ -1454,10 +1475,23 @@ export default function GanttPlanner() {
     if (saved && !currentProjectId) {
       try {
         const p = JSON.parse(saved);
-        if (p.id && p.name) { setCurrentProjectId(p.id); setCurrentProjectName(p.name); }
+        const restoredId = normalizeProjectId(p?.id ?? p?.projectId);
+        if (restoredId && p?.name) { setCurrentProjectId(restoredId); setCurrentProjectName(p.name); }
       } catch { /* ignore */ }
     }
-  }, []);
+  }, [currentProjectId, normalizeProjectId]);
+
+  /* Validate restored project against current server list */
+  useEffect(() => {
+    if (!currentProjectId || projectsListData === undefined) return;
+    const exists = projectsList.some((p: any) => normalizeProjectId(p?.id) === currentProjectId);
+    if (!exists) {
+      setCurrentProjectId(null);
+      setCurrentProjectName("");
+      localStorage.removeItem("gantt_current_project");
+      setBanner({ type: "info", message: "Your previously selected project was removed, so we cleared it." });
+    }
+  }, [currentProjectId, projectsListData, projectsList, normalizeProjectId]);
 
   /* Persist current project to localStorage */
   useEffect(() => {
@@ -2419,7 +2453,15 @@ export default function GanttPlanner() {
                           </>
                         ) : (
                           <>
-                            <button onClick={() => { if (!loadProjectMut.isPending) loadProjectMut.mutate({ id: p.id }); }} disabled={loadProjectMut.isPending} title="Load" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 12px", fontSize: 11, fontWeight: 600, background: loadingProjectId === p.id ? "#93C5FD" : "#005BAC", color: "#fff", border: "none", borderRadius: 4, cursor: loadProjectMut.isPending ? "not-allowed" : "pointer", transition: "all .2s", minWidth: 52, justifyContent: "center" }}>
+                            <button onClick={() => {
+                              if (loadProjectMut.isPending) return;
+                              const selectedId = normalizeProjectId(p?.id ?? p?.projectId);
+                              if (!selectedId) {
+                                setBanner({ type: "error", message: "Cannot open this project because its ID is invalid." });
+                                return;
+                              }
+                              loadProjectMut.mutate({ id: selectedId });
+                            }} disabled={loadProjectMut.isPending} title="Load" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 12px", fontSize: 11, fontWeight: 600, background: loadingProjectId === p.id ? "#93C5FD" : "#005BAC", color: "#fff", border: "none", borderRadius: 4, cursor: loadProjectMut.isPending ? "not-allowed" : "pointer", transition: "all .2s", minWidth: 52, justifyContent: "center" }}>
                               {loadingProjectId === p.id ? <><SpinnerInline color="#fff" /><span>Loading</span></> : "Open"}
                             </button>
                             <button onClick={() => { setRenamingId(p.id); setRenameValue(p.name); }} title="Rename" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 4, cursor: "pointer" }}>✎</button>
