@@ -12,31 +12,9 @@ export const ganttRouter = createRouter({
 
   /* ── 1. CLEAN RESET ── */
   resetGantt: publicQuery.mutation(async () => {
-    /* Drop existing Gantt tables (ONLY Gantt tables — preserve all other app data) */
+    /* Drop task/dependency tables only (preserve saved projects) */
     try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}
     try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
-    try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_projects CASCADE`)); } catch {}
-
-    /* Create gantt_projects (full schema — includes name, tasks_data, links_data) */
-    await db.execute(sql.raw(`
-      CREATE TABLE gantt_projects (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        project_name VARCHAR(255),
-        start_date VARCHAR(20),
-        finish_date VARCHAR(20),
-        status VARCHAR(50),
-        tasks_data TEXT NOT NULL DEFAULT '{}',
-        links_data TEXT DEFAULT '{}',
-        description TEXT,
-        created_by VARCHAR(255),
-        updated_by VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `));
-    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS gantt_projects_name_idx ON gantt_projects(name)`));
-
     /* Create gantt_tasks (clean — matches UI fields exactly) */
     await db.execute(sql.raw(`
       CREATE TABLE gantt_tasks (
@@ -91,7 +69,7 @@ export const ganttRouter = createRouter({
     await db.execute(sql.raw(`CREATE INDEX gantt_deps_pred_idx ON gantt_dependencies(predecessor_task_id)`));
     await db.execute(sql.raw(`CREATE INDEX gantt_deps_succ_idx ON gantt_dependencies(successor_task_id)`));
 
-    return { success: true, message: "Gantt tables reset successfully" };
+    return { success: true, message: "Gantt task/dependency tables reset successfully (projects preserved)" };
   }),
 
   /* ── 2. LIST TASKS (ordered by sort_order) ── */
@@ -411,17 +389,6 @@ export const ganttRouter = createRouter({
       /* Tables missing — create them to match the Drizzle schema */
       try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}
       try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
-      try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_projects CASCADE`)); } catch {}
-      /* gantt_projects — must match db/schema.ts (name + tasks_data are required) */
-      await db.execute(sql.raw(`
-        CREATE TABLE gantt_projects (
-          id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, project_name VARCHAR(255),
-          start_date VARCHAR(20), finish_date VARCHAR(20), status VARCHAR(50),
-          tasks_data TEXT NOT NULL DEFAULT '{}', links_data TEXT,
-          description TEXT, created_by VARCHAR(255), updated_by VARCHAR(255),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`));
-      await db.execute(sql.raw(`CREATE INDEX gantt_projects_name_idx ON gantt_projects(name)`));
       /* gantt_tasks — must match db/schema.ts exactly */
       await db.execute(sql.raw(`
         CREATE TABLE gantt_tasks (
@@ -460,15 +427,6 @@ export const ganttRouter = createRouter({
         /* Old schema — drop and recreate all Gantt tables */
         try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}
         try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
-        try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_projects CASCADE`)); } catch {}
-        await db.execute(sql.raw(`
-          CREATE TABLE gantt_projects (
-            id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, project_name VARCHAR(255),
-            start_date VARCHAR(20), finish_date VARCHAR(20), status VARCHAR(50),
-            tasks_data TEXT NOT NULL DEFAULT '{}', links_data TEXT,
-            description TEXT, created_by VARCHAR(255), updated_by VARCHAR(255),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )`));
         await db.execute(sql.raw(`
           CREATE TABLE gantt_tasks (
             id SERIAL PRIMARY KEY, project_id INTEGER, frontend_task_uid VARCHAR(64) UNIQUE,
