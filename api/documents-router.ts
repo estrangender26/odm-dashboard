@@ -153,8 +153,18 @@ export const documentsRouter = {
       }
       const latestRevisionHints = [...duplicateByTitle.entries()]
         .filter(([, count]) => count > 1)
-        .slice(0, 20)
+        .slice(0, 10)
         .map(([key]) => key);
+      const missingIndicators = filtered.filter((f) => {
+        const txt = `${f.tags || ""} ${f.description || ""}`.toLowerCase();
+        return txt.includes("missing") || txt.includes("not submitted") || txt.includes("to follow");
+      }).length;
+      const obsoleteIndicators = filtered.filter((f) => `${f.tags || ""} ${f.description || ""}`.toLowerCase().includes("obsolete")).length;
+      const overdueIndicators = filtered.filter((f) => {
+        const txt = `${f.tags || ""} ${f.description || ""}`.toLowerCase();
+        const oldUpload = f.uploadedAt ? now - new Date(f.uploadedAt).getTime() > 1000 * 60 * 60 * 24 * 365 * 2 : false;
+        return txt.includes("overdue") || oldUpload;
+      }).length;
 
       return {
         totals: {
@@ -162,6 +172,9 @@ export const documentsRouter = {
           files: filtered.length,
           pdfCount: filtered.filter((f) => (f.fileType || "").toLowerCase().includes("pdf") || f.fileName.toLowerCase().endsWith(".pdf")).length,
           obsoleteOrOverdue,
+          missingIndicators,
+          obsoleteIndicators,
+          overdueIndicators,
         },
         distribution: {
           facility: Object.fromEntries(byFacility),
@@ -170,7 +183,7 @@ export const documentsRouter = {
           uploader: Object.fromEntries(byUploader),
         },
         latestRevisionHints,
-        sampleRecords: input?.includeSample ? filtered.slice(0, 50).map((f) => ({
+        sampleRecords: input?.includeSample ? filtered.slice(0, 5).map((f) => ({
           title: f.title,
           fileName: f.fileName,
           revision: f.revision,
