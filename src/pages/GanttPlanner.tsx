@@ -2579,24 +2579,35 @@ export default function GanttPlanner() {
           .gantt-quick-action-sticky { top: 58px !important; }
           .gantt-quick-action-sticky .gantt-page-wrap { padding: 6px 10px !important; }
           .gantt-quick-actions {
-            display: grid !important;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
             gap: 6px !important;
-            align-items: stretch !important;
+            align-items: center !important;
+            padding-bottom: 1px;
           }
+          .gantt-quick-actions::-webkit-scrollbar { height: 0; }
           .gantt-quick-actions > button {
-            width: 100%;
+            width: auto !important;
             justify-content: center;
-            min-height: 34px;
-            padding: 6px 10px !important;
+            min-height: 28px;
+            padding: 4px 9px !important;
+            flex: 0 0 auto !important;
+          }
+          .gantt-quick-actions > span[style*="width: 1px"] {
+            display: none !important;
+          }
+          .gantt-quick-actions > button:disabled {
+            display: none !important;
           }
           .gantt-quick-actions > span {
-            grid-column: 1 / -1;
+            flex: 0 0 auto;
             margin-right: 0 !important;
-            max-width: 100% !important;
+            max-width: 120px !important;
           }
           .gantt-banner-wrap { margin-top: 4px; }
-          .gantt-kpi-wrap { padding-top: 4px !important; }
+          .gantt-kpi-wrap { padding-top: 0 !important; }
         }
         @media (max-width: 480px) {
           .gantt-action-btn span { display: none; }
