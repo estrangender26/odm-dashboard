@@ -6,6 +6,56 @@ import { publicQuery } from "./middleware";
 import { TRPCError } from "@trpc/server";
 
 export const ganttProjectsRouter = {
+  debug: publicQuery.query(async () => {
+    if (process.env.ENABLE_GANTT_DEBUG !== "true") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Debug endpoint disabled" });
+    }
+
+    const dbUrl = process.env.DATABASE_URL || "";
+    let masked = "unavailable";
+    try {
+      const parsed = new URL(dbUrl);
+      const host = parsed.hostname;
+      const dbName = parsed.pathname.replace(/^\//, "") || "unknown";
+      masked = `${host}/${dbName}`;
+    } catch {
+      masked = "invalid DATABASE_URL";
+    }
+
+    const [countResult, latestRows, columns] = await Promise.all([
+      db.execute(sql.raw(`SELECT COUNT(*)::int AS count FROM gantt_projects`)),
+      db.execute(sql.raw(`
+        SELECT
+          id,
+          name,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt",
+          CASE
+            WHEN tasks_data IS NULL OR tasks_data = '' THEN 0
+            WHEN left(trim(tasks_data), 1) = '[' THEN json_array_length(tasks_data::json)
+            WHEN left(trim(tasks_data), 1) = '{' THEN json_object_length(tasks_data::json)
+            ELSE NULL
+          END AS "tasksCount"
+        FROM gantt_projects
+        ORDER BY updated_at DESC NULLS LAST, id DESC
+        LIMIT 5
+      `)),
+      db.execute(sql.raw(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'gantt_projects'
+        ORDER BY ordinal_position
+      `)),
+    ]);
+
+    return {
+      database: masked,
+      rowCount: countResult.rows?.[0]?.count ?? 0,
+      latest: latestRows.rows ?? [],
+      columns: columns.rows ?? [],
+    };
+  }),
+
   // ── List all projects (name + id + dates only, no tasks_data) ──
   list: publicQuery.query(async () => {
     try {
