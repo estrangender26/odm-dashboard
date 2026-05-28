@@ -553,7 +553,7 @@ function QuickActionBar({
   const selName = selectedTaskName || null;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+    <div className="gantt-quick-actions" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
       {/* Selected task context */}
       {selName && <span style={{ fontSize: 11, fontWeight: 600, color: "#1E3A5F", marginRight: 4, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selName}</span>}
 
@@ -2157,7 +2157,7 @@ export default function GanttPlanner() {
       />
 
       {/* Quick Action Bar — sticky below main toolbar */}
-      <div style={{ position: "sticky", top: 76, zIndex: 90, background: "#F1F5F9", borderBottom: "1px solid #D6DFE8", boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}>
+      <div className="gantt-quick-action-sticky" style={{ position: "sticky", top: 76, zIndex: 90, background: "#F1F5F9", borderBottom: "1px solid #D6DFE8", boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}>
         <div className="gantt-page-wrap" style={{ padding: "6px 16px", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
           <QuickActionBar
           onAdd={startAdd}
@@ -2178,10 +2178,10 @@ export default function GanttPlanner() {
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) handleImportExcel(e.target.files[0]); }} />
 
       {/* Banner */}
-      {banner && <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
+      {banner && <div className="gantt-banner-wrap"><Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} /></div>}
 
       {/* KPI Cards */}
-      <div className="gantt-page-wrap" style={{ padding: "8px 16px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+      <div className="gantt-page-wrap gantt-kpi-wrap" style={{ padding: "8px 16px 0", maxWidth: 1600, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         <div className="gantt-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "12px" }}>
           <KpiCard label="Total Tasks" value={kpi.totalTasks} icon="📋" color="#005BAC" />
           <KpiCard label="Completed" value={kpi.completed} icon="✅" color="#1F9D55" />
@@ -2573,6 +2573,30 @@ export default function GanttPlanner() {
           /* Only at very small widths: show hamburger, hide desktop bar */
           .gantt-desktop-toolbar { display: none !important; }
           .gantt-mobile-hamburger { display: flex !important; }
+        }
+
+        @media (max-width: 540px) {
+          .gantt-quick-action-sticky { top: 58px !important; }
+          .gantt-quick-action-sticky .gantt-page-wrap { padding: 6px 10px !important; }
+          .gantt-quick-actions {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px !important;
+            align-items: stretch !important;
+          }
+          .gantt-quick-actions > button {
+            width: 100%;
+            justify-content: center;
+            min-height: 34px;
+            padding: 6px 10px !important;
+          }
+          .gantt-quick-actions > span {
+            grid-column: 1 / -1;
+            margin-right: 0 !important;
+            max-width: 100% !important;
+          }
+          .gantt-banner-wrap { margin-top: 4px; }
+          .gantt-kpi-wrap { padding-top: 4px !important; }
         }
         @media (max-width: 480px) {
           .gantt-action-btn span { display: none; }
