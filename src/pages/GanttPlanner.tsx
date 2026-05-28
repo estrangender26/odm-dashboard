@@ -198,6 +198,13 @@ function calcEndFromStartAndDuration(start?: string, duration?: number): string 
   return toIsoDate(addDays(s, safeDur));
 }
 
+function calcStartFromEndAndDuration(end?: string, duration?: number): string {
+  const e = parseDate(end);
+  const safeDur = Math.max(1, Number(duration) || 1);
+  if (!e) return "";
+  return toIsoDate(addDays(e, -safeDur));
+}
+
 const ZOOM_DAY_WIDTH: Record<Exclude<ZoomLevel, "autofit">, number> = {
   year: 0.5, quarter: 2, month: 5, week: 16, day: 48,
 };
@@ -1042,6 +1049,7 @@ interface TaskListTabProps {
   setBanner: (b: { type: "error" | "success" | "info"; message: string } | null) => void;
   onEditTask: (task: any) => void;
   onAddTask: () => void;
+  setTaskList: React.Dispatch<React.SetStateAction<any[]>>;
 }
 
 const GRID_COLS = [
@@ -1062,7 +1070,7 @@ const GRID_COLS = [
 const STATUS_OPTS = ["Not Started", "In Progress", "In Progress (Delayed)", "Completed", "Overdue", "Delayed", "Planned"];
 const CALC_FIELDS = ["plannedStart", "plannedEnd", "actualStart", "actualEnd", "duration", "progress"];
 
-function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask }: TaskListTabProps) {
+function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask, setTaskList }: TaskListTabProps) {
   const [editing, setEditing] = useState<{ rowId: number; colKey: string } | null>(null);
   const [editVal, setEditVal] = useState("");
   const [dirty, setDirty] = useState<Set<number>>(new Set());
@@ -1082,6 +1090,42 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     if (isReadOnly(t, col.key)) return;
     setEditing({ rowId: t.id, colKey: col.key });
     setEditVal(getVal(t, col.key));
+  };
+
+  const applyTaskListDateMath = (task: any, colKey: string, nextVal: any) => {
+    const nextTask = { ...task, [colKey]: nextVal };
+    const safeDuration = Math.max(1, Number(nextTask.duration) || 1);
+    nextTask.duration = safeDuration;
+
+    const startKeys: Array<"plannedStart" | "actualStart"> = ["plannedStart", "actualStart"];
+    const endKeyByStart = { plannedStart: "plannedEnd", actualStart: "actualEnd" } as const;
+
+    if (colKey === "duration") {
+      for (const startKey of startKeys) {
+        const endKey = endKeyByStart[startKey];
+        if (nextTask[startKey]) nextTask[endKey] = calcEndFromStartAndDuration(nextTask[startKey], safeDuration);
+        else if (nextTask[endKey]) nextTask[startKey] = calcStartFromEndAndDuration(nextTask[endKey], safeDuration);
+      }
+      return nextTask;
+    }
+
+    if (colKey === "plannedStart" || colKey === "plannedEnd") {
+      const dur = calcDurationFromDates(nextTask.plannedStart, nextTask.plannedEnd);
+      if (dur !== null) nextTask.duration = Math.max(1, dur);
+      else if (colKey === "plannedStart" && nextTask.plannedStart && safeDuration > 0) nextTask.plannedEnd = calcEndFromStartAndDuration(nextTask.plannedStart, safeDuration);
+      else if (colKey === "plannedEnd" && nextTask.plannedEnd && safeDuration > 0) nextTask.plannedStart = calcStartFromEndAndDuration(nextTask.plannedEnd, safeDuration);
+      return nextTask;
+    }
+
+    if (colKey === "actualStart" || colKey === "actualEnd") {
+      const dur = calcDurationFromDates(nextTask.actualStart, nextTask.actualEnd);
+      if (dur !== null) nextTask.duration = Math.max(1, dur);
+      else if (colKey === "actualStart" && nextTask.actualStart && safeDuration > 0) nextTask.actualEnd = calcEndFromStartAndDuration(nextTask.actualStart, safeDuration);
+      else if (colKey === "actualEnd" && nextTask.actualEnd && safeDuration > 0) nextTask.actualStart = calcStartFromEndAndDuration(nextTask.actualEnd, safeDuration);
+      return nextTask;
+    }
+
+    return nextTask;
   };
 
   const doSave = async (t: any, col: any) => {
@@ -1107,8 +1151,18 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     else if (col.key === "type") { payload.task_type = v; payload.is_milestone = v === "milestone" ? 1 : 0; }
     else if (col.key === "notes") payload.notes = v || null;
     payload.frontend_task_uid = t.frontendTaskUid || t.frontend_task_uid || undefined;
+    const updatedTask = applyTaskListDateMath(t, col.key, v);
+
+    if (updatedTask.duration !== t.duration) payload.planned_duration = updatedTask.duration;
+    if (updatedTask.plannedStart !== t.plannedStart) payload.planned_start = updatedTask.plannedStart || null;
+    if (updatedTask.plannedEnd !== t.plannedEnd) payload.planned_finish = updatedTask.plannedEnd || null;
+    if (updatedTask.actualStart !== t.actualStart) payload.actual_start = updatedTask.actualStart || null;
+    if (updatedTask.actualEnd !== t.actualEnd) payload.actual_finish = updatedTask.actualEnd || null;
+
+    setTaskList(prev => prev.map((row: any) => row.id === t.id ? updatedTask : row));
+
     try { await saveTask.mutateAsync(payload); setDirty(p => { const n = new Set(p); n.delete(t.id); return n; }); }
-    catch (e: any) { setBanner({ type: "error", message: "Save failed: " + e.message }); }
+    catch (e: any) { setBanner({ type: "error", message: "Save failed: " + e.message }); setTaskList(prev => prev.map((row: any) => row.id === t.id ? t : row)); }
     setEditing(null);
   };
 
@@ -2212,7 +2266,7 @@ export default function GanttPlanner() {
             </div>
           </div>
         )}
-        {activeTab === "tasks" && <TaskListTab tasks={taskList} allTasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} />}
+        {activeTab === "tasks" && <TaskListTab tasks={taskList} allTasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} setTaskList={setTaskList} />}
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
 
         {/* Task Edit/Add Modal */}
