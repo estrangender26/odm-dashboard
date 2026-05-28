@@ -201,10 +201,20 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         const n = Number(value);
         return Number.isFinite(n) ? n : fallback;
       };
-      const toStatus = (t: any, overdue: boolean, progress: number): string => {
-        const st = `${t.status || t.Status || ""}`.trim();
-        if (st) return st;
-        if (progress >= 100) return "Completed";
+      const isCompletedStatus = (statusRaw: string): boolean => {
+        const normalized = statusRaw.toLowerCase();
+        return normalized.includes("complete") || normalized.includes("done") || normalized === "closed";
+      };
+      const pickDate = (...values: any[]): Date | null => {
+        for (const value of values) {
+          const parsed = toDate(value);
+          if (parsed) return parsed;
+        }
+        return null;
+      };
+      const toStatus = (statusRaw: string, overdue: boolean, progress: number, completed: boolean): string => {
+        if (completed) return "Completed";
+        if (statusRaw) return statusRaw;
         if (overdue) return "Overdue";
         if (progress > 0) return "In Progress";
         return "Not Started";
@@ -219,27 +229,60 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       const today = new Date();
       const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
       const normalizedTasks = data.map((t: any) => {
-        const progress = Math.max(0, Math.min(100, asNum(t.progressPercent ?? t.progress, 0)));
+        const progress = Math.max(0, Math.min(100, asNum(t.progressPercent ?? t.progress_percent ?? t.progress, 0)));
         const duration = Math.max(0, asNum(t.duration, 0));
-        const start = toDate(t.start_date ?? t.startDate);
-        const end = toDate(t.end_date ?? t.endDate);
-        const isOverdue = !!(end && end.getTime() < todayMs && progress < 100);
+        const statusRaw = `${t.status ?? t.Status ?? ""}`.trim();
+        const completed = progress >= 100 || isCompletedStatus(statusRaw);
+        const plannedStart = pickDate(t.planned_start, t.plannedStart, t.start_date, t.startDate);
+        const plannedEnd = pickDate(t.planned_end, t.plannedEnd, t.end_date, t.endDate);
+        const actualStart = pickDate(t.actual_start, t.actualStart, t.actual_start_date, t.actualStartDate, t.start_date, t.startDate);
+        const actualEnd = pickDate(t.actual_end, t.actualEnd, t.actual_end_date, t.actualEndDate, t.end_date, t.endDate);
+        const scheduleEnd = actualEnd ?? plannedEnd;
+        const isOverdue = !!(scheduleEnd && scheduleEnd.getTime() < todayMs && !completed);
         const predecessorId = t.predecessorTaskId ?? t.predecessor_task_id ?? t.predecessorId ?? t.predecessor ?? null;
         return {
           id: t.id,
           taskName: t.text || t.name || `Task ${t.id ?? "?"}`,
           parentId: t.parentTaskId ?? t.parent ?? 0,
-          startRaw: t.start_date ?? t.startDate ?? "",
-          endRaw: t.end_date ?? t.endDate ?? "",
+          plannedStartRaw: t.planned_start ?? t.plannedStart ?? t.start_date ?? t.startDate ?? "",
+          plannedEndRaw: t.planned_end ?? t.plannedEnd ?? t.end_date ?? t.endDate ?? "",
+          actualStartRaw: t.actual_start ?? t.actualStart ?? t.actual_start_date ?? t.actualStartDate ?? t.start_date ?? t.startDate ?? "",
+          actualEndRaw: t.actual_end ?? t.actualEnd ?? t.actual_end_date ?? t.actualEndDate ?? t.end_date ?? t.endDate ?? "",
           duration,
           progress,
-          status: toStatus(t, isOverdue, progress),
+          status: toStatus(statusRaw, isOverdue, progress, completed),
+          completed,
           overdue: isOverdue,
           predecessorId: predecessorId || null,
         };
       });
 
-      const completedCount = normalizedTasks.filter((t) => t.progress >= 100 || t.status.toLowerCase().includes("complete")).length;
+      const childrenByParent = new Map<number, any[]>();
+      normalizedTasks.forEach((task) => {
+        if (!childrenByParent.has(task.parentId)) childrenByParent.set(task.parentId, []);
+        childrenByParent.get(task.parentId)!.push(task);
+      });
+      normalizedTasks.forEach((task) => {
+        const children = childrenByParent.get(task.id) || [];
+        if (children.length === 0) return;
+        const allChildrenCompleted = children.every((child) => child.completed);
+        const anyChildInProgress = children.some((child) => !child.completed && child.progress > 0);
+        const anyChildOverdue = children.some((child) => child.overdue);
+        if (allChildrenCompleted) {
+          task.completed = true;
+          task.overdue = false;
+          task.progress = 100;
+          task.status = "Completed";
+        } else if (anyChildOverdue) {
+          task.status = "Overdue";
+        } else if (anyChildInProgress) {
+          task.status = "In Progress";
+        } else {
+          task.status = "Not Started";
+        }
+      });
+
+      const completedCount = normalizedTasks.filter((t) => t.completed).length;
       const inProgressCount = normalizedTasks.filter((t) => t.progress > 0 && t.progress < 100).length;
       const overdueCount = normalizedTasks.filter((t) => t.overdue).length;
       const completionPct = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 1000) / 10 : 0;
@@ -270,7 +313,7 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       normalizedTasks.slice(0, MAX_GANTT_TASK_ROWS).forEach((t, i) => {
         const parentName = t.parentId && taskById.get(t.parentId) ? (taskById.get(t.parentId)?.text || taskById.get(t.parentId)?.name || `Task ${t.parentId}`) : "ROOT";
         const predName = t.predecessorId && taskById.get(t.predecessorId) ? (taskById.get(t.predecessorId)?.text || taskById.get(t.predecessorId)?.name || `Task ${t.predecessorId}`) : "None";
-        ctx += `${i + 1}. ${t.taskName} | parent=${parentName} (${t.parentId || 0}) | start=${t.startRaw || "-"} | end=${t.endRaw || "-"} | dur=${t.duration}d | prog=${t.progress}% | status=${t.status} | overdue=${t.overdue ? "Y" : "N"} | pred=${predName}${t.predecessorId ? ` (${t.predecessorId})` : ""}\n`;
+        ctx += `${i + 1}. ${t.taskName} | parent=${parentName} (${t.parentId || 0}) | plannedStart=${t.plannedStartRaw || "-"} | plannedEnd=${t.plannedEndRaw || "-"} | actualStart=${t.actualStartRaw || "-"} | actualEnd=${t.actualEndRaw || "-"} | dur=${t.duration}d | prog=${t.progress}% | status=${t.status} | overdue=${t.overdue ? "Y" : "N"} | pred=${predName}${t.predecessorId ? ` (${t.predecessorId})` : ""}\n`;
       });
       if (normalizedTasks.length > MAX_GANTT_TASK_ROWS) {
         ctx += `... ${normalizedTasks.length - MAX_GANTT_TASK_ROWS} more tasks not shown.\n`;
@@ -434,7 +477,7 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
     // Build data context and prepend to message
     const dataContext = buildDataContext(data, contextType, filters, metadata);
     const baseInstruction = contextType === "gantt"
-      ? "Answer based ONLY on the dashboard data provided above. Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records."
+      ? "Answer based ONLY on the dashboard data provided above. Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records. If a task is completed, do not classify it as delayed or overdue even if planned finish date is in the past."
       : "Answer based ONLY on the dashboard data provided above. Be specific with numbers and names.";
     let fullMessage = dataContext + `USER QUESTION: ${msg}\n\n${baseInstruction}`;
     if (fullMessage.length > MAX_AI_CONTEXT_CHARS) {
