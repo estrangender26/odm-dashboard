@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "./queries/connection";
 import { docFolders, docFiles } from "@db/schema";
 import { publicQuery } from "./middleware";
@@ -22,9 +22,10 @@ function buildTree(
   allFiles: TreeFileRow[],
   parentId: number | null = null
 ): TreeFolder[] {
+  const validFolderIds = new Set(allFolders.map((f) => f.id));
   const folderChildrenByParentId = new Map<number | null, typeof docFolders.$inferSelect[]>();
   for (const folder of allFolders) {
-    const key = folder.parentId ?? null;
+    const key = folder.parentId !== null && validFolderIds.has(folder.parentId) ? folder.parentId : null;
     if (!folderChildrenByParentId.has(key)) folderChildrenByParentId.set(key, []);
     folderChildrenByParentId.get(key)!.push(folder);
   }
@@ -244,9 +245,15 @@ export const documentsRouter = {
     .input(z.object({ id: z.number(), name: z.string().min(1).max(255) }))
     .mutation(async ({ input }) => {
       try {
-        await db.update(docFolders).set({ name: input.name, updatedAt: new Date() }).where(eq(docFolders.id, input.id));
-        return { success: true };
+        const result = await db
+          .update(docFolders)
+          .set({ name: input.name, updatedAt: new Date() })
+          .where(eq(docFolders.id, input.id))
+          .returning();
+        if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
+        return { success: true, folder: result[0] };
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[renameFolder] Error:", err.message);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to rename folder" });
       }
@@ -258,20 +265,25 @@ export const documentsRouter = {
     .mutation(async ({ input }) => {
       try {
         const allFolders = await db.select().from(docFolders);
+        if (!allFolders.some((f) => f.id === input.id)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
+        }
         const descendants = getDescendantIds(allFolders, input.id);
         const allIds = [input.id, ...descendants];
 
         // Delete all files in these folders
-        for (const folderId of allIds) {
-          await db.delete(docFiles).where(eq(docFiles.folderId, folderId));
-        }
+        const deletedFiles = await db
+          .delete(docFiles)
+          .where(inArray(docFiles.folderId, allIds))
+          .returning({ id: docFiles.id });
         // Delete folders (descendants first)
         for (const folderId of [...descendants].reverse()) {
           await db.delete(docFolders).where(eq(docFolders.id, folderId));
         }
         await db.delete(docFolders).where(eq(docFolders.id, input.id));
-        return { success: true, deletedCount: allIds.length };
+        return { success: true, deletedFolderIds: allIds, deletedFileIds: deletedFiles.map((f) => f.id), deletedCount: allIds.length };
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[deleteFolder] Error:", err.message);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to delete folder" });
       }
