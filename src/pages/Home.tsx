@@ -5,6 +5,14 @@ import AiChatPanel from "@/components/AiChatPanel";
 
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
+  const navCardClassName =
+    "block rounded-xl border p-5 no-underline text-inherit cursor-pointer transition-all duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none md:hover:-translate-y-0.5 md:hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#005BAC]/35 focus-visible:ring-offset-2 active:translate-y-0 active:shadow-sm";
+  const navCardStyle = {
+    background: "#FFFFFF",
+    borderColor: "#D6DFE8",
+    boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)",
+    color: "inherit",
+  } as const;
 
   return (
     <div className="min-h-screen" style={{ background: '#FFFFFF', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
@@ -43,17 +51,8 @@ export default function Home() {
           {/* Maintenance Planning (Post-PPP) */}
           <Link
             to="/equipment"
-            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
-            style={{
-              background: '#FFFFFF',
-              borderColor: '#D6DFE8',
-              boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
-              textDecoration: 'none',
-              color: 'inherit',
-              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
+            className={navCardClassName}
+            style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(0,102,166,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🔧</div>
@@ -77,17 +76,8 @@ export default function Home() {
           {/* O&M Manual Governance */}
           <a
             href="/governance"
-            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
-            style={{
-              background: '#FFFFFF',
-              borderColor: '#D6DFE8',
-              boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
-              textDecoration: 'none',
-              color: 'inherit',
-              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
+            className={navCardClassName}
+            style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(0,168,210,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📊</div>
@@ -111,17 +101,8 @@ export default function Home() {
           {/* Monthly KPI Scorecard */}
           <a
             href="/scorecard-kpi"
-            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
-            style={{
-              background: '#FFFFFF',
-              borderColor: '#D6DFE8',
-              boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
-              textDecoration: 'none',
-              color: 'inherit',
-              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
+            className={navCardClassName}
+            style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(0,168,210,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📈</div>
@@ -145,17 +126,8 @@ export default function Home() {
           {/* Operator-Driven Maintenance */}
           <a
             href="/mw-dashboard"
-            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
-            style={{
-              background: '#FFFFFF',
-              borderColor: '#D6DFE8',
-              boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
-              textDecoration: 'none',
-              color: 'inherit',
-              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
+            className={navCardClassName}
+            style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(42,170,138,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🏭</div>
@@ -179,17 +151,8 @@ export default function Home() {
           {/* Gantt Charts */}
           <Link
             to="/gantt-planner"
-            className="block rounded-lg p-5 border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
-            style={{
-              background: '#FFFFFF',
-              borderColor: '#D6DFE8',
-              boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)',
-              textDecoration: 'none',
-              color: 'inherit',
-              transitionTimingFunction: 'cubic-bezier(.4,0,.2,1)',
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor='#B8C8D8';e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1), 0 8px 24px rgba(0,0,0,.06)'}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor='#D6DFE8';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)'}}
+            className={navCardClassName}
+            style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(124,58,237,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📅</div>
@@ -213,8 +176,8 @@ export default function Home() {
           {/* Existing Facilities Maintenance Plans Card */}
           <Link
             to="/existing-facilities"
-            className="group"
-            style={{ display: 'block', background: '#fff', borderRadius: 14, padding: '22px 24px', border: '1px solid #D6DFE8', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', textDecoration: 'none', color: 'inherit', transition: 'all 0.2s ease', cursor: 'pointer' }}
+            className={navCardClassName}
+            style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
               <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
@@ -243,8 +206,8 @@ export default function Home() {
           {/* SMP — Standard Maintenance Procedures */}
           <Link
             to="/smp-dashboard"
-            className="group"
-            style={{ display: 'block', background: '#fff', borderRadius: 14, padding: '22px 24px', border: '1px solid #D6DFE8', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', textDecoration: 'none', color: 'inherit', transition: 'all 0.2s ease', cursor: 'pointer' }}
+            className={navCardClassName}
+            style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
               <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #0B1D44 0%, #005BAC 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
@@ -277,8 +240,8 @@ export default function Home() {
           {/* O&M Manuals Library */}
           <Link
             to="/om-manuals-library"
-            className="group"
-            style={{ display: 'block', background: '#fff', borderRadius: 14, padding: '22px 24px', border: '1px solid #D6DFE8', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', textDecoration: 'none', color: 'inherit', transition: 'all 0.2s ease', cursor: 'pointer' }}
+            className={navCardClassName}
+            style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
               <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #1E3A5F 0%, #0B1D44 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
