@@ -59,6 +59,23 @@ export const ganttProjectsRouter = {
       })
     )
     .mutation(async ({ input }) => {
+      const payloadSize = Buffer.byteLength(
+        JSON.stringify({
+          name: input.name,
+          tasksData: input.tasksData || "[]",
+          linksData: input.linksData ?? null,
+          description: input.description ?? null,
+          id: input.id ?? null,
+        }),
+        "utf8"
+      );
+      console.log("[ganttProjects.save] start", {
+        id: input.id ?? null,
+        name: input.name,
+        tasksBytes: Buffer.byteLength(input.tasksData || "[]", "utf8"),
+        linksBytes: Buffer.byteLength(input.linksData || "", "utf8"),
+        payloadBytes: payloadSize,
+      });
       try {
         /* Ensure gantt_projects table exists (auto-create if missing) */
         try {
@@ -84,26 +101,28 @@ export const ganttProjectsRouter = {
           await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS gantt_projects_name_idx ON gantt_projects(name)`));
         }
 
-        if (input.id) {
-          // Update existing project; if missing, create a new persisted record instead of returning a phantom success.
-          const result = await db
-            .update(ganttProjects)
-            .set({
-              name: input.name,
-              tasksData: input.tasksData || "[]",
-              linksData: input.linksData ?? null,
-              description: input.description ?? null,
-              updatedBy: input.createdBy ?? null,
-              updatedAt: new Date(),
-            })
-            .where(eq(ganttProjects.id, input.id))
-            .returning();
+        const persisted = await db.transaction(async (tx) => {
+          if (input.id) {
+            const updated = await tx
+              .update(ganttProjects)
+              .set({
+                name: input.name,
+                tasksData: input.tasksData || "[]",
+                linksData: input.linksData ?? null,
+                description: input.description ?? null,
+                updatedBy: input.createdBy ?? null,
+                updatedAt: new Date(),
+              })
+              .where(eq(ganttProjects.id, input.id))
+              .returning();
 
-          if (result.length > 0) {
-            return { id: result[0].id, name: result[0].name, action: "updated" };
+            if (updated.length > 0) {
+              console.log("[ganttProjects.save] update result", { rowCount: updated.length, id: updated[0].id });
+              return { row: updated[0], action: "updated" as const };
+            }
           }
 
-          const created = await db
+          const created = await tx
             .insert(ganttProjects)
             .values({
               name: input.name,
@@ -113,23 +132,35 @@ export const ganttProjectsRouter = {
               createdBy: input.createdBy ?? null,
             })
             .returning();
-          return { id: created[0].id, name: created[0].name, action: "created" };
-        } else {
-          // Create
-          const result = await db
-            .insert(ganttProjects)
-            .values({
-              name: input.name,
-              tasksData: input.tasksData || "[]",
-              linksData: input.linksData ?? null,
-              description: input.description ?? null,
-              createdBy: input.createdBy ?? null,
-            })
-            .returning();
-          return { id: result[0].id, name: result[0].name, action: "created" };
+          console.log("[ganttProjects.save] insert result", { rowCount: created.length, id: created[0]?.id ?? null });
+          return { row: created[0], action: "created" as const };
+        });
+
+        const verifyRows = await db
+          .select({ id: ganttProjects.id, name: ganttProjects.name })
+          .from(ganttProjects)
+          .where(eq(ganttProjects.id, persisted.row.id));
+        const persistedCount = verifyRows.length;
+        const totalRows = await db.execute(sql.raw(`SELECT COUNT(*)::int AS count FROM gantt_projects`));
+        console.log("[ganttProjects.save] verify", {
+          action: persisted.action,
+          returnedId: persisted.row.id,
+          verifyCount: persistedCount,
+          totalRows: totalRows.rows?.[0]?.count ?? null,
+        });
+        if (persistedCount !== 1) {
+          throw new Error(`Persistence verification failed for project id ${persisted.row.id}`);
         }
+        return { id: persisted.row.id, name: persisted.row.name, action: persisted.action };
       } catch (err: any) {
-        console.error("[ganttProjects.save] error:", err.message, err.stack);
+        console.error("[ganttProjects.save] error:", {
+          message: err?.message,
+          stack: err?.stack,
+          code: err?.code,
+          detail: err?.detail,
+          hint: err?.hint,
+          where: err?.where,
+        });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to save project: " + err.message });
       }
     }),

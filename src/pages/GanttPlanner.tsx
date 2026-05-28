@@ -1657,7 +1657,9 @@ export default function GanttPlanner() {
       setHasUnsavedChanges(false);
       lastSavedJsonRef.current = tasksJson;
       setBanner({ type: "success", message: `"${saved.name}" saved.` });
-    } catch {}
+    } catch (e: any) {
+      setBanner({ type: "error", message: "Save failed: " + (e?.message || "Unknown error") });
+    }
   }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut, importSourceName]);
 
   /* Save As (always show modal) */
@@ -1692,7 +1694,8 @@ export default function GanttPlanner() {
             lastSavedJsonRef.current = tasksJson;
             setBanner({ type: "success", message: `"${saved.name}" replaced.` });
             return;
-          } catch {
+          } catch (e: any) {
+            setBanner({ type: "error", message: "Save failed: " + (e?.message || "Unknown error") });
             return;
           }
         }
@@ -1711,7 +1714,9 @@ export default function GanttPlanner() {
       setImportSourceName("");
       lastSavedJsonRef.current = tasksJson;
       setBanner({ type: "success", message: `"${data.name}" saved.` });
-    } catch {}
+    } catch (e: any) {
+      setBanner({ type: "error", message: "Save failed: " + (e?.message || "Unknown error") });
+    }
   }, [projectName, saveMode, tasksQuery.data, linksQuery.data, saveProjectMut, projectsList, currentProjectName]);
 
   /* Close project */
