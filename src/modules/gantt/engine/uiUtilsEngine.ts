@@ -10,23 +10,60 @@ export interface KpiData {
   avgDuration: number;
 }
 
+export function normalizeTaskStatus(status: any): "completed" | "in progress" | "not started" | "other" {
+  const value = `${status ?? ""}`.trim().toLowerCase();
+  if (value.includes("complete") || value === "done" || value === "closed") return "completed";
+  if (value.includes("in progress")) return "in progress";
+  if (value.includes("not started")) return "not started";
+  return "other";
+}
+
+export function taskCompletionPercent(task: any): number {
+  const status = normalizeTaskStatus(task.status ?? task.Status);
+  if (status === "completed") return 100;
+  if (status === "not started") return 0;
+
+  const rawProgress = task.progressPercent ?? task.progress_percent ?? task.progress;
+  const hasProgress = rawProgress !== null && rawProgress !== undefined && `${rawProgress}`.trim() !== "";
+  if (status === "in progress") {
+    return hasProgress ? Math.max(0, Math.min(100, normProgress(rawProgress))) : 50;
+  }
+
+  if (hasProgress) return Math.max(0, Math.min(100, normProgress(rawProgress)));
+  return 0;
+}
+
+export function calcProjectCompletion(tasks: any[]): number {
+  if (!tasks.length) return 0;
+  const durations = tasks.map((t) => {
+    const n = Number(t.duration_days ?? t.duration ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  });
+  const useEqualWeighting = durations.every((d) => d <= 0);
+  if (useEqualWeighting) {
+    const avg = tasks.reduce((sum, t) => sum + taskCompletionPercent(t), 0) / tasks.length;
+    return Math.round(avg);
+  }
+  const totalDuration = durations.reduce((sum, d) => sum + d, 0);
+  if (totalDuration <= 0) return 0;
+  const weighted = tasks.reduce((sum, t, idx) => sum + taskCompletionPercent(t) * durations[idx], 0);
+  return Math.round(weighted / totalDuration);
+}
+
 export function calcKpi(tasks: any[]): KpiData {
   const now = new Date();
   const total = tasks.length;
-  const completed = tasks.filter((t: any) => normProgress(t.progress) >= 100).length;
-  const inProgress = tasks.filter((t: any) => {
-    const p = normProgress(t.progress);
-    return p > 0 && p < 100;
-  }).length;
+  const completed = tasks.filter((t: any) => normalizeTaskStatus(t.status ?? t.Status) === "completed").length;
+  const inProgress = tasks.filter((t: any) => normalizeTaskStatus(t.status ?? t.Status) === "in progress").length;
   const overdue = tasks.filter((t: any) => {
     const end = t.endDate
       ? parseDate(t.endDate)
       : t.startDate
         ? new Date(new Date(t.startDate).getTime() + (t.duration || 1) * 86400000)
         : null;
-    return end && end < now && normProgress(t.progress) < 100;
+    return end && end < now && normalizeTaskStatus(t.status ?? t.Status) !== "completed";
   }).length;
-  const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const completionRate = calcProjectCompletion(tasks);
   const avgDuration = total > 0
     ? Math.round(tasks.reduce((s: number, t: any) => s + (t.duration || 0), 0) / total)
     : 0;
