@@ -1,14 +1,12 @@
 import mysql from "mysql2/promise";
+import { getNormalizedDatabaseUrl } from "./connection";
 
 let _pool: mysql.Pool | null = null;
 
 export function getMySQLPool(): mysql.Pool {
   if (_pool) return _pool;
 
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL not set");
-  }
+  const databaseUrl = getNormalizedDatabaseUrl();
 
   _pool = mysql.createPool({
     uri: databaseUrl,
