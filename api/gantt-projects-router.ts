@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, eq, desc, sql, isNull } from "drizzle-orm";
 import * as cookie from "cookie";
-import { db } from "./queries/connection";
+import { db, getConnectionFingerprint, getNormalizedDatabaseUrl } from "./queries/connection";
 import { ganttProjects } from "@db/schema";
 import { publicQuery } from "./middleware";
 import { TRPCError } from "@trpc/server";
@@ -26,13 +26,8 @@ function buildVisibilityFilter(userId: number | undefined, sessionId: string) {
 }
 
 function getDbFingerprint() {
-  const dbUrl = process.env.DATABASE_URL || "";
   try {
-    const parsed = new URL(dbUrl);
-    const host = parsed.hostname || "unknown-host";
-    const port = parsed.port || "default";
-    const dbName = parsed.pathname.replace(/^\//, "") || "unknown-db";
-    return `${host}:${port}/${dbName}`;
+    return getConnectionFingerprint(getNormalizedDatabaseUrl());
   } catch {
     return "invalid DATABASE_URL";
   }
@@ -97,10 +92,9 @@ export const ganttProjectsRouter = {
       throw new TRPCError({ code: "FORBIDDEN", message: "Debug endpoint disabled" });
     }
 
-    const dbUrl = process.env.DATABASE_URL || "";
     let masked = "unavailable";
     try {
-      const parsed = new URL(dbUrl);
+      const parsed = new URL(getNormalizedDatabaseUrl());
       const host = parsed.hostname;
       const dbName = parsed.pathname.replace(/^\//, "") || "unknown";
       masked = `${host}/${dbName}`;

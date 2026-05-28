@@ -18,6 +18,18 @@ function getUrlFingerprint(databaseUrl: string): string {
     .replace(/([?&](?:password|pwd|token|apikey)=)[^&]+/gi, "$1***");
 }
 
+export function getConnectionFingerprint(databaseUrl: string): string {
+  try {
+    const parsed = new URL(databaseUrl);
+    const host = parsed.hostname || "unknown-host";
+    const port = parsed.port || "5432";
+    const dbName = parsed.pathname.replace(/^\//, "") || "unknown-db";
+    return `${host}:${port}/${dbName}`;
+  } catch {
+    return "invalid DATABASE_URL";
+  }
+}
+
 function normalizeDatabaseUrl(rawDatabaseUrl: string): string {
   const normalized = rawDatabaseUrl.replace(":6543", ":5432");
 
@@ -28,17 +40,22 @@ function normalizeDatabaseUrl(rawDatabaseUrl: string): string {
   return normalized;
 }
 
-export function getDb() {
-  if (_db) return _db;
-
+export function getNormalizedDatabaseUrl(): string {
   const rawDatabaseUrl = process.env.DATABASE_URL;
   if (!rawDatabaseUrl) {
     console.error("[DB] DATABASE_URL not set!");
     throw new Error("DATABASE_URL not set");
   }
 
-  const databaseUrl = normalizeDatabaseUrl(rawDatabaseUrl);
+  return normalizeDatabaseUrl(rawDatabaseUrl);
+}
+
+export function getDb() {
+  if (_db) return _db;
+
+  const databaseUrl = getNormalizedDatabaseUrl();
   console.log(`[DB] Final normalized DATABASE_URL fingerprint: ${getUrlFingerprint(databaseUrl)}`);
+  console.log(`[db] final normalized connection fingerprint: ${getConnectionFingerprint(databaseUrl)}`);
 
   console.log("[DB] Connecting to database...");
   const client = postgres(databaseUrl, {
