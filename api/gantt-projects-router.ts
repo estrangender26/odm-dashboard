@@ -85,7 +85,7 @@ export const ganttProjectsRouter = {
         }
 
         if (input.id) {
-          // Update
+          // Update existing project; if missing, create a new persisted record instead of returning a phantom success.
           const result = await db
             .update(ganttProjects)
             .set({
@@ -98,7 +98,22 @@ export const ganttProjectsRouter = {
             })
             .where(eq(ganttProjects.id, input.id))
             .returning();
-          return { id: result[0].id, name: result[0].name, action: "updated" };
+
+          if (result.length > 0) {
+            return { id: result[0].id, name: result[0].name, action: "updated" };
+          }
+
+          const created = await db
+            .insert(ganttProjects)
+            .values({
+              name: input.name,
+              tasksData: input.tasksData || "[]",
+              linksData: input.linksData ?? null,
+              description: input.description ?? null,
+              createdBy: input.createdBy ?? null,
+            })
+            .returning();
+          return { id: created[0].id, name: created[0].name, action: "created" };
         } else {
           // Create
           const result = await db

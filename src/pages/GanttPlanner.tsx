@@ -1352,7 +1352,16 @@ export default function GanttPlanner() {
     return null;
   }, []);
   const saveProjectMut = trpc.ganttProjects.save.useMutation({
-    onSuccess: () => { utils.ganttProjects.list.invalidate(); setSaveModal(false); setProjectName(""); setHasUnsavedChanges(false); setBanner({ type: "success", message: "Project saved." }); },
+    onSuccess: async (data) => {
+      await utils.ganttProjects.list.invalidate();
+      setSaveModal(false);
+      setProjectName("");
+      setHasUnsavedChanges(false);
+      if (data?.id) {
+        setCurrentProjectId(data.id);
+        setCurrentProjectName(data.name);
+      }
+    },
     onError: (e) => setBanner({ type: "error", message: "Save failed: " + e.message }),
   });
   const loadProjectMut = trpc.ganttProjects.get.useMutation({
@@ -1627,16 +1636,23 @@ export default function GanttPlanner() {
   }, [selectedTaskId, tasksQuery.data, saveTaskMut, recalcAndSaveParent, refetchTasks]);
 
   /* Save project (update existing) */
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const currentTasks = tasksQuery.data || [];
     if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
     if (currentProjectId == null) { setSaveMode("new"); setProjectName(importSourceName); setSaveModal(true); return; }
     const tasksJson = JSON.stringify(currentTasks);
     const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
-    saveProjectMut.mutate(
-      { id: currentProjectId, name: currentProjectName, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` },
-      { onSuccess: () => { setHasUnsavedChanges(false); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${currentProjectName}" saved.` }); } }
-    );
+    try {
+      const saved = await saveProjectMut.mutateAsync(
+        { id: currentProjectId, name: currentProjectName, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` }
+      );
+      if (!saved?.id) throw new Error("No project ID returned from save");
+      setCurrentProjectId(saved.id);
+      setCurrentProjectName(saved.name);
+      setHasUnsavedChanges(false);
+      lastSavedJsonRef.current = tasksJson;
+      setBanner({ type: "success", message: `"${saved.name}" saved.` });
+    } catch {}
   }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut, importSourceName]);
 
   /* Save As (always show modal) */
@@ -1647,7 +1663,7 @@ export default function GanttPlanner() {
   }, [currentProjectName]);
 
   /* Execute save from modal */
-  const handleSaveProject = useCallback(() => {
+  const handleSaveProject = useCallback(async () => {
     const name = projectName.trim();
     if (!name) return;
     const currentTasks = tasksQuery.data || [];
@@ -1659,20 +1675,38 @@ export default function GanttPlanner() {
         if (choice) {
           const tasksJson = JSON.stringify(currentTasks);
           const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
-          saveProjectMut.mutate(
-            { id: existing.id, name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` },
-            { onSuccess: () => { setCurrentProjectId(existing.id); setCurrentProjectName(name); setHasUnsavedChanges(false); setImportSourceName(""); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${name}" replaced.` }); } }
-          );
-          return;
+          try {
+            const saved = await saveProjectMut.mutateAsync(
+              { id: existing.id, name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` }
+            );
+            if (!saved?.id) throw new Error("No project ID returned from save");
+            setCurrentProjectId(saved.id);
+            setCurrentProjectName(saved.name);
+            setHasUnsavedChanges(false);
+            setImportSourceName("");
+            lastSavedJsonRef.current = tasksJson;
+            setBanner({ type: "success", message: `"${saved.name}" replaced.` });
+            return;
+          } catch {
+            return;
+          }
         }
       }
     }
     const tasksJson = JSON.stringify(currentTasks);
     const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
-    saveProjectMut.mutate(
-      { name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` },
-      { onSuccess: (data: any) => { setCurrentProjectId(data.id); setCurrentProjectName(data.name); setHasUnsavedChanges(false); setImportSourceName(""); lastSavedJsonRef.current = tasksJson; setBanner({ type: "success", message: `"${data.name}" saved.` }); } }
-    );
+    try {
+      const data: any = await saveProjectMut.mutateAsync(
+        { name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` }
+      );
+      if (!data?.id) throw new Error("No project ID returned from save");
+      setCurrentProjectId(data.id);
+      setCurrentProjectName(data.name);
+      setHasUnsavedChanges(false);
+      setImportSourceName("");
+      lastSavedJsonRef.current = tasksJson;
+      setBanner({ type: "success", message: `"${data.name}" saved.` });
+    } catch {}
   }, [projectName, saveMode, tasksQuery.data, linksQuery.data, saveProjectMut, projectsList, currentProjectName]);
 
   /* Close project */
