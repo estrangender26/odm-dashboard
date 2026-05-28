@@ -71,6 +71,116 @@ function getDescendantIds(allFolders: typeof docFolders.$inferSelect[], folderId
 // ═══════════════════════════════════════════════════════════
 
 export const documentsRouter = {
+  getAiContext: publicQuery
+    .input(z.object({
+      facilityType: z.enum(["WTP", "WWTP", "WPS", "WWLS"]).optional(),
+      includeSample: z.boolean().optional(),
+    }).optional())
+    .query(async ({ input }) => {
+      const allFolders = await db.select().from(docFolders);
+      const allFiles = await db.select({
+        id: docFiles.id,
+        folderId: docFiles.folderId,
+        title: docFiles.title,
+        fileName: docFiles.fileName,
+        fileType: docFiles.fileType,
+        revision: docFiles.revision,
+        uploadedBy: docFiles.uploadedBy,
+        uploadedAt: docFiles.uploadedAt,
+        description: docFiles.description,
+        tags: docFiles.tags,
+      }).from(docFiles);
+
+      const folderById = new Map(allFolders.map((f) => [f.id, f] as const));
+      const buildPath = (folderId: number) => {
+        const parts: string[] = [];
+        let curr = folderById.get(folderId) || null;
+        while (curr) {
+          parts.unshift(curr.name);
+          curr = curr.parentId ? (folderById.get(curr.parentId) || null) : null;
+        }
+        return parts;
+      };
+
+      const withPath = allFiles.map((f) => {
+        const path = buildPath(f.folderId);
+        const fullPath = path.join(" / ");
+        const searchable = `${fullPath} ${f.title} ${f.fileName} ${f.tags || ""} ${f.description || ""}`.toLowerCase();
+        const inferredFacilityType = (["WWTP", "WWLS", "WTP", "WPS"] as const).find((t) => searchable.includes(t.toLowerCase())) || null;
+        return { ...f, path, fullPath, inferredFacilityType };
+      });
+
+      const filtered = input?.facilityType
+        ? withPath.filter((f) => f.inferredFacilityType === input.facilityType)
+        : withPath;
+
+      const now = Date.now();
+      const byFacility = new Map<string, number>();
+      const byCategory = new Map<string, number>();
+      const byUploader = new Map<string, number>();
+      const byStatus = new Map<string, number>();
+      const revisionByGroup = new Map<string, string[]>();
+
+      for (const f of filtered) {
+        const facility = f.path.find((p) => /wtp|wwtp|wps|wwls|facility|plant|station/i.test(p)) || "Uncategorized";
+        byFacility.set(facility, (byFacility.get(facility) || 0) + 1);
+        const category = f.path.length > 1 ? f.path[1] : "General";
+        byCategory.set(category, (byCategory.get(category) || 0) + 1);
+        byUploader.set(f.uploadedBy || "Unknown", (byUploader.get(f.uploadedBy || "Unknown") || 0) + 1);
+
+        const statusFromMeta = `${f.tags || ""} ${f.description || ""}`.toLowerCase();
+        const status =
+          statusFromMeta.includes("approved") ? "Approved" :
+          statusFromMeta.includes("pending") ? "Pending" :
+          statusFromMeta.includes("obsolete") ? "Obsolete" :
+          "Unspecified";
+        byStatus.set(status, (byStatus.get(status) || 0) + 1);
+
+        const relGroup = `${facility}::${f.title.toLowerCase().trim()}`;
+        revisionByGroup.set(relGroup, [...(revisionByGroup.get(relGroup) || []), f.revision || ""]);
+      }
+
+      const obsoleteOrOverdue = filtered.filter((f) => {
+        const txt = `${f.tags || ""} ${f.description || ""}`.toLowerCase();
+        const oldUpload = f.uploadedAt ? now - new Date(f.uploadedAt).getTime() > 1000 * 60 * 60 * 24 * 365 * 2 : false;
+        return txt.includes("obsolete") || txt.includes("overdue") || oldUpload;
+      }).length;
+
+      const duplicateByTitle = new Map<string, number>();
+      for (const f of filtered) {
+        const key = `${f.path.join("/")}|${f.title.toLowerCase().trim()}`;
+        duplicateByTitle.set(key, (duplicateByTitle.get(key) || 0) + 1);
+      }
+      const latestRevisionHints = [...duplicateByTitle.entries()]
+        .filter(([, count]) => count > 1)
+        .slice(0, 20)
+        .map(([key]) => key);
+
+      return {
+        totals: {
+          folders: allFolders.length,
+          files: filtered.length,
+          pdfCount: filtered.filter((f) => (f.fileType || "").toLowerCase().includes("pdf") || f.fileName.toLowerCase().endsWith(".pdf")).length,
+          obsoleteOrOverdue,
+        },
+        distribution: {
+          facility: Object.fromEntries(byFacility),
+          category: Object.fromEntries(byCategory),
+          approvalStatus: Object.fromEntries(byStatus),
+          uploader: Object.fromEntries(byUploader),
+        },
+        latestRevisionHints,
+        sampleRecords: input?.includeSample ? filtered.slice(0, 50).map((f) => ({
+          title: f.title,
+          fileName: f.fileName,
+          revision: f.revision,
+          uploadedBy: f.uploadedBy,
+          uploadedAt: f.uploadedAt,
+          facilityPath: f.fullPath,
+          fileType: f.fileType,
+        })) : [],
+      };
+    }),
   // ── Get full folder tree with files ──
   getTree: publicQuery.query(async () => {
     try {

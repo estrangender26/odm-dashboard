@@ -18,6 +18,7 @@ interface AIAssistantProps {
   metadata?: any;
   title?: string;
   quickQuestions?: string[];
+  position?: "bottom-left" | "bottom-right";
 }
 
 const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
@@ -96,6 +97,11 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
   if (metadata) {
     if (metadata.facilityName) ctx += `Facility: ${metadata.facilityName}\n`;
     if (metadata.uploads?.length) ctx += `Uploads: ${metadata.uploads.length} documents\n`;
+    if (metadata.aiContext && contextType === "manuals") {
+      ctx += `\n=== O&M MANUALS DATABASE METADATA ===\n`;
+      ctx += `${JSON.stringify(metadata.aiContext, null, 2)}\n`;
+      ctx += `Use this metadata as primary evidence for counts, facilities, status, revisions, and completeness answers.\n`;
+    }
   }
 
   // Data analysis
@@ -303,7 +309,7 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
   return ctx;
 }
 
-export default function AIAssistant({ contextType, data, filters, metadata, title, quickQuestions }: AIAssistantProps) {
+export default function AIAssistant({ contextType, data, filters, metadata, title, quickQuestions, position = "bottom-left" }: AIAssistantProps) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
@@ -360,7 +366,8 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
         style={{
           position: "fixed",
           bottom: 20,
-          left: 20,
+          right: position === "bottom-right" ? 20 : undefined,
+          left: position === "bottom-left" ? 20 : undefined,
           zIndex: 200,
           width: 48,
           height: 48,
@@ -387,7 +394,8 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
           style={{
             position: "fixed",
             bottom: 80,
-            left: 20,
+            right: position === "bottom-right" ? 20 : undefined,
+            left: position === "bottom-left" ? 20 : undefined,
             zIndex: 200,
             width: "min(380px, calc(100vw - 40px))",
             height: "min(480px, calc(100vh - 120px))",
