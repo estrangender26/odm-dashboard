@@ -276,8 +276,15 @@ export const ganttProjects = pgTable("gantt_projects", {
   description: text("description"),
   createdBy: varchar("created_by", { length: 255 }),
   updatedBy: varchar("updated_by", { length: 255 }),
+  userId: integer("user_id"),
+  ownerId: integer("owner_id"),
+  tenantId: varchar("tenant_id", { length: 255 }),
+  orgId: varchar("org_id", { length: 255 }),
+  sessionId: varchar("session_id", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("gantt_projects_name_idx").on(table.name),
+  index("gantt_projects_session_idx").on(table.sessionId),
+  index("gantt_projects_user_idx").on(table.userId),
 ]);
