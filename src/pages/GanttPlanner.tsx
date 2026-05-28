@@ -105,6 +105,10 @@ function mapDbRowToForm(t: any, links?: any[], allTasks?: any[]): TaskForm {
     if (pTask) predUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
   }
 
+  const resolvedPredecessorId = rowPred || existingDep?.source || existingDep?.predecessorTaskId || 0;
+  const resolvedDepType = typeMap[existingDep?.type] || rowType;
+  const hasDependency = !!resolvedPredecessorId;
+
   return {
     text: t.taskName ?? t.text ?? "",
     owner: t.owner ?? "",
@@ -121,9 +125,9 @@ function mapDbRowToForm(t: any, links?: any[], allTasks?: any[]): TaskForm {
     frontendTaskUid: uid || generateUid(),
     parentFrontendUid: parentUid,
     predecessorFrontendUid: predUid,
-    predecessorId: rowPred || existingDep?.source || existingDep?.predecessorTaskId || 0,
-    depType: typeMap[existingDep?.type] || rowType,
-    lagDays: rowLag || existingDep?.lag || 0,
+    predecessorId: resolvedPredecessorId,
+    depType: hasDependency ? resolvedDepType : "NONE",
+    lagDays: hasDependency ? (rowLag || existingDep?.lag || 0) : 0,
   };
 }
 
@@ -134,9 +138,9 @@ function mapFormToPayload(form: TaskForm, editingId: number | null): Record<stri
     frontend_task_uid: form.frontendTaskUid || generateUid(),
     task_name: form.text.trim(),
     parent_task_id: form.parent || 0,
-    predecessor_task_id: form.predecessorId || null,
-    dependency_type: form.depType || null,
-    lag_days: form.lagDays || 0,
+    predecessor_task_id: form.depType === "NONE" ? null : (form.predecessorId || null),
+    dependency_type: form.depType === "NONE" ? null : (form.depType || null),
+    lag_days: form.depType === "NONE" ? 0 : (form.lagDays || 0),
     wbs_level: 0, /* computed server-side or by caller */
     sort_order: 0, /* computed server-side or by caller */
     planned_start: form.plannedStart || null,
@@ -172,7 +176,7 @@ const EMPTY_FORM: TaskForm = {
   actualStart: "", actualEnd: "", duration: 1, progress: 0,
   status: "", remarks: "", type: "task", parent: 0,
   frontendTaskUid: "", parentFrontendUid: "", predecessorFrontendUid: "",
-  predecessorId: 0, depType: "FS", lagDays: 0,
+  predecessorId: 0, depType: "NONE", lagDays: 0,
 };
 
 const ZOOM_LABELS: Record<ZoomLevel, string> = {
@@ -1843,7 +1847,7 @@ export default function GanttPlanner() {
       console.log("[startEdit] clearing stale predecessorId=", newForm.predecessorId);
       newForm.predecessorId = 0;
       newForm.predecessorFrontendUid = "";
-      newForm.depType = "FS";
+      newForm.depType = "NONE";
       newForm.lagDays = 0;
     }
     setEditingId(t.id);
@@ -1970,9 +1974,10 @@ export default function GanttPlanner() {
     setIsSaving(true);
 
     /* Capture all form values to locals BEFORE any async work */
-    const _predecessorId = form.predecessorId;
-    const _depType       = form.depType;
-    const _lagDays       = form.lagDays;
+    const depIsNone      = form.depType === "NONE";
+    const _predecessorId = depIsNone ? 0 : form.predecessorId;
+    const _depType       = depIsNone ? null : form.depType;
+    const _lagDays       = depIsNone ? 0 : form.lagDays;
     const _parent        = form.parent || 0;
     const _text          = form.text.trim();
     const _owner         = form.owner;
@@ -2047,18 +2052,17 @@ export default function GanttPlanner() {
       setTaskList(freshTaskArr);
 
       /* ── PHASE 3: Save dependency ── */
-      if ((_predUid || _predecessorId) && _predecessorId !== savedTaskId) {
+      const succForDelete = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _taskUid) || freshTaskArr.find((t: any) => t.id === savedTaskId);
+      if (succForDelete) {
+        const existing = freshLinkArr.find((l: any) => l.target === succForDelete.id || l.successorTaskId === succForDelete.id);
+        if (existing) {
+          try { await deleteLinkMut.mutateAsync({ id: existing.id }); } catch { /* ignore */ }
+        }
+      }
+
+      if ((_predUid || _predecessorId) && _predecessorId !== savedTaskId && _depType) {
         const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
         const typeCode = typeMap[_depType] || "0";
-
-        /* Delete existing dependency for this successor */
-        const succForDelete = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _taskUid) || freshTaskArr.find((t: any) => t.id === savedTaskId);
-        if (succForDelete) {
-          const existing = freshLinkArr.find((l: any) => l.target === succForDelete.id || l.successorTaskId === succForDelete.id);
-          if (existing) {
-            try { await deleteLinkMut.mutateAsync({ id: existing.id }); } catch { /* ignore */ }
-          }
-        }
 
         /* Try UID-based save first, fall back to DB-ID-based save */
         if (_predUid && _predUid !== _taskUid) {
@@ -2382,7 +2386,13 @@ export default function GanttPlanner() {
                     <select value={form.predecessorId || ""} onChange={e => {
                       const pid = e.target.value ? parseInt(e.target.value) : 0;
                       const pTask = pid ? (taskList || []).find((t: any) => t.id === pid) : null;
-                      setForm({...form, predecessorId: pid, predecessorFrontendUid: pTask ? (pTask.frontendTaskUid || pTask.frontend_task_uid || "") : ""});
+                      setForm({
+                        ...form,
+                        predecessorId: pid,
+                        predecessorFrontendUid: pTask ? (pTask.frontendTaskUid || pTask.frontend_task_uid || "") : "",
+                        depType: pid ? (form.depType === "NONE" ? "FS" : form.depType) : "NONE",
+                        lagDays: pid ? form.lagDays : 0,
+                      });
                     }} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
                       <option value="">(None)</option>
                       {(taskList || []).filter((t: any) => t.id !== editingId).map((t: any) => <option key={t.id} value={t.id}>{t.text}</option>)}
@@ -2390,7 +2400,15 @@ export default function GanttPlanner() {
                   </div>
                   <div>
                     <label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Dependency Type</label>
-                    <select value={form.depType} onChange={e => setForm({...form, depType: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
+                    <select value={form.depType} onChange={e => {
+                      const nextType = e.target.value;
+                      if (nextType === "NONE") {
+                        setForm({ ...form, depType: "NONE", predecessorId: 0, predecessorFrontendUid: "", lagDays: 0 });
+                        return;
+                      }
+                      setForm({ ...form, depType: nextType });
+                    }} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
+                      <option value="NONE">None</option>
                       <option value="FS">FS — Finish-to-Start</option>
                       <option value="SS">SS — Start-to-Start</option>
                       <option value="FF">FF — Finish-to-Finish</option>
@@ -2399,7 +2417,7 @@ export default function GanttPlanner() {
                   </div>
                   <div>
                     <label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Lag / Lead (days)</label>
-                    <input type="number" value={form.lagDays} onChange={e => setForm({...form, lagDays: parseInt(e.target.value) || 0})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }} title="Positive = lag (delay), Negative = lead (overlap)" />
+                    <input type="number" value={form.lagDays} onChange={e => setForm({...form, lagDays: parseInt(e.target.value) || 0})} disabled={form.depType === "NONE"} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: form.depType === "NONE" ? "#F8FAFC" : "#fff", color: form.depType === "NONE" ? "#94A3B8" : "#1E293B" }} title="Positive = lag (delay), Negative = lead (overlap)" />
                   </div>
                 </div>
               </div>
