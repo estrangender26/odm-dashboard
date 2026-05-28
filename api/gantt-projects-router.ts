@@ -21,10 +21,22 @@ function getOrCreateAnonSession(req: Request, resHeaders: Headers) {
 }
 
 function buildVisibilityFilter(userId: number | undefined, sessionId: string) {
-  if (userId) return eq(ganttProjects.userId, userId);
+  if (userId) return and(eq(ganttProjects.userId, userId), eq(ganttProjects.sessionId, sessionId));
   return and(eq(ganttProjects.sessionId, sessionId), isNull(ganttProjects.userId));
 }
 
+function getDbFingerprint() {
+  const dbUrl = process.env.DATABASE_URL || "";
+  try {
+    const parsed = new URL(dbUrl);
+    const host = parsed.hostname || "unknown-host";
+    const port = parsed.port || "default";
+    const dbName = parsed.pathname.replace(/^\//, "") || "unknown-db";
+    return `${host}:${port}/${dbName}`;
+  } catch {
+    return "invalid DATABASE_URL";
+  }
+}
 
 
 async function ensureGanttProjectsSchema() {
@@ -139,6 +151,7 @@ export const ganttProjectsRouter = {
       const userId = ctx.user?.id;
       const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
       const visibilityFilter = buildVisibilityFilter(userId, sessionId);
+      const dbInfo = await db.execute(sql.raw(`SELECT current_schema() AS schema, current_database() AS database`));
       console.log("[ganttProjects.list] identity", { userId: userId ?? null, sessionId });
       const rows = await db
         .select({
@@ -153,6 +166,9 @@ export const ganttProjectsRouter = {
         .where(visibilityFilter)
         .orderBy(desc(ganttProjects.updatedAt));
       console.log("[ganttProjects.list] filters", {
+        databaseUrlFingerprint: getDbFingerprint(),
+        currentSchema: dbInfo.rows?.[0]?.schema ?? null,
+        currentDatabase: dbInfo.rows?.[0]?.database ?? null,
         userId: userId ?? null,
         sessionId,
         rowsFound: rows.length,
@@ -248,6 +264,7 @@ export const ganttProjectsRouter = {
         "utf8"
       );
       console.log("[ganttProjects.save] start", {
+        databaseUrlFingerprint: getDbFingerprint(),
         userId: userId ?? null,
         sessionId,
         id: input.id ?? null,
@@ -257,6 +274,12 @@ export const ganttProjectsRouter = {
         payloadBytes: payloadSize,
       });
       try {
+        const dbInfo = await db.execute(sql.raw(`SELECT current_schema() AS schema, current_database() AS database`));
+        console.log("[ganttProjects.save] db_context", {
+          databaseUrlFingerprint: getDbFingerprint(),
+          currentSchema: dbInfo.rows?.[0]?.schema ?? null,
+          currentDatabase: dbInfo.rows?.[0]?.database ?? null,
+        });
         // Schema is ensured at the start of this mutation.
 
         const persisted = await db.transaction(async (tx) => {
@@ -301,11 +324,12 @@ export const ganttProjectsRouter = {
           return { row: created[0], action: "created" as const };
         });
 
-        const verifyRows = await db
-          .select({ id: ganttProjects.id, name: ganttProjects.name })
-          .from(ganttProjects)
-          .where(eq(ganttProjects.id, persisted.row.id));
-        const persistedCount = verifyRows.length;
+        const verifyRows = await db.execute(sql`
+          SELECT id, name, session_id, user_id, created_at
+          FROM gantt_projects
+          WHERE id = ${persisted.row.id}
+        `);
+        const persistedCount = verifyRows.rows?.length ?? 0;
         const totalRows = await db.execute(sql.raw(`SELECT COUNT(*)::int AS count FROM gantt_projects`));
         console.log("[ganttProjects.save] verify", {
           action: persisted.action,
@@ -315,8 +339,20 @@ export const ganttProjectsRouter = {
           tenantId: persisted.row.tenantId ?? null,
           orgId: persisted.row.orgId ?? null,
           sessionId: persisted.row.sessionId ?? null,
+          insertedRow: verifyRows.rows?.[0] ?? null,
           verifyCount: persistedCount,
           totalRows: totalRows.rows?.[0]?.count ?? null,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const delayedVerify = await db.execute(sql`
+          SELECT id, name, session_id, user_id, created_at
+          FROM gantt_projects
+          WHERE id = ${persisted.row.id}
+        `);
+        console.log("[ganttProjects.save] verify_delayed", {
+          returnedId: persisted.row.id,
+          delayedVerifyCount: delayedVerify.rows?.length ?? 0,
+          delayedRow: delayedVerify.rows?.[0] ?? null,
         });
         if (persistedCount !== 1) {
           throw new Error(`Persistence verification failed for project id ${persisted.row.id}`);
