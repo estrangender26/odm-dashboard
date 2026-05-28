@@ -21,8 +21,15 @@ export function getDb() {
     throw new Error("DATABASE_URL not set");
   }
   
-  // IMPORTANT: always use the exact DATABASE_URL provided by the runtime environment.
-  // Rewriting or falling back to a hardcoded URL can make writes/reads hit a different database.
+  // Keep runtime DATABASE_URL as source of truth, but normalize known
+  // Supabase transaction-pooler URLs (6543) to session-pooler (5432).
+  // This avoids read-after-write lag and connection instability that can
+  // manifest as frontend hangs during initial page data fetches.
+  if (databaseUrl.includes(":6543/")) {
+    const normalized = databaseUrl.replace(":6543/", ":5432/");
+    console.log("[DB] Normalized pooler port 6543 -> 5432");
+    databaseUrl = normalized;
+  }
   
   console.log("[DB] Connecting to database...");
   const client = postgres(databaseUrl, {
@@ -30,6 +37,8 @@ export function getDb() {
     prepare: false,
     max: 1,
     max_lifetime: 600,
+    connect_timeout: 10,
+    idle_timeout: 20,
   });
   
   _db = drizzle(client, { schema });
