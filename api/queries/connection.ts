@@ -12,6 +12,17 @@ let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 const queryCache: Map<string, { data: unknown; ts: number }> = new Map();
 const CACHE_TTL = 30000; // 30 seconds
 
+
+async function logConnectionTest(client: postgres.Sql<{}>, databaseUrl: string): Promise<void> {
+  try {
+    const result = await client`SELECT current_database() AS current_database, current_schema() AS current_schema`;
+    const row = result[0] as { current_database?: string; current_schema?: string } | undefined;
+    console.log(`[DB] Connection test -> current_database=${row?.current_database ?? "unknown"}, current_schema=${row?.current_schema ?? "unknown"}, host=${getConnectionFingerprint(databaseUrl)}`);
+  } catch (err: any) {
+    console.error(`[DB] Connection test failed: ${err?.message ?? String(err)}`);
+  }
+}
+
 function getUrlFingerprint(databaseUrl: string): string {
   return databaseUrl
     .replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@")
@@ -30,32 +41,24 @@ export function getConnectionFingerprint(databaseUrl: string): string {
   }
 }
 
-function normalizeDatabaseUrl(rawDatabaseUrl: string): string {
-  const normalized = rawDatabaseUrl.replace(":6543", ":5432");
-
-  if (normalized.includes(":6543")) {
-    throw new Error("DATABASE_URL still contains transaction pooler port 6543 after normalization");
-  }
-
-  return normalized;
-}
-
-export function getNormalizedDatabaseUrl(): string {
+export function getDatabaseUrl(): string {
   const rawDatabaseUrl = process.env.DATABASE_URL;
   if (!rawDatabaseUrl) {
     console.error("[DB] DATABASE_URL not set!");
     throw new Error("DATABASE_URL not set");
   }
 
-  return normalizeDatabaseUrl(rawDatabaseUrl);
+  return rawDatabaseUrl;
 }
+
+export const getNormalizedDatabaseUrl = getDatabaseUrl;
 
 export function getDb() {
   if (_db) return _db;
 
-  const databaseUrl = getNormalizedDatabaseUrl();
-  console.log(`[DB] Final normalized DATABASE_URL fingerprint: ${getUrlFingerprint(databaseUrl)}`);
-  console.log(`[db] final normalized connection fingerprint: ${getConnectionFingerprint(databaseUrl)}`);
+  const databaseUrl = getDatabaseUrl();
+  console.log(`[DB] DATABASE_URL fingerprint: ${getUrlFingerprint(databaseUrl)}`);
+  console.log(`[DB] Connection fingerprint: ${getConnectionFingerprint(databaseUrl)}`);
 
   console.log("[DB] Connecting to database...");
   const client = postgres(databaseUrl, {
@@ -69,6 +72,7 @@ export function getDb() {
 
   _db = drizzle(client, { schema });
   console.log("[DB] Connected!");
+  void logConnectionTest(client, databaseUrl);
 
   // Run migrations async (fire-and-forget) — getDb must stay synchronous for the Proxy
   const migrationsPath = join(process.cwd(), "db/migrations");
