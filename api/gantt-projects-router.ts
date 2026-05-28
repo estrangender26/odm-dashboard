@@ -1,9 +1,30 @@
 import { z } from "zod";
-import { eq, desc, sql } from "drizzle-orm";
+import { and, eq, desc, sql, isNull } from "drizzle-orm";
+import * as cookie from "cookie";
 import { db } from "./queries/connection";
 import { ganttProjects } from "@db/schema";
 import { publicQuery } from "./middleware";
 import { TRPCError } from "@trpc/server";
+
+const ANON_COOKIE = "gantt_anon_session";
+
+function getOrCreateAnonSession(req: Request, resHeaders: Headers) {
+  const cookies = cookie.parse(req.headers.get("cookie") || "");
+  let anonId = cookies[ANON_COOKIE];
+  if (!anonId) {
+    anonId = crypto.randomUUID();
+    resHeaders.append("set-cookie", cookie.serialize(ANON_COOKIE, anonId, {
+      path: "/", httpOnly: true, sameSite: "lax", maxAge: 60*60*24*365, secure: process.env.NODE_ENV === "production",
+    }));
+  }
+  return anonId;
+}
+
+function buildVisibilityFilter(userId: number | undefined, sessionId: string) {
+  if (userId) return eq(ganttProjects.userId, userId);
+  return and(eq(ganttProjects.sessionId, sessionId), isNull(ganttProjects.userId));
+}
+
 
 export const ganttProjectsRouter = {
   debug: publicQuery.query(async () => {
@@ -57,8 +78,12 @@ export const ganttProjectsRouter = {
   }),
 
   // ── List all projects (name + id + dates only, no tasks_data) ──
-  list: publicQuery.query(async () => {
+  list: publicQuery.query(async ({ ctx }) => {
     try {
+      const userId = ctx.user?.id;
+      const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
+      const visibilityFilter = buildVisibilityFilter(userId, sessionId);
+      console.log("[ganttProjects.list] identity", { userId: userId ?? null, sessionId });
       const rows = await db
         .select({
           id: ganttProjects.id,
@@ -69,7 +94,9 @@ export const ganttProjectsRouter = {
           createdAt: ganttProjects.createdAt,
         })
         .from(ganttProjects)
+        .where(visibilityFilter)
         .orderBy(desc(ganttProjects.updatedAt));
+      console.log("[ganttProjects.list] filters", { userId: userId ?? null, sessionId, count: rows.length });
       return { projects: rows, count: rows.length };
     } catch (err: any) {
       console.error("[ganttProjects.list] error:", err.message);
@@ -81,13 +108,18 @@ export const ganttProjectsRouter = {
   // Defined as mutation so it can be called on-demand from the UI
   get: publicQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
+        const userId = ctx.user?.id;
+        const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
+        const visibilityFilter = buildVisibilityFilter(userId, sessionId);
+        console.log("[ganttProjects.get] identity", { userId: userId ?? null, sessionId, id: input.id });
         const rows = await db
           .select()
           .from(ganttProjects)
-          .where(eq(ganttProjects.id, input.id));
+          .where(and(eq(ganttProjects.id, input.id), visibilityFilter));
         if (!rows.length) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        console.log("[ganttProjects.get] filters", { userId: userId ?? null, sessionId, id: input.id, visible: true });
         return rows[0];
       } catch (err: any) {
         if (err instanceof TRPCError) throw err;
@@ -108,7 +140,9 @@ export const ganttProjectsRouter = {
         createdBy: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.user?.id;
+      const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
       const payloadSize = Buffer.byteLength(
         JSON.stringify({
           name: input.name,
@@ -120,6 +154,8 @@ export const ganttProjectsRouter = {
         "utf8"
       );
       console.log("[ganttProjects.save] start", {
+        userId: userId ?? null,
+        sessionId,
         id: input.id ?? null,
         name: input.name,
         tasksBytes: Buffer.byteLength(input.tasksData || "[]", "utf8"),
@@ -144,14 +180,25 @@ export const ganttProjectsRouter = {
               description TEXT,
               created_by VARCHAR(255),
               updated_by VARCHAR(255),
+              user_id INTEGER,
+              owner_id INTEGER,
+              tenant_id VARCHAR(255),
+              org_id VARCHAR(255),
+              session_id VARCHAR(255),
               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
               updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
           `));
           await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS gantt_projects_name_idx ON gantt_projects(name)`));
         }
+        await db.execute(sql.raw(`ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS user_id INTEGER`));
+        await db.execute(sql.raw(`ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS owner_id INTEGER`));
+        await db.execute(sql.raw(`ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(255)`));
+        await db.execute(sql.raw(`ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS org_id VARCHAR(255)`));
+        await db.execute(sql.raw(`ALTER TABLE gantt_projects ADD COLUMN IF NOT EXISTS session_id VARCHAR(255)`));
 
         const persisted = await db.transaction(async (tx) => {
+          const visibilityFilter = buildVisibilityFilter(userId, sessionId);
           if (input.id) {
             const updated = await tx
               .update(ganttProjects)
@@ -161,9 +208,12 @@ export const ganttProjectsRouter = {
                 linksData: input.linksData ?? null,
                 description: input.description ?? null,
                 updatedBy: input.createdBy ?? null,
+                userId: userId ?? null,
+                ownerId: userId ?? null,
+                sessionId,
                 updatedAt: new Date(),
               })
-              .where(eq(ganttProjects.id, input.id))
+              .where(and(eq(ganttProjects.id, input.id), visibilityFilter))
               .returning();
 
             if (updated.length > 0) {
@@ -180,6 +230,9 @@ export const ganttProjectsRouter = {
               linksData: input.linksData ?? null,
               description: input.description ?? null,
               createdBy: input.createdBy ?? null,
+              userId: userId ?? null,
+              ownerId: userId ?? null,
+              sessionId,
             })
             .returning();
           console.log("[ganttProjects.save] insert result", { rowCount: created.length, id: created[0]?.id ?? null });
@@ -195,6 +248,11 @@ export const ganttProjectsRouter = {
         console.log("[ganttProjects.save] verify", {
           action: persisted.action,
           returnedId: persisted.row.id,
+          userId: persisted.row.userId ?? null,
+          ownerId: persisted.row.ownerId ?? null,
+          tenantId: persisted.row.tenantId ?? null,
+          orgId: persisted.row.orgId ?? null,
+          sessionId: persisted.row.sessionId ?? null,
           verifyCount: persistedCount,
           totalRows: totalRows.rows?.[0]?.count ?? null,
         });
