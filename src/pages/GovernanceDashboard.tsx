@@ -218,9 +218,16 @@ export default function GovernanceDashboard() {
     { enabled: !!activeFacility, refetchInterval: 15000, refetchIntervalInBackground: true }
   );
 
-  // Show query errors in console
-  if (msError) console.error("[GOV] milestoneState error:", msError);
-  if (uploadsError) console.error("[GOV] uploads error:", uploadsError);
+  useEffect(() => {
+    if (msError) {
+      console.error("[GOV] milestoneState error:", msError);
+      setBanner({ type: "error", message: `Failed to load milestone data: ${msError.message}` });
+    }
+    if (uploadsError) {
+      console.error("[GOV] uploads error:", uploadsError);
+      setBanner({ type: "error", message: `Failed to load upload data: ${uploadsError.message}` });
+    }
+  }, [msError, uploadsError]);
 
   // Sync status feedback
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");

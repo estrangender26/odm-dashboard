@@ -48,6 +48,25 @@ const distPath = findDistPublic();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 
+app.use("*", async (c, next) => {
+  const start = Date.now();
+  const path = c.req.path;
+  if (path.startsWith("/api/") || path.startsWith("/api/trpc")) {
+    console.log(`[API] --> ${c.req.method} ${path}`);
+  }
+  try {
+    await next();
+    if (path.startsWith("/api/") || path.startsWith("/api/trpc")) {
+      console.log(`[API] <-- ${c.req.method} ${path} ${c.res.status} (${Date.now() - start}ms)`);
+    }
+  } catch (error: any) {
+    if (path.startsWith("/api/") || path.startsWith("/api/trpc")) {
+      console.error(`[API] xx ${c.req.method} ${path} (${Date.now() - start}ms): ${error?.message ?? String(error)}`);
+    }
+    throw error;
+  }
+});
+
 
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
@@ -128,6 +147,17 @@ app.get("/_health", async (c) => {
         error: e.message
       }
     }, 500);
+  }
+});
+
+app.get("/api/health/db", async (c) => {
+  try {
+    const db = getDb();
+    const rows = await db.execute(sql`SELECT current_database() AS current_database, current_schema() AS current_schema, 1 AS ping`);
+    const row = (rows as any).rows?.[0] ?? (Array.isArray(rows) ? rows[0] : rows);
+    return c.json({ ok: true, ...row });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
   }
 });
 

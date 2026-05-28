@@ -1288,6 +1288,13 @@ export default function GanttPlanner() {
   const { refetch: refetchTasks } = tasksQuery;
   const { refetch: refetchLinks } = linksQuery;
 
+  useEffect(() => {
+    const err = tasksQuery.error || linksQuery.error;
+    if (err) {
+      setBanner({ type: "error", message: `Failed to load Gantt data: ${err.message}` });
+    }
+  }, [tasksQuery.error, linksQuery.error]);
+
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
     onSuccess: () => {
       utils.gantt.tasks.invalidate();

@@ -15,6 +15,8 @@ const queryClient = new QueryClient({
       staleTime: 0,
       refetchOnWindowFocus: true,
       refetchIntervalInBackground: true,
+      retry: 1,
+      retryDelay: 1000,
     },
   },
 });
@@ -23,11 +25,18 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: API_URL,
       transformer: superjson,
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
+      async fetch(input, init) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort("Request timed out"), 15000);
+        try {
+          return await globalThis.fetch(input, {
+            ...(init ?? {}),
+            credentials: "include",
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
       },
     }),
   ],
