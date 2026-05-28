@@ -1,9 +1,7 @@
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import * as schema from "../../db/schema";
-import { join } from "path";
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let _dbReady: Promise<void> | null = null;
@@ -70,19 +68,22 @@ export function getDb() {
     max_lifetime: 600,
     connect_timeout: 10,
     idle_timeout: 20,
+    // Prevent long-hanging queries from blocking all shared requests.
+    connection: {
+      application_name: "odm-dashboard",
+    },
   });
 
   _db = drizzle(client, { schema });
   console.log("[DB] Connected!");
   void logConnectionTest(client, databaseUrl);
 
-  const migrationsPath = join(process.cwd(), "db/migrations");
   _dbReady = (async () => {
-    console.log("[db] running migrations");
-    await migrate(_db!, { migrationsFolder: migrationsPath });
-    // Explicitly verify expected migration artifact table exists after migration run.
-    await _db!.execute(sql`SELECT 1 FROM gantt_projects LIMIT 1`);
-    console.log("[db] migrations complete");
+    // Runtime should not run DDL/migrations; only verify connectivity.
+    await _db!.execute(sql`SELECT 1`);
+    await _db!.execute(sql`SET statement_timeout = '15000'`);
+    await _db!.execute(sql`SET lock_timeout = '5000'`);
+    console.log("[db] connection ready (timeouts configured)");
   })().catch((err: any) => {
     console.error("[DB] Migration/startup verification error:", err.message);
     throw err;

@@ -49,6 +49,20 @@ const distPath = findDistPublic();
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 
 
+app.use("/api/*", async (c, next) => {
+  const started = Date.now();
+  const path = new URL(c.req.url).pathname;
+  console.log(`[API] -> ${c.req.method} ${path}`);
+  try {
+    await next();
+    console.log(`[API] <- ${c.req.method} ${path} ${c.res.status} ${Date.now() - started}ms`);
+  } catch (error: any) {
+    console.error(`[API] !! ${c.req.method} ${path} ${Date.now() - started}ms ${error?.message ?? String(error)}`);
+    throw error;
+  }
+});
+
+
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
 // OAuth authorize — redirects to Kimi login
@@ -128,6 +142,25 @@ app.get("/_health", async (c) => {
         error: e.message
       }
     }, 500);
+  }
+});
+
+
+app.get("/api/db/health", async (c) => {
+  try {
+    const db = getDb();
+    const info = await db.execute(sql`SELECT current_database() AS current_database, current_schema() AS current_schema`);
+    const ping = await db.execute(sql`SELECT 1 AS ok`);
+    const row = ((info as any).rows ?? info)?.[0] ?? {};
+    const pingRow = ((ping as any).rows ?? ping)?.[0] ?? {};
+    return c.json({
+      ok: true,
+      current_database: row.current_database ?? null,
+      current_schema: row.current_schema ?? null,
+      ping: pingRow.ok ?? 1,
+    });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
   }
 });
 
@@ -645,12 +678,23 @@ app.use("/api/trpc/*", cors({
 }));
 
 app.use("/api/trpc/*", async (c) => {
-  return fetchRequestHandler({
-    endpoint: "/api/trpc",
-    req: c.req.raw,
-    router: appRouter,
-    createContext,
-  });
+  const started = Date.now();
+  const url = new URL(c.req.url);
+  const trpcPath = url.searchParams.get("path") ?? "unknown";
+  console.log(`[tRPC] -> ${c.req.method} ${trpcPath}`);
+  try {
+    const response = await fetchRequestHandler({
+      endpoint: "/api/trpc",
+      req: c.req.raw,
+      router: appRouter,
+      createContext,
+    });
+    console.log(`[tRPC] <- ${c.req.method} ${trpcPath} ${response.status} ${Date.now() - started}ms`);
+    return response;
+  } catch (error: any) {
+    console.error(`[tRPC] !! ${c.req.method} ${trpcPath} ${Date.now() - started}ms ${error?.message ?? String(error)}`);
+    throw error;
+  }
 });
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
