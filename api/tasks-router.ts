@@ -221,21 +221,43 @@ export const tasksRouter = createRouter({
       selectedIds: z.array(z.number()).optional(),
     }))
     .query(async ({ input }) => {
-      const q = `SELECT t."id",t."task_list",t."frequency",t."responsible_personnel",t."operations",t."amd",t."ard",e."name" as ename FROM tasks t INNER JOIN equipment e ON t."equipment_id"=e."id" WHERE t."dataset"=$1 ORDER BY e."name",t."id"`;
-      const rows = await db.execute(sql.raw(q, [input.dataset])) as any[];
-      const mapped = rows.map(r => ({
-        equipmentType: r.ename,
-        taskList: r.task_list,
-        frequency: r.frequency,
-        responsiblePersonnel: r.responsible_personnel,
-        operations: r.operations,
-        amd: r.amd,
-        ard: r.ard,
-        procedureFamiliarity: null,
-      }));
-      return input.selectedIds?.length
-        ? mapped.filter(r => input.selectedIds!.includes(r.id))
-        : mapped;
+      const hasCol = await hasFamiliarityCol();
+      const rows = await db
+        .select({
+          id: tasks.id,
+          equipmentCode: equipment.initials,
+          equipmentName: equipment.name,
+          taskList: tasks.taskList,
+          frequency: tasks.frequency,
+          responsiblePersonnel: tasks.responsiblePersonnel,
+          operations: tasks.operations,
+          amd: tasks.amd,
+          ard: tasks.ard,
+          procedureFamiliarity: hasCol ? tasks.procedureFamiliarity : sql<string | null>`null`,
+        })
+        .from(tasks)
+        .innerJoin(equipment, eq(tasks.equipmentId, equipment.id))
+        .where(eq(tasks.dataset, input.dataset))
+        .orderBy(equipment.name, tasks.id);
+
+      const selectedIds = input.selectedIds === undefined ? null : new Set(input.selectedIds);
+      return rows
+        .filter((row) => selectedIds === null || selectedIds.has(row.id))
+        .map((row) => ({
+          id: row.id,
+          equipmentCode: row.equipmentCode,
+          equipmentName: row.equipmentName,
+          equipmentType: row.equipmentName,
+          taskList: row.taskList,
+          frequency: row.frequency,
+          responsiblePersonnel: row.responsiblePersonnel,
+          operations: row.operations,
+          amd: row.amd,
+          ard: row.ard,
+          procedureFamiliarity: row.procedureFamiliarity,
+          systemCategory: null,
+          facilityProgram: input.dataset === "htt" ? "HTT STP" : "Aglipay STP",
+        }));
     }),
 
   import: publicQuery

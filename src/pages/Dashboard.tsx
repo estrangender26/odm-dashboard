@@ -213,6 +213,7 @@ export default function Dashboard() {
   // ── Derived state ──
   const totalTasks = data?.totalTasks ?? 0;
   const totalGroups = data?.groups?.length ?? 0;
+  const allVisibleSelected = totalTasks > 0 && !!data?.groups?.every((g) => g.tasks?.every((t) => selected.has(t.id)));
   const tabLabel = activeTab === "htt" ? "HTT STP" : "Aglipay STP";
 
   // ── Callbacks ──
@@ -284,32 +285,65 @@ export default function Dashboard() {
 
   // ── Export ──
   const handleExport = useCallback(async (selectedOnly: boolean) => {
+    if (selectedOnly && selected.size === 0) {
+      setBanner({ type: "info", message: "Select one or more tasks before using Export Selected." });
+      return;
+    }
+
     try {
+      const selectedIds = selectedOnly ? Array.from(selected) : undefined;
       const result = await utils.tasks.export.fetch({
         dataset: activeTab,
-        selectedIds: selectedOnly && selected.size > 0 ? Array.from(selected) : undefined,
+        selectedIds,
       });
       if (!result?.length) {
-        setBanner({ type: "info", message: "No data to export for the current selection." });
+        setBanner({ type: "info", message: selectedOnly ? "None of the selected tasks were found to export." : "No data to export for this facility." });
         return;
       }
-      const headers = ["Equipment Type", "Task Description", "Frequency", "Responsible Personnel", "Operations", "AMD", "ARD", "Procedure Familiarity"];
-      let csv = headers.map(csvEsc).join(",") + "\n";
-      result.forEach((row: any) => {
-        csv += [row.equipmentType, row.taskList, row.frequency, row.responsiblePersonnel, row.operations, row.amd, row.ard, row.procedureFamiliarity || ""].map(csvEsc).join(",") + "\n";
-      });
-      const blob = new Blob([csv], { type: "text/csv" });
+
+      const headers = [
+        "Facility/Program",
+        "System/Category",
+        "Equipment Code",
+        "Equipment Name",
+        "Task Description",
+        "Frequency",
+        "Responsible Personnel",
+        "Operations",
+        "AMD",
+        "ARD",
+        "Procedure Familiarity",
+      ];
+      const rows = result.map((row: any) => [
+        row.facilityProgram || tabLabel,
+        row.systemCategory || "",
+        row.equipmentCode || "",
+        row.equipmentName || row.equipmentType || "",
+        row.taskList || "",
+        row.frequency || "",
+        row.responsiblePersonnel || "",
+        row.operations || "",
+        row.amd || "",
+        row.ard || "",
+        row.procedureFamiliarity || "",
+      ]);
+      const csv = [headers, ...rows].map((row) => row.map(csvEsc).join(",")).join("\n") + "\n";
+      const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `${activeTab}_${new Date().toISOString().slice(0,10)}.csv`;
+      link.href = url;
+      link.download = `${activeTab}_${selectedOnly ? "selected" : "all"}_${new Date().toISOString().slice(0,10)}.csv`;
+      link.style.display = "none";
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(link.href);
-      setBanner({ type: "success", message: `${result.length} rows exported successfully.` });
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setBanner({ type: "success", message: `${result.length} row${result.length === 1 ? "" : "s"} exported successfully.` });
     } catch (err: any) {
       console.error("Export failed:", err);
       setBanner({ type: "error", message: "Export failed: " + friendlyError(err) });
     }
-  }, [utils.tasks.export, activeTab, selected]);
+  }, [utils.tasks.export, activeTab, selected, tabLabel]);
 
   // ── Import ──
   const handleImport = useCallback((file: File) => {
@@ -340,7 +374,7 @@ export default function Dashboard() {
         return -1;
       };
 
-      const eqIdx = findHeader(["Equipment Type", "Equipment", "equipment_type"]);
+      const eqIdx = findHeader(["Equipment Name", "Equipment Type", "Equipment", "equipment_name", "equipment_type"]);
       const taskIdx = findHeader(["Task Description", "task_description", "Task List", "tasklist"]);
       const opsIdx = findHeader(["Operations", "Ops"]);
       const amdIdx = findHeader(["AMD"]);
@@ -480,7 +514,7 @@ export default function Dashboard() {
         <div className="flex flex-col gap-2 mb-4 p-2 sm:p-3 bg-white border border-gray-200 rounded-lg">
           <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-              <input type="checkbox" checked={selected.size > 0 && data?.groups?.every((g) => g.tasks?.every((t) => selected.has(t.id)))} onChange={() => selected.size > 0 ? deselectAll() : selectAll()} className="w-4 h-4" />
+              <input type="checkbox" checked={allVisibleSelected} onChange={() => allVisibleSelected ? deselectAll() : selectAll()} className="w-4 h-4" />
               <span className="hidden sm:inline">Select All</span>
               <span className="sm:hidden">All</span>
             </label>
