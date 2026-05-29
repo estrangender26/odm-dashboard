@@ -261,27 +261,30 @@ export const tasksRouter = createRouter({
     }),
 
   import: publicQuery
-    .input(z.array(z.object({
-      equipmentType: z.string(),
-      taskList: z.string(),
-      operations: z.string().nullable().optional(),
-      amd: z.string().nullable().optional(),
-      ard: z.string().nullable().optional(),
-      procedureFamiliarity: z.string().nullable().optional(),
-    })))
+    .input(z.object({
+      dataset: z.enum(["htt", "aglipay"]),
+      rows: z.array(z.object({
+        equipmentType: z.string(),
+        taskList: z.string(),
+        operations: z.string().nullable().optional(),
+        amd: z.string().nullable().optional(),
+        ard: z.string().nullable().optional(),
+        procedureFamiliarity: z.string().nullable().optional(),
+      })),
+    }))
     .mutation(async ({ input }) => {
       const hasCol = await hasFamiliarityCol();
       let updated = 0;
       const skipped: Array<{ eq: string; task: string; reason: string }> = [];
 
-      for (const item of input) {
+      for (const item of input.rows) {
         const eqRows = await db.select().from(equipment).where(eq(equipment.name, item.equipmentType)).limit(1);
         if (!eqRows.length) {
           skipped.push({ eq: item.equipmentType, task: item.taskList.slice(0, 50), reason: "Equipment not found" });
           continue;
         }
         const tRows = await db.select().from(tasks)
-          .where(and(eq(tasks.equipmentId, eqRows[0].id), eq(tasks.taskList, item.taskList)))
+          .where(and(eq(tasks.equipmentId, eqRows[0].id), eq(tasks.taskList, item.taskList), eq(tasks.dataset, input.dataset)))
           .limit(1);
         if (!tRows.length) {
           skipped.push({ eq: item.equipmentType, task: item.taskList.slice(0, 50), reason: "Task not found" });
@@ -304,7 +307,7 @@ export const tasksRouter = createRouter({
         }
       }
 
-      return { success: true, updated, total: input.length, skipped: skipped.slice(0, 10) };
+      return { success: true, updated, total: input.rows.length, skipped: skipped.slice(0, 10) };
     }),
 
   familiaritySummary: publicQuery
