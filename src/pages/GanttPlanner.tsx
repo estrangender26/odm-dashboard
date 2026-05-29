@@ -432,7 +432,7 @@ function GanttToolbar({
         <MenuBtn label="Project" icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>} menuKey="project">
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#005BAC" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>} label="Open" onClick={onOpen} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#005BAC" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>} label="Save As" onClick={onSaveAs} />
-          {currentProjectId && <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>} label="Close" onClick={onClose} />}
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>} label="Close" onClick={onClose} />
         </MenuBtn>
 
         {sep}
@@ -490,7 +490,7 @@ function GanttToolbar({
           <Mmi label="Migrate DB" onClick={() => { onMigrate(); setMobileMenuOpen(false); }} />
           <Mmi label="Reset Data" onClick={() => { if (confirm("Delete all Gantt data?")) { onReset(); setMobileMenuOpen(false); } }} />
           <Mmi label="Load Demo" onClick={() => { onLoadDemo(); setMobileMenuOpen(false); }} />
-          {currentProjectId && <Mmi label="Close Project" onClick={() => { onClose(); setMobileMenuOpen(false); }} />}
+          <Mmi label="Close Project" onClick={() => { onClose(); setMobileMenuOpen(false); }} />
         </div>
       )}
     </div>
@@ -1920,24 +1920,54 @@ export default function GanttPlanner() {
   /* Close project */
   const handleClose = useCallback(async () => {
     const currentTasks = tasksQuery.data || [];
-    if (hasUnsavedChanges && currentTasks.length > 0) {
-      const choice = window.confirm("You have unsaved changes.\n\nOK = Save before closing\nCancel = Don't save and close");
-      if (choice) { handleSave(); return; }
+    const currentLinks = linksQuery.data || [];
+    const hasSessionData = currentTasks.length > 0 || currentLinks.length > 0 || currentProjectId !== null || !!currentProjectName || !!importSourceName;
+    const shouldConfirmDiscard = hasUnsavedChanges || (currentProjectId === null && (currentTasks.length > 0 || currentLinks.length > 0));
+
+    if (shouldConfirmDiscard && !window.confirm("Discard unsaved changes?")) return;
+
+    setSaveModal(false);
+    setLoadModal(false);
+    setRenamingId(null);
+    setRenameValue("");
+    setCurrentProjectId(null);
+    setCurrentProjectName("");
+    setProjectName("");
+    setImportSourceName("");
+    setHasUnsavedChanges(false);
+    lastSavedJsonRef.current = "";
+    localStorage.removeItem("gantt_current_project");
+
+    setSelectedTaskId(null);
+    setSelectedIds(new Set());
+    setExpandedIds(new Set());
+    lastSelectedRef.current = null;
+    setMultiSelectMode(false);
+    setEditingId(null);
+    setShowAdd(false);
+    setForm(EMPTY_FORM);
+    setTaskList([]);
+    setActiveTab("gantt");
+    setLinkModalOpen(false);
+    setLinkType("0");
+    setLinkLag(0);
+    setDepEditorOpen(false);
+    setDepEditorTask(null);
+    setKpi({ totalTasks: 0, completed: 0, inProgress: 0, overdue: 0, completionRate: 0, avgDuration: 0 });
+
+    if (!hasSessionData) {
+      setBanner({ type: "info", message: "Project closed." });
+      return;
     }
-    setCurrentProjectId(null); setCurrentProjectName(""); setImportSourceName(""); setHasUnsavedChanges(false);
-    lastSavedJsonRef.current = ""; localStorage.removeItem("gantt_current_project");
-    setSelectedTaskId(null); setSelectedIds(new Set());
-    setEditingId(null); setShowAdd(false); setForm(EMPTY_FORM);
+
     setBanner({ type: "info", message: "Project closed — clearing data..." });
     try {
       await resetMut.mutateAsync(undefined);
-      /* Force clear UI immediately */
-      setTaskList([]);
       await utils.gantt.tasks.invalidate();
       await utils.gantt.links.invalidate();
       setBanner({ type: "info", message: "Project closed." });
     } catch (e) { setBanner({ type: "error", message: "Close failed — refresh the page." }); }
-  }, [hasUnsavedChanges, tasksQuery.data, handleSave, resetMut, utils]);
+  }, [currentProjectId, currentProjectName, hasUnsavedChanges, importSourceName, linksQuery.data, resetMut, tasksQuery.data, utils]);
 
   /* Open project with unsaved guard */
   const handleOpenClick = useCallback(() => {
