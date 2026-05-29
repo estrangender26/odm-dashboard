@@ -25,7 +25,7 @@ import {
   exportTemplate, exportCSV, exportExcel, parseImportFile, parseImportRow,
 } from "@/modules/gantt/engine/persistenceEngine";
 import {
-  buildHierarchyPayload, computeWbsLevel,
+  buildHierarchyPayload, computeWbsLevel, computeWbsLevelMap, calcIndent, calcOutdent, getAncestorIds, validateParentAssignment,
 } from "@/modules/gantt/engine/hierarchyEngine";
 import {
   isParent, isFieldEditable,
@@ -1447,6 +1447,7 @@ export default function GanttPlanner() {
           const idMap = new Map<number, number>(); // oldId → newId
           for (const [idx, t] of parsed.entries()) {
             const result = await saveTaskMut.mutateAsync({
+              frontend_task_uid: t.frontendTaskUid || t.frontend_task_uid || generateUid(),
               text: t.text || "", owner: t.owner || null,
               start_date: t.startDate || t.start_date || null,
               end_date: t.endDate || t.end_date || null,
@@ -1468,7 +1469,7 @@ export default function GanttPlanner() {
             const newId = idMap.get(t.id);
             const oldParent = t.parent || 0;
             const newParent = oldParent > 0 ? (idMap.get(oldParent) || 0) : 0;
-            const wbsLevel = computeWbsLevel(t.id ?? 0, parsed, newParent);
+            const wbsLevel = computeWbsLevel(t.id ?? 0, parsed, oldParent);
             if (newId && (newParent !== 0 || oldParent === 0)) {
               await saveTaskMut.mutateAsync({
                 id: newId,
@@ -1480,6 +1481,7 @@ export default function GanttPlanner() {
                 duration: t.duration || 1, progress: normProgress(t.progress),
                 wbs_level: wbsLevel,
                 parent: newParent,
+                parent_task_id: newParent,
                 type: t.type || "task",
                 status: t.status || null, remarks: t.remarks || t.notes || null,
                 category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? 0,
@@ -1507,6 +1509,11 @@ export default function GanttPlanner() {
           }
           await utils.gantt.tasks.invalidate();
           await utils.gantt.links.invalidate();
+          setSelectedTaskId(null);
+          setSelectedIds(new Set());
+          setEditingId(null);
+          setShowAdd(false);
+          setForm(EMPTY_FORM);
           setBanner({ type: "success", message: `Loaded "${data.name}" — ${parsed.length} task(s).` });
           setCurrentProjectId(data.id);
           setCurrentProjectName(data.name);
@@ -1607,6 +1614,23 @@ export default function GanttPlanner() {
     setTaskList(tasksQuery.data);
   }, [tasksQuery.data]);
 
+  /* Clear stale selections/editing when refetched hierarchy no longer contains those tasks. */
+  useEffect(() => {
+    if (!tasksQuery.data) return;
+    const liveIds = new Set(tasksQuery.data.map((t: any) => t.id));
+    if (selectedTaskId && !liveIds.has(selectedTaskId)) setSelectedTaskId(null);
+    setSelectedIds(prev => {
+      const next = new Set(Array.from(prev).filter(id => liveIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+    if (editingId && !liveIds.has(editingId)) {
+      setEditingId(null);
+      setShowAdd(false);
+      setForm(EMPTY_FORM);
+      setBanner({ type: "info", message: "Selection was cleared because the task hierarchy changed." });
+    }
+  }, [tasksQuery.data, selectedTaskId, editingId]);
+
   /* ── BUG #8 FIX: Auto-clear unsaved flag when refetched data matches DB ── */
   useEffect(() => {
     if (!tasksQuery.data || tasksQuery.isFetching) return;
@@ -1670,37 +1694,149 @@ export default function GanttPlanner() {
     });
   }, [saveTaskMut]);
 
-  /* Indent selected task */
-  const handleIndent = useCallback(() => {
-    if (!selectedTaskId || !tasksQuery.data) return;
-    const all = tasksQuery.data;
-    const idx = all.findIndex((t: any) => t.id === selectedTaskId);
-    if (idx <= 0) { setBanner({ type: "info", message: "Cannot indent the first task." }); return; }
-    const target = all[idx];
-    const above = all[idx - 1];
-    if (target.parent === above.id) { setBanner({ type: "info", message: "Already indented under this task." }); return; }
-    const newParent = above.type === "project" || above.parent === 0 ? above.id : above.parent || above.id;
-    saveTaskMut.mutate(buildHierarchyPayload(target, newParent, all), {
-      onSuccess: () => { refetchTasks().then(() => recalcAndSaveParent(newParent, all)); }
-    });
-    setBanner({ type: "success", message: `"${target.text}" indented under "${above.text}".` });
-  }, [selectedTaskId, tasksQuery.data, saveTaskMut, recalcAndSaveParent, refetchTasks]);
+  const saveHierarchyState = useCallback(async (nextTasks: any[], touchedParentIds: number[]) => {
+    const wbsLevels = computeWbsLevelMap(nextTasks);
+    const hierarchyUpdates = nextTasks
+      .filter((task: any) => task.__hierarchyDirty || (task.wbs_level ?? task.wbsLevel ?? 0) !== wbsLevels.get(task.id))
+      .map((task: any) => ({
+        id: task.id,
+        parent: task.parent || 0,
+        parent_task_id: task.parent || 0,
+        wbs_level: wbsLevels.get(task.id) || 1,
+      }));
 
-  /* Outdent selected task */
-  const handleOutdent = useCallback(() => {
-    if (!selectedTaskId || !tasksQuery.data) return;
+    for (const payload of hierarchyUpdates) {
+      await saveTaskMut.mutateAsync(payload);
+    }
+
+    const rolled = recalculateParentRollups(nextTasks.map(({ __hierarchyDirty, ...task }: any) => task));
+    const changedParents = getChangedParents(rolled, nextTasks);
+    for (const parent of changedParents) {
+      await saveTaskMut.mutateAsync({
+        id: parent.id, text: parent.text, owner: parent.owner || null,
+        start_date: parent.startDate || null, end_date: parent.endDate || null,
+        planned_start: parent.plannedStart || null, planned_finish: parent.plannedEnd || null,
+        duration: parent.duration || 1, progress: normProgress(parent.progress),
+        parent: parent.parent || 0, type: parent.type || "project",
+        status: parent.status || null, remarks: parent.remarks || null,
+        category: (parent as any).category || null,
+        open: (parent as any).open ?? 1, sortorder: (parent as any).sortorder ?? 0,
+      });
+    }
+
+    await utils.gantt.tasks.invalidate();
+    const fresh = await refetchTasks();
+    setTaskList(fresh.data || []);
+    return fresh.data || [];
+  }, [saveTaskMut, utils, refetchTasks]);
+
+  const getHierarchySelection = useCallback((): number[] => {
+    const chosen = selectedIds.size > 0 ? Array.from(selectedIds) : (selectedTaskId ? [selectedTaskId] : []);
+    const order = new Map((tasksQuery.data || []).map((t: any, index: number) => [t.id, index]));
+    return chosen.filter(id => order.has(id)).sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+  }, [selectedIds, selectedTaskId, tasksQuery.data]);
+
+  const validateMultiHierarchySelection = useCallback((ids: number[], all: any[]): string | null => {
+    for (const id of ids) {
+      const ancestors = getAncestorIds(id, all);
+      if (ids.some(other => other !== id && ancestors.has(other))) {
+        return "Multi-select hierarchy changes cannot include both a parent and its child.";
+      }
+    }
+    return null;
+  }, []);
+
+  /* Indent selected task(s): hierarchy only; dependencies are intentionally untouched. */
+  const handleIndent = useCallback(async () => {
+    if (!tasksQuery.data) return;
     const all = tasksQuery.data;
-    const target = all.find((t: any) => t.id === selectedTaskId);
-    if (!target) return;
-    if (!target.parent || target.parent === 0) { setBanner({ type: "info", message: "Already at root level." }); return; }
-    const parentTask = all.find((t: any) => t.id === target.parent);
-    const newParent = parentTask?.parent || 0;
-    const oldParentId = target.parent;
-    saveTaskMut.mutate(buildHierarchyPayload(target, newParent, all), {
-      onSuccess: () => { refetchTasks().then(() => recalcAndSaveParent(oldParentId, all)); }
-    });
-    setBanner({ type: "success", message: `"${target.text}" outdented to ${newParent === 0 ? "root" : "parent"} level.` });
-  }, [selectedTaskId, tasksQuery.data, saveTaskMut, recalcAndSaveParent, refetchTasks]);
+    const selected = getHierarchySelection();
+    if (selected.length === 0) { setBanner({ type: "error", message: "Select a task to indent." }); return; }
+    const multiError = validateMultiHierarchySelection(selected, all);
+    if (multiError) { setBanner({ type: "error", message: multiError }); return; }
+
+    try {
+      let nextTasks = all.map((t: any) => ({ ...t }));
+      const touchedParents = new Set<number>();
+
+      if (selected.length === 1) {
+        const result = calcIndent(selected[0], nextTasks);
+        if (!result) { setBanner({ type: "error", message: "Cannot indent this task. Select a task below a valid parent candidate." }); return; }
+        const validation = validateParentAssignment(result.targetTask.id, result.newParent, nextTasks);
+        if (!validation.valid) { setBanner({ type: "error", message: validation.message || "Invalid indent." }); return; }
+        touchedParents.add(result.oldParentId || 0); touchedParents.add(result.newParent);
+        nextTasks = nextTasks.map((task: any) => task.id === result.targetTask.id ? { ...task, parent: result.newParent, __hierarchyDirty: true } : task);
+        setExpandedIds(prev => { const n = new Set(prev); n.add(result.newParent); return n; });
+        await saveHierarchyState(nextTasks, Array.from(touchedParents).filter(Boolean));
+        setBanner({ type: "success", message: `"${result.targetTask.text}" indented under "${result.aboveTask?.text}".` });
+        return;
+      }
+
+      const selectedTasks = selected.map(id => nextTasks.find((t: any) => t.id === id)).filter(Boolean);
+      const parentId = selectedTasks[0]?.parent || 0;
+      if (!selectedTasks.every((task: any) => (task.parent || 0) === parentId)) {
+        setBanner({ type: "error", message: "Multi-select indent requires tasks with the same current parent." });
+        return;
+      }
+      const firstIndex = nextTasks.findIndex((t: any) => t.id === selected[0]);
+      const newParentTask = firstIndex > 0 ? nextTasks[firstIndex - 1] : null;
+      if (!newParentTask || selected.includes(newParentTask.id) || (newParentTask.parent || 0) !== parentId) {
+        setBanner({ type: "error", message: "Multi-select indent requires an unselected sibling immediately above the selection." });
+        return;
+      }
+      for (const taskId of selected) {
+        const validation = validateParentAssignment(taskId, newParentTask.id, nextTasks);
+        if (!validation.valid) { setBanner({ type: "error", message: validation.message || "Invalid indent." }); return; }
+      }
+      touchedParents.add(parentId); touchedParents.add(newParentTask.id);
+      nextTasks = nextTasks.map((task: any) => selected.includes(task.id) ? { ...task, parent: newParentTask.id, __hierarchyDirty: true } : task);
+      setExpandedIds(prev => { const n = new Set(prev); n.add(newParentTask.id); return n; });
+      await saveHierarchyState(nextTasks, Array.from(touchedParents).filter(Boolean));
+      setBanner({ type: "success", message: `${selected.length} task(s) indented under "${newParentTask.text}".` });
+    } catch (e: any) {
+      setBanner({ type: "error", message: "Indent failed: " + (e?.message || "Unknown error") });
+    }
+  }, [tasksQuery.data, getHierarchySelection, validateMultiHierarchySelection, saveHierarchyState]);
+
+  /* Outdent selected task(s): hierarchy only; dependencies are intentionally untouched. */
+  const handleOutdent = useCallback(async () => {
+    if (!tasksQuery.data) return;
+    const all = tasksQuery.data;
+    const selected = getHierarchySelection();
+    if (selected.length === 0) { setBanner({ type: "error", message: "Select a task to outdent." }); return; }
+    const multiError = validateMultiHierarchySelection(selected, all);
+    if (multiError) { setBanner({ type: "error", message: multiError }); return; }
+
+    try {
+      let nextTasks = all.map((t: any) => ({ ...t }));
+      const selectedTasks = selected.map(id => nextTasks.find((t: any) => t.id === id)).filter(Boolean);
+      if (selectedTasks.some((task: any) => !task.parent)) {
+        setBanner({ type: "error", message: "Cannot outdent root-level task(s)." });
+        return;
+      }
+      if (selected.length > 1) {
+        const parentId = selectedTasks[0]?.parent || 0;
+        if (!selectedTasks.every((task: any) => (task.parent || 0) === parentId)) {
+          setBanner({ type: "error", message: "Multi-select outdent requires tasks with the same current parent." });
+          return;
+        }
+      }
+
+      const touchedParents = new Set<number>();
+      for (const taskId of selected) {
+        const result = calcOutdent(taskId, nextTasks);
+        if (!result) { setBanner({ type: "error", message: "Cannot outdent root-level task(s)." }); return; }
+        const validation = validateParentAssignment(result.targetTask.id, result.newParent, nextTasks);
+        if (!validation.valid) { setBanner({ type: "error", message: validation.message || "Invalid outdent." }); return; }
+        touchedParents.add(result.oldParentId || 0); touchedParents.add(result.newParent);
+        nextTasks = nextTasks.map((task: any) => task.id === result.targetTask.id ? { ...task, parent: result.newParent, __hierarchyDirty: true } : task);
+      }
+      await saveHierarchyState(nextTasks, Array.from(touchedParents).filter(Boolean));
+      setBanner({ type: "success", message: selected.length === 1 ? `"${selectedTasks[0].text}" outdented.` : `${selected.length} task(s) outdented.` });
+    } catch (e: any) {
+      setBanner({ type: "error", message: "Outdent failed: " + (e?.message || "Unknown error") });
+    }
+  }, [tasksQuery.data, getHierarchySelection, validateMultiHierarchySelection, saveHierarchyState]);
 
   /* Save project (update existing) */
   const handleSave = useCallback(async () => {
@@ -2017,6 +2153,14 @@ export default function GanttPlanner() {
     if (_actualEnd && _progress === 0 && !_status) finalProgress = 100;
 
     const allTasks = tasksQuery.data || [];
+    if (_editingId && _parent > 0) {
+      const validation = validateParentAssignment(_editingId, _parent, allTasks);
+      if (!validation.valid) {
+        setIsSaving(false);
+        setBanner({ type: "error", message: validation.message || "Invalid parent assignment." });
+        return;
+      }
+    }
     const wbsLevel = computeWbsLevel(_editingId ?? 0, allTasks, _parent);
 
     /* ── PHASE 1: Save task with clean payload ── */
