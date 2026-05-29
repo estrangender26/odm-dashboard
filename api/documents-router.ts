@@ -16,55 +16,150 @@ interface TreeFolder {
 }
 type TreeFileRow = Pick<typeof docFiles.$inferSelect, "id" | "folderId" | "title" | "fileName" | "fileType" | "fileSize" | "revision" | "uploadedAt">;
 
+// ── Helpers: hierarchy validation and recursive tree safety ──
+function normalizeFolderName(name: string): string {
+  return name.trim();
+}
+
+function getFolderById(allFolders: typeof docFolders.$inferSelect[], folderId: number) {
+  return allFolders.find((folder) => folder.id === folderId) ?? null;
+}
+
+function getSafeParentId(
+  folder: typeof docFolders.$inferSelect,
+  folderById: Map<number, typeof docFolders.$inferSelect>
+): number | null {
+  if (folder.parentId === null) return null;
+  if (folder.parentId === folder.id) return null;
+  if (!folderById.has(folder.parentId)) return null;
+
+  const seen = new Set<number>([folder.id]);
+  let currentParentId: number | null = folder.parentId;
+  while (currentParentId !== null) {
+    if (seen.has(currentParentId)) return null;
+    seen.add(currentParentId);
+    const parent = folderById.get(currentParentId);
+    if (!parent) return null;
+    currentParentId = parent.parentId;
+  }
+
+  return folder.parentId;
+}
+
 // ── Helper: build recursive tree ──
 function buildTree(
   allFolders: typeof docFolders.$inferSelect[],
   allFiles: TreeFileRow[],
   parentId: number | null = null
 ): TreeFolder[] {
-  const validFolderIds = new Set(allFolders.map((f) => f.id));
+  const folderById = new Map(allFolders.map((folder) => [folder.id, folder] as const));
+  const safeParentByFolderId = new Map<number, number | null>();
+  for (const folder of allFolders) {
+    safeParentByFolderId.set(folder.id, getSafeParentId(folder, folderById));
+  }
+
   const folderChildrenByParentId = new Map<number | null, typeof docFolders.$inferSelect[]>();
   for (const folder of allFolders) {
-    const key = folder.parentId !== null && validFolderIds.has(folder.parentId) ? folder.parentId : null;
-    if (!folderChildrenByParentId.has(key)) folderChildrenByParentId.set(key, []);
-    folderChildrenByParentId.get(key)!.push(folder);
+    const safeParentId = safeParentByFolderId.get(folder.id) ?? null;
+    if (!folderChildrenByParentId.has(safeParentId)) folderChildrenByParentId.set(safeParentId, []);
+    folderChildrenByParentId.get(safeParentId)!.push(folder);
   }
-  const filesByFolderId = new Map<number, typeof docFiles.$inferSelect[]>();
+
+  const filesByFolderId = new Map<number, TreeFileRow[]>();
   for (const file of allFiles) {
+    if (!folderById.has(file.folderId)) {
+      console.warn(`[docTree] Skipping orphan file id=${file.id}; missing folderId=${file.folderId}`);
+      continue;
+    }
     if (!filesByFolderId.has(file.folderId)) filesByFolderId.set(file.folderId, []);
     filesByFolderId.get(file.folderId)!.push(file);
   }
-  function walk(currentParentId: number | null): TreeFolder[] {
+
+  function walk(currentParentId: number | null, visited: Set<number>): TreeFolder[] {
     const folders = folderChildrenByParentId.get(currentParentId) ?? [];
-  folders.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
-    return folders.map((f) => ({
-      id: f.id,
-      name: f.name,
-      parentId: f.parentId,
-      sortOrder: f.sortOrder ?? 0,
-      children: walk(f.id),
-      files: (filesByFolderId.get(f.id) ?? []).map((file) => ({
-        id: file.id,
-        title: file.title,
-        fileName: file.fileName,
-        fileType: file.fileType,
-        fileSize: file.fileSize,
-        revision: file.revision,
-        uploadedAt: file.uploadedAt,
-      })),
-    }));
+    folders.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
+    return folders.flatMap((folder) => {
+      if (visited.has(folder.id)) {
+        console.warn(`[docTree] Skipping cyclic folder id=${folder.id}`);
+        return [];
+      }
+
+      const nextVisited = new Set(visited);
+      nextVisited.add(folder.id);
+      return [{
+        id: folder.id,
+        name: folder.name,
+        parentId: safeParentByFolderId.get(folder.id) ?? null,
+        sortOrder: folder.sortOrder ?? 0,
+        children: walk(folder.id, nextVisited),
+        files: (filesByFolderId.get(folder.id) ?? []).map((file) => ({
+          id: file.id,
+          title: file.title,
+          fileName: file.fileName,
+          fileType: file.fileType,
+          fileSize: file.fileSize,
+          revision: file.revision,
+          uploadedAt: file.uploadedAt,
+        })),
+      }];
+    });
   }
-  return walk(parentId);
+
+  return walk(parentId, new Set<number>());
 }
 
-// ── Helper: collect all descendant IDs (for move validation) ──
+// ── Helper: collect all descendant IDs safely (for move/delete validation) ──
 function getDescendantIds(allFolders: typeof docFolders.$inferSelect[], folderId: number): number[] {
-  const children = allFolders.filter((f) => f.parentId === folderId).map((f) => f.id);
-  const descendants: number[] = [...children];
-  for (const childId of children) {
-    descendants.push(...getDescendantIds(allFolders, childId));
+  const childrenByParentId = new Map<number, number[]>();
+  for (const folder of allFolders) {
+    if (folder.parentId === null) continue;
+    if (!childrenByParentId.has(folder.parentId)) childrenByParentId.set(folder.parentId, []);
+    childrenByParentId.get(folder.parentId)!.push(folder.id);
   }
+
+  const descendants: number[] = [];
+  const visited = new Set<number>([folderId]);
+  const stack = [...(childrenByParentId.get(folderId) ?? [])];
+
+  while (stack.length > 0) {
+    const childId = stack.pop()!;
+    if (visited.has(childId)) continue;
+    visited.add(childId);
+    descendants.push(childId);
+    stack.push(...(childrenByParentId.get(childId) ?? []));
+  }
+
   return descendants;
+}
+
+async function loadFoldersForValidation() {
+  return db.select().from(docFolders);
+}
+
+async function assertFolderExists(folderId: number, message = "Folder not found") {
+  const rows = await db.select({ id: docFolders.id }).from(docFolders).where(eq(docFolders.id, folderId));
+  if (!rows.length) throw new TRPCError({ code: "NOT_FOUND", message });
+}
+
+async function assertFileExists(fileId: number, message = "File not found") {
+  const rows = await db.select({ id: docFiles.id }).from(docFiles).where(eq(docFiles.id, fileId));
+  if (!rows.length) throw new TRPCError({ code: "NOT_FOUND", message });
+}
+
+function validateFolderParent(
+  allFolders: typeof docFolders.$inferSelect[],
+  folderId: number | null,
+  parentId: number | null
+) {
+  if (parentId === null) return;
+  const parent = getFolderById(allFolders, parentId);
+  if (!parent) throw new TRPCError({ code: "BAD_REQUEST", message: "Parent folder not found" });
+  if (folderId !== null && parentId === folderId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot make a folder its own parent" });
+  }
+  if (folderId !== null && getDescendantIds(allFolders, folderId).includes(parentId)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot move a folder into its own descendant" });
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -93,12 +188,17 @@ export const documentsRouter = {
       }).from(docFiles);
 
       const folderById = new Map(allFolders.map((f) => [f.id, f] as const));
+      const safeParentByFolderId = new Map(allFolders.map((f) => [f.id, getSafeParentId(f, folderById)] as const));
       const buildPath = (folderId: number) => {
         const parts: string[] = [];
         let curr = folderById.get(folderId) || null;
+        const visited = new Set<number>();
         while (curr) {
+          if (visited.has(curr.id)) break;
+          visited.add(curr.id);
           parts.unshift(curr.name);
-          curr = curr.parentId ? (folderById.get(curr.parentId) || null) : null;
+          const safeParentId = safeParentByFolderId.get(curr.id) ?? null;
+          curr = safeParentId !== null ? (folderById.get(safeParentId) || null) : null;
         }
         return parts;
       };
@@ -225,16 +325,21 @@ export const documentsRouter = {
       })
     )
     .mutation(async ({ input }) => {
-      console.log(`[api/createFolder] name="${input.name}", parentId=${input.parentId ?? "null (root)"}`);
+      const name = normalizeFolderName(input.name);
+      const parentId = input.parentId ?? null;
+      console.log(`[api/createFolder] name="${name}", parentId=${parentId ?? "null (root)"}`);
       try {
+        if (!name) throw new TRPCError({ code: "BAD_REQUEST", message: "Folder name is required" });
+        validateFolderParent(await loadFoldersForValidation(), null, parentId);
         const result = await db.insert(docFolders).values({
-          name: input.name,
-          parentId: input.parentId ?? null,
+          name,
+          parentId,
           sortOrder: 0,
         }).returning();
         console.log(`[api/createFolder] Inserted: id=${result[0].id}, name="${result[0].name}", parentId=${result[0].parentId ?? "null"}`);
         return result[0];
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[api/createFolder] Error:", err.message, err.code, err.detail);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Failed to create folder: ${err.message}` });
       }
@@ -245,9 +350,11 @@ export const documentsRouter = {
     .input(z.object({ id: z.number(), name: z.string().min(1).max(255) }))
     .mutation(async ({ input }) => {
       try {
+        const name = normalizeFolderName(input.name);
+        if (!name) throw new TRPCError({ code: "BAD_REQUEST", message: "Folder name is required" });
         const result = await db
           .update(docFolders)
-          .set({ name: input.name, updatedAt: new Date() })
+          .set({ name, updatedAt: new Date() })
           .where(eq(docFolders.id, input.id))
           .returning();
         if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
@@ -264,23 +371,24 @@ export const documentsRouter = {
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       try {
-        const allFolders = await db.select().from(docFolders);
+        const allFolders = await loadFoldersForValidation();
         if (!allFolders.some((f) => f.id === input.id)) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
         }
         const descendants = getDescendantIds(allFolders, input.id);
         const allIds = [input.id, ...descendants];
 
-        // Delete all files in these folders
-        const deletedFiles = await db
-          .delete(docFiles)
-          .where(inArray(docFiles.folderId, allIds))
-          .returning({ id: docFiles.id });
-        // Delete folders (descendants first)
-        for (const folderId of [...descendants].reverse()) {
-          await db.delete(docFolders).where(eq(docFolders.id, folderId));
-        }
-        await db.delete(docFolders).where(eq(docFolders.id, input.id));
+        const deletedFiles = await db.transaction(async (tx) => {
+          // Break folder-to-folder references inside the delete set first so a
+          // previously corrupted cycle cannot leave a partially deleted tree.
+          await tx.update(docFolders).set({ parentId: null, updatedAt: new Date() }).where(inArray(docFolders.id, allIds));
+          const files = await tx
+            .delete(docFiles)
+            .where(inArray(docFiles.folderId, allIds))
+            .returning({ id: docFiles.id });
+          await tx.delete(docFolders).where(inArray(docFolders.id, allIds));
+          return files;
+        });
         return { success: true, deletedFolderIds: allIds, deletedFileIds: deletedFiles.map((f) => f.id), deletedCount: allIds.length };
       } catch (err: any) {
         if (err instanceof TRPCError) throw err;
@@ -294,16 +402,12 @@ export const documentsRouter = {
     .input(z.object({ id: z.number(), parentId: z.number().nullable() }))
     .mutation(async ({ input }) => {
       try {
-        // Prevent circular reference
-        if (input.parentId !== null) {
-          const allFolders = await db.select().from(docFolders);
-          const descendants = getDescendantIds(allFolders, input.id);
-          if (descendants.includes(input.parentId)) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot move a folder into its own descendant" });
-          }
-        }
-        await db.update(docFolders).set({ parentId: input.parentId, updatedAt: new Date() }).where(eq(docFolders.id, input.id));
-        return { success: true };
+        const allFolders = await loadFoldersForValidation();
+        if (!getFolderById(allFolders, input.id)) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
+        validateFolderParent(allFolders, input.id, input.parentId);
+        const result = await db.update(docFolders).set({ parentId: input.parentId, updatedAt: new Date() }).where(eq(docFolders.id, input.id)).returning();
+        if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
+        return { success: true, folder: result[0] };
       } catch (err: any) {
         if (err instanceof TRPCError) throw err;
         console.error("[moveFolder] Error:", err.message);
@@ -330,6 +434,7 @@ export const documentsRouter = {
     )
     .mutation(async ({ input }) => {
       try {
+        await assertFolderExists(input.folderId, "Upload target folder not found");
         const result = await db.insert(docFiles).values({
           folderId: input.folderId,
           title: input.title,
@@ -345,6 +450,7 @@ export const documentsRouter = {
         }).returning();
         return result[0];
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[uploadFile] Error:", err.message);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to upload file" });
       }
@@ -370,9 +476,11 @@ export const documentsRouter = {
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       try {
-        await db.delete(docFiles).where(eq(docFiles.id, input.id));
-        return { success: true };
+        const result = await db.delete(docFiles).where(eq(docFiles.id, input.id)).returning({ id: docFiles.id });
+        if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "File not found" });
+        return { success: true, deletedFileId: result[0].id };
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[deleteFile] Error:", err.message);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to delete file" });
       }
@@ -383,9 +491,13 @@ export const documentsRouter = {
     .input(z.object({ id: z.number(), title: z.string().min(1).max(500) }))
     .mutation(async ({ input }) => {
       try {
-        await db.update(docFiles).set({ title: input.title, updatedAt: new Date() }).where(eq(docFiles.id, input.id));
-        return { success: true };
+        const title = input.title.trim();
+        if (!title) throw new TRPCError({ code: "BAD_REQUEST", message: "Document title is required" });
+        const result = await db.update(docFiles).set({ title, updatedAt: new Date() }).where(eq(docFiles.id, input.id)).returning();
+        if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "File not found" });
+        return { success: true, file: result[0] };
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[renameFile] Error:", err.message);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to rename file" });
       }
@@ -396,9 +508,13 @@ export const documentsRouter = {
     .input(z.object({ id: z.number(), folderId: z.number() }))
     .mutation(async ({ input }) => {
       try {
-        await db.update(docFiles).set({ folderId: input.folderId, updatedAt: new Date() }).where(eq(docFiles.id, input.id));
-        return { success: true };
+        await assertFolderExists(input.folderId, "Destination folder not found");
+        await assertFileExists(input.id);
+        const result = await db.update(docFiles).set({ folderId: input.folderId, updatedAt: new Date() }).where(eq(docFiles.id, input.id)).returning();
+        if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "File not found" });
+        return { success: true, file: result[0] };
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[moveFile] Error:", err.message);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to move file" });
       }

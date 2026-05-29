@@ -572,10 +572,11 @@ export default function OmManualsLibrary() {
 
   // ── Fetch tree ──
   const { data: treeData, isLoading, error: treeError } = trpc.documents.getTree.useQuery(undefined, {
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    staleTime: 0,
+    gcTime: 30_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
   const tree = treeData?.tree || [];
   const { data: aiContext } = trpc.documents.getAiContext.useQuery({ includeSample: true }, {
@@ -645,6 +646,7 @@ export default function OmManualsLibrary() {
     console.log(`[OM] Refreshing tree after: ${action}`);
     try {
       await utils.documents.getTree.invalidate();
+      await utils.documents.getAiContext.invalidate();
       const fresh = await utils.documents.getTree.fetch();
       console.log(`[OM] Tree refreshed. Folders: ${fresh?.tree?.length ?? 0}, total items: ${fresh?.count ?? 0}`);
       return fresh;
@@ -657,9 +659,9 @@ export default function OmManualsLibrary() {
   // ── Mutations ──
   const createFolder = trpc.documents.createFolder.useMutation({
     onMutate: (vars) => { console.log(`[OM] Creating folder: name="${vars.name}", parentId=${vars.parentId ?? "null (root)"}`); },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       console.log(`[OM] Folder created: id=${data.id}, name="${data.name}", parentId=${data.parentId ?? "null"}`);
-      refreshTree("createFolder");
+      await refreshTree("createFolder");
       setModal(null);
       setModalInput("");
       setExpandedIds(prev => { const n = new Set(prev); n.add(data.id); return n; });
@@ -668,23 +670,23 @@ export default function OmManualsLibrary() {
     onError: (e) => { console.error("[OM] Create folder failed:", e.message); setBanner({ type: "error", message: `Unable to create folder. ${e.message}` }); },
   });
   const renameFolder = trpc.documents.renameFolder.useMutation({
-    onSuccess: () => { refreshTree("renameFolder"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "Folder renamed" }); },
+    onSuccess: async () => { await refreshTree("renameFolder"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "Folder renamed" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to rename folder. ${e.message}` }); },
   });
   const deleteFolder = trpc.documents.deleteFolder.useMutation({
-    onSuccess: () => { refreshTree("deleteFolder"); setSelectedFolderId(null); setBanner({ type: "success", message: "Folder deleted" }); },
+    onSuccess: async () => { await refreshTree("deleteFolder"); setSelectedFolderId(null); setBanner({ type: "success", message: "Folder deleted" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to delete folder. ${e.message}` }); },
   });
   const moveFolder = trpc.documents.moveFolder.useMutation({
-    onSuccess: () => { refreshTree("moveFolder"); setBanner({ type: "success", message: "Folder moved" }); },
+    onSuccess: async () => { await refreshTree("moveFolder"); setBanner({ type: "success", message: "Folder moved" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to move folder. ${e.message}` }); },
   });
   const uploadFile = trpc.documents.uploadFile.useMutation({
     onMutate: () => { setUploadProgress(75); },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setUploadProgress(100);
       setTimeout(() => { setIsUploading(false); setUploadProgress(0); }, 600);
-      refreshTree("uploadFile");
+      await refreshTree("uploadFile");
       setBanner({ type: "success", message: `File "${data.title}" uploaded` });
     },
     onError: (e) => {
@@ -694,15 +696,15 @@ export default function OmManualsLibrary() {
     },
   });
   const deleteFile = trpc.documents.deleteFile.useMutation({
-    onSuccess: () => { refreshTree("deleteFile"); setSelectedFileId(null); setSelectedFileData(null); setBanner({ type: "success", message: "File deleted" }); },
+    onSuccess: async () => { await refreshTree("deleteFile"); await utils.documents.getFile.invalidate(); setSelectedFileId(null); setSelectedFileData(null); setBanner({ type: "success", message: "File deleted" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to delete file. ${e.message}` }); },
   });
   const renameFile = trpc.documents.renameFile.useMutation({
-    onSuccess: () => { refreshTree("renameFile"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "File renamed" }); },
+    onSuccess: async () => { await refreshTree("renameFile"); await utils.documents.getFile.invalidate(); setModal(null); setModalInput(""); setBanner({ type: "success", message: "File renamed" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to rename file. ${e.message}` }); },
   });
   const moveFile = trpc.documents.moveFile.useMutation({
-    onSuccess: () => { refreshTree("moveFile"); setBanner({ type: "success", message: "File moved" }); },
+    onSuccess: async () => { await refreshTree("moveFile"); await utils.documents.getFile.invalidate(); setBanner({ type: "success", message: "File moved" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to move file. ${e.message}` }); },
   });
 
