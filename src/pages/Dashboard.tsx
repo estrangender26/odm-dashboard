@@ -348,20 +348,32 @@ export default function Dashboard() {
   // ── Import ──
   const handleImport = useCallback((file: File) => {
     const isExcel = /\.(xlsx|xlsm|xls)$/i.test(file.name);
+    const isCsv = /\.csv$/i.test(file.name);
+    if (!isExcel && !isCsv) {
+      setBanner({ type: "error", message: "Unsupported file type. Upload a CSV or Excel file (.csv, .xlsx, .xlsm, .xls)." });
+      return;
+    }
     setImportProgress({ show: true, text: "Reading file...", sub: file.name, pct: 10 });
     const reader = new FileReader();
     reader.onload = (e) => {
       setImportProgress({ show: true, text: "Parsing data...", sub: "Extracting rows", pct: 30 });
       let sheetRows: string[][] = [];
-      if (isExcel) {
-        const raw = e.target?.result as ArrayBuffer;
-        const wb = XLSX.read(raw, { type: "array", cellDates: true });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        sheetRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as string[][];
-      } else {
-        const raw = e.target?.result as string;
-        const text = raw.charCodeAt(0) === 0xfeff ? raw.substring(1) : raw;
-        sheetRows = parseCsv(text);
+      try {
+        if (isExcel) {
+          const raw = e.target?.result as ArrayBuffer;
+          const wb = XLSX.read(raw, { type: "array", cellDates: true });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          sheetRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as string[][];
+        } else {
+          const raw = e.target?.result as string;
+          const text = raw.charCodeAt(0) === 0xfeff ? raw.substring(1) : raw;
+          sheetRows = parseCsv(text);
+        }
+      } catch (err) {
+        console.error("Import parse failed:", err);
+        setImportProgress(null);
+        setBanner({ type: "error", message: "File is corrupt or could not be parsed. Upload a valid CSV or Excel file." });
+        return;
       }
       if (sheetRows.length < 2) { setImportProgress(null); setBanner({ type: "error", message: "File is empty or invalid." }); return; }
 
@@ -399,12 +411,12 @@ export default function Dashboard() {
       if (updates.length === 0) { setImportProgress(null); setBanner({ type: "error", message: "No valid data rows found." }); return; }
 
       setImportProgress({ show: true, text: `Uploading ${updates.length} rows...`, sub: "Sending to server", pct: 60 });
-      importMutation.mutate(updates);
+      importMutation.mutate({ dataset: activeTab, rows: updates });
     };
     reader.onerror = () => { setImportProgress(null); setBanner({ type: "error", message: "Failed to read file." }); };
     if (isExcel) reader.readAsArrayBuffer(file);
     else reader.readAsText(file);
-  }, [importMutation]);
+  }, [activeTab, importMutation]);
 
   // ═════════════ RENDER ═════════════
   return (
