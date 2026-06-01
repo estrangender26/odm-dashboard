@@ -217,6 +217,79 @@ const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 
 function depTypeName(type: string): string { return DEP_TYPE_MAP[type] || type; }
 
+
+function getTaskParentId(task: any): number {
+  return Number(task?.parent ?? task?.parentTaskId ?? task?.parent_task_id ?? 0) || 0;
+}
+
+function getTaskSortOrder(task: any, fallbackIndex: number): number {
+  const raw = task?.sortorder ?? task?.sortOrder ?? task?.sort_order;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : fallbackIndex;
+}
+
+function getSiblingOrderState(tasks: any[], selectedTaskId: number | null) {
+  if (!selectedTaskId) return { index: -1, count: 0, parentId: 0, task: null as any | null };
+  const selected = tasks.find((task: any) => task.id === selectedTaskId) || null;
+  if (!selected) return { index: -1, count: 0, parentId: 0, task: null as any | null };
+  const parentId = getTaskParentId(selected);
+  const position = new Map(tasks.map((task: any, index: number) => [task.id, getTaskSortOrder(task, index)]));
+  const siblings = tasks
+    .filter((task: any) => getTaskParentId(task) === parentId)
+    .sort((a: any, b: any) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
+  return { index: siblings.findIndex((task: any) => task.id === selectedTaskId), count: siblings.length, parentId, task: selected };
+}
+
+function buildManualHierarchyOrder(tasks: any[], selectedTaskId: number, direction: "up" | "down") {
+  const position = new Map(tasks.map((task: any, index: number) => [task.id, getTaskSortOrder(task, index)]));
+  const selected = tasks.find((task: any) => task.id === selectedTaskId);
+  if (!selected) return null;
+
+  const parentId = getTaskParentId(selected);
+  const childrenByParent = new Map<number, any[]>();
+  for (const task of tasks) {
+    const pid = getTaskParentId(task);
+    const siblings = childrenByParent.get(pid) || [];
+    siblings.push(task);
+    childrenByParent.set(pid, siblings);
+  }
+  for (const siblings of childrenByParent.values()) {
+    siblings.sort((a: any, b: any) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
+  }
+
+  const siblings = childrenByParent.get(parentId) || [];
+  const selectedIndex = siblings.findIndex((task: any) => task.id === selectedTaskId);
+  const swapIndex = direction === "up" ? selectedIndex - 1 : selectedIndex + 1;
+  if (selectedIndex < 0 || swapIndex < 0 || swapIndex >= siblings.length) return null;
+
+  const reorderedSiblings = [...siblings];
+  [reorderedSiblings[selectedIndex], reorderedSiblings[swapIndex]] = [reorderedSiblings[swapIndex], reorderedSiblings[selectedIndex]];
+  childrenByParent.set(parentId, reorderedSiblings);
+
+  const ordered: any[] = [];
+  const seen = new Set<number>();
+  const walk = (pid: number) => {
+    for (const task of childrenByParent.get(pid) || []) {
+      if (seen.has(task.id)) continue;
+      seen.add(task.id);
+      ordered.push(task);
+      walk(task.id);
+    }
+  };
+  walk(0);
+  for (const task of [...tasks].sort((a: any, b: any) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0))) {
+    if (!seen.has(task.id)) {
+      seen.add(task.id);
+      ordered.push(task);
+    }
+  }
+
+  return ordered.map((task, index) => ({
+    id: task.id,
+    sort_order: index,
+    parent: getTaskParentId(task),
+  }));
+}
+
 function statusBadge(status: string) {
   const s = statusBadgeStyle(status);
   return <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: "nowrap" }}>{status}</span>;
@@ -326,6 +399,8 @@ interface ToolbarProps {
   onExportExcel: () => void; onExportCSV: () => void; onExportTemplate: () => void;
   onMigrate: () => void; onReset: () => void; onLoadDemo: () => void;
   onIndent?: () => void; onOutdent?: () => void;
+  onMoveUp?: () => void; onMoveDown?: () => void;
+  moveUpDisabled?: boolean; moveDownDisabled?: boolean; moveDisabledReason?: string;
   onInsertAbove?: () => void; onInsertBelow?: () => void; onInsertChild?: () => void;
   onDelete?: () => void;
   onLink?: () => void; onClear?: () => void;
@@ -339,7 +414,7 @@ function GanttToolbar({
   onSave, onSaveAs, onOpen, onClose, onImport,
   onExportExcel, onExportCSV, onExportTemplate,
   onMigrate, onReset, onLoadDemo,
-  onIndent, onOutdent, onInsertAbove, onInsertBelow, onInsertChild,
+  onIndent, onOutdent, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, onInsertAbove, onInsertBelow, onInsertChild,
   onDelete,
   onLink, onClear,
   multiSelectMode, onToggleMulti, selectedIdsSize,
@@ -442,6 +517,9 @@ function GanttToolbar({
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>} label="Outdent" onClick={() => onOutdent?.()} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>} label="Indent" onClick={() => onIndent?.()} />
           <div style={{ height: 1, background: "#E2E8F0", margin: "4px 8px" }} />
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={moveUpDisabled ? "#CBD5E1" : "#0F766E"} strokeWidth="2"><polyline points="18 15 12 9 6 15"/></svg>} label="Move Up" onClick={() => moveUpDisabled ? alert(moveDisabledReason || "Select a movable task.") : onMoveUp?.()} />
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={moveDownDisabled ? "#CBD5E1" : "#0F766E"} strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>} label="Move Down" onClick={() => moveDownDisabled ? alert(moveDisabledReason || "Select a movable task.") : onMoveDown?.()} />
+          <div style={{ height: 1, background: "#E2E8F0", margin: "4px 8px" }} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={onDelete ? "#DC2626" : "#CBD5E1"} strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>} label="Delete" onClick={() => {
             if (!onDelete) return alert("Select a task first");
             if (confirm("Delete selected task?")) onDelete();
@@ -483,6 +561,9 @@ function GanttToolbar({
           <Mmi label="Open Project" onClick={() => { onOpen(); setMobileMenuOpen(false); }} />
           <Mmi label="Save As" onClick={() => { onSaveAs(); setMobileMenuOpen(false); }} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.1)", margin: "4px 0" }} />
+          <Mmi label="Move Up" onClick={() => { moveUpDisabled ? alert(moveDisabledReason || "Select a movable task.") : onMoveUp?.(); setMobileMenuOpen(false); }} />
+          <Mmi label="Move Down" onClick={() => { moveDownDisabled ? alert(moveDisabledReason || "Select a movable task.") : onMoveDown?.(); setMobileMenuOpen(false); }} />
+          <div style={{ height: 1, background: "rgba(255,255,255,0.1)", margin: "4px 0" }} />
           <Mmi label="Migrate DB" onClick={() => { onMigrate(); setMobileMenuOpen(false); }} />
           <Mmi label="Reset Data" onClick={() => { if (confirm("Delete all Gantt data?")) { onReset(); setMobileMenuOpen(false); } }} />
           <Mmi label="Load Demo" onClick={() => { onLoadDemo(); setMobileMenuOpen(false); }} />
@@ -512,6 +593,8 @@ interface QuickActionProps {
   onAdd: () => void;
   onInsertAbove?: () => void; onInsertBelow?: () => void; onInsertChild?: () => void;
   onIndent?: () => void; onOutdent?: () => void;
+  onMoveUp?: () => void; onMoveDown?: () => void;
+  moveUpDisabled?: boolean; moveDownDisabled?: boolean; moveDisabledReason?: string;
   onDelete?: () => void;
   onMulti: () => void; multiSelectMode: boolean;
   onClear: () => void; selectionSize: number;
@@ -523,7 +606,7 @@ interface QuickActionProps {
 
 function QuickActionBar({
   onAdd, onInsertAbove, onInsertBelow, onInsertChild,
-  onIndent, onOutdent, onDelete,
+  onIndent, onOutdent, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, onDelete,
   onMulti, multiSelectMode, onClear, selectionSize, onLink, onSave,
   selectedTaskId, selectedTaskName,
 }: QuickActionProps) {
@@ -590,6 +673,12 @@ function QuickActionBar({
       </button>
       <button onClick={onIndent} disabled={!selectedTaskId || !onIndent} title="Indent Task" style={{ ...applyColors(COLORS.slate), ...disabledPill(!!selectedTaskId && !!onIndent) }} onMouseEnter={!selectedTaskId ? undefined : e => setHover(e, COLORS.slate)} onMouseLeave={!selectedTaskId ? undefined : e => setLeave(e, COLORS.slate)}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>Indent
+      </button>
+      <button onClick={onMoveUp} disabled={moveUpDisabled} title={moveUpDisabled ? (moveDisabledReason || "Cannot move up") : "Move selected task up within its current parent"} style={{ ...applyColors(moveUpDisabled ? COLORS.disabled : COLORS.slate), ...disabledPill(!moveUpDisabled) }} onMouseEnter={moveUpDisabled ? undefined : e => setHover(e, COLORS.slate)} onMouseLeave={moveUpDisabled ? undefined : e => setLeave(e, COLORS.slate)}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="18 15 12 9 6 15"/></svg>Move Up
+      </button>
+      <button onClick={onMoveDown} disabled={moveDownDisabled} title={moveDownDisabled ? (moveDisabledReason || "Cannot move down") : "Move selected task down within its current parent"} style={{ ...applyColors(moveDownDisabled ? COLORS.disabled : COLORS.slate), ...disabledPill(!moveDownDisabled) }} onMouseEnter={moveDownDisabled ? undefined : e => setHover(e, COLORS.slate)} onMouseLeave={moveDownDisabled ? undefined : e => setLeave(e, COLORS.slate)}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>Move Down
       </button>
 
       <span style={{ width: 1, height: 16, background: "#94A3B8", margin: "0 2px", flexShrink: 0 }} />
@@ -1049,6 +1138,10 @@ interface TaskListTabProps {
   setBanner: (b: { type: "error" | "success" | "info"; message: string } | null) => void;
   onEditTask: (task: any) => void;
   onAddTask: () => void;
+  onMoveUp?: () => void; onMoveDown?: () => void;
+  moveUpDisabled?: boolean; moveDownDisabled?: boolean; moveDisabledReason?: string;
+  selectedTaskId?: number | null;
+  onSelectTask?: (id: number) => void;
   setTaskList: React.Dispatch<React.SetStateAction<any[]>>;
   links?: any[];
 }
@@ -1073,7 +1166,7 @@ const GRID_COLS = [
 const STATUS_OPTS = ["Not Started", "In Progress", "In Progress (Delayed)", "Completed", "Overdue", "Delayed", "Planned"];
 const CALC_FIELDS = ["plannedStart", "plannedEnd", "actualStart", "actualEnd", "duration", "progress"];
 
-function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask, setTaskList, links = [] }: TaskListTabProps) {
+function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, selectedTaskId, onSelectTask, setTaskList, links = [] }: TaskListTabProps) {
   const [editing, setEditing] = useState<{ rowId: number; colKey: string } | null>(null);
   const [editVal, setEditVal] = useState("");
   const [dirty, setDirty] = useState<Set<number>>(new Set());
@@ -1273,6 +1366,8 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
         <h3 style={{ fontSize: 13, fontWeight: 700, color: "#1E293B", margin: 0 }}>Task Grid ({tasks.length})</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 10, color: "#8BA3B8" }}>Click cell · Tab navigate · Enter save · Esc cancel</span>
+          <button onClick={onMoveUp} disabled={moveUpDisabled} title={moveUpDisabled ? (moveDisabledReason || "Cannot move up") : "Move selected task up within its current parent"} style={{ padding: "5px 9px", background: moveUpDisabled ? "#F1F5F9" : "#E0F2FE", color: moveUpDisabled ? "#94A3B8" : "#0369A1", border: "1px solid #BAE6FD", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: moveUpDisabled ? "not-allowed" : "pointer", fontFamily: "Inter" }}>↑ Move Up</button>
+          <button onClick={onMoveDown} disabled={moveDownDisabled} title={moveDownDisabled ? (moveDisabledReason || "Cannot move down") : "Move selected task down within its current parent"} style={{ padding: "5px 9px", background: moveDownDisabled ? "#F1F5F9" : "#E0F2FE", color: moveDownDisabled ? "#94A3B8" : "#0369A1", border: "1px solid #BAE6FD", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: moveDownDisabled ? "not-allowed" : "pointer", fontFamily: "Inter" }}>↓ Move Down</button>
           <button onClick={onAddTask} style={{ padding: "5px 10px", background: "#1F9D55", color: "#fff", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", gap: 4 }}>
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add
           </button>
@@ -1282,6 +1377,7 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
         <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: "Inter, sans-serif", tableLayout: "fixed" }}>
           <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
             <tr style={{ background: "#F1F5F9", borderBottom: "2px solid #CBD5E1" }}>
+              <th style={{ width: 54, minWidth: 54, textAlign: "center", padding: "5px 6px", fontSize: 9, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.4px", borderRight: "1px solid #E2E8F0" }}>Select</th>
               {GRID_COLS.map(col => <th key={col.key} style={{ width: col.w, minWidth: col.w, textAlign: col.type === "number" ? "center" : "left", padding: "5px 6px", fontSize: 9, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.4px", borderRight: "1px solid #E2E8F0" }}>{col.label}</th>)}
               <th style={{ width: 50, minWidth: 50, textAlign: "center", padding: "5px 6px", fontSize: 9, fontWeight: 700, color: "#475569" }}>×</th>
             </tr>
@@ -1290,7 +1386,10 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
             {tasks.map((t: any, ri: number) => {
               const isP = isParentR(t);
               return (
-                <tr key={t.id} style={{ borderBottom: "1px solid #F1F5F9", background: isP ? "#EFF6FF" : dirty.has(t.id) ? "#FEF9C3" : "transparent" }}>
+                <tr key={t.id} style={{ borderBottom: "1px solid #F1F5F9", background: selectedTaskId === t.id ? "#DBEAFE" : isP ? "#EFF6FF" : dirty.has(t.id) ? "#FEF9C3" : "transparent" }}>
+                  <td style={{ padding: "3px 5px", textAlign: "center", borderRight: "1px solid #F1F5F9" }}>
+                    <button onClick={() => onSelectTask?.(t.id)} title="Select for Move Up/Down" style={{ padding: "2px 6px", fontSize: 9, fontWeight: 700, background: selectedTaskId === t.id ? "#005BAC" : "#EFF6FF", color: selectedTaskId === t.id ? "#fff" : "#005BAC", border: "1px solid #93C5FD", borderRadius: 4, cursor: "pointer" }}>{selectedTaskId === t.id ? "✓" : "Select"}</button>
+                  </td>
                   {GRID_COLS.map((col, ci) => (
                     <td key={col.key} onClick={() => beginEdit(t, col)} style={{ padding: "3px 5px", borderRight: "1px solid #F1F5F9", cursor: isReadOnly(t, col.key) ? "default" : "text", overflow: "hidden" }}>
                       {renderCell(t, col, ci, ri)}
@@ -1504,7 +1603,7 @@ export default function GanttPlanner() {
               parent: 0, /* temporary, will update in pass 2 */
               type: t.type || "task",
               status: t.status || null, remarks: t.remarks || t.notes || null,
-              category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? idx,
+              category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? t.sortOrder ?? t.sort_order ?? idx,
             });
             idMap.set(t.id, result.id);
           }
@@ -1530,7 +1629,7 @@ export default function GanttPlanner() {
                 parent_task_id: newParent,
                 type: t.type || "task",
                 status: t.status || null, remarks: t.remarks || t.notes || null,
-                category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? 0,
+                category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? t.sortOrder ?? t.sort_order ?? 0,
               });
             }
           }
@@ -1689,6 +1788,25 @@ export default function GanttPlanner() {
   }, [tasksQuery.isFetching]);
 
   /* Export menu click-outside removed — handled by GanttToolbar */
+
+  const selectedForMove = useMemo(() => {
+    if (selectedIds.size > 1) return null;
+    if (selectedIds.size === 1) return Array.from(selectedIds)[0];
+    return selectedTaskId;
+  }, [selectedIds, selectedTaskId]);
+
+  const moveOrderState = useMemo(() => {
+    return getSiblingOrderState(tasksQuery.data || [], selectedForMove);
+  }, [tasksQuery.data, selectedForMove]);
+
+  const moveDisabledReason = useMemo(() => {
+    if (selectedIds.size > 1) return "Move Up/Down is disabled for multi-select. Select one task to avoid crossing hierarchy boundaries.";
+    if (!selectedForMove || !moveOrderState.task) return "Select one task to move.";
+    return "";
+  }, [selectedIds.size, selectedForMove, moveOrderState.task]);
+
+  const canMoveUp = !!selectedForMove && !moveDisabledReason && moveOrderState.index > 0;
+  const canMoveDown = !!selectedForMove && !moveDisabledReason && moveOrderState.index >= 0 && moveOrderState.index < moveOrderState.count - 1;
 
   /* ═══════ SECTION 5: ALL useCallback definitions (FIFTH) ═══════
      Every callback that references hooks must be defined AFTER those hooks. */
@@ -2045,6 +2163,40 @@ export default function GanttPlanner() {
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set()); setSelectedTaskId(null); lastSelectedRef.current = null;
   }, []);
+
+  const moveSelectedTask = useCallback(async (direction: "up" | "down") => {
+    if (selectedIds.size > 1) {
+      setBanner({ type: "info", message: "Move Up/Down is disabled for multi-select. Select one task to keep hierarchy and parent assignments safe." });
+      return;
+    }
+    const selected = selectedIds.size === 1 ? Array.from(selectedIds)[0] : selectedTaskId;
+    if (!selected) { setBanner({ type: "info", message: "Select one task to move." }); return; }
+
+    const updates = buildManualHierarchyOrder(tasksQuery.data || [], selected, direction);
+    if (!updates) {
+      setBanner({ type: "info", message: direction === "up" ? "Selected task is already first among its siblings." : "Selected task is already last among its siblings." });
+      return;
+    }
+
+    const originalParents = new Map((tasksQuery.data || []).map((task: any) => [task.id, getTaskParentId(task)]));
+    if (updates.some((item) => originalParents.get(item.id) !== item.parent)) {
+      setBanner({ type: "error", message: "Move blocked because it would change a task parent." });
+      return;
+    }
+
+    try {
+      await reorderTasksMut.mutateAsync(updates.map(({ id, sort_order }) => ({ id, sort_order })));
+      await utils.gantt.tasks.invalidate();
+      const fresh = await refetchTasks();
+      setTaskList(fresh.data || []);
+      setSelectedTaskId(selected);
+      setSelectedIds(new Set([selected]));
+      setHasUnsavedChanges(true);
+      setBanner({ type: "success", message: direction === "up" ? "Task moved up within its current parent." : "Task moved down within its current parent." });
+    } catch (e: any) {
+      setBanner({ type: "error", message: "Move failed: " + (e?.message || "Unknown error") });
+    }
+  }, [selectedIds, selectedTaskId, tasksQuery.data, reorderTasksMut, utils, refetchTasks]);
 
   /* ═══════ SECTION 6: PLAIN FUNCTIONS (SIXTH — after all hooks) ═══════ */
 
@@ -2432,6 +2584,8 @@ export default function GanttPlanner() {
         onReset={() => resetMut.mutate()}
         onLoadDemo={() => seedMut.mutate()}
         onIndent={handleIndent} onOutdent={handleOutdent}
+        onMoveUp={() => moveSelectedTask("up")} onMoveDown={() => moveSelectedTask("down")}
+        moveUpDisabled={!canMoveUp} moveDownDisabled={!canMoveDown} moveDisabledReason={moveDisabledReason}
         onInsertAbove={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskAbove(t); } : undefined}
         onInsertBelow={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskBelow(t); } : undefined}
         onInsertChild={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskChild(t); } : undefined}
@@ -2452,6 +2606,8 @@ export default function GanttPlanner() {
           onInsertBelow={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskBelow(t); } : undefined}
           onInsertChild={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t) insertTaskChild(t); } : undefined}
           onIndent={handleIndent} onOutdent={handleOutdent}
+          onMoveUp={() => moveSelectedTask("up")} onMoveDown={() => moveSelectedTask("down")}
+          moveUpDisabled={!canMoveUp} moveDownDisabled={!canMoveDown} moveDisabledReason={moveDisabledReason}
           onDelete={selectedTaskId ? () => { const t = taskList.find((x: any) => x.id === selectedTaskId); if (t && confirm(`Delete "${t.text || 'this task'}"?`)) deleteTaskMut.mutate({ id: selectedTaskId }); } : undefined}
           onMulti={() => setMultiSelectMode(!multiSelectMode)} multiSelectMode={multiSelectMode}
           onClear={clearSelection} selectionSize={selectedIds.size}
@@ -2499,7 +2655,7 @@ export default function GanttPlanner() {
             </div>
           </div>
         )}
-        {activeTab === "tasks" && <TaskListTab tasks={taskList} allTasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} setTaskList={setTaskList} links={linksQuery.data || []} />}
+        {activeTab === "tasks" && <TaskListTab tasks={taskList} allTasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} onMoveUp={() => moveSelectedTask("up")} onMoveDown={() => moveSelectedTask("down")} moveUpDisabled={!canMoveUp} moveDownDisabled={!canMoveDown} moveDisabledReason={moveDisabledReason} selectedTaskId={selectedForMove} onSelectTask={(id) => { setSelectedTaskId(id); setSelectedIds(new Set([id])); lastSelectedRef.current = id; }} setTaskList={setTaskList} links={linksQuery.data || []} />}
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
 
         {/* Task Edit/Add Modal */}
