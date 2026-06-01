@@ -53,6 +53,51 @@ const statusBg = (status: string): string => {
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ─── UUID helper (module-level, no hooks) ─── */
+function formatReorderTask(task: any) {
+  return {
+    id: task.id,
+    text: task.text ?? task.taskName ?? `Task ${task.id}`,
+    parent: getTaskParentId(task),
+    sort_order: task.sortorder ?? task.sortOrder ?? task.sort_order,
+  };
+}
+
+function siblingDebugIds(order: Array<{ id: number }>) {
+  return order.map((task) => task.id);
+}
+
+function sameTaskOrder(a: number[], b: number[]) {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+function firstReorderMismatchStage(
+  beforeIds: number[],
+  expectedIds: number[],
+  helperIds: number[],
+  payloadIds: number[],
+  persistedIds: number[],
+  refetchIds: number[],
+  renderedIds: number[]
+) {
+  const idealAfter = [...beforeIds];
+  const movedId = expectedIds.find((id, index) => beforeIds[index] !== id);
+  if (movedId) {
+    const from = beforeIds.indexOf(movedId);
+    const to = expectedIds.indexOf(movedId);
+    if (from >= 0 && to >= 0) {
+      const [item] = idealAfter.splice(from, 1);
+      idealAfter.splice(to, 0, item);
+    }
+  }
+
+  if (!sameTaskOrder(helperIds, idealAfter)) return "A helper reorder output";
+  if (!sameTaskOrder(payloadIds, helperIds)) return "B API payload";
+  if (!sameTaskOrder(persistedIds, payloadIds)) return "C DB persisted order";
+  if (!sameTaskOrder(refetchIds, persistedIds)) return "D refetch order";
+  if (!sameTaskOrder(renderedIds, refetchIds)) return "E rendered order";
+  return "none";
+}
+
 function generateUid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -821,6 +866,10 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
       };
     });
   }, [visibleFlat, projectStart, dayWidth]);
+
+  useEffect(() => {
+    console.debug("[Gantt reorder] native rendered order", rows.map((row) => formatReorderTask(row.task)));
+  }, [rows]);
 
   const headerColumns = useMemo(() => {
     const cols: { label: string; left: number; width: number; subLabel?: string }[] = [];
@@ -2113,7 +2162,8 @@ export default function GanttPlanner() {
     if (!selected) { setBanner({ type: "info", message: "Select one task to move." }); return; }
 
     const liveTasks = tasksQuery.data || [];
-    console.debug("[Gantt reorder] before sibling order", getSiblingOrderDebug(liveTasks, selected));
+    const beforeSiblingOrder = getSiblingOrderDebug(liveTasks, selected);
+    console.debug("[Gantt reorder] before sibling order", beforeSiblingOrder);
     const updates = buildManualHierarchyOrder(liveTasks, selected, direction);
     if (!updates) {
       setBanner({ type: "info", message: direction === "up" ? "Selected task is already first among its siblings." : "Selected task is already last among its siblings." });
@@ -2130,8 +2180,10 @@ export default function GanttPlanner() {
         sort_order: nextSortOrder ?? task.sort_order,
       };
     });
-    console.debug("[Gantt reorder] after sibling order", getSiblingOrderDebug(optimisticTasks, selected));
-    console.debug("[Gantt reorder] persisted sort_order", updates.map(({ id, sort_order }) => ({ id, sort_order })));
+    const expectedAfterOrder = getSiblingOrderDebug(optimisticTasks, selected);
+    const apiPayload = updates.map(({ id, sort_order }) => ({ id, sort_order }));
+    console.debug("[Gantt reorder] expected after order", expectedAfterOrder);
+    console.debug("[Gantt reorder] API payload", apiPayload);
 
     const originalParents = new Map(liveTasks.map((task: any) => [task.id, getTaskParentId(task)]));
     if (updates.some((item) => originalParents.get(item.id) !== item.parent)) {
@@ -2140,16 +2192,26 @@ export default function GanttPlanner() {
     }
 
     try {
-      await reorderTasksMut.mutateAsync(updates.map(({ id, sort_order }) => ({ id, sort_order })));
+      const mutationResult = await reorderTasksMut.mutateAsync(apiPayload);
+      const persistedOrder = getSiblingOrderDebug((mutationResult as any)?.persistedOrder || [], selected);
+      console.debug("[Gantt reorder] actual persisted order", persistedOrder);
       await utils.gantt.tasks.invalidate();
       const fresh = await refetchTasks();
+      const refetchOrder = getSiblingOrderDebug(fresh.data || [], selected);
       const renderedAfterRefetch = sortTasksForHierarchyDisplay(fresh.data || []);
-      console.debug("[Gantt reorder] rendered order after refetch", renderedAfterRefetch.map((task: any) => ({
-        id: task.id,
-        text: task.text ?? task.taskName ?? `Task ${task.id}`,
-        parent: getTaskParentId(task),
-        sort_order: task.sortorder ?? task.sortOrder ?? task.sort_order,
-      })));
+      const renderedOrder = getSiblingOrderDebug(renderedAfterRefetch, selected);
+      const payloadOrder = getSiblingOrderDebug(optimisticTasks, selected);
+      console.debug("[Gantt reorder] actual refetch order", refetchOrder);
+      console.debug("[Gantt reorder] actual rendered order", renderedOrder);
+      console.debug("[Gantt reorder] first mismatch stage", firstReorderMismatchStage(
+        siblingDebugIds(beforeSiblingOrder),
+        siblingDebugIds(expectedAfterOrder),
+        siblingDebugIds(expectedAfterOrder),
+        siblingDebugIds(payloadOrder),
+        siblingDebugIds(persistedOrder),
+        siblingDebugIds(refetchOrder),
+        siblingDebugIds(renderedOrder)
+      ));
       setTaskList(renderedAfterRefetch);
       setSelectedTaskId(selected);
       setSelectedIds(new Set([selected]));
@@ -2613,7 +2675,7 @@ export default function GanttPlanner() {
         {activeTab === "gantt" && (
           <div style={{ marginTop: 8 }}>
             <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-              <NativeGanttChart tasks={sortTasksForHierarchyDisplay((tasksQuery.data || []) as GanttTask[])} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} onEditTask={startEdit} onInsertAbove={insertTaskAbove} onInsertBelow={insertTaskBelow} onInsertChild={insertTaskChild} />
+              <NativeGanttChart tasks={(taskList.length ? taskList : sortTasksForHierarchyDisplay((tasksQuery.data || []) as GanttTask[])) as GanttTask[]} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} onEditTask={startEdit} onInsertAbove={insertTaskAbove} onInsertBelow={insertTaskBelow} onInsertChild={insertTaskChild} />
             </div>
           </div>
         )}
