@@ -21,6 +21,22 @@ interface Banner {
   message: string;
 }
 
+interface ImportRejectedRow {
+  row: number;
+  eq?: string;
+  task?: string;
+  reason: string;
+}
+
+interface ImportResultSummary {
+  status: "success" | "error";
+  updated: number;
+  unchanged: number;
+  total: number;
+  rejected: ImportRejectedRow[];
+  message: string;
+}
+
 // ── Helpers ──
 function getFreqBadgeClass(f: string) {
   const fl = f.toLowerCase();
@@ -94,15 +110,87 @@ function normalizeImportHeader(value: string): string {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function collectErrorMessages(value: unknown, seen = new Set<unknown>()): string[] {
+  if (!value || seen.has(value)) return [];
+  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  if (value instanceof Error) seen.add(value);
+  if (typeof value !== "object") return [String(value)];
+
+  seen.add(value);
+  const record = value as Record<string, unknown>;
+  return [
+    typeof record.message === "string" ? record.message : "",
+    ...collectErrorMessages(record.error, seen),
+    ...collectErrorMessages(record.response, seen),
+    ...collectErrorMessages(record.data, seen),
+    ...collectErrorMessages(record.cause, seen),
+    ...collectErrorMessages(record.json, seen),
+  ].filter((msg) => msg.trim());
+}
+
+
+function findImportFailure(value: unknown, seen = new Set<unknown>()): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || seen.has(value)) return null;
+  seen.add(value);
+  const record = value as Record<string, unknown>;
+  if (record.success === false && Array.isArray(record.skipped)) return record;
+  return (
+    findImportFailure(record.importFailure, seen) ||
+    findImportFailure(record.data, seen) ||
+    findImportFailure(record.error, seen) ||
+    findImportFailure(record.response, seen) ||
+    findImportFailure(record.cause, seen) ||
+    findImportFailure(record.json, seen)
+  );
+}
+
+function rejectedRowsFromImportFailure(err: unknown): ImportRejectedRow[] {
+  const importFailure = findImportFailure(err);
+  const skipped = importFailure?.skipped;
+  if (!Array.isArray(skipped)) return [];
+  return skipped.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const record = row as Record<string, unknown>;
+    const rowNumber = Number(record.row);
+    const reason = typeof record.reason === "string" ? record.reason : "Rejected by import validation";
+    return [{
+      row: Number.isFinite(rowNumber) ? rowNumber : 0,
+      eq: typeof record.eq === "string" ? record.eq : undefined,
+      task: typeof record.task === "string" ? record.task : undefined,
+      reason,
+    }];
+  });
+}
+
+function parseRejectedRows(message: string): ImportRejectedRow[] {
+  return message.split("; ").flatMap((part) => {
+    const match = part.match(/Row (\d+) rejected(?: \[(.*?)\])?(?: "(.*?)")?: (.*?)(?:\. Required fix: (.*))?$/);
+    if (!match) return [];
+    return [{
+      row: Number(match[1]),
+      eq: match[2],
+      task: match[3],
+      reason: match[5] ? `${match[4]}. Required fix: ${match[5]}` : match[4],
+    }];
+  });
+}
+
 function importErrorMessage(err: unknown): string {
-  const msg = err instanceof Error ? err.message.trim() : String(err || "").trim();
-  if (
+  const importFailure = findImportFailure(err);
+  if (typeof importFailure?.message === "string" && importFailure.message.trim()) return importFailure.message.trim();
+
+  const messages = collectErrorMessages(err);
+  const surfaced = messages.find((msg) =>
     msg.startsWith("Import validation failed") ||
     msg.startsWith("Import mapping failed") ||
-    msg.startsWith("Import database transaction failed")
-  ) {
-    return msg;
-  }
+    msg.startsWith("Import database transaction failed") ||
+    msg.startsWith("Unexpected maintenance planning import failure")
+  );
+  if (surfaced) return surfaced;
+
+  const nested = messages.find((msg) => msg && msg !== "[object Object]");
+  if (nested) return nested;
+
   return friendlyError(err);
 }
 
@@ -141,6 +229,7 @@ export default function Dashboard() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<Banner | null>(null);
   const [importProgress, setImportProgress] = useState<{ show: boolean; text: string; sub: string; pct: number } | null>(null);
+  const [importSummary, setImportSummary] = useState<ImportResultSummary | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const utils = trpc.useUtils();
@@ -216,12 +305,20 @@ export default function Dashboard() {
     onSuccess: (res) => {
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
-      setBanner({ type: "success", message: `Import complete: ${res.updated} row${res.updated === 1 ? "" : "s"} updated, ${res.unchanged ?? res.total - res.updated} unchanged.` });
+      const unchanged = res.unchanged ?? res.total - res.updated;
+      const message = res.message || `Import complete: ${res.updated} row${res.updated === 1 ? "" : "s"} updated, ${unchanged} unchanged, 0 rows rejected.`;
+      setImportSummary({ status: "success", updated: res.updated, unchanged, total: res.total, rejected: [], message });
+      setBanner({ type: "success", message });
       setImportProgress(null);
     },
     onError: (err) => {
-      console.error("Import failed:", err);
-      setBanner({ type: "error", message: "Import failed: " + importErrorMessage(err) });
+      const message = importErrorMessage(err);
+      const rejected = rejectedRowsFromImportFailure(err);
+      const parsedRejected = rejected.length > 0 ? rejected : parseRejectedRows(message);
+      console.error("[tasks/import] thrown exception stack", err instanceof Error ? err.stack : err);
+      console.error("[tasks/import] mutation error object", err);
+      setImportSummary({ status: "error", updated: 0, unchanged: 0, total: 0, rejected: parsedRejected, message });
+      setBanner({ type: "error", message: "Import failed: " + message });
       setImportProgress(null);
     },
   });
@@ -383,6 +480,8 @@ export default function Dashboard() {
       setBanner({ type: "error", message: "Unsupported file type. Upload a CSV or Excel file (.csv, .xlsx, .xlsm, .xls)." });
       return;
     }
+    setBanner(null);
+    setImportSummary(null);
     setImportProgress({ show: true, text: "Reading file...", sub: file.name, pct: 10 });
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -503,6 +602,39 @@ export default function Dashboard() {
 
       {/* Banner */}
       {banner && <InlineBanner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
+
+
+      {/* Import Result Summary */}
+      {importSummary && (
+        <div className={`fixed left-3 right-3 top-20 z-[60] mx-auto max-w-[1600px] border rounded-lg p-4 text-sm shadow-lg ${importSummary.status === "success" ? "bg-green-50 border-green-200 text-green-900" : "bg-red-50 border-red-200 text-red-900"}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="font-bold mb-2">{importSummary.status === "success" ? "✅ Import Result" : "⚠️ Import Diagnostics"}</div>
+              <div className="flex flex-wrap gap-x-5 gap-y-1">
+                <span><b>{importSummary.updated}</b> rows updated</span>
+                <span><b>{importSummary.unchanged}</b> rows unchanged</span>
+                <span><b>{importSummary.rejected.length}</b> rows rejected</span>
+              </div>
+              <p className="mt-2 whitespace-pre-wrap">{importSummary.message}</p>
+            </div>
+            <button onClick={() => setImportSummary(null)} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>
+          </div>
+          {importSummary.rejected.length > 0 && (
+            <div className="mt-3">
+              <div className="font-semibold mb-1">Rejected rows:</div>
+              <ul className="list-disc pl-5 space-y-1">
+                {importSummary.rejected.map((row, idx) => (
+                  <li key={`${row.row}-${idx}`}>
+                    Row {row.row}: {row.reason}
+                    {row.eq ? <span className="opacity-75"> — {row.eq}</span> : null}
+                    {row.task ? <span className="opacity-75"> / {row.task}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Header */}
       <header className="text-white sticky top-0 z-50" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)", boxShadow: "0 4px 12px rgba(22,50,79,0.10)" }}>

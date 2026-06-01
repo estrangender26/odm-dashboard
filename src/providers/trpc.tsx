@@ -29,11 +29,32 @@ const trpcClient = trpc.createClient({
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort("Request timed out"), 15000);
         try {
-          return await globalThis.fetch(input, {
+          const response = await globalThis.fetch(input, {
             ...(init ?? {}),
             credentials: "include",
             signal: controller.signal,
           });
+
+          const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+          if (requestUrl.includes("tasks.import")) {
+            response.clone().text().then((rawBody) => {
+              console.info("[tasks/import] raw network response body", {
+                url: requestUrl,
+                status: response.status,
+                ok: response.ok,
+                rawBody,
+              });
+              try {
+                console.info("[tasks/import] parsed network response", JSON.parse(rawBody));
+              } catch (parseErr) {
+                console.warn("[tasks/import] response JSON parse failed", { rawBody, parseErr });
+              }
+            }).catch((readErr) => {
+              console.warn("[tasks/import] failed to read raw network response body", readErr);
+            });
+          }
+
+          return response;
         } finally {
           clearTimeout(timeout);
         }

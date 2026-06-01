@@ -4,7 +4,7 @@ import { db } from "./queries/connection";
 import { tasks, equipment } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { buildMaintenanceTaskCode, importMaintenancePlanningRows, type MaintenanceDbLike } from "./tasks-import";
+import { MaintenanceImportError, buildMaintenanceTaskCode, importMaintenancePlanningRows, type MaintenanceDbLike } from "./tasks-import";
 
 const FAMILIARITY_OPTIONS = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
 const FamiliarityValue = z.enum(FAMILIARITY_OPTIONS);
@@ -302,15 +302,26 @@ export const tasksRouter = createRouter({
         return await importMaintenancePlanningRows(db as unknown as MaintenanceDbLike, input, hasCol);
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
+        const structuredPayload = error instanceof MaintenanceImportError ? error.toPayload() : undefined;
         console.error("[tasks/import] failed", {
           dataset: input.dataset,
           rows: input.rows.length,
           message: error.message,
           stack: error.stack,
+          structuredPayload,
         });
+
+        if (error instanceof MaintenanceImportError) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error.message,
+            cause: structuredPayload,
+          });
+        }
+
         throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: error.message || "Maintenance planning import failed",
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Unexpected maintenance planning import failure: ${error.message || "Unknown error"}`,
           cause: error,
         });
       }
