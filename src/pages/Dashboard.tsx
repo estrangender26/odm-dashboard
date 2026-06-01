@@ -314,6 +314,9 @@ export default function Dashboard() {
       }
 
       const headers = [
+        "task_id",
+        "task_code",
+        "Facility/Dataset",
         "Facility/Program",
         "System/Category",
         "Equipment Code",
@@ -327,6 +330,9 @@ export default function Dashboard() {
         "Procedure Familiarity",
       ];
       const rows = result.map((row: any) => [
+        row.task_id || row.taskId || row.id || "",
+        row.task_code || row.taskCode || "",
+        row.dataset || activeTab,
         row.facilityProgram || tabLabel,
         row.systemCategory || "",
         row.equipmentCode || "",
@@ -398,28 +404,38 @@ export default function Dashboard() {
         return -1;
       };
 
+      const taskIdIdx = findHeader(["task_id", "Task ID", "Task Id", "taskId"]);
+      const taskCodeIdx = findHeader(["task_code", "Task Code", "taskCode"]);
+      const datasetIdx = findHeader(["Facility/Dataset", "Facility Dataset", "Dataset", "facility_dataset"]);
       const eqIdx = findHeader(["Equipment Name", "Equipment Type", "Equipment", "equipment_name", "equipment_type"]);
       const taskIdx = findHeader(["Task Description", "task_description", "Task List", "tasklist"]);
+      const freqIdx = findHeader(["Frequency"]);
+      const responsibleIdx = findHeader(["Responsible Personnel", "Responsible Person", "responsible_personnel"]);
       const opsIdx = findHeader(["Operations", "Ops"]);
       const amdIdx = findHeader(["AMD"]);
       const ardIdx = findHeader(["ARD"]);
       const famIdx = findHeader(["Procedure Familiarity", "Familiarity", "Fam", "Procedure_Familiarity"]);
 
-      if (eqIdx < 0 || taskIdx < 0) {
+      if ((taskIdIdx < 0 && taskCodeIdx < 0) && (eqIdx < 0 || taskIdx < 0)) {
         setImportProgress(null);
-        setBanner({ type: "error", message: `Missing required columns. Found: ${headers.join(", ")}` });
+        setBanner({ type: "error", message: `Missing required columns. Include task_id/task_code from Export All, or include Equipment Name and Task Description fallback columns. Found: ${headers.join(", ")}` });
         return;
       }
 
       const updates = sheetRows.slice(1).map((row, idx) => ({
         rowNumber: idx + 2,
-        equipmentType: String(row[eqIdx] || "").trim(),
-        taskList: String(row[taskIdx] || "").trim(),
+        taskId: taskIdIdx >= 0 ? String(row[taskIdIdx] || "").trim() : undefined,
+        taskCode: taskCodeIdx >= 0 ? String(row[taskCodeIdx] || "").trim() : undefined,
+        facilityDataset: datasetIdx >= 0 ? String(row[datasetIdx] || "").trim() : undefined,
+        equipmentType: eqIdx >= 0 ? String(row[eqIdx] || "").trim() : "",
+        taskList: taskIdx >= 0 ? String(row[taskIdx] || "").trim() : "",
+        frequency: freqIdx >= 0 ? String(row[freqIdx] || "").trim() : undefined,
+        responsiblePersonnel: responsibleIdx >= 0 ? String(row[responsibleIdx] || "").trim() : undefined,
         operations: opsIdx >= 0 ? String(row[opsIdx] || "").trim() : undefined,
         amd: amdIdx >= 0 ? String(row[amdIdx] || "").trim() : undefined,
         ard: ardIdx >= 0 ? String(row[ardIdx] || "").trim() : undefined,
         procedureFamiliarity: famIdx >= 0 ? String(row[famIdx] || "").trim() : undefined,
-      })).filter((u) => u.equipmentType && u.taskList);
+      })).filter((u) => (u.taskId || u.taskCode || (u.equipmentType && u.taskList)));
 
       if (updates.length === 0) { setImportProgress(null); setBanner({ type: "error", message: "No valid data rows found." }); return; }
 

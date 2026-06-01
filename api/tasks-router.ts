@@ -4,7 +4,7 @@ import { db } from "./queries/connection";
 import { tasks, equipment } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { importMaintenancePlanningRows, type MaintenanceDbLike } from "./tasks-import";
+import { buildMaintenanceTaskCode, importMaintenancePlanningRows, type MaintenanceDbLike } from "./tasks-import";
 
 const FAMILIARITY_OPTIONS = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
 const FamiliarityValue = z.enum(FAMILIARITY_OPTIONS);
@@ -246,6 +246,11 @@ export const tasksRouter = createRouter({
         .filter((row) => selectedIds === null || selectedIds.has(row.id))
         .map((row) => ({
           id: row.id,
+          taskId: row.id,
+          task_id: row.id,
+          taskCode: buildMaintenanceTaskCode({ id: row.id, equipmentCode: row.equipmentCode, dataset: input.dataset }),
+          task_code: buildMaintenanceTaskCode({ id: row.id, equipmentCode: row.equipmentCode, dataset: input.dataset }),
+          dataset: input.dataset,
           equipmentCode: row.equipmentCode,
           equipmentName: row.equipmentName,
           equipmentType: row.equipmentName,
@@ -265,8 +270,13 @@ export const tasksRouter = createRouter({
     .input(z.object({
       dataset: z.enum(["htt", "aglipay"]),
       rows: z.array(z.object({
+        taskId: z.union([z.number(), z.string()]).nullable().optional(),
+        taskCode: z.string().nullable().optional(),
+        facilityDataset: z.string().nullable().optional(),
         equipmentType: z.string(),
         taskList: z.string(),
+        frequency: z.string().nullable().optional(),
+        responsiblePersonnel: z.string().nullable().optional(),
         operations: z.string().nullable().optional(),
         amd: z.string().nullable().optional(),
         ard: z.string().nullable().optional(),
