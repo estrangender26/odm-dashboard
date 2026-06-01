@@ -16,7 +16,9 @@ import {
   DEP_TYPE_MAP, buildTaskTree, flattenVisible, deriveStatus,
 } from "@/modules/gantt/engine/schedulingEngine";
 import {
-  applyDependency, autoSchedule, buildConnectors,
+  autoSchedule, buildConnectors, calculateDependencyPlannedDates,
+  endFromStartAndDuration, normalizeDependencyType, startFromEndAndDuration,
+  wouldCreateDependencyCycle,
 } from "@/modules/gantt/engine/dependencyEngine";
 import {
   recalculateParentRollups, getChangedParents,
@@ -192,21 +194,15 @@ function calcDurationFromDates(start?: string, end?: string): number | null {
   const s = parseDate(start);
   const e = parseDate(end);
   if (!s || !e) return null;
-  return Math.max(1, daysBetween(s, e));
+  return Math.max(1, daysBetween(s, e) + 1);
 }
 
 function calcEndFromStartAndDuration(start?: string, duration?: number): string {
-  const s = parseDate(start);
-  const safeDur = Math.max(1, Number(duration) || 1);
-  if (!s) return "";
-  return toIsoDate(addDays(s, safeDur));
+  return start ? endFromStartAndDuration(start, duration) : "";
 }
 
 function calcStartFromEndAndDuration(end?: string, duration?: number): string {
-  const e = parseDate(end);
-  const safeDur = Math.max(1, Number(duration) || 1);
-  if (!e) return "";
-  return toIsoDate(addDays(e, -safeDur));
+  return end ? startFromEndAndDuration(end, duration) : "";
 }
 
 const ZOOM_DAY_WIDTH: Record<Exclude<ZoomLevel, "autofit">, number> = {
@@ -1054,6 +1050,7 @@ interface TaskListTabProps {
   onEditTask: (task: any) => void;
   onAddTask: () => void;
   setTaskList: React.Dispatch<React.SetStateAction<any[]>>;
+  links?: any[];
 }
 
 const GRID_COLS = [
@@ -1061,6 +1058,8 @@ const GRID_COLS = [
   { key: "owner", label: "Owner", w: 90, type: "text" },
   { key: "parent", label: "Parent", w: 130, type: "parent" },
   { key: "predecessor", label: "Predecessor", w: 130, type: "predecessor" },
+  { key: "depType", label: "Rel", w: 65, type: "dependencyType" },
+  { key: "lagDays", label: "Lag", w: 55, type: "number" },
   { key: "plannedStart", label: "Planned Start", w: 110, type: "date" },
   { key: "plannedEnd", label: "Planned End", w: 110, type: "date" },
   { key: "actualStart", label: "Actual Start", w: 110, type: "date" },
@@ -1074,7 +1073,7 @@ const GRID_COLS = [
 const STATUS_OPTS = ["Not Started", "In Progress", "In Progress (Delayed)", "Completed", "Overdue", "Delayed", "Planned"];
 const CALC_FIELDS = ["plannedStart", "plannedEnd", "actualStart", "actualEnd", "duration", "progress"];
 
-function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask, setTaskList }: TaskListTabProps) {
+function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask, setTaskList, links = [] }: TaskListTabProps) {
   const [editing, setEditing] = useState<{ rowId: number; colKey: string } | null>(null);
   const [editVal, setEditVal] = useState("");
   const [dirty, setDirty] = useState<Set<number>>(new Set());
@@ -1087,6 +1086,8 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
   const getVal = (t: any, ck: string) => {
     if (ck === "parent") return String(t.parent ?? t.parentTaskId ?? 0);
     if (ck === "predecessor") return String(t.predecessorTaskId ?? t.predecessor_task_id ?? t.predecessorId ?? 0);
+    if (ck === "depType") return normalizeDependencyType(t.dependencyType ?? t.dependency_type ?? (t.predecessorTaskId || t.predecessor_task_id ? "FS" : "NONE"));
+    if (ck === "lagDays") return String(t.lagDays ?? t.lag_days ?? 0);
     return t[ck] ?? "";
   };
 
@@ -1137,6 +1138,7 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     let v: any = editVal;
     if (col.type === "number") { v = parseInt(v) || 0; if (col.key === "progress") v = Math.min(100, Math.max(0, v)); }
     if (col.key === "parent" || col.key === "predecessor") v = parseInt(v) || 0;
+    if (col.key === "depType") v = normalizeDependencyType(v);
     /* ── Build partial payload with ONLY the changed field ──
        The backend now does partial merge for UPDATE — only provided
        fields are written; all others are preserved. */
@@ -1145,6 +1147,8 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     else if (col.key === "owner") payload.owner = v || null;
     else if (col.key === "parent") payload.parent_task_id = v;
     else if (col.key === "predecessor") payload.predecessor_task_id = v || null;
+    else if (col.key === "depType") payload.dependency_type = v === "NONE" ? null : v;
+    else if (col.key === "lagDays") payload.lag_days = v;
     else if (col.key === "plannedStart") payload.planned_start = v || null;
     else if (col.key === "plannedEnd") payload.planned_finish = v || null;
     else if (col.key === "actualStart") payload.actual_start = v || null;
@@ -1155,7 +1159,38 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     else if (col.key === "type") { payload.task_type = v; payload.is_milestone = v === "milestone" ? 1 : 0; }
     else if (col.key === "notes") payload.notes = v || null;
     payload.frontend_task_uid = t.frontendTaskUid || t.frontend_task_uid || undefined;
-    const updatedTask = applyTaskListDateMath(t, col.key, v);
+    let updatedTask = applyTaskListDateMath(t, col.key, v);
+
+    const nextPredId = col.key === "predecessor" ? v : (updatedTask.predecessorTaskId ?? updatedTask.predecessor_task_id ?? updatedTask.predecessorId ?? 0);
+    const nextDepType = normalizeDependencyType(col.key === "depType" ? v : (updatedTask.dependencyType ?? updatedTask.dependency_type ?? (nextPredId ? "FS" : "NONE")));
+    const nextLagDays = col.key === "lagDays" ? v : (updatedTask.lagDays ?? updatedTask.lag_days ?? 0);
+
+    if (["predecessor", "depType", "lagDays", "duration"].includes(col.key)) {
+      payload.predecessor_task_id = nextDepType === "NONE" ? null : (nextPredId || null);
+      payload.dependency_type = nextDepType === "NONE" ? null : nextDepType;
+      payload.lag_days = nextDepType === "NONE" ? 0 : nextLagDays;
+      updatedTask = {
+        ...updatedTask,
+        predecessorTaskId: payload.predecessor_task_id,
+        dependencyType: payload.dependency_type,
+        lagDays: payload.lag_days,
+      };
+    }
+
+    if (nextPredId && nextDepType !== "NONE") {
+      const linkObjs = links.map((l: any) => ({ source: l.source ?? l.predecessorTaskId, target: l.target ?? l.successorTaskId }));
+      if (wouldCreateDependencyCycle(nextPredId, t.id, linkObjs)) {
+        setBanner({ type: "error", message: "Dependency cycle blocked. Select a different predecessor." });
+        setEditing(null);
+        return;
+      }
+      if (!isParentR(t)) {
+        const predecessor = allTasks.find((x: any) => x.id === nextPredId);
+        const scheduled = calculateDependencyPlannedDates({ predecessor, successor: { ...updatedTask, duration: updatedTask.duration }, type: nextDepType, lagDays: nextLagDays });
+        if (scheduled.skipped) setBanner({ type: "info", message: scheduled.reason });
+        else updatedTask = { ...updatedTask, plannedStart: scheduled.plannedStart, plannedEnd: scheduled.plannedEnd, duration: scheduled.duration };
+      }
+    }
 
     if (updatedTask.duration !== t.duration) payload.planned_duration = updatedTask.duration;
     if (updatedTask.plannedStart !== t.plannedStart) payload.planned_start = updatedTask.plannedStart || null;
@@ -1193,9 +1228,18 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
         </select>
       );
       if (col.key === "predecessor") return (
-        <select ref={inpRef} value={editVal} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle}>
+        <select ref={inpRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle}>
           <option value="0">(None)</option>
           {allTasks.filter((x: any) => x.id !== t.id).map((x: any) => <option key={x.id} value={x.id}>{(x.taskName ?? x.text ?? `Task ${x.id}`).slice(0, 25)}</option>)}
+        </select>
+      );
+      if (col.key === "depType") return (
+        <select ref={inpRef} value={editVal || "NONE"} onChange={e => setEditVal(e.target.value)} onBlur={() => doSave(t, col)} onKeyDown={e => onKey(e, t, col, ci, ri)} style={inpStyle}>
+          <option value="NONE">None</option>
+          <option value="FS">FS</option>
+          <option value="SS">SS</option>
+          <option value="FF">FF</option>
+          <option value="SF">SF</option>
         </select>
       );
       if (col.key === "status") return (
@@ -1218,6 +1262,8 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
     if (col.key === "progress") return <span style={{ fontWeight: 700, color: normProgress(val) >= 100 ? "#1F9D55" : "#005BAC" }}>{normProgress(val)}%</span>;
     if (col.key === "parent") { const rt = allTasks.find((x: any) => x.id === (parseInt(val) || 0)); return <span style={{ color: rt ? "#1E293B" : "#94A3B8" }}>{rt ? (rt.taskName ?? rt.text ?? `T${rt.id}`).slice(0, 18) : (val !== "0" && val ? "?" : "—")}</span>; }
     if (col.key === "predecessor") { const rt = allTasks.find((x: any) => x.id === (parseInt(val) || 0)); return <span style={{ color: rt ? "#1E293B" : "#94A3B8" }}>{rt ? (rt.taskName ?? rt.text ?? `T${rt.id}`).slice(0, 18) : (val !== "0" && val ? (t.predecessorName ? t.predecessorName.slice(0, 18) : "?") : "—")}</span>; }
+    if (col.key === "depType") return <span style={{ color: val && val !== "NONE" ? "#7C3AED" : "#94A3B8", fontWeight: 700 }}>{val || "NONE"}</span>;
+    if (col.key === "lagDays") return <span style={{ color: Number(val) < 0 ? "#DC2626" : Number(val) > 0 ? "#F59E0B" : "#94A3B8" }}>{Number(val) || 0}</span>;
     return <span style={{ color: val ? "#1E293B" : "#94A3B8" }}>{val || "—"}</span>;
   };
 
@@ -2172,6 +2218,15 @@ export default function GanttPlanner() {
       if (pTask) _predUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
     }
 
+    if (_editingId && _predecessorId && _depType) {
+      const linkObjs = (linksQuery.data || []).map((l: any) => ({ source: l.source ?? l.predecessorTaskId, target: l.target ?? l.successorTaskId }));
+      if (wouldCreateDependencyCycle(_predecessorId, _editingId, linkObjs)) {
+        setIsSaving(false);
+        setBanner({ type: "error", message: "Dependency cycle blocked. Select a different predecessor." });
+        return;
+      }
+    }
+
     const autoStatus = deriveStatus({
       startDate: _actualStart || undefined, endDate: _actualEnd || undefined,
       plannedEnd: _plannedEnd || undefined,
@@ -2299,7 +2354,7 @@ export default function GanttPlanner() {
     } finally {
       setIsSaving(false);
     }
-  }, [form, editingId, saveTaskMut, saveLinkByUidMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, taskList, recalcAndSaveParent, currentProjectId, refetchTasks, refetchLinks]);
+  }, [form, editingId, saveTaskMut, saveLinkByUidMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, taskList, recalcAndSaveParent, currentProjectId, refetchTasks, refetchLinks, linksQuery.data]);
 
   const handleImportExcel = (file: File) => {
     const reader = new FileReader();
@@ -2444,7 +2499,7 @@ export default function GanttPlanner() {
             </div>
           </div>
         )}
-        {activeTab === "tasks" && <TaskListTab tasks={taskList} allTasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} setTaskList={setTaskList} />}
+        {activeTab === "tasks" && <TaskListTab tasks={taskList} allTasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} setTaskList={setTaskList} links={linksQuery.data || []} />}
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
 
         {/* Task Edit/Add Modal */}
@@ -2456,6 +2511,21 @@ export default function GanttPlanner() {
             {(() => {
               const editingTask = editingId ? taskList.find((t: any) => t.id === editingId) : null;
               const editingIsParent = editingTask ? isParent(editingTask.id, taskList) : false;
+              const applyFormDependencySchedule = (nextForm: TaskForm): TaskForm => {
+                if (editingIsParent || nextForm.depType === "NONE" || !nextForm.predecessorId) return nextForm;
+                const linkObjs = (linksQuery.data || []).map((l: any) => ({ source: l.source ?? l.predecessorTaskId, target: l.target ?? l.successorTaskId }));
+                if (editingId && wouldCreateDependencyCycle(nextForm.predecessorId, editingId, linkObjs)) {
+                  setBanner({ type: "error", message: "Dependency cycle blocked. Select a different predecessor." });
+                  return { ...nextForm, predecessorId: 0, predecessorFrontendUid: "", depType: "NONE", lagDays: 0 };
+                }
+                const predecessor = taskList.find((t: any) => t.id === nextForm.predecessorId);
+                const scheduled = calculateDependencyPlannedDates({ predecessor, successor: { duration: nextForm.duration, plannedStart: nextForm.plannedStart, plannedEnd: nextForm.plannedEnd }, type: nextForm.depType, lagDays: nextForm.lagDays });
+                if (scheduled.skipped) {
+                  setBanner({ type: "info", message: scheduled.reason });
+                  return nextForm;
+                }
+                return { ...nextForm, plannedStart: scheduled.plannedStart, plannedEnd: scheduled.plannedEnd, duration: scheduled.duration };
+              };
               return (
             <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #D6DFE8", boxShadow: "0 20px 60px rgba(0,0,0,.25)", width: "100%", maxWidth: 720, maxHeight: "90vh", overflow: "auto", padding: "20px 24px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, position: "sticky", top: 0, background: "#fff", padding: "4px 0", zIndex: 2 }}>
@@ -2482,7 +2552,12 @@ export default function GanttPlanner() {
                     Planned Start {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                    <input type="date" value={form.plannedStart} onChange={e => setForm({...form, plannedStart: e.target.value})} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                    <input type="date" value={form.plannedStart} onChange={e => setForm(prev => {
+                      const plannedStart = e.target.value;
+                      const duration = Math.max(1, Number(prev.duration) || 1);
+                      const plannedEnd = plannedStart ? calcEndFromStartAndDuration(plannedStart, duration) : prev.plannedEnd;
+                      return applyFormDependencySchedule({ ...prev, plannedStart, plannedEnd, duration });
+                    })} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
                     {!editingIsParent && form.plannedStart && <button onClick={() => setForm({...form, plannedStart: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
                   </div>
                 </div>
@@ -2491,7 +2566,12 @@ export default function GanttPlanner() {
                     Planned End {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                    <input type="date" value={form.plannedEnd} onChange={e => setForm({...form, plannedEnd: e.target.value})} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                    <input type="date" value={form.plannedEnd} onChange={e => setForm(prev => {
+                      const plannedEnd = e.target.value;
+                      const duration = calcDurationFromDates(prev.plannedStart, plannedEnd) ?? Math.max(1, Number(prev.duration) || 1);
+                      const plannedStart = plannedEnd && !prev.plannedStart ? calcStartFromEndAndDuration(plannedEnd, duration) : prev.plannedStart;
+                      return applyFormDependencySchedule({ ...prev, plannedStart, plannedEnd, duration });
+                    })} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
                     {!editingIsParent && form.plannedEnd && <button onClick={() => setForm({...form, plannedEnd: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
                   </div>
                 </div>
@@ -2530,8 +2610,9 @@ export default function GanttPlanner() {
                   </label>
                   <input type="number" min={1} value={form.duration} onChange={e => setForm(prev => {
                     const duration = Math.max(1, parseInt(e.target.value) || 1);
+                    const plannedEnd = prev.plannedStart ? calcEndFromStartAndDuration(prev.plannedStart, duration) : prev.plannedEnd;
                     const actualEnd = prev.actualStart ? calcEndFromStartAndDuration(prev.actualStart, duration) : prev.actualEnd;
-                    return { ...prev, duration, actualEnd };
+                    return applyFormDependencySchedule({ ...prev, duration, plannedEnd, actualEnd });
                   })} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
                 </div>
                 <div>
@@ -2560,13 +2641,13 @@ export default function GanttPlanner() {
                     <select value={form.predecessorId || ""} onChange={e => {
                       const pid = e.target.value ? parseInt(e.target.value) : 0;
                       const pTask = pid ? (taskList || []).find((t: any) => t.id === pid) : null;
-                      setForm({
-                        ...form,
+                      setForm(prev => applyFormDependencySchedule({
+                        ...prev,
                         predecessorId: pid,
                         predecessorFrontendUid: pTask ? (pTask.frontendTaskUid || pTask.frontend_task_uid || "") : "",
-                        depType: pid ? (form.depType === "NONE" ? "FS" : form.depType) : "NONE",
-                        lagDays: pid ? form.lagDays : 0,
-                      });
+                        depType: pid ? (prev.depType === "NONE" ? "FS" : prev.depType) : "NONE",
+                        lagDays: pid ? prev.lagDays : 0,
+                      }));
                     }} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
                       <option value="">(None)</option>
                       {(taskList || []).filter((t: any) => t.id !== editingId).map((t: any) => <option key={t.id} value={t.id}>{t.text}</option>)}
@@ -2580,7 +2661,7 @@ export default function GanttPlanner() {
                         setForm({ ...form, depType: "NONE", predecessorId: 0, predecessorFrontendUid: "", lagDays: 0 });
                         return;
                       }
-                      setForm({ ...form, depType: nextType });
+                      setForm(prev => applyFormDependencySchedule({ ...prev, depType: nextType }));
                     }} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}>
                       <option value="NONE">None</option>
                       <option value="FS">FS — Finish-to-Start</option>
@@ -2591,7 +2672,7 @@ export default function GanttPlanner() {
                   </div>
                   <div>
                     <label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Lag / Lead (days)</label>
-                    <input type="number" value={form.lagDays} onChange={e => setForm({...form, lagDays: parseInt(e.target.value) || 0})} disabled={form.depType === "NONE"} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: form.depType === "NONE" ? "#F8FAFC" : "#fff", color: form.depType === "NONE" ? "#94A3B8" : "#1E293B" }} title="Positive = lag (delay), Negative = lead (overlap)" />
+                    <input type="number" value={form.lagDays} onChange={e => setForm(prev => applyFormDependencySchedule({ ...prev, lagDays: parseInt(e.target.value) || 0 }))} disabled={form.depType === "NONE"} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: form.depType === "NONE" ? "#F8FAFC" : "#fff", color: form.depType === "NONE" ? "#94A3B8" : "#1E293B" }} title="Positive = lag (delay), Negative = lead (overlap)" />
                   </div>
                 </div>
               </div>

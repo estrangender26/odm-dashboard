@@ -4,6 +4,35 @@ import { db } from "./queries/connection";
 import { ganttTasks, ganttDependencies, ganttProjects } from "@db/schema";
 import { eq, sql, and, asc } from "drizzle-orm";
 
+
+const DEP_TYPE_MAP: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+const normalizeDependencyType = (type?: string | null) => {
+  const raw = String(type || "NONE").toUpperCase();
+  return DEP_TYPE_MAP[raw] || (["FS", "SS", "FF", "SF", "NONE"].includes(raw) ? raw : "NONE");
+};
+
+async function wouldCreateDependencyCycle(source: number, target: number) {
+  if (!source || !target) return false;
+  if (source === target) return true;
+  const deps = await db.select({ source: ganttDependencies.predecessorTaskId, target: ganttDependencies.successorTaskId }).from(ganttDependencies);
+  const successors = new Map<number, number[]>();
+  for (const dep of deps) {
+    if (dep.source === source && dep.target === target) continue;
+    if (!successors.has(dep.source)) successors.set(dep.source, []);
+    successors.get(dep.source)!.push(dep.target);
+  }
+  const stack = [target];
+  const seen = new Set<number>();
+  while (stack.length) {
+    const current = stack.pop()!;
+    if (current === source) return true;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    stack.push(...(successors.get(current) || []));
+  }
+  return false;
+}
+
 /* ═══════════════════════════════════════════
    GANTT CLEAN RESET + CRUD ROUTER
    ═══════════════════════════════════════════ */
@@ -207,18 +236,22 @@ export const ganttRouter = createRouter({
         setData.isParent = (v.is_parent ?? v.isParent ?? 0) ? 1 : 0;
       }
 
-      /* ── If this is a predecessor update, also sync the gantt_dependencies row ── */
-      if ((has("predecessor_task_id") || has("predecessorId")) && setData.predecessorTaskId) {
+      /* ── If predecessor/dependency fields are present, sync the dependency row without touching hierarchy ── */
+      if (has("predecessor_task_id") || has("predecessorId") || has("dependency_type") || has("dependencyType")) {
         try {
           await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, input.id));
-          await db.insert(ganttDependencies).values({
-            predecessorTaskId: setData.predecessorTaskId,
-            successorTaskId: input.id,
-            dependencyType: setData.dependencyType || "FS",
-            lagDays: setData.lagDays || 0,
-            projectId: setData.projectId ?? null,
-          });
-        } catch (depErr) { /* non-critical, don't block task save */ }
+          const depType = normalizeDependencyType(setData.dependencyType ?? (setData.predecessorTaskId ? "FS" : "NONE"));
+          if (setData.predecessorTaskId && depType !== "NONE") {
+            if (await wouldCreateDependencyCycle(setData.predecessorTaskId, input.id)) throw new Error("Dependency cycle detected");
+            await db.insert(ganttDependencies).values({
+              predecessorTaskId: setData.predecessorTaskId,
+              successorTaskId: input.id,
+              dependencyType: depType,
+              lagDays: setData.lagDays || 0,
+              projectId: setData.projectId ?? null,
+            });
+          }
+        } catch (depErr) { throw depErr; }
       }
 
       setData.updatedAt = now;
@@ -288,8 +321,12 @@ export const ganttRouter = createRouter({
         return { id: 0, action: "skipped", reason: "Task not found" };
       }
       await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, input.target));
-      const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
-      const norm = typeMap[input.type] || input.type || "FS";
+      const norm = normalizeDependencyType(input.type);
+      if (norm === "NONE") {
+        await db.update(ganttTasks).set({ predecessorTaskId: null, dependencyType: null, lagDays: 0 }).where(eq(ganttTasks.id, input.target));
+        return { id: 0, action: "deleted" };
+      }
+      if (await wouldCreateDependencyCycle(input.source, input.target)) throw new Error("Dependency cycle detected");
       const inserted = await db.insert(ganttDependencies).values({
         projectId: input.projectId ?? null,
         predecessorTaskId: input.source,
@@ -320,8 +357,12 @@ export const ganttRouter = createRouter({
         return { id: 0, action: "skipped", reason: "UID not found" };
       }
       await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, succRows[0].id));
-      const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
-      const norm = typeMap[input.type] || input.type || "FS";
+      const norm = normalizeDependencyType(input.type);
+      if (norm === "NONE") {
+        await db.update(ganttTasks).set({ predecessorTaskId: null, dependencyType: null, lagDays: 0 }).where(eq(ganttTasks.id, succRows[0].id));
+        return { id: 0, action: "deleted" };
+      }
+      if (await wouldCreateDependencyCycle(predRows[0].id, succRows[0].id)) throw new Error("Dependency cycle detected");
       const inserted = await db.insert(ganttDependencies).values({
         projectId: input.projectId ?? null,
         predecessorTaskId: predRows[0].id,
@@ -339,7 +380,11 @@ export const ganttRouter = createRouter({
   deleteLink: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      const rows = await db.select({ target: ganttDependencies.successorTaskId }).from(ganttDependencies).where(eq(ganttDependencies.id, input.id));
       await db.delete(ganttDependencies).where(eq(ganttDependencies.id, input.id));
+      if (rows[0]?.target) {
+        await db.update(ganttTasks).set({ predecessorTaskId: null, dependencyType: null, lagDays: 0 }).where(eq(ganttTasks.id, rows[0].target));
+      }
       return { success: true };
     }),
 
@@ -351,13 +396,14 @@ export const ganttRouter = createRouter({
       projectId: z.number().optional(),
     })))
     .mutation(async ({ input }) => {
-      const typeMap: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
       let count = 0;
       for (const dep of input) {
         const predExists = (await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, dep.source))).length > 0;
         const succExists = (await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, dep.target))).length > 0;
         if (!predExists || !succExists) continue;
-        const norm = typeMap[dep.type] || dep.type || "FS";
+        const norm = normalizeDependencyType(dep.type);
+        if (norm === "NONE") continue;
+        if (await wouldCreateDependencyCycle(dep.source, dep.target)) continue;
         await db.insert(ganttDependencies).values({
           projectId: dep.projectId ?? null,
           predecessorTaskId: dep.source,
