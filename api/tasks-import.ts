@@ -30,7 +30,18 @@ export interface MaintenanceImportSkippedRow {
   reason: string;
 }
 
-interface MaintenanceImportRowDiagnostics {
+export type MaintenanceImportFailureKind = "validation" | "mapping" | "transaction" | "unexpected";
+
+export interface MaintenanceImportFailurePayload {
+  success: false;
+  kind: MaintenanceImportFailureKind;
+  message: string;
+  rejected: number;
+  skipped: MaintenanceImportSkippedRow[];
+  diagnostics: MaintenanceImportRowDiagnostics[];
+}
+
+export interface MaintenanceImportRowDiagnostics {
   row: number;
   hasTaskId: boolean;
   hasTaskCode: boolean;
@@ -47,6 +58,7 @@ export interface MaintenanceImportResult {
   unchanged: number;
   total: number;
   skipped: MaintenanceImportSkippedRow[];
+  message: string;
 }
 
 export interface MaintenanceTaskMatch {
@@ -206,7 +218,7 @@ export function validateMaintenanceImportRows(rows: MaintenanceImportRow[], acti
   return errors;
 }
 
-function maintenanceImportRequiredFix(reason: string): string {
+export function maintenanceImportRequiredFix(reason: string): string {
   if (reason.includes("Invalid task_id")) return "Export a fresh file and keep the task_id column unchanged.";
   if (reason.includes("does not match active dataset")) return "Switch to the matching facility tab or export a fresh file for the active facility.";
   if (reason.includes("Unrecognized facility/dataset")) return "Use the Facility/Dataset value from a fresh export.";
@@ -219,7 +231,7 @@ function maintenanceImportRequiredFix(reason: string): string {
   return "Review the row and retry with a fresh export if the problem remains.";
 }
 
-function summarizeSkipped(skipped: MaintenanceImportSkippedRow[], limit = 5): string {
+function summarizeSkipped(skipped: MaintenanceImportSkippedRow[], limit = 10): string {
   return skipped
     .slice(0, limit)
     .map((s) => `Row ${s.row} rejected${s.eq ? ` [${s.eq}]` : ""}${s.task ? ` "${s.task}"` : ""}: ${s.reason}. Required fix: ${maintenanceImportRequiredFix(s.reason)}`)
@@ -228,11 +240,11 @@ function summarizeSkipped(skipped: MaintenanceImportSkippedRow[], limit = 5): st
 
 export function formatMaintenanceImportFailure(skipped: MaintenanceImportSkippedRow[], prefix = "Import validation failed"): string {
   if (skipped.length === 0) return prefix;
-  const extra = skipped.length > 5 ? `; +${skipped.length - 5} more` : "";
+  const extra = skipped.length > 10 ? `; +${skipped.length - 10} more rejected row(s) in diagnostics` : "";
   return `${prefix}: ${summarizeSkipped(skipped)}${extra}`;
 }
 
-function buildImportDiagnostics(rows: MaintenanceImportRow[], skipped: MaintenanceImportSkippedRow[] = []): MaintenanceImportRowDiagnostics[] {
+export function buildImportDiagnostics(rows: MaintenanceImportRow[], skipped: MaintenanceImportSkippedRow[] = []): MaintenanceImportRowDiagnostics[] {
   const skippedByRow = new Map(skipped.map((s) => [s.row, s.reason]));
   return rows.map((row, idx) => {
     const rowNumber = row.rowNumber ?? idx + 2;
@@ -262,6 +274,32 @@ function sampleImportRows(rows: MaintenanceImportRow[], limit = 3) {
     equipment: printable(String(row.equipmentType ?? "")),
     taskDescription: printable(String(row.taskList ?? "")),
   }));
+}
+
+export class MaintenanceImportError extends Error {
+  readonly kind: MaintenanceImportFailureKind;
+  readonly skipped: MaintenanceImportSkippedRow[];
+  readonly diagnostics: MaintenanceImportRowDiagnostics[];
+  readonly statusCode = 400;
+
+  constructor(kind: MaintenanceImportFailureKind, message: string, skipped: MaintenanceImportSkippedRow[], diagnostics: MaintenanceImportRowDiagnostics[] = []) {
+    super(message);
+    this.name = "MaintenanceImportError";
+    this.kind = kind;
+    this.skipped = skipped;
+    this.diagnostics = diagnostics;
+  }
+
+  toPayload(): MaintenanceImportFailurePayload {
+    return {
+      success: false,
+      kind: this.kind,
+      message: this.message,
+      rejected: this.skipped.length,
+      skipped: this.skipped,
+      diagnostics: this.diagnostics,
+    };
+  }
 }
 
 export function buildMaintenanceImportPlan(
@@ -370,7 +408,7 @@ export async function importMaintenancePlanningRows(
       errors: validationErrors.slice(0, 20),
       diagnostics: buildImportDiagnostics(input.rows, validationErrors).slice(0, 20),
     });
-    throw new Error(formatMaintenanceImportFailure(validationErrors));
+    throw new MaintenanceImportError("validation", formatMaintenanceImportFailure(validationErrors), validationErrors, buildImportDiagnostics(input.rows, validationErrors));
   }
 
   const existingRows = await db
@@ -396,7 +434,7 @@ export async function importMaintenancePlanningRows(
 
   if (plan.skipped.length > 0) {
     console.warn("[tasks/import] mapping failed", { activeDataset: input.dataset, skipped: plan.skipped.slice(0, 20), diagnostics: buildImportDiagnostics(input.rows, plan.skipped).slice(0, 20) });
-    throw new Error(formatMaintenanceImportFailure(plan.skipped, "Import mapping failed"));
+    throw new MaintenanceImportError("mapping", formatMaintenanceImportFailure(plan.skipped, "Import mapping failed"), plan.skipped, buildImportDiagnostics(input.rows, plan.skipped));
   }
 
   const applyUpdates = async (tx: MaintenanceDbLike) => {
@@ -425,7 +463,7 @@ export async function importMaintenancePlanningRows(
       message: error.message,
       stack: error.stack,
     });
-    throw new Error(`Import database transaction failed: ${error.message}`);
+    throw new MaintenanceImportError("transaction", `Import database transaction failed: ${error.message}`, [], buildImportDiagnostics(input.rows));
   }
 
   const result: MaintenanceImportResult = {
@@ -434,6 +472,7 @@ export async function importMaintenancePlanningRows(
     unchanged: plan.unchanged,
     total: input.rows.length,
     skipped: [],
+    message: `${plan.matches.length} row${plan.matches.length === 1 ? "" : "s"} updated; ${plan.unchanged} row${plan.unchanged === 1 ? "" : "s"} unchanged; 0 rows rejected.`,
   };
   console.info("[tasks/import] complete", { ...result, dataset: input.dataset, elapsedMs: Date.now() - startedAt });
   return result;

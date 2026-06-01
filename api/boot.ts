@@ -675,12 +675,23 @@ app.use("/api/trpc/*", cors({
 }));
 
 app.use("/api/trpc/*", async (c) => {
-  return fetchRequestHandler({
+  const response = await fetchRequestHandler({
     endpoint: "/api/trpc",
     req: c.req.raw,
     router: appRouter,
     createContext,
   });
+
+  if (c.req.path.includes("tasks.import")) {
+    const rawBody = await response.clone().text();
+    console.info("[tasks/import] backend raw response body", {
+      path: c.req.path,
+      status: response.status,
+      rawBody,
+    });
+  }
+
+  return response;
 });
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 

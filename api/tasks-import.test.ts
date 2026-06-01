@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MaintenanceImportError,
+  buildImportDiagnostics,
   buildMaintenanceImportPlan,
   buildMaintenanceTaskCode,
   formatMaintenanceImportFailure,
@@ -159,4 +161,23 @@ describe("Maintenance Planning (Post-PPP) import", () => {
   it("normalizes whitespace, case, and en dash/hyphen variants for equipment mapping", () => {
     expect(normalizeImportKey("  Blower –  Aeration ")).toBe(normalizeImportKey("blower - aeration"));
   });
+
+  it("creates structured 400 payloads for expected validation failures", () => {
+    const skipped = validateMaintenanceImportRows([
+      { rowNumber: 10, taskId: "bad-id", equipmentType: "Clarifier", taskList: "Inspect scraper bridge" },
+    ], "htt");
+    const error = new MaintenanceImportError("validation", formatMaintenanceImportFailure(skipped), skipped, buildImportDiagnostics([
+      { rowNumber: 10, taskId: "bad-id", equipmentType: "Clarifier", taskList: "Inspect scraper bridge" },
+    ], skipped));
+
+    expect(error.statusCode).toBe(400);
+    expect(error.toPayload()).toMatchObject({
+      success: false,
+      kind: "validation",
+      rejected: 1,
+      skipped: [{ row: 10, reason: "Invalid task_id; expected a positive numeric task_id from the export" }],
+      diagnostics: [{ row: 10, hasTaskId: true, matchingPath: "task_id", rejectionReason: "Invalid task_id; expected a positive numeric task_id from the export" }],
+    });
+  });
+
 });
