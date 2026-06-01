@@ -2,7 +2,9 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { tasks, equipment } from "@db/schema";
-import { eq, and, like, or, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { importMaintenancePlanningRows, type MaintenanceDbLike } from "./tasks-import";
 
 const FAMILIARITY_OPTIONS = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
 const FamiliarityValue = z.enum(FAMILIARITY_OPTIONS);
@@ -46,8 +48,7 @@ export const tasksRouter = createRouter({
     .input(z.object({ dataset: z.enum(["htt", "aglipay"]) }))
     .query(async ({ input }) => {
       console.log("[tasks/stats] dataset:", input.dataset);
-      const q = `SELECT COUNT(*) as c FROM tasks WHERE "dataset"=$1`;
-      const rows = await db.execute(sql.raw(q, [input.dataset]));
+      const rows = await db.execute(sql`SELECT COUNT(*) as c FROM tasks WHERE "dataset"=${input.dataset}`);
       const count = Number((rows as any[])[0]?.c || 0);
       console.log("[tasks/stats] count:", count);
       return { count };
@@ -270,44 +271,27 @@ export const tasksRouter = createRouter({
         amd: z.string().nullable().optional(),
         ard: z.string().nullable().optional(),
         procedureFamiliarity: z.string().nullable().optional(),
+        rowNumber: z.number().optional(),
       })),
     }))
     .mutation(async ({ input }) => {
-      const hasCol = await hasFamiliarityCol();
-      let updated = 0;
-      const skipped: Array<{ eq: string; task: string; reason: string }> = [];
-
-      for (const item of input.rows) {
-        const eqRows = await db.select().from(equipment).where(eq(equipment.name, item.equipmentType)).limit(1);
-        if (!eqRows.length) {
-          skipped.push({ eq: item.equipmentType, task: item.taskList.slice(0, 50), reason: "Equipment not found" });
-          continue;
-        }
-        const tRows = await db.select().from(tasks)
-          .where(and(eq(tasks.equipmentId, eqRows[0].id), eq(tasks.taskList, item.taskList), eq(tasks.dataset, input.dataset)))
-          .limit(1);
-        if (!tRows.length) {
-          skipped.push({ eq: item.equipmentType, task: item.taskList.slice(0, 50), reason: "Task not found" });
-          continue;
-        }
-
-        const d: Record<string, string | null> = {};
-        if (item.operations?.trim()) d.operations = item.operations.trim();
-        if (item.amd?.trim()) d.amd = item.amd.trim();
-        if (item.ard?.trim()) d.ard = item.ard.trim();
-        if (hasCol && item.procedureFamiliarity?.trim()) d.procedureFamiliarity = item.procedureFamiliarity.trim();
-
-        if (Object.keys(d).length > 0) {
-          try {
-            await db.update(tasks).set(d).where(eq(tasks.id, tRows[0].id));
-            updated++;
-          } catch (err: any) {
-            skipped.push({ eq: item.equipmentType, task: item.taskList.slice(0, 50), reason: err.message });
-          }
-        }
+      try {
+        const hasCol = await hasFamiliarityCol();
+        return await importMaintenancePlanningRows(db as unknown as MaintenanceDbLike, input, hasCol);
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error("[tasks/import] failed", {
+          dataset: input.dataset,
+          rows: input.rows.length,
+          message: error.message,
+          stack: error.stack,
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error.message || "Maintenance planning import failed",
+          cause: error,
+        });
       }
-
-      return { success: true, updated, total: input.rows.length, skipped: skipped.slice(0, 10) };
     }),
 
   familiaritySummary: publicQuery
