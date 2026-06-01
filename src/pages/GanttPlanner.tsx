@@ -36,7 +36,7 @@ import {
   calcKpi, statusColor as _statusColor, statusBg as _statusBg, statusBadgeStyle, rowStatus, fmtMonth, fmtShortDate,
 } from "@/modules/gantt/engine/uiUtilsEngine";
 import {
-  buildManualHierarchyOrder, getSiblingOrderState, getTaskParentId,
+  buildManualHierarchyOrder, getSiblingOrderDebug, getSiblingOrderState, getTaskParentId, sortTasksForHierarchyDisplay,
 } from "@/modules/gantt/engine/taskReorderEngine";
 
 /* LOCAL statusBg — workaround for Vite tree-shaking bug that removes imported function */
@@ -699,6 +699,14 @@ function _buildTaskTree(tasks: GanttTask[]): _TaskNode[] {
       roots.push(node);
     }
   }
+  const sortNodes = (nodes: _TaskNode[]) => {
+    const sortedTasks = sortTasksForHierarchyDisplay(nodes.map((n) => n.task));
+    const position = new Map(sortedTasks.map((task, index) => [task.id, index]));
+    nodes.sort((a, b) => (position.get(a.task.id) ?? 0) - (position.get(b.task.id) ?? 0));
+    nodes.forEach((n) => sortNodes(n.children));
+  };
+  sortNodes(roots);
+
   function setLevels(nodes: _TaskNode[], level: number) {
     for (const n of nodes) { n.level = level; setLevels(n.children, level + 1); }
   }
@@ -1098,6 +1106,7 @@ const STATUS_OPTS = ["Not Started", "In Progress", "In Progress (Delayed)", "Com
 const CALC_FIELDS = ["plannedStart", "plannedEnd", "actualStart", "actualEnd", "duration", "progress"];
 
 function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, selectedTaskId, onSelectTask, setTaskList, links = [] }: TaskListTabProps) {
+  const displayTasks = useMemo(() => sortTasksForHierarchyDisplay(tasks), [tasks]);
   const [editing, setEditing] = useState<{ rowId: number; colKey: string } | null>(null);
   const [editVal, setEditVal] = useState("");
   const [dirty, setDirty] = useState<Set<number>>(new Set());
@@ -1294,7 +1303,7 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
   return (
     <div style={{ background: "#fff", borderRadius: 10, boxShadow: "0 1px 3px rgba(0,0,0,.08)", border: "1px solid #D6DFE8", overflow: "hidden", display: "flex", flexDirection: "column", flex: 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid #D6DFE8", flexShrink: 0 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 700, color: "#1E293B", margin: 0 }}>Task Grid ({tasks.length})</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: "#1E293B", margin: 0 }}>Task Grid ({displayTasks.length})</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 10, color: "#8BA3B8" }}>Click cell · Tab navigate · Enter save · Esc cancel</span>
           <button onClick={onMoveUp} disabled={moveUpDisabled} title={moveUpDisabled ? (moveDisabledReason || "Cannot move up") : "Move selected task up within its current parent"} style={{ padding: "5px 9px", background: moveUpDisabled ? "#F1F5F9" : "#E0F2FE", color: moveUpDisabled ? "#94A3B8" : "#0369A1", border: "1px solid #BAE6FD", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: moveUpDisabled ? "not-allowed" : "pointer", fontFamily: "Inter" }}>↑ Move Up</button>
@@ -1314,7 +1323,7 @@ function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditT
             </tr>
           </thead>
           <tbody>
-            {tasks.map((t: any, ri: number) => {
+            {displayTasks.map((t: any, ri: number) => {
               const isP = isParentR(t);
               return (
                 <tr key={t.id} style={{ borderBottom: "1px solid #F1F5F9", background: selectedTaskId === t.id ? "#DBEAFE" : isP ? "#EFF6FF" : dirty.has(t.id) ? "#FEF9C3" : "transparent" }}>
@@ -1687,7 +1696,7 @@ export default function GanttPlanner() {
   useEffect(() => {
     if (!tasksQuery.data) return;
     setKpi(calcKpi(tasksQuery.data));
-    setTaskList(tasksQuery.data);
+    setTaskList(sortTasksForHierarchyDisplay(tasksQuery.data));
   }, [tasksQuery.data]);
 
   /* Clear stale selections/editing when refetched hierarchy no longer contains those tasks. */
@@ -2103,13 +2112,28 @@ export default function GanttPlanner() {
     const selected = selectedIds.size === 1 ? Array.from(selectedIds)[0] : selectedTaskId;
     if (!selected) { setBanner({ type: "info", message: "Select one task to move." }); return; }
 
-    const updates = buildManualHierarchyOrder(tasksQuery.data || [], selected, direction);
+    const liveTasks = tasksQuery.data || [];
+    console.debug("[Gantt reorder] before sibling order", getSiblingOrderDebug(liveTasks, selected));
+    const updates = buildManualHierarchyOrder(liveTasks, selected, direction);
     if (!updates) {
       setBanner({ type: "info", message: direction === "up" ? "Selected task is already first among its siblings." : "Selected task is already last among its siblings." });
       return;
     }
 
-    const originalParents = new Map((tasksQuery.data || []).map((task: any) => [task.id, getTaskParentId(task)]));
+    const updatedSortOrderById = new Map(updates.map((update) => [update.id, update.sort_order]));
+    const optimisticTasks = liveTasks.map((task: any) => {
+      const nextSortOrder = updatedSortOrderById.get(task.id);
+      return {
+        ...task,
+        sortorder: nextSortOrder ?? task.sortorder,
+        sortOrder: nextSortOrder ?? task.sortOrder,
+        sort_order: nextSortOrder ?? task.sort_order,
+      };
+    });
+    console.debug("[Gantt reorder] after sibling order", getSiblingOrderDebug(optimisticTasks, selected));
+    console.debug("[Gantt reorder] persisted sort_order", updates.map(({ id, sort_order }) => ({ id, sort_order })));
+
+    const originalParents = new Map(liveTasks.map((task: any) => [task.id, getTaskParentId(task)]));
     if (updates.some((item) => originalParents.get(item.id) !== item.parent)) {
       setBanner({ type: "error", message: "Move blocked because it would change a task parent." });
       return;
@@ -2119,7 +2143,14 @@ export default function GanttPlanner() {
       await reorderTasksMut.mutateAsync(updates.map(({ id, sort_order }) => ({ id, sort_order })));
       await utils.gantt.tasks.invalidate();
       const fresh = await refetchTasks();
-      setTaskList(fresh.data || []);
+      const renderedAfterRefetch = sortTasksForHierarchyDisplay(fresh.data || []);
+      console.debug("[Gantt reorder] rendered order after refetch", renderedAfterRefetch.map((task: any) => ({
+        id: task.id,
+        text: task.text ?? task.taskName ?? `Task ${task.id}`,
+        parent: getTaskParentId(task),
+        sort_order: task.sortorder ?? task.sortOrder ?? task.sort_order,
+      })));
+      setTaskList(renderedAfterRefetch);
       setSelectedTaskId(selected);
       setSelectedIds(new Set([selected]));
       setHasUnsavedChanges(true);
@@ -2582,7 +2613,7 @@ export default function GanttPlanner() {
         {activeTab === "gantt" && (
           <div style={{ marginTop: 8 }}>
             <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-              <NativeGanttChart tasks={(tasksQuery.data || []) as GanttTask[]} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} onEditTask={startEdit} onInsertAbove={insertTaskAbove} onInsertBelow={insertTaskBelow} onInsertChild={insertTaskChild} />
+              <NativeGanttChart tasks={sortTasksForHierarchyDisplay((tasksQuery.data || []) as GanttTask[])} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} onEditTask={startEdit} onInsertAbove={insertTaskAbove} onInsertBelow={insertTaskBelow} onInsertChild={insertTaskChild} />
             </div>
           </div>
         )}
