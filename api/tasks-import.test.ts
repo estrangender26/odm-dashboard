@@ -120,7 +120,8 @@ describe("Maintenance Planning (Post-PPP) import", () => {
         reason: "No matching task found for this dataset/equipment/task",
       },
     ]);
-    expect(formatMaintenanceImportFailure(plan.skipped, "Import mapping failed")).toContain("row 7 [Unknown Pump]");
+    expect(formatMaintenanceImportFailure(plan.skipped, "Import mapping failed")).toContain("Row 7 rejected [Unknown Pump]");
+    expect(formatMaintenanceImportFailure(plan.skipped, "Import mapping failed")).toContain("Required fix: Import a fresh export with task_id/task_code");
   });
 
   it("rejects row values that would fail database varchar validation before a transaction starts", () => {

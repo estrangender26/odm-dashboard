@@ -90,6 +90,10 @@ function friendlyError(err: any): string {
   return "Something went wrong. Please refresh the page or try again later.";
 }
 
+function normalizeImportHeader(value: string): string {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function importErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message.trim() : String(err || "").trim();
   if (
@@ -345,6 +349,14 @@ export default function Dashboard() {
         row.ard || "",
         row.procedureFamiliarity || "",
       ]);
+      console.info("[tasks/export] identity columns", {
+        activeDataset: activeTab,
+        rowCount: rows.length,
+        hasTaskIdHeader: headers.includes("task_id"),
+        hasTaskCodeHeader: headers.includes("task_code"),
+        hasFacilityDatasetHeader: headers.includes("Facility/Dataset"),
+        firstRows: rows.slice(0, 3).map((row) => ({ task_id: row[0], task_code: row[1], facilityDataset: row[2] })),
+      });
       const csv = [headers, ...rows].map((row) => row.map(csvEsc).join(",")).join("\n") + "\n";
       const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -396,10 +408,11 @@ export default function Dashboard() {
       if (sheetRows.length < 2) { setImportProgress(null); setBanner({ type: "error", message: "File is empty or invalid." }); return; }
 
       const headers = sheetRows[0].map((h: string) => String(h).trim());
+      const normalizedHeaders = headers.map(normalizeImportHeader);
       const findHeader = (names: string[]): number => {
-        for (let i = 0; i < headers.length; i++) {
-          const h = headers[i].toLowerCase().replace(/\s+/g, "");
-          for (const name of names) { if (h === name.toLowerCase().replace(/\s+/g, "")) return i; }
+        const aliases = names.map(normalizeImportHeader);
+        for (let i = 0; i < normalizedHeaders.length; i++) {
+          if (aliases.includes(normalizedHeaders[i])) return i;
         }
         return -1;
       };
@@ -416,9 +429,17 @@ export default function Dashboard() {
       const ardIdx = findHeader(["ARD"]);
       const famIdx = findHeader(["Procedure Familiarity", "Familiarity", "Fam", "Procedure_Familiarity"]);
 
+      console.info("[tasks/import] parsed headers", {
+        file: file.name,
+        activeDataset: activeTab,
+        headers,
+        normalizedHeaders,
+        detected: { taskIdIdx, taskCodeIdx, datasetIdx, eqIdx, taskIdx, freqIdx, responsibleIdx, opsIdx, amdIdx, ardIdx, famIdx },
+      });
+
       if ((taskIdIdx < 0 && taskCodeIdx < 0) && (eqIdx < 0 || taskIdx < 0)) {
         setImportProgress(null);
-        setBanner({ type: "error", message: `Missing required columns. Include task_id/task_code from Export All, or include Equipment Name and Task Description fallback columns. Found: ${headers.join(", ")}` });
+        setBanner({ type: "error", message: `Import failed: missing required header. Required fix: export a fresh file with task_id, task_code, and Facility/Dataset, or include Equipment Name and Task Description for legacy fallback. Found: ${headers.join(", ")}` });
         return;
       }
 
@@ -437,7 +458,23 @@ export default function Dashboard() {
         procedureFamiliarity: famIdx >= 0 ? String(row[famIdx] || "").trim() : undefined,
       })).filter((u) => (u.taskId || u.taskCode || (u.equipmentType && u.taskList)));
 
-      if (updates.length === 0) { setImportProgress(null); setBanner({ type: "error", message: "No valid data rows found." }); return; }
+      console.info("[tasks/import] parsed row sample", {
+        file: file.name,
+        activeDataset: activeTab,
+        rows: updates.length,
+        firstRows: updates.slice(0, 3),
+        rowIdentity: updates.slice(0, 20).map((row) => ({
+          rowNumber: row.rowNumber,
+          hasTaskId: !!row.taskId,
+          hasTaskCode: !!row.taskCode,
+          hasFacilityDataset: !!row.facilityDataset,
+          hasEquipment: !!row.equipmentType,
+          hasTaskDescription: !!row.taskList,
+          matchingPath: row.taskId ? "task_id" : row.taskCode ? "task_code" : "fallback text",
+        })),
+      });
+
+      if (updates.length === 0) { setImportProgress(null); setBanner({ type: "error", message: "Import failed: no valid data rows found. Required fix: import a fresh export with task_id/task_code, or include Equipment Name and Task Description fallback columns." }); return; }
 
       setImportProgress({ show: true, text: `Uploading ${updates.length} rows...`, sub: "Sending to server", pct: 60 });
       importMutation.mutate({ dataset: activeTab, rows: updates });
