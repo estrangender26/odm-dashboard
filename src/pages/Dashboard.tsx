@@ -28,6 +28,15 @@ interface ImportRejectedRow {
   reason: string;
 }
 
+interface ImportTimings {
+  parse_ms?: number;
+  validate_ms?: number;
+  match_ms?: number;
+  update_ms?: number;
+  response_serialization_ms?: number;
+  total_ms?: number;
+}
+
 interface ImportResultSummary {
   status: "success" | "error";
   updated: number;
@@ -35,6 +44,7 @@ interface ImportResultSummary {
   total: number;
   rejected: ImportRejectedRow[];
   message: string;
+  timings?: ImportTimings;
 }
 
 // ── Helpers ──
@@ -175,6 +185,36 @@ function parseRejectedRows(message: string): ImportRejectedRow[] {
   });
 }
 
+function getImportTimings(value: unknown, seen = new Set<unknown>()): ImportTimings | undefined {
+  if (!value || typeof value !== "object" || seen.has(value)) return undefined;
+  seen.add(value);
+  const record = value as Record<string, unknown>;
+  const timings = record.timings;
+  if (timings && typeof timings === "object") return timings as ImportTimings;
+  return (
+    getImportTimings(record.importFailure, seen) ||
+    getImportTimings(record.data, seen) ||
+    getImportTimings(record.error, seen) ||
+    getImportTimings(record.response, seen) ||
+    getImportTimings(record.cause, seen) ||
+    getImportTimings(record.json, seen)
+  );
+}
+
+function formatImportTimings(timings?: ImportTimings): string {
+  if (!timings) return "";
+  const parts = [
+    ["parse", timings.parse_ms],
+    ["validate", timings.validate_ms],
+    ["match", timings.match_ms],
+    ["update", timings.update_ms],
+    ["serialize", timings.response_serialization_ms],
+    ["total", timings.total_ms],
+  ].filter((entry): entry is [string, number] => typeof entry[1] === "number");
+
+  return parts.length ? ` Diagnostics: ${parts.map(([label, value]) => `${label} ${value}ms`).join(", ")}.` : "";
+}
+
 function importErrorMessage(err: unknown): string {
   const importFailure = findImportFailure(err);
   if (typeof importFailure?.message === "string" && importFailure.message.trim()) return importFailure.message.trim();
@@ -231,6 +271,7 @@ export default function Dashboard() {
   const [importProgress, setImportProgress] = useState<{ show: boolean; text: string; sub: string; pct: number } | null>(null);
   const [importSummary, setImportSummary] = useState<ImportResultSummary | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importProgressTimerRef = useRef<number | null>(null);
 
   const utils = trpc.useUtils();
   const [lastSync, setLastSync] = useState<Date | null>(null);
@@ -303,22 +344,32 @@ export default function Dashboard() {
 
   const importMutation = trpc.tasks.import.useMutation({
     onSuccess: (res) => {
+      setImportProgress({ show: true, text: "Finalizing import...", sub: "Refreshing task data", pct: 95 });
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
       const unchanged = res.unchanged ?? res.total - res.updated;
-      const message = res.message || `Import complete: ${res.updated} row${res.updated === 1 ? "" : "s"} updated, ${unchanged} unchanged, 0 rows rejected.`;
-      setImportSummary({ status: "success", updated: res.updated, unchanged, total: res.total, rejected: [], message });
+      const timings = res.timings as ImportTimings | undefined;
+      const message = (res.message || `Import complete: ${res.updated} row${res.updated === 1 ? "" : "s"} updated, ${unchanged} unchanged, 0 rows rejected.`) + formatImportTimings(timings);
+      setImportSummary({ status: "success", updated: res.updated, unchanged, total: res.total, rejected: [], message, timings });
       setBanner({ type: "success", message });
+      if (importProgressTimerRef.current !== null) {
+        window.clearTimeout(importProgressTimerRef.current);
+        importProgressTimerRef.current = null;
+      }
       setImportProgress(null);
     },
     onError: (err) => {
-      const message = importErrorMessage(err);
+      const timings = getImportTimings(err);
+      const message = importErrorMessage(err) + formatImportTimings(timings);
       const rejected = rejectedRowsFromImportFailure(err);
       const parsedRejected = rejected.length > 0 ? rejected : parseRejectedRows(message);
-      console.error("[tasks/import] thrown exception stack", err instanceof Error ? err.stack : err);
-      console.error("[tasks/import] mutation error object", err);
-      setImportSummary({ status: "error", updated: 0, unchanged: 0, total: 0, rejected: parsedRejected, message });
+      console.error("[tasks/import] mutation failed", err);
+      setImportSummary({ status: "error", updated: 0, unchanged: 0, total: 0, rejected: parsedRejected, message, timings });
       setBanner({ type: "error", message: "Import failed: " + message });
+      if (importProgressTimerRef.current !== null) {
+        window.clearTimeout(importProgressTimerRef.current);
+        importProgressTimerRef.current = null;
+      }
       setImportProgress(null);
     },
   });
@@ -480,11 +531,16 @@ export default function Dashboard() {
       setBanner({ type: "error", message: "Unsupported file type. Upload a CSV or Excel file (.csv, .xlsx, .xlsm, .xls)." });
       return;
     }
+    if (importProgressTimerRef.current !== null) {
+      window.clearTimeout(importProgressTimerRef.current);
+      importProgressTimerRef.current = null;
+    }
     setBanner(null);
     setImportSummary(null);
     setImportProgress({ show: true, text: "Reading file...", sub: file.name, pct: 10 });
     const reader = new FileReader();
     reader.onload = (e) => {
+      const parseStartedAt = performance.now();
       setImportProgress({ show: true, text: "Parsing data...", sub: "Extracting rows", pct: 30 });
       let sheetRows: string[][] = [];
       try {
@@ -528,13 +584,15 @@ export default function Dashboard() {
       const ardIdx = findHeader(["ARD"]);
       const famIdx = findHeader(["Procedure Familiarity", "Familiarity", "Fam", "Procedure_Familiarity"]);
 
-      console.info("[tasks/import] parsed headers", {
-        file: file.name,
-        activeDataset: activeTab,
-        headers,
-        normalizedHeaders,
-        detected: { taskIdIdx, taskCodeIdx, datasetIdx, eqIdx, taskIdx, freqIdx, responsibleIdx, opsIdx, amdIdx, ardIdx, famIdx },
-      });
+      if (import.meta.env.DEV) {
+        console.info("[tasks/import] parsed headers", {
+          file: file.name,
+          activeDataset: activeTab,
+          headers,
+          normalizedHeaders,
+          detected: { taskIdIdx, taskCodeIdx, datasetIdx, eqIdx, taskIdx, freqIdx, responsibleIdx, opsIdx, amdIdx, ardIdx, famIdx },
+        });
+      }
 
       if ((taskIdIdx < 0 && taskCodeIdx < 0) && (eqIdx < 0 || taskIdx < 0)) {
         setImportProgress(null);
@@ -542,6 +600,7 @@ export default function Dashboard() {
         return;
       }
 
+      setImportProgress({ show: true, text: "Validating rows...", sub: "Preparing import payload", pct: 45 });
       const updates = sheetRows.slice(1).map((row, idx) => ({
         rowNumber: idx + 2,
         taskId: taskIdIdx >= 0 ? String(row[taskIdIdx] || "").trim() : undefined,
@@ -557,26 +616,25 @@ export default function Dashboard() {
         procedureFamiliarity: famIdx >= 0 ? String(row[famIdx] || "").trim() : undefined,
       })).filter((u) => (u.taskId || u.taskCode || (u.equipmentType && u.taskList)));
 
-      console.info("[tasks/import] parsed row sample", {
-        file: file.name,
-        activeDataset: activeTab,
-        rows: updates.length,
-        firstRows: updates.slice(0, 3),
-        rowIdentity: updates.slice(0, 20).map((row) => ({
-          rowNumber: row.rowNumber,
-          hasTaskId: !!row.taskId,
-          hasTaskCode: !!row.taskCode,
-          hasFacilityDataset: !!row.facilityDataset,
-          hasEquipment: !!row.equipmentType,
-          hasTaskDescription: !!row.taskList,
-          matchingPath: row.taskId ? "task_id" : row.taskCode ? "task_code" : "fallback text",
-        })),
-      });
+      const parseMs = Math.round(performance.now() - parseStartedAt);
+      if (import.meta.env.DEV) {
+        console.info("[tasks/import] parsed row sample", {
+          file: file.name,
+          activeDataset: activeTab,
+          rows: updates.length,
+          parseMs,
+          firstRows: updates.slice(0, 3),
+        });
+      }
 
       if (updates.length === 0) { setImportProgress(null); setBanner({ type: "error", message: "Import failed: no valid data rows found. Required fix: import a fresh export with task_id/task_code, or include Equipment Name and Task Description fallback columns." }); return; }
 
-      setImportProgress({ show: true, text: `Uploading ${updates.length} rows...`, sub: "Sending to server", pct: 60 });
-      importMutation.mutate({ dataset: activeTab, rows: updates });
+      setImportProgress({ show: true, text: "Matching rows...", sub: `${updates.length} rows queued`, pct: 60 });
+      importProgressTimerRef.current = window.setTimeout(() => {
+        setImportProgress({ show: true, text: "Updating rows...", sub: "Applying changes in batches", pct: 80 });
+        importProgressTimerRef.current = null;
+      }, 750);
+      importMutation.mutate({ dataset: activeTab, rows: updates, clientTimings: { parseMs } });
     };
     reader.onerror = () => { setImportProgress(null); setBanner({ type: "error", message: "Failed to read file." }); };
     if (isExcel) reader.readAsArrayBuffer(file);
