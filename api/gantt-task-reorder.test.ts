@@ -78,6 +78,23 @@ describe("Gantt task adjacent reorder", () => {
       parentId: 1,
     });
   });
+
+  it("returns updates only for direct siblings without changing parent ids", () => {
+    const tasks = [
+      { id: 1, text: "Root A", parent: 0, sortorder: 10 },
+      { id: 2, text: "Child A", parent: 1, sortorder: 20 },
+      { id: 3, text: "Child B", parent: 1, sortorder: 30 },
+      { id: 4, text: "Root B", parent: 0, sortorder: 40 },
+    ];
+
+    const moveUp = buildManualHierarchyOrder(tasks, 3, "up");
+    expect(moveUp).toEqual([
+      { id: 3, sort_order: 1, parent: 1 },
+      { id: 2, sort_order: 2, parent: 1 },
+    ]);
+    expect(moveUp?.map(update => update.id)).not.toContain(1);
+    expect(moveUp?.map(update => update.id)).not.toContain(4);
+  });
 });
 
 describe("Gantt task rendered order after refetch", () => {
