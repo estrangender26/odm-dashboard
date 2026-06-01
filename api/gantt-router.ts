@@ -11,6 +11,33 @@ const normalizeDependencyType = (type?: string | null) => {
   return DEP_TYPE_MAP[raw] || (["FS", "SS", "FF", "SF", "NONE"].includes(raw) ? raw : "NONE");
 };
 
+
+function mapGanttTaskRow(r: any, nameMap: Map<number, string>) {
+  return {
+    ...r,
+    /* Keep backward-compatible aliases */
+    text: r.taskName,
+    startDate: r.actualStart,
+    endDate: r.actualFinish,
+    actualEnd: r.actualFinish,
+    plannedStart: r.plannedStart,
+    plannedEnd: r.plannedFinish,
+    duration: r.plannedDuration,
+    progress: r.progressPercent,
+    parent: r.parentTaskId,
+    sortorder: r.sortOrder,
+    type: r.taskType,
+    predecessorName: r.predecessorTaskId ? (nameMap.get(r.predecessorTaskId) || `Task ${r.predecessorTaskId}`) : null,
+  };
+}
+
+async function selectGanttTasksForClient() {
+  const rows = await db.select().from(ganttTasks).orderBy(asc(ganttTasks.sortOrder), asc(ganttTasks.id));
+  const nameMap = new Map<number, string>();
+  for (const r of rows) nameMap.set(r.id, r.taskName || `Task ${r.id}`);
+  return rows.map(r => mapGanttTaskRow(r, nameMap));
+}
+
 async function wouldCreateDependencyCycle(source: number, target: number) {
   if (!source || !target) return false;
   if (source === target) return true;
@@ -102,29 +129,7 @@ export const ganttRouter = createRouter({
   }),
 
   /* ── 2. LIST TASKS (ordered by sort_order) ── */
-  tasks: publicQuery.query(async () => {
-    const rows = await db.select().from(ganttTasks).orderBy(asc(ganttTasks.sortOrder), asc(ganttTasks.id));
-    /* Build a map of id → taskName for predecessor lookup */
-    const nameMap = new Map<number, string>();
-    for (const r of rows) nameMap.set(r.id, r.taskName || `Task ${r.id}`);
-    /* Return in a shape compatible with the frontend's current expectations */
-    return rows.map(r => ({
-      ...r,
-      /* Keep backward-compatible aliases */
-      text: r.taskName,
-      startDate: r.actualStart,
-      endDate: r.actualFinish,
-      actualEnd: r.actualFinish,        /* BUG 6 FIX: actualEnd alias for Task List */
-      plannedStart: r.plannedStart,
-      plannedEnd: r.plannedFinish,
-      duration: r.plannedDuration,
-      progress: r.progressPercent,
-      parent: r.parentTaskId,
-      sortorder: r.sortOrder,
-      type: r.taskType,
-      predecessorName: r.predecessorTaskId ? (nameMap.get(r.predecessorTaskId) || `Task ${r.predecessorTaskId}`) : null,
-    }));
-  }),
+  tasks: publicQuery.query(async () => selectGanttTasksForClient()),
 
   /* ── 3. LIST DEPENDENCIES ── */
   links: publicQuery
@@ -423,7 +428,8 @@ export const ganttRouter = createRouter({
       for (const item of input) {
         await db.update(ganttTasks).set({ sortOrder: item.sort_order }).where(eq(ganttTasks.id, item.id));
       }
-      return { updated: input.length };
+      const persistedOrder = await selectGanttTasksForClient();
+      return { updated: input.length, persistedOrder };
     }),
 
   /* ── 11. SEED DEMO DATA ── */
