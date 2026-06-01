@@ -37,6 +37,20 @@ interface ImportTimings {
   total_ms?: number;
 }
 
+interface ImportMetrics {
+  total_rows?: number;
+  initial_rows_per_chunk?: number;
+  min_rows_per_chunk?: number;
+  chunk_count?: number;
+  statement_count?: number;
+  sequential_fallback_count?: number;
+  retry_count?: number;
+  avg_chunk_time_ms?: number;
+  total_update_time_ms?: number;
+  max_parameter_count?: number;
+  max_generated_sql_length?: number;
+}
+
 interface ImportResultSummary {
   status: "success" | "error";
   updated: number;
@@ -45,6 +59,7 @@ interface ImportResultSummary {
   rejected: ImportRejectedRow[];
   message: string;
   timings?: ImportTimings;
+  metrics?: ImportMetrics;
 }
 
 // ── Helpers ──
@@ -201,6 +216,47 @@ function getImportTimings(value: unknown, seen = new Set<unknown>()): ImportTimi
   );
 }
 
+function getImportMetrics(value: unknown, seen = new Set<unknown>()): ImportMetrics | undefined {
+  if (!value || typeof value !== "object" || seen.has(value)) return undefined;
+  seen.add(value);
+  const record = value as Record<string, unknown>;
+  const metrics = record.metrics;
+  if (metrics && typeof metrics === "object") return metrics as ImportMetrics;
+  return (
+    getImportMetrics(record.importFailure, seen) ||
+    getImportMetrics(record.data, seen) ||
+    getImportMetrics(record.error, seen) ||
+    getImportMetrics(record.response, seen) ||
+    getImportMetrics(record.cause, seen) ||
+    getImportMetrics(record.json, seen)
+  );
+}
+
+function formatImportMetrics(metrics?: ImportMetrics): string {
+  if (!metrics) return "";
+  const parts = [
+    typeof metrics.total_rows === "number" ? `${metrics.total_rows} total rows` : null,
+    typeof metrics.chunk_count === "number" ? `${metrics.chunk_count} chunks` : null,
+    typeof metrics.initial_rows_per_chunk === "number" ? `${metrics.initial_rows_per_chunk} rows/chunk` : null,
+    typeof metrics.statement_count === "number" ? `${metrics.statement_count} update statements` : null,
+    typeof metrics.avg_chunk_time_ms === "number" ? `${metrics.avg_chunk_time_ms}ms avg chunk` : null,
+    typeof metrics.total_update_time_ms === "number" ? `${metrics.total_update_time_ms}ms update total` : null,
+    typeof metrics.max_parameter_count === "number" ? `${metrics.max_parameter_count} max params` : null,
+    typeof metrics.max_generated_sql_length === "number" ? `${metrics.max_generated_sql_length} max SQL chars` : null,
+    typeof metrics.retry_count === "number" && metrics.retry_count > 0 ? `${metrics.retry_count} retries` : null,
+    typeof metrics.sequential_fallback_count === "number" && metrics.sequential_fallback_count > 0 ? `${metrics.sequential_fallback_count} sequential fallbacks` : null,
+  ].filter(Boolean);
+  return parts.length ? ` Batch metrics: ${parts.join(", ")}.` : "";
+}
+
+function sanitizeImportUiMessage(message: string): string {
+  const compact = String(message || "").replace(/\s+/g, " ").trim();
+  if (/\bUPDATE\b|\bCASE\b|\$\d+|parameters?:/i.test(compact) || compact.length > 300) {
+    return "Import update batch failed. Check server logs for batch diagnostics.";
+  }
+  return compact;
+}
+
 function formatImportTimings(timings?: ImportTimings): string {
   if (!timings) return "";
   const parts = [
@@ -217,7 +273,7 @@ function formatImportTimings(timings?: ImportTimings): string {
 
 function importErrorMessage(err: unknown): string {
   const importFailure = findImportFailure(err);
-  if (typeof importFailure?.message === "string" && importFailure.message.trim()) return importFailure.message.trim();
+  if (typeof importFailure?.message === "string" && importFailure.message.trim()) return sanitizeImportUiMessage(importFailure.message);
 
   const messages = collectErrorMessages(err);
   const surfaced = messages.find((msg) =>
@@ -226,10 +282,10 @@ function importErrorMessage(err: unknown): string {
     msg.startsWith("Import database transaction failed") ||
     msg.startsWith("Unexpected maintenance planning import failure")
   );
-  if (surfaced) return surfaced;
+  if (surfaced) return sanitizeImportUiMessage(surfaced);
 
   const nested = messages.find((msg) => msg && msg !== "[object Object]");
-  if (nested) return nested;
+  if (nested) return sanitizeImportUiMessage(nested);
 
   return friendlyError(err);
 }
@@ -349,8 +405,9 @@ export default function Dashboard() {
       utils.tasks.export.invalidate();
       const unchanged = res.unchanged ?? res.total - res.updated;
       const timings = res.timings as ImportTimings | undefined;
-      const message = (res.message || `Import complete: ${res.updated} row${res.updated === 1 ? "" : "s"} updated, ${unchanged} unchanged, 0 rows rejected.`) + formatImportTimings(timings);
-      setImportSummary({ status: "success", updated: res.updated, unchanged, total: res.total, rejected: [], message, timings });
+      const metrics = res.metrics as ImportMetrics | undefined;
+      const message = (res.message || `Import complete: ${res.updated} row${res.updated === 1 ? "" : "s"} updated, ${unchanged} unchanged, 0 rows rejected.`) + formatImportTimings(timings) + formatImportMetrics(metrics);
+      setImportSummary({ status: "success", updated: res.updated, unchanged, total: res.total, rejected: [], message, timings, metrics });
       setBanner({ type: "success", message });
       if (importProgressTimerRef.current !== null) {
         window.clearTimeout(importProgressTimerRef.current);
@@ -360,11 +417,12 @@ export default function Dashboard() {
     },
     onError: (err) => {
       const timings = getImportTimings(err);
-      const message = importErrorMessage(err) + formatImportTimings(timings);
+      const metrics = getImportMetrics(err);
+      const message = importErrorMessage(err) + formatImportTimings(timings) + formatImportMetrics(metrics);
       const rejected = rejectedRowsFromImportFailure(err);
       const parsedRejected = rejected.length > 0 ? rejected : parseRejectedRows(message);
       console.error("[tasks/import] mutation failed", err);
-      setImportSummary({ status: "error", updated: 0, unchanged: 0, total: 0, rejected: parsedRejected, message, timings });
+      setImportSummary({ status: "error", updated: 0, unchanged: 0, total: 0, rejected: parsedRejected, message, timings, metrics });
       setBanner({ type: "error", message: "Import failed: " + message });
       if (importProgressTimerRef.current !== null) {
         window.clearTimeout(importProgressTimerRef.current);
