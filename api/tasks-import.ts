@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { equipment, tasks } from "../db/schema";
 
 export type MaintenanceDataset = "htt" | "aglipay";
@@ -21,6 +21,9 @@ export interface MaintenanceImportRow {
 export interface MaintenanceImportInput {
   dataset: MaintenanceDataset;
   rows: MaintenanceImportRow[];
+  clientTimings?: {
+    parseMs?: number;
+  };
 }
 
 export interface MaintenanceImportSkippedRow {
@@ -32,6 +35,15 @@ export interface MaintenanceImportSkippedRow {
 
 export type MaintenanceImportFailureKind = "validation" | "mapping" | "transaction" | "unexpected";
 
+export interface MaintenanceImportTimings {
+  parse_ms: number;
+  validate_ms: number;
+  match_ms: number;
+  update_ms: number;
+  response_serialization_ms: number;
+  total_ms: number;
+}
+
 export interface MaintenanceImportFailurePayload {
   success: false;
   kind: MaintenanceImportFailureKind;
@@ -39,6 +51,7 @@ export interface MaintenanceImportFailurePayload {
   rejected: number;
   skipped: MaintenanceImportSkippedRow[];
   diagnostics: MaintenanceImportRowDiagnostics[];
+  timings?: MaintenanceImportTimings;
 }
 
 export interface MaintenanceImportRowDiagnostics {
@@ -59,6 +72,7 @@ export interface MaintenanceImportResult {
   total: number;
   skipped: MaintenanceImportSkippedRow[];
   message: string;
+  timings: MaintenanceImportTimings;
 }
 
 export interface MaintenanceTaskMatch {
@@ -100,6 +114,7 @@ interface UpdateBuilderLike {
 export interface MaintenanceDbLike {
   select: (fields: unknown) => SelectBuilderLike;
   update: (table: unknown) => UpdateBuilderLike;
+  execute?: (query: SQL) => Promise<unknown>;
   transaction?: <T>(fn: (tx: MaintenanceDbLike) => Promise<T>) => Promise<T>;
 }
 
@@ -265,29 +280,21 @@ export function buildImportDiagnostics(rows: MaintenanceImportRow[], skipped: Ma
   });
 }
 
-function sampleImportRows(rows: MaintenanceImportRow[], limit = 3) {
-  return rows.slice(0, limit).map((row, idx) => ({
-    row: row.rowNumber ?? idx + 2,
-    taskId: row.taskId ?? null,
-    taskCode: row.taskCode ?? null,
-    facilityDataset: row.facilityDataset ?? null,
-    equipment: printable(String(row.equipmentType ?? "")),
-    taskDescription: printable(String(row.taskList ?? "")),
-  }));
-}
 
 export class MaintenanceImportError extends Error {
   readonly kind: MaintenanceImportFailureKind;
   readonly skipped: MaintenanceImportSkippedRow[];
   readonly diagnostics: MaintenanceImportRowDiagnostics[];
+  readonly timings?: MaintenanceImportTimings;
   readonly statusCode = 400;
 
-  constructor(kind: MaintenanceImportFailureKind, message: string, skipped: MaintenanceImportSkippedRow[], diagnostics: MaintenanceImportRowDiagnostics[] = []) {
+  constructor(kind: MaintenanceImportFailureKind, message: string, skipped: MaintenanceImportSkippedRow[], diagnostics: MaintenanceImportRowDiagnostics[] = [], timings?: MaintenanceImportTimings) {
     super(message);
     this.name = "MaintenanceImportError";
     this.kind = kind;
     this.skipped = skipped;
     this.diagnostics = diagnostics;
+    this.timings = timings;
   }
 
   toPayload(): MaintenanceImportFailurePayload {
@@ -298,6 +305,7 @@ export class MaintenanceImportError extends Error {
       rejected: this.skipped.length,
       skipped: this.skipped,
       diagnostics: this.diagnostics,
+      timings: this.timings,
     };
   }
 }
@@ -386,31 +394,123 @@ export function buildMaintenanceImportPlan(
   return { matches, skipped, unchanged };
 }
 
+
+const IMPORT_UPDATE_FIELDS = ["frequency", "responsiblePersonnel", "operations", "amd", "ard", "procedureFamiliarity"] as const;
+type MaintenanceUpdateField = typeof IMPORT_UPDATE_FIELDS[number];
+
+const TASK_COLUMN_BY_UPDATE_FIELD: Record<MaintenanceUpdateField, SQL> = {
+  frequency: sql`${tasks.frequency}`,
+  responsiblePersonnel: sql`${tasks.responsiblePersonnel}`,
+  operations: sql`${tasks.operations}`,
+  amd: sql`${tasks.amd}`,
+  ard: sql`${tasks.ard}`,
+  procedureFamiliarity: sql`${tasks.procedureFamiliarity}`,
+};
+
+const BATCH_UPDATE_SIZE = 250;
+const IMPORT_DIAGNOSTIC_LIMIT = process.env.NODE_ENV === "production" ? 5 : 20;
+
+function elapsedSince(start: number): number {
+  return Math.max(0, Math.round(performance.now() - start));
+}
+
+function createTimings(input: { parseMs?: number; validateMs?: number; matchMs?: number; updateMs?: number; responseSerializationMs?: number; totalMs?: number }): MaintenanceImportTimings {
+  return {
+    parse_ms: Math.max(0, Math.round(input.parseMs ?? 0)),
+    validate_ms: Math.max(0, Math.round(input.validateMs ?? 0)),
+    match_ms: Math.max(0, Math.round(input.matchMs ?? 0)),
+    update_ms: Math.max(0, Math.round(input.updateMs ?? 0)),
+    response_serialization_ms: Math.max(0, Math.round(input.responseSerializationMs ?? 0)),
+    total_ms: Math.max(0, Math.round(input.totalMs ?? 0)),
+  };
+}
+
+function measureResponseSerializationMs(payload: unknown): number {
+  const start = performance.now();
+  JSON.stringify(payload);
+  return elapsedSince(start);
+}
+
+function buildBatchUpdateStatements(matches: MaintenanceTaskMatch[], dataset: MaintenanceDataset, chunkSize = BATCH_UPDATE_SIZE): SQL[] {
+  const statements: SQL[] = [];
+
+  for (let offset = 0; offset < matches.length; offset += chunkSize) {
+    const chunk = matches.slice(offset, offset + chunkSize);
+    const ids = Array.from(new Set(chunk.map((match) => match.taskId)));
+    const setFragments: SQL[] = [];
+
+    for (const field of IMPORT_UPDATE_FIELDS) {
+      const column = TASK_COLUMN_BY_UPDATE_FIELD[field];
+      const arms = chunk
+        .filter((match) => Object.prototype.hasOwnProperty.call(match.updateData, field))
+        .map((match) => sql`WHEN ${match.taskId} THEN ${match.updateData[field]}`);
+
+      if (arms.length > 0) {
+        setFragments.push(sql`${column} = CASE ${tasks.id} ${sql.join(arms, sql.raw(" "))} ELSE ${column} END`);
+      }
+    }
+
+    if (setFragments.length > 0 && ids.length > 0) {
+      statements.push(sql`
+        UPDATE ${tasks}
+        SET ${sql.join(setFragments, sql.raw(", "))}
+        WHERE ${tasks.dataset} = ${dataset}
+          AND ${tasks.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql.raw(", "))})
+      `);
+    }
+  }
+
+  return statements;
+}
+
+async function applyMaintenanceUpdates(tx: MaintenanceDbLike, matches: MaintenanceTaskMatch[], dataset: MaintenanceDataset): Promise<number> {
+  if (matches.length === 0) return 0;
+
+  if (tx.execute) {
+    const statements = buildBatchUpdateStatements(matches, dataset);
+    for (const statement of statements) {
+      await tx.execute(statement);
+    }
+    return statements.length;
+  }
+
+  for (const match of matches) {
+    await tx.update(tasks).set(match.updateData).where(and(eq(tasks.id, match.taskId), eq(tasks.dataset, dataset)));
+  }
+  return matches.length;
+}
+
 export async function importMaintenancePlanningRows(
   db: MaintenanceDbLike,
   input: MaintenanceImportInput,
   hasFamiliarityColumn: boolean,
 ): Promise<MaintenanceImportResult> {
-  const startedAt = Date.now();
+  const startedAt = performance.now();
+  const parseMs = Math.max(0, Math.round(input.clientTimings?.parseMs ?? 0));
   console.info("[tasks/import] start", { dataset: input.dataset, rows: input.rows.length, hasFamiliarityColumn });
 
-  console.info("[tasks/import] parsed rows sample", {
-    activeDataset: input.dataset,
-    rows: input.rows.length,
-    firstRows: sampleImportRows(input.rows),
-    rowIdentity: buildImportDiagnostics(input.rows).slice(0, 20),
-  });
-
+  const validationStartedAt = performance.now();
   const validationErrors = validateMaintenanceImportRows(input.rows, input.dataset);
+  const validateMs = elapsedSince(validationStartedAt);
+
   if (validationErrors.length > 0) {
+    const diagnostics = buildImportDiagnostics(input.rows, validationErrors);
+    const timings = createTimings({
+      parseMs,
+      validateMs,
+      responseSerializationMs: measureResponseSerializationMs({ validationErrors: validationErrors.slice(0, IMPORT_DIAGNOSTIC_LIMIT), diagnostics: diagnostics.slice(0, IMPORT_DIAGNOSTIC_LIMIT) }),
+      totalMs: elapsedSince(startedAt),
+    });
     console.warn("[tasks/import] row validation failed", {
       activeDataset: input.dataset,
-      errors: validationErrors.slice(0, 20),
-      diagnostics: buildImportDiagnostics(input.rows, validationErrors).slice(0, 20),
+      errors: validationErrors.slice(0, IMPORT_DIAGNOSTIC_LIMIT),
+      diagnostics: diagnostics.slice(0, IMPORT_DIAGNOSTIC_LIMIT),
+      timings,
     });
-    throw new MaintenanceImportError("validation", formatMaintenanceImportFailure(validationErrors), validationErrors, buildImportDiagnostics(input.rows, validationErrors));
+    throw new MaintenanceImportError("validation", formatMaintenanceImportFailure(validationErrors), validationErrors, diagnostics, timings);
   }
 
+  const matchStartedAt = performance.now();
   const existingRows = await db
     .select({ id: tasks.id, equipmentCode: equipment.initials, equipmentName: equipment.name, taskList: tasks.taskList, dataset: tasks.dataset })
     .from(tasks)
@@ -418,62 +518,83 @@ export async function importMaintenancePlanningRows(
     .where(eq(tasks.dataset, input.dataset));
 
   const plan = buildMaintenanceImportPlan(input.rows, existingRows, hasFamiliarityColumn);
-  console.info("[tasks/import] matching plan", {
+  const matchMs = elapsedSince(matchStartedAt);
+
+  console.info("[tasks/import] matching summary", {
     activeDataset: input.dataset,
+    importedRows: input.rows.length,
     existingRows: existingRows.length,
     matches: plan.matches.length,
     unchanged: plan.unchanged,
-    diagnostics: buildImportDiagnostics(input.rows, plan.skipped).slice(0, 20),
-    matchPaths: input.rows.slice(0, 20).map((row, idx) => {
-      const rowNumber = row.rowNumber ?? idx + 2;
-      const taskId = parseTaskId(row.taskId);
-      const taskCode = cleanOptional(row.taskCode);
-      return { row: rowNumber, path: taskId !== null && !Number.isNaN(taskId) ? "task_id" : taskCode ? "task_code" : "fallback text" };
-    }),
+    rejected: plan.skipped.length,
+    diagnostics: buildImportDiagnostics(input.rows, plan.skipped).slice(0, IMPORT_DIAGNOSTIC_LIMIT),
   });
 
   if (plan.skipped.length > 0) {
-    console.warn("[tasks/import] mapping failed", { activeDataset: input.dataset, skipped: plan.skipped.slice(0, 20), diagnostics: buildImportDiagnostics(input.rows, plan.skipped).slice(0, 20) });
-    throw new MaintenanceImportError("mapping", formatMaintenanceImportFailure(plan.skipped, "Import mapping failed"), plan.skipped, buildImportDiagnostics(input.rows, plan.skipped));
+    const diagnostics = buildImportDiagnostics(input.rows, plan.skipped);
+    const timings = createTimings({
+      parseMs,
+      validateMs,
+      matchMs,
+      responseSerializationMs: measureResponseSerializationMs({ skipped: plan.skipped.slice(0, IMPORT_DIAGNOSTIC_LIMIT), diagnostics: diagnostics.slice(0, IMPORT_DIAGNOSTIC_LIMIT) }),
+      totalMs: elapsedSince(startedAt),
+    });
+    console.warn("[tasks/import] mapping failed", {
+      activeDataset: input.dataset,
+      skipped: plan.skipped.slice(0, IMPORT_DIAGNOSTIC_LIMIT),
+      diagnostics: diagnostics.slice(0, IMPORT_DIAGNOSTIC_LIMIT),
+      timings,
+    });
+    throw new MaintenanceImportError("mapping", formatMaintenanceImportFailure(plan.skipped, "Import mapping failed"), plan.skipped, diagnostics, timings);
   }
 
-  const applyUpdates = async (tx: MaintenanceDbLike) => {
-    for (const match of plan.matches) {
-      console.info("[tasks/import] updating row", {
-        dataset: input.dataset,
-        row: match.row,
-        taskId: match.taskId,
-        equipment: match.equipmentType,
-        task: printable(match.taskList),
-        fields: Object.keys(match.updateData),
-      });
-      await tx.update(tasks).set(match.updateData).where(and(eq(tasks.id, match.taskId), eq(tasks.dataset, input.dataset)));
-    }
-  };
-
+  let updateStatements = 0;
+  const updateStartedAt = performance.now();
   try {
+    const applyUpdates = async (tx: MaintenanceDbLike) => {
+      updateStatements = await applyMaintenanceUpdates(tx, plan.matches, input.dataset);
+    };
+
     if (db.transaction) await db.transaction(applyUpdates);
     else await applyUpdates(db);
   } catch (err: unknown) {
+    const updateMs = elapsedSince(updateStartedAt);
+    const diagnostics = buildImportDiagnostics(input.rows);
+    const timings = createTimings({ parseMs, validateMs, matchMs, updateMs, totalMs: elapsedSince(startedAt) });
     const error = err instanceof Error ? err : new Error(String(err));
     console.error("[tasks/import] transaction failed", {
       dataset: input.dataset,
       rows: input.rows.length,
       matched: plan.matches.length,
+      updateStatements,
+      timings,
       message: error.message,
       stack: error.stack,
     });
-    throw new MaintenanceImportError("transaction", `Import database transaction failed: ${error.message}`, [], buildImportDiagnostics(input.rows));
+    throw new MaintenanceImportError("transaction", `Import database transaction failed: ${error.message}`, [], diagnostics, timings);
   }
+  const updateMs = elapsedSince(updateStartedAt);
 
-  const result: MaintenanceImportResult = {
-    success: true,
+  const resultBase = {
+    success: true as const,
     updated: plan.matches.length,
     unchanged: plan.unchanged,
     total: input.rows.length,
     skipped: [],
     message: `${plan.matches.length} row${plan.matches.length === 1 ? "" : "s"} updated; ${plan.unchanged} row${plan.unchanged === 1 ? "" : "s"} unchanged; 0 rows rejected.`,
   };
-  console.info("[tasks/import] complete", { ...result, dataset: input.dataset, elapsedMs: Date.now() - startedAt });
+  const responseSerializationMs = measureResponseSerializationMs(resultBase);
+  const totalMs = elapsedSince(startedAt);
+  const timings = createTimings({ parseMs, validateMs, matchMs, updateMs, responseSerializationMs, totalMs });
+  const result: MaintenanceImportResult = { ...resultBase, timings };
+
+  console.info("[tasks/import] complete", {
+    dataset: input.dataset,
+    rows: input.rows.length,
+    updated: result.updated,
+    unchanged: result.unchanged,
+    updateStatements,
+    timings,
+  });
   return result;
 }

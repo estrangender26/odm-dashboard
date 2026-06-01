@@ -283,11 +283,15 @@ export const tasksRouter = createRouter({
         procedureFamiliarity: z.string().nullable().optional(),
         rowNumber: z.number().optional(),
       })),
+      clientTimings: z.object({
+        parseMs: z.number().nonnegative().optional(),
+      }).optional(),
     }))
     .mutation(async ({ input }) => {
       console.info("[tasks/import] request received", {
         activeDataset: input.dataset,
         rows: input.rows.length,
+        clientTimings: input.clientTimings,
         firstRows: input.rows.slice(0, 3).map((row) => ({
           rowNumber: row.rowNumber,
           taskId: row.taskId ?? null,

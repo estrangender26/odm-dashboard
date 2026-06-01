@@ -8,6 +8,8 @@ import type { ReactNode } from "react";
 export const trpc = createTRPCReact<AppRouter>();
 
 const API_URL = import.meta.env.VITE_API_URL || "/api/trpc";
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+const IMPORT_REQUEST_TIMEOUT_MS = 60000;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,35 +28,17 @@ const trpcClient = trpc.createClient({
       url: API_URL,
       transformer: superjson,
       async fetch(input, init) {
+        const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        const isImportRequest = requestUrl.includes("tasks.import");
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort("Request timed out"), 15000);
+        const timeoutMs = isImportRequest ? IMPORT_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS;
+        const timeout = setTimeout(() => controller.abort("Request timed out"), timeoutMs);
         try {
-          const response = await globalThis.fetch(input, {
+          return await globalThis.fetch(input, {
             ...(init ?? {}),
             credentials: "include",
             signal: controller.signal,
           });
-
-          const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-          if (requestUrl.includes("tasks.import")) {
-            response.clone().text().then((rawBody) => {
-              console.info("[tasks/import] raw network response body", {
-                url: requestUrl,
-                status: response.status,
-                ok: response.ok,
-                rawBody,
-              });
-              try {
-                console.info("[tasks/import] parsed network response", JSON.parse(rawBody));
-              } catch (parseErr) {
-                console.warn("[tasks/import] response JSON parse failed", { rawBody, parseErr });
-              }
-            }).catch((readErr) => {
-              console.warn("[tasks/import] failed to read raw network response body", readErr);
-            });
-          }
-
-          return response;
         } finally {
           clearTimeout(timeout);
         }
