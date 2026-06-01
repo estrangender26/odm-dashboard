@@ -285,6 +285,18 @@ export const tasksRouter = createRouter({
       })),
     }))
     .mutation(async ({ input }) => {
+      console.info("[tasks/import] request received", {
+        activeDataset: input.dataset,
+        rows: input.rows.length,
+        firstRows: input.rows.slice(0, 3).map((row) => ({
+          rowNumber: row.rowNumber,
+          taskId: row.taskId ?? null,
+          taskCode: row.taskCode ?? null,
+          facilityDataset: row.facilityDataset ?? null,
+          equipment: row.equipmentType,
+          taskDescription: row.taskList,
+        })),
+      });
       try {
         const hasCol = await hasFamiliarityCol();
         return await importMaintenancePlanningRows(db as unknown as MaintenanceDbLike, input, hasCol);

@@ -30,6 +30,17 @@ export interface MaintenanceImportSkippedRow {
   reason: string;
 }
 
+interface MaintenanceImportRowDiagnostics {
+  row: number;
+  hasTaskId: boolean;
+  hasTaskCode: boolean;
+  hasFacilityDataset: boolean;
+  hasEquipment: boolean;
+  hasTaskDescription: boolean;
+  matchingPath: "task_id" | "task_code" | "fallback text" | "none";
+  rejectionReason?: string;
+}
+
 export interface MaintenanceImportResult {
   success: true;
   updated: number;
@@ -195,10 +206,23 @@ export function validateMaintenanceImportRows(rows: MaintenanceImportRow[], acti
   return errors;
 }
 
+function maintenanceImportRequiredFix(reason: string): string {
+  if (reason.includes("Invalid task_id")) return "Export a fresh file and keep the task_id column unchanged.";
+  if (reason.includes("does not match active dataset")) return "Switch to the matching facility tab or export a fresh file for the active facility.";
+  if (reason.includes("Unrecognized facility/dataset")) return "Use the Facility/Dataset value from a fresh export.";
+  if (reason.includes("Equipment Name is required") || reason.includes("Task Description is required")) return "Import a fresh export with task_id/task_code, or include both Equipment Name and Task Description for legacy fallback.";
+  if (reason.includes("Multiple matching tasks found")) return "Import a fresh export that includes task_id or task_code; legacy text matching is ambiguous.";
+  if (reason.includes("No matching task found for task_id")) return "Export a fresh file from the active facility; the task_id does not exist in this dataset.";
+  if (reason.includes("No matching task found for task_code")) return "Export a fresh file from the active facility; the task_code does not match this dataset.";
+  if (reason.includes("No matching task found")) return "Import a fresh export with task_id/task_code, or verify the equipment and task description still exist.";
+  if (reason.includes("exceeds")) return "Shorten the value to fit the allowed field length.";
+  return "Review the row and retry with a fresh export if the problem remains.";
+}
+
 function summarizeSkipped(skipped: MaintenanceImportSkippedRow[], limit = 5): string {
   return skipped
     .slice(0, limit)
-    .map((s) => `row ${s.row}${s.eq ? ` [${s.eq}]` : ""}${s.task ? ` "${s.task}"` : ""}: ${s.reason}`)
+    .map((s) => `Row ${s.row} rejected${s.eq ? ` [${s.eq}]` : ""}${s.task ? ` "${s.task}"` : ""}: ${s.reason}. Required fix: ${maintenanceImportRequiredFix(s.reason)}`)
     .join("; ");
 }
 
@@ -206,6 +230,38 @@ export function formatMaintenanceImportFailure(skipped: MaintenanceImportSkipped
   if (skipped.length === 0) return prefix;
   const extra = skipped.length > 5 ? `; +${skipped.length - 5} more` : "";
   return `${prefix}: ${summarizeSkipped(skipped)}${extra}`;
+}
+
+function buildImportDiagnostics(rows: MaintenanceImportRow[], skipped: MaintenanceImportSkippedRow[] = []): MaintenanceImportRowDiagnostics[] {
+  const skippedByRow = new Map(skipped.map((s) => [s.row, s.reason]));
+  return rows.map((row, idx) => {
+    const rowNumber = row.rowNumber ?? idx + 2;
+    const hasTaskId = row.taskId !== null && row.taskId !== undefined && String(row.taskId).trim() !== "";
+    const hasTaskCode = !!cleanOptional(row.taskCode);
+    const hasEquipment = !!String(row.equipmentType ?? "").trim();
+    const hasTaskDescription = !!String(row.taskList ?? "").trim();
+    return {
+      row: rowNumber,
+      hasTaskId,
+      hasTaskCode,
+      hasFacilityDataset: !!cleanOptional(row.facilityDataset),
+      hasEquipment,
+      hasTaskDescription,
+      matchingPath: hasTaskId ? "task_id" : hasTaskCode ? "task_code" : (hasEquipment && hasTaskDescription ? "fallback text" : "none"),
+      rejectionReason: skippedByRow.get(rowNumber),
+    };
+  });
+}
+
+function sampleImportRows(rows: MaintenanceImportRow[], limit = 3) {
+  return rows.slice(0, limit).map((row, idx) => ({
+    row: row.rowNumber ?? idx + 2,
+    taskId: row.taskId ?? null,
+    taskCode: row.taskCode ?? null,
+    facilityDataset: row.facilityDataset ?? null,
+    equipment: printable(String(row.equipmentType ?? "")),
+    taskDescription: printable(String(row.taskList ?? "")),
+  }));
 }
 
 export function buildMaintenanceImportPlan(
@@ -300,9 +356,20 @@ export async function importMaintenancePlanningRows(
   const startedAt = Date.now();
   console.info("[tasks/import] start", { dataset: input.dataset, rows: input.rows.length, hasFamiliarityColumn });
 
+  console.info("[tasks/import] parsed rows sample", {
+    activeDataset: input.dataset,
+    rows: input.rows.length,
+    firstRows: sampleImportRows(input.rows),
+    rowIdentity: buildImportDiagnostics(input.rows).slice(0, 20),
+  });
+
   const validationErrors = validateMaintenanceImportRows(input.rows, input.dataset);
   if (validationErrors.length > 0) {
-    console.warn("[tasks/import] row validation failed", { dataset: input.dataset, errors: validationErrors.slice(0, 20) });
+    console.warn("[tasks/import] row validation failed", {
+      activeDataset: input.dataset,
+      errors: validationErrors.slice(0, 20),
+      diagnostics: buildImportDiagnostics(input.rows, validationErrors).slice(0, 20),
+    });
     throw new Error(formatMaintenanceImportFailure(validationErrors));
   }
 
@@ -313,8 +380,22 @@ export async function importMaintenancePlanningRows(
     .where(eq(tasks.dataset, input.dataset));
 
   const plan = buildMaintenanceImportPlan(input.rows, existingRows, hasFamiliarityColumn);
+  console.info("[tasks/import] matching plan", {
+    activeDataset: input.dataset,
+    existingRows: existingRows.length,
+    matches: plan.matches.length,
+    unchanged: plan.unchanged,
+    diagnostics: buildImportDiagnostics(input.rows, plan.skipped).slice(0, 20),
+    matchPaths: input.rows.slice(0, 20).map((row, idx) => {
+      const rowNumber = row.rowNumber ?? idx + 2;
+      const taskId = parseTaskId(row.taskId);
+      const taskCode = cleanOptional(row.taskCode);
+      return { row: rowNumber, path: taskId !== null && !Number.isNaN(taskId) ? "task_id" : taskCode ? "task_code" : "fallback text" };
+    }),
+  });
+
   if (plan.skipped.length > 0) {
-    console.warn("[tasks/import] mapping failed", { dataset: input.dataset, skipped: plan.skipped.slice(0, 20) });
+    console.warn("[tasks/import] mapping failed", { activeDataset: input.dataset, skipped: plan.skipped.slice(0, 20), diagnostics: buildImportDiagnostics(input.rows, plan.skipped).slice(0, 20) });
     throw new Error(formatMaintenanceImportFailure(plan.skipped, "Import mapping failed"));
   }
 
