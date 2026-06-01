@@ -90,6 +90,18 @@ function friendlyError(err: any): string {
   return "Something went wrong. Please refresh the page or try again later.";
 }
 
+function importErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message.trim() : String(err || "").trim();
+  if (
+    msg.startsWith("Import validation failed") ||
+    msg.startsWith("Import mapping failed") ||
+    msg.startsWith("Import database transaction failed")
+  ) {
+    return msg;
+  }
+  return friendlyError(err);
+}
+
 // ── Inline Banner component ──
 function InlineBanner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
   const styles = {
@@ -200,12 +212,12 @@ export default function Dashboard() {
     onSuccess: (res) => {
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
-      setBanner({ type: "success", message: `Import complete: ${res.updated} rows updated, ${res.total - res.updated} unchanged.` });
+      setBanner({ type: "success", message: `Import complete: ${res.updated} row${res.updated === 1 ? "" : "s"} updated, ${res.unchanged ?? res.total - res.updated} unchanged.` });
       setImportProgress(null);
     },
     onError: (err) => {
       console.error("Import failed:", err);
-      setBanner({ type: "error", message: "Import failed: " + friendlyError(err) });
+      setBanner({ type: "error", message: "Import failed: " + importErrorMessage(err) });
       setImportProgress(null);
     },
   });
@@ -399,7 +411,8 @@ export default function Dashboard() {
         return;
       }
 
-      const updates = sheetRows.slice(1).map((row) => ({
+      const updates = sheetRows.slice(1).map((row, idx) => ({
+        rowNumber: idx + 2,
         equipmentType: String(row[eqIdx] || "").trim(),
         taskList: String(row[taskIdx] || "").trim(),
         operations: opsIdx >= 0 ? String(row[opsIdx] || "").trim() : undefined,
