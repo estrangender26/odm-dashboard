@@ -35,6 +35,9 @@ import {
 import {
   calcKpi, statusColor as _statusColor, statusBg as _statusBg, statusBadgeStyle, rowStatus, fmtMonth, fmtShortDate,
 } from "@/modules/gantt/engine/uiUtilsEngine";
+import {
+  buildManualHierarchyOrder, getSiblingOrderState, getTaskParentId,
+} from "@/modules/gantt/engine/taskReorderEngine";
 
 /* LOCAL statusBg — workaround for Vite tree-shaking bug that removes imported function */
 const statusBg = (status: string): string => {
@@ -217,78 +220,6 @@ const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 
 function depTypeName(type: string): string { return DEP_TYPE_MAP[type] || type; }
 
-
-function getTaskParentId(task: any): number {
-  return Number(task?.parent ?? task?.parentTaskId ?? task?.parent_task_id ?? 0) || 0;
-}
-
-function getTaskSortOrder(task: any, fallbackIndex: number): number {
-  const raw = task?.sortorder ?? task?.sortOrder ?? task?.sort_order;
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : fallbackIndex;
-}
-
-function getSiblingOrderState(tasks: any[], selectedTaskId: number | null) {
-  if (!selectedTaskId) return { index: -1, count: 0, parentId: 0, task: null as any | null };
-  const selected = tasks.find((task: any) => task.id === selectedTaskId) || null;
-  if (!selected) return { index: -1, count: 0, parentId: 0, task: null as any | null };
-  const parentId = getTaskParentId(selected);
-  const position = new Map(tasks.map((task: any, index: number) => [task.id, getTaskSortOrder(task, index)]));
-  const siblings = tasks
-    .filter((task: any) => getTaskParentId(task) === parentId)
-    .sort((a: any, b: any) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
-  return { index: siblings.findIndex((task: any) => task.id === selectedTaskId), count: siblings.length, parentId, task: selected };
-}
-
-function buildManualHierarchyOrder(tasks: any[], selectedTaskId: number, direction: "up" | "down") {
-  const position = new Map(tasks.map((task: any, index: number) => [task.id, getTaskSortOrder(task, index)]));
-  const selected = tasks.find((task: any) => task.id === selectedTaskId);
-  if (!selected) return null;
-
-  const parentId = getTaskParentId(selected);
-  const childrenByParent = new Map<number, any[]>();
-  for (const task of tasks) {
-    const pid = getTaskParentId(task);
-    const siblings = childrenByParent.get(pid) || [];
-    siblings.push(task);
-    childrenByParent.set(pid, siblings);
-  }
-  for (const siblings of childrenByParent.values()) {
-    siblings.sort((a: any, b: any) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
-  }
-
-  const siblings = childrenByParent.get(parentId) || [];
-  const selectedIndex = siblings.findIndex((task: any) => task.id === selectedTaskId);
-  const swapIndex = direction === "up" ? selectedIndex - 1 : selectedIndex + 1;
-  if (selectedIndex < 0 || swapIndex < 0 || swapIndex >= siblings.length) return null;
-
-  const reorderedSiblings = [...siblings];
-  [reorderedSiblings[selectedIndex], reorderedSiblings[swapIndex]] = [reorderedSiblings[swapIndex], reorderedSiblings[selectedIndex]];
-  childrenByParent.set(parentId, reorderedSiblings);
-
-  const ordered: any[] = [];
-  const seen = new Set<number>();
-  const walk = (pid: number) => {
-    for (const task of childrenByParent.get(pid) || []) {
-      if (seen.has(task.id)) continue;
-      seen.add(task.id);
-      ordered.push(task);
-      walk(task.id);
-    }
-  };
-  walk(0);
-  for (const task of [...tasks].sort((a: any, b: any) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0))) {
-    if (!seen.has(task.id)) {
-      seen.add(task.id);
-      ordered.push(task);
-    }
-  }
-
-  return ordered.map((task, index) => ({
-    id: task.id,
-    sort_order: index,
-    parent: getTaskParentId(task),
-  }));
-}
 
 function statusBadge(status: string) {
   const s = statusBadgeStyle(status);
