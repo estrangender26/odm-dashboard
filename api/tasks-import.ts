@@ -44,6 +44,20 @@ export interface MaintenanceImportTimings {
   total_ms: number;
 }
 
+export interface MaintenanceImportUpdateMetrics {
+  total_rows: number;
+  initial_rows_per_chunk: number;
+  min_rows_per_chunk: number;
+  chunk_count: number;
+  statement_count: number;
+  sequential_fallback_count: number;
+  retry_count: number;
+  avg_chunk_time_ms: number;
+  total_update_time_ms: number;
+  max_parameter_count: number;
+  max_generated_sql_length: number;
+}
+
 export interface MaintenanceImportFailurePayload {
   success: false;
   kind: MaintenanceImportFailureKind;
@@ -52,6 +66,7 @@ export interface MaintenanceImportFailurePayload {
   skipped: MaintenanceImportSkippedRow[];
   diagnostics: MaintenanceImportRowDiagnostics[];
   timings?: MaintenanceImportTimings;
+  metrics?: MaintenanceImportUpdateMetrics;
 }
 
 export interface MaintenanceImportRowDiagnostics {
@@ -73,6 +88,7 @@ export interface MaintenanceImportResult {
   skipped: MaintenanceImportSkippedRow[];
   message: string;
   timings: MaintenanceImportTimings;
+  metrics: MaintenanceImportUpdateMetrics;
 }
 
 export interface MaintenanceTaskMatch {
@@ -286,15 +302,24 @@ export class MaintenanceImportError extends Error {
   readonly skipped: MaintenanceImportSkippedRow[];
   readonly diagnostics: MaintenanceImportRowDiagnostics[];
   readonly timings?: MaintenanceImportTimings;
+  readonly metrics?: MaintenanceImportUpdateMetrics;
   readonly statusCode = 400;
 
-  constructor(kind: MaintenanceImportFailureKind, message: string, skipped: MaintenanceImportSkippedRow[], diagnostics: MaintenanceImportRowDiagnostics[] = [], timings?: MaintenanceImportTimings) {
+  constructor(
+    kind: MaintenanceImportFailureKind,
+    message: string,
+    skipped: MaintenanceImportSkippedRow[],
+    diagnostics: MaintenanceImportRowDiagnostics[] = [],
+    timings?: MaintenanceImportTimings,
+    metrics?: MaintenanceImportUpdateMetrics,
+  ) {
     super(message);
     this.name = "MaintenanceImportError";
     this.kind = kind;
     this.skipped = skipped;
     this.diagnostics = diagnostics;
     this.timings = timings;
+    this.metrics = metrics;
   }
 
   toPayload(): MaintenanceImportFailurePayload {
@@ -306,6 +331,7 @@ export class MaintenanceImportError extends Error {
       skipped: this.skipped,
       diagnostics: this.diagnostics,
       timings: this.timings,
+      metrics: this.metrics,
     };
   }
 }
@@ -407,8 +433,22 @@ const TASK_COLUMN_BY_UPDATE_FIELD: Record<MaintenanceUpdateField, SQL> = {
   procedureFamiliarity: sql`${tasks.procedureFamiliarity}`,
 };
 
-const BATCH_UPDATE_SIZE = 250;
+const IMPORT_UPDATE_INITIAL_CHUNK_SIZE = 25;
+const IMPORT_UPDATE_MIN_CHUNK_SIZE = 1;
 const IMPORT_DIAGNOSTIC_LIMIT = process.env.NODE_ENV === "production" ? 5 : 20;
+
+interface MaintenanceFieldUpdateStatement {
+  field: MaintenanceUpdateField;
+  chunkNumber: number;
+  rowsPerChunk: number;
+  parameterCount: number;
+  generatedSqlLength: number;
+  query: SQL;
+}
+
+interface MaintenanceUpdateExecutionMetrics extends MaintenanceImportUpdateMetrics {
+  chunkTimes: number[];
+}
 
 function elapsedSince(start: number): number {
   return Math.max(0, Math.round(performance.now() - start));
@@ -431,53 +471,182 @@ function measureResponseSerializationMs(payload: unknown): number {
   return elapsedSince(start);
 }
 
-function buildBatchUpdateStatements(matches: MaintenanceTaskMatch[], dataset: MaintenanceDataset, chunkSize = BATCH_UPDATE_SIZE): SQL[] {
-  const statements: SQL[] = [];
-
-  for (let offset = 0; offset < matches.length; offset += chunkSize) {
-    const chunk = matches.slice(offset, offset + chunkSize);
-    const ids = Array.from(new Set(chunk.map((match) => match.taskId)));
-    const setFragments: SQL[] = [];
-
-    for (const field of IMPORT_UPDATE_FIELDS) {
-      const column = TASK_COLUMN_BY_UPDATE_FIELD[field];
-      const arms = chunk
-        .filter((match) => Object.prototype.hasOwnProperty.call(match.updateData, field))
-        .map((match) => sql`WHEN ${match.taskId} THEN ${match.updateData[field]}`);
-
-      if (arms.length > 0) {
-        setFragments.push(sql`${column} = CASE ${tasks.id} ${sql.join(arms, sql.raw(" "))} ELSE ${column} END`);
-      }
-    }
-
-    if (setFragments.length > 0 && ids.length > 0) {
-      statements.push(sql`
-        UPDATE ${tasks}
-        SET ${sql.join(setFragments, sql.raw(", "))}
-        WHERE ${tasks.dataset} = ${dataset}
-          AND ${tasks.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql.raw(", "))})
-      `);
-    }
-  }
-
-  return statements;
+function createEmptyUpdateMetrics(totalRows: number): MaintenanceUpdateExecutionMetrics {
+  return {
+    total_rows: totalRows,
+    initial_rows_per_chunk: IMPORT_UPDATE_INITIAL_CHUNK_SIZE,
+    min_rows_per_chunk: IMPORT_UPDATE_MIN_CHUNK_SIZE,
+    chunk_count: 0,
+    statement_count: 0,
+    sequential_fallback_count: 0,
+    retry_count: 0,
+    avg_chunk_time_ms: 0,
+    total_update_time_ms: 0,
+    max_parameter_count: 0,
+    max_generated_sql_length: 0,
+    chunkTimes: [],
+  };
 }
 
-async function applyMaintenanceUpdates(tx: MaintenanceDbLike, matches: MaintenanceTaskMatch[], dataset: MaintenanceDataset): Promise<number> {
-  if (matches.length === 0) return 0;
+function finalizeUpdateMetrics(metrics: MaintenanceUpdateExecutionMetrics, totalUpdateTimeMs: number): MaintenanceImportUpdateMetrics {
+  metrics.total_update_time_ms = totalUpdateTimeMs;
+  metrics.avg_chunk_time_ms = metrics.chunkTimes.length > 0
+    ? Math.round(metrics.chunkTimes.reduce((sum, value) => sum + value, 0) / metrics.chunkTimes.length)
+    : 0;
+  const { chunkTimes: _chunkTimes, ...publicMetrics } = metrics;
+  return publicMetrics;
+}
 
-  if (tx.execute) {
-    const statements = buildBatchUpdateStatements(matches, dataset);
-    for (const statement of statements) {
-      await tx.execute(statement);
-    }
-    return statements.length;
+function updateMaxDiagnostics(metrics: MaintenanceUpdateExecutionMetrics, statement: Pick<MaintenanceFieldUpdateStatement, "parameterCount" | "generatedSqlLength">): void {
+  metrics.max_parameter_count = Math.max(metrics.max_parameter_count, statement.parameterCount);
+  metrics.max_generated_sql_length = Math.max(metrics.max_generated_sql_length, statement.generatedSqlLength);
+}
+
+function estimateFieldUpdateDiagnostics(rowCount: number, uniqueIdCount: number): { parameterCount: number; generatedSqlLength: number } {
+  // Per split-field statement: each CASE arm binds task id + value, the WHERE binds dataset + id list.
+  const parameterCount = rowCount * 2 + uniqueIdCount + 1;
+  const caseArmLength = rowCount * " WHEN $0000 THEN $0000".length;
+  const idListLength = Math.max(1, uniqueIdCount) * ", $0000".length;
+  const generatedSqlLength = 170 + caseArmLength + idListLength;
+  return { parameterCount, generatedSqlLength };
+}
+
+function buildFieldUpdateStatement(
+  chunk: MaintenanceTaskMatch[],
+  dataset: MaintenanceDataset,
+  field: MaintenanceUpdateField,
+  chunkNumber: number,
+): MaintenanceFieldUpdateStatement | null {
+  const fieldRows = chunk.filter((match) => Object.prototype.hasOwnProperty.call(match.updateData, field));
+  if (fieldRows.length === 0) return null;
+
+  const column = TASK_COLUMN_BY_UPDATE_FIELD[field];
+  const ids = Array.from(new Set(fieldRows.map((match) => match.taskId)));
+  const arms = fieldRows.map((match) => sql`WHEN ${match.taskId} THEN ${match.updateData[field]}`);
+  const diagnostics = estimateFieldUpdateDiagnostics(fieldRows.length, ids.length);
+
+  return {
+    field,
+    chunkNumber,
+    rowsPerChunk: fieldRows.length,
+    parameterCount: diagnostics.parameterCount,
+    generatedSqlLength: diagnostics.generatedSqlLength,
+    query: sql`
+      UPDATE ${tasks}
+      SET ${column} = CASE ${tasks.id} ${sql.join(arms, sql.raw(" "))} ELSE ${column} END
+      WHERE ${tasks.dataset} = ${dataset}
+        AND ${tasks.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql.raw(", "))})
+    `,
+  };
+}
+
+function buildFieldUpdateStatements(chunk: MaintenanceTaskMatch[], dataset: MaintenanceDataset, chunkNumber: number): MaintenanceFieldUpdateStatement[] {
+  return IMPORT_UPDATE_FIELDS.flatMap((field) => {
+    const statement = buildFieldUpdateStatement(chunk, dataset, field, chunkNumber);
+    return statement ? [statement] : [];
+  });
+}
+
+function sanitizeDatabaseErrorMessage(message: string): string {
+  const compact = message.replace(/\s+/g, " ").trim();
+  if (/\bUPDATE\b|\bCASE\b|\$\d+|parameters?:|drizzle|postgres/i.test(compact) || compact.length > 180) {
+    return "Database rejected an import update batch. Check server logs for sanitized batch diagnostics.";
   }
+  return compact || "Database rejected an import update batch.";
+}
 
-  for (const match of matches) {
+function batchFailureMessage(chunkNumber: number, rowsPerChunk: number, err: unknown): string {
+  const error = err instanceof Error ? err : new Error(String(err));
+  return `Import update batch failed on chunk ${chunkNumber} (${rowsPerChunk} rows). ${sanitizeDatabaseErrorMessage(error.message)}`;
+}
+
+async function executeFieldStatements(tx: MaintenanceDbLike, statements: MaintenanceFieldUpdateStatement[], metrics: MaintenanceUpdateExecutionMetrics): Promise<void> {
+  if (!tx.execute) throw new Error("Batch update execution is unavailable");
+
+  for (const statement of statements) {
+    console.info("[tasks/import] update batch statement", {
+      chunk: statement.chunkNumber,
+      field: statement.field,
+      rows_per_chunk: statement.rowsPerChunk,
+      parameter_count: statement.parameterCount,
+      generated_sql_length: statement.generatedSqlLength,
+    });
+    updateMaxDiagnostics(metrics, statement);
+    await tx.execute(statement.query);
+    metrics.statement_count += 1;
+  }
+}
+
+async function executeSequentialUpdates(tx: MaintenanceDbLike, chunk: MaintenanceTaskMatch[], dataset: MaintenanceDataset, metrics: MaintenanceUpdateExecutionMetrics): Promise<void> {
+  for (const match of chunk) {
     await tx.update(tasks).set(match.updateData).where(and(eq(tasks.id, match.taskId), eq(tasks.dataset, dataset)));
+    metrics.statement_count += 1;
+    metrics.sequential_fallback_count += 1;
+    metrics.max_parameter_count = Math.max(metrics.max_parameter_count, Object.keys(match.updateData).length + 2);
   }
-  return matches.length;
+}
+
+async function runInOptionalTransaction(db: MaintenanceDbLike, action: (tx: MaintenanceDbLike) => Promise<void>): Promise<void> {
+  if (db.transaction) await db.transaction(action);
+  else await action(db);
+}
+
+async function applyAdaptiveChunk(
+  db: MaintenanceDbLike,
+  chunk: MaintenanceTaskMatch[],
+  dataset: MaintenanceDataset,
+  metrics: MaintenanceUpdateExecutionMetrics,
+  chunkNumber: number,
+): Promise<void> {
+  const chunkStartedAt = performance.now();
+  try {
+    if (!db.execute) {
+      await runInOptionalTransaction(db, (tx) => executeSequentialUpdates(tx, chunk, dataset, metrics));
+    } else {
+      await runInOptionalTransaction(db, async (tx) => {
+        const statements = buildFieldUpdateStatements(chunk, dataset, chunkNumber);
+        await executeFieldStatements(tx, statements, metrics);
+      });
+    }
+    metrics.chunk_count += 1;
+    metrics.chunkTimes.push(elapsedSince(chunkStartedAt));
+  } catch (err: unknown) {
+    metrics.retry_count += 1;
+    console.warn("[tasks/import] update chunk failed", {
+      chunk: chunkNumber,
+      rows_per_chunk: chunk.length,
+      message: batchFailureMessage(chunkNumber, chunk.length, err),
+    });
+
+    if (chunk.length > IMPORT_UPDATE_MIN_CHUNK_SIZE) {
+      const midpoint = Math.ceil(chunk.length / 2);
+      await applyAdaptiveChunk(db, chunk.slice(0, midpoint), dataset, metrics, chunkNumber);
+      await applyAdaptiveChunk(db, chunk.slice(midpoint), dataset, metrics, chunkNumber);
+      return;
+    }
+
+    try {
+      await runInOptionalTransaction(db, (tx) => executeSequentialUpdates(tx, chunk, dataset, metrics));
+      metrics.chunk_count += 1;
+      metrics.chunkTimes.push(elapsedSince(chunkStartedAt));
+    } catch (sequentialErr: unknown) {
+      throw new Error(batchFailureMessage(chunkNumber, chunk.length, sequentialErr));
+    }
+  }
+}
+
+async function applyMaintenanceUpdates(db: MaintenanceDbLike, matches: MaintenanceTaskMatch[], dataset: MaintenanceDataset): Promise<MaintenanceImportUpdateMetrics> {
+  const updateStartedAt = performance.now();
+  const metrics = createEmptyUpdateMetrics(matches.length);
+  if (matches.length === 0) return finalizeUpdateMetrics(metrics, 0);
+
+  for (let offset = 0; offset < matches.length; offset += IMPORT_UPDATE_INITIAL_CHUNK_SIZE) {
+    const chunk = matches.slice(offset, offset + IMPORT_UPDATE_INITIAL_CHUNK_SIZE);
+    const chunkNumber = Math.floor(offset / IMPORT_UPDATE_INITIAL_CHUNK_SIZE) + 1;
+    await applyAdaptiveChunk(db, chunk, dataset, metrics, chunkNumber);
+  }
+
+  return finalizeUpdateMetrics(metrics, elapsedSince(updateStartedAt));
 }
 
 export async function importMaintenancePlanningRows(
@@ -548,30 +717,27 @@ export async function importMaintenancePlanningRows(
     throw new MaintenanceImportError("mapping", formatMaintenanceImportFailure(plan.skipped, "Import mapping failed"), plan.skipped, diagnostics, timings);
   }
 
-  let updateStatements = 0;
+  let metrics = createEmptyUpdateMetrics(plan.matches.length) as MaintenanceImportUpdateMetrics;
   const updateStartedAt = performance.now();
   try {
-    const applyUpdates = async (tx: MaintenanceDbLike) => {
-      updateStatements = await applyMaintenanceUpdates(tx, plan.matches, input.dataset);
-    };
-
-    if (db.transaction) await db.transaction(applyUpdates);
-    else await applyUpdates(db);
+    metrics = await applyMaintenanceUpdates(db, plan.matches, input.dataset);
   } catch (err: unknown) {
     const updateMs = elapsedSince(updateStartedAt);
     const diagnostics = buildImportDiagnostics(input.rows);
     const timings = createTimings({ parseMs, validateMs, matchMs, updateMs, totalMs: elapsedSince(startedAt) });
     const error = err instanceof Error ? err : new Error(String(err));
+    const safeMessage = sanitizeDatabaseErrorMessage(error.message);
     console.error("[tasks/import] transaction failed", {
       dataset: input.dataset,
       rows: input.rows.length,
       matched: plan.matches.length,
-      updateStatements,
+      chunk_count: metrics.chunk_count,
+      statement_count: metrics.statement_count,
+      retry_count: metrics.retry_count,
       timings,
-      message: error.message,
-      stack: error.stack,
+      message: safeMessage,
     });
-    throw new MaintenanceImportError("transaction", `Import database transaction failed: ${error.message}`, [], diagnostics, timings);
+    throw new MaintenanceImportError("transaction", `Import database transaction failed: ${safeMessage}`, [], diagnostics, timings, metrics);
   }
   const updateMs = elapsedSince(updateStartedAt);
 
@@ -582,6 +748,7 @@ export async function importMaintenancePlanningRows(
     total: input.rows.length,
     skipped: [],
     message: `${plan.matches.length} row${plan.matches.length === 1 ? "" : "s"} updated; ${plan.unchanged} row${plan.unchanged === 1 ? "" : "s"} unchanged; 0 rows rejected.`,
+    metrics,
   };
   const responseSerializationMs = measureResponseSerializationMs(resultBase);
   const totalMs = elapsedSince(startedAt);
@@ -593,7 +760,7 @@ export async function importMaintenancePlanningRows(
     rows: input.rows.length,
     updated: result.updated,
     unchanged: result.unchanged,
-    updateStatements,
+    metrics,
     timings,
   });
   return result;

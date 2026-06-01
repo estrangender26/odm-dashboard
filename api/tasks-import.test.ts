@@ -5,8 +5,11 @@ import {
   buildMaintenanceImportPlan,
   buildMaintenanceTaskCode,
   formatMaintenanceImportFailure,
+  importMaintenancePlanningRows,
   normalizeImportKey,
   validateMaintenanceImportRows,
+  type MaintenanceDbLike,
+  type MaintenanceExistingRow,
 } from "./tasks-import";
 
 describe("Maintenance Planning (Post-PPP) import", () => {
@@ -178,6 +181,112 @@ describe("Maintenance Planning (Post-PPP) import", () => {
       skipped: [{ row: 10, reason: "Invalid task_id; expected a positive numeric task_id from the export" }],
       diagnostics: [{ row: 10, hasTaskId: true, matchingPath: "task_id", rejectionReason: "Invalid task_id; expected a positive numeric task_id from the export" }],
     });
+  });
+
+  it("imports a 975-task modified export roundtrip using split-field 25-row batches", async () => {
+    const existingRows: MaintenanceExistingRow[] = Array.from({ length: 975 }, (_, index) => ({
+      id: index + 1,
+      dataset: "htt",
+      equipmentCode: `EQ${index + 1}`,
+      equipmentName: `Equipment ${index + 1}`,
+      taskList: `Task ${index + 1}`,
+    }));
+    const executedStatements: unknown[] = [];
+    const fakeDb: MaintenanceDbLike = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: async () => existingRows,
+          }),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: async () => undefined,
+        }),
+      }),
+      execute: async (query) => {
+        executedStatements.push(query);
+      },
+      transaction: async (fn) => fn(fakeDb),
+    };
+
+    const result = await importMaintenancePlanningRows(fakeDb, {
+      dataset: "htt",
+      rows: existingRows.map((row) => ({
+        taskId: row.id,
+        taskCode: buildMaintenanceTaskCode(row),
+        facilityDataset: "HTT STP",
+        equipmentType: row.equipmentName,
+        taskList: row.taskList,
+        frequency: "Monthly",
+        responsiblePersonnel: "Plant Operators",
+        operations: "Operator",
+        amd: "AMD in-house",
+        ard: "ARD team",
+        procedureFamiliarity: "Fully Familiar",
+      })),
+    }, true);
+
+    expect(result.updated).toBe(975);
+    expect(result.metrics).toMatchObject({
+      total_rows: 975,
+      initial_rows_per_chunk: 25,
+      chunk_count: 39,
+      statement_count: 234,
+      max_parameter_count: 76,
+      max_generated_sql_length: 895,
+    });
+    expect(executedStatements).toHaveLength(234);
+  });
+
+  it("falls back adaptively to sequential updates for a failed one-row batch", async () => {
+    const existingRows: MaintenanceExistingRow[] = [{
+      id: 101,
+      dataset: "htt",
+      equipmentCode: "IP",
+      equipmentName: "Influent Pump",
+      taskList: "Inspect seals and bearings",
+    }];
+    let executeAttempts = 0;
+    let sequentialUpdates = 0;
+    const fakeDb: MaintenanceDbLike = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: async () => existingRows,
+          }),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: async () => { sequentialUpdates += 1; },
+        }),
+      }),
+      execute: async () => {
+        executeAttempts += 1;
+        throw new Error("simulated oversized CASE statement");
+      },
+      transaction: async (fn) => fn(fakeDb),
+    };
+
+    const result = await importMaintenancePlanningRows(fakeDb, {
+      dataset: "htt",
+      rows: [{
+        taskId: 101,
+        taskCode: buildMaintenanceTaskCode(existingRows[0]),
+        facilityDataset: "HTT STP",
+        equipmentType: "Influent Pump",
+        taskList: "Inspect seals and bearings",
+        frequency: "Monthly",
+      }],
+    }, true);
+
+    expect(result.updated).toBe(1);
+    expect(executeAttempts).toBe(1);
+    expect(sequentialUpdates).toBe(1);
+    expect(result.metrics.sequential_fallback_count).toBe(1);
+    expect(result.metrics.retry_count).toBe(1);
   });
 
 });
