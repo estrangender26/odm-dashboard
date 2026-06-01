@@ -37,6 +37,7 @@ import {
 } from "@/modules/gantt/engine/uiUtilsEngine";
 import {
   buildManualHierarchyOrder, getSiblingOrderDebug, getSiblingOrderState, getTaskParentId, sortTasksForHierarchyDisplay,
+  type TaskReorderUpdate,
 } from "@/modules/gantt/engine/taskReorderEngine";
 
 /* LOCAL statusBg — workaround for Vite tree-shaking bug that removes imported function */
@@ -60,6 +61,122 @@ function formatReorderTask(task: any) {
     parent: getTaskParentId(task),
     sort_order: task.sortorder ?? task.sortOrder ?? task.sort_order,
   };
+}
+
+
+function getRuntimeGanttInstance(): any | null {
+  if (typeof window === "undefined") return null;
+  return (window as any).gantt || null;
+}
+
+function getRenderedTreeOrderSnapshot(tasks: any[]) {
+  return sortTasksForHierarchyDisplay(tasks).map((task: any, index: number) => ({
+    index,
+    id: task.id,
+    text: task.text ?? task.taskName ?? `Task ${task.id}`,
+    parent: getTaskParentId(task),
+    sort_order: task.sortorder ?? task.sortOrder ?? task.sort_order,
+  }));
+}
+
+function getParentIndexSnapshot(tasks: any[], selectedTaskId: number | null) {
+  if (!selectedTaskId) return null;
+  const selected = tasks.find((task: any) => task.id === selectedTaskId);
+  if (!selected) return null;
+  const siblingOrder = getSiblingOrderDebug(tasks, selectedTaskId);
+  return {
+    id: selectedTaskId,
+    parent: getTaskParentId(selected),
+    parentIndex: siblingOrder.findIndex((task) => task.id === selectedTaskId),
+    siblingCount: siblingOrder.length,
+  };
+}
+
+function getDhtmlxOrderSnapshot(selectedTaskId: number | null) {
+  const gantt = getRuntimeGanttInstance();
+  if (!gantt) return { available: false, reason: "window.gantt unavailable" };
+
+  const safeCall = <T,>(fn: () => T, fallback: T): T => {
+    try { return fn(); } catch { return fallback; }
+  };
+  const selected = selectedTaskId ? safeCall(() => gantt.getTask?.(selectedTaskId), null) : null;
+  const selectedParent = selected ? getTaskParentId(selected) : 0;
+  const internalTaskOrder: any[] = [];
+  safeCall(() => {
+    gantt.eachTask?.((task: any) => {
+      internalTaskOrder.push(formatReorderTask(task));
+    });
+  }, undefined);
+  const siblingIds = selectedTaskId
+    ? safeCall(() => (gantt.getChildren?.(selectedParent) || []).map((id: number) => ({
+        id,
+        index: gantt.getTaskIndex?.(id),
+        task: formatReorderTask(gantt.getTask?.(id) || { id }),
+      })), [])
+    : [];
+  const datastoreOrder = safeCall(() => {
+    const store = gantt.getDatastore?.("task") || gantt.$data?.tasksStore || gantt._tasks;
+    if (store?.getItems) return store.getItems().map((task: any, index: number) => ({ index, ...formatReorderTask(task) }));
+    if (store?.pull) return Object.values(store.pull).map((task: any, index: number) => ({ index, ...formatReorderTask(task) }));
+    if (store && typeof store === "object") return Object.values(store).filter((task: any) => task?.id).map((task: any, index: number) => ({ index, ...formatReorderTask(task) }));
+    return [];
+  }, [] as any[]);
+
+  return {
+    available: true,
+    selectedParent,
+    selectedIndex: selectedTaskId ? safeCall(() => gantt.getTaskIndex?.(selectedTaskId), null) : null,
+    siblingIds,
+    internalTaskOrder,
+    datastoreOrder,
+  };
+}
+
+function logMoveRuntimeDiagnostics(stage: string, tasks: any[], selectedTaskId: number | null, reactStateTasks?: any[]) {
+  console.debug(`[Gantt reorder diagnostics] ${stage}`, {
+    selectedTaskId,
+    siblingOrder: getSiblingOrderDebug(tasks, selectedTaskId),
+    renderedTreeOrder: getRenderedTreeOrderSnapshot(tasks),
+    parentIndex: getParentIndexSnapshot(tasks, selectedTaskId),
+    reactStateDivergesFromQuery: reactStateTasks
+      ? !sameTaskOrder(
+          getRenderedTreeOrderSnapshot(reactStateTasks).map((task) => task.id),
+          getRenderedTreeOrderSnapshot(tasks).map((task) => task.id)
+        )
+      : false,
+    reactStateRenderedTreeOrder: reactStateTasks ? getRenderedTreeOrderSnapshot(reactStateTasks) : undefined,
+    dhtmlx: getDhtmlxOrderSnapshot(selectedTaskId),
+  });
+}
+
+function applyDhtmlxSortOrderPatch(updates: TaskReorderUpdate[]) {
+  const gantt = getRuntimeGanttInstance();
+  if (!gantt) return;
+  const updateById = new Map(updates.map((update) => [update.id, update]));
+  const patch = () => {
+    for (const update of updates) {
+      const task = gantt.getTask?.(update.id);
+      if (!task) continue;
+      const currentParent = getTaskParentId(task);
+      if (currentParent !== update.parent) {
+        console.warn("[Gantt reorder diagnostics] blocked dhtmlx sort patch because parent diverged", { id: update.id, currentParent, expectedParent: update.parent });
+        continue;
+      }
+      task.sortorder = update.sort_order;
+      task.sortOrder = update.sort_order;
+      task.sort_order = update.sort_order;
+      gantt.updateTask?.(update.id);
+    }
+  };
+  try {
+    if (typeof gantt.batchUpdate === "function") gantt.batchUpdate(patch);
+    else patch();
+    gantt.refreshData?.();
+    gantt.render?.();
+    console.debug("[Gantt reorder diagnostics] patched dhtmlx sort_order only", Array.from(updateById.values()));
+  } catch (error) {
+    console.warn("[Gantt reorder diagnostics] failed to patch dhtmlx sort_order", error);
+  }
 }
 
 function siblingDebugIds(order: Array<{ id: number }>) {
@@ -2163,10 +2280,17 @@ export default function GanttPlanner() {
 
     const liveTasks = tasksQuery.data || [];
     const beforeSiblingOrder = getSiblingOrderDebug(liveTasks, selected);
+    logMoveRuntimeDiagnostics("before Move Up/Down", liveTasks, selected, taskList);
     console.debug("[Gantt reorder] before sibling order", beforeSiblingOrder);
     const updates = buildManualHierarchyOrder(liveTasks, selected, direction);
     if (!updates) {
       setBanner({ type: "info", message: direction === "up" ? "Selected task is already first among its siblings." : "Selected task is already last among its siblings." });
+      return;
+    }
+
+    const originalParents = new Map(liveTasks.map((task: any) => [task.id, getTaskParentId(task)]));
+    if (updates.some((item) => originalParents.get(item.id) !== item.parent)) {
+      setBanner({ type: "error", message: "Move blocked because it would change a task parent." });
       return;
     }
 
@@ -2175,21 +2299,25 @@ export default function GanttPlanner() {
       const nextSortOrder = updatedSortOrderById.get(task.id);
       return {
         ...task,
+        parent: getTaskParentId(task),
+        parentTaskId: task.parentTaskId ?? getTaskParentId(task),
         sortorder: nextSortOrder ?? task.sortorder,
         sortOrder: nextSortOrder ?? task.sortOrder,
         sort_order: nextSortOrder ?? task.sort_order,
       };
     });
-    const expectedAfterOrder = getSiblingOrderDebug(optimisticTasks, selected);
+    const renderedOptimisticTasks = sortTasksForHierarchyDisplay(optimisticTasks);
+    const expectedAfterOrder = getSiblingOrderDebug(renderedOptimisticTasks, selected);
     const apiPayload = updates.map(({ id, sort_order }) => ({ id, sort_order }));
     console.debug("[Gantt reorder] expected after order", expectedAfterOrder);
-    console.debug("[Gantt reorder] API payload", apiPayload);
+    console.debug("[Gantt reorder] sibling-only API payload", apiPayload);
 
-    const originalParents = new Map(liveTasks.map((task: any) => [task.id, getTaskParentId(task)]));
-    if (updates.some((item) => originalParents.get(item.id) !== item.parent)) {
-      setBanner({ type: "error", message: "Move blocked because it would change a task parent." });
-      return;
-    }
+    /* Update runtime views before persistence returns. This deliberately patches
+       only sort_order for siblings in the same parent; it does not call moveTask,
+       setParent, indent/outdent, hierarchy normalization, or a tree rebuild. */
+    setTaskList(renderedOptimisticTasks);
+    applyDhtmlxSortOrderPatch(updates);
+    logMoveRuntimeDiagnostics("after local Move Up/Down patch", renderedOptimisticTasks, selected, renderedOptimisticTasks);
 
     try {
       const mutationResult = await reorderTasksMut.mutateAsync(apiPayload);
@@ -2200,7 +2328,7 @@ export default function GanttPlanner() {
       const refetchOrder = getSiblingOrderDebug(fresh.data || [], selected);
       const renderedAfterRefetch = sortTasksForHierarchyDisplay(fresh.data || []);
       const renderedOrder = getSiblingOrderDebug(renderedAfterRefetch, selected);
-      const payloadOrder = getSiblingOrderDebug(optimisticTasks, selected);
+      const payloadOrder = getSiblingOrderDebug(renderedOptimisticTasks, selected);
       console.debug("[Gantt reorder] actual refetch order", refetchOrder);
       console.debug("[Gantt reorder] actual rendered order", renderedOrder);
       console.debug("[Gantt reorder] first mismatch stage", firstReorderMismatchStage(
@@ -2213,14 +2341,17 @@ export default function GanttPlanner() {
         siblingDebugIds(renderedOrder)
       ));
       setTaskList(renderedAfterRefetch);
+      logMoveRuntimeDiagnostics("after Move Up/Down refetch", renderedAfterRefetch, selected, renderedAfterRefetch);
       setSelectedTaskId(selected);
       setSelectedIds(new Set([selected]));
       setHasUnsavedChanges(true);
       setBanner({ type: "success", message: direction === "up" ? "Task moved up within its current parent." : "Task moved down within its current parent." });
     } catch (e: any) {
+      setTaskList(sortTasksForHierarchyDisplay(liveTasks));
+      applyDhtmlxSortOrderPatch(beforeSiblingOrder.map((task) => ({ id: task.id, sort_order: task.sort_order, parent: task.parent })));
       setBanner({ type: "error", message: "Move failed: " + (e?.message || "Unknown error") });
     }
-  }, [selectedIds, selectedTaskId, tasksQuery.data, reorderTasksMut, utils, refetchTasks]);
+  }, [selectedIds, selectedTaskId, tasksQuery.data, taskList, reorderTasksMut, utils, refetchTasks]);
 
   /* ═══════ SECTION 6: PLAIN FUNCTIONS (SIXTH — after all hooks) ═══════ */
 
@@ -2250,9 +2381,14 @@ export default function GanttPlanner() {
   };
 
   /* ─── INSERT TASK HELPERS ─── */
-  const normalizeSortOrder = useCallback(async (tasks: any[]) => {
-    /* Sort by current sortorder, then assign sequential integers */
-    const sorted = [...tasks].sort((a, b) => (a.sortorder ?? a.id) - (b.sortorder ?? b.id));
+  const normalizeSortOrder = useCallback(async (tasks: any[], parentId?: number) => {
+    /* Normalize only the affected sibling group. Above/Below/Child may set a
+       parent and local index; they must not rebuild the full hierarchy or
+       rewrite unrelated branches used by Move Up/Down diagnostics. */
+    const scopedTasks = typeof parentId === "number"
+      ? tasks.filter((task: any) => getTaskParentId(task) === parentId)
+      : tasks;
+    const sorted = [...scopedTasks].sort((a, b) => (a.sortorder ?? a.sortOrder ?? a.sort_order ?? a.id) - (b.sortorder ?? b.sortOrder ?? b.sort_order ?? b.id));
     const reorders = sorted.map((t, i) => ({ id: t.id, sort_order: (i + 1) * 10 }));
     if (reorders.length > 0) {
       try { await reorderTasksMut.mutateAsync(reorders); } catch { /* non-critical */ }
@@ -2261,7 +2397,7 @@ export default function GanttPlanner() {
 
   const insertTaskAbove = useCallback(async (targetTask: any) => {
     const currentTasks = tasksQuery.data || [];
-    const targetSort = targetTask.sortorder ?? targetTask.sort_order ?? currentTasks.length * 10;
+    const targetSort = targetTask.sortorder ?? targetTask.sortOrder ?? targetTask.sort_order ?? currentTasks.length * 10;
     const newUid = generateUid();
     const newSort = targetSort - 5; /* insert between */
     const payload = {
@@ -2269,8 +2405,9 @@ export default function GanttPlanner() {
       text: "New Task",
       duration: 1, progress: 0,
       sortorder: newSort,
+      sort_order: newSort,
       wbs_level: targetTask.wbs_level ?? targetTask.wbsLevel ?? 0,
-      type: "task", parent: targetTask.parent ?? 0,
+      type: "task", parent: getTaskParentId(targetTask),
       parent_frontend_uid: targetTask.parentFrontendUid || targetTask.parent_frontend_uid || null,
       start_date: null, end_date: null,
       planned_start: null, planned_finish: null,
@@ -2282,7 +2419,7 @@ export default function GanttPlanner() {
       const fresh = await refetchTasks();
       const freshArr = fresh.data || [];
       setTaskList(freshArr);
-      await normalizeSortOrder(freshArr);
+      await normalizeSortOrder(freshArr, getTaskParentId(targetTask));
       /* Find and edit the new task */
       const newTask = freshArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === newUid);
       if (newTask) startEdit(newTask);
@@ -2292,7 +2429,7 @@ export default function GanttPlanner() {
 
   const insertTaskBelow = useCallback(async (targetTask: any) => {
     const currentTasks = tasksQuery.data || [];
-    const targetSort = targetTask.sortorder ?? targetTask.sort_order ?? currentTasks.length * 10;
+    const targetSort = targetTask.sortorder ?? targetTask.sortOrder ?? targetTask.sort_order ?? currentTasks.length * 10;
     const newUid = generateUid();
     const newSort = targetSort + 5; /* insert between */
     const payload = {
@@ -2300,8 +2437,9 @@ export default function GanttPlanner() {
       text: "New Task",
       duration: 1, progress: 0,
       sortorder: newSort,
+      sort_order: newSort,
       wbs_level: targetTask.wbs_level ?? targetTask.wbsLevel ?? 0,
-      type: "task", parent: targetTask.parent ?? 0,
+      type: "task", parent: getTaskParentId(targetTask),
       parent_frontend_uid: targetTask.parentFrontendUid || targetTask.parent_frontend_uid || null,
       start_date: null, end_date: null,
       planned_start: null, planned_finish: null,
@@ -2313,7 +2451,7 @@ export default function GanttPlanner() {
       const fresh = await refetchTasks();
       const freshArr = fresh.data || [];
       setTaskList(freshArr);
-      await normalizeSortOrder(freshArr);
+      await normalizeSortOrder(freshArr, getTaskParentId(targetTask));
       const newTask = freshArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === newUid);
       if (newTask) startEdit(newTask);
       else setBanner({ type: "success", message: "Task inserted below." });
@@ -2325,16 +2463,17 @@ export default function GanttPlanner() {
     const parentId = targetTask.id;
     const parentUid = targetTask.frontendTaskUid || targetTask.frontend_task_uid || "";
     /* Find max sortorder among existing children */
-    const siblings = currentTasks.filter((t: any) => (t.parent ?? 0) === parentId);
+    const siblings = currentTasks.filter((t: any) => getTaskParentId(t) === parentId);
     const maxSort = siblings.length > 0
-      ? Math.max(...siblings.map((t: any) => t.sortorder ?? t.sort_order ?? 0))
-      : (targetTask.sortorder ?? targetTask.sort_order ?? 0);
+      ? Math.max(...siblings.map((t: any) => t.sortorder ?? t.sortOrder ?? t.sort_order ?? 0))
+      : (targetTask.sortorder ?? targetTask.sortOrder ?? targetTask.sort_order ?? 0);
     const newUid = generateUid();
     const payload = {
       frontend_task_uid: newUid,
       text: "New Subtask",
       duration: 1, progress: 0,
       sortorder: maxSort + 10,
+      sort_order: maxSort + 10,
       wbs_level: (targetTask.wbs_level ?? targetTask.wbsLevel ?? 0) + 1,
       type: "task", parent: parentId,
       parent_frontend_uid: parentUid || null,
@@ -2348,7 +2487,7 @@ export default function GanttPlanner() {
       const fresh = await refetchTasks();
       const freshArr = fresh.data || [];
       setTaskList(freshArr);
-      await normalizeSortOrder(freshArr);
+      await normalizeSortOrder(freshArr, parentId);
       /* Auto-expand parent */
       setExpandedIds(prev => { const n = new Set(prev); n.add(parentId); return n; });
       const newTask = freshArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === newUid);

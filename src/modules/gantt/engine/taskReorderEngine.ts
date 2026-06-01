@@ -157,8 +157,7 @@ export function buildManualHierarchyOrder(
   if (!selected) return null;
 
   const selectedParentId = getTaskParentId(selected);
-  const { childrenByParent, position, originalIndex, rootParentIds } =
-    buildSiblingGroups(tasks);
+  const { childrenByParent } = buildSiblingGroups(tasks);
   const siblings = childrenByParent.get(selectedParentId) || [];
   const selectedIndex = siblings.findIndex(
     (task: any) => task.id === selectedTaskId
@@ -175,17 +174,12 @@ export function buildManualHierarchyOrder(
   ];
   childrenByParent.set(selectedParentId, siblings);
 
-  const ordered = flattenSiblingGroups(
-    tasks,
-    childrenByParent,
-    position,
-    originalIndex,
-    rootParentIds
-  );
-
-  return ordered.map((task, index) => ({
+  /* Move Up/Down is sibling-order only. Return updates for the selected
+     parent group, not the whole flattened hierarchy, so callers cannot
+     accidentally invoke hierarchy normalization or rewrite unrelated branches. */
+  return siblings.map((task, index) => ({
     id: task.id,
     sort_order: index + 1,
-    parent: getTaskParentId(task),
+    parent: selectedParentId,
   }));
 }
