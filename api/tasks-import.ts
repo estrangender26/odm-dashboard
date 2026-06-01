@@ -4,8 +4,13 @@ import { equipment, tasks } from "../db/schema";
 export type MaintenanceDataset = "htt" | "aglipay";
 
 export interface MaintenanceImportRow {
+  taskId?: number | string | null;
+  taskCode?: string | null;
+  facilityDataset?: string | null;
   equipmentType: string;
   taskList: string;
+  frequency?: string | null;
+  responsiblePersonnel?: string | null;
   operations?: string | null;
   amd?: string | null;
   ard?: string | null;
@@ -47,10 +52,18 @@ export interface MaintenanceImportPlan {
   unchanged: number;
 }
 
+export interface MaintenanceExistingRow {
+  id: number;
+  equipmentCode?: string | null;
+  equipmentName: string;
+  taskList: string;
+  dataset?: MaintenanceDataset | string | null;
+}
+
 interface SelectBuilderLike {
   from: (table: unknown) => {
     innerJoin: (table: unknown, on: unknown) => {
-      where: (condition: unknown) => Promise<Array<{ id: number; equipmentName: string; taskList: string }>>;
+      where: (condition: unknown) => Promise<MaintenanceExistingRow[]>;
     };
   };
 }
@@ -67,7 +80,9 @@ export interface MaintenanceDbLike {
   transaction?: <T>(fn: (tx: MaintenanceDbLike) => Promise<T>) => Promise<T>;
 }
 
-const MAX_VARCHAR: Record<"operations" | "amd" | "ard" | "procedureFamiliarity", number> = {
+const MAX_VARCHAR: Record<"frequency" | "responsiblePersonnel" | "operations" | "amd" | "ard" | "procedureFamiliarity", number> = {
+  frequency: 100,
+  responsiblePersonnel: 100,
   operations: 100,
   amd: 100,
   ard: 100,
@@ -75,10 +90,17 @@ const MAX_VARCHAR: Record<"operations" | "amd" | "ard" | "procedureFamiliarity",
 };
 
 const FIELD_LABELS: Record<keyof typeof MAX_VARCHAR, string> = {
+  frequency: "Frequency",
+  responsiblePersonnel: "Responsible Personnel",
   operations: "Operations",
   amd: "AMD",
   ard: "ARD",
   procedureFamiliarity: "Procedure Familiarity",
+};
+
+const DATASET_LABELS: Record<MaintenanceDataset, string> = {
+  htt: "HTT STP",
+  aglipay: "Aglipay STP",
 };
 
 function printable(value: string, max = 80): string {
@@ -98,19 +120,63 @@ function cleanOptional(value: string | null | undefined): string | null {
   return cleaned ? cleaned : null;
 }
 
-export function validateMaintenanceImportRows(rows: MaintenanceImportRow[]): MaintenanceImportSkippedRow[] {
+function parseTaskId(value: unknown): number | null {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) return Number.NaN;
+  const parsed = Number(text);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : Number.NaN;
+}
+
+export function buildMaintenanceTaskCode(row: { id: number; equipmentCode?: string | null; dataset?: string | null }): string {
+  return `${String(row.dataset ?? "").trim()}:${String(row.equipmentCode ?? "").trim()}:${row.id}`;
+}
+
+function normalizeTaskCode(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeDataset(value: unknown): MaintenanceDataset | null {
+  const normalized = normalizeImportKey(value).replace(/[^a-z0-9]/g, "");
+  if (!normalized) return null;
+  if (normalized === "htt" || normalized === "httstp") return "htt";
+  if (normalized === "aglipay" || normalized === "aglipaystp") return "aglipay";
+  return null;
+}
+
+export function validateMaintenanceImportRows(rows: MaintenanceImportRow[], activeDataset?: MaintenanceDataset): MaintenanceImportSkippedRow[] {
   const errors: MaintenanceImportSkippedRow[] = [];
 
   rows.forEach((row, idx) => {
     const rowNumber = row.rowNumber ?? idx + 2;
     const eqName = String(row.equipmentType ?? "").trim();
     const taskList = String(row.taskList ?? "").trim();
+    const taskId = parseTaskId(row.taskId);
 
-    if (!eqName) {
-      errors.push({ row: rowNumber, eq: "", task: printable(taskList), reason: "Equipment Name is required" });
+    if (Number.isNaN(taskId)) {
+      errors.push({ row: rowNumber, eq: printable(eqName), task: printable(taskList), reason: "Invalid task_id; expected a positive numeric task_id from the export" });
     }
-    if (!taskList) {
-      errors.push({ row: rowNumber, eq: printable(eqName), task: "", reason: "Task Description is required" });
+
+    const rowDataset = normalizeDataset(row.facilityDataset);
+    if (activeDataset && row.facilityDataset && !rowDataset) {
+      errors.push({ row: rowNumber, eq: printable(eqName), task: printable(taskList), reason: `Unrecognized facility/dataset "${printable(String(row.facilityDataset).trim())}"` });
+    }
+    if (activeDataset && rowDataset && rowDataset !== activeDataset) {
+      errors.push({
+        row: rowNumber,
+        eq: printable(eqName),
+        task: printable(taskList),
+        reason: `File facility/dataset ${DATASET_LABELS[rowDataset]} does not match active dataset ${DATASET_LABELS[activeDataset]}`,
+      });
+    }
+
+    if (taskId === null && !cleanOptional(row.taskCode)) {
+      if (!eqName) {
+        errors.push({ row: rowNumber, eq: "", task: printable(taskList), reason: "Equipment Name is required when task_id/task_code are absent" });
+      }
+      if (!taskList) {
+        errors.push({ row: rowNumber, eq: printable(eqName), task: "", reason: "Task Description is required when task_id/task_code are absent" });
+      }
     }
 
     (Object.keys(MAX_VARCHAR) as Array<keyof typeof MAX_VARCHAR>).forEach((field) => {
@@ -144,11 +210,15 @@ export function formatMaintenanceImportFailure(skipped: MaintenanceImportSkipped
 
 export function buildMaintenanceImportPlan(
   inputRows: MaintenanceImportRow[],
-  existingRows: Array<{ id: number; equipmentName: string; taskList: string }>,
+  existingRows: MaintenanceExistingRow[],
   hasFamiliarityColumn: boolean,
 ): MaintenanceImportPlan {
-  const byKey = new Map<string, Array<{ id: number; equipmentName: string; taskList: string }>>();
+  const byId = new Map<number, MaintenanceExistingRow>();
+  const byTaskCode = new Map<string, MaintenanceExistingRow>();
+  const byKey = new Map<string, MaintenanceExistingRow[]>();
   for (const existing of existingRows) {
+    byId.set(existing.id, existing);
+    byTaskCode.set(normalizeTaskCode(buildMaintenanceTaskCode(existing)), existing);
     const key = `${normalizeImportKey(existing.equipmentName)}\u0000${normalizeImportKey(existing.taskList)}`;
     const bucket = byKey.get(key) ?? [];
     bucket.push(existing);
@@ -163,25 +233,49 @@ export function buildMaintenanceImportPlan(
     const row = rawRow.rowNumber ?? idx + 2;
     const equipmentType = String(rawRow.equipmentType ?? "").trim();
     const taskList = String(rawRow.taskList ?? "").trim();
-    if (!equipmentType || !taskList) return;
+    const taskId = parseTaskId(rawRow.taskId);
+    const taskCode = cleanOptional(rawRow.taskCode);
+    let matched: MaintenanceExistingRow | undefined;
 
-    const key = `${normalizeImportKey(equipmentType)}\u0000${normalizeImportKey(taskList)}`;
-    const matched = byKey.get(key) ?? [];
-    if (matched.length === 0) {
-      skipped.push({ row, eq: printable(equipmentType), task: printable(taskList), reason: "No matching task found for this dataset/equipment/task" });
-      return;
-    }
-    if (matched.length > 1) {
-      skipped.push({ row, eq: printable(equipmentType), task: printable(taskList), reason: "Multiple matching tasks found; import would be ambiguous" });
-      return;
+    if (Number.isNaN(taskId)) return;
+
+    if (taskId !== null) {
+      matched = byId.get(taskId);
+      if (!matched) {
+        skipped.push({ row, eq: printable(equipmentType), task: printable(taskList), reason: `No matching task found for task_id ${taskId} in this dataset` });
+        return;
+      }
+    } else if (taskCode) {
+      matched = byTaskCode.get(normalizeTaskCode(taskCode));
+      if (!matched) {
+        skipped.push({ row, eq: printable(equipmentType), task: printable(taskList), reason: `No matching task found for task_code ${printable(taskCode)}` });
+        return;
+      }
+    } else {
+      if (!equipmentType || !taskList) return;
+      const key = `${normalizeImportKey(equipmentType)}\u0000${normalizeImportKey(taskList)}`;
+      const fallbackMatches = byKey.get(key) ?? [];
+      if (fallbackMatches.length === 0) {
+        skipped.push({ row, eq: printable(equipmentType), task: printable(taskList), reason: "No matching task found for this dataset/equipment/task" });
+        return;
+      }
+      if (fallbackMatches.length > 1) {
+        skipped.push({ row, eq: printable(equipmentType), task: printable(taskList), reason: "Multiple matching tasks found by equipment/task fallback; include task_id or task_code from a fresh export to disambiguate" });
+        return;
+      }
+      matched = fallbackMatches[0];
     }
 
     const updateData: Record<string, string | null> = {};
+    const frequency = cleanOptional(rawRow.frequency);
+    const responsiblePersonnel = cleanOptional(rawRow.responsiblePersonnel);
     const operations = cleanOptional(rawRow.operations);
     const amd = cleanOptional(rawRow.amd);
     const ard = cleanOptional(rawRow.ard);
     const procedureFamiliarity = cleanOptional(rawRow.procedureFamiliarity);
 
+    if (frequency !== null) updateData.frequency = frequency;
+    if (responsiblePersonnel !== null) updateData.responsiblePersonnel = responsiblePersonnel;
     if (operations !== null) updateData.operations = operations;
     if (amd !== null) updateData.amd = amd;
     if (ard !== null) updateData.ard = ard;
@@ -192,7 +286,7 @@ export function buildMaintenanceImportPlan(
       return;
     }
 
-    matches.push({ row, equipmentType, taskList, taskId: matched[0].id, updateData });
+    matches.push({ row, equipmentType: matched.equipmentName, taskList: matched.taskList, taskId: matched.id, updateData });
   });
 
   return { matches, skipped, unchanged };
@@ -206,14 +300,14 @@ export async function importMaintenancePlanningRows(
   const startedAt = Date.now();
   console.info("[tasks/import] start", { dataset: input.dataset, rows: input.rows.length, hasFamiliarityColumn });
 
-  const validationErrors = validateMaintenanceImportRows(input.rows);
+  const validationErrors = validateMaintenanceImportRows(input.rows, input.dataset);
   if (validationErrors.length > 0) {
     console.warn("[tasks/import] row validation failed", { dataset: input.dataset, errors: validationErrors.slice(0, 20) });
     throw new Error(formatMaintenanceImportFailure(validationErrors));
   }
 
   const existingRows = await db
-    .select({ id: tasks.id, equipmentName: equipment.name, taskList: tasks.taskList })
+    .select({ id: tasks.id, equipmentCode: equipment.initials, equipmentName: equipment.name, taskList: tasks.taskList, dataset: tasks.dataset })
     .from(tasks)
     .innerJoin(equipment, eq(tasks.equipmentId, equipment.id))
     .where(eq(tasks.dataset, input.dataset));
