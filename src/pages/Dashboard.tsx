@@ -58,6 +58,7 @@ interface ImportDiagnosticState {
   rawSizeBytes?: number;
   sheetRowCount?: number;
   payloadRowCount?: number;
+  payloadBytes?: number;
 }
 
 interface ImportResultSummary {
@@ -100,6 +101,10 @@ function csvEsc(s: string | null | undefined) {
   const st = String(s).replace(/"/g, '""');
   if (st.includes(",") || st.includes('"') || st.includes("\n")) return '"' + st + '"';
   return st;
+}
+
+function getUtf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }
 
 function formatBytes(bytes: number): string {
@@ -727,6 +732,8 @@ export default function Dashboard() {
         procedureFamiliarity: famIdx >= 0 ? String(row[famIdx] || "").trim() : undefined,
       })).filter((u) => (u.taskId || u.taskCode || (u.equipmentType && u.taskList)));
 
+      const estimatedPayloadBytes = getUtf8ByteLength(JSON.stringify({ dataset: activeTab, rows: updates, clientTimings: { parseMs } }));
+
       console.info("[tasks/import] Parsed row sample", {
         file: file.name,
         activeDataset: activeTab,
@@ -734,25 +741,29 @@ export default function Dashboard() {
         rawSizeBytes,
         sheetRows: sheetRows.length,
         payloadRows: updates.length,
+        payloadBytes: estimatedPayloadBytes,
+        payloadSize: formatBytes(estimatedPayloadBytes),
         parseMs,
         firstRows: updates.slice(0, 3),
       });
 
       if (updates.length === 0) { setImportProgress(null); setImportDiagnostics(null); setBanner({ type: "error", message: "Import failed: no valid data rows found. Required fix: import a fresh export with task_id/task_code, or include Equipment Name and Task Description fallback columns." }); return; }
 
-      setImportDiagnostics((prev) => prev ? { ...prev, stage: "Sending request", payloadRowCount: updates.length } : { stage: "Sending request", fileName: file.name, fileSizeBytes: file.size, rawSizeBytes, sheetRowCount: sheetRows.length, payloadRowCount: updates.length });
-      setImportProgress({ show: true, text: "Sending request", sub: `${updates.length} rows in payload`, pct: 65 });
+      setImportDiagnostics((prev) => prev ? { ...prev, stage: "Sending request", payloadRowCount: updates.length, payloadBytes: estimatedPayloadBytes } : { stage: "Sending request", fileName: file.name, fileSizeBytes: file.size, rawSizeBytes, sheetRowCount: sheetRows.length, payloadRowCount: updates.length, payloadBytes: estimatedPayloadBytes });
+      setImportProgress({ show: true, text: "Sending request", sub: `${updates.length} rows (${formatBytes(estimatedPayloadBytes)}) in payload`, pct: 65 });
       console.info("[tasks/import] Import mutation started", {
         dataset: activeTab,
         payloadRows: updates.length,
+        payloadBytes: estimatedPayloadBytes,
+        payloadSize: formatBytes(estimatedPayloadBytes),
         fileName: file.name,
         fileSizeBytes: file.size,
         rawSizeBytes,
         parseMs,
       });
       importProgressTimerRef.current = window.setTimeout(() => {
-        setImportDiagnostics((prev) => prev ? { ...prev, stage: "Waiting for response" } : null);
-        setImportProgress({ show: true, text: "Waiting for response", sub: "tasks.import request sent; waiting for backend response", pct: 80 });
+        setImportDiagnostics((prev) => prev ? { ...prev, stage: "Waiting for response", payloadBytes: estimatedPayloadBytes } : null);
+        setImportProgress({ show: true, text: "Waiting for response", sub: `tasks.import request sent (${formatBytes(estimatedPayloadBytes)}); waiting for backend response`, pct: 80 });
         importProgressTimerRef.current = null;
       }, 750);
       try {
@@ -800,6 +811,7 @@ export default function Dashboard() {
                 {typeof importDiagnostics.rawSizeBytes === "number" && <div><b>Parsed file size:</b> {formatBytes(importDiagnostics.rawSizeBytes)}</div>}
                 {typeof importDiagnostics.sheetRowCount === "number" && <div><b>Spreadsheet rows:</b> {importDiagnostics.sheetRowCount}</div>}
                 {typeof importDiagnostics.payloadRowCount === "number" && <div><b>Payload rows:</b> {importDiagnostics.payloadRowCount}</div>}
+                {typeof importDiagnostics.payloadBytes === "number" && <div><b>Estimated payload size:</b> {formatBytes(importDiagnostics.payloadBytes)}</div>}
               </div>
             )}
             <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
