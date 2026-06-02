@@ -9,7 +9,46 @@ export const trpc = createTRPCReact<AppRouter>();
 
 const API_URL = import.meta.env.VITE_API_URL || "/api/trpc";
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
-const IMPORT_REQUEST_TIMEOUT_MS = 60000;
+const IMPORT_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_IMPORT_REQUEST_TIMEOUT_MS ?? 120000);
+const REQUEST_TIMEOUT_MESSAGE = "Request timed out";
+
+function getRequestUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function byteLengthFromString(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function estimateBodyBytes(body: BodyInit | null | undefined): number | undefined {
+  if (!body) return undefined;
+  if (typeof body === "string") return byteLengthFromString(body);
+  if (body instanceof Blob) return body.size;
+  if (body instanceof ArrayBuffer) return body.byteLength;
+  if (body instanceof URLSearchParams) return byteLengthFromString(body.toString());
+  if (ArrayBuffer.isView(body)) return body.byteLength;
+  return undefined;
+}
+
+function estimateImportRowsFromBody(body: BodyInit | null | undefined): number | undefined {
+  if (typeof body !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    const singlePayload = parsed as { json?: { rows?: unknown[] } };
+    if (Array.isArray(singlePayload.json?.rows)) return singlePayload.json.rows.length;
+    const values = Array.isArray(parsed) ? parsed : Object.values(parsed as Record<string, unknown>);
+    const batchedPayload = values as Array<{ json?: { rows?: unknown[] } } | undefined>;
+    for (const value of batchedPayload) {
+      if (Array.isArray(value?.json?.rows)) return value.json.rows.length;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,16 +67,51 @@ const trpcClient = trpc.createClient({
       url: API_URL,
       transformer: superjson,
       async fetch(input, init) {
-        const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        const requestUrl = getRequestUrl(input);
         const isImportRequest = requestUrl.includes("tasks.import");
         const controller = new AbortController();
+        const originalSignal = init?.signal;
+        const startedAt = performance.now();
         const timeoutMs = isImportRequest ? IMPORT_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS;
-        const timeout = setTimeout(() => controller.abort("Request timed out"), timeoutMs);
+        const timeoutDisabled = isImportRequest && (!Number.isFinite(timeoutMs) || timeoutMs <= 0);
+        const payloadBytes = estimateBodyBytes(init?.body);
+        const payloadRows = isImportRequest ? estimateImportRowsFromBody(init?.body) : undefined;
+        let timedOut = false;
+
+        const abortFromOriginalSignal = () => {
+          controller.abort(originalSignal?.reason ?? "Request aborted");
+        };
+        if (originalSignal?.aborted) {
+          abortFromOriginalSignal();
+        } else {
+          originalSignal?.addEventListener("abort", abortFromOriginalSignal, { once: true });
+        }
+
+        const timeout = timeoutDisabled
+          ? undefined
+          : window.setTimeout(() => {
+              timedOut = true;
+              const elapsedMs = Math.round(performance.now() - startedAt);
+              if (isImportRequest) {
+                console.error("[tasks/import] tRPC fetch timeout abort fired", {
+                  requestUrl,
+                  timeoutSource: "AbortController.abort() via setTimeout",
+                  timeoutMs,
+                  elapsedMs,
+                  payloadRows,
+                  payloadBytes,
+                });
+              }
+              controller.abort(REQUEST_TIMEOUT_MESSAGE);
+            }, timeoutMs);
+
         if (isImportRequest) {
           console.info("[tasks/import] tRPC fetch started", {
             requestUrl,
-            timeoutSource: "AbortController + setTimeout",
-            timeoutMs,
+            timeoutSource: timeoutDisabled ? "disabled" : "AbortController.abort() via setTimeout",
+            timeoutMs: timeoutDisabled ? null : timeoutMs,
+            payloadRows,
+            payloadBytes,
           });
         }
         try {
@@ -51,23 +125,34 @@ const trpcClient = trpc.createClient({
               requestUrl,
               status: response.status,
               ok: response.ok,
-              timeoutMs,
+              timeoutMs: timeoutDisabled ? null : timeoutMs,
+              elapsedMs: Math.round(performance.now() - startedAt),
+              payloadRows,
+              payloadBytes,
             });
           }
           return response;
         } catch (error) {
+          const elapsedMs = Math.round(performance.now() - startedAt);
           if (isImportRequest) {
             console.error("[tasks/import] tRPC fetch failed", {
               requestUrl,
-              timeoutSource: "AbortController + setTimeout",
-              timeoutMs,
+              timeoutSource: timeoutDisabled ? "disabled" : "AbortController.abort() via setTimeout",
+              timeoutMs: timeoutDisabled ? null : timeoutMs,
+              elapsedMs,
+              timedOut,
               aborted: controller.signal.aborted,
+              abortReason: controller.signal.reason,
+              payloadRows,
+              payloadBytes,
               error,
             });
           }
+          if (timedOut) throw new Error(REQUEST_TIMEOUT_MESSAGE);
           throw error;
         } finally {
-          clearTimeout(timeout);
+          if (timeout !== undefined) window.clearTimeout(timeout);
+          originalSignal?.removeEventListener("abort", abortFromOriginalSignal);
         }
       },
     }),
