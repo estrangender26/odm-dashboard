@@ -11,7 +11,8 @@ export type DashboardContext =
   | "manuals"
   | "scorecard"
   | "governance"
-  | "help";
+  | "help"
+  | "postPlanningInsights";
 
 interface AIAssistantProps {
   contextType: DashboardContext;
@@ -70,6 +71,11 @@ const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
     "Identify governance risks",
     "Suggest policy improvements",
   ],
+  postPlanningInsights: [
+    "Summarize current filters",
+    "Prioritize training actions",
+    "Identify owner and AMD/ARD risks",
+  ],
   help: [
     "Explain dashboard features",
     "Guide on data import",
@@ -101,6 +107,9 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
   // Metadata
   if (metadata) {
     if (metadata.facilityName) ctx += `Facility: ${metadata.facilityName}\n`;
+    if (metadata.dashboardTaskCount !== undefined) ctx += `Dashboard Task Count: ${metadata.dashboardTaskCount}\n`;
+    if (metadata.sourceTaskCount !== undefined) ctx += `Source Task Count: ${metadata.sourceTaskCount}\n`;
+    if (metadata.source) ctx += `Data Source: ${metadata.source}\n`;
     if (metadata.uploads?.length) ctx += `Uploads: ${metadata.uploads.length} documents\n`;
     if (metadata.aiContext && contextType === "manuals") {
       const aiCtx = metadata.aiContext;
@@ -418,12 +427,14 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         ctx += `\n`;
       }
 
-      // Show first 10 records as sample
-      ctx += `=== SAMPLE RECORDS (first ${Math.min(10, data.length)}) ===\n`;
-      data.slice(0, 10).forEach((r: any, i: number) => {
-        const summary = fields.slice(0, 5).map((f) => `${f}=${JSON.stringify(r[f]).slice(0, 40)}`).join(", ");
-        ctx += `${i + 1}. ${summary}\n`;
-      });
+      // Show an excerpt of actual dashboard rows unless a dashboard opts out.
+      if (!metadata?.disableSampleRecords) {
+        ctx += `=== DASHBOARD RECORDS EXCERPT (first ${Math.min(10, data.length)}) ===\n`;
+        data.slice(0, 10).forEach((r: any, i: number) => {
+          const summary = fields.slice(0, 5).map((f) => `${f}=${JSON.stringify(r[f]).slice(0, 40)}`).join(", ");
+          ctx += `${i + 1}. ${summary}\n`;
+        });
+      }
     }
   }
 
