@@ -72,9 +72,12 @@ const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
     "Suggest policy improvements",
   ],
   postPlanningInsights: [
-    "Summarize current filters",
-    "Prioritize training actions",
-    "Identify owner and AMD/ARD risks",
+    "Show contractor-to-operator transition",
+    "Show contractor-to-AMD transition",
+    "Show outsourced SLA workload",
+    "Show operator training backlog",
+    "Show AMD training backlog",
+    "Show SMP development priorities",
   ],
   help: [
     "Explain dashboard features",
@@ -347,6 +350,61 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       if (normalizedTasks.length > MAX_GANTT_TASK_ROWS) {
         ctx += `... ${normalizedTasks.length - MAX_GANTT_TASK_ROWS} more tasks not shown.\n`;
       }
+    }
+
+    // --- POST-PLANNING INSIGHTS dashboard ---
+    else if (contextType === "postPlanningInsights") {
+      const count = (field: string, value: string) =>
+        data.filter((r: any) => `${r[field] || ""}`.toLowerCase() === value.toLowerCase()).length;
+      const groupCount = (field: string, predicate: (r: any) => boolean = () => true) => {
+        const map: Record<string, number> = {};
+        data.filter(predicate).forEach((r: any) => {
+          const key = r[field] || "Blank";
+          map[key] = (map[key] || 0) + 1;
+        });
+        return Object.entries(map).sort(([, a], [, b]) => b - a);
+      };
+      const loadByFutureDoer: Record<string, number> = {};
+      data.forEach((r: any) => {
+        const future = r.futureDoer || "Blank";
+        loadByFutureDoer[future] = (loadByFutureDoer[future] || 0) + Number(r.monthlyResourceLoad || 0);
+      });
+
+      ctx += `=== POST-PLANNING OWNERSHIP MODEL ===\n`;
+      ctx += `Responsible/currentPppDoer means Current PPP execution doer.\n`;
+      ctx += `Operations, AMD, and ARD are preference fields only; use derived futureDoer for Future Post-PPP execution.\n`;
+      ctx += `Future doer categories are only Operator, AMD In-house, and Outsourced SLA.\n`;
+      ctx += `Use this context to answer current PPP execution, future post-PPP execution, transition workload, training backlog, SMP backlog, and resource requirements.\n`;
+
+      ctx += `\nFuture Post-PPP Execution Model:\n`;
+      ["Operator", "AMD In-house", "Outsourced SLA"].forEach((name) => {
+        ctx += `- ${name}: ${count("futureDoer", name)} tasks\n`;
+      });
+
+      ctx += `\nCurrent PPP Execution (top doers):\n`;
+      groupCount("currentPppDoer").slice(0, 10).forEach(([name, c]) => {
+        ctx += `- ${name}: ${c} tasks\n`;
+      });
+
+      ctx += `\nTransition Workload (Current PPP Doer -> Future Doer):\n`;
+      groupCount("transition").slice(0, 12).forEach(([name, c]) => {
+        ctx += `- ${name}: ${c} tasks\n`;
+      });
+
+      ctx += `\nTraining Backlog by Future Doer:\n`;
+      ["Operator", "AMD In-house", "Outsourced SLA"].forEach((name) => {
+        ctx += `- ${name}: ${data.filter((r: any) => r.futureDoer === name && r.trainingBacklog === "Yes").length} tasks\n`;
+      });
+
+      ctx += `\nSMP Backlog by Future Doer:\n`;
+      ["Operator", "AMD In-house", "Outsourced SLA"].forEach((name) => {
+        ctx += `- ${name}: ${data.filter((r: any) => r.futureDoer === name && r.smpBacklog === "Yes").length} tasks\n`;
+      });
+
+      ctx += `\nResource Requirements by Future Doer (monthly load units):\n`;
+      ["Operator", "AMD In-house", "Outsourced SLA"].forEach((name) => {
+        ctx += `- ${name}: ${(loadByFutureDoer[name] || 0).toFixed(2)}\n`;
+      });
     }
 
     // --- GOVERNANCE dashboard ---
