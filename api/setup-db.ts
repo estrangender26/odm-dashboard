@@ -36,8 +36,10 @@ async function setup() {
     "operations" varchar(100),
     "amd" varchar(100),
     "ard" varchar(100),
+    "procedure_familiarity" varchar(50),
     "dataset" varchar(20) NOT NULL
   )`;
+  await sql`ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "procedure_familiarity" varchar(50)`;
   console.log("tasks table created");
 
   await sql`CREATE TABLE IF NOT EXISTS "governance_facilities" (
@@ -80,6 +82,7 @@ async function setup() {
   await sql`CREATE INDEX IF NOT EXISTS "equipment_name_idx" ON "equipment"("name")`;
   await sql`CREATE INDEX IF NOT EXISTS "tasks_equipment_idx" ON "tasks"("equipment_id")`;
   await sql`CREATE INDEX IF NOT EXISTS "tasks_dataset_idx" ON "tasks"("dataset")`;
+  await sql`CREATE INDEX IF NOT EXISTS "tasks_familiarity_idx" ON "tasks"("procedure_familiarity")`;
   console.log("Indexes created");
 
   await sql.end();

@@ -11,15 +11,29 @@ const FamiliarityValue = z.enum(FAMILIARITY_OPTIONS);
 
 // Cache column existence check
 let _colExists: boolean | null = null;
+function getRowsFromExecuteResult(result: unknown): unknown[] {
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === "object" && Array.isArray((result as { rows?: unknown[] }).rows)) return (result as { rows: unknown[] }).rows;
+  return [];
+}
+
 async function hasFamiliarityCol(): Promise<boolean> {
   if (_colExists !== null) return _colExists;
   try {
     const r = await db.execute(
-      sql`SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='procedure_familiarity' LIMIT 1`
+      sql`SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='tasks' AND column_name='procedure_familiarity' LIMIT 1`
     );
-    _colExists = (r as any[]).length > 0;
-  } catch {
+    const rows = getRowsFromExecuteResult(r);
+    _colExists = rows.length > 0;
+    console.info("[tasks/familiarity] procedure_familiarity column check", {
+      sql: "SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='tasks' AND column_name='procedure_familiarity' LIMIT 1;",
+      exists: _colExists,
+      rowCount: rows.length,
+    });
+  } catch (err: unknown) {
     _colExists = false;
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.warn("[tasks/familiarity] procedure_familiarity column check failed", { message: error.message });
   }
   return _colExists;
 }
@@ -47,8 +61,8 @@ export const tasksRouter = createRouter({
     .input(z.object({ dataset: z.enum(["htt", "aglipay"]) }))
     .query(async ({ input }) => {
       console.log("[tasks/stats] dataset:", input.dataset);
-      const rows = await db.execute(sql`SELECT COUNT(*) as c FROM tasks WHERE "dataset"=${input.dataset}`);
-      const count = Number((rows as any[])[0]?.c || 0);
+      const rows = getRowsFromExecuteResult(await db.execute(sql`SELECT COUNT(*) as c FROM tasks WHERE "dataset"=${input.dataset}`));
+      const count = Number((rows[0] as { c?: unknown } | undefined)?.c || 0);
       console.log("[tasks/stats] count:", count);
       return { count };
     }),
@@ -132,10 +146,11 @@ export const tasksRouter = createRouter({
         console.log("[tasks/list] groups:", groups.length, "totalTasks:", result.length);
         return { groups, totalTasks: result.length };
 
-      } catch (err: any) {
-        console.error("[tasks/list] ERROR:", err.message);
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error("[tasks/list] ERROR:", error.message);
         // Return empty with error info
-        return { groups: [], totalTasks: 0, _error: err.message };
+        return { groups: [], totalTasks: 0, _error: error.message };
       }
     }),
 

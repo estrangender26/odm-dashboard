@@ -9,6 +9,7 @@ import {
   formatMaintenanceImportFailure,
   importMaintenancePlanningRows,
   normalizeImportKey,
+  summarizeMaintenancePlanUpdateCounts,
   validateMaintenanceImportRows,
   type MaintenanceDbLike,
   type MaintenanceExistingRow,
@@ -75,6 +76,30 @@ describe("Maintenance Planning (Post-PPP) import", () => {
         },
       },
     ]);
+  });
+
+
+  it("summarizes update planning counts for every editable import field", () => {
+    const plan = buildMaintenanceImportPlan(existing.map((row) => ({
+      taskId: row.id,
+      taskCode: buildMaintenanceTaskCode(row),
+      equipmentType: row.equipmentName,
+      taskList: row.taskList,
+      frequency: "Monthly",
+      operations: "Operator",
+      amd: "AMD in-house",
+      ard: "ARD team",
+      procedureFamiliarity: "Fully Familiar",
+    })), existing, true);
+
+    expect(summarizeMaintenancePlanUpdateCounts(plan.matches)).toEqual({
+      frequency: 3,
+      responsiblePersonnel: 0,
+      operations: 3,
+      amd: 3,
+      ard: 3,
+      procedureFamiliarity: 3,
+    });
   });
 
   it("canonicalizes legacy familiarity import values to procedureFamiliarity updates", () => {

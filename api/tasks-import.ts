@@ -107,6 +107,8 @@ export interface MaintenanceImportPlan {
   unchanged: number;
 }
 
+export type MaintenanceImportFieldUpdateCounts = Record<MaintenanceUpdateField, number>;
+
 export interface MaintenanceExistingRow {
   id: number;
   equipmentCode?: string | null;
@@ -444,6 +446,44 @@ const TASK_VALUE_COLUMN_BY_UPDATE_FIELD: Record<MaintenanceUpdateField, SQL> = {
   procedureFamiliarity: sql`${tasks.procedureFamiliarity}`,
 };
 
+const TASK_SQL_COLUMN_BY_UPDATE_FIELD: Record<MaintenanceUpdateField, string> = {
+  frequency: "frequency",
+  responsiblePersonnel: "responsible_personnel",
+  operations: "operations",
+  amd: "amd",
+  ard: "ard",
+  procedureFamiliarity: "procedure_familiarity",
+};
+
+export function summarizeMaintenancePlanUpdateCounts(matches: MaintenanceTaskMatch[]): MaintenanceImportFieldUpdateCounts {
+  return IMPORT_UPDATE_FIELDS.reduce((counts, field) => {
+    counts[field] = matches.filter((match) => Object.prototype.hasOwnProperty.call(match.updateData, field)).length;
+    return counts;
+  }, {} as MaintenanceImportFieldUpdateCounts);
+}
+
+function logMaintenancePlanUpdateCounts(matches: MaintenanceTaskMatch[], hasFamiliarityColumn: boolean): void {
+  const updateCounts = summarizeMaintenancePlanUpdateCounts(matches);
+  console.info("[tasks/import] update planning counts by field", {
+    frequency: updateCounts.frequency,
+    operations: updateCounts.operations,
+    amd: updateCounts.amd,
+    ard: updateCounts.ard,
+    procedureFamiliarity: updateCounts.procedureFamiliarity,
+    responsiblePersonnel: updateCounts.responsiblePersonnel,
+  });
+  console.info("[tasks/import] update planner editable fields", {
+    editable_fields: IMPORT_UPDATE_FIELDS.map((field) => ({
+      field,
+      sql_column: TASK_SQL_COLUMN_BY_UPDATE_FIELD[field],
+      editable: field !== "procedureFamiliarity" || hasFamiliarityColumn,
+    })),
+    hasFamiliarityColumn,
+    procedureFamiliarityIncludedInPlanner: IMPORT_UPDATE_FIELDS.includes("procedureFamiliarity"),
+    procedureFamiliarityUpdateCount: updateCounts.procedureFamiliarity,
+  });
+}
+
 const IMPORT_UPDATE_INITIAL_CHUNK_SIZE = 25;
 const IMPORT_UPDATE_MIN_CHUNK_SIZE = 1;
 const IMPORT_DIAGNOSTIC_LIMIT = process.env.NODE_ENV === "production" ? 5 : 20;
@@ -546,6 +586,7 @@ function finalizeUpdateMetrics(metrics: MaintenanceUpdateExecutionMetrics, total
     ? Math.round(metrics.chunkTimes.reduce((sum, value) => sum + value, 0) / metrics.chunkTimes.length)
     : 0;
   const { chunkTimes: _chunkTimes, ...publicMetrics } = metrics;
+  void _chunkTimes;
   return publicMetrics;
 }
 
@@ -694,20 +735,38 @@ async function logPostImportFamiliarityDiagnostics(db: MaintenanceDbLike, datase
   if (!db.execute || process.env.NODE_ENV === "test") return;
 
   try {
+    const httCounts = getResultRows(await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE procedure_familiarity IS NOT NULL) AS populated,
+        COUNT(*) AS total
+      FROM tasks
+      WHERE dataset='htt'
+    `));
+
+    console.info("[tasks/import] Post-import HTT procedure_familiarity population count", {
+      sql: "SELECT COUNT(*) FILTER (WHERE procedure_familiarity IS NOT NULL) AS populated, COUNT(*) AS total FROM tasks WHERE dataset='htt';",
+      rows: httCounts,
+    });
+
     const httRows = getResultRows(await db.execute(sql`
       SELECT id,
              procedure_familiarity
       FROM tasks
       WHERE dataset = 'htt'
+      ORDER BY id
       LIMIT 20
     `));
 
     console.info("[tasks/import] Post-import HTT familiarity DB sample", {
-      sql: "SELECT id, procedure_familiarity FROM tasks WHERE dataset='htt' LIMIT 20;",
+      sql: "SELECT id, procedure_familiarity FROM tasks WHERE dataset='htt' ORDER BY id LIMIT 20;",
       rows: httRows,
     });
 
-    const traceIds = taskIds.slice(0, 10);
+    const envTraceIds = String(process.env.TASK_IMPORT_TRACE_IDS ?? "")
+      .split(",")
+      .map((value) => Number(value.trim()))
+      .filter((value) => Number.isSafeInteger(value) && value > 0);
+    const traceIds = Array.from(new Set([...envTraceIds, ...taskIds])).slice(0, 20);
     if (traceIds.length > 0) {
       const traceRows = getResultRows(await db.execute(sql`
         SELECT id,
@@ -720,6 +779,7 @@ async function logPostImportFamiliarityDiagnostics(db: MaintenanceDbLike, datase
 
       console.info("[tasks/import] Post-import traced familiarity DB values", {
         dataset,
+        sql: "SELECT id, procedure_familiarity FROM tasks WHERE dataset=$1 AND id IN (...) ORDER BY id;",
         taskIds: traceIds,
         rows: traceRows,
       });
@@ -727,7 +787,7 @@ async function logPostImportFamiliarityDiagnostics(db: MaintenanceDbLike, datase
   } catch (err: unknown) {
     console.warn("[tasks/import] post-import familiarity diagnostics failed", {
       dataset,
-      taskIds: taskIds.slice(0, 10),
+      taskIds: taskIds.slice(0, 20),
       error: extractDatabaseErrorDiagnostics(err),
     });
   }
@@ -792,19 +852,30 @@ async function executeFieldStatements(tx: MaintenanceDbLike, statements: Mainten
   if (!tx.execute) throw new Error("Batch update execution is unavailable");
 
   for (const statement of statements) {
+    const rendered = renderSqlDiagnostics(statement.query);
     console.info("[tasks/import] update batch statement", {
       chunk: statement.chunkNumber,
       field: statement.field,
+      sql_column: TASK_SQL_COLUMN_BY_UPDATE_FIELD[statement.field],
       rows_per_chunk: statement.rowsPerChunk,
       parameter_count: statement.parameterCount,
       generated_sql_length: statement.generatedSqlLength,
+    });
+    console.info("[tasks/import] generated SQL batch by field", {
+      chunk: statement.chunkNumber,
+      field: statement.field,
+      sql_column: TASK_SQL_COLUMN_BY_UPDATE_FIELD[statement.field],
+      label: `${TASK_SQL_COLUMN_BY_UPDATE_FIELD[statement.field]} batch`,
+      sql: rendered.sql,
+      parameters: rendered.params,
+      rows: statement.rows,
+      contains_procedure_familiarity_update: statement.field === "procedureFamiliarity" && rendered.sql.includes("procedure_familiarity"),
     });
     updateMaxDiagnostics(metrics, statement);
     try {
       await tx.execute(statement.query);
       metrics.statement_count += 1;
     } catch (err: unknown) {
-      const rendered = renderSqlDiagnostics(statement.query);
       console.error("[tasks/import] update batch statement failed", {
         chunk: statement.chunkNumber,
         field: statement.field,
@@ -946,6 +1017,18 @@ export async function importMaintenancePlanningRows(
 
   const plan = buildMaintenanceImportPlan(input.rows, existingRows, hasFamiliarityColumn);
   const matchMs = elapsedSince(matchStartedAt);
+  logMaintenancePlanUpdateCounts(plan.matches, hasFamiliarityColumn);
+
+  console.info("[tasks/import] import comparison field coverage", {
+    hasFamiliarityColumn,
+    compared_or_planned_fields: IMPORT_UPDATE_FIELDS.map((field) => ({
+      field,
+      sql_column: TASK_SQL_COLUMN_BY_UPDATE_FIELD[field],
+      included: field !== "procedureFamiliarity" || hasFamiliarityColumn,
+      planned_updates: summarizeMaintenancePlanUpdateCounts(plan.matches)[field],
+    })),
+    note: "The import planner builds updateData from non-empty import values; it does not currently skip rows by comparing imported values against existing DB values.",
+  });
 
   console.info("[tasks/import] matching summary", {
     activeDataset: input.dataset,
