@@ -763,7 +763,7 @@ export default function Dashboard() {
       });
       importProgressTimerRef.current = window.setTimeout(() => {
         setImportDiagnostics((prev) => prev ? { ...prev, stage: "Waiting for response", payloadBytes: estimatedPayloadBytes } : null);
-        setImportProgress({ show: true, text: "Waiting for response", sub: `tasks.import request sent (${formatBytes(estimatedPayloadBytes)}); waiting for backend response`, pct: 80 });
+        setImportProgress({ show: true, text: "Import is still processing. Please do not close this tab.", sub: `tasks.import request sent with ${updates.length} rows (${formatBytes(estimatedPayloadBytes)}); waiting for backend response.`, pct: 80 });
         importProgressTimerRef.current = null;
       }, 750);
       try {
