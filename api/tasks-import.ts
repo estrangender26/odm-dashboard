@@ -495,6 +495,44 @@ function logMaintenancePlanUpdateCounts(matches: MaintenanceTaskMatch[], hasFami
 const IMPORT_UPDATE_INITIAL_CHUNK_SIZE = 25;
 const IMPORT_UPDATE_MIN_CHUNK_SIZE = 1;
 const IMPORT_DIAGNOSTIC_LIMIT = process.env.NODE_ENV === "production" ? 5 : 20;
+const REQUIRED_FAMILIARITY_TRACE_TASK_IDS = [740, 741, 742, 743, 744, 745, 746, 747, 748, 749] as const;
+
+function getImportTraceTaskIds(additionalTaskIds: number[] = []): number[] {
+  const envTraceIds = String(process.env.TASK_IMPORT_TRACE_IDS ?? "")
+    .split(",")
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isSafeInteger(value) && value > 0);
+  return Array.from(new Set([...REQUIRED_FAMILIARITY_TRACE_TASK_IDS, ...envTraceIds, ...additionalTaskIds]));
+}
+
+function logProcedureFamiliarityImportWriteTrace(inputRows: MaintenanceImportRow[], matches: MaintenanceTaskMatch[]): void {
+  const traceIds = getImportTraceTaskIds();
+  const matchesByTaskId = new Map(matches.map((match) => [match.taskId, match]));
+  const tracedInputRows = inputRows
+    .map((rawRow, idx) => ({ rawRow, rowNumber: rawRow.rowNumber ?? idx + 2, parsedTaskId: parseTaskId(rawRow.taskId) }))
+    .filter((item) => item.parsedTaskId !== null && !Number.isNaN(item.parsedTaskId) && traceIds.includes(item.parsedTaskId));
+
+  console.info("[tasks/import] required procedure_familiarity write-path trace for task IDs 740-749", {
+    taskIds: REQUIRED_FAMILIARITY_TRACE_TASK_IDS,
+    rows: tracedInputRows.map(({ rawRow, rowNumber, parsedTaskId }) => {
+      const parsedProcedureFamiliarity = rawRow.procedureFamiliarity ?? rawRow.familiarity ?? null;
+      const normalizedProcedureFamiliarity = cleanOptional(rawRow.procedureFamiliarity ?? rawRow.familiarity);
+      const match = parsedTaskId === null || Number.isNaN(parsedTaskId) ? undefined : matchesByTaskId.get(parsedTaskId);
+      return {
+        row: rowNumber,
+        task_id: parsedTaskId,
+        parsedProcedureFamiliarity,
+        normalizedProcedureFamiliarity,
+        updateDataProcedureFamiliarity: match && Object.prototype.hasOwnProperty.call(match.updateData, "procedureFamiliarity")
+          ? match.updateData.procedureFamiliarity ?? null
+          : undefined,
+        updateData: match?.updateData ?? null,
+        procedureFamiliarityIncludedInPlannedUpdate: Boolean(match && Object.prototype.hasOwnProperty.call(match.updateData, "procedureFamiliarity")),
+      };
+    }),
+    missingFromPayload: REQUIRED_FAMILIARITY_TRACE_TASK_IDS.filter((taskId) => !tracedInputRows.some((row) => row.parsedTaskId === taskId)),
+  });
+}
 
 interface MaintenanceFieldUpdateStatement {
   field: MaintenanceUpdateField;
@@ -743,6 +781,33 @@ async function logPostImportFamiliarityDiagnostics(db: MaintenanceDbLike, datase
   if (!db.execute || process.env.NODE_ENV === "test") return;
 
   try {
+    const schemaRows = getResultRows(await db.execute(sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name='tasks'
+        AND column_name='procedure_familiarity'
+    `));
+
+    console.info("[tasks/import] procedure_familiarity schema column check", {
+      sql: "SELECT column_name FROM information_schema.columns WHERE table_name='tasks' AND column_name='procedure_familiarity';",
+      rows: schemaRows,
+      exists: schemaRows.length > 0,
+    });
+
+    const requiredTraceRows = getResultRows(await db.execute(sql`
+      SELECT id,
+             procedure_familiarity
+      FROM tasks
+      WHERE dataset = 'htt'
+        AND id IN (${sql.join(REQUIRED_FAMILIARITY_TRACE_TASK_IDS.map((id) => sql`${id}`), sql.raw(", "))})
+      ORDER BY id
+    `));
+
+    console.info("[tasks/import] Required post-import HTT familiarity DB values for task IDs 740-749", {
+      sql: "SELECT id, procedure_familiarity FROM tasks WHERE dataset = 'htt' AND id IN (740,741,742,743,744,745,746,747,748,749);",
+      rows: requiredTraceRows,
+    });
+
     const httCounts = getResultRows(await db.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE procedure_familiarity IS NOT NULL) AS populated,
@@ -770,11 +835,7 @@ async function logPostImportFamiliarityDiagnostics(db: MaintenanceDbLike, datase
       rows: httRows,
     });
 
-    const envTraceIds = String(process.env.TASK_IMPORT_TRACE_IDS ?? "")
-      .split(",")
-      .map((value) => Number(value.trim()))
-      .filter((value) => Number.isSafeInteger(value) && value > 0);
-    const traceIds = Array.from(new Set([...envTraceIds, ...taskIds])).slice(0, 20);
+    const traceIds = getImportTraceTaskIds(taskIds).slice(0, 50);
     if (traceIds.length > 0) {
       const traceRows = getResultRows(await db.execute(sql`
         SELECT id,
@@ -962,6 +1023,16 @@ async function applyAdaptiveChunk(
     } else {
       await runInOptionalTransaction(db, async (tx) => {
         const statements = buildFieldUpdateStatements(chunk, dataset, chunkNumber);
+        console.info("[tasks/import] generated SQL field list for update chunk", {
+          chunk: chunkNumber,
+          generatedFields: statements.map((statement) => ({
+            field: statement.field,
+            sql_column: TASK_SQL_COLUMN_BY_UPDATE_FIELD[statement.field],
+            rows_per_chunk: statement.rowsPerChunk,
+          })),
+          procedure_familiarity_batch_generated: statements.some((statement) => statement.field === "procedureFamiliarity"),
+          includes_procedure_familiarity_update: statements.some((statement) => statement.field === "procedureFamiliarity"),
+        });
         await executeFieldStatements(tx, statements, metrics);
       });
     }
@@ -1048,6 +1119,7 @@ export async function importMaintenancePlanningRows(
   const plan = buildMaintenanceImportPlan(input.rows, existingRows, hasFamiliarityColumn);
   const matchMs = elapsedSince(matchStartedAt);
   logMaintenancePlanUpdateCounts(plan.matches, hasFamiliarityColumn);
+  logProcedureFamiliarityImportWriteTrace(input.rows, plan.matches);
   logFullyFamiliarPlannerDecision(input.rows, plan.matches);
 
   console.info("[tasks/import] import comparison field coverage", {
