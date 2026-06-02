@@ -16,6 +16,7 @@ export interface MaintenanceImportRow {
   amd?: string | null;
   ard?: string | null;
   procedureFamiliarity?: string | null;
+  familiarity?: string | null;
   rowNumber?: number;
 }
 
@@ -401,7 +402,7 @@ export function buildMaintenanceImportPlan(
     const operations = cleanOptional(rawRow.operations);
     const amd = cleanOptional(rawRow.amd);
     const ard = cleanOptional(rawRow.ard);
-    const procedureFamiliarity = cleanOptional(rawRow.procedureFamiliarity);
+    const procedureFamiliarity = cleanOptional(rawRow.procedureFamiliarity ?? rawRow.familiarity);
 
     if (frequency !== null) updateData.frequency = frequency;
     if (responsiblePersonnel !== null) updateData.responsiblePersonnel = responsiblePersonnel;

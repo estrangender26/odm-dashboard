@@ -77,6 +77,24 @@ describe("Maintenance Planning (Post-PPP) import", () => {
     ]);
   });
 
+  it("canonicalizes legacy familiarity import values to procedureFamiliarity updates", () => {
+    const plan = buildMaintenanceImportPlan([
+      {
+        rowNumber: 3,
+        taskId: 101,
+        equipmentType: "Influent Pump",
+        taskList: "Inspect seals and bearings",
+        familiarity: "Partially Familiar",
+      },
+    ], existing, true);
+
+    expect(plan.skipped).toEqual([]);
+    expect(plan.matches[0]).toMatchObject({
+      taskId: 101,
+      updateData: { procedureFamiliarity: "Partially Familiar" },
+    });
+  });
+
   it("falls back from missing task_id to stable task_code before equipment/task text", () => {
     const plan = buildMaintenanceImportPlan([
       {
