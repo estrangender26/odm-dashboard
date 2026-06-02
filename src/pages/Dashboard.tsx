@@ -410,6 +410,7 @@ export default function Dashboard() {
     onSuccess: (res) => {
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
+      utils.tasks.filters.invalidate();
       setBanner({ type: "success", message: `${res.updated} changes saved successfully.` });
       setPending({});
       setEditMode(false);
@@ -426,6 +427,7 @@ export default function Dashboard() {
       setImportProgress({ show: true, text: "Finalizing import...", sub: "Refreshing task data", pct: 95 });
       utils.tasks.list.invalidate();
       utils.tasks.export.invalidate();
+      utils.tasks.filters.invalidate();
       const unchanged = res.unchanged ?? res.total - res.updated;
       const timings = res.timings as ImportTimings | undefined;
       const metrics = res.metrics as ImportMetrics | undefined;
@@ -700,7 +702,7 @@ export default function Dashboard() {
       const opsIdx = findHeader(["Operations", "Ops"]);
       const amdIdx = findHeader(["AMD"]);
       const ardIdx = findHeader(["ARD"]);
-      const famIdx = findHeader(["Procedure Familiarity", "Familiarity", "Fam", "Procedure_Familiarity"]);
+      const famIdx = findHeader(["Procedure Familiarity", "Familiarity", "Fam", "procedure_familiarity", "procedureFamiliarity"]);
 
       console.info("[tasks/import] Parsed headers", {
         file: file.name,

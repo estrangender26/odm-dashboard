@@ -24,9 +24,8 @@ async function hasFamiliarityCol(): Promise<boolean> {
   return _colExists;
 }
 
-// ── Explicit column selection — only columns known to exist ──
-// This avoids Drizzle trying to SELECT procedure_familiarity when it doesn't exist in DB
-const taskCols = {
+// ── Explicit column selection — only select procedure_familiarity after confirming it exists ──
+const baseTaskCols = {
   id: tasks.id,
   equipmentId: tasks.equipmentId,
   taskList: tasks.taskList,
@@ -66,7 +65,12 @@ export const tasksRouter = createRouter({
       console.log("[tasks/list] START dataset:", input.dataset);
 
       try {
-        // Use Drizzle ORM with explicit columns (no procedureFamiliarity)
+        const hasCol = await hasFamiliarityCol();
+        const taskCols = {
+          ...baseTaskCols,
+          procedureFamiliarity: hasCol ? tasks.procedureFamiliarity : sql<string | null>`null`,
+        };
+
         const rows = await db
           .select({ task: taskCols, equipment: equipCols })
           .from(tasks)
@@ -281,6 +285,7 @@ export const tasksRouter = createRouter({
         amd: z.string().nullable().optional(),
         ard: z.string().nullable().optional(),
         procedureFamiliarity: z.string().nullable().optional(),
+        familiarity: z.string().nullable().optional(),
         rowNumber: z.number().optional(),
       })),
       clientTimings: z.object({
@@ -299,11 +304,16 @@ export const tasksRouter = createRouter({
           facilityDataset: row.facilityDataset ?? null,
           equipment: row.equipmentType,
           taskDescription: row.taskList,
+          procedureFamiliarity: row.procedureFamiliarity ?? row.familiarity ?? null,
         })),
       });
       try {
         const hasCol = await hasFamiliarityCol();
-        return await importMaintenancePlanningRows(db as unknown as MaintenanceDbLike, input, hasCol);
+        const rows = input.rows.map((row) => ({
+          ...row,
+          procedureFamiliarity: row.procedureFamiliarity ?? row.familiarity,
+        }));
+        return await importMaintenancePlanningRows(db as unknown as MaintenanceDbLike, { ...input, rows }, hasCol);
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
         const structuredPayload = error instanceof MaintenanceImportError ? error.toPayload() : undefined;
