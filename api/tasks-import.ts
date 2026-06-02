@@ -425,7 +425,16 @@ export function buildMaintenanceImportPlan(
 const IMPORT_UPDATE_FIELDS = ["frequency", "responsiblePersonnel", "operations", "amd", "ard", "procedureFamiliarity"] as const;
 type MaintenanceUpdateField = typeof IMPORT_UPDATE_FIELDS[number];
 
-const TASK_COLUMN_BY_UPDATE_FIELD: Record<MaintenanceUpdateField, SQL> = {
+const TASK_SET_TARGET_BY_UPDATE_FIELD: Record<MaintenanceUpdateField, SQL> = {
+  frequency: sql.raw('"frequency"'),
+  responsiblePersonnel: sql.raw('"responsible_personnel"'),
+  operations: sql.raw('"operations"'),
+  amd: sql.raw('"amd"'),
+  ard: sql.raw('"ard"'),
+  procedureFamiliarity: sql.raw('"procedure_familiarity"'),
+};
+
+const TASK_VALUE_COLUMN_BY_UPDATE_FIELD: Record<MaintenanceUpdateField, SQL> = {
   frequency: sql`${tasks.frequency}`,
   responsiblePersonnel: sql`${tasks.responsiblePersonnel}`,
   operations: sql`${tasks.operations}`,
@@ -698,7 +707,8 @@ function buildFieldUpdateStatement(
   const fieldRows = chunk.filter((match) => Object.prototype.hasOwnProperty.call(match.updateData, field));
   if (fieldRows.length === 0) return null;
 
-  const column = TASK_COLUMN_BY_UPDATE_FIELD[field];
+  const setTarget = TASK_SET_TARGET_BY_UPDATE_FIELD[field];
+  const valueColumn = TASK_VALUE_COLUMN_BY_UPDATE_FIELD[field];
   const ids = Array.from(new Set(fieldRows.map((match) => match.taskId)));
   const arms = fieldRows.map((match) => sql`WHEN ${match.taskId} THEN ${match.updateData[field]}`);
   const diagnostics = estimateFieldUpdateDiagnostics(fieldRows.length, ids.length);
@@ -711,7 +721,7 @@ function buildFieldUpdateStatement(
     generatedSqlLength: diagnostics.generatedSqlLength,
     query: sql`
       UPDATE ${tasks}
-      SET ${column} = CASE ${tasks.id} ${sql.join(arms, sql.raw(" "))} ELSE ${column} END
+      SET ${setTarget} = CASE ${tasks.id} ${sql.join(arms, sql.raw(" "))} ELSE ${valueColumn} END
       WHERE ${tasks.dataset} = ${dataset}
         AND ${tasks.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql.raw(", "))})
     `,

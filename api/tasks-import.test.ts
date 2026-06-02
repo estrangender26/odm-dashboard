@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { type SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import {
   MaintenanceImportError,
   buildImportDiagnostics,
@@ -11,6 +13,25 @@ import {
   type MaintenanceDbLike,
   type MaintenanceExistingRow,
 } from "./tasks-import";
+
+const pgDialect = new PgDialect();
+const SQL_RENDER_CONFIG = {
+  casing: { getColumnCasing: (column: { name: string }) => column.name },
+  escapeName: pgDialect.escapeName.bind(pgDialect),
+  escapeParam: pgDialect.escapeParam.bind(pgDialect),
+  escapeString: pgDialect.escapeString.bind(pgDialect),
+};
+
+function renderSql(query: SQL): string {
+  return query.toQuery(SQL_RENDER_CONFIG as unknown as Parameters<SQL["toQuery"]>[0]).sql.replace(/\s+/g, " ").trim();
+}
+
+function expectUpdateSetTargetsToBeUnqualified(renderedSql: string): void {
+  expect(renderedSql).not.toMatch(/SET "tasks"\."(?:frequency|responsible_personnel|operations|amd|ard|procedure_familiarity)" =/);
+  expect(renderedSql).toMatch(/UPDATE "tasks" SET "(?:frequency|responsible_personnel|operations|amd|ard|procedure_familiarity)" = CASE "tasks"\."id"/);
+  expect(renderedSql).toContain('WHERE "tasks"."dataset" =');
+  expect(renderedSql).toContain('AND "tasks"."id" IN');
+}
 
 describe("Maintenance Planning (Post-PPP) import", () => {
   const existing = [
@@ -183,15 +204,16 @@ describe("Maintenance Planning (Post-PPP) import", () => {
     });
   });
 
-  it("imports a 975-task modified export roundtrip using split-field 25-row batches", async () => {
-    const existingRows: MaintenanceExistingRow[] = Array.from({ length: 975 }, (_, index) => ({
-      id: index + 1,
+
+  it("generates valid PostgreSQL CASE SQL for a single-row update", async () => {
+    const existingRows: MaintenanceExistingRow[] = [{
+      id: 101,
       dataset: "htt",
-      equipmentCode: `EQ${index + 1}`,
-      equipmentName: `Equipment ${index + 1}`,
-      taskList: `Task ${index + 1}`,
-    }));
-    const executedStatements: unknown[] = [];
+      equipmentCode: "IP",
+      equipmentName: "Influent Pump",
+      taskList: "Inspect seals and bearings",
+    }];
+    const renderedStatements: string[] = [];
     const fakeDb: MaintenanceDbLike = {
       select: () => ({
         from: () => ({
@@ -206,7 +228,98 @@ describe("Maintenance Planning (Post-PPP) import", () => {
         }),
       }),
       execute: async (query) => {
-        executedStatements.push(query);
+        renderedStatements.push(renderSql(query as SQL));
+      },
+      transaction: async (fn) => fn(fakeDb),
+    };
+
+    const result = await importMaintenancePlanningRows(fakeDb, {
+      dataset: "htt",
+      rows: [{
+        taskId: 101,
+        taskCode: buildMaintenanceTaskCode(existingRows[0]),
+        facilityDataset: "HTT STP",
+        equipmentType: "Influent Pump",
+        taskList: "Inspect seals and bearings",
+        frequency: "Monthly",
+      }],
+    }, true);
+
+    expect(result.updated).toBe(1);
+    expect(renderedStatements).toHaveLength(1);
+    expectUpdateSetTargetsToBeUnqualified(renderedStatements[0]);
+    expect(renderedStatements[0]).toContain('SET "frequency" = CASE "tasks"."id"');
+  });
+
+  it("generates valid PostgreSQL CASE SQL for multi-row chunk updates", async () => {
+    const existingRows: MaintenanceExistingRow[] = existing.map((row) => ({ ...row }));
+    const renderedStatements: string[] = [];
+    const fakeDb: MaintenanceDbLike = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: async () => existingRows,
+          }),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: async () => undefined,
+        }),
+      }),
+      execute: async (query) => {
+        renderedStatements.push(renderSql(query as SQL));
+      },
+      transaction: async (fn) => fn(fakeDb),
+    };
+
+    const result = await importMaintenancePlanningRows(fakeDb, {
+      dataset: "htt",
+      rows: existingRows.map((row) => ({
+        taskId: row.id,
+        taskCode: buildMaintenanceTaskCode(row),
+        facilityDataset: "HTT STP",
+        equipmentType: row.equipmentName,
+        taskList: row.taskList,
+        frequency: "Monthly",
+        responsiblePersonnel: "Plant Operators",
+        operations: "Operator",
+        amd: "AMD in-house",
+        ard: "ARD team",
+        procedureFamiliarity: "Fully Familiar",
+      })),
+    }, true);
+
+    expect(result.updated).toBe(3);
+    expect(renderedStatements).toHaveLength(6);
+    renderedStatements.forEach(expectUpdateSetTargetsToBeUnqualified);
+    expect(renderedStatements.join("\n")).toContain('SET "procedure_familiarity" = CASE "tasks"."id"');
+  });
+
+  it("imports a 975-task modified export roundtrip using split-field 25-row batches", async () => {
+    const existingRows: MaintenanceExistingRow[] = Array.from({ length: 975 }, (_, index) => ({
+      id: index + 1,
+      dataset: "htt",
+      equipmentCode: `EQ${index + 1}`,
+      equipmentName: `Equipment ${index + 1}`,
+      taskList: `Task ${index + 1}`,
+    }));
+    const executedStatements: string[] = [];
+    const fakeDb: MaintenanceDbLike = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: async () => existingRows,
+          }),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: async () => undefined,
+        }),
+      }),
+      execute: async (query) => {
+        executedStatements.push(renderSql(query as SQL));
       },
       transaction: async (fn) => fn(fakeDb),
     };
@@ -238,6 +351,7 @@ describe("Maintenance Planning (Post-PPP) import", () => {
       max_generated_sql_length: 895,
     });
     expect(executedStatements).toHaveLength(234);
+    executedStatements.forEach(expectUpdateSetTargetsToBeUnqualified);
   });
 
   it("falls back adaptively to sequential updates for a failed one-row batch", async () => {
