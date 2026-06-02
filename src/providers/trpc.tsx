@@ -9,7 +9,11 @@ export const trpc = createTRPCReact<AppRouter>();
 
 const API_URL = import.meta.env.VITE_API_URL || "/api/trpc";
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
-const IMPORT_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_IMPORT_REQUEST_TIMEOUT_MS ?? 120000);
+const IMPORT_REQUEST_BASE_TIMEOUT_MS = 120000;
+const IMPORT_REQUEST_ROW_INCREMENT_MS = 60000;
+const IMPORT_REQUEST_ROWS_PER_INCREMENT = 250;
+const IMPORT_REQUEST_MAX_TIMEOUT_MS = 600000;
+const IMPORT_REQUEST_TIMEOUT_OVERRIDE_MS = Number(import.meta.env.VITE_IMPORT_REQUEST_TIMEOUT_MS);
 const REQUEST_TIMEOUT_MESSAGE = "Request timed out";
 
 function getRequestUrl(input: RequestInfo | URL): string {
@@ -50,6 +54,24 @@ function estimateImportRowsFromBody(body: BodyInit | null | undefined): number |
   return undefined;
 }
 
+function getImportRequestTimeoutMs(payloadRows: number | undefined): number {
+  if (Number.isFinite(IMPORT_REQUEST_TIMEOUT_OVERRIDE_MS) && IMPORT_REQUEST_TIMEOUT_OVERRIDE_MS <= 0) {
+    return IMPORT_REQUEST_TIMEOUT_OVERRIDE_MS;
+  }
+
+  const rowIncrements = Math.ceil(Math.max(payloadRows ?? 0, 0) / IMPORT_REQUEST_ROWS_PER_INCREMENT);
+  const adaptiveTimeoutMs = Math.min(
+    IMPORT_REQUEST_BASE_TIMEOUT_MS + rowIncrements * IMPORT_REQUEST_ROW_INCREMENT_MS,
+    IMPORT_REQUEST_MAX_TIMEOUT_MS
+  );
+
+  if (Number.isFinite(IMPORT_REQUEST_TIMEOUT_OVERRIDE_MS)) {
+    return Math.max(IMPORT_REQUEST_TIMEOUT_OVERRIDE_MS, adaptiveTimeoutMs);
+  }
+
+  return adaptiveTimeoutMs;
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -72,10 +94,10 @@ const trpcClient = trpc.createClient({
         const controller = new AbortController();
         const originalSignal = init?.signal;
         const startedAt = performance.now();
-        const timeoutMs = isImportRequest ? IMPORT_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS;
-        const timeoutDisabled = isImportRequest && (!Number.isFinite(timeoutMs) || timeoutMs <= 0);
         const payloadBytes = estimateBodyBytes(init?.body);
         const payloadRows = isImportRequest ? estimateImportRowsFromBody(init?.body) : undefined;
+        const timeoutMs = isImportRequest ? getImportRequestTimeoutMs(payloadRows) : DEFAULT_REQUEST_TIMEOUT_MS;
+        const timeoutDisabled = isImportRequest && (!Number.isFinite(timeoutMs) || timeoutMs <= 0);
         let timedOut = false;
 
         const abortFromOriginalSignal = () => {
@@ -96,6 +118,7 @@ const trpcClient = trpc.createClient({
                 console.error("[tasks/import] tRPC fetch timeout abort fired", {
                   requestUrl,
                   timeoutSource: "AbortController.abort() via setTimeout",
+                  configuredTimeoutMs: timeoutMs,
                   timeoutMs,
                   elapsedMs,
                   payloadRows,
@@ -109,7 +132,9 @@ const trpcClient = trpc.createClient({
           console.info("[tasks/import] tRPC fetch started", {
             requestUrl,
             timeoutSource: timeoutDisabled ? "disabled" : "AbortController.abort() via setTimeout",
+            configuredTimeoutMs: timeoutDisabled ? null : timeoutMs,
             timeoutMs: timeoutDisabled ? null : timeoutMs,
+            elapsedMs: Math.round(performance.now() - startedAt),
             payloadRows,
             payloadBytes,
           });
@@ -125,6 +150,7 @@ const trpcClient = trpc.createClient({
               requestUrl,
               status: response.status,
               ok: response.ok,
+              configuredTimeoutMs: timeoutDisabled ? null : timeoutMs,
               timeoutMs: timeoutDisabled ? null : timeoutMs,
               elapsedMs: Math.round(performance.now() - startedAt),
               payloadRows,
@@ -138,6 +164,7 @@ const trpcClient = trpc.createClient({
             console.error("[tasks/import] tRPC fetch failed", {
               requestUrl,
               timeoutSource: timeoutDisabled ? "disabled" : "AbortController.abort() via setTimeout",
+              configuredTimeoutMs: timeoutDisabled ? null : timeoutMs,
               timeoutMs: timeoutDisabled ? null : timeoutMs,
               elapsedMs,
               timedOut,
