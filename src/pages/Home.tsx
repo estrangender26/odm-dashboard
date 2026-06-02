@@ -48,9 +48,34 @@ export default function Home() {
 
         {/* Dashboard Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Maintenance Planning (Post-PPP) */}
+          {/* Post-Planning Insights & Action Plan */}
           <Link
             to="/post-planning-insights"
+            className={navCardClassName}
+            style={navCardStyle}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(234,88,12,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📈</div>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>Post-Planning Insights &amp; Action Plan</h3>
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: '#5A6B7D', lineHeight: 1.5, marginBottom: 14 }}>
+              KPI dashboard, interactive charts, generated action plan, and Post-Planning AI assistant using live HTT STP and Aglipay STP task data.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#DBEAFE', color: '#1D4ED8' }}>KPIs</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FFEDD5', color: '#EA580C' }}>Action Plan</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#E0E7FF', color: '#4F46E5' }}>AI Assistant</span>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#EA580C', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Open Insights →
+            </span>
+          </Link>
+
+          {/* Maintenance Planning (Post-PPP) */}
+          <Link
+            to="/equipment"
             className={navCardClassName}
             style={navCardStyle}
           >
@@ -69,7 +94,7 @@ export default function Home() {
               <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>128 Equip. Types</span>
             </div>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#0066A6', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Open Dashboard →
+              Open Task Table →
             </span>
           </Link>
 

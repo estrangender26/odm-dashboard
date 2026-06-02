@@ -29,7 +29,6 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/equipment" element={<Dashboard />} />
-      <Route path="/post-planning-insights" element={<Dashboard />} />
       <Route path="/login" element={<Login />} />
       <Route path="/help" element={<Help />} />
       <Route path="/gantt-planner" element={<GanttPlanner />} />
