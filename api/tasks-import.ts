@@ -1,4 +1,5 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { equipment, tasks } from "../db/schema";
 
 export type MaintenanceDataset = "htt" | "aglipay";
@@ -444,7 +445,48 @@ interface MaintenanceFieldUpdateStatement {
   parameterCount: number;
   generatedSqlLength: number;
   query: SQL;
+  rows: Array<{
+    row: number;
+    taskId: number;
+    value: string | null;
+  }>;
 }
+
+interface RenderedSqlDiagnostics {
+  sql: string;
+  params: unknown[];
+}
+
+interface DatabaseErrorDiagnostics {
+  name?: string;
+  code?: string;
+  message: string;
+  detail?: string;
+  hint?: string;
+  severity?: string;
+  schema_name?: string;
+  table_name?: string;
+  column_name?: string;
+  data_type_name?: string;
+  constraint_name?: string;
+  where?: string;
+}
+
+interface FrequencySchemaDiagnostics {
+  columns: unknown[];
+  enumValues: string[];
+  checkConstraints: unknown[];
+  notNull: boolean | null;
+}
+
+const pgDialect = new PgDialect();
+
+const SQL_RENDER_CONFIG = {
+  casing: { getColumnCasing: (column: { name: string }) => column.name },
+  escapeName: pgDialect.escapeName.bind(pgDialect),
+  escapeParam: pgDialect.escapeParam.bind(pgDialect),
+  escapeString: pgDialect.escapeString.bind(pgDialect),
+};
 
 interface MaintenanceUpdateExecutionMetrics extends MaintenanceImportUpdateMetrics {
   chunkTimes: number[];
@@ -502,6 +544,142 @@ function updateMaxDiagnostics(metrics: MaintenanceUpdateExecutionMetrics, statem
   metrics.max_generated_sql_length = Math.max(metrics.max_generated_sql_length, statement.generatedSqlLength);
 }
 
+function getResultRows(result: unknown): unknown[] {
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === "object" && Array.isArray((result as { rows?: unknown[] }).rows)) return (result as { rows: unknown[] }).rows;
+  return [];
+}
+
+function renderSqlDiagnostics(query: SQL): RenderedSqlDiagnostics {
+  const rendered = query.toQuery(SQL_RENDER_CONFIG as unknown as Parameters<SQL["toQuery"]>[0]);
+  return { sql: rendered.sql, params: rendered.params };
+}
+
+function pickErrorString(error: Record<string, unknown>, key: string): string | undefined {
+  const value = error[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function extractDatabaseErrorDiagnostics(err: unknown): DatabaseErrorDiagnostics {
+  const error = err instanceof Error ? err : new Error(String(err));
+  const record = error as unknown as Record<string, unknown>;
+  const cause = record.cause as unknown;
+  const causeRecord = cause && typeof cause === "object" ? cause as Record<string, unknown> : undefined;
+  const source = causeRecord ?? record;
+
+  return {
+    name: error.name || pickErrorString(source, "name"),
+    code: pickErrorString(source, "code"),
+    message: pickErrorString(source, "message") ?? error.message,
+    detail: pickErrorString(source, "detail"),
+    hint: pickErrorString(source, "hint"),
+    severity: pickErrorString(source, "severity"),
+    schema_name: pickErrorString(source, "schema_name"),
+    table_name: pickErrorString(source, "table_name"),
+    column_name: pickErrorString(source, "column_name"),
+    data_type_name: pickErrorString(source, "data_type_name"),
+    constraint_name: pickErrorString(source, "constraint_name"),
+    where: pickErrorString(source, "where"),
+  };
+}
+
+function formatDatabaseErrorDiagnostics(details: DatabaseErrorDiagnostics): string {
+  const parts = [
+    details.code ? `Postgres code ${details.code}` : null,
+    `message: ${details.message}`,
+    details.detail ? `detail: ${details.detail}` : null,
+    details.constraint_name ? `constraint: ${details.constraint_name}` : null,
+    details.column_name ? `column: ${details.column_name}` : null,
+  ].filter(Boolean);
+  return parts.join("; ");
+}
+
+function normalizeFrequencyForComparison(value: unknown): string {
+  return normalizeImportKey(value).replace(/[^a-z0-9]/g, "");
+}
+
+async function loadFrequencySchemaDiagnostics(db: MaintenanceDbLike): Promise<FrequencySchemaDiagnostics | null> {
+  if (!db.execute) return null;
+
+  const [columnResult, checkResult] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        c.data_type,
+        c.udt_name,
+        c.is_nullable,
+        c.character_maximum_length,
+        pg_catalog.format_type(a.atttypid, a.atttypmod) AS formatted_type,
+        COALESCE(array_remove(array_agg(e.enumlabel ORDER BY e.enumsortorder), NULL), ARRAY[]::text[]) AS enum_values
+      FROM information_schema.columns c
+      JOIN pg_catalog.pg_class cls ON cls.relname = c.table_name
+      JOIN pg_catalog.pg_namespace ns ON ns.oid = cls.relnamespace AND ns.nspname = c.table_schema
+      JOIN pg_catalog.pg_attribute a ON a.attrelid = cls.oid AND a.attname = c.column_name
+      LEFT JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+      LEFT JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid
+      WHERE c.table_schema = current_schema()
+        AND c.table_name = 'tasks'
+        AND c.column_name = 'frequency'
+      GROUP BY c.data_type, c.udt_name, c.is_nullable, c.character_maximum_length, a.atttypid, a.atttypmod
+    `),
+    db.execute(sql`
+      SELECT conname AS constraint_name, pg_catalog.pg_get_constraintdef(oid, true) AS constraint_definition
+      FROM pg_catalog.pg_constraint
+      WHERE conrelid = 'tasks'::regclass
+        AND contype = 'c'
+        AND pg_catalog.pg_get_constraintdef(oid, true) ILIKE '%frequency%'
+      ORDER BY conname
+    `),
+  ]);
+
+  const columns = getResultRows(columnResult);
+  const checkConstraints = getResultRows(checkResult);
+  const firstColumn = columns[0] as Record<string, unknown> | undefined;
+  const rawEnumValues = firstColumn?.enum_values;
+  const enumValues = Array.isArray(rawEnumValues) ? rawEnumValues.map(String) : [];
+  const isNullable = typeof firstColumn?.is_nullable === "string" ? firstColumn.is_nullable : null;
+
+  return {
+    columns,
+    enumValues,
+    checkConstraints,
+    notNull: isNullable === null ? null : isNullable === "NO",
+  };
+}
+
+function logFrequencySchemaDiagnostics(schema: FrequencySchemaDiagnostics | null, matches: MaintenanceTaskMatch[]): void {
+  if (!schema) {
+    console.info("[tasks/import] frequency schema diagnostics unavailable", { reason: "db.execute unavailable" });
+    return;
+  }
+
+  const importedFrequencyValues = Array.from(new Set(matches
+    .map((match) => match.updateData.frequency)
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)));
+  const enumLookup = new Set(schema.enumValues.map(normalizeFrequencyForComparison));
+  const invalidAgainstEnum = enumLookup.size === 0 ? [] : importedFrequencyValues.filter((value) => !enumLookup.has(normalizeFrequencyForComparison(value)));
+
+  console.info("[tasks/import] frequency schema diagnostics", {
+    column: schema.columns[0] ?? null,
+    check_constraints: schema.checkConstraints,
+    not_null: schema.notNull,
+    enum_values: schema.enumValues,
+    imported_frequency_values: importedFrequencyValues,
+    invalid_imported_frequency_values_against_enum: invalidAgainstEnum,
+  });
+}
+
+async function logFrequencySchemaDiagnosticsForImport(db: MaintenanceDbLike, matches: MaintenanceTaskMatch[]): Promise<void> {
+  if (process.env.NODE_ENV === "test") return;
+
+  try {
+    logFrequencySchemaDiagnostics(await loadFrequencySchemaDiagnostics(db), matches);
+  } catch (err: unknown) {
+    console.warn("[tasks/import] frequency schema diagnostics failed", {
+      error: extractDatabaseErrorDiagnostics(err),
+    });
+  }
+}
+
 function estimateFieldUpdateDiagnostics(rowCount: number, uniqueIdCount: number): { parameterCount: number; generatedSqlLength: number } {
   // Per split-field statement: each CASE arm binds task id + value, the WHERE binds dataset + id list.
   const parameterCount = rowCount * 2 + uniqueIdCount + 1;
@@ -537,6 +715,7 @@ function buildFieldUpdateStatement(
       WHERE ${tasks.dataset} = ${dataset}
         AND ${tasks.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql.raw(", "))})
     `,
+    rows: fieldRows.map((match) => ({ row: match.row, taskId: match.taskId, value: match.updateData[field] ?? null })),
   };
 }
 
@@ -548,16 +727,11 @@ function buildFieldUpdateStatements(chunk: MaintenanceTaskMatch[], dataset: Main
 }
 
 function sanitizeDatabaseErrorMessage(message: string): string {
-  const compact = message.replace(/\s+/g, " ").trim();
-  if (/\bUPDATE\b|\bCASE\b|\$\d+|parameters?:|drizzle|postgres/i.test(compact) || compact.length > 180) {
-    return "Database rejected an import update batch. Check server logs for sanitized batch diagnostics.";
-  }
-  return compact || "Database rejected an import update batch.";
+  return message.replace(/\s+/g, " ").trim() || "Database rejected an import update batch.";
 }
 
 function batchFailureMessage(chunkNumber: number, rowsPerChunk: number, err: unknown): string {
-  const error = err instanceof Error ? err : new Error(String(err));
-  return `Import update batch failed on chunk ${chunkNumber} (${rowsPerChunk} rows). ${sanitizeDatabaseErrorMessage(error.message)}`;
+  return `Import update batch failed on chunk ${chunkNumber} (${rowsPerChunk} rows). ${formatDatabaseErrorDiagnostics(extractDatabaseErrorDiagnostics(err))}`;
 }
 
 async function executeFieldStatements(tx: MaintenanceDbLike, statements: MaintenanceFieldUpdateStatement[], metrics: MaintenanceUpdateExecutionMetrics): Promise<void> {
@@ -572,17 +746,45 @@ async function executeFieldStatements(tx: MaintenanceDbLike, statements: Mainten
       generated_sql_length: statement.generatedSqlLength,
     });
     updateMaxDiagnostics(metrics, statement);
-    await tx.execute(statement.query);
-    metrics.statement_count += 1;
+    try {
+      await tx.execute(statement.query);
+      metrics.statement_count += 1;
+    } catch (err: unknown) {
+      const rendered = renderSqlDiagnostics(statement.query);
+      console.error("[tasks/import] update batch statement failed", {
+        chunk: statement.chunkNumber,
+        field: statement.field,
+        rows_per_chunk: statement.rowsPerChunk,
+        parameter_count: statement.parameterCount,
+        generated_sql_length: statement.generatedSqlLength,
+        task_frequency_values: statement.field === "frequency" ? statement.rows.map((row) => ({ row: row.row, task_id: row.taskId, frequency: row.value })) : undefined,
+        sql: rendered.sql,
+        parameters: rendered.params,
+        postgres_error: extractDatabaseErrorDiagnostics(err),
+      });
+      throw err;
+    }
   }
 }
 
 async function executeSequentialUpdates(tx: MaintenanceDbLike, chunk: MaintenanceTaskMatch[], dataset: MaintenanceDataset, metrics: MaintenanceUpdateExecutionMetrics): Promise<void> {
   for (const match of chunk) {
-    await tx.update(tasks).set(match.updateData).where(and(eq(tasks.id, match.taskId), eq(tasks.dataset, dataset)));
-    metrics.statement_count += 1;
-    metrics.sequential_fallback_count += 1;
-    metrics.max_parameter_count = Math.max(metrics.max_parameter_count, Object.keys(match.updateData).length + 2);
+    try {
+      await tx.update(tasks).set(match.updateData).where(and(eq(tasks.id, match.taskId), eq(tasks.dataset, dataset)));
+      metrics.statement_count += 1;
+      metrics.sequential_fallback_count += 1;
+      metrics.max_parameter_count = Math.max(metrics.max_parameter_count, Object.keys(match.updateData).length + 2);
+    } catch (err: unknown) {
+      console.error("[tasks/import] direct single-row update failed", {
+        row: match.row,
+        task_id: match.taskId,
+        frequency: match.updateData.frequency ?? null,
+        update_data: match.updateData,
+        dataset,
+        postgres_error: extractDatabaseErrorDiagnostics(err),
+      });
+      throw err;
+    }
   }
 }
 
@@ -630,7 +832,9 @@ async function applyAdaptiveChunk(
       metrics.chunk_count += 1;
       metrics.chunkTimes.push(elapsedSince(chunkStartedAt));
     } catch (sequentialErr: unknown) {
-      throw new Error(batchFailureMessage(chunkNumber, chunk.length, sequentialErr));
+      const failure = new Error(batchFailureMessage(chunkNumber, chunk.length, sequentialErr));
+      (failure as { cause?: unknown }).cause = sequentialErr;
+      throw failure;
     }
   }
 }
@@ -720,6 +924,7 @@ export async function importMaintenancePlanningRows(
   let metrics = createEmptyUpdateMetrics(plan.matches.length) as MaintenanceImportUpdateMetrics;
   const updateStartedAt = performance.now();
   try {
+    await logFrequencySchemaDiagnosticsForImport(db, plan.matches);
     metrics = await applyMaintenanceUpdates(db, plan.matches, input.dataset);
   } catch (err: unknown) {
     const updateMs = elapsedSince(updateStartedAt);
@@ -735,6 +940,7 @@ export async function importMaintenancePlanningRows(
       statement_count: metrics.statement_count,
       retry_count: metrics.retry_count,
       timings,
+      postgres_error: extractDatabaseErrorDiagnostics(err),
       message: safeMessage,
     });
     throw new MaintenanceImportError("transaction", `Import database transaction failed: ${safeMessage}`, [], diagnostics, timings, metrics);
