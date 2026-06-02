@@ -50,7 +50,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* Maintenance Planning (Post-PPP) */}
           <Link
-            to="/equipment"
+            to="/post-planning-insights"
             className={navCardClassName}
             style={navCardStyle}
           >
