@@ -14,6 +14,29 @@ let _dbReady: Promise<void> | null = Promise.resolve();
 const queryCache: Map<string, { data: unknown; ts: number }> = new Map();
 const CACHE_TTL = 30000; // 30 seconds
 
+function shouldRunMigrationsOnStartup(): boolean {
+  const configured = process.env.RUN_DB_MIGRATIONS_ON_STARTUP?.trim().toLowerCase();
+  if (configured) return ["1", "true", "yes", "on"].includes(configured);
+
+  return process.env.NODE_ENV === "production";
+}
+
+async function ensureTasksProcedureFamiliarityColumn(db: ReturnType<typeof drizzle<typeof schema>>): Promise<void> {
+  await db.execute(sql`ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "procedure_familiarity" text`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "tasks_familiarity_idx" ON "tasks" ("procedure_familiarity")`);
+
+  const result = await db.execute(sql`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'tasks'
+      AND column_name = 'procedure_familiarity'
+  `);
+  const rows = (result as any).rows ?? result;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error("Startup migration verification failed: tasks.procedure_familiarity is missing");
+  }
+}
 
 async function logConnectionTest(client: postgres.Sql<{}>, databaseUrl: string): Promise<void> {
   try {
@@ -78,21 +101,22 @@ export function getDb() {
   console.log("[DB] Connected!");
   void logConnectionTest(client, databaseUrl);
 
-  const shouldRunMigrations = process.env.RUN_DB_MIGRATIONS_ON_STARTUP === "true";
+  const shouldRunMigrations = shouldRunMigrationsOnStartup();
   if (shouldRunMigrations) {
     const migrationsPath = join(process.cwd(), "db/migrations");
     _dbReady = (async () => {
       console.log("[db] running migrations");
       await migrate(_db!, { migrationsFolder: migrationsPath });
+      await ensureTasksProcedureFamiliarityColumn(_db!);
       await _db!.execute(sql`SELECT 1`);
-      console.log("[db] migrations complete");
+      console.log("[db] migrations complete; verified tasks.procedure_familiarity");
     })().catch((err: any) => {
       console.error("[DB] Migration/startup verification error:", err.message);
       throw err;
     });
   } else {
     _dbReady = Promise.resolve();
-    console.log("[db] runtime migrations skipped (RUN_DB_MIGRATIONS_ON_STARTUP != true)");
+    console.log("[db] runtime migrations skipped (RUN_DB_MIGRATIONS_ON_STARTUP is disabled)");
   }
 
   return _db;
