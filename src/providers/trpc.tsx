@@ -33,12 +33,39 @@ const trpcClient = trpc.createClient({
         const controller = new AbortController();
         const timeoutMs = isImportRequest ? IMPORT_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS;
         const timeout = setTimeout(() => controller.abort("Request timed out"), timeoutMs);
+        if (isImportRequest) {
+          console.info("[tasks/import] tRPC fetch started", {
+            requestUrl,
+            timeoutSource: "AbortController + setTimeout",
+            timeoutMs,
+          });
+        }
         try {
-          return await globalThis.fetch(input, {
+          const response = await globalThis.fetch(input, {
             ...(init ?? {}),
             credentials: "include",
             signal: controller.signal,
           });
+          if (isImportRequest) {
+            console.info("[tasks/import] tRPC fetch response received", {
+              requestUrl,
+              status: response.status,
+              ok: response.ok,
+              timeoutMs,
+            });
+          }
+          return response;
+        } catch (error) {
+          if (isImportRequest) {
+            console.error("[tasks/import] tRPC fetch failed", {
+              requestUrl,
+              timeoutSource: "AbortController + setTimeout",
+              timeoutMs,
+              aborted: controller.signal.aborted,
+              error,
+            });
+          }
+          throw error;
         } finally {
           clearTimeout(timeout);
         }
