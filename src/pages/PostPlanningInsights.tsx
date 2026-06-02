@@ -19,6 +19,12 @@ import { trpc } from "@/providers/trpc";
 
 type PlantFilter = "all" | "htt" | "aglipay";
 type FutureDoer = "Operator" | "AMD In-house" | "Outsourced SLA";
+type ConsensusStatus =
+  | "Full Consensus"
+  | "Partial Consensus"
+  | "No Consensus"
+  | "Unassigned";
+type RecommendedFutureDoer = FutureDoer | "Conflict" | "Unassigned";
 type ChartFilter = {
   type: "familiarity" | "currentDoer" | "futureDoer" | "action";
   value: string;
@@ -42,7 +48,8 @@ type ActionType =
   | "Training"
   | "SMP Development"
   | "Owner Assignment"
-  | "Resource Loading";
+  | "Resource Loading"
+  | "Ownership Decision";
 
 type TaskGroup = {
   equipment?: { name?: string | null; initials?: string | null } | null;
@@ -67,8 +74,27 @@ type ActionItem = {
   task: string;
   priority: "High" | "Medium" | "Low";
   owner: string;
-  futureDoer: FutureDoer;
+  futureDoer: RecommendedFutureDoer;
+  consensusStatus: ConsensusStatus;
   rationale: string;
+};
+
+type RiskType = "Ownership Conflict" | "Unassigned Future Doer";
+
+type RiskRegisterItem = {
+  id: string;
+  type: RiskType;
+  plant: "htt" | "aglipay";
+  equipment: string;
+  taskId: number;
+  task: string;
+  currentDoer: string;
+  consensusStatus: ConsensusStatus;
+  recommendedFutureDoer: RecommendedFutureDoer;
+  operationsPreference: string;
+  amdPreference: string;
+  ardPreference: string;
+  recommendedAction: string;
 };
 
 const PLANT_LABELS: Record<PlantFilter, string> = {
@@ -83,16 +109,25 @@ const FUTURE_DOER_COLORS: Record<FutureDoer, string> = {
   "AMD In-house": "#2563eb",
   "Outsourced SLA": "#dc2626",
 };
-const TRANSITION_COLORS: Record<FutureDoer, string> = {
+const TRANSITION_COLORS: Record<RecommendedFutureDoer, string> = {
   Operator: "bg-green-50 text-green-800 border-green-200",
   "AMD In-house": "bg-blue-50 text-blue-800 border-blue-200",
   "Outsourced SLA": "bg-red-50 text-red-800 border-red-200",
+  Conflict: "bg-rose-50 text-rose-800 border-rose-200",
+  Unassigned: "bg-slate-100 text-slate-700 border-slate-300",
+};
+const CONSENSUS_COLORS: Record<ConsensusStatus, string> = {
+  "Full Consensus": "bg-emerald-50 text-emerald-800 border-emerald-200",
+  "Partial Consensus": "bg-amber-50 text-amber-800 border-amber-200",
+  "No Consensus": "bg-rose-50 text-rose-800 border-rose-200",
+  Unassigned: "bg-slate-100 text-slate-700 border-slate-300",
 };
 const ACTION_COLORS: Record<ActionType, string> = {
   Training: "#f97316",
   "SMP Development": "#8b5cf6",
   "Owner Assignment": "#0ea5e9",
   "Resource Loading": "#14b8a6",
+  "Ownership Decision": "#e11d48",
 };
 
 function flattenGroups(
@@ -150,19 +185,55 @@ function normalizeFutureDoer(
   return null;
 }
 
-function deriveFutureDoer(task: TaskRow): FutureDoer {
-  const votes = [task.operations, task.amd, task.ard]
+function preferenceVotes(task: TaskRow): FutureDoer[] {
+  return [task.operations, task.amd, task.ard]
     .map(normalizeFutureDoer)
     .filter(Boolean) as FutureDoer[];
-  if (votes.length === 0) return "Operator";
+}
+
+function deriveConsensus(task: TaskRow): {
+  status: ConsensusStatus;
+  recommendedFutureDoer: RecommendedFutureDoer;
+  majorityValue: FutureDoer | null;
+} {
+  const votes = preferenceVotes(task);
+  if (votes.length === 0) {
+    return {
+      status: "Unassigned",
+      recommendedFutureDoer: "Unassigned",
+      majorityValue: null,
+    };
+  }
 
   const counts = new Map<FutureDoer, number>();
   for (const vote of votes) counts.set(vote, (counts.get(vote) || 0) + 1);
-  return [...FUTURE_DOERS].sort(
-    (a, b) =>
-      (counts.get(b) || 0) - (counts.get(a) || 0) ||
-      FUTURE_DOERS.indexOf(b) - FUTURE_DOERS.indexOf(a)
-  )[0];
+  const entries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+
+  if (entries.length === 1) {
+    return {
+      status: "Full Consensus",
+      recommendedFutureDoer: entries[0][0],
+      majorityValue: entries[0][0],
+    };
+  }
+
+  if (entries[0][1] >= 2) {
+    return {
+      status: "Partial Consensus",
+      recommendedFutureDoer: entries[0][0],
+      majorityValue: entries[0][0],
+    };
+  }
+
+  return {
+    status: "No Consensus",
+    recommendedFutureDoer: "Conflict",
+    majorityValue: null,
+  };
+}
+
+function deriveFutureDoer(task: TaskRow): RecommendedFutureDoer {
+  return deriveConsensus(task).recommendedFutureDoer;
 }
 
 function needsTraining(task: TaskRow): boolean {
@@ -200,8 +271,25 @@ function buildActionPlan(tasks: TaskRow[]): ActionItem[] {
   for (const task of tasks) {
     const fam = familiarityLabel(task.procedureFamiliarity);
     const currentDoer = currentDoerLabel(task.responsiblePersonnel);
-    const futureDoer = deriveFutureDoer(task);
+    const consensus = deriveConsensus(task);
+    const futureDoer = consensus.recommendedFutureDoer;
     const plantName = PLANT_LABELS[task.plant];
+
+    if (futureDoer === "Conflict" || futureDoer === "Unassigned") {
+      actions.push({
+        id: `ownership-decision-${task.plant}-${task.id}`,
+        type: "Ownership Decision",
+        plant: task.plant,
+        equipment: task.equipmentName,
+        taskId: task.id,
+        task: task.taskList,
+        priority: "High",
+        owner: "Transition Steering Committee",
+        futureDoer,
+        consensusStatus: consensus.status,
+        rationale: `${plantName}: ${consensus.status} across Operations, AMD, and ARD preferences. Recommended action: Resolve ownership preference conflict.`,
+      });
+    }
 
     if (needsTraining(task)) {
       actions.push({
@@ -219,6 +307,7 @@ function buildActionPlan(tasks: TaskRow[]): ActionItem[] {
               : "Low",
         owner: `${futureDoer} training lead`,
         futureDoer,
+        consensusStatus: consensus.status,
         rationale: `${plantName}: ${fam} procedure familiarity creates a ${futureDoer} training backlog item for post-PPP execution.`,
       });
     }
@@ -234,6 +323,7 @@ function buildActionPlan(tasks: TaskRow[]): ActionItem[] {
         priority: fam === "Not Familiar" || fam === "Blank" ? "High" : "Medium",
         owner: "SMP Custodian",
         futureDoer,
+        consensusStatus: consensus.status,
         rationale: `${plantName}: standard job steps are needed before ${futureDoer} can absorb this post-PPP work.`,
       });
     }
@@ -249,6 +339,7 @@ function buildActionPlan(tasks: TaskRow[]): ActionItem[] {
         priority: "High",
         owner: "PPP Execution Lead",
         futureDoer,
+        consensusStatus: consensus.status,
         rationale: `${plantName}: Responsible is blank, so current PPP execution ownership must be confirmed before transition to ${futureDoer}.`,
       });
     }
@@ -267,6 +358,7 @@ function buildActionPlan(tasks: TaskRow[]): ActionItem[] {
             : "Medium",
         owner: `${futureDoer} resource planner`,
         futureDoer,
+        consensusStatus: consensus.status,
         rationale: `${plantName}: ${task.frequency || "Unspecified"} cadence contributes ${loadLabel(resourceLoad(task))} monthly load units to the ${futureDoer} post-PPP model.`,
       });
     }
@@ -285,11 +377,42 @@ function buildActionPlan(tasks: TaskRow[]): ActionItem[] {
         priority: "High",
         owner: `${futureDoer} transition owner`,
         futureDoer,
+        consensusStatus: consensus.status,
         rationale: `${plantName}: contractor current PPP execution transitions to ${futureDoer}, requiring handover capacity and readiness tracking.`,
       });
     }
   }
   return actions;
+}
+
+function buildRiskRegister(tasks: TaskRow[]): RiskRegisterItem[] {
+  return tasks.flatMap(task => {
+    const consensus = deriveConsensus(task);
+    if (consensus.recommendedFutureDoer !== "Conflict" && consensus.recommendedFutureDoer !== "Unassigned") {
+      return [];
+    }
+
+    const isConflict = consensus.recommendedFutureDoer === "Conflict";
+    return [
+      {
+        id: `risk-${task.plant}-${task.id}`,
+        type: isConflict ? "Ownership Conflict" : "Unassigned Future Doer",
+        plant: task.plant,
+        equipment: task.equipmentName,
+        taskId: task.id,
+        task: task.taskList,
+        currentDoer: currentDoerLabel(task.responsiblePersonnel),
+        consensusStatus: consensus.status,
+        recommendedFutureDoer: consensus.recommendedFutureDoer,
+        operationsPreference: normalizeFutureDoer(task.operations) || task.operations || "Blank",
+        amdPreference: normalizeFutureDoer(task.amd) || task.amd || "Blank",
+        ardPreference: normalizeFutureDoer(task.ard) || task.ard || "Blank",
+        recommendedAction: isConflict
+          ? "Resolve ownership preference conflict"
+          : "Assign future doer preference",
+      },
+    ];
+  });
 }
 
 function countByFutureDoer(
@@ -364,6 +487,7 @@ export default function PostPlanningInsights() {
     [allTasks, plant]
   );
   const actions = useMemo(() => buildActionPlan(plantTasks), [plantTasks]);
+  const riskRegister = useMemo(() => buildRiskRegister(plantTasks), [plantTasks]);
 
   const filteredTasks = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -421,11 +545,32 @@ export default function PostPlanningInsights() {
     const missingOwner = plantTasks.filter(task =>
       ownerIsBlank(task.responsiblePersonnel)
     ).length;
+    const consensusCounts = plantTasks.reduce(
+      (acc, task) => {
+        const consensus = deriveConsensus(task);
+        acc[consensus.status] += 1;
+        if (consensus.recommendedFutureDoer === "Conflict") acc.conflict += 1;
+        if (consensus.recommendedFutureDoer === "Unassigned") acc.unassigned += 1;
+        return acc;
+      },
+      {
+        "Full Consensus": 0,
+        "Partial Consensus": 0,
+        "No Consensus": 0,
+        Unassigned: 0,
+        conflict: 0,
+        unassigned: 0,
+      } as Record<ConsensusStatus, number> & { conflict: number; unassigned: number }
+    );
     return {
       sourceCount,
       dashboardCount: plantTasks.length,
       highRisk,
       missingOwner,
+      fullConsensus: consensusCounts["Full Consensus"],
+      partialConsensus: consensusCounts["Partial Consensus"],
+      conflict: consensusCounts.conflict,
+      unassigned: consensusCounts.unassigned,
     };
   }, [aglipayStats.data?.count, httStats.data?.count, plant, plantTasks]);
 
@@ -465,6 +610,7 @@ export default function PostPlanningInsights() {
     for (const task of plantTasks) {
       const currentDoer = currentDoerLabel(task.responsiblePersonnel);
       const futureDoer = deriveFutureDoer(task);
+      if (futureDoer === "Conflict" || futureDoer === "Unassigned") continue;
       const key = `${currentDoer}::${futureDoer}`;
       const existing = counts.get(key);
       if (existing) existing.value += 1;
@@ -490,8 +636,12 @@ export default function PostPlanningInsights() {
       Metric: "Counts Match Source",
       Value: kpis.sourceCount === kpis.dashboardCount ? "Yes" : "No",
     },
+    { Metric: "Full Consensus Tasks", Value: kpis.fullConsensus },
+    { Metric: "Partial Consensus Tasks", Value: kpis.partialConsensus },
+    { Metric: "Conflict Tasks", Value: kpis.conflict },
+    { Metric: "Unassigned Tasks", Value: kpis.unassigned },
     ...futureDoerData.map(row => ({
-      Metric: `Future Doer - ${row.name}`,
+      Metric: `Recommended Future Doer - ${row.name}`,
       Value: row.value,
     })),
     ...trainingReadiness.map(row => ({
@@ -519,10 +669,11 @@ export default function PostPlanningInsights() {
     Task: task.taskList,
     Frequency: task.frequency,
     "Current PPP Doer": task.responsiblePersonnel || "",
-    "Future Doer": deriveFutureDoer(task),
-    Operations: task.operations || "",
-    AMD: task.amd || "",
-    ARD: task.ard || "",
+    "Consensus Status": deriveConsensus(task).status,
+    "Recommended Future Doer": deriveFutureDoer(task),
+    "Operations Preference": task.operations || "",
+    "AMD Preference": task.amd || "",
+    "ARD Preference": task.ard || "",
     Familiarity: familiarityLabel(task.procedureFamiliarity),
   }));
 
@@ -534,8 +685,24 @@ export default function PostPlanningInsights() {
     Task: action.task,
     Priority: action.priority,
     Owner: action.owner,
-    "Future Doer": action.futureDoer,
+    "Consensus Status": action.consensusStatus,
+    "Recommended Future Doer": action.futureDoer,
     Rationale: action.rationale,
+  }));
+
+  const riskRows = riskRegister.map(risk => ({
+    Type: risk.type,
+    Plant: PLANT_LABELS[risk.plant],
+    Equipment: risk.equipment,
+    "Task ID": risk.taskId,
+    Task: risk.task,
+    "Current PPP Doer": risk.currentDoer,
+    "Consensus Status": risk.consensusStatus,
+    "Recommended Future Doer": risk.recommendedFutureDoer,
+    "Operations Preference": risk.operationsPreference,
+    "AMD Preference": risk.amdPreference,
+    "ARD Preference": risk.ardPreference,
+    "Recommended Action": risk.recommendedAction,
   }));
 
   const loading = httQuery.isLoading || aglipayQuery.isLoading;
@@ -548,11 +715,13 @@ export default function PostPlanningInsights() {
     task: task.taskList,
     frequency: task.frequency,
     currentPppDoer: task.responsiblePersonnel || "Blank",
-    futureDoer: deriveFutureDoer(task),
+    consensusStatus: deriveConsensus(task).status,
+    recommendedFutureDoer: deriveFutureDoer(task),
     transition: `${currentDoerLabel(task.responsiblePersonnel)} -> ${deriveFutureDoer(task)}`,
     operationsPreference: task.operations || "Blank",
     amdPreference: task.amd || "Blank",
     ardPreference: task.ard || "Blank",
+    ownershipDecisionNeeded: deriveFutureDoer(task) === "Conflict" || deriveFutureDoer(task) === "Unassigned" ? "Yes" : "No",
     trainingBacklog: needsTraining(task) ? "Yes" : "No",
     smpBacklog: needsSmp(task) ? "Yes" : "No",
     monthlyResourceLoad: resourceLoad(task),
@@ -610,7 +779,7 @@ export default function PostPlanningInsights() {
                 ))}
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
               <button
                 onClick={() =>
                   exportWorkbook("post-planning-dashboard-summary.xlsx", {
@@ -640,6 +809,16 @@ export default function PostPlanningInsights() {
                 className="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-800"
               >
                 Export Filtered Tasks
+              </button>
+              <button
+                onClick={() =>
+                  exportWorkbook("post-planning-risk-register.xlsx", {
+                    "Risk Register": riskRows,
+                  })
+                }
+                className="rounded-lg bg-rose-700 px-4 py-3 text-sm font-bold text-white hover:bg-rose-800"
+              >
+                Export Risk Register
               </button>
             </div>
           </div>
@@ -694,13 +873,50 @@ export default function PostPlanningInsights() {
           </div>
         </section>
 
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          {[
+            { label: "Full Consensus Tasks", value: kpis.fullConsensus, color: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+            { label: "Partial Consensus Tasks", value: kpis.partialConsensus, color: "border-amber-200 bg-amber-50 text-amber-700" },
+            { label: "Conflict Tasks", value: kpis.conflict, color: "border-rose-200 bg-rose-50 text-rose-700" },
+            { label: "Unassigned Tasks", value: kpis.unassigned, color: "border-slate-200 bg-slate-100 text-slate-700" },
+            ...futureDoerData.map(row => ({
+              label: `Recommended ${row.name} Tasks`,
+              value: row.value,
+              color:
+                row.name === "Operator"
+                  ? "border-green-200 bg-green-50 text-green-700"
+                  : row.name === "AMD In-house"
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-red-200 bg-red-50 text-red-700",
+            })),
+          ].map(card => (
+            <button
+              key={card.label}
+              onClick={() => {
+                if (card.label.startsWith("Recommended ")) {
+                  const value = card.label
+                    .replace("Recommended ", "")
+                    .replace(" Tasks", "");
+                  setChartFilter({ type: "futureDoer", value });
+                }
+              }}
+              className={`rounded-2xl border p-4 text-left shadow-sm ${card.color}`}
+            >
+              <p className="text-[0.68rem] font-black uppercase leading-tight tracking-wide">
+                {card.label}
+              </p>
+              <p className="mt-2 text-3xl font-black">{card.value}</p>
+            </button>
+          ))}
+        </section>
+
         <section className="grid gap-4 xl:grid-cols-3">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <h2 className="font-bold">Future Post-PPP Execution Model</h2>
+                <h2 className="font-bold">Recommended Future Doer</h2>
                 <p className="text-xs text-slate-500">
-                  Derived from Operations, AMD, and ARD preference fields.
+                  Consensus-based recommendation from independent Operations, AMD, and ARD preference fields. Conflicts and unassigned tasks are excluded from this chart.
                 </p>
               </div>
               {chartFilter?.type === "futureDoer" && (
@@ -844,14 +1060,14 @@ export default function PostPlanningInsights() {
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-bold">Transition Matrix</h2>
             <p className="mb-3 text-sm text-slate-500">
-              Current PPP Doer → Future Doer transition workload.
+              Current PPP Doer → Recommended Future Doer transition workload. Conflict and unassigned tasks are tracked separately in the Handover Risk Register.
             </p>
             <div className="max-h-80 overflow-auto rounded-xl border border-slate-200">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-100 text-xs uppercase text-slate-600">
                   <tr>
                     <th className="px-3 py-2">Current PPP Doer</th>
-                    <th className="px-3 py-2">Future Doer</th>
+                    <th className="px-3 py-2">Recommended Future Doer</th>
                     <th className="px-3 py-2 text-right">Tasks</th>
                   </tr>
                 </thead>
@@ -974,10 +1190,11 @@ export default function PostPlanningInsights() {
                     <th className="px-3 py-2">Task</th>
                     <th className="px-3 py-2">Frequency</th>
                     <th className="px-3 py-2">Current PPP Doer</th>
-                    <th className="px-3 py-2">Future Doer</th>
-                    <th className="px-3 py-2">Operations Pref.</th>
-                    <th className="px-3 py-2">AMD</th>
-                    <th className="px-3 py-2">ARD</th>
+                    <th className="px-3 py-2">Consensus Status</th>
+                    <th className="px-3 py-2">Recommended Future Doer</th>
+                    <th className="px-3 py-2">Operations Preference</th>
+                    <th className="px-3 py-2">AMD Preference</th>
+                    <th className="px-3 py-2">ARD Preference</th>
                     <th className="px-3 py-2">Familiarity</th>
                   </tr>
                 </thead>
@@ -986,7 +1203,7 @@ export default function PostPlanningInsights() {
                     <tr>
                       <td
                         className="px-3 py-6 text-center text-slate-500"
-                        colSpan={11}
+                        colSpan={12}
                       >
                         Loading source task data…
                       </td>
@@ -1006,6 +1223,13 @@ export default function PostPlanningInsights() {
                         <td className="px-3 py-2">{task.frequency}</td>
                         <td className="px-3 py-2">
                           {task.responsiblePersonnel || "Blank"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`rounded-full border px-2 py-1 text-xs font-bold ${CONSENSUS_COLORS[deriveConsensus(task).status]}`}
+                          >
+                            {deriveConsensus(task).status}
+                          </span>
                         </td>
                         <td className="px-3 py-2">
                           <span
@@ -1032,7 +1256,52 @@ export default function PostPlanningInsights() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="grid gap-4">
+            <div className="rounded-2xl border border-rose-200 bg-white p-4 shadow-sm">
+              <h2 className="font-bold">Handover Risk Register</h2>
+              <p className="mb-3 text-sm text-slate-500">
+                Conflict and unassigned ownership items requiring decision before transition.
+              </p>
+              <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                {riskRegister.length === 0 ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+                    No ownership conflicts or unassigned future doer risks in the current filter.
+                  </div>
+                ) : (
+                  riskRegister.slice(0, 80).map(risk => (
+                    <div
+                      key={risk.id}
+                      className="rounded-xl border border-rose-100 bg-rose-50 p-3"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-rose-700 px-2 py-1 text-xs font-bold text-white">
+                          {risk.type}
+                        </span>
+                        <span
+                          className={`rounded-full border px-2 py-1 text-xs font-bold ${CONSENSUS_COLORS[risk.consensusStatus]}`}
+                        >
+                          {risk.consensusStatus}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {PLANT_LABELS[risk.plant]} · Task {risk.taskId}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">
+                        {risk.task}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Ops: {risk.operationsPreference} · AMD: {risk.amdPreference} · ARD: {risk.ardPreference}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-rose-800">
+                        Recommended action: {risk.recommendedAction}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-bold">Generated Action Plan</h2>
             <p className="mb-3 text-sm text-slate-500">
               Training, SMP development, owner assignment, resource loading, and
@@ -1073,6 +1342,7 @@ export default function PostPlanningInsights() {
                 </button>
               ))}
             </div>
+            </div>
           </div>
         </section>
       </main>
@@ -1094,15 +1364,21 @@ export default function PostPlanningInsights() {
           dashboardTaskCount: filteredTasks.length,
           sourceTaskCount: kpis.sourceCount,
           actionCounts: actionData,
+          riskCounts: {
+            ownershipConflicts: riskRegister.filter(risk => risk.type === "Ownership Conflict").length,
+            unassignedFutureDoers: riskRegister.filter(risk => risk.type === "Unassigned Future Doer").length,
+          },
+          consensusModel:
+            "Operations, AMD, and ARD are independent preference inputs. Consensus status is derived separately from the recommended future doer. Do not force tie-breaks; ties/no consensus become Conflict and all blanks become Unassigned.",
         }}
         title="Post-Planning AI"
         quickQuestions={[
-          "Show contractor-to-operator transition",
-          "Show contractor-to-AMD transition",
-          "Show outsourced SLA workload",
-          "Show operator training backlog",
-          "Show AMD training backlog",
-          "Show SMP development priorities",
+          "Show ownership conflicts",
+          "Show tasks with full consensus",
+          "Show tasks needing ownership decision",
+          "Compare Operations vs AMD preferences",
+          "Compare AMD vs ARD preferences",
+          "Recommend future doer based on consensus",
         ]}
         position="bottom-right"
       />
