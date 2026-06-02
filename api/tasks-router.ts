@@ -60,6 +60,7 @@ export const tasksRouter = createRouter({
       equipFilter: z.string().optional(),
       freqFilter: z.string().optional(),
       personFilter: z.string().optional(),
+      debugTaskIds: z.array(z.number()).max(10).optional(),
     }))
     .query(async ({ input }) => {
       console.log("[tasks/list] START dataset:", input.dataset);
@@ -112,6 +113,21 @@ export const tasksRouter = createRouter({
           equipment: items[0].equipment,
           tasks: items.map(i => i.task),
         }));
+
+        if (input.debugTaskIds?.length) {
+          const traceIds = new Set(input.debugTaskIds);
+          const tracedRows = groups.flatMap((group) => group.tasks)
+            .filter((task) => traceIds.has(task.id))
+            .map((task) => ({
+              task_id: task.id,
+              procedureFamiliarity: task.procedureFamiliarity ?? null,
+            }));
+          console.info("[tasks/list] API response familiarity trace", {
+            dataset: input.dataset,
+            taskIds: input.debugTaskIds,
+            rows: tracedRows,
+          });
+        }
 
         console.log("[tasks/list] groups:", groups.length, "totalTasks:", result.length);
         return { groups, totalTasks: result.length };
@@ -297,14 +313,15 @@ export const tasksRouter = createRouter({
         activeDataset: input.dataset,
         rows: input.rows.length,
         clientTimings: input.clientTimings,
-        firstRows: input.rows.slice(0, 3).map((row) => ({
+        firstRows: input.rows.slice(0, 10).map((row) => ({
           rowNumber: row.rowNumber,
           taskId: row.taskId ?? null,
           taskCode: row.taskCode ?? null,
           facilityDataset: row.facilityDataset ?? null,
           equipment: row.equipmentType,
           taskDescription: row.taskList,
-          procedureFamiliarity: row.procedureFamiliarity ?? row.familiarity ?? null,
+          parsedProcedureFamiliarity: row.procedureFamiliarity ?? row.familiarity ?? null,
+          normalizedProcedureFamiliarity: String(row.procedureFamiliarity ?? row.familiarity ?? "").trim() || null,
         })),
       });
       try {
