@@ -36,10 +36,10 @@ async function setup() {
     "operations" varchar(100),
     "amd" varchar(100),
     "ard" varchar(100),
-    "procedure_familiarity" varchar(50),
+    "procedure_familiarity" text,
     "dataset" varchar(20) NOT NULL
   )`;
-  await sql`ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "procedure_familiarity" varchar(50)`;
+  await sql`ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "procedure_familiarity" text`;
   console.log("tasks table created");
 
   await sql`CREATE TABLE IF NOT EXISTS "governance_facilities" (

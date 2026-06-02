@@ -26,7 +26,7 @@ export const tasks = pgTable("tasks", {
   operations: varchar("operations", { length: 100 }),
   amd: varchar("amd", { length: 100 }),
   ard: varchar("ard", { length: 100 }),
-  procedureFamiliarity: varchar("procedure_familiarity", { length: 50 }),
+  procedureFamiliarity: text("procedure_familiarity"),
   dataset: varchar("dataset", { length: 20 }).notNull(),
 }, (table) => [
   index("tasks_equipment_idx").on(table.equipmentId),
