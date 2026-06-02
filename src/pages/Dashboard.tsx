@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo, Fragment } from "react";
+import React, { useState, useCallback, useRef, useMemo, useEffect, Fragment } from "react";
 import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
@@ -154,6 +154,10 @@ function friendlyError(err: any): string {
 
 function normalizeImportHeader(value: string): string {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeProcedureFamiliarityValue(value: unknown): string {
+  return String(value ?? "").trim();
 }
 
 function collectErrorMessages(value: unknown, seen = new Set<unknown>()): string[] {
@@ -348,6 +352,7 @@ export default function Dashboard() {
   const [importProgress, setImportProgress] = useState<{ show: boolean; text: string; sub: string; pct: number } | null>(null);
   const [importDiagnostics, setImportDiagnostics] = useState<ImportDiagnosticState | null>(null);
   const [importSummary, setImportSummary] = useState<ImportResultSummary | null>(null);
+  const [lastImportTraceTaskIds, setLastImportTraceTaskIds] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importProgressTimerRef = useRef<number | null>(null);
 
@@ -367,6 +372,7 @@ export default function Dashboard() {
       equipFilter: equipFilter || undefined,
       freqFilter: freqFilter || undefined,
       personFilter: personFilter || undefined,
+      debugTaskIds: lastImportTraceTaskIds.length > 0 ? lastImportTraceTaskIds : undefined,
     },
     {
       refetchInterval: 30000,
@@ -400,11 +406,41 @@ export default function Dashboard() {
     if (!familiarityFilter) return rawData;
     const filteredGroups = rawData.groups.map((g) => ({
       ...g,
-      tasks: g.tasks.filter((t) => (t as any).procedureFamiliarity === familiarityFilter),
+      tasks: g.tasks.filter((t) => (t as typeof t & { procedureFamiliarity?: string | null }).procedureFamiliarity === familiarityFilter),
     })).filter((g) => g.tasks.length > 0);
     const totalTasks = filteredGroups.reduce((sum, g) => sum + g.tasks.length, 0);
     return { ...rawData, groups: filteredGroups, totalTasks };
   }, [rawData, familiarityFilter]);
+
+  useEffect(() => {
+    if (!rawData || lastImportTraceTaskIds.length === 0) return;
+    const traceIds = new Set(lastImportTraceTaskIds);
+    const apiRows = rawData.groups.flatMap((group) => group.tasks)
+      .filter((task) => traceIds.has(task.id))
+      .map((task) => ({
+        task_id: task.id,
+        procedureFamiliarity: (task as typeof task & { procedureFamiliarity?: string | null }).procedureFamiliarity ?? null,
+      }));
+    console.info("[tasks/list] Client API response familiarity trace", {
+      taskIds: lastImportTraceTaskIds,
+      rows: apiRows,
+    });
+  }, [rawData, lastImportTraceTaskIds]);
+
+  useEffect(() => {
+    if (!data || lastImportTraceTaskIds.length === 0) return;
+    const traceIds = new Set(lastImportTraceTaskIds);
+    const tableRows = data.groups.flatMap((group) => group.tasks)
+      .filter((task) => traceIds.has(task.id))
+      .map((task) => ({
+        task_id: task.id,
+        procedureFamiliarity: (task as typeof task & { procedureFamiliarity?: string | null }).procedureFamiliarity ?? null,
+      }));
+    console.info("[Dashboard] React table row familiarity trace", {
+      taskIds: lastImportTraceTaskIds,
+      rows: tableRows,
+    });
+  }, [data, lastImportTraceTaskIds]);
 
   const bulkUpdateMutation = trpc.tasks.bulkUpdate.useMutation({
     onSuccess: (res) => {
@@ -719,20 +755,69 @@ export default function Dashboard() {
         return;
       }
 
-      const updates = sheetRows.slice(1).map((row, idx) => ({
-        rowNumber: idx + 2,
-        taskId: taskIdIdx >= 0 ? String(row[taskIdIdx] || "").trim() : undefined,
-        taskCode: taskCodeIdx >= 0 ? String(row[taskCodeIdx] || "").trim() : undefined,
-        facilityDataset: datasetIdx >= 0 ? String(row[datasetIdx] || "").trim() : undefined,
-        equipmentType: eqIdx >= 0 ? String(row[eqIdx] || "").trim() : "",
-        taskList: taskIdx >= 0 ? String(row[taskIdx] || "").trim() : "",
-        frequency: freqIdx >= 0 ? String(row[freqIdx] || "").trim() : undefined,
-        responsiblePersonnel: responsibleIdx >= 0 ? String(row[responsibleIdx] || "").trim() : undefined,
-        operations: opsIdx >= 0 ? String(row[opsIdx] || "").trim() : undefined,
-        amd: amdIdx >= 0 ? String(row[amdIdx] || "").trim() : undefined,
-        ard: ardIdx >= 0 ? String(row[ardIdx] || "").trim() : undefined,
-        procedureFamiliarity: famIdx >= 0 ? String(row[famIdx] || "").trim() : undefined,
-      })).filter((u) => (u.taskId || u.taskCode || (u.equipmentType && u.taskList)));
+      const rawUpdates = sheetRows.slice(1).map((row, idx) => {
+        const parsedProcedureFamiliarity = famIdx >= 0 ? row[famIdx] : undefined;
+        return {
+          rowNumber: idx + 2,
+          taskId: taskIdIdx >= 0 ? String(row[taskIdIdx] || "").trim() : undefined,
+          taskCode: taskCodeIdx >= 0 ? String(row[taskCodeIdx] || "").trim() : undefined,
+          facilityDataset: datasetIdx >= 0 ? String(row[datasetIdx] || "").trim() : undefined,
+          equipmentType: eqIdx >= 0 ? String(row[eqIdx] || "").trim() : "",
+          taskList: taskIdx >= 0 ? String(row[taskIdx] || "").trim() : "",
+          frequency: freqIdx >= 0 ? String(row[freqIdx] || "").trim() : undefined,
+          responsiblePersonnel: responsibleIdx >= 0 ? String(row[responsibleIdx] || "").trim() : undefined,
+          operations: opsIdx >= 0 ? String(row[opsIdx] || "").trim() : undefined,
+          amd: amdIdx >= 0 ? String(row[amdIdx] || "").trim() : undefined,
+          ard: ardIdx >= 0 ? String(row[ardIdx] || "").trim() : undefined,
+          parsedProcedureFamiliarity,
+          procedureFamiliarity: famIdx >= 0 ? normalizeProcedureFamiliarityValue(parsedProcedureFamiliarity) : undefined,
+        };
+      });
+
+      console.info("[tasks/import] Familiarity parse trace", {
+        file: file.name,
+        activeDataset: activeTab,
+        firstRows: rawUpdates.slice(0, 10).map((row) => ({
+          rowNumber: row.rowNumber,
+          taskId: row.taskId || null,
+          taskCode: row.taskCode || null,
+          parsedProcedureFamiliarity: row.parsedProcedureFamiliarity ?? null,
+          normalizedProcedureFamiliarity: row.procedureFamiliarity ?? null,
+        })),
+      });
+
+      const updates = rawUpdates
+        .map((row) => ({
+          rowNumber: row.rowNumber,
+          taskId: row.taskId,
+          taskCode: row.taskCode,
+          facilityDataset: row.facilityDataset,
+          equipmentType: row.equipmentType,
+          taskList: row.taskList,
+          frequency: row.frequency,
+          responsiblePersonnel: row.responsiblePersonnel,
+          operations: row.operations,
+          amd: row.amd,
+          ard: row.ard,
+          procedureFamiliarity: row.procedureFamiliarity,
+        }))
+        .filter((u) => (u.taskId || u.taskCode || (u.equipmentType && u.taskList)));
+
+      const traceTaskIds = updates
+        .map((u) => Number(u.taskId))
+        .filter((taskId) => Number.isSafeInteger(taskId) && taskId > 0)
+        .slice(0, 10);
+      setLastImportTraceTaskIds(traceTaskIds);
+
+      console.info("[tasks/import] Import payload familiarity trace", {
+        file: file.name,
+        activeDataset: activeTab,
+        taskIds: traceTaskIds,
+        firstPayloads: updates.slice(0, 10).map((row) => ({
+          task_id: row.taskId || null,
+          procedureFamiliarity: row.procedureFamiliarity ?? null,
+        })),
+      });
 
       const estimatedPayloadBytes = getUtf8ByteLength(JSON.stringify({ dataset: activeTab, rows: updates, clientTimings: { parseMs } }));
 

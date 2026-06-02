@@ -690,6 +690,49 @@ async function logFrequencySchemaDiagnosticsForImport(db: MaintenanceDbLike, mat
   }
 }
 
+async function logPostImportFamiliarityDiagnostics(db: MaintenanceDbLike, dataset: MaintenanceDataset, taskIds: number[]): Promise<void> {
+  if (!db.execute || process.env.NODE_ENV === "test") return;
+
+  try {
+    const httRows = getResultRows(await db.execute(sql`
+      SELECT id,
+             procedure_familiarity
+      FROM tasks
+      WHERE dataset = 'htt'
+      LIMIT 20
+    `));
+
+    console.info("[tasks/import] Post-import HTT familiarity DB sample", {
+      sql: "SELECT id, procedure_familiarity FROM tasks WHERE dataset='htt' LIMIT 20;",
+      rows: httRows,
+    });
+
+    const traceIds = taskIds.slice(0, 10);
+    if (traceIds.length > 0) {
+      const traceRows = getResultRows(await db.execute(sql`
+        SELECT id,
+               procedure_familiarity
+        FROM tasks
+        WHERE dataset = ${dataset}
+          AND id IN (${sql.join(traceIds.map((id) => sql`${id}`), sql.raw(", "))})
+        ORDER BY id
+      `));
+
+      console.info("[tasks/import] Post-import traced familiarity DB values", {
+        dataset,
+        taskIds: traceIds,
+        rows: traceRows,
+      });
+    }
+  } catch (err: unknown) {
+    console.warn("[tasks/import] post-import familiarity diagnostics failed", {
+      dataset,
+      taskIds: taskIds.slice(0, 10),
+      error: extractDatabaseErrorDiagnostics(err),
+    });
+  }
+}
+
 function estimateFieldUpdateDiagnostics(rowCount: number, uniqueIdCount: number): { parameterCount: number; generatedSqlLength: number } {
   // Per split-field statement: each CASE arm binds task id + value, the WHERE binds dataset + id list.
   const parameterCount = rowCount * 2 + uniqueIdCount + 1;
@@ -932,11 +975,22 @@ export async function importMaintenancePlanningRows(
     throw new MaintenanceImportError("mapping", formatMaintenanceImportFailure(plan.skipped, "Import mapping failed"), plan.skipped, diagnostics, timings);
   }
 
+  console.info("[tasks/import] DB update payload familiarity trace", {
+    dataset: input.dataset,
+    firstPayloads: plan.matches.slice(0, 10).map((match) => ({
+      task_id: match.taskId,
+      procedureFamiliarity: Object.prototype.hasOwnProperty.call(match.updateData, "procedureFamiliarity")
+        ? match.updateData.procedureFamiliarity ?? null
+        : undefined,
+    })),
+  });
+
   let metrics = createEmptyUpdateMetrics(plan.matches.length) as MaintenanceImportUpdateMetrics;
   const updateStartedAt = performance.now();
   try {
     await logFrequencySchemaDiagnosticsForImport(db, plan.matches);
     metrics = await applyMaintenanceUpdates(db, plan.matches, input.dataset);
+    await logPostImportFamiliarityDiagnostics(db, input.dataset, plan.matches.map((match) => match.taskId));
   } catch (err: unknown) {
     const updateMs = elapsedSince(updateStartedAt);
     const diagnostics = buildImportDiagnostics(input.rows);
