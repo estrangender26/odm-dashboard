@@ -343,8 +343,9 @@ export class MaintenanceImportError extends Error {
 export function buildMaintenanceImportPlan(
   inputRows: MaintenanceImportRow[],
   existingRows: MaintenanceExistingRow[],
-  hasFamiliarityColumn: boolean,
+  _hasFamiliarityColumn: boolean,
 ): MaintenanceImportPlan {
+  void _hasFamiliarityColumn;
   const byId = new Map<number, MaintenanceExistingRow>();
   const byTaskCode = new Map<string, MaintenanceExistingRow>();
   const byKey = new Map<string, MaintenanceExistingRow[]>();
@@ -411,7 +412,7 @@ export function buildMaintenanceImportPlan(
     if (operations !== null) updateData.operations = operations;
     if (amd !== null) updateData.amd = amd;
     if (ard !== null) updateData.ard = ard;
-    if (hasFamiliarityColumn && procedureFamiliarity !== null) updateData.procedureFamiliarity = procedureFamiliarity;
+    if (procedureFamiliarity !== null) updateData.procedureFamiliarity = procedureFamiliarity;
 
     if (Object.keys(updateData).length === 0) {
       unchanged++;
@@ -472,11 +473,18 @@ function logMaintenancePlanUpdateCounts(matches: MaintenanceTaskMatch[], hasFami
     procedureFamiliarity: updateCounts.procedureFamiliarity,
     responsiblePersonnel: updateCounts.responsiblePersonnel,
   });
+  console.info("[tasks/import] requested planning status", {
+    frequencyPlanned: updateCounts.frequency > 0,
+    operationsPlanned: updateCounts.operations > 0,
+    amdPlanned: updateCounts.amd > 0,
+    ardPlanned: updateCounts.ard > 0,
+    procedureFamiliarityPlanned: updateCounts.procedureFamiliarity > 0,
+  });
   console.info("[tasks/import] update planner editable fields", {
     editable_fields: IMPORT_UPDATE_FIELDS.map((field) => ({
       field,
       sql_column: TASK_SQL_COLUMN_BY_UPDATE_FIELD[field],
-      editable: field !== "procedureFamiliarity" || hasFamiliarityColumn,
+      editable: true,
     })),
     hasFamiliarityColumn,
     procedureFamiliarityIncludedInPlanner: IMPORT_UPDATE_FIELDS.includes("procedureFamiliarity"),
@@ -848,6 +856,28 @@ function batchFailureMessage(chunkNumber: number, rowsPerChunk: number, err: unk
   return `Import update batch failed on chunk ${chunkNumber} (${rowsPerChunk} rows). ${formatDatabaseErrorDiagnostics(extractDatabaseErrorDiagnostics(err))}`;
 }
 
+function logFullyFamiliarPlannerDecision(inputRows: MaintenanceImportRow[], matches: MaintenanceTaskMatch[]): void {
+  const fullyFamiliarRow = inputRows.find((row) => cleanOptional(row.procedureFamiliarity ?? row.familiarity) === "Fully Familiar");
+  if (!fullyFamiliarRow) return;
+
+  const rowNumber = fullyFamiliarRow.rowNumber ?? inputRows.indexOf(fullyFamiliarRow) + 2;
+  const matched = matches.find((match) => match.row === rowNumber);
+  const plannerInputValue = cleanOptional(fullyFamiliarRow.procedureFamiliarity ?? fullyFamiliarRow.familiarity);
+  const plannerComparisonValue = null;
+  const procedureFamiliarityPlanned = Boolean(matched && Object.prototype.hasOwnProperty.call(matched.updateData, "procedureFamiliarity"));
+
+  console.info("[tasks/import] procedure familiarity planner decision trace", {
+    row: rowNumber,
+    task_id: matched?.taskId ?? parseTaskId(fullyFamiliarRow.taskId),
+    plannerInputValue,
+    plannerComparisonValue,
+    plannerComparison: "cleanOptional(input.procedureFamiliarity ?? input.familiarity) !== null",
+    plannerDecision: procedureFamiliarityPlanned ? "planned" : "skipped",
+    procedureFamiliarityPlanned,
+    note: "Procedure Familiarity uses the same non-empty imported value planning rule as Operations, AMD, and ARD; the planner does not compare against existing DB values.",
+  });
+}
+
 async function executeFieldStatements(tx: MaintenanceDbLike, statements: MaintenanceFieldUpdateStatement[], metrics: MaintenanceUpdateExecutionMetrics): Promise<void> {
   if (!tx.execute) throw new Error("Batch update execution is unavailable");
 
@@ -1018,13 +1048,14 @@ export async function importMaintenancePlanningRows(
   const plan = buildMaintenanceImportPlan(input.rows, existingRows, hasFamiliarityColumn);
   const matchMs = elapsedSince(matchStartedAt);
   logMaintenancePlanUpdateCounts(plan.matches, hasFamiliarityColumn);
+  logFullyFamiliarPlannerDecision(input.rows, plan.matches);
 
   console.info("[tasks/import] import comparison field coverage", {
     hasFamiliarityColumn,
     compared_or_planned_fields: IMPORT_UPDATE_FIELDS.map((field) => ({
       field,
       sql_column: TASK_SQL_COLUMN_BY_UPDATE_FIELD[field],
-      included: field !== "procedureFamiliarity" || hasFamiliarityColumn,
+      included: true,
       planned_updates: summarizeMaintenancePlanUpdateCounts(plan.matches)[field],
     })),
     note: "The import planner builds updateData from non-empty import values; it does not currently skip rows by comparing imported values against existing DB values.",

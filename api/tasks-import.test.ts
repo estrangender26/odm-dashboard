@@ -120,6 +120,38 @@ describe("Maintenance Planning (Post-PPP) import", () => {
     });
   });
 
+  it("plans procedureFamiliarity with the same non-empty input rule even when the column check is false", () => {
+    const plan = buildMaintenanceImportPlan([
+      {
+        rowNumber: 4,
+        taskId: 101,
+        equipmentType: "Influent Pump",
+        taskList: "Inspect seals and bearings",
+        operations: "Operator",
+        amd: "AMD in-house",
+        ard: "ARD team",
+        procedureFamiliarity: "Fully Familiar",
+      },
+    ], existing, false);
+
+    expect(plan.skipped).toEqual([]);
+    expect(plan.matches[0]).toMatchObject({
+      taskId: 101,
+      updateData: {
+        operations: "Operator",
+        amd: "AMD in-house",
+        ard: "ARD team",
+        procedureFamiliarity: "Fully Familiar",
+      },
+    });
+    expect(summarizeMaintenancePlanUpdateCounts(plan.matches)).toMatchObject({
+      operations: 1,
+      amd: 1,
+      ard: 1,
+      procedureFamiliarity: 1,
+    });
+  });
+
   it("falls back from missing task_id to stable task_code before equipment/task text", () => {
     const plan = buildMaintenanceImportPlan([
       {
