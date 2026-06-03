@@ -13,10 +13,6 @@ import { Paths } from "@contracts/constants";
 import fs from "fs";
 import path from "path";
 import { governanceMilestoneState, governanceUploads } from "../db/schema";
-import {
-  exportDuplicateCleanupDryRun,
-  runMaintenanceDuplicateCleanup,
-} from "./tasks-duplicate-cleanup";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -165,6 +161,25 @@ app.get("/api/health/db", async (c) => {
   }
 });
 
+function isDuplicateCleanupDbUnavailable(error: unknown): boolean {
+  const e = error as { code?: string; message?: string; name?: string } | undefined;
+  const message = e?.message?.toLowerCase() ?? "";
+  const code = e?.code?.toLowerCase() ?? "";
+
+  return [
+    "database_url not set",
+    "database",
+    "connection",
+    "connect",
+    "dns",
+    "enotfound",
+    "econnrefused",
+    "econnreset",
+    "timeout",
+    "terminating connection",
+  ].some(term => message.includes(term) || code.includes(term));
+}
+
 app.post("/api/admin/tasks/duplicate-cleanup/dry-run", async (c) => {
   try {
     const user = await authenticateRequest(c.req.raw.headers);
@@ -178,6 +193,16 @@ app.post("/api/admin/tasks/duplicate-cleanup/dry-run", async (c) => {
       return c.json({ error: "Invalid dataset. Use htt or aglipay." }, 400);
     }
 
+    console.info("[tasks/duplicateCleanup/dry-run] started", {
+      requestedBy: user.id,
+      dataset: dataset ?? "all",
+    });
+
+    const { getDb } = await import("./queries/connection");
+    const {
+      exportDuplicateCleanupDryRun,
+      runMaintenanceDuplicateCleanup,
+    } = await import("./tasks-duplicate-cleanup");
     const db = getDb();
     const result = await runMaintenanceDuplicateCleanup(db, {
       dataset,
@@ -214,6 +239,16 @@ app.post("/api/admin/tasks/duplicate-cleanup/dry-run", async (c) => {
     if (e?.message === "Missing session" || e?.message === "Invalid session") {
       return c.json({ error: "Authentication required" }, 401);
     }
+    if (isDuplicateCleanupDbUnavailable(error)) {
+      console.error("[tasks/duplicateCleanup/dry-run] DB error isolated", {
+        message: e?.message ?? String(error),
+        stack: e?.stack,
+      });
+      return c.json(
+        { error: "Database unavailable. Duplicate cleanup dry-run was not run." },
+        503
+      );
+    }
 
     console.error("[tasks/duplicateCleanup/dry-run] failed", {
       message: e?.message ?? String(error),
@@ -222,6 +257,7 @@ app.post("/api/admin/tasks/duplicate-cleanup/dry-run", async (c) => {
     return c.json({ error: e?.message ?? "Duplicate cleanup dry-run failed" }, 500);
   }
 });
+console.info("[tasks/duplicateCleanup] dry-run endpoint registered");
 
 // Debug: list latest uploads
 app.get("/api/debug/uploads", async (c) => {
