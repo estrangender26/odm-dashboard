@@ -105,12 +105,13 @@ export function getDb() {
   if (shouldRunMigrations) {
     const migrationsPath = join(process.cwd(), "db/migrations");
     _dbReady = (async () => {
-      console.log("[db] running migrations");
+      console.log("[db] migration start", { migrationsPath });
       await migrate(_db!, { migrationsFolder: migrationsPath });
       await ensureTasksProcedureFamiliarityColumn(_db!);
       await _db!.execute(sql`SELECT 1`);
-      console.log("[db] migrations complete; verified tasks.procedure_familiarity");
+      console.log("[db] migration finish; verified tasks.procedure_familiarity");
     })().catch((err: any) => {
+      console.error("[db] migration error", { message: err?.message ?? String(err), stack: err?.stack });
       console.error("[DB] Migration/startup verification error:", err.message);
       throw err;
     });
