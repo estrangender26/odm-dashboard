@@ -1328,6 +1328,13 @@
         Ask AI
       </button>
 
+      <button class="btn btn-ghost" id="duplicateDryRunBtn" title="Run duplicate task analysis from the deployed ODM backend. Dry-run only; no rows are deleted.">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>
+        </svg>
+        Duplicate Analysis (Dry Run)
+      </button>
+
       <button class="btn btn-ghost-warn" id="clearDataBtn" style="display:none">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"/>
@@ -1338,6 +1345,52 @@
     </div>
   </div>
 </header>
+
+<!-- ============================================================
+     DUPLICATE ANALYSIS DRY-RUN MODAL
+     ============================================================ -->
+<div id="duplicateDryRunOverlay" style="display:none;position:fixed;inset:0;background:rgba(22,50,79,.45);z-index:9996;backdrop-filter:blur(2px);"></div>
+<div id="duplicateDryRunPanel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(1100px,94vw);max-height:88vh;background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(15,40,70,.28);z-index:9997;overflow:hidden;border:1px solid #D6DFE8;">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;background:linear-gradient(135deg,#16324F,#005BAC);color:#fff;">
+    <div>
+      <div style="font-size:16px;font-weight:800;letter-spacing:.1px;">Duplicate Analysis (Dry Run)</div>
+      <div id="duplicateDryRunSubtitle" style="font-size:11px;color:rgba(255,255,255,.74);margin-top:3px;">Runs against the deployed ODM backend only. No delete action is sent.</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button id="duplicateDryRunExportBtn" disabled style="padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.24);background:rgba(255,255,255,.12);color:#fff;font:600 12px Inter,sans-serif;cursor:pointer;disabled:opacity:.45;">Export CSV</button>
+      <button id="duplicateDryRunCloseBtn" style="background:none;border:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:24px;line-height:1;padding:2px 6px;">&times;</button>
+    </div>
+  </div>
+  <div style="padding:18px 20px;overflow:auto;max-height:calc(88vh - 68px);">
+    <div id="duplicateDryRunStatus" style="display:none;margin-bottom:14px;padding:11px 13px;border-radius:10px;background:#F1F5F9;border:1px solid #D6DFE8;color:#32485F;font-size:12px;font-weight:600;"></div>
+    <div id="duplicateDryRunMetrics" style="display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:10px;margin-bottom:16px;"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 8px;">
+      <div>
+        <h3 style="margin:0;color:#16324F;font-size:14px;">Top 20 Duplicate Groups</h3>
+        <p style="margin:3px 0 0;color:#5A6B7D;font-size:11px;">Review-only groups are preserved and flagged as conflicts. This dry-run does not delete anything.</p>
+      </div>
+      <span id="duplicateDryRunCsvPath" style="font-size:11px;color:#5A6B7D;"></span>
+    </div>
+    <div style="overflow:auto;border:1px solid #D6DFE8;border-radius:10px;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:980px;">
+        <thead style="background:#F8FAFC;color:#42566C;text-transform:uppercase;letter-spacing:.35px;">
+          <tr>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Dataset</th>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Equipment</th>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Task</th>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Frequency</th>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Duplicate IDs</th>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Keep</th>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Delete</th>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Action</th>
+            <th style="text-align:left;padding:9px;border-bottom:1px solid #D6DFE8;">Conflicts</th>
+          </tr>
+        </thead>
+        <tbody id="duplicateDryRunRows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
 <!-- ============================================================
      MAIN CONTENT
@@ -2972,6 +3025,207 @@ function renderInsights(rows) {
 
   section.style.display = 'block';
 }
+
+/* ============================================================
+   DUPLICATE ANALYSIS DRY-RUN ADMIN UI
+   ============================================================ */
+var duplicateDryRunPayload = null;
+
+function getDuplicateDryRunElements() {
+  return {
+    button: document.getElementById('duplicateDryRunBtn'),
+    overlay: document.getElementById('duplicateDryRunOverlay'),
+    panel: document.getElementById('duplicateDryRunPanel'),
+    close: document.getElementById('duplicateDryRunCloseBtn'),
+    exportBtn: document.getElementById('duplicateDryRunExportBtn'),
+    status: document.getElementById('duplicateDryRunStatus'),
+    metrics: document.getElementById('duplicateDryRunMetrics'),
+    rows: document.getElementById('duplicateDryRunRows'),
+    csvPath: document.getElementById('duplicateDryRunCsvPath'),
+    subtitle: document.getElementById('duplicateDryRunSubtitle')
+  };
+}
+
+function setDuplicateDryRunStatus(message, tone) {
+  var els = getDuplicateDryRunElements();
+  if (!els.status) return;
+  els.status.style.display = message ? 'block' : 'none';
+  els.status.textContent = message || '';
+  if (tone === 'error') {
+    els.status.style.background = '#FEF2F2';
+    els.status.style.borderColor = '#FECACA';
+    els.status.style.color = '#991B1B';
+  } else if (tone === 'success') {
+    els.status.style.background = '#F0FDF4';
+    els.status.style.borderColor = '#BBF7D0';
+    els.status.style.color = '#166534';
+  } else {
+    els.status.style.background = '#F1F5F9';
+    els.status.style.borderColor = '#D6DFE8';
+    els.status.style.color = '#32485F';
+  }
+}
+
+function openDuplicateDryRunPanel() {
+  var els = getDuplicateDryRunElements();
+  if (els.overlay) els.overlay.style.display = 'block';
+  if (els.panel) els.panel.style.display = 'block';
+}
+
+function closeDuplicateDryRunPanel() {
+  var els = getDuplicateDryRunElements();
+  if (els.overlay) els.overlay.style.display = 'none';
+  if (els.panel) els.panel.style.display = 'none';
+}
+
+function metricCard(label, value, accent) {
+  return '<div style="border:1px solid #D6DFE8;border-radius:12px;background:#FAFBFC;padding:12px;">' +
+    '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.45px;color:#5A6B7D;margin-bottom:6px;">' + escHtml(label) + '</div>' +
+    '<div style="font-size:24px;line-height:1;font-weight:800;color:' + accent + ';">' + escHtml(String(value)) + '</div>' +
+    '</div>';
+}
+
+function renderDuplicateDryRunResult(payload) {
+  var els = getDuplicateDryRunElements();
+  var deletionCount = (payload.rowsProposedForDeletion || []).length;
+  var retentionCount = (payload.rowsProposedForRetention || []).length;
+  duplicateDryRunPayload = payload;
+
+  if (els.metrics) {
+    els.metrics.innerHTML = [
+      metricCard('Duplicate Group Count', payload.duplicateGroupCount || 0, '#005BAC'),
+      metricCard('Duplicate Row Count', payload.duplicateRowCount || 0, '#005BAC'),
+      metricCard('Rows Proposed for Deletion', deletionCount, '#B45309'),
+      metricCard('Rows Proposed for Retention', retentionCount, '#166534'),
+      metricCard('Conflict Groups', payload.conflictGroups || 0, '#B91C1C')
+    ].join('');
+  }
+
+  if (els.subtitle) {
+    els.subtitle.textContent = 'Generated ' + (payload.generatedAt || 'now') + ' from the deployed ODM backend. Dry-run only; no rows deleted.';
+  }
+
+  if (els.csvPath) {
+    els.csvPath.textContent = 'Export: task-duplicate-dry-run.csv';
+  }
+
+  var groups = payload.top20DuplicateGroups || [];
+  if (els.rows) {
+    if (!groups.length) {
+      els.rows.innerHTML = '<tr><td colspan="9" style="padding:18px;text-align:center;color:#5A6B7D;">No duplicate groups returned by the backend.</td></tr>';
+    } else {
+      els.rows.innerHTML = groups.map(function(row) {
+        var actionColor = row.action === 'review' ? '#B91C1C' : '#166534';
+        return '<tr>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;">' + escHtml(row.dataset || '') + '</td>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;max-width:220px;">' + escHtml(row.equipment || '') + '</td>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;max-width:260px;">' + escHtml(row.taskDescription || '') + '</td>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;">' + escHtml(row.frequency || '') + '</td>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;font-family:monospace;">' + escHtml((row.duplicateIds || []).join(', ')) + '</td>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;font-family:monospace;">' + escHtml(String(row.proposedKeeperId || '')) + '</td>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;font-family:monospace;">' + escHtml((row.proposedDeleteIds || []).join(', ')) + '</td>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;color:' + actionColor + ';font-weight:700;">' + escHtml(row.action || '') + '</td>' +
+          '<td style="padding:9px;border-bottom:1px solid #EDF1F4;">' + escHtml((row.conflictFields || []).join(', ')) + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+  }
+
+  if (els.exportBtn) els.exportBtn.disabled = false;
+  setDuplicateDryRunStatus('Dry-run complete. The backend returned analysis only; no DELETE_DUPLICATE_TASKS confirmation or delete request was used.', 'success');
+}
+
+function csvEscape(value) {
+  var text = value == null ? '' : String(value);
+  if (/[",\n\r]/.test(text)) return '"' + text.replace(/"/g, '""') + '"';
+  return text;
+}
+
+function exportDuplicateDryRunCsv() {
+  if (!duplicateDryRunPayload) return;
+  var headers = [
+    'Dataset','Equipment','Equipment ID','Equipment Code','Task Description','Frequency','Duplicate IDs',
+    'Proposed Keeper ID','Proposed Delete IDs','Preserved IDs','Reason','Action','Conflict Fields'
+  ];
+  var exportRows = duplicateDryRunPayload.exportRows || (duplicateDryRunPayload.top20DuplicateGroups || []).map(function(row) {
+    return {
+      Dataset: row.dataset,
+      Equipment: row.equipment,
+      'Equipment ID': row.equipmentId,
+      'Equipment Code': row.equipmentCode || '',
+      'Task Description': row.taskDescription,
+      Frequency: row.frequency,
+      'Duplicate IDs': (row.duplicateIds || []).join(','),
+      'Proposed Keeper ID': row.proposedKeeperId,
+      'Proposed Delete IDs': (row.proposedDeleteIds || []).join(','),
+      'Preserved IDs': (row.preservedIds || []).join(','),
+      Reason: row.reason,
+      Action: row.action,
+      'Conflict Fields': (row.conflictFields || []).join(',')
+    };
+  });
+  var csv = [headers.join(',')].concat(exportRows.map(function(row) {
+    return [
+      row.Dataset,
+      row.Equipment,
+      row['Equipment ID'],
+      row['Equipment Code'] || '',
+      row['Task Description'],
+      row.Frequency,
+      row['Duplicate IDs'],
+      row['Proposed Keeper ID'],
+      row['Proposed Delete IDs'],
+      row['Preserved IDs'],
+      row.Reason,
+      row.Action,
+      row['Conflict Fields']
+    ].map(csvEscape).join(',');
+  })).join('\n');
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var link = document.createElement('a');
+  link.href = url;
+  link.download = 'task-duplicate-dry-run.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+async function runDuplicateDryRun() {
+  var els = getDuplicateDryRunElements();
+  openDuplicateDryRunPanel();
+  duplicateDryRunPayload = null;
+  if (els.exportBtn) els.exportBtn.disabled = true;
+  if (els.metrics) els.metrics.innerHTML = '';
+  if (els.rows) els.rows.innerHTML = '<tr><td colspan="9" style="padding:18px;text-align:center;color:#5A6B7D;">Running duplicate analysis from deployed ODM backend...</td></tr>';
+  if (els.csvPath) els.csvPath.textContent = '';
+  setDuplicateDryRunStatus('Running dry-run through /api/admin/tasks/duplicate-cleanup/dry-run on the deployed ODM service. This request sends dryRun=true and apply=false only.', 'info');
+
+  try {
+    var response = await fetch('/api/admin/tasks/duplicate-cleanup/dry-run', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dryRun: true, apply: false })
+    });
+    var payload = await response.json().catch(function() { return {}; });
+    if (!response.ok) {
+      throw new Error(payload.error || ('Dry-run endpoint returned HTTP ' + response.status));
+    }
+    renderDuplicateDryRunResult(payload);
+  } catch (err) {
+    console.error('[duplicate-dry-run] failed:', err);
+    setDuplicateDryRunStatus('Duplicate analysis failed: ' + (err && err.message ? err.message : String(err)), 'error');
+    if (els.rows) els.rows.innerHTML = '<tr><td colspan="9" style="padding:18px;text-align:center;color:#991B1B;">Dry-run failed. See the status message above.</td></tr>';
+  }
+}
+
+var duplicateDryRunEls = getDuplicateDryRunElements();
+if (duplicateDryRunEls.button) duplicateDryRunEls.button.addEventListener('click', runDuplicateDryRun);
+if (duplicateDryRunEls.close) duplicateDryRunEls.close.addEventListener('click', closeDuplicateDryRunPanel);
+if (duplicateDryRunEls.overlay) duplicateDryRunEls.overlay.addEventListener('click', closeDuplicateDryRunPanel);
+if (duplicateDryRunEls.exportBtn) duplicateDryRunEls.exportBtn.addEventListener('click', exportDuplicateDryRunCsv);
 
 /* ---------- AI Assistant Init ---------- */
 if (typeof AIAssistant !== 'undefined') {

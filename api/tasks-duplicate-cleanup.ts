@@ -89,6 +89,7 @@ export type DuplicateCleanupDryRunPayload = {
   rowsProposedForRetention: number[];
   conflictGroups: number;
   top20DuplicateGroups: DuplicateReviewReportRow[];
+  exportRows: DuplicateCleanupDryRunExportRow[];
   exported: {
     csvPath: string;
   };
@@ -431,12 +432,12 @@ export async function exportDuplicateCleanupDryRun(
   }
 
   const csvPath = options.csvPath ?? "reports/task-duplicate-dry-run.csv";
+  const exportRows = result.report.map(toDuplicateCleanupDryRunExportRow);
   await mkdir(dirname(csvPath), { recursive: true });
   await writeFile(
     csvPath,
-    duplicateCleanupDryRunRowsToCsv(
-      result.report.map(toDuplicateCleanupDryRunExportRow)
-    )
+    duplicateCleanupDryRunRowsToCsv(exportRows),
+    "utf8"
   );
 
   return {
@@ -450,6 +451,7 @@ export async function exportDuplicateCleanupDryRun(
     rowsProposedForRetention: result.rowsPreserved,
     conflictGroups: result.conflictGroups,
     top20DuplicateGroups: getTopDuplicateGroups(result),
+    exportRows,
     exported: { csvPath },
   };
 }
