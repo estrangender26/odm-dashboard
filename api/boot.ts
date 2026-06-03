@@ -8,11 +8,15 @@ import { ensureDbReady, getDb } from "./queries/connection";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
-import { createOAuthCallbackHandler } from "./kimi/auth";
+import { authenticateRequest, createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import fs from "fs";
 import path from "path";
 import { governanceMilestoneState, governanceUploads } from "../db/schema";
+import {
+  exportDuplicateCleanupDryRun,
+  runMaintenanceDuplicateCleanup,
+} from "./tasks-duplicate-cleanup";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -158,6 +162,64 @@ app.get("/api/health/db", async (c) => {
     return c.json({ ok: true, ...row });
   } catch (e: any) {
     return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
+app.post("/api/admin/tasks/duplicate-cleanup/dry-run", async (c) => {
+  try {
+    const user = await authenticateRequest(c.req.raw.headers);
+    if (user.role !== "admin") {
+      return c.json({ error: "Admin role required" }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const dataset = body?.dataset as "htt" | "aglipay" | undefined;
+    if (dataset !== undefined && !["htt", "aglipay"].includes(dataset)) {
+      return c.json({ error: "Invalid dataset. Use htt or aglipay." }, 400);
+    }
+
+    const db = getDb();
+    const result = await runMaintenanceDuplicateCleanup(db, {
+      dataset,
+      dryRun: true,
+      apply: false,
+    });
+    const payload = await exportDuplicateCleanupDryRun(result, {
+      dataset,
+      csvPath: "reports/task-duplicate-dry-run.csv",
+    });
+
+    console.info("[tasks/duplicateCleanup/dry-run] completed", {
+      requestedBy: user.id,
+      dataset: dataset ?? "all",
+      duplicateGroupCount: payload.duplicateGroupCount,
+      duplicateRowCount: payload.duplicateRowCount,
+      rowsProposedForDeletion: payload.rowsProposedForDeletion.length,
+      rowsProposedForRetention: payload.rowsProposedForRetention.length,
+      conflictGroups: payload.conflictGroups,
+      csvPath: payload.exported.csvPath,
+    });
+
+    return c.json(payload);
+  } catch (error) {
+    const e = error as {
+      tag?: string;
+      status?: number;
+      message?: string;
+      stack?: string;
+    };
+    if (e?.tag === "app_error" && e.status === 403) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+    if (e?.message === "Missing session" || e?.message === "Invalid session") {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    console.error("[tasks/duplicateCleanup/dry-run] failed", {
+      message: e?.message ?? String(error),
+      stack: e?.stack,
+    });
+    return c.json({ error: e?.message ?? "Duplicate cleanup dry-run failed" }, 500);
   }
 });
 
