@@ -16,6 +16,56 @@ import { governanceMilestoneState, governanceUploads } from "../db/schema";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
+let bootStageCounter = 0;
+function logBootStage(message: string, details?: Record<string, unknown>): void {
+  bootStageCounter += 1;
+  const stage = `BOOT_STAGE_${bootStageCounter}`;
+  if (details) {
+    console.log(`[${stage}] ${message}`, details);
+  } else {
+    console.log(`[${stage}] ${message}`);
+  }
+}
+
+function logBootError(stage: string, error: unknown): void {
+  const e = error as { message?: string; stack?: string };
+  console.error(`[${stage}] error`, {
+    message: e?.message ?? String(error),
+    stack: e?.stack,
+  });
+}
+
+const BOOT_MIGRATION_TIMEOUT_MS = Number.parseInt(
+  process.env.BOOT_MIGRATION_TIMEOUT_MS || "60000",
+  10
+);
+
+function withTimeoutDiagnostics<T>(
+  label: string,
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  return new Promise<T>((resolve, reject) => {
+    timeout = setTimeout(() => {
+      console.error(`[BOOT] ${label} still pending after ${timeoutMs}ms`, {
+        timeoutMs,
+        pid: process.pid,
+        uptimeSeconds: Math.round(process.uptime()),
+      });
+    }, timeoutMs);
+
+    promise.then(resolve, reject).finally(() => {
+      if (timeout) clearTimeout(timeout);
+    });
+  });
+}
+
+logBootStage("boot.ts module loaded", {
+  nodeEnv: process.env.NODE_ENV ?? "unset",
+  isProduction: env.isProduction,
+});
+
 /**
  * Find the dist/public directory that contains index.html.
  * Tries multiple strategies to work in both bundled (production) and
@@ -45,9 +95,12 @@ function findDistPublic(): string | null {
 
 // Resolve dist path once at module load
 const distPath = findDistPublic();
+logBootStage("dist/public path resolved", { distPath });
 
+logBootStage("registering body limit middleware");
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 
+logBootStage("registering API request logger middleware");
 app.use("*", async (c, next) => {
   const start = Date.now();
   const path = c.req.path;
@@ -68,6 +121,7 @@ app.use("*", async (c, next) => {
 });
 
 
+logBootStage("registering OAuth routes");
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
 // OAuth authorize — redirects to Kimi login
@@ -83,6 +137,8 @@ app.get("/api/oauth/authorize", (c) => {
   });
   return c.redirect(`${env.kimiAuthUrl}/api/oauth/authorize?${params.toString()}`, 302);
 });
+
+logBootStage("registering static HTML dashboard routes");
 
 // Serve O&M Governance Dashboard at /governance
 app.get("/governance", async (c) => {
@@ -119,6 +175,8 @@ app.get("/mw-dashboard", async (c) => {
   }
   return c.json({ error: "MW dashboard not found", path: mwPath }, 404);
 });
+
+logBootStage("registering health check routes");
 
 // Health check — tests database connectivity and shows deployment info
 app.get("/_health", async (c) => {
@@ -180,6 +238,7 @@ function isDuplicateCleanupDbUnavailable(error: unknown): boolean {
   ].some(term => message.includes(term) || code.includes(term));
 }
 
+logBootStage("registering duplicate cleanup dry-run endpoint");
 app.post("/api/admin/tasks/duplicate-cleanup/dry-run", async (c) => {
   try {
     const user = await authenticateRequest(c.req.raw.headers);
@@ -258,6 +317,9 @@ app.post("/api/admin/tasks/duplicate-cleanup/dry-run", async (c) => {
   }
 });
 console.info("[tasks/duplicateCleanup] dry-run endpoint registered");
+logBootStage("duplicate cleanup dry-run endpoint registration complete");
+
+logBootStage("registering governance file and debug routes");
 
 // Debug: list latest uploads
 app.get("/api/debug/uploads", async (c) => {
@@ -764,6 +826,8 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
   }
 });
 
+logBootStage("registering tRPC and API fallback routes");
+
 /* CORS for tRPC — allow Kimi static deployment and local dev */
 app.use("/api/trpc/*", cors({
   origin: ["https://oduhiajrfyneq.kimi.page", "https://dashboard.onrender.com", "http://localhost:3000", "http://localhost:5173"],
@@ -796,11 +860,35 @@ app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 export default app;
 
 if (env.isProduction) {
+  logBootStage("production startup branch entered");
+  logBootStage("importing @hono/node-server");
   const { serve } = await import("@hono/node-server");
-  await ensureDbReady();
-  await getDb().execute(sql`SELECT 1 FROM gantt_projects LIMIT 1`);
-  
+
+  const migrationReadyPromise = withTimeoutDiagnostics(
+    "database migration/startup verification",
+    (async () => {
+      logBootStage("migration start");
+      try {
+        await ensureDbReady();
+        logBootStage("migration finish");
+
+        logBootStage("post-migration gantt_projects verification start");
+        await getDb().execute(sql`SELECT 1 FROM gantt_projects LIMIT 1`);
+        logBootStage("post-migration gantt_projects verification finish");
+      } catch (error) {
+        logBootError("migration error", error);
+        throw error;
+      }
+    })(),
+    BOOT_MIGRATION_TIMEOUT_MS
+  );
+
+  migrationReadyPromise.catch((error) => {
+    logBootError("background migration/startup verification failed", error);
+  });
+
   // Startup verification — log dist path before serving
+  logBootStage("static asset verification start");
   const dp = distPath || findDistPublic();
   console.log("[BOOT] import.meta.dirname:", import.meta.dirname);
   console.log("[BOOT] process.cwd():", process.cwd());
@@ -809,6 +897,7 @@ if (env.isProduction) {
   if (dp && fs.existsSync(path.join(dp, "assets"))) {
     console.log("[BOOT] asset files:", fs.readdirSync(path.join(dp, "assets")).join(", "));
   }
+  logBootStage("static asset verification finish");
 
   // Debug endpoint - MUST be before serveStaticFiles
   app.get("/_debug/static", (c) => {
@@ -901,13 +990,23 @@ app.post("/api/governance/ai-summary", async (c) => {
   }
 });
 
+  logBootStage("importing static file server");
   const { serveStaticFiles } = await import("./lib/vite");
+  logBootStage("registering static file server");
   serveStaticFiles(app);
 
-  const port = parseInt(process.env.PORT || "3000");
-  serve({ fetch: app.fetch, port }, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  const port = parseInt(process.env.PORT || "3000", 10);
+  const host = process.env.HOST || "0.0.0.0";
+  logBootStage("app.listen() about to execute", {
+    PORT: process.env.PORT ?? "unset",
+    parsedPort: port,
+    host,
+  });
+  serve({ fetch: app.fetch, port, hostname: host }, () => {
+    logBootStage("listen callback executed", { port, host });
+    console.log(`Server listening on: ${host}:${port}`);
+    console.log(`Server running on http://${host}:${port}/`);
     console.log(`[BOOT] Static files served from: ${dp}`);
-    console.log(`[BOOT] Health check: http://localhost:${port}/_health`);
+    console.log(`[BOOT] Health check: http://${host}:${port}/_health`);
   });
 }
