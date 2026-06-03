@@ -28,6 +28,7 @@ const ProgramsEngineeringLogo: React.FC<Props> = ({
 }) => (
   <span
     className={`pe-liquid-logo ${className}`.trim()}
+    title="Return to Program Oversight Center"
     style={{
       width: size || undefined,
       height: size || undefined,
