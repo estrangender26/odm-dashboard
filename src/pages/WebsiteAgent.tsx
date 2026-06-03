@@ -7,6 +7,7 @@ interface ChatMessage {
   role: "user" | "agent";
   content: string;
   timestamp: string;
+  error?: boolean;
 }
 
 interface GitHubItem {
@@ -14,6 +15,11 @@ interface GitHubItem {
   path: string;
   type: string;
   size: number;
+}
+
+interface GitHubCommit {
+  sha: string;
+  message: string;
 }
 
 const SUGGESTED_PROMPTS = [
@@ -69,14 +75,24 @@ export default function WebsiteAgent() {
       setLoading(false);
       setMessages((prev) => [
         ...prev,
-        { role: "agent", content: data.reply, error: !!data.error },
+        {
+          role: "agent",
+          content: data.reply,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          error: !!data.error,
+        },
       ]);
     },
     onError: (e) => {
       setLoading(false);
       setMessages((prev) => [
         ...prev,
-        { role: "agent", content: "Request failed: " + e.message, error: true },
+        {
+          role: "agent",
+          content: "Request failed: " + e.message,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          error: true,
+        },
       ]);
     },
   });
@@ -95,9 +111,12 @@ export default function WebsiteAgent() {
       setLoading(true);
 
       const history = messages
-        .filter((m) => !(m as any).error)
+        .filter((m) => !m.error)
         .slice(-10)
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+        .map((m) => ({
+          role: m.role === "agent" ? ("assistant" as const) : ("user" as const),
+          content: m.content,
+        }));
 
       chatMut.mutate({ message: msg, history });
     },
@@ -257,7 +276,7 @@ export default function WebsiteAgent() {
                 {githubCommits?.commits && githubCommits.commits.length > 0 && (
                   <div style={{ marginTop: 12, paddingTop: 8, borderTop: "1px solid #E2E8F0" }}>
                     <div style={{ fontSize: 9, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", marginBottom: 6 }}>Recent Commits</div>
-                    {githubCommits.commits.map((c: any) => (
+                    {githubCommits.commits.map((c: GitHubCommit) => (
                       <div key={c.sha} style={{ fontSize: 9, color: "#64748B", padding: "3px 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         <span style={{ color: "#005BAC", fontFamily: "monospace" }}>{c.sha}</span> {c.message}
                       </div>
