@@ -11,6 +11,15 @@
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
+  cursor: pointer;
+  transition: filter 160ms ease, transform 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pe-liquid-logo:hover {
+    filter: drop-shadow(0 4px 10px rgba(0, 91, 172, 0.28));
+    transform: translateY(-1px);
+  }
 }
 
 /* --- the logo: one single image, never animated --- */

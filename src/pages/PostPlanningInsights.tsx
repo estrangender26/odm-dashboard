@@ -733,7 +733,14 @@ export default function PostPlanningInsights() {
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <ProgramsEngineeringLogo size={0} className="h-11 w-11" />
+            <Link
+              to="/"
+              aria-label="Return to Program Oversight Center"
+              title="Return to Program Oversight Center"
+              className="inline-flex shrink-0"
+            >
+              <ProgramsEngineeringLogo size={0} className="h-11 w-11" />
+            </Link>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
                 Post-Planning Insights
