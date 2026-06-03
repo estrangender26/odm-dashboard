@@ -5,6 +5,7 @@ import { tasks, equipment } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { MaintenanceImportError, buildMaintenanceTaskCode, importMaintenancePlanningRows, type MaintenanceDbLike } from "./tasks-import";
+import { runMaintenanceDuplicateCleanup } from "./tasks-duplicate-cleanup";
 
 const FAMILIARITY_OPTIONS = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
 const FamiliarityValue = z.enum(FAMILIARITY_OPTIONS);
@@ -370,6 +371,35 @@ export const tasksRouter = createRouter({
           message: `Unexpected maintenance planning import failure: ${error.message || "Unknown error"}`,
           cause: error,
         });
+      }
+    }),
+
+
+  duplicateCleanup: publicQuery
+    .input(z.object({
+      dataset: z.enum(["htt", "aglipay"]).optional(),
+      dryRun: z.boolean().default(true),
+      apply: z.boolean().default(false),
+      confirm: z.string().optional(),
+    }).default({ dryRun: true, apply: false }))
+    .mutation(async ({ input }) => {
+      try {
+        const result = await runMaintenanceDuplicateCleanup(db as unknown as Parameters<typeof runMaintenanceDuplicateCleanup>[0], input);
+        console.info("[tasks/duplicateCleanup] diagnostic", {
+          dataset: input.dataset ?? "all",
+          dryRun: result.dryRun,
+          applied: result.applied,
+          duplicateGroupCount: result.duplicateGroupCount,
+          duplicateRowCount: result.duplicateRowCount,
+          rowsProposedForDeletion: result.rowsProposedForDeletion.length,
+          rowsPreserved: result.rowsPreserved.length,
+          conflictGroups: result.conflictGroups,
+          backupRunId: result.backupRunId,
+        });
+        return result;
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        throw new TRPCError({ code: "BAD_REQUEST", message: error.message, cause: error });
       }
     }),
 
