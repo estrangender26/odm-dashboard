@@ -1,22 +1,8 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
-
-/* ── IMMEDIATE REDIRECT: this React page is deprecated ──
-   The stable HTML dashboard lives at /mw-dashboard (served by Hono).
-   Redirect there immediately to avoid showing the broken React version. */
-function OdmImmediateRedirect() {
-  useEffect(() => { window.location.replace('/mw-dashboard'); }, []);
-  return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, fontFamily: 'Inter, sans-serif', color: '#5A6B7D' }}>
-      <div style={{ width: 32, height: 32, border: '3px solid #E2E8F0', borderTop: '3px solid #005BAC', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <span style={{ fontSize: 13 }}>Loading Operator-Driven Maintenance...</span>
-    </div>
-  );
-}
 
 // ── Types ──
 interface InspectionRecord {
@@ -167,18 +153,18 @@ export default function OperatorDrivenMaintenance() {
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [view, setView] = useState<"table" | "ai">("table");
 
-  // ── IMMEDIATE REDIRECT to stable HTML dashboard ──
-  // This React page is deprecated. The stable HTML dashboard at /mw-dashboard
-  // is served directly by Hono and has full database integration.
-  useEffect(() => { window.location.replace('/mw-dashboard'); }, []);
-
-  // Show redirect spinner while navigating (prevents broken UI flash)
-  return <OdmImmediateRedirect />;
-
-  // ── The rest of this component is dead code (never reached) ──
   // Fetch data
-  const { data: records, isLoading } = trpc.mw.list.useQuery();
-  const rawRecords: InspectionRecord[] = useMemo(() => (records as InspectionRecord[]) || [], [records]);
+  const hasFetchedInspections = useRef(false);
+  const inspectionsMutation = trpc.mw.listInspections.useMutation();
+
+  useEffect(() => {
+    if (hasFetchedInspections.current) return;
+    hasFetchedInspections.current = true;
+    inspectionsMutation.mutate({});
+  }, [inspectionsMutation]);
+
+  const rawRecords: InspectionRecord[] = useMemo(() => (inspectionsMutation.data as InspectionRecord[]) || [], [inspectionsMutation.data]);
+  const isLoading = inspectionsMutation.isPending;
 
   // Filters
   const filtered = useMemo(() => {
@@ -200,9 +186,9 @@ export default function OperatorDrivenMaintenance() {
   }, [rawRecords, search, statusFilter, equipFilter, areaFilter]);
 
   // Unique filter values
-  const statuses = useMemo(() => [...new Set(rawRecords.map(r => r.status).filter(Boolean))].sort(), [rawRecords]);
-  const equipTypes = useMemo(() => [...new Set(rawRecords.map(r => r.equipmentType).filter(Boolean))].sort(), [rawRecords]);
-  const areas = useMemo(() => [...new Set(rawRecords.map(r => r.plantArea).filter(Boolean))].sort(), [rawRecords]);
+  const statuses = useMemo(() => [...new Set(rawRecords.map(r => r.status).filter((v): v is string => Boolean(v)))].sort(), [rawRecords]);
+  const equipTypes = useMemo(() => [...new Set(rawRecords.map(r => r.equipmentType).filter((v): v is string => Boolean(v)))].sort(), [rawRecords]);
+  const areas = useMemo(() => [...new Set(rawRecords.map(r => r.plantArea).filter((v): v is string => Boolean(v)))].sort(), [rawRecords]);
 
   // Stats
   const stats = useMemo(() => {
@@ -223,6 +209,11 @@ export default function OperatorDrivenMaintenance() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
       {banner && <div className="flex-shrink-0 px-4 pt-3"><Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} /></div>}
+      {inspectionsMutation.error && (
+        <div className="flex-shrink-0 px-4 pt-3">
+          <Banner type="error" message={`Unable to load inspections: ${inspectionsMutation.error.message}`} />
+        </div>
+      )}
 
       {/* Header */}
       <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}>
@@ -382,7 +373,7 @@ export default function OperatorDrivenMaintenance() {
 
       {/* AI Assistant */}
       <AIAssistant
-        contextType="finding"
+        contextType="inspection"
         data={aiData}
         quickQuestions={[
           "Summarize critical findings",
