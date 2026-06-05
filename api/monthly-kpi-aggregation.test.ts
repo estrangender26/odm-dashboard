@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { aggregateMonthlyKpiRecords } from "../src/modules/monthly-kpi/kpiAggregation";
 
 const base = {
+  pm_compliance: null,
   schedule_compliance: null,
   budget_spend: null,
   pm_cm_work_order_ratio: null,
@@ -42,6 +43,65 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.portfolioYearAverage.pmCompliance).toBe(82.5);
     expect(result.portfolioMonthlyAverages[1].pmCompliance).toBe(95);
   });
+
+
+  it("excludes future zero-only placeholder months from KPI averages", () => {
+    const clarkScheduleCompliance = [100, 97.96, 98.31, 98.28, 100];
+    const importedRecords = clarkScheduleCompliance.map((scheduleCompliance, index) => ({
+      ...base,
+      business_unit: "Clark Water",
+      reporting_year: 2026,
+      reporting_month: index + 1,
+      schedule_compliance: scheduleCompliance,
+      raw_imported_values: { sourceSheet: "Summary", values: { schedule_compliance: scheduleCompliance } },
+    }));
+    const placeholderRecords = Array.from({ length: 7 }, (_, index) => ({
+      ...base,
+      business_unit: "Clark Water",
+      reporting_year: 2026,
+      reporting_month: index + 6,
+      schedule_compliance: 0,
+      budget_spend: 0,
+      pm_cm_work_order_ratio: 0,
+      pm_cm_cost_ratio: 0,
+      mtbf_days: 0,
+      mttr_days: 0,
+      facility_uptime: 0,
+      raw_imported_values: { sourceSheet: "Summary", values: { schedule_compliance: 0 } },
+    }));
+
+    const result = aggregateMonthlyKpiRecords([...importedRecords, ...placeholderRecords], 2026);
+
+    expect(result.byBusinessUnitMap["Clark Water"].scheduleCompliance).toBeCloseTo(98.91, 2);
+    expect(result.byBusinessUnitMap["Clark Water"].scheduleCompliance).not.toBeCloseTo(41.21, 2);
+  });
+
+  it("keeps explicit manually imported zero values in KPI averages", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        {
+          ...base,
+          business_unit: "Clark Water",
+          reporting_year: 2026,
+          reporting_month: 1,
+          schedule_compliance: 0,
+          raw_imported_values: { source: "manual", values: { schedule_compliance: "0" } },
+        },
+        {
+          ...base,
+          business_unit: "Clark Water",
+          reporting_year: 2026,
+          reporting_month: 2,
+          schedule_compliance: 100,
+          raw_imported_values: { source: "manual", values: { schedule_compliance: "100" } },
+        },
+      ],
+      2026
+    );
+
+    expect(result.byBusinessUnitMap["Clark Water"].scheduleCompliance).toBe(50);
+  });
+
   it("removes deleted business-unit values and recalculates portfolio averages from remaining records", () => {
     const beforeDelete = aggregateMonthlyKpiRecords(
       [
