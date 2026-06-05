@@ -36,6 +36,13 @@
       "when": 1780358400000,
       "tag": "0004_require_tasks_procedure_familiarity",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780617600000,
+      "tag": "0005_monthly_kpi_records",
+      "breakpoints": true
     }
   ]
 }
