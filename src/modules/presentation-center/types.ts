@@ -1,8 +1,13 @@
 export type PresentationCategory =
   | "Monthly KPI Scorecard"
+  | "O&M Manual Library"
   | "O&M Manual Governance"
   | "Post-PPP Planning"
-  | "Gantt Progress"
+  | "Maintenance Planning"
+  | "Standard Maintenance Procedures"
+  | "Gantt Planner"
+  | "Operator Driven Maintenance"
+  | "Executive Dashboard"
   | "Uploaded Deck"
   | "Other";
 
@@ -32,11 +37,15 @@ export type DeckGenerationContext = {
   businessUnit?: string;
 };
 
+export type DeckGeneratorStatus = "active" | "coming-soon";
+
 export type DeckGenerator = {
   id: string;
   title: string;
   description: string;
   category: PresentationCategory;
+  status: DeckGeneratorStatus;
+  slideOutline: string[];
   enabled: boolean;
-  generate: (context: DeckGenerationContext) => Promise<GeneratedPresentation>;
+  generate?: (context: DeckGenerationContext) => Promise<GeneratedPresentation>;
 };
