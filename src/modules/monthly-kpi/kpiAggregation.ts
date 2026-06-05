@@ -15,6 +15,8 @@ export type PersistedMonthlyKpiRecord = {
   business_unit: string;
   reporting_month: number;
   reporting_year: number;
+  source_file_name?: string | null;
+  imported_at?: string | Date | null;
   pm_compliance: number | string | null;
   schedule_compliance: number | string | null;
   budget_spend: number | string | null;
@@ -23,6 +25,7 @@ export type PersistedMonthlyKpiRecord = {
   mtbf_days: number | string | null;
   mttr_days: number | string | null;
   facility_uptime: number | string | null;
+  raw_imported_values?: unknown;
 };
 
 export type MonthlyKpiValues = Record<MonthlyKpiKey, number | null>;
@@ -41,7 +44,12 @@ export type MonthlyKpiAggregateResult = {
   portfolioMonthlyAverages: Record<number, MonthlyKpiValues>;
 };
 
-const sourceFieldByKpiKey: Record<MonthlyKpiKey, keyof PersistedMonthlyKpiRecord> = {
+type PersistedKpiValueField = Exclude<
+  keyof PersistedMonthlyKpiRecord,
+  "business_unit" | "reporting_month" | "reporting_year" | "source_file_name" | "imported_at" | "raw_imported_values"
+>;
+
+const sourceFieldByKpiKey: Record<MonthlyKpiKey, PersistedKpiValueField> = {
   pmCompliance: "pm_compliance",
   scheduleCompliance: "schedule_compliance",
   budgetSpend: "budget_spend",
@@ -83,6 +91,62 @@ export function averageKpiValues(values: Array<number | string | null | undefine
   return valid.reduce((sum, value) => sum + value, 0) / valid.length;
 }
 
+function hasRawImportedValues(record: PersistedMonthlyKpiRecord) {
+  return record.raw_imported_values !== null && record.raw_imported_values !== undefined;
+}
+
+function getRawImportedSource(record: PersistedMonthlyKpiRecord) {
+  const raw = record.raw_imported_values;
+  if (!raw || typeof raw !== "object") return "";
+  const source = (raw as { source?: unknown; sourceSheet?: unknown }).source ?? (raw as { sourceSheet?: unknown }).sourceSheet;
+  return String(source ?? "").toLowerCase().trim();
+}
+
+function rawValueForKpi(record: PersistedMonthlyKpiRecord, key: MonthlyKpiKey) {
+  const raw = record.raw_imported_values;
+  if (!raw || typeof raw !== "object") return undefined;
+  const values = (raw as { values?: unknown }).values;
+  if (!values || typeof values !== "object") return undefined;
+  const sourceField = sourceFieldByKpiKey[key];
+  const legacyKeys: Partial<Record<MonthlyKpiKey, string[]>> = {
+    pmCmWorkOrderRatio: ["pmcmWORatio", "pm_cm_work_order_ratio"],
+    pmCmCostRatio: ["pmcmCostRatio", "pm_cm_cost_ratio"],
+    mtbfDays: ["mtbf", "mtbf_days"],
+    mttrDays: ["mttr", "mttr_days"],
+  };
+  const candidates = [sourceField, key, ...(legacyKeys[key] || [])];
+  for (const candidate of candidates) {
+    if (Object.prototype.hasOwnProperty.call(values, candidate)) {
+      const rawValue = (values as Record<string, unknown>)[candidate];
+      if (rawValue && typeof rawValue === "object" && Object.prototype.hasOwnProperty.call(rawValue, "value")) {
+        return (rawValue as { value?: unknown }).value;
+      }
+      return rawValue;
+    }
+  }
+  return undefined;
+}
+
+function isBlankRawValue(value: unknown) {
+  return value === null || value === undefined || (typeof value === "string" && value.trim() === "");
+}
+
+function isZeroOnlyWorkbookPlaceholder(record: PersistedMonthlyKpiRecord) {
+  if (getRawImportedSource(record) === "manual") return false;
+  const normalizedValues = monthlyKpiKeys.map((key) => normalizeKpiNumber(record[sourceFieldByKpiKey[key]]));
+  const hasZero = normalizedValues.some((value) => value === 0);
+  return hasZero && normalizedValues.every((value) => value === null || value === 0);
+}
+
+function hasImportedKpiValue(record: PersistedMonthlyKpiRecord, key: MonthlyKpiKey) {
+  const value = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
+  if (value === null) return false;
+  if (value !== 0) return true;
+  if (!hasRawImportedValues(record)) return true;
+  if (isZeroOnlyWorkbookPlaceholder(record)) return false;
+  return !isBlankRawValue(rawValueForKpi(record, key));
+}
+
 function emptyKpiValues(): MonthlyKpiValues {
   return monthlyKpiKeys.reduce((values, key) => {
     values[key] = null;
@@ -102,7 +166,9 @@ function aggregateRecordsForBusinessUnit(
     recordCount: records.length,
   };
   monthlyKpiKeys.forEach((key) => {
-    aggregate[key] = averageKpiValues(records.map((record) => record[sourceFieldByKpiKey[key]]));
+    aggregate[key] = averageKpiValues(
+      records.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
+    );
   });
   return aggregate;
 }
@@ -139,7 +205,9 @@ export function aggregateMonthlyKpiRecords(
       const monthlyRecords = yearlyRecords.filter((record) => Number(record.reporting_month) === month);
       const monthValues = emptyKpiValues();
       monthlyKpiKeys.forEach((key) => {
-        monthValues[key] = averageKpiValues(monthlyRecords.map((record) => record[sourceFieldByKpiKey[key]]));
+        monthValues[key] = averageKpiValues(
+          monthlyRecords.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
+        );
       });
       months[month] = monthValues;
       return months;

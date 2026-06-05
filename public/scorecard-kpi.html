@@ -607,7 +607,10 @@ function handleBusinessUnitChange(){
 }
 function countImportedMonths(buId,year){
   var months = MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]?MonthlyScoreData[buId][year]:{};
-  return Object.keys(months).filter(function(month){return !!months[month];}).length;
+  return Object.keys(months).filter(function(month){
+    var record = months[month];
+    return !!(record && KPIs.some(function(kpi){return hasImportedKpiValue(record,kpi.key);}));
+  }).length;
 }
 function renderBUContext(buId){
   var container = document.getElementById(buId+'-context');
@@ -674,6 +677,51 @@ function parseFiniteKPIValue(val){
   return isNaN(num)?null:num;
 }
 
+
+function getRawImportedSource(record){
+  if(!record || !record.raw_imported_values || typeof record.raw_imported_values!=='object')return '';
+  return String(record.raw_imported_values.source || record.raw_imported_values.sourceSheet || '').toLowerCase().trim();
+}
+
+function sourceColumnForUiKey(key){
+  return SummaryWorkbookColumns[key] || key;
+}
+
+function rawValueForUiKpi(record,key){
+  if(!record || !record.raw_imported_values || typeof record.raw_imported_values!=='object')return undefined;
+  var values = record.raw_imported_values.values;
+  if(!values || typeof values!=='object')return undefined;
+  var candidates = [sourceColumnForUiKey(key),key];
+  for(var i=0;i<candidates.length;i++){
+    if(Object.prototype.hasOwnProperty.call(values,candidates[i])){
+      var raw = values[candidates[i]];
+      if(raw && typeof raw==='object' && Object.prototype.hasOwnProperty.call(raw,'value'))return raw.value;
+      return raw;
+    }
+  }
+  return undefined;
+}
+
+function isBlankRawImportedValue(value){
+  return value===null || value===undefined || (typeof value==='string' && value.trim()==='');
+}
+
+function isZeroOnlyWorkbookPlaceholderRecord(record){
+  if(!record || getRawImportedSource(record)==='manual')return false;
+  var values = KPIs.map(function(kpi){return parseFiniteKPIValue(record[kpi.key]);});
+  var hasZero = values.some(function(value){return value===0;});
+  return hasZero && values.every(function(value){return value===null || value===0;});
+}
+
+function hasImportedKpiValue(record,key){
+  var value = record ? parseFiniteKPIValue(record[key]) : null;
+  if(value===null)return false;
+  if(value!==0)return true;
+  if(!record.raw_imported_values)return true;
+  if(isZeroOnlyWorkbookPlaceholderRecord(record))return false;
+  return !isBlankRawImportedValue(rawValueForUiKpi(record,key));
+}
+
 function getKpiRecordsForYear(buId,year){
   var months = MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]?MonthlyScoreData[buId][year]:{};
   return Object.keys(months).map(function(month){return months[month];}).filter(Boolean);
@@ -736,7 +784,7 @@ function hasYearKpiData(buId){
   }
   if(buId){
     return getKpiRecordsForYear(buId,year).some(function(record){
-      return KPIs.some(function(kpi){return parseFiniteKPIValue(record[kpi.key])!==null;});
+      return KPIs.some(function(kpi){return hasImportedKpiValue(record,kpi.key);});
     });
   }
   return BUs.some(function(bu){return hasYearKpiData(bu.id);});
@@ -753,7 +801,7 @@ function hasSelectedMonthKpiData(buId){
 }
 
 function getChartValue(record,key){
-  if(!record)return null;
+  if(!record || !hasImportedKpiValue(record,key))return null;
   var val = record[key];
   return isBlankDisplayValue(val)?null:val;
 }
@@ -938,6 +986,24 @@ function parseKPINumber(val){
   return isNaN(parsed)?null:parsed;
 }
 
+
+function getSheetCell(sheet,rowIndex,columnIndex){
+  if(!sheet || columnIndex===undefined)return null;
+  return sheet[XLSX.utils.encode_cell({r:rowIndex,c:columnIndex})] || null;
+}
+
+function parseImportedKPINumber(val,cell){
+  var parsed = parseKPINumber(val);
+  if(parsed===0 && cell && cell.f)return null;
+  return parsed;
+}
+
+function rawImportedCellValue(val,cell){
+  var cleaned = cleanCellValue(val);
+  if(cell && cell.f)return {value:cleaned,formula:cell.f};
+  return cleaned;
+}
+
 function excelDateToReportingMonth(val){
   val = cleanCellValue(val);
   if(val===null)return null;
@@ -1031,14 +1097,15 @@ function importSummaryWorkbook(workbook,fileName,buId){
     var rawImportedValues = {sourceSheet:'Summary',rowNumber:i+1,values:{}};
     Object.keys(SummaryWorkbookColumns).forEach(function(key){
       if(key==='month')return;
+      var cell = getSheetCell(sheet,i,headerMap[key]);
       var rawValue = getRawSummaryValue(row,headerMap[key]);
-      rawImportedValues.values[SummaryWorkbookColumns[key]] = rawValue;
+      rawImportedValues.values[SummaryWorkbookColumns[key]] = rawImportedCellValue(rawValue,cell);
       if(headerMap[key]===undefined){
         record[key] = null;
         record[SummaryWorkbookColumns[key]] = null;
         return;
       }
-      var parsed = parseKPINumber(row[headerMap[key]]);
+      var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
       record[key] = parsed;
       record[SummaryWorkbookColumns[key]] = parsed;
     });
@@ -1270,7 +1337,7 @@ function renderMonthlyRecords(buId){
     var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
     ['pmCompliance','pmPlanned','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'].forEach(function(key){
-      var val = r[key];
+      var val = key==='pmPlanned' ? r[key] : (hasImportedKpiValue(r,key)?r[key]:null);
       var display = formatKPIValue(val,{blank:''});
       var cls = key==='pmPlanned'?'':getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+(display===''?'--':display)+'</td>';
@@ -1686,8 +1753,9 @@ function importExcel(){
           var rawImportedValues = {sourceSheet:workbook.SheetNames[0],rowNumber:i+1,values:{}};
           Object.keys(headerMap).forEach(function(key){
             if(key==='bu')return;
-            var parsed = parseKPINumber(row[headerMap[key]]);
-            rawImportedValues.values[key] = cleanCellValue(row[headerMap[key]]);
+            var cell = getSheetCell(firstSheet,i,headerMap[key]);
+            var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
+            rawImportedValues.values[key] = rawImportedCellValue(row[headerMap[key]],cell);
             record[key]=parsed;
           });
           ScoreData[importBuId] = record;

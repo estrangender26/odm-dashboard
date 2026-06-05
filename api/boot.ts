@@ -429,7 +429,8 @@ async function fetchMonthlyKpiAggregateForResponse(reportingYear: number) {
       pm_cm_cost_ratio,
       mtbf_days,
       mttr_days,
-      facility_uptime
+      facility_uptime,
+      raw_imported_values
     FROM monthly_kpi_records
     WHERE reporting_year = ${reportingYear}
     ORDER BY business_unit ASC, reporting_month ASC
