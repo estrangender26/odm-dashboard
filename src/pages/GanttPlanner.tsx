@@ -11,14 +11,15 @@ import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 
 /* ─── Engine imports — pure logic extracted from component ─── */
+import type { GanttTask } from "@/modules/gantt/engine/schedulingEngine";
 import {
-  GanttTask, parseDate, daysBetween, normProgress,
+  parseDate, daysBetween, normProgress,
   DEP_TYPE_MAP, buildTaskTree, flattenVisible, deriveStatus,
 } from "@/modules/gantt/engine/schedulingEngine";
 import {
   autoSchedule, buildConnectors, calculateDependencyPlannedDates,
-  endFromStartAndDuration, normalizeDependencyType, startFromEndAndDuration,
-  wouldCreateDependencyCycle,
+  endFromStartAndDuration, normalizeDependencyType, safeDuration, startFromEndAndDuration,
+  validateTaskSchedule, wouldCreateDependencyCycle,
 } from "@/modules/gantt/engine/dependencyEngine";
 import {
   recalculateParentRollups, getChangedParents,
@@ -368,6 +369,31 @@ function calcEndFromStartAndDuration(start?: string, duration?: number): string 
 
 function calcStartFromEndAndDuration(end?: string, duration?: number): string {
   return end ? startFromEndAndDuration(end, duration) : "";
+}
+
+function normalizeTaskDateFields(form: TaskForm): TaskForm {
+  const duration = safeDuration(form.duration);
+  let plannedStart = form.plannedStart;
+  let plannedEnd = form.plannedEnd;
+  let actualStart = form.actualStart;
+  let actualEnd = form.actualEnd;
+
+  if (!plannedStart && plannedEnd) plannedStart = calcStartFromEndAndDuration(plannedEnd, duration);
+  if (!plannedStart) plannedStart = actualStart || toIsoDate(TODAY);
+  if (!plannedEnd) plannedEnd = calcEndFromStartAndDuration(plannedStart, duration);
+
+  const plannedDuration = calcDurationFromDates(plannedStart, plannedEnd) ?? duration;
+  if (actualEnd && !actualStart) actualStart = plannedStart;
+  if (actualStart && actualEnd && parseDate(actualEnd)! < parseDate(actualStart)!) actualEnd = actualStart;
+
+  return {
+    ...form,
+    plannedStart,
+    plannedEnd,
+    actualStart,
+    actualEnd,
+    duration: calcDurationFromDates(actualStart, actualEnd) ?? plannedDuration,
+  };
 }
 
 const ZOOM_DAY_WIDTH: Record<Exclude<ZoomLevel, "autofit">, number> = {
@@ -1625,8 +1651,8 @@ export default function GanttPlanner() {
     onError: (e: any) => console.error("[saveLinkByUid] FAILED:", e.message, e.data),
   });
   const deleteLinkMut = trpc.gantt.deleteLink.useMutation({
-    onSuccess: () => utils.gantt.links.invalidate(),
-    onError: (e: any) => console.error("[deleteLink] FAILED:", e.message),
+    onSuccess: () => { utils.gantt.links.invalidate(); setBanner({ type: "success", message: "Dependency deleted." }); },
+    onError: (e: any) => setBanner({ type: "error", message: "Delete dependency failed: " + e.message }),
   });
   const saveLinksBatchMut = trpc.gantt.saveLinksBatch.useMutation({
     onSuccess: () => utils.gantt.links.invalidate(),
@@ -1918,32 +1944,33 @@ export default function GanttPlanner() {
      Every callback that references hooks must be defined AFTER those hooks. */
 
   /* Auto-schedule successors after dependency change */
-  const runAutoSchedule = useCallback((changedTaskId?: number) => {
-    const allTasks = tasksQuery.data || [];
-    const allLinks = linksQuery.data || [];
-    if (allLinks.length === 0) return;
-    const linkObjs = allLinks.map((l: any) => ({ id: l.id, source: l.source, target: l.target, type: l.type, lag: l.lag || 0 }));
+  const runAutoSchedule = useCallback(async (changedTaskId?: number, tasksOverride?: any[], linksOverride?: any[]) => {
+    const allTasks = tasksOverride || tasksQuery.data || [];
+    const allLinks = linksOverride || linksQuery.data || [];
+    if (allLinks.length === 0) return 0;
+    const linkObjs = allLinks.map((l: any) => ({ id: l.id, source: l.source ?? l.predecessorTaskId, target: l.target ?? l.successorTaskId, type: l.type ?? l.dependencyType, lag: l.lag ?? l.lagDays ?? 0 }));
     const updates = autoSchedule(allTasks, linkObjs, changedTaskId);
-    if (updates.size === 0) return;
+    if (updates.size === 0) return 0;
     let updated = 0;
-    updates.forEach((dates, taskId) => {
+    for (const [taskId, dates] of updates) {
       const task = allTasks.find((t: any) => t.id === taskId);
-      if (!task) return;
+      if (!task) continue;
       const payload: any = {
         id: taskId, text: task.text, owner: task.owner || null,
         planned_start: dates.plannedStart, planned_finish: dates.plannedEnd,
         start_date: task.startDate || null, end_date: task.endDate || null,
-        duration: task.duration || 1, progress: normProgress(task.progress), status: rowStatus(task),
+        duration: dates.duration || task.duration || 1, progress: normProgress(task.progress), status: rowStatus(task),
         remarks: task.remarks || null, type: task.type || "task", parent: task.parent || 0,
       };
-      saveTaskMut.mutate(payload);
+      await saveTaskMut.mutateAsync(payload);
       updated++;
-    });
-    if (updated > 0) {
-      setBanner({ type: "info", message: `Auto-scheduled ${updated} successor task(s).` });
-      setTimeout(() => setBanner(null), 3000);
     }
-  }, [tasksQuery.data, linksQuery.data, saveTaskMut]);
+    if (updated > 0) {
+      await utils.gantt.tasks.invalidate();
+      setBanner({ type: "info", message: `Auto-scheduled ${updated} successor task(s).` });
+    }
+    return updated;
+  }, [tasksQuery.data, linksQuery.data, saveTaskMut, utils]);
 
   /* Recalculate parent rollups and save changed parents */
   const recalcAndSaveParent = useCallback((parentId: number, allTasks: any[]) => {
@@ -2508,15 +2535,16 @@ export default function GanttPlanner() {
     const _parent        = form.parent || 0;
     const _text          = form.text.trim();
     const _owner         = form.owner;
-    const _plannedStart  = form.plannedStart;
-    const _plannedEnd    = form.plannedEnd;
-    const _actualStart   = form.actualStart;
-    const _actualEnd     = form.actualEnd;
-    const _duration      = form.duration;
-    const _progress      = form.progress;
-    const _status        = form.status;
-    const _remarks       = form.remarks;
-    const _type          = form.type;
+    const normalizedForm = normalizeTaskDateFields(form);
+    const _plannedStart  = normalizedForm.plannedStart;
+    const _plannedEnd    = normalizedForm.plannedEnd;
+    const _actualStart   = normalizedForm.actualStart;
+    const _actualEnd     = normalizedForm.actualEnd;
+    const _duration      = normalizedForm.duration;
+    const _progress      = normalizedForm.progress;
+    const _status        = normalizedForm.status;
+    const _remarks       = normalizedForm.remarks;
+    const _type          = normalizedForm.type;
     const _editingId     = editingId;
     /* UID-based identity — stable across saves */
     const _taskUid       = form.frontendTaskUid || generateUid();
@@ -2552,6 +2580,13 @@ export default function GanttPlanner() {
     let finalProgress = Math.min(100, Math.max(0, _progress));
     if (_actualEnd && _progress === 0 && !_status) finalProgress = 100;
 
+    const scheduleError = validateTaskSchedule({ plannedStart: _plannedStart, plannedEnd: _plannedEnd, startDate: _actualStart, endDate: _actualEnd, duration: _duration });
+    if (scheduleError) {
+      setIsSaving(false);
+      setBanner({ type: "error", message: scheduleError });
+      return;
+    }
+
     const allTasks = tasksQuery.data || [];
     if (_editingId && _parent > 0) {
       const validation = validateParentAssignment(_editingId, _parent, allTasks);
@@ -2570,7 +2605,7 @@ export default function GanttPlanner() {
     console.log("[DEBUG] form.plannedStart:", JSON.stringify(form.plannedStart));
     console.log("[DEBUG] form.plannedEnd:", JSON.stringify(form.plannedEnd));
     console.log("[DEBUG] form.owner:", JSON.stringify(form.owner));
-    const payload: any = mapFormToPayload(form, _editingId);
+    const payload: any = mapFormToPayload(normalizedForm, _editingId);
     console.log("[DEBUG] payload before overrides:", JSON.stringify(payload, null, 2));
     /* Override with computed values */
     payload.frontend_task_uid = _taskUid;
@@ -2581,6 +2616,12 @@ export default function GanttPlanner() {
     payload.predecessor_task_id = _predecessorId || null;
     payload.dependency_type = _depType || null;
     payload.lag_days = _lagDays;
+    payload.planned_start = _plannedStart;
+    payload.planned_finish = _plannedEnd;
+    payload.planned_duration = _duration;
+    payload.actual_start = _actualStart || null;
+    payload.actual_finish = _actualEnd || null;
+    payload.actual_duration = _duration;
     console.log("[DEBUG] payload AFTER overrides (sent to API):", JSON.stringify(payload, null, 2));
 
     let depSaveError: string | null = null;
@@ -2658,10 +2699,12 @@ export default function GanttPlanner() {
       }
 
       /* ── PHASE 5: Auto-schedule + rollups ── */
-      runAutoSchedule(savedTaskId);
-      if (_parent > 0) recalcAndSaveParent(_parent, freshTaskArr);
+      const refreshedLinks = (await refetchLinks()).data || freshLinkArr;
+      const refreshedTasks = (await refetchTasks()).data || freshTaskArr;
+      const scheduledCount = await runAutoSchedule(savedTaskId, refreshedTasks, refreshedLinks);
+      if (_parent > 0) recalcAndSaveParent(_parent, refreshedTasks);
 
-      setBanner({ type: "success", message: `"${_text}" saved.${depSaveError ? " (Dep: " + depSaveError + ")" : ""}` });
+      setBanner({ type: depSaveError ? "error" : "success", message: `"${_text}" saved.${scheduledCount ? ` Auto-scheduled ${scheduledCount} successor task(s).` : ""}${depSaveError ? " Dependency error: " + depSaveError : ""}` });
 
     } catch (e: any) {
       console.error("[save] ERROR:", e.message, e);
@@ -2915,8 +2958,9 @@ export default function GanttPlanner() {
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                     <input type="date" value={form.actualEnd} onChange={e => setForm(prev => {
                       const actualEnd = e.target.value;
-                      const duration = calcDurationFromDates(prev.actualStart, actualEnd) ?? Math.max(1, Number(prev.duration) || 1);
-                      return { ...prev, actualEnd, duration };
+                      const actualStart = actualEnd && !prev.actualStart ? (prev.plannedStart || toIsoDate(TODAY)) : prev.actualStart;
+                      const duration = calcDurationFromDates(actualStart, actualEnd) ?? Math.max(1, Number(prev.duration) || 1);
+                      return { ...prev, actualStart, actualEnd, duration, progress: actualEnd ? 100 : prev.progress, status: actualEnd ? "Completed" : prev.status };
                     })} disabled={editingIsParent} style={{ flex: 1, padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
                     {!editingIsParent && form.actualEnd && <button onClick={() => setForm({...form, actualEnd: ""})} style={{ padding: "4px 8px", fontSize: 13, lineHeight: 1, background: "#F1F5F9", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer", color: "#64748B" }} title="Clear date">×</button>}
                   </div>
@@ -2928,7 +2972,7 @@ export default function GanttPlanner() {
                     Duration {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
                   <input type="number" min={1} value={form.duration} onChange={e => setForm(prev => {
-                    const duration = Math.max(1, parseInt(e.target.value) || 1);
+                    const duration = safeDuration(e.target.value);
                     const plannedEnd = prev.plannedStart ? calcEndFromStartAndDuration(prev.plannedStart, duration) : prev.plannedEnd;
                     const actualEnd = prev.actualStart ? calcEndFromStartAndDuration(prev.actualStart, duration) : prev.actualEnd;
                     return applyFormDependencySchedule({ ...prev, duration, plannedEnd, actualEnd });
@@ -2938,7 +2982,7 @@ export default function GanttPlanner() {
                   <label style={{ fontSize: 10, fontWeight: 600, color: editingIsParent ? "#94A3B8" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>
                     Progress % {editingIsParent && <span style={{ fontWeight: 400, fontSize: 9, color: "#94A3B8" }}>(auto)</span>}
                   </label>
-                  <input type="number" min={0} max={100} value={form.progress} onChange={e => setForm({...form, progress: parseInt(e.target.value)||0})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
+                  <input type="number" min={0} max={100} value={form.progress} onChange={e => setForm({...form, progress: Math.min(100, Math.max(0, parseInt(e.target.value)||0))})} disabled={editingIsParent} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box", background: editingIsParent ? "#F8FAFC" : "#fff", color: editingIsParent ? "#94A3B8" : "#1E293B", cursor: editingIsParent ? "not-allowed" : "text" }} />
                 </div>
 
                 <div><label style={{ fontSize: 10, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 3 }}>Status</label><select value={form.status} onChange={e => setForm({...form, status: e.target.value})} style={{ width: "100%", padding: "6px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 5, fontFamily: "Inter", boxSizing: "border-box" }}><option value="">Auto</option><option>Not Started</option><option>In Progress</option><option>In Progress (Delayed)</option><option>Completed</option></select></div>
@@ -3028,13 +3072,24 @@ export default function GanttPlanner() {
             <input type="number" value={linkLag} onChange={(e) => setLinkLag(parseInt(e.target.value) || 0)} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 6, marginBottom: 16 }} />
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => { setLinkModalOpen(false); setLinkLag(0); }} style={{ padding: "8px 16px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 8, background: "#F1F5F9", cursor: "pointer", color: "#475569" }}>Cancel</button>
-              <button onClick={() => {
+              <button onClick={async () => {
                 const ids = Array.from(selectedIds);
-                let created = 0;
-                for (let i = 0; i < ids.length - 1; i++) { saveLinkMut.mutate({ source: ids[i], target: ids[i + 1], type: linkType, lag: linkLag, projectId: currentProjectId ?? undefined }); created++; }
-                setTimeout(() => runAutoSchedule(), 500);
-                setBanner({ type: "success", message: `Created ${created} link(s) (${depTypeName(linkType)}, lag ${linkLag}d). Successors auto-scheduled.` });
-                setLinkModalOpen(false); setLinkLag(0); setLinkType("0");
+                if (ids.length < 2) { setBanner({ type: "error", message: "Select at least two tasks to create a dependency chain." }); return; }
+                const existingLinks = (linksQuery.data || []).map((l: any) => ({ source: l.source ?? l.predecessorTaskId, target: l.target ?? l.successorTaskId }));
+                let created = 0; let blocked = 0; const createdLinks: any[] = [];
+                try {
+                  for (let i = 0; i < ids.length - 1; i++) {
+                    const source = ids[i]; const target = ids[i + 1];
+                    if (source === target || wouldCreateDependencyCycle(source, target, [...existingLinks, ...createdLinks])) { blocked++; continue; }
+                    const saved = await saveLinkMut.mutateAsync({ source, target, type: linkType, lag: linkLag, projectId: currentProjectId ?? undefined });
+                    createdLinks.push({ source, target });
+                    if (saved) created++;
+                  }
+                  const freshLinks = (await refetchLinks()).data || linksQuery.data || [];
+                  const scheduled = await runAutoSchedule(undefined, tasksQuery.data || [], freshLinks);
+                  setBanner({ type: blocked > 0 ? "info" : "success", message: `Created ${created} link(s) (${depTypeName(linkType)}, lag ${linkLag}d).${scheduled ? ` Auto-scheduled ${scheduled} successor task(s).` : ""}${blocked ? ` Blocked ${blocked} circular/invalid link(s).` : ""}` });
+                  setLinkModalOpen(false); setLinkLag(0); setLinkType("0");
+                } catch (e: any) { setBanner({ type: "error", message: "Create dependencies failed: " + (e?.message || "Unknown error") }); }
               }} style={{ padding: "8px 16px", fontSize: 12, border: "none", borderRadius: 8, background: "#005BAC", color: "#fff", cursor: "pointer", fontWeight: 600 }}>Create Links</button>
             </div>
           </div>
@@ -3061,7 +3116,7 @@ export default function GanttPlanner() {
                         <span style={{ fontWeight: 600, color: "#475569" }}>{to?.text?.slice(0, 15) || "?"}</span>
                         <span style={{ background: "#DBEAFE", color: "#1E40AF", fontSize: 9, fontWeight: 700, padding: "1px 4px", borderRadius: 4 }}>{depTypeName(lk.type)}</span>
                         {lk.lag ? <span style={{ color: "#F59E0B", fontSize: 9 }}>+{lk.lag}d</span> : null}
-                        <button onClick={() => { deleteLinkMut.mutate({ id: lk.id }); }} style={{ marginLeft: "auto", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }} title="Delete">×</button>
+                        <button onClick={() => { deleteLinkMut.mutate({ id: lk.id }); }} style={{ marginLeft: "auto", background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }} title="Delete dependency">×</button>
                       </div>
                     );
                   })}

@@ -1,17 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { calculateDependencyPlannedDates, autoSchedule } from "@/modules/gantt/engine/dependencyEngine";
+import {
+  calculateDependencyPlannedDates,
+  autoSchedule,
+} from "@/modules/gantt/engine/dependencyEngine";
 import { buildHierarchyPayload } from "@/modules/gantt/engine/hierarchyEngine";
 import {
   buildManualHierarchyOrder,
   sortTasksForHierarchyDisplay,
 } from "@/modules/gantt/engine/taskReorderEngine";
 
-function applyTaskPatch(tasks: any[], taskId: number, patch: Record<string, any>) {
-  return tasks.map(task => task.id === taskId ? { ...task, ...patch } : task);
+function applyTaskPatch(
+  tasks: any[],
+  taskId: number,
+  patch: Record<string, any>
+) {
+  return tasks.map(task => (task.id === taskId ? { ...task, ...patch } : task));
 }
 
-function applyReorder(tasks: any[], updates: { id: number; sort_order: number }[]) {
-  const updateMap = new Map(updates.map(update => [update.id, update.sort_order]));
+function applyReorder(
+  tasks: any[],
+  updates: { id: number; sort_order: number }[]
+) {
+  const updateMap = new Map(
+    updates.map(update => [update.id, update.sort_order])
+  );
   return tasks.map(task => ({
     ...task,
     sortorder: updateMap.get(task.id) ?? task.sortorder,
@@ -78,10 +90,11 @@ describe("Gantt Planner audit-stabilization validation", () => {
       type: "FS",
       lagDays: 2,
     });
-    expect(scheduledFsLag2).toEqual({
+    expect(scheduledFsLag2).toMatchObject({
       plannedStart: "2026-01-05",
       plannedEnd: "2026-01-07",
       duration: 3,
+      anchorSource: "planned",
     });
     tasks = applyTaskPatch(tasks, 2, {
       predecessorTaskId: 1,
@@ -125,10 +138,11 @@ describe("Gantt Planner audit-stabilization validation", () => {
       type: "FS",
       lagDays: 5,
     });
-    expect(scheduledFsLag5).toEqual({
+    expect(scheduledFsLag5).toMatchObject({
       plannedStart: "2026-01-08",
       plannedEnd: "2026-01-10",
       duration: 3,
+      anchorSource: "planned",
     });
     tasks = applyTaskPatch(tasks, 2, {
       predecessorTaskId: 1,
@@ -225,18 +239,42 @@ describe("Gantt Planner audit-stabilization validation", () => {
       plannedStart: "2026-01-08",
       plannedEnd: "2026-01-10",
     });
-    const changedPredecessor = applyTaskPatch(tasks, 1, { plannedEnd: "2026-01-10" });
-    const updates = autoSchedule(changedPredecessor as any, [
-      { id: 10, source: 1, target: 2, type: "FS", lag: 5 },
-    ], 1);
+    const changedPredecessor = applyTaskPatch(tasks, 1, {
+      plannedEnd: "2026-01-10",
+    });
+    const updates = autoSchedule(
+      changedPredecessor as any,
+      [{ id: 10, source: 1, target: 2, type: "FS", lag: 5 }],
+      1
+    );
 
-    expect(updates.get(2)).toEqual({
+    expect(updates.get(2)).toMatchObject({
       plannedStart: "2026-01-15",
       plannedEnd: "2026-01-17",
       duration: 3,
+      anchorSource: "planned",
     });
     expect(taskNames(changedPredecessor)).toEqual(["A", "B", "C"]);
-    expect(changedPredecessor.find(task => task.id === 2)).toMatchObject({ sortorder: 2, parent: 0 });
+    expect(changedPredecessor.find(task => task.id === 2)).toMatchObject({
+      sortorder: 2,
+      parent: 0,
+    });
+  });
+
+  it("auto-schedules FS successors from predecessor Actual Finish when available", () => {
+    const tasks = applyTaskPatch(baseTasks(), 1, { endDate: "2026-01-12" });
+    const updates = autoSchedule(
+      tasks as any,
+      [{ id: 10, source: 1, target: 2, type: "FS", lag: 1 }],
+      1
+    );
+
+    expect(updates.get(2)).toMatchObject({
+      plannedStart: "2026-01-13",
+      plannedEnd: "2026-01-15",
+      duration: 3,
+      anchorSource: "actual",
+    });
   });
 
   it("preserves hierarchy, order, dependency, lag, and planned dates through save-refresh-reopen shaped data", () => {
@@ -257,7 +295,9 @@ describe("Gantt Planner audit-stabilization validation", () => {
       },
       { ...baseTasks()[2], projectId: 42 },
     ];
-    const savedLinks = [{ id: 100, source: 1, target: 2, type: "FS", lag: 5, projectId: 42 }];
+    const savedLinks = [
+      { id: 100, source: 1, target: 2, type: "FS", lag: 5, projectId: 42 },
+    ];
 
     const reopenedTasks = JSON.parse(JSON.stringify(savedRows));
     const reopenedLinks = JSON.parse(JSON.stringify(savedLinks));
