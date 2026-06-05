@@ -324,6 +324,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   <!-- BU TABS -->
   <div id="t-ez" class="tc">
     <div id="ez-gauges" class="gauge-grid"></div>
+    <div id="ez-monthly-records" class="matrix-card"></div>
     <div class="chart-row">
       <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="ez-pm-chart"></canvas></div></div>
       <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="ez-budget-chart"></canvas></div></div>
@@ -332,6 +333,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <div id="t-laguna" class="tc">
     <div id="laguna-gauges" class="gauge-grid"></div>
+    <div id="laguna-monthly-records" class="matrix-card"></div>
     <div class="chart-row">
       <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="laguna-pm-chart"></canvas></div></div>
       <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="laguna-budget-chart"></canvas></div></div>
@@ -340,6 +342,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <div id="t-clark" class="tc">
     <div id="clark-gauges" class="gauge-grid"></div>
+    <div id="clark-monthly-records" class="matrix-card"></div>
     <div class="chart-row">
       <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="clark-pm-chart"></canvas></div></div>
       <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="clark-budget-chart"></canvas></div></div>
@@ -348,6 +351,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <div id="t-tagum" class="tc">
     <div id="tagum-gauges" class="gauge-grid"></div>
+    <div id="tagum-monthly-records" class="matrix-card"></div>
     <div class="chart-row">
       <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="tagum-pm-chart"></canvas></div></div>
       <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="tagum-budget-chart"></canvas></div></div>
@@ -356,6 +360,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <div id="t-estate" class="tc">
     <div id="estate-gauges" class="gauge-grid"></div>
+    <div id="estate-monthly-records" class="matrix-card"></div>
     <div class="chart-row">
       <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="estate-pm-chart"></canvas></div></div>
       <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="estate-budget-chart"></canvas></div></div>
@@ -421,6 +426,7 @@ var GaugeKPIs = ['pmCompliance','pmcmWORatio','budgetSpend','pmcmCostRatio','fac
 
 // ===== STATE =====
 var ScoreData = {};
+var MonthlyScoreData = {};
 var Charts = {};
 
 // ===== INIT =====
@@ -436,6 +442,143 @@ function showTab(id,btn){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
   if(btn)btn.classList.add('active');
   if(id!=='summary') renderBUCharts(id);
+}
+
+
+// ===== MONTHLY KPI HELPERS =====
+var MonthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+var ShortMonthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var SummaryWorkbookColumns = {
+  month:'reporting_month',
+  pmCompliance:'pm_compliance',
+  pmPlanned:'pm_planned',
+  scheduleCompliance:'schedule_compliance',
+  budgetSpend:'budget_spend',
+  pmcmWORatio:'pm_cm_work_order_ratio',
+  pmcmCostRatio:'pm_cm_cost_ratio',
+  mtbf:'mtbf_days',
+  mttr:'mttr_days',
+  facilityUptime:'facility_uptime'
+};
+
+function cleanCellValue(val){
+  if(val===null||val===undefined)return null;
+  if(typeof val==='string'){
+    var trimmed = val.trim();
+    return trimmed===''?null:trimmed;
+  }
+  return val;
+}
+
+function normalizeHeader(value){
+  return String(cleanCellValue(value)||'').toLowerCase().replace(/\s+/g,' ').trim().replace(/[^a-z0-9]/g,'');
+}
+
+function isEmptyValue(val){
+  return cleanCellValue(val)===null;
+}
+
+function parseKPINumber(val){
+  val = cleanCellValue(val);
+  if(val===null)return null;
+  if(typeof val==='number')return isNaN(val)?null:val;
+  var text = String(val).replace(/,/g,'').replace(/%/g,'').trim();
+  if(text==='')return null;
+  var parsed = parseFloat(text);
+  return isNaN(parsed)?null:parsed;
+}
+
+function excelDateToReportingMonth(val){
+  val = cleanCellValue(val);
+  if(val===null)return null;
+  if(typeof val==='number'){
+    var parsed = XLSX.SSF.parse_date_code(val);
+    if(parsed&&parsed.y&&parsed.m)return {year:parsed.y,month:parsed.m,label:MonthNames[parsed.m-1]+' '+parsed.y};
+  }
+  if(val instanceof Date&&!isNaN(val.getTime())){
+    return {year:val.getFullYear(),month:val.getMonth()+1,label:MonthNames[val.getMonth()]+' '+val.getFullYear()};
+  }
+  var text = String(val).trim();
+  var monthMatch = text.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\s\-\/.,]*(\d{2,4})?$/i);
+  if(monthMatch){
+    var monthLookup = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,sept:9,oct:10,nov:11,dec:12};
+    var month = monthLookup[monthMatch[1].toLowerCase()];
+    var year = monthMatch[2]?parseInt(monthMatch[2],10):parseInt(document.getElementById('yearSel').value,10);
+    if(year<100)year += 2000;
+    return {year:year,month:month,label:MonthNames[month-1]+' '+year};
+  }
+  var dt = new Date(text);
+  if(!isNaN(dt.getTime()))return {year:dt.getFullYear(),month:dt.getMonth()+1,label:MonthNames[dt.getMonth()]+' '+dt.getFullYear()};
+  return null;
+}
+
+function getSelectedYear(){return parseInt(document.getElementById('yearSel').value,10);}
+function getSelectedMonth(){return parseInt(document.getElementById('monthSel').value,10);}
+
+function ensureMonthlyRecord(buId,year,month){
+  if(!MonthlyScoreData[buId])MonthlyScoreData[buId]={};
+  if(!MonthlyScoreData[buId][year])MonthlyScoreData[buId][year]={};
+  if(!MonthlyScoreData[buId][year][month])MonthlyScoreData[buId][year][month]={reportingYear:year,reportingMonth:month};
+  return MonthlyScoreData[buId][year][month];
+}
+
+function getMonthlyRecord(buId,year,month){
+  return MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]?MonthlyScoreData[buId][year][month]:null;
+}
+
+function getCurrentData(buId){
+  return getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth()) || ScoreData[buId] || {};
+}
+
+function mapSummaryHeader(header){
+  var h = normalizeHeader(header);
+  if(h==='month'||h==='reportingmonth')return 'month';
+  if(h==='pmcompliance'||h==='pmcompliancepercent')return 'pmCompliance';
+  if(h==='pmplanned')return 'pmPlanned';
+  if(h==='schedulecompliance'||h==='schedulecompliancepercent')return 'scheduleCompliance';
+  if(h==='budgetspend'||h==='budgetspendpercent')return 'budgetSpend';
+  if(h==='pmvscmratioworkorders'||h==='pmcmratioworkorders'||h==='pmcmratiowo'||h==='pmcmworkorderratio')return 'pmcmWORatio';
+  if(h==='pmvscmratiocost'||h==='pmcmratiocost'||h==='pmcmcostratio')return 'pmcmCostRatio';
+  if(h==='mtbfdays'||h==='mtbf')return 'mtbf';
+  if(h==='mttrdays'||h==='mttr')return 'mttr';
+  if(h==='facilityuptime'||h==='facilityuptimepercent')return 'facilityUptime';
+  return null;
+}
+
+function importSummaryWorkbook(workbook){
+  var sheetName = workbook.SheetNames.find(function(name){return name.toLowerCase().trim()==='summary'});
+  if(!sheetName)throw new Error('Summary sheet not found.');
+  var sheet = workbook.Sheets[sheetName];
+  var rows = XLSX.utils.sheet_to_json(sheet,{header:1,range:'A1:J13',defval:null,raw:true});
+  if(rows.length<2)throw new Error('No rows found in Summary!A1:J13.');
+  var headerMap = {};
+  rows[0].forEach(function(header,index){
+    var key = mapSummaryHeader(header);
+    if(key)headerMap[key]=index;
+  });
+  if(headerMap.month===undefined)throw new Error('Month column not found in Summary sheet.');
+  var imported = 0;
+  var buId = 'ez';
+  for(var i=1;i<rows.length;i++){
+    var row = rows[i]||[];
+    var monthInfo = excelDateToReportingMonth(row[headerMap.month]);
+    if(!monthInfo)continue;
+    var record = ensureMonthlyRecord(buId,monthInfo.year,monthInfo.month);
+    record.sourceSheet = 'Summary';
+    record.reportingMonth = monthInfo.month;
+    record.reportingYear = monthInfo.year;
+    record.reportingLabel = monthInfo.label;
+    Object.keys(SummaryWorkbookColumns).forEach(function(key){
+      if(key==='month'||headerMap[key]===undefined)return;
+      var parsed = parseKPINumber(row[headerMap[key]]);
+      record[key] = parsed;
+      record[SummaryWorkbookColumns[key]] = parsed;
+    });
+    imported++;
+  }
+  var selectedMonthRecord = getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth());
+  if(selectedMonthRecord)ScoreData[buId] = selectedMonthRecord;
+  return imported;
 }
 
 // ===== COLOR LOGIC =====
@@ -456,7 +599,7 @@ function getKPIStatus(key,val){
 }
 
 function getSummaryKPIs(bu){
-  var d = ScoreData[bu.id]||{};
+  var d = getCurrentData(bu.id);
   var summaryKPIs = [
     {key:'pmCompliance',name:'PM Compliance',fmt:'%'},
     {key:'pmcmWORatio',name:'PM:CM Ratio WO',fmt:':'},
@@ -502,7 +645,7 @@ function renderSummary(){
 function renderGauges(buId){
   var container = document.getElementById(buId+'-gauges');
   if(!container)return;
-  var d = ScoreData[buId]||{};
+  var d = getCurrentData(buId);
   var html = '';
   GaugeKPIs.forEach(function(key){
     var kpi = KPIs.find(function(k){return k.key===key});
@@ -525,26 +668,60 @@ function renderGauges(buId){
   container.innerHTML = html;
 }
 
+
+function renderMonthlyRecords(buId){
+  var container = document.getElementById(buId+'-monthly-records');
+  if(!container)return;
+  var year = getSelectedYear();
+  var hasData = !!(MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]);
+  if(!hasData){
+    container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div><div style="color:var(--muted);font-size:12px">Import the workbook Summary sheet to display all 12 monthly KPI records.</div>';
+    return;
+  }
+  var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div><div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
+  ['Month','PM Compliance (%)','PM Planned','Schedule Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTBF (days)','MTTR (days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
+  html += '</tr></thead><tbody>';
+  for(var month=1;month<=12;month++){
+    var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
+    html += '<tr><td>'+MonthNames[month-1]+'</td>';
+    ['pmCompliance','pmPlanned','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'].forEach(function(key){
+      var val = r[key];
+      var display = val===null||val===undefined||val===''?'':(typeof val==='number'?val.toFixed(key==='pmPlanned'?0:2):val);
+      var cls = key==='pmPlanned'?'':getKPIStatus(key,val).cls;
+      html += '<td class="'+cls+'">'+(display===''?'--':display)+'</td>';
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
 // ===== CHARTS =====
 function renderBUCharts(buId){
   renderGauges(buId);
-  var d = ScoreData[buId]||{};
-  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var pmData = months.map(function(){return Math.random()*30+70});
-  var plannedBudget = months.map(function(){return 10+Math.random()*5});
-  var actualBudget = months.map(function(){return 8+Math.random()*6});
+  renderMonthlyRecords(buId);
+  var year = getSelectedYear();
+  var months = ShortMonthNames.slice();
+  var pmData = months.map(function(_,index){var r=getMonthlyRecord(buId,year,index+1);return r&&r.pmCompliance!==undefined?r.pmCompliance:null;});
+  var plannedPM = months.map(function(_,index){var r=getMonthlyRecord(buId,year,index+1);return r&&r.pmPlanned!==undefined?r.pmPlanned:null;});
+  var budgetSpend = months.map(function(_,index){var r=getMonthlyRecord(buId,year,index+1);return r&&r.budgetSpend!==undefined?r.budgetSpend:null;});
+  var hasMonthlyPM = pmData.some(function(v){return v!==null&&v!==undefined;});
+  var hasMonthlyBudget = budgetSpend.some(function(v){return v!==null&&v!==undefined;}) || plannedPM.some(function(v){return v!==null&&v!==undefined;});
+  var current = getCurrentData(buId);
+  if(!hasMonthlyPM)pmData[getSelectedMonth()-1] = current.pmCompliance!==undefined?current.pmCompliance:null;
+  if(!hasMonthlyBudget)budgetSpend[getSelectedMonth()-1] = current.budgetSpend!==undefined?current.budgetSpend:null;
   
   if(Charts[buId+'-pm'])Charts[buId+'-pm'].destroy();
   if(Charts[buId+'-budget'])Charts[buId+'-budget'].destroy();
   
   var pmCtx = document.getElementById(buId+'-pm-chart');
   if(pmCtx){
-    Charts[buId+'-pm'] = new Chart(pmCtx,{type:'bar',data:{labels:months,datasets:[{label:'PM Compliance %',data:pmData,backgroundColor:pmData.map(function(v){return v>=95?'#0A9B6E':v>=80?'#D97706':'#DC2626'}),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,max:120,grid:{color:'#F1F5F9'}},x:{grid:{display:false}}},plugins:{legend:{display:false}}}});
+    Charts[buId+'-pm'] = new Chart(pmCtx,{type:'bar',data:{labels:months,datasets:[{label:'PM Compliance %',data:pmData,backgroundColor:pmData.map(function(v){return v===null||v===undefined?'#CBD5E1':v>=95?'#0A9B6E':v>=80?'#D97706':'#DC2626'}),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,max:120,grid:{color:'#F1F5F9'}},x:{grid:{display:false}}},plugins:{legend:{display:false}}}});
   }
   
   var budgetCtx = document.getElementById(buId+'-budget-chart');
   if(budgetCtx){
-    Charts[buId+'-budget'] = new Chart(budgetCtx,{type:'bar',data:{labels:months,datasets:[{label:'Planned (₱M)',data:plannedBudget,backgroundColor:'#0066A6',borderRadius:4},{label:'Actual (₱M)',data:actualBudget,backgroundColor:'#00A8D2',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,grid:{color:'#F1F5F9'}},x:{grid:{display:false}}},plugins:{legend:{position:'top'}}}});
+    Charts[buId+'-budget'] = new Chart(budgetCtx,{type:'bar',data:{labels:months,datasets:[{label:'PM Planned',data:plannedPM,backgroundColor:'#0066A6',borderRadius:4,yAxisID:'yPlanned'},{label:'Budget Spend %',data:budgetSpend,backgroundColor:'#00A8D2',borderRadius:4,yAxisID:'y'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,max:120,position:'left',grid:{color:'#F1F5F9'},title:{display:true,text:'Budget Spend %'}},yPlanned:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'PM Planned'}} ,x:{grid:{display:false}}},plugins:{legend:{position:'top'}}}});
   }
 }
 
@@ -577,7 +754,7 @@ function initForm(){
 function openManualInput(){
   // Populate existing data
   BUs.forEach(function(bu){
-    var d = ScoreData[bu.id]||{};
+    var d = getCurrentData(bu.id);
     KPIs.forEach(function(kpi){
       var inp = document.getElementById('form-'+bu.id+'-'+kpi.key);
       if(inp)inp.value = d[kpi.key]!==undefined?d[kpi.key]:'';
@@ -589,14 +766,17 @@ function closeModal(){document.getElementById('modal').classList.remove('active'
 
 // ===== SAVE =====
 function saveManualData(){
+  var year = getSelectedYear();
+  var month = getSelectedMonth();
   BUs.forEach(function(bu){
-    if(!ScoreData[bu.id])ScoreData[bu.id]={};
+    var record = ensureMonthlyRecord(bu.id,year,month);
     KPIs.forEach(function(kpi){
       var inp = document.getElementById('form-'+bu.id+'-'+kpi.key);
       if(inp&&inp.value!==''){
-        ScoreData[bu.id][kpi.key] = parseFloat(inp.value);
+        record[kpi.key] = parseFloat(inp.value);
       }
     });
+    ScoreData[bu.id] = record;
   });
   closeModal();
   loadData();
@@ -610,13 +790,24 @@ function importExcel(ev){
   reader.onload = function(e){
     try{
       var data = new Uint8Array(e.target.result);
-      var workbook = XLSX.read(data,{type:'array'});
+      var workbook = XLSX.read(data,{type:'array',cellDates:false});
+      var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
+      if(hasSummary){
+        var imported = importSummaryWorkbook(workbook);
+        if(imported!==12){
+          alert('Imported '+imported+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
+        }else{
+          alert('Imported all 12 monthly KPI records from the Summary sheet.');
+        }
+        loadData();
+        return;
+      }
       var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      var rows = XLSX.utils.sheet_to_json(firstSheet,{header:1});
+      var rows = XLSX.utils.sheet_to_json(firstSheet,{header:1,defval:null,raw:true});
       if(rows.length<2){alert('No data found in Excel');return;}
-      // Parse rows (skip header)
+      // Legacy BU-based import for older scorecard workbooks.
       var headerMap = {};
-      var headers = rows[0].map(function(h){return String(h).toLowerCase().trim().replace(/[^a-z]/g,'')});
+      var headers = rows[0].map(function(h){return normalizeHeader(h)});
       headers.forEach(function(h,i){
         if(h.includes('business')||h.includes('unit'))headerMap.bu=i;
         if(h.includes('pmcompliance'))headerMap.pmCompliance=i;
@@ -628,18 +819,21 @@ function importExcel(ev){
         if(h.includes('mttr'))headerMap.mttr=i;
         if(h.includes('uptime')||h.includes('facility'))headerMap.facilityUptime=i;
       });
+      var year = getSelectedYear();
+      var month = getSelectedMonth();
       for(var i=1;i<rows.length;i++){
         var row = rows[i];
-        if(!row[headerMap.bu])continue;
-        var buName = String(row[headerMap.bu]).toLowerCase().trim();
+        if(headerMap.bu===undefined||isEmptyValue(row[headerMap.bu]))continue;
+        var buName = String(cleanCellValue(row[headerMap.bu])).toLowerCase().trim();
         var bu = BUs.find(function(b){return buName.includes(b.id)||buName.includes(b.name.toLowerCase())||buName.includes(b.label.toLowerCase())});
         if(!bu)continue;
-        if(!ScoreData[bu.id])ScoreData[bu.id]={};
+        var record = ensureMonthlyRecord(bu.id,year,month);
         Object.keys(headerMap).forEach(function(key){
           if(key==='bu')return;
-          var val = row[headerMap[key]];
-          if(val!==undefined&&val!=='')ScoreData[bu.id][key]=parseFloat(val);
+          var parsed = parseKPINumber(row[headerMap[key]]);
+          if(parsed!==null)record[key]=parsed;
         });
+        ScoreData[bu.id] = record;
       }
       alert('Excel imported successfully!');
       loadData();
@@ -653,6 +847,7 @@ function importExcel(ev){
 function clearData(){
   if(!confirm('Clear all scorecard data?'))return;
   ScoreData={};
+  MonthlyScoreData={};
   loadData();
 }
 
@@ -673,7 +868,7 @@ document.getElementById('modal').addEventListener('click',function(e){if(e.targe
   function buildScorecardContext(){
     var kpis = [];
     BUs.forEach(function(bu){
-      var d = ScoreData[bu.id]||{};
+      var d = getCurrentData(bu.id);
       KPIs.forEach(function(kpi){
         var val = d[kpi.key];
         var bench = kpi.benchmark;
@@ -728,7 +923,7 @@ document.getElementById('modal').addEventListener('click',function(e){if(e.targe
       }
     } else if(qLower.match(/bu|business unit|plant|facility/)){
       var buSummary = BUs.map(function(bu){
-        var d = ScoreData[bu.id]||{};
+        var d = getCurrentData(bu.id);
         var green = KPIs.filter(function(k){var v=d[k.key];return v!==undefined&&k.benchmark>0&&v>=k.benchmark*0.9;}).length;
         return bu.name+': '+green+'/'+KPIs.length+' KPIs on target';
       });
