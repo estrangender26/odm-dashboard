@@ -111,9 +111,19 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
 /* GAUGE CARDS */
 .gauge-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
-.gauge-card{background:var(--card);border-radius:var(--r);padding:10px 12px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center;transition:var(--transition)}
-.gauge-card:hover{box-shadow:var(--sh-hover);border-color:#C8D4E0;transform:translateY(-2px)}
-.gauge-title{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;line-height:1.25}
+.gauge-card{position:relative;background:var(--card);border-radius:var(--r);padding:10px 12px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center;transition:var(--transition);overflow:visible;cursor:help}
+.gauge-card:hover,.gauge-card:focus-within,.gauge-card:focus{box-shadow:var(--sh-hover);border-color:#C8D4E0;transform:translateY(-2px)}
+.gauge-card:focus{outline:2px solid rgba(0,102,166,.35);outline-offset:2px}
+.gauge-title{display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;line-height:1.25}
+.gauge-info-icon{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid #BFD7EA;border-radius:50%;background:#F8FAFC;color:var(--blue);font-size:10px;font-weight:800;line-height:1;cursor:help}
+.gauge-tooltip{position:absolute;left:50%;bottom:calc(100% + 10px);z-index:80;width:min(280px,calc(100vw - 40px));padding:10px 12px;border:1px solid #BFD7EA;border-radius:10px;background:#fff;color:var(--text);box-shadow:0 14px 34px rgba(15,23,42,.18);text-align:left;font-size:11px;line-height:1.35;opacity:0;visibility:hidden;pointer-events:none;transform:translate(-50%,6px);transition:opacity .16s ease,transform .16s ease,visibility .16s ease}
+.gauge-tooltip::after{content:"";position:absolute;left:50%;bottom:-7px;width:12px;height:12px;background:#fff;border-right:1px solid #BFD7EA;border-bottom:1px solid #BFD7EA;transform:translateX(-50%) rotate(45deg)}
+.gauge-card:hover .gauge-tooltip,.gauge-card:focus-within .gauge-tooltip,.gauge-card:focus .gauge-tooltip{opacity:1;visibility:visible;transform:translate(-50%,0)}
+.gauge-tooltip-title{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:6px}
+.gauge-tooltip-row{display:grid;grid-template-columns:70px 1fr;gap:8px;padding:4px 0;border-top:1px solid #E2E8F0}
+.gauge-tooltip-row:first-of-type{border-top:none}
+.gauge-tooltip-label{font-weight:800;color:var(--muted)}
+.gauge-tooltip-value{font-weight:700;color:var(--text)}
 .gauge-value{font-size:22px;font-weight:700;color:var(--text);margin-bottom:3px;line-height:1.15}
 .gauge-value.no-data{font-size:15px;color:#9CA3AF;font-style:italic;font-weight:700}
 .kpi-dual-value{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;line-height:1.1;white-space:nowrap}
@@ -245,6 +255,10 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 /* SMALL MOBILE: 480px-639px */
 @media(max-width:639px){
   .hdr-in{padding:6px 8px}
+  .gauge-tooltip{left:8px;right:8px;width:auto;transform:translateY(6px)}
+  .gauge-tooltip::after{left:28px}
+  .gauge-card:hover .gauge-tooltip,.gauge-card:focus-within .gauge-tooltip,.gauge-card:focus .gauge-tooltip{transform:translateY(0)}
+  .gauge-tooltip-row{grid-template-columns:1fr;gap:2px}
   .brand h1{font-size:11px}
   .main{padding:8px 8px 24px}
   .ctrl-btn{padding:6px 10px;font-size:10px}
@@ -530,14 +544,14 @@ var selectedBusinessUnitId = (function(){
   catch(err){return 'ez';}
 })();
 var KPIs = [
-  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%'},
-  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%'},
-  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%'},
-  {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86%'},
-  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60%'},
+  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'PM Compliance',formula:'Completed PMs / Planned PMs × 100',target:'95%',interpretation:'Higher is better.'}},
+  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'Schedule Compliance',formula:'Work Orders Completed On Time / Scheduled Work Orders × 100',target:'95%',interpretation:'Higher is better.'}},
+  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%',tooltip:{name:'Budget Spend',formula:'Actual Maintenance Spend / Budgeted Maintenance Spend × 100',target:'95% – 105%',interpretation:'Values within range are preferred.'}},
+  {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86%',tooltip:{name:'PM:CM Ratio (Work Orders)',formula:'PM Work Orders / (PM Work Orders + CM Work Orders)',target:'≥86% (Approximately 6:1)',displayedAs:'Percentage + Equivalent Ratio (example: 90% = 9:1)',interpretation:'Higher PM proportion is generally preferred.'}},
+  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60%',tooltip:{name:'PM:CM Ratio (Cost)',formula:'PM Maintenance Cost / (PM Cost + CM Cost)',target:'≥60% (Approximately 1.5:1)',displayedAs:'Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)',interpretation:'Higher PM investment generally reduces reactive maintenance.'}},
   {key:'mtbf',name:'MTBF',unit:'days',benchmark:0,trend:'increasing'},
   {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing'},
-  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%'}
+  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%',tooltip:{name:'Facility Uptime',formula:'Available Operating Time / Total Required Operating Time × 100',target:'99.97%',interpretation:'Higher is better.'}}
 ];
 var GaugeKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','facilityUptime','pmcmWORatio','pmcmCostRatio'];
 var SummaryMatrixKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','facilityUptime'];
@@ -713,6 +727,29 @@ function formatBenchmark(kpi){
   if(kpi.range)return formatKPIValue(kpi.range[0])+'% - '+formatKPIValue(kpi.range[1])+'%';
   if(kpi.benchmark || kpi.benchmark===0)return (kpi.benchmarkLabel||formatKPIValue(kpi.benchmark)+(kpi.unit==='%'?'%':''));
   return '';
+}
+
+function escapeHtml(value){
+  return String(value == null ? '' : value).replace(/[&<>"']/g,function(char){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char];
+  });
+}
+
+function renderKpiTooltip(kpi,tooltipId){
+  if(!kpi || !kpi.tooltip)return '';
+  var rows = [
+    ['Formula',kpi.tooltip.formula],
+    ['Target',kpi.tooltip.target],
+    ['Interpretation',kpi.tooltip.interpretation]
+  ];
+  if(kpi.tooltip.displayedAs)rows.splice(2,0,['Displayed As',kpi.tooltip.displayedAs]);
+  var html = '<div id="'+escapeHtml(tooltipId)+'" class="gauge-tooltip" role="tooltip">';
+  html += '<div class="gauge-tooltip-title">'+escapeHtml(kpi.tooltip.name || kpi.name)+'</div>';
+  rows.forEach(function(row){
+    html += '<div class="gauge-tooltip-row"><div class="gauge-tooltip-label">'+escapeHtml(row[0])+'</div><div class="gauge-tooltip-value">'+escapeHtml(row[1])+'</div></div>';
+  });
+  html += '</div>';
+  return html;
 }
 
 function hasImportedData(buId,year){
@@ -1620,8 +1657,10 @@ function renderGauges(buId){
         if(kpi.benchmark>0)pct = Math.min((v/kpi.benchmark)*100,100);
       }
     }
-    html += '<div class="gauge-card">';
-    html += '<div class="gauge-title">'+kpi.name+'</div>';
+    var tooltipId = 'kpi-tooltip-'+buId+'-'+key;
+    html += '<div class="gauge-card" tabindex="0" aria-describedby="'+tooltipId+'">';
+    html += '<div class="gauge-title">'+kpi.name+' <span class="gauge-info-icon" aria-hidden="true">ⓘ</span></div>';
+    html += renderKpiTooltip(kpi,tooltipId);
     html += '<div class="gauge-value'+valueClass+'">'+display+'</div>';
     html += '<div class="gauge-benchmark">Benchmark: '+formatBenchmark(kpi)+'</div>';
     html += '<div class="gauge-bar"><div class="gauge-fill '+status.barCls+'" style="width:'+pct+'%"></div></div>';

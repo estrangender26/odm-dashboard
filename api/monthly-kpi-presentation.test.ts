@@ -43,6 +43,20 @@ describe("Monthly KPI dashboard presentation", () => {
   });
 
 
+  it("includes explanatory tooltips for monthly KPI cards", () => {
+    expect(scorecardHtml).toContain("gauge-tooltip");
+    expect(scorecardHtml).toContain("aria-describedby");
+    expect(scorecardHtml).toContain("Completed PMs / Planned PMs × 100");
+    expect(scorecardHtml).toContain("Work Orders Completed On Time / Scheduled Work Orders × 100");
+    expect(scorecardHtml).toContain("Actual Maintenance Spend / Budgeted Maintenance Spend × 100");
+    expect(scorecardHtml).toContain("PM Work Orders / (PM Work Orders + CM Work Orders)");
+    expect(scorecardHtml).toContain("Percentage + Equivalent Ratio (example: 90% = 9:1)");
+    expect(scorecardHtml).toContain("PM Maintenance Cost / (PM Cost + CM Cost)");
+    expect(scorecardHtml).toContain("Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)");
+    expect(scorecardHtml).toContain("Available Operating Time / Total Required Operating Time × 100");
+    expect(scorecardHtml).toContain("Higher is better.");
+  });
+
   it("renders PM:CM ratios as percentages with equivalent ratios", () => {
     expect(scorecardHtml).toContain("function formatPmCmRatioEquivalent");
     expect(scorecardHtml).toContain("return (pct / cmShare).toFixed(1)+':1';");
