@@ -121,6 +121,12 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .chart-card{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);margin-bottom:16px;transition:var(--transition)}
 .chart-card:hover{box-shadow:var(--sh-hover);border-color:#C8D4E0}
 .chart-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px}
+.chart-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.chart-title-row .chart-title{margin-bottom:0}
+.chart-export{border:1px solid var(--border);background:#fff;color:var(--blue);border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer}
+.bu-context{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#EEF6FF;border:1px solid #BFD7EA;border-radius:var(--r);padding:12px 14px;margin-bottom:16px;color:var(--navy)}
+.bu-context strong{font-size:14px}
+.bu-context span{color:var(--muted);font-weight:700}
 .chart-wrap{height:280px;position:relative}
 .chart-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:12px}
 
@@ -281,6 +287,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <!-- CONTROLS -->
   <div class="controls">
+    <select id="businessUnitSel" class="ctrl-gray" onchange="handleBusinessUnitChange()" aria-label="Business Unit"></select>
     <select id="yearSel" class="ctrl-gray">
       <option value="2026" selected>2026</option>
       <option value="2025">2025</option>
@@ -311,7 +318,8 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   <!-- TABS -->
   <div class="tabs">
     <button class="tab active" onclick="showTab('summary',this)">Summary Matrix</button>
-    <button class="tab" onclick="showTab('ez',this)">Manila Water / EZ</button>
+    <button class="tab" onclick="showTab('ez',this)">AMD-EZ</button>
+    <button class="tab" onclick="showTab('wz',this)">AMD-WZ</button>
     <button class="tab" onclick="showTab('laguna',this)">Laguna Water</button>
     <button class="tab" onclick="showTab('clark',this)">Clark Water</button>
     <button class="tab" onclick="showTab('tagum',this)">Tagum Water</button>
@@ -342,48 +350,45 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <!-- BU TABS -->
   <div id="t-ez" class="tc">
+    <div id="ez-context" class="bu-context"></div>
     <div id="ez-gauges" class="gauge-grid"></div>
     <div id="ez-monthly-records" class="matrix-card"></div>
-    <div class="chart-row">
-      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="ez-pm-chart"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="ez-budget-chart"></canvas></div></div>
-    </div>
+    <div id="ez-trend-section"></div>
+  </div>
+
+  <div id="t-wz" class="tc">
+    <div id="wz-context" class="bu-context"></div>
+    <div id="wz-gauges" class="gauge-grid"></div>
+    <div id="wz-monthly-records" class="matrix-card"></div>
+    <div id="wz-trend-section"></div>
   </div>
 
   <div id="t-laguna" class="tc">
+    <div id="laguna-context" class="bu-context"></div>
     <div id="laguna-gauges" class="gauge-grid"></div>
     <div id="laguna-monthly-records" class="matrix-card"></div>
-    <div class="chart-row">
-      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="laguna-pm-chart"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="laguna-budget-chart"></canvas></div></div>
-    </div>
+    <div id="laguna-trend-section"></div>
   </div>
 
   <div id="t-clark" class="tc">
+    <div id="clark-context" class="bu-context"></div>
     <div id="clark-gauges" class="gauge-grid"></div>
     <div id="clark-monthly-records" class="matrix-card"></div>
-    <div class="chart-row">
-      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="clark-pm-chart"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="clark-budget-chart"></canvas></div></div>
-    </div>
+    <div id="clark-trend-section"></div>
   </div>
 
   <div id="t-tagum" class="tc">
+    <div id="tagum-context" class="bu-context"></div>
     <div id="tagum-gauges" class="gauge-grid"></div>
     <div id="tagum-monthly-records" class="matrix-card"></div>
-    <div class="chart-row">
-      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="tagum-pm-chart"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="tagum-budget-chart"></canvas></div></div>
-    </div>
+    <div id="tagum-trend-section"></div>
   </div>
 
   <div id="t-estate" class="tc">
+    <div id="estate-context" class="bu-context"></div>
     <div id="estate-gauges" class="gauge-grid"></div>
     <div id="estate-monthly-records" class="matrix-card"></div>
-    <div class="chart-row">
-      <div class="chart-card"><div class="chart-title">PM Compliance Trend</div><div class="chart-wrap"><canvas id="estate-pm-chart"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">Budget Spend - Planned vs Actual</div><div class="chart-wrap"><canvas id="estate-budget-chart"></canvas></div></div>
-    </div>
+    <div id="estate-trend-section"></div>
   </div>
 
 </div>
@@ -425,15 +430,17 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 <script>
 // ===== CONFIG =====
 var BUs = [
-  {id:'ez',name:'Manila Water / EZ',label:'Manila Water'},
-  {id:'laguna',name:'Laguna Water',label:'Laguna Water'},
-  {id:'clark',name:'Clark Water',label:'Clark Water'},
-  {id:'tagum',name:'Tagum Water',label:'Tagum Water'},
-  {id:'estate',name:'Estate Water',label:'Estate Water'}
+  {id:'ez',apiValue:'AMD-EZ',name:'AMD-EZ',label:'AMD-EZ'},
+  {id:'wz',apiValue:'AMD-WZ',name:'AMD-WZ',label:'AMD-WZ'},
+  {id:'laguna',apiValue:'Laguna Water',name:'Laguna Water',label:'Laguna Water'},
+  {id:'clark',apiValue:'Clark Water',name:'Clark Water',label:'Clark Water'},
+  {id:'tagum',apiValue:'Tagum Water',name:'Tagum Water',label:'Tagum Water'},
+  {id:'estate',apiValue:'Estate Water',name:'Estate Water',label:'Estate Water'}
 ];
+var selectedBusinessUnitId = 'ez';
 var KPIs = [
   {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%'},
-  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:90},
+  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%'},
   {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%'},
   {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86%'},
   {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60%'},
@@ -452,6 +459,7 @@ var isFetchingSavedRecords = false;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded',function(){
+  initBusinessUnitSelector();
   initForm();
   fetchSavedMonthlyKpiRecords();
 });
@@ -462,7 +470,42 @@ function showTab(id,btn){
   document.getElementById('t-'+id).classList.add('active');
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
   if(btn)btn.classList.add('active');
-  if(id!=='summary') renderBUCharts(id);
+  if(id!=='summary'){
+    selectedBusinessUnitId = id;
+    var sel = document.getElementById('businessUnitSel');
+    if(sel)sel.value = id;
+    persistDeckContext();
+    renderBUCharts(id);
+  }
+}
+
+function getBUById(buId){return BUs.find(function(bu){return bu.id===buId;}) || BUs[0];}
+function getSelectedBU(){return getBUById(selectedBusinessUnitId);}
+function getBUApiValue(buId){var bu=getBUById(buId);return bu.apiValue || bu.label || bu.id;}
+function initBusinessUnitSelector(){
+  var sel = document.getElementById('businessUnitSel');
+  if(!sel)return;
+  sel.innerHTML = BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
+  sel.value = selectedBusinessUnitId;
+}
+function handleBusinessUnitChange(){
+  var sel = document.getElementById('businessUnitSel');
+  selectedBusinessUnitId = sel && sel.value ? sel.value : 'ez';
+  persistDeckContext();
+  var tabBtn = Array.prototype.find.call(document.querySelectorAll('.tab'),function(btn){return btn.getAttribute('onclick') && btn.getAttribute('onclick').indexOf("'"+selectedBusinessUnitId+"'")>-1;});
+  showTab(selectedBusinessUnitId,tabBtn);
+  loadData();
+}
+function countImportedMonths(buId,year){
+  var months = MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]?MonthlyScoreData[buId][year]:{};
+  return Object.keys(months).filter(function(month){return !!months[month];}).length;
+}
+function renderBUContext(buId){
+  var container = document.getElementById(buId+'-context');
+  if(!container)return;
+  var bu = getBUById(buId);
+  var count = countImportedMonths(buId,getSelectedYear());
+  container.innerHTML = '<strong>Business Unit: '+bu.label+'</strong><span>'+count+' months imported</span>';
 }
 
 
@@ -624,6 +667,7 @@ function excelDateToReportingMonth(val){
   return null;
 }
 
+function persistDeckContext(){try{var bu=getSelectedBU();localStorage.setItem('monthlyKpiSelectedBusinessUnit',getBUApiValue(bu.id));localStorage.setItem('monthlyKpiSelectedBusinessUnitLabel',bu.label);localStorage.setItem('monthlyKpiSelectedYear',String(getSelectedYear()));localStorage.setItem('monthlyKpiSelectedMonth',String(getSelectedMonth()));}catch(err){}}
 function getSelectedYear(){return parseInt(document.getElementById('yearSel').value,10);}
 function getSelectedMonth(){return parseInt(document.getElementById('monthSel').value,10);}
 
@@ -675,14 +719,14 @@ function importSummaryWorkbook(workbook,fileName){
   });
   if(headerMap.month===undefined)throw new Error('Month column not found in Summary sheet.');
   var imported = 0;
-  var buId = 'ez';
+  var buId = selectedBusinessUnitId;
   var records = [];
   for(var i=1;i<rows.length;i++){
     var row = rows[i]||[];
     var monthInfo = excelDateToReportingMonth(row[headerMap.month]);
     if(!monthInfo)continue;
     var record = ensureMonthlyRecord(buId,monthInfo.year,monthInfo.month);
-    record.business_unit = buId;
+    record.business_unit = getBUApiValue(buId);
     record.sourceSheet = 'Summary';
     record.source_file_name = fileName || null;
     record.reportingMonth = monthInfo.month;
@@ -705,7 +749,7 @@ function importSummaryWorkbook(workbook,fileName){
     });
     record.raw_imported_values = rawImportedValues;
     records.push({
-      business_unit: buId,
+      business_unit: getBUApiValue(buId),
       reporting_month: monthInfo.month,
       reporting_year: monthInfo.year,
       source_file_name: fileName || null,
@@ -729,9 +773,9 @@ function importSummaryWorkbook(workbook,fileName){
 
 function normalizePersistedBusinessUnit(value){
   var text = String(value||'').toLowerCase().trim();
-  var exact = BUs.find(function(bu){return text===bu.id || text===bu.name.toLowerCase() || text===bu.label.toLowerCase();});
+  var exact = BUs.find(function(bu){return text===bu.id.toLowerCase() || text===String(bu.apiValue||'').toLowerCase() || text===bu.name.toLowerCase() || text===bu.label.toLowerCase();});
   if(exact)return exact.id;
-  var fuzzy = BUs.find(function(bu){return text.includes(bu.id) || text.includes(bu.name.toLowerCase()) || text.includes(bu.label.toLowerCase());});
+  var fuzzy = BUs.find(function(bu){return text.includes(bu.id.toLowerCase()) || text.includes(String(bu.apiValue||'').toLowerCase()) || text.includes(bu.name.toLowerCase()) || text.includes(bu.label.toLowerCase());});
   return fuzzy?fuzzy.id:text;
 }
 
@@ -973,7 +1017,7 @@ var noDataPlugin = {
     ctx.fillStyle = '#5A6B7D';
     ctx.font = '700 13px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(isKpiLoading()?(isFetchingSavedRecords?'Loading saved KPI records...':'Importing KPI workbook...'):'No KPI data imported yet.', (area.left+area.right)/2, (area.top+area.bottom)/2);
+    ctx.fillText(isKpiLoading()?(isFetchingSavedRecords?'Loading saved KPI records...':'Importing KPI workbook...'):'No trend data available.', (area.left+area.right)/2, (area.top+area.bottom)/2);
     ctx.restore();
   }
 };
@@ -987,72 +1031,113 @@ function getTooltipLabel(context){
   return label+': '+formatKPIValue(value);
 }
 
-function getTooltipFooter(kpiKey,monthIndex){
-  var kpi = KPIs.find(function(k){return k.key===kpiKey});
-  var parts = [];
-  if(kpi)parts.push('Target/Benchmark: '+formatBenchmark(kpi));
-  return parts;
+function getBenchmarkText(kpiKey){
+  var kpi = KPIs.find(function(k){return k.key===kpiKey;});
+  return formatBenchmark(kpi);
 }
 
-function makeChartOptions(kpiKey,benchmarkOptions,yTitle){
+function getTooltipFooter(kpiKey){
+  var text = getBenchmarkText(kpiKey);
+  return text ? ['Benchmark Value: '+text] : [];
+}
+
+function benchmarkOptionsFor(kpiKey){
+  if(kpiKey==='budgetSpend')return {range:{min:95,max:105,minLabel:'Benchmark 95%',maxLabel:'Benchmark 105%',color:'#0B1D44'}};
+  var kpi = KPIs.find(function(k){return k.key===kpiKey;});
+  if(kpi && kpi.benchmark>0)return {lines:[{value:kpi.benchmark,label:'Benchmark '+formatBenchmark(kpi),color:'#0B1D44'}]};
+  return {};
+}
+
+function makeChartOptions(kpiKey,yTitle){
+  var isDays = yTitle && yTitle.indexOf('days')>-1;
   return {
     responsive:true,
     maintainAspectRatio:false,
     spanGaps:false,
     interaction:{mode:'index',intersect:false},
     scales:{
-      y:{beginAtZero:true,max:120,grid:{color:'#F1F5F9'},title:{display:!!yTitle,text:yTitle},ticks:{callback:function(v){return formatKPIValue(v);}}},
-      x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:12}}
+      y:{beginAtZero:true,suggestedMax:isDays?undefined:120,grid:{color:'#F1F5F9'},title:{display:!!yTitle,text:yTitle},ticks:{callback:function(v){return formatKPIValue(v);}}},
+      x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:false,maxTicksLimit:12}}
     },
     plugins:{
-      legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
+      legend:{display:false},
       tooltip:{
         callbacks:{
           title:function(items){return items&&items.length?ShortMonthNames[items[0].dataIndex]:'';},
-          label:getTooltipLabel,
-          footer:function(items){return items&&items.length?getTooltipFooter(kpiKey,items[0].dataIndex):[];}
+          label:function(context){
+            var value = context.parsed.y;
+            if(value===null||value===undefined)return context.dataset.label+': No Data';
+            return context.dataset.label+' / '+ShortMonthNames[context.dataIndex]+': '+formatKPIValue(value);
+          },
+          footer:function(){return getTooltipFooter(kpiKey);}
         }
       },
-      benchmarkPlugin:benchmarkOptions || {}
+      benchmarkPlugin:benchmarkOptionsFor(kpiKey)
     }
   };
 }
 
+var TrendKpiConfig = [
+  {key:'pmCompliance',title:'PM Compliance Trend',axis:'PM Compliance %',color:'#0066A6'},
+  {key:'scheduleCompliance',title:'Schedule Compliance Trend',axis:'Schedule Compliance %',color:'#0A9B6E'},
+  {key:'budgetSpend',title:'Budget Spend Trend',axis:'Budget Spend %',color:'#00A8D2'},
+  {key:'pmcmWORatio',title:'PM:CM Ratio (Work Orders) Trend',axis:'PM:CM WO %',color:'#7C3AED'},
+  {key:'pmcmCostRatio',title:'PM:CM Ratio (Cost) Trend',axis:'PM:CM Cost %',color:'#D97706'},
+  {key:'facilityUptime',title:'Facility Uptime Trend',axis:'Facility Uptime %',color:'#0F766E'},
+  {key:'mtbf',title:'MTBF Trend',axis:'MTBF days',color:'#2563EB'},
+  {key:'mttr',title:'MTTR Trend',axis:'MTTR days',color:'#DC2626'}
+];
+
+function buildTrendSection(buId){
+  var section = document.getElementById(buId+'-trend-section');
+  if(!section)return;
+  var html = '<div class="matrix-title" style="margin:18px 0 12px">KPI Trends</div>';
+  for(var i=0;i<TrendKpiConfig.length;i+=2){
+    html += '<div class="chart-row">';
+    TrendKpiConfig.slice(i,i+2).forEach(function(cfg){
+      html += '<div class="chart-card"><div class="chart-title-row"><div class="chart-title">'+cfg.title+'</div><button class="chart-export" onclick="exportChartImage(\''+buId+'-'+cfg.key+'\')">Export Image</button></div><div class="chart-wrap"><canvas id="'+buId+'-'+cfg.key+'-chart"></canvas></div></div>';
+    });
+    html += '</div>';
+  }
+  section.innerHTML = html;
+}
+
+function exportChartImage(chartKey){
+  var chart = Charts[chartKey];
+  if(!chart){showToast('warning','No chart image available.');return;}
+  var link = document.createElement('a');
+  link.href = chart.toBase64Image('image/png',1);
+  link.download = chartKey+'-trend.png';
+  link.click();
+}
+
 function renderBUCharts(buId){
+  renderBUContext(buId);
   renderGauges(buId);
   renderMonthlyRecords(buId);
+  buildTrendSection(buId);
   var year = getSelectedYear();
   var months = ShortMonthNames.slice();
-  var pmData = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),'pmCompliance');});
-  var plannedPM = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),'pmPlanned');});
-  var budgetSpend = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),'budgetSpend');});
-  
-  if(Charts[buId+'-pm'])Charts[buId+'-pm'].destroy();
-  if(Charts[buId+'-budget'])Charts[buId+'-budget'].destroy();
-  
-  var pmCtx = document.getElementById(buId+'-pm-chart');
-  if(pmCtx){
-    var pmOptions = makeChartOptions('pmCompliance',{lines:[{value:95,label:'Benchmark 95%',color:'#0B1D44'}]},'PM Compliance %');
-    pmOptions.plugins.legend.display = true;
-    Charts[buId+'-pm'] = new Chart(pmCtx,{type:'line',data:{labels:months,datasets:[{label:'PM Compliance %',data:pmData,borderColor:'#0066A6',backgroundColor:'#0066A6',pointBackgroundColor:pmData.map(function(v){return v===null||v===undefined?'#CBD5E1':v>=95?'#0A9B6E':v>=80?'#D97706':'#DC2626'}),pointRadius:5,pointHoverRadius:7,tension:.25,fill:false,spanGaps:false}]},options:pmOptions});
-  }
-  
-  var budgetCtx = document.getElementById(buId+'-budget-chart');
-  if(budgetCtx){
-    var budgetOptions = makeChartOptions('budgetSpend',{range:{min:95,max:105,minLabel:'Budget min 95%',maxLabel:'Budget max 105%',color:'#0B1D44'}},'Budget Spend %');
-    budgetOptions.scales.yPlanned = {beginAtZero:true,position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'PM Planned'},ticks:{callback:function(v){return formatKPIValue(v);}}};
-    Charts[buId+'-budget'] = new Chart(budgetCtx,{type:'bar',data:{labels:months,datasets:[{label:'PM Planned',data:plannedPM,backgroundColor:'#0066A6',borderRadius:4,yAxisID:'yPlanned'},{label:'Budget Spend %',data:budgetSpend,backgroundColor:'#00A8D2',borderRadius:4,yAxisID:'y'}]},options:budgetOptions});
-  }
+  TrendKpiConfig.forEach(function(cfg){
+    var chartKey = buId+'-'+cfg.key;
+    if(Charts[chartKey])Charts[chartKey].destroy();
+    var ctx = document.getElementById(chartKey+'-chart');
+    if(!ctx)return;
+    var data = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),cfg.key);});
+    Charts[chartKey] = new Chart(ctx,{type:'line',data:{labels:months,datasets:[{label:cfg.title.replace(' Trend',''),data:data,borderColor:cfg.color,backgroundColor:cfg.color,pointBackgroundColor:data.map(function(v){return v===null||v===undefined?'#CBD5E1':cfg.color;}),pointRadius:4,pointHoverRadius:7,tension:.25,fill:false,spanGaps:false}]},options:makeChartOptions(cfg.key,cfg.axis)});
+  });
 }
+
 
 // ===== LOAD / INIT DATA =====
 function loadData(){
+  persistDeckContext();
   updateChartLoadingOverlays();
   renderSummary();
   var activeTab = document.querySelector('.tab.active');
   var tabId = activeTab?activeTab.textContent.toLowerCase().replace(/\s+/g,''):'summary';
   if(tabId==='summary') return;
-  var buMap = {'manilawater/ez':'ez','lagunawater':'laguna','clarkwater':'clark','tagumwater':'tagum','estatewater':'estate'};
+  var buMap = {'amd-ez':'ez','amd-wz':'wz','lagunawater':'laguna','clarkwater':'clark','tagumwater':'tagum','estatewater':'estate'};
   var buId = buMap[tabId];
   if(buId)renderBUCharts(buId);
 }
@@ -1150,7 +1235,7 @@ function importExcel(ev){
           var row = rows[i];
           if(headerMap.bu===undefined||isEmptyValue(row[headerMap.bu]))continue;
           var buName = String(cleanCellValue(row[headerMap.bu])).toLowerCase().trim();
-          var bu = BUs.find(function(b){return buName.includes(b.id)||buName.includes(b.name.toLowerCase())||buName.includes(b.label.toLowerCase())});
+          var bu = BUs.find(function(b){return buName.includes(b.id.toLowerCase())||buName.includes(String(b.apiValue||'').toLowerCase())||buName.includes(b.name.toLowerCase())||buName.includes(b.label.toLowerCase())});
           if(!bu)continue;
           var record = ensureMonthlyRecord(bu.id,year,month);
           var rawImportedValues = {sourceSheet:workbook.SheetNames[0],rowNumber:i+1,values:{}};
@@ -1162,7 +1247,7 @@ function importExcel(ev){
           });
           ScoreData[bu.id] = record;
           legacyRecords.push({
-            business_unit: bu.id,
+            business_unit: getBUApiValue(bu.id),
             reporting_month: month,
             reporting_year: year,
             source_file_name: file.name,
@@ -1200,11 +1285,23 @@ function importExcel(ev){
 }
 
 // ===== CLEAR =====
-function clearData(){
-  if(!confirm('Clear all scorecard data?'))return;
-  ScoreData={};
-  MonthlyScoreData={};
-  loadData();
+async function clearData(){
+  var bu = getSelectedBU();
+  if(!bu)return;
+  if(!confirm('Clear KPI records for '+bu.label+'? This will remove saved KPI data for this business unit.'))return;
+  try{
+    var res = await fetch('/api/monthly-kpi/records?business_unit='+encodeURIComponent(getBUApiValue(bu.id)),{method:'DELETE',headers:{'Accept':'application/json'}});
+    var payload = await res.json().catch(function(){return {};});
+    if(!res.ok)throw new Error(payload.error || 'Failed to clear KPI records.');
+    if(MonthlyScoreData[bu.id])delete MonthlyScoreData[bu.id];
+    if(ScoreData[bu.id])delete ScoreData[bu.id];
+    Object.keys(Charts).forEach(function(key){if(key.indexOf(bu.id+'-')===0){Charts[key].destroy();delete Charts[key];}});
+    loadData();
+    showToast('success','KPI records cleared for '+bu.label+'.');
+  }catch(err){
+    console.error('Clear KPI records error:',err);
+    showToast('error','Failed to clear KPI records.');
+  }
 }
 
 // Close modal on overlay click

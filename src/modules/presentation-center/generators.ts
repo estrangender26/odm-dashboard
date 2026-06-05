@@ -46,10 +46,10 @@ async function generateMonthlyKpiDeck(
   const persisted = await getPersistedMonthlyKpiScorecard();
   const scorecardRecords = persisted.records;
   const reportingMonth = context.reportingMonth || persisted.reportingMonthLabel || getReportingMonthLabel();
-  const businessUnit = context.businessUnit || "All Business Units";
+  const businessUnit = context.businessUnit || persisted.businessUnit;
   const summary = getScorecardSummary(scorecardRecords);
   const now = new Date();
-  const title = `Monthly KPI Scorecard Deck - ${reportingMonth}`;
+  const title = `Monthly KPI Scorecard - ${businessUnit} - ${reportingMonth}`;
   const blob = createPresentation([
     {
       elements: [
@@ -66,7 +66,7 @@ async function generateMonthlyKpiDeck(
         },
         {
           type: "text",
-          text: "Monthly KPI Scorecard",
+          text: `Monthly KPI Scorecard\n${businessUnit}\n${reportingMonth}`,
           x: 0.65,
           y: 1.55,
           w: 7.5,

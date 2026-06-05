@@ -493,6 +493,27 @@ app.post("/api/monthly-kpi/import", async (c) => {
   }
 });
 
+
+app.delete("/api/monthly-kpi/records", async (c) => {
+  try {
+    await ensureDbReady();
+    const businessUnit = c.req.query("business_unit");
+    if (!businessUnit || !businessUnit.trim()) {
+      return c.json({ error: "business_unit query parameter is required" }, 400);
+    }
+    const result = await getDb().execute(sql`
+      DELETE FROM monthly_kpi_records
+      WHERE business_unit = ${businessUnit.trim()}
+      RETURNING id
+    `);
+    const rows = (result as any).rows ?? result;
+    return c.json({ success: true, business_unit: businessUnit.trim(), deletedCount: rows.length });
+  } catch (e: any) {
+    console.error("[monthly-kpi] delete failed", e);
+    return c.json({ error: e?.message ?? "Unable to delete Monthly KPI records" }, 500);
+  }
+});
+
 app.patch("/api/monthly-kpi/records/:id", async (c) => {
   try {
     await ensureDbReady();
