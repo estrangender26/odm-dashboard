@@ -143,8 +143,11 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .manual-controls{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px;margin-bottom:14px;background:#F8FAFC;border:1px solid var(--border);border-radius:var(--r);padding:14px}
 .manual-field{display:flex;flex-direction:column;gap:6px}
 .manual-field label{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);letter-spacing:.3px}
-.manual-field select{width:100%;padding:8px 10px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:var(--r);background:#fff;color:var(--text);outline:none}
-.manual-field select:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(0,102,166,.12)}
+.manual-field select,.manual-field input[type="file"]{width:100%;padding:8px 10px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:var(--r);background:#fff;color:var(--text);outline:none}
+.manual-field select:focus,.manual-field input[type="file"]:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(0,102,166,.12)}
+.import-controls{grid-template-columns:1fr;max-width:520px}
+.import-actions{display:flex;gap:10px;justify-content:flex-end}
+.import-hint{font-size:12px;color:var(--muted);font-weight:600;margin:-4px 0 14px}
 .manual-editing-context{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;border-radius:var(--r);background:#EEF6FF;border:1px solid #BFD7EA;color:var(--navy);font-size:13px}
 .manual-editing-context strong{font-size:12px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted)}
 .manual-validation{display:none;margin-bottom:12px;border:1px solid #FECACA;background:#FEF2F2;color:#991B1B;border-radius:var(--r);padding:10px 12px;font-size:12px;font-weight:700}
@@ -312,7 +315,6 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <button class="ctrl-btn ctrl-blue" onclick="loadData()">Load</button>
     <button class="ctrl-btn ctrl-green" onclick="openManualInput()">Input Data Manually</button>
     <button id="importBtn" class="ctrl-btn ctrl-gray" onclick="triggerExcelImport()"><span id="importBtnLabel">Import Excel</span></button>
-    <input type="file" id="excelInput" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)">
     <button class="ctrl-btn ctrl-red" onclick="clearData()">Clear</button>
   </div>
   <div class="status-region"><div id="importProgress" class="import-progress"><span class="spinner-blue"></span><span>Importing KPI workbook...</span></div></div>
@@ -442,6 +444,32 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   </div>
 </div>
 
+<!-- IMPORT EXCEL MODAL -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div class="modal-title">Import Excel Workbook</div>
+      <button class="modal-close" onclick="closeImportModal()">&times;</button>
+    </div>
+    <div class="import-hint">Choose the destination Business Unit for this workbook. Import does not use the currently selected BU tab.</div>
+    <div class="manual-validation" id="importValidation"></div>
+    <div class="manual-controls import-controls">
+      <div class="manual-field">
+        <label for="importBusinessUnitSel">Business Unit</label>
+        <select id="importBusinessUnitSel" onchange="updateImportButtonState()" aria-label="Import Business Unit"></select>
+      </div>
+      <div class="manual-field">
+        <label for="excelInput">Workbook</label>
+        <input type="file" id="excelInput" accept=".xlsx,.xls" onchange="updateImportButtonState()" aria-label="Excel Workbook File">
+      </div>
+    </div>
+    <div class="import-actions">
+      <button class="ctrl-btn ctrl-gray" onclick="closeImportModal()">Cancel</button>
+      <button id="importSubmitBtn" class="ctrl-btn ctrl-green" onclick="importExcel()" disabled>Import</button>
+    </div>
+  </div>
+</div>
+
 <div class="footer" style="text-align:right;padding-right:20px">
   Program Oversight Center &copy; 2026
 </div>
@@ -482,6 +510,7 @@ var isFetchingSavedRecords = false;
 document.addEventListener('DOMContentLoaded',function(){
   initBusinessUnitSelector();
   initManualSelectors();
+  initImportSelectors();
   initForm();
   fetchSavedMonthlyKpiRecords();
 });
@@ -513,6 +542,11 @@ function initBusinessUnitSelector(){
   sel.innerHTML = BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
   sel.value = selectedBusinessUnitId;
 }
+function initImportSelectors(){
+  var buSel = document.getElementById('importBusinessUnitSel');
+  if(buSel)buSel.innerHTML = '<option value="">Select business unit</option>'+BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
+}
+
 function initManualSelectors(){
   var buSel = document.getElementById('manualBusinessUnitSel');
   var monthSel = document.getElementById('manualMonthSel');
@@ -605,6 +639,7 @@ function setImporting(flag){
   if(progress)progress.classList.toggle('active',flag || isFetchingSavedRecords);
   var progressText = progress?progress.querySelector('span:last-child'):null;
   if(progressText)progressText.textContent = isFetchingSavedRecords && !flag ? 'Loading saved KPI records...' : 'Importing KPI workbook...';
+  updateImportButtonState();
   loadData();
 }
 
@@ -630,7 +665,59 @@ function showToast(type,message){
 
 function triggerExcelImport(){
   if(isImporting)return;
-  document.getElementById('excelInput').click();
+  setImportValidation('');
+  setSelectValue('importBusinessUnitSel','');
+  var fileInput = document.getElementById('excelInput');
+  if(fileInput)fileInput.value = '';
+  updateImportButtonState();
+  document.getElementById('importModal').classList.add('active');
+}
+
+function closeImportModal(force){
+  if(isImporting && !force)return;
+  document.getElementById('importModal').classList.remove('active');
+  setImportValidation('');
+}
+
+function setImportValidation(message){
+  var validation = document.getElementById('importValidation');
+  if(!validation)return;
+  validation.textContent = message || '';
+  validation.classList.toggle('active',!!message);
+}
+
+function getImportContext(){
+  var buId = (document.getElementById('importBusinessUnitSel')||{}).value || '';
+  var fileInput = document.getElementById('excelInput');
+  return {buId:buId,bu:buId?getBUById(buId):null,file:fileInput&&fileInput.files?fileInput.files[0]:null};
+}
+
+function updateImportButtonState(){
+  var ctx = getImportContext();
+  var btn = document.getElementById('importSubmitBtn');
+  if(btn)btn.disabled = isImporting || !ctx.buId || !ctx.file;
+  if(ctx.buId && ctx.file)setImportValidation('');
+}
+
+function validateImportContext(ctx){
+  var missing = [];
+  if(!ctx.buId)missing.push('Business Unit');
+  if(!ctx.file)missing.push('Workbook File');
+  if(missing.length){
+    setImportValidation('Please select '+missing.join(' and ')+' before importing.');
+    updateImportButtonState();
+    return false;
+  }
+  setImportValidation('');
+  return true;
+}
+
+async function switchToImportedBusinessUnit(buId){
+  selectedBusinessUnitId = buId;
+  setSelectValue('businessUnitSel',buId);
+  var tabBtn = Array.prototype.find.call(document.querySelectorAll('.tab'),function(btn){return btn.getAttribute('onclick') && btn.getAttribute('onclick').indexOf("'"+buId+"'")>-1;});
+  showTab(buId,tabBtn,true);
+  loadData();
 }
 
 function renderLoadingPanel(title){
@@ -743,7 +830,7 @@ function getRawSummaryValue(row,index){
   return cleanCellValue(row[index]);
 }
 
-function importSummaryWorkbook(workbook,fileName){
+function importSummaryWorkbook(workbook,fileName,buId){
   var sheetName = workbook.SheetNames.find(function(name){return name.toLowerCase().trim()==='summary'});
   if(!sheetName)throw new Error('Summary sheet not found.');
   var sheet = workbook.Sheets[sheetName];
@@ -756,7 +843,7 @@ function importSummaryWorkbook(workbook,fileName){
   });
   if(headerMap.month===undefined)throw new Error('Month column not found in Summary sheet.');
   var imported = 0;
-  var buId = selectedBusinessUnitId;
+  buId = buId || selectedBusinessUnitId;
   var records = [];
   for(var i=1;i<rows.length;i++){
     var row = rows[i]||[];
@@ -1335,10 +1422,14 @@ async function saveManualData(){
 }
 
 // ===== EXCEL IMPORT =====
-function importExcel(ev){
-  var file = ev.target.files[0];
-  if(!file || isImporting)return;
+function importExcel(){
+  var ctx = getImportContext();
+  if(isImporting || !validateImportContext(ctx))return;
+  var file = ctx.file;
+  var importBuId = ctx.buId;
+  var importBu = ctx.bu;
   setImporting(true);
+  updateImportButtonState();
   var reader = new FileReader();
   reader.onload = function(e){
     setTimeout(async function(){
@@ -1347,13 +1438,15 @@ function importExcel(ev){
         var workbook = XLSX.read(data,{type:'array',cellDates:false});
         var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
         if(hasSummary){
-          var summaryImport = importSummaryWorkbook(workbook,file.name);
-          await saveImportedMonthlyKpiRecords(file.name,summaryImport.records,selectedBusinessUnitId);
-          await fetchSavedMonthlyKpiRecords(selectedBusinessUnitId);
+          var summaryImport = importSummaryWorkbook(workbook,file.name,importBuId);
+          await saveImportedMonthlyKpiRecords(file.name,summaryImport.records,importBuId);
+          await fetchSavedMonthlyKpiRecords(importBuId);
+          await switchToImportedBusinessUnit(importBuId);
+          closeImportModal(true);
           if(summaryImport.imported!==12){
             showToast('warning','Imported '+summaryImport.imported+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
           }
-          showToast('success','KPI records imported and saved.');
+          showToast('success','KPI records imported for '+importBu.label+'.');
           return;
         }
         var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -1377,8 +1470,6 @@ function importExcel(ev){
         var month = getSelectedMonth();
         var importedLegacy = 0;
         var legacyRecords = [];
-        var importBuId = selectedBusinessUnitId;
-        var importBu = getSelectedBU();
         for(var i=1;i<rows.length;i++){
           var row = rows[i];
           if(headerMap.bu!==undefined && !isEmptyValue(row[headerMap.bu])){
@@ -1414,22 +1505,28 @@ function importExcel(ev){
           importedLegacy++;
         }
         if(legacyRecords.length===0)throw new Error('No KPI rows matched the selected business unit.');
-        await saveImportedMonthlyKpiRecords(file.name,legacyRecords,selectedBusinessUnitId);
-        await fetchSavedMonthlyKpiRecords(selectedBusinessUnitId);
-        showToast('success','KPI records imported and saved.');
+        await saveImportedMonthlyKpiRecords(file.name,legacyRecords,importBuId);
+        await fetchSavedMonthlyKpiRecords(importBuId);
+        await switchToImportedBusinessUnit(importBuId);
+        closeImportModal(true);
+        showToast('success','KPI records imported for '+importBu.label+'.');
       }catch(err){
         console.error('Import error:',err);
         showToast('error','Error importing Excel: '+err.message);
       }finally{
         setImporting(false);
-        ev.target.value='';
+        var fileInput = document.getElementById('excelInput');
+        if(fileInput)fileInput.value='';
+        updateImportButtonState();
       }
     },120);
   };
   reader.onerror = function(){
     showToast('error','Error reading Excel workbook.');
     setImporting(false);
-    ev.target.value='';
+    var fileInput = document.getElementById('excelInput');
+    if(fileInput)fileInput.value='';
+    updateImportButtonState();
   };
   reader.readAsArrayBuffer(file);
 }
@@ -1456,6 +1553,7 @@ async function clearData(){
 
 // Close modal on overlay click
 document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+document.getElementById('importModal').addEventListener('click',function(e){if(e.target===this)closeImportModal();});
 
 /* ============================================================
    AI ASSISTANT for Scorecard KPI Dashboard
