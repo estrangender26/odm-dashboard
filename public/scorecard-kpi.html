@@ -448,11 +448,12 @@ var ScoreData = {};
 var MonthlyScoreData = {};
 var Charts = {};
 var isImporting = false;
+var isFetchingSavedRecords = false;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded',function(){
   initForm();
-  loadData();
+  fetchSavedMonthlyKpiRecords();
 });
 
 // ===== TAB SWITCH =====
@@ -512,6 +513,8 @@ function getChartValue(record,key){
   return isBlankDisplayValue(val)?null:val;
 }
 
+function isKpiLoading(){return isImporting || isFetchingSavedRecords;}
+
 function setImporting(flag){
   isImporting = flag;
   var btn = document.getElementById('importBtn');
@@ -519,7 +522,18 @@ function setImporting(flag){
   var progress = document.getElementById('importProgress');
   if(btn)btn.disabled = flag;
   if(label)label.innerHTML = flag?'<span class="spinner"></span> Importing...':'Import Excel';
-  if(progress)progress.classList.toggle('active',flag);
+  if(progress)progress.classList.toggle('active',flag || isFetchingSavedRecords);
+  var progressText = progress?progress.querySelector('span:last-child'):null;
+  if(progressText)progressText.textContent = isFetchingSavedRecords && !flag ? 'Loading saved KPI records...' : 'Importing KPI workbook...';
+  loadData();
+}
+
+function setFetchingSavedRecords(flag){
+  isFetchingSavedRecords = flag;
+  var progress = document.getElementById('importProgress');
+  if(progress)progress.classList.toggle('active',flag || isImporting);
+  var progressText = progress?progress.querySelector('span:last-child'):null;
+  if(progressText)progressText.textContent = flag && !isImporting ? 'Loading saved KPI records...' : 'Importing KPI workbook...';
   loadData();
 }
 
@@ -546,11 +560,11 @@ function renderLoadingPanel(title){
 function updateChartLoadingOverlays(){
   document.querySelectorAll('.chart-wrap').forEach(function(wrap){
     var existing = wrap.querySelector('.chart-loading');
-    if(isImporting){
+    if(isKpiLoading()){
       if(!existing){
         var overlay = document.createElement('div');
         overlay.className = 'chart-loading';
-        overlay.innerHTML = '<span class="spinner-blue"></span><span>Loading KPI chart...</span>';
+        overlay.innerHTML = '<span class="spinner-blue"></span><span>'+(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI chart...')+'</span>';
         wrap.appendChild(overlay);
       }
     }else if(existing){
@@ -643,7 +657,12 @@ function mapSummaryHeader(header){
   return null;
 }
 
-function importSummaryWorkbook(workbook){
+function getRawSummaryValue(row,index){
+  if(index===undefined)return null;
+  return cleanCellValue(row[index]);
+}
+
+function importSummaryWorkbook(workbook,fileName){
   var sheetName = workbook.SheetNames.find(function(name){return name.toLowerCase().trim()==='summary'});
   if(!sheetName)throw new Error('Summary sheet not found.');
   var sheet = workbook.Sheets[sheetName];
@@ -657,27 +676,131 @@ function importSummaryWorkbook(workbook){
   if(headerMap.month===undefined)throw new Error('Month column not found in Summary sheet.');
   var imported = 0;
   var buId = 'ez';
+  var records = [];
   for(var i=1;i<rows.length;i++){
     var row = rows[i]||[];
     var monthInfo = excelDateToReportingMonth(row[headerMap.month]);
     if(!monthInfo)continue;
     var record = ensureMonthlyRecord(buId,monthInfo.year,monthInfo.month);
+    record.business_unit = buId;
     record.sourceSheet = 'Summary';
+    record.source_file_name = fileName || null;
     record.reportingMonth = monthInfo.month;
     record.reportingYear = monthInfo.year;
     record[SummaryWorkbookColumns.month] = monthInfo.month;
     record.reportingLabel = monthInfo.label;
+    var rawImportedValues = {sourceSheet:'Summary',rowNumber:i+1,values:{}};
     Object.keys(SummaryWorkbookColumns).forEach(function(key){
-      if(key==='month'||headerMap[key]===undefined)return;
+      if(key==='month')return;
+      var rawValue = getRawSummaryValue(row,headerMap[key]);
+      rawImportedValues.values[SummaryWorkbookColumns[key]] = rawValue;
+      if(headerMap[key]===undefined){
+        record[key] = null;
+        record[SummaryWorkbookColumns[key]] = null;
+        return;
+      }
       var parsed = parseKPINumber(row[headerMap[key]]);
       record[key] = parsed;
       record[SummaryWorkbookColumns[key]] = parsed;
+    });
+    record.raw_imported_values = rawImportedValues;
+    records.push({
+      business_unit: buId,
+      reporting_month: monthInfo.month,
+      reporting_year: monthInfo.year,
+      source_file_name: fileName || null,
+      pm_compliance: record.pm_compliance,
+      pm_planned: record.pm_planned,
+      schedule_compliance: record.schedule_compliance,
+      budget_spend: record.budget_spend,
+      pm_cm_work_order_ratio: record.pm_cm_work_order_ratio,
+      pm_cm_cost_ratio: record.pm_cm_cost_ratio,
+      mtbf_days: record.mtbf_days,
+      mttr_days: record.mttr_days,
+      facility_uptime: record.facility_uptime,
+      raw_imported_values: rawImportedValues
     });
     imported++;
   }
   var selectedMonthRecord = getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth());
   if(selectedMonthRecord)ScoreData[buId] = selectedMonthRecord;
-  return imported;
+  return {imported:imported,records:records};
+}
+
+function normalizePersistedBusinessUnit(value){
+  var text = String(value||'').toLowerCase().trim();
+  var exact = BUs.find(function(bu){return text===bu.id || text===bu.name.toLowerCase() || text===bu.label.toLowerCase();});
+  if(exact)return exact.id;
+  var fuzzy = BUs.find(function(bu){return text.includes(bu.id) || text.includes(bu.name.toLowerCase()) || text.includes(bu.label.toLowerCase());});
+  return fuzzy?fuzzy.id:text;
+}
+
+function applyPersistedMonthlyKpiRecords(records){
+  MonthlyScoreData = {};
+  ScoreData = {};
+  (records||[]).forEach(function(row){
+    var buId = normalizePersistedBusinessUnit(row.business_unit);
+    if(!buId)return;
+    var year = parseInt(row.reporting_year,10);
+    var month = parseInt(row.reporting_month,10);
+    if(!year || !month)return;
+    var record = ensureMonthlyRecord(buId,year,month);
+    record.id = row.id;
+    record.business_unit = row.business_unit;
+    record.reportingMonth = month;
+    record.reportingYear = year;
+    record.reporting_month = month;
+    record.reporting_year = year;
+    record.reportingLabel = MonthNames[month-1]+' '+year;
+    record.source_file_name = row.source_file_name || null;
+    record.imported_at = row.imported_at || null;
+    record.pmCompliance = row.pm_compliance;
+    record.pm_compliance = row.pm_compliance;
+    record.pmPlanned = row.pm_planned;
+    record.pm_planned = row.pm_planned;
+    record.scheduleCompliance = row.schedule_compliance;
+    record.schedule_compliance = row.schedule_compliance;
+    record.budgetSpend = row.budget_spend;
+    record.budget_spend = row.budget_spend;
+    record.pmcmWORatio = row.pm_cm_work_order_ratio;
+    record.pm_cm_work_order_ratio = row.pm_cm_work_order_ratio;
+    record.pmcmCostRatio = row.pm_cm_cost_ratio;
+    record.pm_cm_cost_ratio = row.pm_cm_cost_ratio;
+    record.mtbf = row.mtbf_days;
+    record.mtbf_days = row.mtbf_days;
+    record.mttr = row.mttr_days;
+    record.mttr_days = row.mttr_days;
+    record.facilityUptime = row.facility_uptime;
+    record.facility_uptime = row.facility_uptime;
+    record.raw_imported_values = row.raw_imported_values || null;
+    if(year===getSelectedYear() && month===getSelectedMonth())ScoreData[buId] = record;
+  });
+}
+
+async function fetchSavedMonthlyKpiRecords(){
+  setFetchingSavedRecords(true);
+  try{
+    var res = await fetch('/api/monthly-kpi/records',{headers:{'Accept':'application/json'}});
+    var payload = await res.json().catch(function(){return {};});
+    if(!res.ok)throw new Error(payload.error || 'Unable to load saved Monthly KPI records.');
+    applyPersistedMonthlyKpiRecords(payload.records || []);
+  }catch(err){
+    console.error('Saved KPI load error:',err);
+    showToast('error','Unable to load saved KPI records: '+err.message);
+  }finally{
+    setFetchingSavedRecords(false);
+  }
+}
+
+async function saveImportedMonthlyKpiRecords(fileName,records){
+  var res = await fetch('/api/monthly-kpi/import',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({source_file_name:fileName,records:records})
+  });
+  var payload = await res.json().catch(function(){return {};});
+  if(!res.ok)throw new Error(payload.error || 'Unable to save imported KPI records.');
+  return payload;
 }
 
 // ===== COLOR LOGIC =====
@@ -720,7 +843,7 @@ function getSummaryKPIs(bu){
 // ===== RENDER SUMMARY =====
 function renderSummary(){
   var tbody = document.getElementById('summaryBody');
-  if(isImporting){tbody.innerHTML = '<tr><td colspan="6">'+renderLoadingPanel('Loading KPI table...')+'</td></tr>';return;}
+  if(isKpiLoading()){tbody.innerHTML = '<tr><td colspan="6">'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...')+'</td></tr>';return;}
   if(!hasImportedData(null,getSelectedYear())){tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No KPI data imported yet.</div></td></tr>';return;}
   var html = '';
   // Benchmark row
@@ -746,7 +869,7 @@ function renderSummary(){
 function renderGauges(buId){
   var container = document.getElementById(buId+'-gauges');
   if(!container)return;
-  if(isImporting){container.innerHTML = renderLoadingPanel('Loading KPI cards...');return;}
+  if(isKpiLoading()){container.innerHTML = renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI cards...');return;}
   var d = getCurrentData(buId);
   if(!hasImportedData(buId,getSelectedYear())){container.innerHTML = '<div class="empty-state">No KPI data imported yet.</div>';return;}
   var html = '';
@@ -775,7 +898,7 @@ function renderGauges(buId){
 function renderMonthlyRecords(buId){
   var container = document.getElementById(buId+'-monthly-records');
   if(!container)return;
-  if(isImporting){container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div>'+renderLoadingPanel('Loading KPI table...');return;}
+  if(isKpiLoading()){container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div>'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...');return;}
   var year = getSelectedYear();
   var hasData = !!(MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]);
   if(!hasData){
@@ -850,7 +973,7 @@ var noDataPlugin = {
     ctx.fillStyle = '#5A6B7D';
     ctx.font = '700 13px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(isImporting?'Importing KPI workbook...':'No KPI data imported yet.', (area.left+area.right)/2, (area.top+area.bottom)/2);
+    ctx.fillText(isKpiLoading()?(isFetchingSavedRecords?'Loading saved KPI records...':'Importing KPI workbook...'):'No KPI data imported yet.', (area.left+area.right)/2, (area.top+area.bottom)/2);
     ctx.restore();
   }
 };
@@ -987,19 +1110,19 @@ function importExcel(ev){
   setImporting(true);
   var reader = new FileReader();
   reader.onload = function(e){
-    setTimeout(function(){
+    setTimeout(async function(){
       try{
         var data = new Uint8Array(e.target.result);
         var workbook = XLSX.read(data,{type:'array',cellDates:false});
         var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
         if(hasSummary){
-          var imported = importSummaryWorkbook(workbook);
-          if(imported!==12){
-            showToast('warning','Imported '+imported+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
-          }else{
-            showToast('success','Imported all 12 monthly KPI records from the Summary sheet.');
+          var summaryImport = importSummaryWorkbook(workbook,file.name);
+          await saveImportedMonthlyKpiRecords(file.name,summaryImport.records);
+          await fetchSavedMonthlyKpiRecords();
+          if(summaryImport.imported!==12){
+            showToast('warning','Imported '+summaryImport.imported+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
           }
-          loadData();
+          showToast('success','KPI records imported and saved.');
           return;
         }
         var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -1022,6 +1145,7 @@ function importExcel(ev){
         var year = getSelectedYear();
         var month = getSelectedMonth();
         var importedLegacy = 0;
+        var legacyRecords = [];
         for(var i=1;i<rows.length;i++){
           var row = rows[i];
           if(headerMap.bu===undefined||isEmptyValue(row[headerMap.bu]))continue;
@@ -1029,16 +1153,35 @@ function importExcel(ev){
           var bu = BUs.find(function(b){return buName.includes(b.id)||buName.includes(b.name.toLowerCase())||buName.includes(b.label.toLowerCase())});
           if(!bu)continue;
           var record = ensureMonthlyRecord(bu.id,year,month);
+          var rawImportedValues = {sourceSheet:workbook.SheetNames[0],rowNumber:i+1,values:{}};
           Object.keys(headerMap).forEach(function(key){
             if(key==='bu')return;
             var parsed = parseKPINumber(row[headerMap[key]]);
-            if(parsed!==null)record[key]=parsed;
+            rawImportedValues.values[key] = cleanCellValue(row[headerMap[key]]);
+            record[key]=parsed;
           });
           ScoreData[bu.id] = record;
+          legacyRecords.push({
+            business_unit: bu.id,
+            reporting_month: month,
+            reporting_year: year,
+            source_file_name: file.name,
+            pm_compliance: record.pmCompliance ?? null,
+            pm_planned: record.pmPlanned ?? null,
+            schedule_compliance: record.scheduleCompliance ?? null,
+            budget_spend: record.budgetSpend ?? null,
+            pm_cm_work_order_ratio: record.pmcmWORatio ?? null,
+            pm_cm_cost_ratio: record.pmcmCostRatio ?? null,
+            mtbf_days: record.mtbf ?? null,
+            mttr_days: record.mttr ?? null,
+            facility_uptime: record.facilityUptime ?? null,
+            raw_imported_values: rawImportedValues
+          });
           importedLegacy++;
         }
-        showToast('success','Excel imported successfully. '+importedLegacy+' business unit records loaded.');
-        loadData();
+        await saveImportedMonthlyKpiRecords(file.name,legacyRecords);
+        await fetchSavedMonthlyKpiRecords();
+        showToast('success','KPI records imported and saved.');
       }catch(err){
         console.error('Import error:',err);
         showToast('error','Error importing Excel: '+err.message);

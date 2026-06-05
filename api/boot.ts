@@ -326,6 +326,210 @@ app.get("/mw-dashboard", async (c) => {
   return c.json({ error: "MW dashboard not found", path: mwPath }, 404);
 });
 
+
+function asNullableKpiNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const parsed = Number(String(value).replace(/,/g, "").replace(/%/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function asRequiredInteger(value: unknown, fieldName: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) throw new Error(`${fieldName} must be an integer`);
+  return parsed;
+}
+
+function normalizeMonthlyKpiRecord(input: any, fallbackSourceFileName?: string | null) {
+  const businessUnit = String(input?.business_unit ?? input?.businessUnit ?? "").trim();
+  if (!businessUnit) throw new Error("business_unit is required");
+  const reportingMonth = asRequiredInteger(input?.reporting_month ?? input?.reportingMonth, "reporting_month");
+  const reportingYear = asRequiredInteger(input?.reporting_year ?? input?.reportingYear, "reporting_year");
+  if (reportingMonth < 1 || reportingMonth > 12) throw new Error("reporting_month must be between 1 and 12");
+  if (reportingYear < 1900 || reportingYear > 3000) throw new Error("reporting_year must be a valid year");
+
+  return {
+    businessUnit,
+    reportingMonth,
+    reportingYear,
+    sourceFileName: String(input?.source_file_name ?? input?.sourceFileName ?? fallbackSourceFileName ?? "").trim() || null,
+    pmCompliance: asNullableKpiNumber(input?.pm_compliance ?? input?.pmCompliance),
+    pmPlanned: asNullableKpiNumber(input?.pm_planned ?? input?.pmPlanned),
+    scheduleCompliance: asNullableKpiNumber(input?.schedule_compliance ?? input?.scheduleCompliance),
+    budgetSpend: asNullableKpiNumber(input?.budget_spend ?? input?.budgetSpend),
+    pmCmWorkOrderRatio: asNullableKpiNumber(input?.pm_cm_work_order_ratio ?? input?.pmCmWorkOrderRatio ?? input?.pmcmWORatio),
+    pmCmCostRatio: asNullableKpiNumber(input?.pm_cm_cost_ratio ?? input?.pmCmCostRatio ?? input?.pmcmCostRatio),
+    mtbfDays: asNullableKpiNumber(input?.mtbf_days ?? input?.mtbfDays ?? input?.mtbf),
+    mttrDays: asNullableKpiNumber(input?.mttr_days ?? input?.mttrDays ?? input?.mttr),
+    facilityUptime: asNullableKpiNumber(input?.facility_uptime ?? input?.facilityUptime),
+    rawImportedValues: input?.raw_imported_values ?? input?.rawImportedValues ?? null,
+  };
+}
+
+logBootStage("registering monthly KPI scorecard routes");
+
+app.get("/api/monthly-kpi/records", async (c) => {
+  try {
+    await ensureDbReady();
+    const db = getDb();
+    const businessUnit = c.req.query("business_unit");
+    const reportingYear = c.req.query("reporting_year");
+    const reportingMonth = c.req.query("reporting_month");
+    const rows = await db.execute(sql`
+      SELECT
+        id,
+        business_unit,
+        reporting_month,
+        reporting_year,
+        source_file_name,
+        imported_at,
+        pm_compliance,
+        pm_planned,
+        schedule_compliance,
+        budget_spend,
+        pm_cm_work_order_ratio,
+        pm_cm_cost_ratio,
+        mtbf_days,
+        mttr_days,
+        facility_uptime,
+        raw_imported_values
+      FROM monthly_kpi_records
+      WHERE (${businessUnit ?? null}::text IS NULL OR business_unit = ${businessUnit ?? null})
+        AND (${reportingYear ?? null}::int IS NULL OR reporting_year = ${reportingYear ? Number(reportingYear) : null})
+        AND (${reportingMonth ?? null}::int IS NULL OR reporting_month = ${reportingMonth ? Number(reportingMonth) : null})
+      ORDER BY reporting_year DESC, reporting_month DESC, business_unit ASC
+    `);
+    return c.json({ records: (rows as any).rows ?? rows });
+  } catch (e: any) {
+    console.error("[monthly-kpi] GET records failed", e);
+    return c.json({ error: e?.message ?? "Unable to fetch Monthly KPI records" }, 500);
+  }
+});
+
+app.post("/api/monthly-kpi/import", async (c) => {
+  try {
+    await ensureDbReady();
+    const body = await c.req.json();
+    const sourceFileName = body?.source_file_name ?? body?.sourceFileName ?? null;
+    const payloadRecords = Array.isArray(body?.records) ? body.records : [];
+    if (payloadRecords.length === 0) return c.json({ error: "records array is required" }, 400);
+    const db = getDb();
+    const saved: any[] = [];
+    for (const payloadRecord of payloadRecords) {
+      const record = normalizeMonthlyKpiRecord(payloadRecord, sourceFileName);
+      const result = await db.execute(sql`
+        INSERT INTO monthly_kpi_records (
+          business_unit,
+          reporting_month,
+          reporting_year,
+          source_file_name,
+          imported_at,
+          pm_compliance,
+          pm_planned,
+          schedule_compliance,
+          budget_spend,
+          pm_cm_work_order_ratio,
+          pm_cm_cost_ratio,
+          mtbf_days,
+          mttr_days,
+          facility_uptime,
+          raw_imported_values
+        ) VALUES (
+          ${record.businessUnit},
+          ${record.reportingMonth},
+          ${record.reportingYear},
+          ${record.sourceFileName},
+          now(),
+          ${record.pmCompliance},
+          ${record.pmPlanned},
+          ${record.scheduleCompliance},
+          ${record.budgetSpend},
+          ${record.pmCmWorkOrderRatio},
+          ${record.pmCmCostRatio},
+          ${record.mtbfDays},
+          ${record.mttrDays},
+          ${record.facilityUptime},
+          ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb
+        )
+        ON CONFLICT (business_unit, reporting_year, reporting_month)
+        DO UPDATE SET
+          source_file_name = EXCLUDED.source_file_name,
+          imported_at = now(),
+          pm_compliance = EXCLUDED.pm_compliance,
+          pm_planned = EXCLUDED.pm_planned,
+          schedule_compliance = EXCLUDED.schedule_compliance,
+          budget_spend = EXCLUDED.budget_spend,
+          pm_cm_work_order_ratio = EXCLUDED.pm_cm_work_order_ratio,
+          pm_cm_cost_ratio = EXCLUDED.pm_cm_cost_ratio,
+          mtbf_days = EXCLUDED.mtbf_days,
+          mttr_days = EXCLUDED.mttr_days,
+          facility_uptime = EXCLUDED.facility_uptime,
+          raw_imported_values = EXCLUDED.raw_imported_values
+        RETURNING
+          id,
+          business_unit,
+          reporting_month,
+          reporting_year,
+          source_file_name,
+          imported_at,
+          pm_compliance,
+          pm_planned,
+          schedule_compliance,
+          budget_spend,
+          pm_cm_work_order_ratio,
+          pm_cm_cost_ratio,
+          mtbf_days,
+          mttr_days,
+          facility_uptime,
+          raw_imported_values
+      `);
+      const row = ((result as any).rows ?? result)[0];
+      if (row) saved.push(row);
+    }
+    return c.json({ success: true, records: saved, count: saved.length });
+  } catch (e: any) {
+    console.error("[monthly-kpi] import failed", e);
+    return c.json({ error: e?.message ?? "Unable to save Monthly KPI records" }, 500);
+  }
+});
+
+app.patch("/api/monthly-kpi/records/:id", async (c) => {
+  try {
+    await ensureDbReady();
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid record id" }, 400);
+    const body = await c.req.json();
+    const existingRows = await getDb().execute(sql`SELECT * FROM monthly_kpi_records WHERE id = ${id} LIMIT 1`);
+    const existing = ((existingRows as any).rows ?? existingRows)[0];
+    if (!existing) return c.json({ error: "Monthly KPI record not found" }, 404);
+    const record = normalizeMonthlyKpiRecord({ ...existing, ...body }, existing.source_file_name);
+    const result = await getDb().execute(sql`
+      UPDATE monthly_kpi_records SET
+        business_unit = ${record.businessUnit},
+        reporting_month = ${record.reportingMonth},
+        reporting_year = ${record.reportingYear},
+        source_file_name = ${record.sourceFileName},
+        imported_at = now(),
+        pm_compliance = ${record.pmCompliance},
+        pm_planned = ${record.pmPlanned},
+        schedule_compliance = ${record.scheduleCompliance},
+        budget_spend = ${record.budgetSpend},
+        pm_cm_work_order_ratio = ${record.pmCmWorkOrderRatio},
+        pm_cm_cost_ratio = ${record.pmCmCostRatio},
+        mtbf_days = ${record.mtbfDays},
+        mttr_days = ${record.mttrDays},
+        facility_uptime = ${record.facilityUptime},
+        raw_imported_values = ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb
+      WHERE id = ${id}
+      RETURNING *
+    `);
+    return c.json({ success: true, record: (((result as any).rows ?? result)[0]) });
+  } catch (e: any) {
+    console.error("[monthly-kpi] update failed", e);
+    return c.json({ error: e?.message ?? "Unable to update Monthly KPI record" }, 500);
+  }
+});
+
 logBootStage("registering health check routes");
 
 // Health check — tests database connectivity and shows deployment info

@@ -7,6 +7,7 @@ import type {
 import { createPresentation } from "./pptxBuilder";
 import {
   currentMonthlyKpiScorecard,
+  getPersistedMonthlyKpiScorecard,
   getReportingMonthLabel,
   getScorecardSummary,
   scorecardBenchmarks,
@@ -19,16 +20,22 @@ function slug(value: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-function kpiRows() {
+function formatDeckValue(value: number | null | undefined, digits = 2) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(digits)}%`
+    : "--";
+}
+
+function kpiRows(records = currentMonthlyKpiScorecard) {
   return [
     ["Business Unit", ...scorecardBenchmarks.map(benchmark => benchmark.label)],
-    ...currentMonthlyKpiScorecard.map(record => [
+    ...records.map(record => [
       record.businessUnit,
-      `${record.pmCompliance.toFixed(1)}%`,
-      `${record.pmCmWorkOrderRatio.toFixed(1)}%`,
-      `${record.budgetSpend.toFixed(1)}%`,
-      `${record.pmCmCostRatio.toFixed(1)}%`,
-      `${record.facilityUptime.toFixed(2)}%`,
+      formatDeckValue(record.pmCompliance),
+      formatDeckValue(record.pmCmWorkOrderRatio),
+      formatDeckValue(record.budgetSpend),
+      formatDeckValue(record.pmCmCostRatio),
+      formatDeckValue(record.facilityUptime),
     ]),
   ];
 }
@@ -36,9 +43,11 @@ function kpiRows() {
 async function generateMonthlyKpiDeck(
   context: DeckGenerationContext
 ): Promise<GeneratedPresentation> {
-  const reportingMonth = context.reportingMonth || getReportingMonthLabel();
+  const persisted = await getPersistedMonthlyKpiScorecard();
+  const scorecardRecords = persisted.records;
+  const reportingMonth = context.reportingMonth || persisted.reportingMonthLabel || getReportingMonthLabel();
   const businessUnit = context.businessUnit || "All Business Units";
-  const summary = getScorecardSummary();
+  const summary = getScorecardSummary(scorecardRecords);
   const now = new Date();
   const title = `Monthly KPI Scorecard Deck - ${reportingMonth}`;
   const blob = createPresentation([
@@ -162,7 +171,7 @@ async function generateMonthlyKpiDeck(
         },
         {
           type: "table",
-          rows: kpiRows(),
+          rows: kpiRows(scorecardRecords),
           x: 0.45,
           y: 1.05,
           w: 12.45,
@@ -202,8 +211,8 @@ async function generateMonthlyKpiDeck(
         {
           type: "bars",
           title: "PM Compliance by Business Unit",
-          labels: currentMonthlyKpiScorecard.map(record => record.businessUnit),
-          values: currentMonthlyKpiScorecard.map(record => record.pmCompliance),
+          labels: scorecardRecords.map(record => record.businessUnit),
+          values: scorecardRecords.map(record => record.pmCompliance ?? 0),
           x: 0.75,
           y: 1.05,
           w: 5.85,
@@ -213,9 +222,9 @@ async function generateMonthlyKpiDeck(
         {
           type: "bars",
           title: "Facility Uptime by Business Unit",
-          labels: currentMonthlyKpiScorecard.map(record => record.businessUnit),
-          values: currentMonthlyKpiScorecard.map(
-            record => record.facilityUptime
+          labels: scorecardRecords.map(record => record.businessUnit),
+          values: scorecardRecords.map(
+            record => record.facilityUptime ?? 0
           ),
           x: 7.0,
           y: 1.05,

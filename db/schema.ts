@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, doublePrecision, jsonb } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -32,6 +32,29 @@ export const tasks = pgTable("tasks", {
   index("tasks_equipment_idx").on(table.equipmentId),
   index("tasks_dataset_idx").on(table.dataset),
   index("tasks_familiarity_idx").on(table.procedureFamiliarity),
+]);
+
+export const monthlyKpiRecords = pgTable("monthly_kpi_records", {
+  id: serial("id").primaryKey(),
+  businessUnit: varchar("business_unit", { length: 100 }).notNull(),
+  reportingMonth: integer("reporting_month").notNull(),
+  reportingYear: integer("reporting_year").notNull(),
+  sourceFileName: varchar("source_file_name", { length: 255 }),
+  importedAt: timestamp("imported_at").defaultNow(),
+  pmCompliance: doublePrecision("pm_compliance"),
+  pmPlanned: doublePrecision("pm_planned"),
+  scheduleCompliance: doublePrecision("schedule_compliance"),
+  budgetSpend: doublePrecision("budget_spend"),
+  pmCmWorkOrderRatio: doublePrecision("pm_cm_work_order_ratio"),
+  pmCmCostRatio: doublePrecision("pm_cm_cost_ratio"),
+  mtbfDays: doublePrecision("mtbf_days"),
+  mttrDays: doublePrecision("mttr_days"),
+  facilityUptime: doublePrecision("facility_uptime"),
+  rawImportedValues: jsonb("raw_imported_values"),
+}, (table) => [
+  unique("monthly_kpi_records_bu_year_month_unique").on(table.businessUnit, table.reportingYear, table.reportingMonth),
+  index("monthly_kpi_records_period_idx").on(table.reportingYear, table.reportingMonth),
+  index("monthly_kpi_records_business_unit_idx").on(table.businessUnit),
 ]);
 
 export const governanceFacilities = pgTable("governance_facilities", {
