@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "./queries/connection";
 import { docFolders, docFiles } from "@db/schema";
 import { publicQuery } from "./middleware";
@@ -12,9 +12,9 @@ interface TreeFolder {
   parentId: number | null;
   sortOrder: number;
   children: TreeFolder[];
-  files: { id: number; title: string; fileName: string; fileType: string | null; fileSize: number | null; revision: string | null; uploadedAt: Date | null }[];
+  files: { id: number; title: string; fileName: string; fileType: string | null; fileSize: number | null; revision: string | null; uploadedAt: Date | null; hasFileData: boolean; fileUrl: string | null }[];
 }
-type TreeFileRow = Pick<typeof docFiles.$inferSelect, "id" | "folderId" | "title" | "fileName" | "fileType" | "fileSize" | "revision" | "uploadedAt">;
+type TreeFileRow = Pick<typeof docFiles.$inferSelect, "id" | "folderId" | "title" | "fileName" | "fileType" | "fileSize" | "revision" | "uploadedAt" | "fileUrl"> & { hasFileData: boolean };
 
 // ── Helpers: hierarchy validation and recursive tree safety ──
 function normalizeFolderName(name: string): string {
@@ -100,6 +100,8 @@ function buildTree(
           fileSize: file.fileSize,
           revision: file.revision,
           uploadedAt: file.uploadedAt,
+          hasFileData: file.hasFileData,
+          fileUrl: file.fileUrl,
         })),
       }];
     });
@@ -308,6 +310,8 @@ export const documentsRouter = {
         fileSize: docFiles.fileSize,
         revision: docFiles.revision,
         uploadedAt: docFiles.uploadedAt,
+        hasFileData: sql<boolean>`COALESCE(length(${docFiles.fileData}), 0) > 0`,
+        fileUrl: docFiles.fileUrl,
       }).from(docFiles);
       return { tree: buildTree(allFolders, allFiles), count: allFolders.length + allFiles.length };
     } catch (err: any) {

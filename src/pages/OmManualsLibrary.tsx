@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { memo, useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
@@ -25,22 +25,8 @@ interface TreeFile {
   fileSize: number | null;
   revision: string | null;
   uploadedAt: Date | null;
-}
-
-interface DocFileFull {
-  id: number;
-  folderId: number;
-  title: string;
-  fileName: string;
-  fileType: string | null;
-  fileSize: number | null;
-  fileData: string | null;
+  hasFileData: boolean;
   fileUrl: string | null;
-  description: string | null;
-  revision: string | null;
-  tags: string | null;
-  uploadedBy: string | null;
-  uploadedAt: Date | null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -200,17 +186,6 @@ function fileExists(folders: TreeFolder[], targetId: number): boolean {
     if (fileExists(folder.children, targetId)) return true;
   }
   return false;
-}
-
-// Download a file to browser
-function triggerDownload(data: string, mime: string, filename: string) {
-  const a = document.createElement("a");
-  a.href = data.trim().startsWith("data:") ? data.trim() : `data:${mime};base64,${data}`;
-  a.download = filename;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => document.body.removeChild(a), 100);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -384,14 +359,11 @@ function TreeFolderItem({
 // PDF Viewer Component
 // ═══════════════════════════════════════════════════════════
 
-function PdfViewer({ fileId, fileData, fileUrl, title, fileName, onDelete }: { fileId: number; fileData: string | null; fileUrl: string | null; title: string; fileName: string; onDelete?: () => void }) {
+const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, title, fileName, onDelete }: { fileId: number; hasFileData: boolean; fileUrl: string | null; title: string; fileName: string; onDelete?: () => void }) {
   const [zoom, setZoom] = useState(1);
   const [loadError, setLoadError] = useState(false);
 
-  const hasFileData = useMemo(() => {
-    const b64 = fileData?.trim();
-    return !!b64 && b64.length > 100;
-  }, [fileData]);
+  const [isFrameLoading, setIsFrameLoading] = useState(true);
   const previewUrl = useMemo(() => `/api/documents/files/${fileId}/view`, [fileId]);
   const downloadUrl = useMemo(() => `/api/documents/files/${fileId}/download`, [fileId]);
   const externalPreviewUrl = useMemo(() => {
@@ -513,19 +485,33 @@ function PdfViewer({ fileId, fileData, fileUrl, title, fileName, onDelete }: { f
             maxWidth: "100%",
           }}
         >
-          <iframe
-            src={src}
-            title={title}
-            className="bg-white shadow-lg"
-            style={{ width: "100%", height: "100%", border: "none", display: "block" }}
-            onLoad={() => setLoadError(false)}
-            onError={() => setLoadError(true)}
-          />
+          <div className="relative w-full h-full bg-white shadow-lg">
+            {isFrameLoading && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white">
+                <div className="w-16 h-16 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin mb-4" />
+                <div className="w-2/3 max-w-sm space-y-3">
+                  <div className="h-3 rounded bg-gray-200 animate-pulse" />
+                  <div className="h-3 rounded bg-gray-100 animate-pulse" />
+                  <div className="h-3 w-3/4 rounded bg-gray-100 animate-pulse" />
+                </div>
+                <p className="mt-4 text-xs font-semibold text-gray-500">Loading PDF preview...</p>
+              </div>
+            )}
+            <iframe
+              src={src}
+              title={title}
+              loading="lazy"
+              className="bg-white"
+              style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+              onLoad={() => { setIsFrameLoading(false); setLoadError(false); }}
+              onError={() => { setIsFrameLoading(false); setLoadError(true); }}
+            />
+          </div>
         </div>
       </div>
     </div>
   );
-}
+});
 
 // ═══════════════════════════════════════════════════════════
 // Modal Component
@@ -555,7 +541,7 @@ export default function OmManualsLibrary() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
-  const [selectedFileData, setSelectedFileData] = useState<DocFileFull | null>(null);
+  const [selectedFile, setSelectedFile] = useState<TreeFile | null>(null);
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [mobileView, setMobileView] = useState<"tree" | "detail">("tree");
   const [contextMenu, setContextMenu] = useState<{x: number; y: number; items: {label: string; icon: string; onClick: () => void; danger?: boolean}[]} | null>(null);
@@ -586,18 +572,6 @@ export default function OmManualsLibrary() {
   });
   const utils = trpc.useUtils();
 
-  // ── Fetch single file for viewer ──
-  const { data: fileDetail, isLoading: isFileLoading } = trpc.documents.getFile.useQuery(
-    { id: selectedFileId! },
-    { enabled: !!selectedFileId }
-  );
-
-  useEffect(() => {
-    if (!fileDetail) return;
-    const handle = window.setTimeout(() => setSelectedFileData(fileDetail), 0);
-    return () => window.clearTimeout(handle);
-  }, [fileDetail]);
-
   useEffect(() => {
     const handle = window.setTimeout(() => setDebouncedSearch(search.trim()), 180);
     return () => window.clearTimeout(handle);
@@ -605,38 +579,29 @@ export default function OmManualsLibrary() {
 
   // ── Download file helper ──
   const handleDownloadFile = useCallback((file: TreeFile) => {
-    if (selectedFileData && selectedFileData.id === file.id && selectedFileData.fileData) {
-      triggerDownload(selectedFileData.fileData, file.fileType || "application/pdf", file.fileName || file.title || "document.pdf");
-      setBanner({ type: "info", message: `Downloading ${file.fileName}...` });
+    const downloadHref = file.hasFileData ? `/api/documents/files/${file.id}/download` : file.fileUrl?.trim();
+    if (!downloadHref) {
+      setBanner({ type: "error", message: "No file data available for download" });
       return;
     }
+
     setIsDownloading(true);
     setDownloadLabel(`Downloading "${file.fileName || file.title}"...`);
-    setSelectedFileId(file.id);
-    utils.documents.getFile.fetch({ id: file.id }).then((data) => {
+    const a = document.createElement("a");
+    a.href = downloadHref;
+    a.download = file.fileName || file.title || "document.pdf";
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    window.setTimeout(() => {
+      document.body.removeChild(a);
       setIsDownloading(false);
-      if (data?.fileData) {
-        triggerDownload(data.fileData, file.fileType || "application/pdf", file.fileName || file.title || "document.pdf");
-        setBanner({ type: "success", message: `Downloaded ${file.fileName}` });
-      } else if (data?.fileUrl) {
-        const a = document.createElement("a");
-        a.href = data.fileUrl;
-        a.download = file.fileName || file.title || "document.pdf";
-        a.target = "_blank";
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => document.body.removeChild(a), 100);
-        setBanner({ type: "success", message: `Downloaded ${file.fileName}` });
-      } else {
-        setBanner({ type: "error", message: "No file data available for download" });
-      }
-    }).catch((e: unknown) => {
-      setIsDownloading(false);
-      const message = e instanceof Error ? e.message : "Unknown error";
-      setBanner({ type: "error", message: `Download failed: ${message}` });
-    });
-  }, [selectedFileData, utils]);
+      setBanner({ type: "success", message: `Download started for ${file.fileName || file.title}` });
+    }, 250);
+  }, []);
+
 
   // ── Delete file helper ──
   const handleDeleteFile = useCallback((file: TreeFile) => {
@@ -700,15 +665,15 @@ export default function OmManualsLibrary() {
     },
   });
   const deleteFile = trpc.documents.deleteFile.useMutation({
-    onSuccess: async () => { await refreshTree("deleteFile"); await utils.documents.getFile.invalidate(); setSelectedFileId(null); setSelectedFileData(null); setBanner({ type: "success", message: "File deleted" }); },
+    onSuccess: async () => { await refreshTree("deleteFile"); setSelectedFileId(null); setSelectedFile(null); setBanner({ type: "success", message: "File deleted" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to delete file. ${e.message}` }); },
   });
   const renameFile = trpc.documents.renameFile.useMutation({
-    onSuccess: async () => { await refreshTree("renameFile"); await utils.documents.getFile.invalidate(); setModal(null); setModalInput(""); setBanner({ type: "success", message: "File renamed" }); },
+    onSuccess: async () => { await refreshTree("renameFile"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "File renamed" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to rename file. ${e.message}` }); },
   });
   const moveFile = trpc.documents.moveFile.useMutation({
-    onSuccess: async () => { await refreshTree("moveFile"); await utils.documents.getFile.invalidate(); setBanner({ type: "success", message: "File moved" }); },
+    onSuccess: async () => { await refreshTree("moveFile"); setBanner({ type: "success", message: "File moved" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to move file. ${e.message}` }); },
   });
 
@@ -721,7 +686,7 @@ export default function OmManualsLibrary() {
       }
       if (selectedFileId !== null && !fileExists(treeData.tree, selectedFileId)) {
         setSelectedFileId(null);
-        setSelectedFileData(null);
+        setSelectedFile(null);
         setBanner((prev) => prev ?? { type: "info", message: "Selected file no longer exists and was cleared." });
       }
     }, 0);
@@ -742,8 +707,8 @@ export default function OmManualsLibrary() {
   const collapseAll = useCallback(() => { setExpandedIds(new Set()); }, []);
 
   const onSelectFile = useCallback((file: TreeFile) => {
+    setSelectedFile(file);
     setSelectedFileId(file.id);
-    setSelectedFileData(null);
     setMobileView("detail");
   }, []);
 
@@ -778,7 +743,7 @@ export default function OmManualsLibrary() {
   const onSelectFolder = useCallback((id: number) => {
     setSelectedFolderId(id);
     setSelectedFileId(null);
-    setSelectedFileData(null);
+    setSelectedFile(null);
   }, []);
 
   // ── Handle file upload ──
@@ -843,7 +808,6 @@ export default function OmManualsLibrary() {
       {/* Progress Overlays */}
       <ProgressOverlay visible={isUploading} label={uploadLabel || "Uploading..."} sublabel={uploadLabel.includes("%") ? undefined : "Transferring file to server"} progress={uploadProgress} />
       <ProgressOverlay visible={isDownloading} label={downloadLabel || "Downloading..."} sublabel="Fetching file from server" />
-      <ProgressOverlay visible={!!selectedFileId && isFileLoading && !isUploading && !isDownloading} label="Loading file..." sublabel="Reading document data from server" />
 
       {/* Header */}
       <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}>
@@ -916,14 +880,14 @@ export default function OmManualsLibrary() {
               ) : null;
             })()}
             {/* Selected file actions */}
-            {selectedFileData && selectedFileId && (
+            {selectedFile && selectedFileId && (
               <div className="flex gap-1.5 flex-wrap">
-                <button type="button" onClick={() => handleDownloadFile({ id: selectedFileData.id, title: selectedFileData.title, fileName: selectedFileData.fileName, fileType: selectedFileData.fileType, fileSize: selectedFileData.fileSize, revision: selectedFileData.revision, uploadedAt: selectedFileData.uploadedAt })}
+                <button type="button" onClick={() => handleDownloadFile(selectedFile)}
                   className="px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-semibold hover:bg-blue-100 flex items-center gap-1">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   Download
                 </button>
-                <button type="button" onClick={() => setModal({ type: "deleteFile", fileId: selectedFileData.id })}
+                <button type="button" onClick={() => setModal({ type: "deleteFile", fileId: selectedFile.id })}
                   className="px-2 py-1 bg-white border border-gray-300 text-red-600 rounded text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 3h6M5 3V2h2v1M4 3v7M6 3v7M8 3v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   Delete
@@ -988,18 +952,16 @@ export default function OmManualsLibrary() {
             Back to tree
           </button>
 
-          {selectedFileData ? (
+          {selectedFile ? (
             <PdfViewer
-              key={selectedFileData.id}
-              fileId={selectedFileData.id}
-              fileData={selectedFileData.fileData}
-              fileUrl={selectedFileData.fileUrl}
-              title={selectedFileData.title}
-              fileName={selectedFileData.fileName || "document.pdf"}
-              onDelete={() => { if (selectedFileData) setModal({ type: "deleteFile", fileId: selectedFileData.id }); }}
+              key={selectedFile.id}
+              fileId={selectedFile.id}
+              hasFileData={selectedFile.hasFileData}
+              fileUrl={selectedFile.fileUrl}
+              title={selectedFile.title}
+              fileName={selectedFile.fileName || "document.pdf"}
+              onDelete={() => setModal({ type: "deleteFile", fileId: selectedFile.id })}
             />
-          ) : selectedFileId && !selectedFileData ? (
-            <div className="flex-1 flex items-center justify-center"><div className="text-gray-400 text-sm">Loading document...</div></div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center max-w-md text-gray-400">
