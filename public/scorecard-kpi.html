@@ -45,7 +45,24 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .ctrl-red{background:var(--red);color:#fff;box-shadow:0 1px 3px rgba(220,38,38,.2)}
 .ctrl-red:hover{background:#b91c1c;box-shadow:0 3px 10px rgba(220,38,38,.3);transform:translateY(-1px)}
 .ctrl-btn:active{transform:scale(.97)}
+.ctrl-btn:disabled{opacity:.6;cursor:not-allowed;transform:none;box-shadow:none}
+.ctrl-btn .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
 select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radius:var(--r);border:1px solid var(--border);background:#fff;cursor:pointer}
+
+/* IMPORT STATUS */
+.status-region{min-height:34px;margin:-6px 0 12px;display:flex;align-items:center}
+.import-progress{display:none;align-items:center;gap:10px;color:var(--blue);font-weight:700;font-size:12px;background:#EAF6FC;border:1px solid #BDE6F6;border-radius:var(--r);padding:8px 12px}
+.import-progress.active{display:inline-flex}
+.spinner-blue{width:16px;height:16px;border:2px solid #BDE6F6;border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+.toast-stack{position:fixed;right:18px;top:96px;z-index:1200;display:flex;flex-direction:column;gap:8px}
+.toast{min-width:260px;max-width:420px;border-radius:var(--r);padding:12px 14px;box-shadow:0 12px 30px rgba(15,23,42,.18);font-size:12px;font-weight:700;border:1px solid transparent;background:#fff}
+.toast.success{color:#065F46;background:#ECFDF5;border-color:#A7F3D0}
+.toast.error{color:#991B1B;background:#FEF2F2;border-color:#FECACA}
+.toast.warning{color:#92400E;background:#FFFBEB;border-color:#FDE68A}
+.empty-state{border:1px dashed #CBD5E1;background:#F8FAFC;border-radius:var(--r);padding:22px;text-align:center;color:var(--muted);font-size:13px;font-weight:700}
+.loading-panel{position:relative;min-height:140px;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--blue);font-weight:700;background:#F8FAFC;border:1px dashed #CBD5E1;border-radius:var(--r);padding:20px}
+.chart-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--blue);font-weight:700;background:rgba(255,255,255,.82);border-radius:var(--r);z-index:5}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* TABS */
 .tabs{display:flex;gap:2px;background:#E2E8F0;padding:4px;border-radius:var(--r);margin-bottom:16px;overflow-x:auto}
@@ -276,10 +293,12 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     </select>
     <button class="ctrl-btn ctrl-blue" onclick="loadData()">Load</button>
     <button class="ctrl-btn ctrl-green" onclick="openManualInput()">Input Data Manually</button>
-    <button class="ctrl-btn ctrl-gray" onclick="document.getElementById('excelInput').click()">Import Excel</button>
+    <button id="importBtn" class="ctrl-btn ctrl-gray" onclick="triggerExcelImport()"><span id="importBtnLabel">Import Excel</span></button>
     <input type="file" id="excelInput" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)">
     <button class="ctrl-btn ctrl-red" onclick="clearData()">Clear</button>
   </div>
+  <div class="status-region"><div id="importProgress" class="import-progress"><span class="spinner-blue"></span><span>Importing KPI workbook...</span></div></div>
+  <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
   <!-- LEGEND -->
   <div class="legend">
@@ -413,14 +432,14 @@ var BUs = [
   {id:'estate',name:'Estate Water',label:'Estate Water'}
 ];
 var KPIs = [
-  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95},
+  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%'},
   {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:90},
-  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105]},
-  {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86},
-  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60},
+  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%'},
+  {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86%'},
+  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60%'},
   {key:'mtbf',name:'MTBF',unit:'days',benchmark:0,trend:'increasing'},
   {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing'},
-  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97}
+  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%'}
 ];
 var GaugeKPIs = ['pmCompliance','pmcmWORatio','budgetSpend','pmcmCostRatio','facilityUptime'];
 
@@ -428,6 +447,7 @@ var GaugeKPIs = ['pmCompliance','pmcmWORatio','budgetSpend','pmcmCostRatio','fac
 var ScoreData = {};
 var MonthlyScoreData = {};
 var Charts = {};
+var isImporting = false;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded',function(){
@@ -460,6 +480,84 @@ var SummaryWorkbookColumns = {
   mttr:'mttr_days',
   facilityUptime:'facility_uptime'
 };
+
+
+function isBlankDisplayValue(val){
+  return val===null||val===undefined||val===''||(typeof val==='number'&&isNaN(val));
+}
+
+function formatKPIValue(val,opts){
+  opts = opts || {};
+  if(isBlankDisplayValue(val))return opts.blank!==undefined?opts.blank:'--';
+  var num = typeof val==='number'?val:parseFloat(String(val).replace(/,/g,'').replace(/%/g,''));
+  if(!isNaN(num))return num.toFixed(2);
+  return String(val);
+}
+
+function formatBenchmark(kpi){
+  if(!kpi)return '';
+  if(kpi.range)return formatKPIValue(kpi.range[0])+'% - '+formatKPIValue(kpi.range[1])+'%';
+  if(kpi.benchmark || kpi.benchmark===0)return (kpi.benchmarkLabel||formatKPIValue(kpi.benchmark)+(kpi.unit==='%'?'%':''));
+  return '';
+}
+
+function hasImportedData(buId,year){
+  if(buId)return !!(MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]&&Object.keys(MonthlyScoreData[buId][year]).length);
+  return BUs.some(function(bu){return hasImportedData(bu.id,year);});
+}
+
+function getChartValue(record,key){
+  if(!record)return null;
+  var val = record[key];
+  return isBlankDisplayValue(val)?null:val;
+}
+
+function setImporting(flag){
+  isImporting = flag;
+  var btn = document.getElementById('importBtn');
+  var label = document.getElementById('importBtnLabel');
+  var progress = document.getElementById('importProgress');
+  if(btn)btn.disabled = flag;
+  if(label)label.innerHTML = flag?'<span class="spinner"></span> Importing...':'Import Excel';
+  if(progress)progress.classList.toggle('active',flag);
+  loadData();
+}
+
+function showToast(type,message){
+  var stack = document.getElementById('toastStack');
+  if(!stack){alert(message);return;}
+  var toast = document.createElement('div');
+  toast.className = 'toast '+(type||'success');
+  toast.textContent = message;
+  stack.appendChild(toast);
+  setTimeout(function(){toast.style.opacity='0';toast.style.transform='translateY(-4px)';},4200);
+  setTimeout(function(){if(toast.parentNode)toast.parentNode.removeChild(toast);},4800);
+}
+
+function triggerExcelImport(){
+  if(isImporting)return;
+  document.getElementById('excelInput').click();
+}
+
+function renderLoadingPanel(title){
+  return '<div class="loading-panel"><span class="spinner-blue"></span><span>'+title+'</span></div>';
+}
+
+function updateChartLoadingOverlays(){
+  document.querySelectorAll('.chart-wrap').forEach(function(wrap){
+    var existing = wrap.querySelector('.chart-loading');
+    if(isImporting){
+      if(!existing){
+        var overlay = document.createElement('div');
+        overlay.className = 'chart-loading';
+        overlay.innerHTML = '<span class="spinner-blue"></span><span>Loading KPI chart...</span>';
+        wrap.appendChild(overlay);
+      }
+    }else if(existing){
+      existing.remove();
+    }
+  });
+}
 
 function cleanCellValue(val){
   if(val===null||val===undefined)return null;
@@ -567,6 +665,7 @@ function importSummaryWorkbook(workbook){
     record.sourceSheet = 'Summary';
     record.reportingMonth = monthInfo.month;
     record.reportingYear = monthInfo.year;
+    record[SummaryWorkbookColumns.month] = monthInfo.month;
     record.reportingLabel = monthInfo.label;
     Object.keys(SummaryWorkbookColumns).forEach(function(key){
       if(key==='month'||headerMap[key]===undefined)return;
@@ -612,7 +711,7 @@ function getSummaryKPIs(bu){
     var status = getKPIStatus(sk.key,val);
     var display = '--';
     if(val!==undefined&&val!==null&&val!==''){
-      display = sk.fmt==='%'?parseFloat(val).toFixed(2):val;
+      display = formatKPIValue(val);
     }
     return {val:val,display:display,cls:status.cls};
   });
@@ -621,6 +720,8 @@ function getSummaryKPIs(bu){
 // ===== RENDER SUMMARY =====
 function renderSummary(){
   var tbody = document.getElementById('summaryBody');
+  if(isImporting){tbody.innerHTML = '<tr><td colspan="6">'+renderLoadingPanel('Loading KPI table...')+'</td></tr>';return;}
+  if(!hasImportedData(null,getSelectedYear())){tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No KPI data imported yet.</div></td></tr>';return;}
   var html = '';
   // Benchmark row
   html += '<tr class="benchmark-row">';
@@ -645,7 +746,9 @@ function renderSummary(){
 function renderGauges(buId){
   var container = document.getElementById(buId+'-gauges');
   if(!container)return;
+  if(isImporting){container.innerHTML = renderLoadingPanel('Loading KPI cards...');return;}
   var d = getCurrentData(buId);
+  if(!hasImportedData(buId,getSelectedYear())){container.innerHTML = '<div class="empty-state">No KPI data imported yet.</div>';return;}
   var html = '';
   GaugeKPIs.forEach(function(key){
     var kpi = KPIs.find(function(k){return k.key===key});
@@ -655,13 +758,13 @@ function renderGauges(buId){
     var pct = 0;
     if(val!==undefined&&val!==null&&val!==''){
       var v = parseFloat(val);
-      display = kpi.unit==='%'?v.toFixed(2):v;
+      display = formatKPIValue(v);
       if(kpi.benchmark>0)pct = Math.min((v/kpi.benchmark)*100,100);
     }
     html += '<div class="gauge-card">';
     html += '<div class="gauge-title">'+kpi.name+'</div>';
     html += '<div class="gauge-value">'+display+'</div>';
-    html += '<div class="gauge-benchmark">Benchmark: '+(kpi.range?kpi.range[0]+'% - '+kpi.range[1]+'%':kpi.benchmark+(kpi.unit==='%'?'%':''))+'</div>';
+    html += '<div class="gauge-benchmark">Benchmark: '+formatBenchmark(kpi)+'</div>';
     html += '<div class="gauge-bar"><div class="gauge-fill '+status.barCls+'" style="width:'+pct+'%"></div></div>';
     html += '</div>';
   });
@@ -672,10 +775,11 @@ function renderGauges(buId){
 function renderMonthlyRecords(buId){
   var container = document.getElementById(buId+'-monthly-records');
   if(!container)return;
+  if(isImporting){container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div>'+renderLoadingPanel('Loading KPI table...');return;}
   var year = getSelectedYear();
   var hasData = !!(MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]);
   if(!hasData){
-    container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div><div style="color:var(--muted);font-size:12px">Import the workbook Summary sheet to display all 12 monthly KPI records.</div>';
+    container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div><div class="empty-state">No KPI data imported yet.</div>';
     return;
   }
   var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div><div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
@@ -686,7 +790,7 @@ function renderMonthlyRecords(buId){
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
     ['pmCompliance','pmPlanned','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'].forEach(function(key){
       var val = r[key];
-      var display = val===null||val===undefined||val===''?'':(typeof val==='number'?val.toFixed(key==='pmPlanned'?0:2):val);
+      var display = formatKPIValue(val,{blank:''});
       var cls = key==='pmPlanned'?'':getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+(display===''?'--':display)+'</td>';
     });
@@ -697,36 +801,130 @@ function renderMonthlyRecords(buId){
 }
 
 // ===== CHARTS =====
+var benchmarkPlugin = {
+  id:'benchmarkPlugin',
+  afterDatasetsDraw:function(chart,args,opts){
+    opts = opts || {};
+    var yScale = chart.scales[opts.yScaleID || 'y'];
+    if(!yScale)return;
+    var ctx = chart.ctx;
+    var area = chart.chartArea;
+    function drawLine(value,label,color,dash){
+      if(value===null||value===undefined)return;
+      var y = yScale.getPixelForValue(value);
+      if(y<area.top || y>area.bottom)return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash(dash || [6,4]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color || '#0B1D44';
+      ctx.moveTo(area.left,y);
+      ctx.lineTo(area.right,y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '700 11px Inter, sans-serif';
+      var text = label || formatKPIValue(value);
+      var width = ctx.measureText(text).width + 10;
+      ctx.fillStyle = color || '#0B1D44';
+      ctx.fillRect(area.right - width, Math.max(area.top + 2, y - 18), width, 16);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(text, area.right - width + 5, Math.max(area.top + 14, y - 6));
+      ctx.restore();
+    }
+    (opts.lines || []).forEach(function(line){drawLine(line.value,line.label,line.color,line.dash);});
+    if(opts.range){
+      drawLine(opts.range.min,opts.range.minLabel || ('Min '+formatKPIValue(opts.range.min)+'%'),opts.range.color || '#0B1D44',[4,4]);
+      drawLine(opts.range.max,opts.range.maxLabel || ('Max '+formatKPIValue(opts.range.max)+'%'),opts.range.color || '#0B1D44',[4,4]);
+    }
+  }
+};
+
+var noDataPlugin = {
+  id:'noDataPlugin',
+  afterDraw:function(chart){
+    var hasData = chart.data.datasets.some(function(ds){return (ds.data||[]).some(function(v){return v!==null&&v!==undefined&&!isNaN(v);});});
+    if(hasData)return;
+    var ctx = chart.ctx;
+    var area = chart.chartArea;
+    ctx.save();
+    ctx.fillStyle = '#5A6B7D';
+    ctx.font = '700 13px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(isImporting?'Importing KPI workbook...':'No KPI data imported yet.', (area.left+area.right)/2, (area.top+area.bottom)/2);
+    ctx.restore();
+  }
+};
+
+if(window.Chart){try{Chart.register(benchmarkPlugin,noDataPlugin);}catch(err){console.warn('Chart plugin registration skipped:',err);}}
+
+function getTooltipLabel(context){
+  var label = context.dataset.label || 'KPI Value';
+  var value = context.parsed.y;
+  if(value===null||value===undefined)return label+': No Data';
+  return label+': '+formatKPIValue(value);
+}
+
+function getTooltipFooter(kpiKey,monthIndex){
+  var kpi = KPIs.find(function(k){return k.key===kpiKey});
+  var parts = [];
+  if(kpi)parts.push('Target/Benchmark: '+formatBenchmark(kpi));
+  return parts;
+}
+
+function makeChartOptions(kpiKey,benchmarkOptions,yTitle){
+  return {
+    responsive:true,
+    maintainAspectRatio:false,
+    spanGaps:false,
+    interaction:{mode:'index',intersect:false},
+    scales:{
+      y:{beginAtZero:true,max:120,grid:{color:'#F1F5F9'},title:{display:!!yTitle,text:yTitle},ticks:{callback:function(v){return formatKPIValue(v);}}},
+      x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:12}}
+    },
+    plugins:{
+      legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
+      tooltip:{
+        callbacks:{
+          title:function(items){return items&&items.length?ShortMonthNames[items[0].dataIndex]:'';},
+          label:getTooltipLabel,
+          footer:function(items){return items&&items.length?getTooltipFooter(kpiKey,items[0].dataIndex):[];}
+        }
+      },
+      benchmarkPlugin:benchmarkOptions || {}
+    }
+  };
+}
+
 function renderBUCharts(buId){
   renderGauges(buId);
   renderMonthlyRecords(buId);
   var year = getSelectedYear();
   var months = ShortMonthNames.slice();
-  var pmData = months.map(function(_,index){var r=getMonthlyRecord(buId,year,index+1);return r&&r.pmCompliance!==undefined?r.pmCompliance:null;});
-  var plannedPM = months.map(function(_,index){var r=getMonthlyRecord(buId,year,index+1);return r&&r.pmPlanned!==undefined?r.pmPlanned:null;});
-  var budgetSpend = months.map(function(_,index){var r=getMonthlyRecord(buId,year,index+1);return r&&r.budgetSpend!==undefined?r.budgetSpend:null;});
-  var hasMonthlyPM = pmData.some(function(v){return v!==null&&v!==undefined;});
-  var hasMonthlyBudget = budgetSpend.some(function(v){return v!==null&&v!==undefined;}) || plannedPM.some(function(v){return v!==null&&v!==undefined;});
-  var current = getCurrentData(buId);
-  if(!hasMonthlyPM)pmData[getSelectedMonth()-1] = current.pmCompliance!==undefined?current.pmCompliance:null;
-  if(!hasMonthlyBudget)budgetSpend[getSelectedMonth()-1] = current.budgetSpend!==undefined?current.budgetSpend:null;
+  var pmData = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),'pmCompliance');});
+  var plannedPM = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),'pmPlanned');});
+  var budgetSpend = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),'budgetSpend');});
   
   if(Charts[buId+'-pm'])Charts[buId+'-pm'].destroy();
   if(Charts[buId+'-budget'])Charts[buId+'-budget'].destroy();
   
   var pmCtx = document.getElementById(buId+'-pm-chart');
   if(pmCtx){
-    Charts[buId+'-pm'] = new Chart(pmCtx,{type:'bar',data:{labels:months,datasets:[{label:'PM Compliance %',data:pmData,backgroundColor:pmData.map(function(v){return v===null||v===undefined?'#CBD5E1':v>=95?'#0A9B6E':v>=80?'#D97706':'#DC2626'}),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,max:120,grid:{color:'#F1F5F9'}},x:{grid:{display:false}}},plugins:{legend:{display:false}}}});
+    var pmOptions = makeChartOptions('pmCompliance',{lines:[{value:95,label:'Benchmark 95%',color:'#0B1D44'}]},'PM Compliance %');
+    pmOptions.plugins.legend.display = true;
+    Charts[buId+'-pm'] = new Chart(pmCtx,{type:'line',data:{labels:months,datasets:[{label:'PM Compliance %',data:pmData,borderColor:'#0066A6',backgroundColor:'#0066A6',pointBackgroundColor:pmData.map(function(v){return v===null||v===undefined?'#CBD5E1':v>=95?'#0A9B6E':v>=80?'#D97706':'#DC2626'}),pointRadius:5,pointHoverRadius:7,tension:.25,fill:false,spanGaps:false}]},options:pmOptions});
   }
   
   var budgetCtx = document.getElementById(buId+'-budget-chart');
   if(budgetCtx){
-    Charts[buId+'-budget'] = new Chart(budgetCtx,{type:'bar',data:{labels:months,datasets:[{label:'PM Planned',data:plannedPM,backgroundColor:'#0066A6',borderRadius:4,yAxisID:'yPlanned'},{label:'Budget Spend %',data:budgetSpend,backgroundColor:'#00A8D2',borderRadius:4,yAxisID:'y'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,max:120,position:'left',grid:{color:'#F1F5F9'},title:{display:true,text:'Budget Spend %'}},yPlanned:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'PM Planned'}} ,x:{grid:{display:false}}},plugins:{legend:{position:'top'}}}});
+    var budgetOptions = makeChartOptions('budgetSpend',{range:{min:95,max:105,minLabel:'Budget min 95%',maxLabel:'Budget max 105%',color:'#0B1D44'}},'Budget Spend %');
+    budgetOptions.scales.yPlanned = {beginAtZero:true,position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'PM Planned'},ticks:{callback:function(v){return formatKPIValue(v);}}};
+    Charts[buId+'-budget'] = new Chart(budgetCtx,{type:'bar',data:{labels:months,datasets:[{label:'PM Planned',data:plannedPM,backgroundColor:'#0066A6',borderRadius:4,yAxisID:'yPlanned'},{label:'Budget Spend %',data:budgetSpend,backgroundColor:'#00A8D2',borderRadius:4,yAxisID:'y'}]},options:budgetOptions});
   }
 }
 
 // ===== LOAD / INIT DATA =====
 function loadData(){
+  updateChartLoadingOverlays();
   renderSummary();
   var activeTab = document.querySelector('.tab.active');
   var tabId = activeTab?activeTab.textContent.toLowerCase().replace(/\s+/g,''):'summary';
@@ -785,62 +983,77 @@ function saveManualData(){
 // ===== EXCEL IMPORT =====
 function importExcel(ev){
   var file = ev.target.files[0];
-  if(!file)return;
+  if(!file || isImporting)return;
+  setImporting(true);
   var reader = new FileReader();
   reader.onload = function(e){
-    try{
-      var data = new Uint8Array(e.target.result);
-      var workbook = XLSX.read(data,{type:'array',cellDates:false});
-      var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
-      if(hasSummary){
-        var imported = importSummaryWorkbook(workbook);
-        if(imported!==12){
-          alert('Imported '+imported+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
-        }else{
-          alert('Imported all 12 monthly KPI records from the Summary sheet.');
+    setTimeout(function(){
+      try{
+        var data = new Uint8Array(e.target.result);
+        var workbook = XLSX.read(data,{type:'array',cellDates:false});
+        var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
+        if(hasSummary){
+          var imported = importSummaryWorkbook(workbook);
+          if(imported!==12){
+            showToast('warning','Imported '+imported+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
+          }else{
+            showToast('success','Imported all 12 monthly KPI records from the Summary sheet.');
+          }
+          loadData();
+          return;
         }
-        loadData();
-        return;
-      }
-      var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      var rows = XLSX.utils.sheet_to_json(firstSheet,{header:1,defval:null,raw:true});
-      if(rows.length<2){alert('No data found in Excel');return;}
-      // Legacy BU-based import for older scorecard workbooks.
-      var headerMap = {};
-      var headers = rows[0].map(function(h){return normalizeHeader(h)});
-      headers.forEach(function(h,i){
-        if(h.includes('business')||h.includes('unit'))headerMap.bu=i;
-        if(h.includes('pmcompliance'))headerMap.pmCompliance=i;
-        if(h.includes('schedule'))headerMap.scheduleCompliance=i;
-        if(h.includes('budget'))headerMap.budgetSpend=i;
-        if(h.includes('pmcm')&&h.includes('wo'))headerMap.pmcmWORatio=i;
-        if(h.includes('pmcm')&&h.includes('cost'))headerMap.pmcmCostRatio=i;
-        if(h.includes('mtbf'))headerMap.mtbf=i;
-        if(h.includes('mttr'))headerMap.mttr=i;
-        if(h.includes('uptime')||h.includes('facility'))headerMap.facilityUptime=i;
-      });
-      var year = getSelectedYear();
-      var month = getSelectedMonth();
-      for(var i=1;i<rows.length;i++){
-        var row = rows[i];
-        if(headerMap.bu===undefined||isEmptyValue(row[headerMap.bu]))continue;
-        var buName = String(cleanCellValue(row[headerMap.bu])).toLowerCase().trim();
-        var bu = BUs.find(function(b){return buName.includes(b.id)||buName.includes(b.name.toLowerCase())||buName.includes(b.label.toLowerCase())});
-        if(!bu)continue;
-        var record = ensureMonthlyRecord(bu.id,year,month);
-        Object.keys(headerMap).forEach(function(key){
-          if(key==='bu')return;
-          var parsed = parseKPINumber(row[headerMap[key]]);
-          if(parsed!==null)record[key]=parsed;
+        var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        var rows = XLSX.utils.sheet_to_json(firstSheet,{header:1,defval:null,raw:true});
+        if(rows.length<2){showToast('error','No data found in Excel');return;}
+        // Legacy BU-based import for older scorecard workbooks.
+        var headerMap = {};
+        var headers = rows[0].map(function(h){return normalizeHeader(h)});
+        headers.forEach(function(h,i){
+          if(h.includes('business')||h.includes('unit'))headerMap.bu=i;
+          if(h.includes('pmcompliance'))headerMap.pmCompliance=i;
+          if(h.includes('schedule'))headerMap.scheduleCompliance=i;
+          if(h.includes('budget'))headerMap.budgetSpend=i;
+          if(h.includes('pmcm')&&h.includes('wo'))headerMap.pmcmWORatio=i;
+          if(h.includes('pmcm')&&h.includes('cost'))headerMap.pmcmCostRatio=i;
+          if(h.includes('mtbf'))headerMap.mtbf=i;
+          if(h.includes('mttr'))headerMap.mttr=i;
+          if(h.includes('uptime')||h.includes('facility'))headerMap.facilityUptime=i;
         });
-        ScoreData[bu.id] = record;
+        var year = getSelectedYear();
+        var month = getSelectedMonth();
+        var importedLegacy = 0;
+        for(var i=1;i<rows.length;i++){
+          var row = rows[i];
+          if(headerMap.bu===undefined||isEmptyValue(row[headerMap.bu]))continue;
+          var buName = String(cleanCellValue(row[headerMap.bu])).toLowerCase().trim();
+          var bu = BUs.find(function(b){return buName.includes(b.id)||buName.includes(b.name.toLowerCase())||buName.includes(b.label.toLowerCase())});
+          if(!bu)continue;
+          var record = ensureMonthlyRecord(bu.id,year,month);
+          Object.keys(headerMap).forEach(function(key){
+            if(key==='bu')return;
+            var parsed = parseKPINumber(row[headerMap[key]]);
+            if(parsed!==null)record[key]=parsed;
+          });
+          ScoreData[bu.id] = record;
+          importedLegacy++;
+        }
+        showToast('success','Excel imported successfully. '+importedLegacy+' business unit records loaded.');
+        loadData();
+      }catch(err){
+        console.error('Import error:',err);
+        showToast('error','Error importing Excel: '+err.message);
+      }finally{
+        setImporting(false);
+        ev.target.value='';
       }
-      alert('Excel imported successfully!');
-      loadData();
-    }catch(err){console.error('Import error:',err);alert('Error importing Excel: '+err.message);}
+    },120);
+  };
+  reader.onerror = function(){
+    showToast('error','Error reading Excel workbook.');
+    setImporting(false);
+    ev.target.value='';
   };
   reader.readAsArrayBuffer(file);
-  ev.target.value='';
 }
 
 // ===== CLEAR =====
