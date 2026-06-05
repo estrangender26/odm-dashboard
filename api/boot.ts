@@ -71,6 +71,100 @@ function parseBase64FileData(fileData: string | null, fileName: string, storedMi
   };
 }
 
+type ParsedDocumentFile = {
+  mimeType: string;
+  buffer: Buffer;
+};
+
+type DocumentFileCacheEntry = ParsedDocumentFile & {
+  id: number;
+  fileName: string;
+  updatedAt: string;
+  cachedAt: number;
+};
+
+const DOCUMENT_FILE_CACHE_TTL_MS = 5 * 60_000;
+const DOCUMENT_FILE_CACHE_MAX_ENTRIES = 20;
+const documentFileCache = new Map<number, DocumentFileCacheEntry>();
+
+function normalizeUpdatedAt(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  return value ? String(value) : "";
+}
+
+function rememberDocumentFile(entry: DocumentFileCacheEntry): DocumentFileCacheEntry {
+  documentFileCache.delete(entry.id);
+  documentFileCache.set(entry.id, entry);
+  while (documentFileCache.size > DOCUMENT_FILE_CACHE_MAX_ENTRIES) {
+    const oldestKey = documentFileCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    documentFileCache.delete(oldestKey);
+  }
+  return entry;
+}
+
+async function getParsedDocumentFile(id: number) {
+  const metadataRows = await getDb().select({
+    id: docFiles.id,
+    title: docFiles.title,
+    fileName: docFiles.fileName,
+    fileType: docFiles.fileType,
+    fileSize: docFiles.fileSize,
+    updatedAt: docFiles.updatedAt,
+  }).from(docFiles).where(eq(docFiles.id, id)).limit(1);
+  const metadata = metadataRows[0];
+  if (!metadata) return null;
+
+  const fileName = sanitizeHeaderFilename(metadata.fileName || metadata.title || "document.pdf");
+  const updatedAt = normalizeUpdatedAt(metadata.updatedAt);
+  const cached = documentFileCache.get(id);
+  if (cached && cached.fileName === fileName && cached.updatedAt === updatedAt && Date.now() - cached.cachedAt < DOCUMENT_FILE_CACHE_TTL_MS) {
+    documentFileCache.delete(id);
+    documentFileCache.set(id, { ...cached, cachedAt: Date.now() });
+    return { fileName, parsed: cached };
+  }
+
+  const dataRows = await getDb().select({
+    fileData: docFiles.fileData,
+    fileType: docFiles.fileType,
+  }).from(docFiles).where(eq(docFiles.id, id)).limit(1);
+  const parsed = parseBase64FileData(dataRows[0]?.fileData ?? null, fileName, dataRows[0]?.fileType ?? metadata.fileType);
+  if (!parsed || parsed.buffer.length === 0) return { fileName, parsed: null };
+
+  return {
+    fileName,
+    parsed: rememberDocumentFile({
+      id,
+      fileName,
+      updatedAt,
+      cachedAt: Date.now(),
+      mimeType: parsed.mimeType,
+      buffer: parsed.buffer,
+    }),
+  };
+}
+
+function parseRangeHeader(range: string | undefined, size: number) {
+  if (!range) return null;
+  const match = range.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) return "invalid" as const;
+
+  const [, startText, endText] = match;
+  if (!startText && !endText) return "invalid" as const;
+
+  if (!startText) {
+    const suffixLength = Number.parseInt(endText, 10);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return "invalid" as const;
+    const start = Math.max(size - suffixLength, 0);
+    return { start, end: size - 1 };
+  }
+
+  const start = Number.parseInt(startText, 10);
+  const end = endText ? Number.parseInt(endText, 10) : size - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) return "invalid" as const;
+  return { start, end: Math.min(end, size - 1) };
+}
+
 
 let bootStageCounter = 0;
 function logBootStage(message: string, details?: Record<string, unknown>): void {
@@ -492,14 +586,12 @@ app.get("/api/documents/files/:id/view", async (c) => {
     const id = Number.parseInt(c.req.param("id"), 10);
     if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
 
-    const rows = await getDb().select().from(docFiles).where(eq(docFiles.id, id)).limit(1);
-    const file = rows[0];
-    if (!file) return c.json({ error: "File not found" }, 404);
+    const loaded = await getParsedDocumentFile(id);
+    if (!loaded) return c.json({ error: "File not found" }, 404);
+    const { fileName, parsed } = loaded;
+    if (!parsed) return c.json({ error: "No previewable file data" }, 404);
 
-    const fileName = sanitizeHeaderFilename(file.fileName || file.title || "document.pdf");
-    const parsed = parseBase64FileData(file.fileData, fileName, file.fileType);
-    if (!parsed || parsed.buffer.length === 0) return c.json({ error: "No previewable file data" }, 404);
-
+    const totalSize = parsed.buffer.length;
     const range = c.req.header("range");
     c.header("Content-Type", parsed.mimeType);
     c.header("Content-Disposition", `inline; filename="${fileName}"`);
@@ -507,23 +599,25 @@ app.get("/api/documents/files/:id/view", async (c) => {
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Accept-Ranges", "bytes");
 
-    if (range) {
-      const match = range.match(/^bytes=(\d*)-(\d*)$/);
-      if (match) {
-        const requestedStart = match[1] ? Number.parseInt(match[1], 10) : 0;
-        const requestedEnd = match[2] ? Number.parseInt(match[2], 10) : parsed.buffer.length - 1;
-        const start = Math.min(Math.max(requestedStart, 0), parsed.buffer.length - 1);
-        const end = Math.min(Math.max(requestedEnd, start), parsed.buffer.length - 1);
-        const chunk = parsed.buffer.subarray(start, end + 1);
-        c.status(206);
-        c.header("Content-Range", `bytes ${start}-${end}/${parsed.buffer.length}`);
-        c.header("Content-Length", String(chunk.length));
-        return c.body(chunk);
-      }
+    const parsedRange = parseRangeHeader(range, totalSize);
+    if (parsedRange === "invalid") {
+      c.status(416);
+      c.header("Content-Range", `bytes */${totalSize}`);
+      c.header("Content-Length", "0");
+      return c.body("");
     }
 
-    c.header("Content-Length", String(parsed.buffer.length));
-    return c.body(parsed.buffer);
+    if (parsedRange) {
+      const { start, end } = parsedRange;
+      const chunk = parsed.buffer.subarray(start, end + 1);
+      c.status(206);
+      c.header("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+      c.header("Content-Length", String(chunk.length));
+      return c.body(chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength) as ArrayBuffer);
+    }
+
+    c.header("Content-Length", String(totalSize));
+    return c.body(parsed.buffer.buffer.slice(parsed.buffer.byteOffset, parsed.buffer.byteOffset + parsed.buffer.byteLength) as ArrayBuffer);
   } catch (e: any) {
     console.error("[documents/view] Error:", e.message, e.stack);
     return c.json({ error: e.message }, 500);
@@ -536,20 +630,17 @@ app.get("/api/documents/files/:id/download", async (c) => {
     const id = Number.parseInt(c.req.param("id"), 10);
     if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
 
-    const rows = await getDb().select().from(docFiles).where(eq(docFiles.id, id)).limit(1);
-    const file = rows[0];
-    if (!file) return c.json({ error: "File not found" }, 404);
-
-    const fileName = sanitizeHeaderFilename(file.fileName || file.title || "document.pdf");
-    const parsed = parseBase64FileData(file.fileData, fileName, file.fileType);
-    if (!parsed || parsed.buffer.length === 0) return c.json({ error: "No file data" }, 404);
+    const loaded = await getParsedDocumentFile(id);
+    if (!loaded) return c.json({ error: "File not found" }, 404);
+    const { fileName, parsed } = loaded;
+    if (!parsed) return c.json({ error: "No file data" }, 404);
 
     c.header("Content-Type", parsed.mimeType);
     c.header("Content-Disposition", `attachment; filename="${fileName}"`);
     c.header("Content-Length", String(parsed.buffer.length));
     c.header("Cache-Control", "private, max-age=300");
     c.header("X-Content-Type-Options", "nosniff");
-    return c.body(parsed.buffer);
+    return c.body(parsed.buffer.buffer.slice(parsed.buffer.byteOffset, parsed.buffer.byteOffset + parsed.buffer.byteLength) as ArrayBuffer);
   } catch (e: any) {
     console.error("[documents/download] Error:", e.message, e.stack);
     return c.json({ error: e.message }, 500);
