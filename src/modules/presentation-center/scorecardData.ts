@@ -106,50 +106,68 @@ function isPresentNumber(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function monthName(month: number) {
-  return new Intl.DateTimeFormat("en", { month: "long" }).format(new Date(2026, month - 1, 1));
-}
-
 function businessUnitLabel(value: string) {
   const normalized = value.toLowerCase().trim();
   return businessUnitLabels[normalized] || value;
 }
 
-function evaluatePersistedRecord(record: PersistedMonthlyKpiRecord): KpiRecord {
+function averageKpiValues(values: Array<number | null | undefined>) {
+  const valid = values.filter(isPresentNumber);
+  if (valid.length === 0) return null;
+  return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+}
+
+function aggregatePersistedMonthlyKpiRecords(records: PersistedMonthlyKpiRecord[]) {
+  const byBusinessUnit = new Map<string, PersistedMonthlyKpiRecord[]>();
+  records.forEach((record) => {
+    const label = businessUnitLabel(record.business_unit);
+    byBusinessUnit.set(label, [...(byBusinessUnit.get(label) || []), record]);
+  });
+
+  return Array.from(byBusinessUnit.entries()).map(([businessUnit, unitRecords]) =>
+    evaluateAggregatedRecord({
+      businessUnit,
+      reportingYear: unitRecords[0]?.reporting_year,
+      pmCompliance: averageKpiValues(unitRecords.map((record) => record.pm_compliance)),
+      pmCmWorkOrderRatio: averageKpiValues(unitRecords.map((record) => record.pm_cm_work_order_ratio)),
+      budgetSpend: averageKpiValues(unitRecords.map((record) => record.budget_spend)),
+      pmCmCostRatio: averageKpiValues(unitRecords.map((record) => record.pm_cm_cost_ratio)),
+      facilityUptime: averageKpiValues(unitRecords.map((record) => record.facility_uptime)),
+      majorWins: [],
+      majorRisks: [],
+      actionItems: [],
+    })
+  );
+}
+
+function evaluateAggregatedRecord(record: KpiRecord): KpiRecord {
   const wins: string[] = [];
   const risks: string[] = [];
   const actions: string[] = [];
 
-  if (isPresentNumber(record.pm_compliance) && record.pm_compliance >= 95) {
+  if (isPresentNumber(record.pmCompliance) && record.pmCompliance >= 95) {
     wins.push("PM compliance met or exceeded the 95% benchmark.");
-  } else if (isPresentNumber(record.pm_compliance)) {
+  } else if (isPresentNumber(record.pmCompliance)) {
     risks.push("PM compliance is below the 95% benchmark.");
     actions.push("Review overdue PM backlog and closure constraints.");
   }
 
-  if (isPresentNumber(record.facility_uptime) && record.facility_uptime >= 99.97) {
+  if (isPresentNumber(record.facilityUptime) && record.facilityUptime >= 99.97) {
     wins.push("Facility uptime met or exceeded the 99.97% benchmark.");
-  } else if (isPresentNumber(record.facility_uptime)) {
+  } else if (isPresentNumber(record.facilityUptime)) {
     risks.push("Facility uptime is below the 99.97% benchmark.");
     actions.push("Confirm uptime recovery actions for critical equipment.");
   }
 
-  if (isPresentNumber(record.budget_spend) && (record.budget_spend < 95 || record.budget_spend > 105)) {
+  if (isPresentNumber(record.budgetSpend) && (record.budgetSpend < 95 || record.budgetSpend > 105)) {
     risks.push("Budget spend is outside the 95% to 105% control band.");
     actions.push("Validate planned-versus-actual cost drivers.");
-  } else if (isPresentNumber(record.budget_spend)) {
+  } else if (isPresentNumber(record.budgetSpend)) {
     wins.push("Budget spend stayed within the scorecard control band.");
   }
 
   return {
-    businessUnit: businessUnitLabel(record.business_unit),
-    reportingMonth: record.reporting_month,
-    reportingYear: record.reporting_year,
-    pmCompliance: record.pm_compliance,
-    pmCmWorkOrderRatio: record.pm_cm_work_order_ratio,
-    budgetSpend: record.budget_spend,
-    pmCmCostRatio: record.pm_cm_cost_ratio,
-    facilityUptime: record.facility_uptime,
+    ...record,
     majorWins: wins.length ? wins : ["Imported KPI data is available for review."],
     majorRisks: risks.length ? risks : ["No critical KPI risks identified from imported values."],
     actionItems: actions.length ? actions : ["Continue monthly KPI monitoring and validation."],
@@ -181,23 +199,14 @@ export function getScorecardSummary(records = currentMonthlyKpiScorecard) {
 
 function getSelectedMonthlyKpiContext() {
   const now = new Date();
-  const businessUnit = window.localStorage.getItem("monthlyKpiSelectedBusinessUnit") || "AMD-EZ";
-  const businessUnitLabel = window.localStorage.getItem("monthlyKpiSelectedBusinessUnitLabel") || businessUnitLabelForDeck(businessUnit);
   const reportingYear = Number(window.localStorage.getItem("monthlyKpiSelectedYear")) || now.getFullYear();
-  const reportingMonth = Number(window.localStorage.getItem("monthlyKpiSelectedMonth")) || now.getMonth() + 1;
-  return { businessUnit, businessUnitLabel, reportingYear, reportingMonth };
-}
-
-function businessUnitLabelForDeck(value: string) {
-  return businessUnitLabel(value);
+  return { reportingYear };
 }
 
 export async function getPersistedMonthlyKpiScorecard() {
   const context = getSelectedMonthlyKpiContext();
   const params = new URLSearchParams({
-    business_unit: context.businessUnit,
     reporting_year: String(context.reportingYear),
-    reporting_month: String(context.reportingMonth),
   });
   const response = await fetch(`/api/monthly-kpi/records?${params.toString()}`, {
     headers: { Accept: "application/json" },
@@ -206,12 +215,12 @@ export async function getPersistedMonthlyKpiScorecard() {
   const payload = (await response.json()) as { records?: PersistedMonthlyKpiRecord[] };
   const records = payload.records || [];
   if (records.length === 0) {
-    throw new Error("No KPI data available for selected business unit.");
+    throw new Error("No KPI data available for selected year.");
   }
 
   return {
-    records: records.map(evaluatePersistedRecord),
-    reportingMonthLabel: `${monthName(context.reportingMonth)} ${context.reportingYear}`,
-    businessUnit: context.businessUnitLabel,
+    records: aggregatePersistedMonthlyKpiRecords(records),
+    reportingMonthLabel: String(context.reportingYear),
+    businessUnit: "All Business Units",
   };
 }
