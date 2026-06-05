@@ -536,6 +536,15 @@ var KPIs = [
 ];
 var GaugeKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','facilityUptime','pmcmWORatio','pmcmCostRatio'];
 var SummaryMatrixKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','facilityUptime'];
+var MonthlyRecordTableColumns = [
+  {header:'Month',key:null},
+  {header:'PM Compliance (%)',key:'pmCompliance'},
+  {header:'Schedule Compliance (%)',key:'scheduleCompliance'},
+  {header:'Budget Spend (%)',key:'budgetSpend'},
+  {header:'PM vs CM WO (%)',key:'pmcmWORatio'},
+  {header:'PM vs CM Cost (%)',key:'pmcmCostRatio'},
+  {header:'Facility Uptime (%)',key:'facilityUptime'}
+];
 
 // ===== STATE =====
 var ScoreData = {};
@@ -1603,15 +1612,16 @@ function renderMonthlyRecords(buId){
     return;
   }
   var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div><div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
-  ['Month','PM Compliance (%)','Schedule Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTBF (days)','MTTR (days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
+  MonthlyRecordTableColumns.forEach(function(column){html += '<th>'+column.header+'</th>';});
   html += '</tr></thead><tbody>';
   for(var month=1;month<=12;month++){
     var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
-    html += '<tr><td>'+MonthNames[month-1]+'</td>';
-    ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'].forEach(function(key){
-      var val = hasImportedKpiValue(r,key)?r[key]:null;
+    html += '<tr>';
+    MonthlyRecordTableColumns.forEach(function(column){
+      if(!column.key){html += '<td>'+MonthNames[month-1]+'</td>';return;}
+      var val = hasImportedKpiValue(r,column.key)?r[column.key]:null;
       var display = formatKPIValue(val,{blank:''});
-      var cls = getKPIStatus(key,val).cls;
+      var cls = getKPIStatus(column.key,val).cls;
       html += '<td class="'+cls+'">'+(display===''?'No Data':display)+'</td>';
     });
     html += '</tr>';
@@ -1740,14 +1750,16 @@ var TrendKpiConfig = [
   {key:'mtbf',title:'MTBF Trend',axis:'MTBF days',color:'#2563EB'},
   {key:'mttr',title:'MTTR Trend',axis:'MTTR days',color:'#DC2626'}
 ];
+var BusinessUnitTrendKpiConfig = TrendKpiConfig.filter(function(cfg){return cfg.key!=='mtbf'&&cfg.key!=='mttr';});
 
-function buildTrendSection(buId){
+function buildTrendSection(buId,trendConfig){
+  trendConfig = trendConfig || TrendKpiConfig;
   var section = document.getElementById(buId+'-trend-section');
   if(!section)return;
   var html = '<div class="matrix-title" style="margin:18px 0 12px">KPI Trends</div>';
-  for(var i=0;i<TrendKpiConfig.length;i+=2){
+  for(var i=0;i<trendConfig.length;i+=2){
     html += '<div class="chart-row">';
-    TrendKpiConfig.slice(i,i+2).forEach(function(cfg){
+    trendConfig.slice(i,i+2).forEach(function(cfg){
       html += '<div class="chart-card"><div class="chart-title-row"><div class="chart-title">'+cfg.title+'</div><button class="chart-export" onclick="exportChartImage(\''+buId+'-'+cfg.key+'\')">Export Image</button></div><div class="chart-wrap"><canvas id="'+buId+'-'+cfg.key+'-chart"></canvas></div></div>';
     });
     html += '</div>';
@@ -1772,7 +1784,7 @@ function renderSummaryDashboard(){
 }
 
 function renderSummaryCharts(){
-  buildTrendSection('summary');
+  buildTrendSection('summary',TrendKpiConfig);
   var year = getSelectedYear();
   var months = ShortMonthNames.slice();
   TrendKpiConfig.forEach(function(cfg){
@@ -1789,10 +1801,10 @@ function renderBUCharts(buId){
   renderBUContext(buId);
   renderGauges(buId);
   renderMonthlyRecords(buId);
-  buildTrendSection(buId);
+  buildTrendSection(buId,BusinessUnitTrendKpiConfig);
   var year = getSelectedYear();
   var months = ShortMonthNames.slice();
-  TrendKpiConfig.forEach(function(cfg){
+  BusinessUnitTrendKpiConfig.forEach(function(cfg){
     var chartKey = buId+'-'+cfg.key;
     if(Charts[chartKey])Charts[chartKey].destroy();
     var ctx = document.getElementById(chartKey+'-chart');
