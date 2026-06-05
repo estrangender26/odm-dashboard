@@ -655,6 +655,15 @@ function formatBenchmark(kpi){
 }
 
 function hasImportedData(buId,year){
+  if(KpiAggregates && Number(KpiAggregates.reportingYear)===Number(year)){
+    if(buId){
+      var aggregate = getAggregateForBusinessUnit(buId,year);
+      return !!(aggregate && KPIs.some(function(kpi){return parseFiniteKPIValue(aggregateValueForUiKey(aggregate,kpi.key))!==null;}));
+    }
+    return !!((KpiAggregates.byBusinessUnit || []).some(function(aggregate){
+      return KPIs.some(function(kpi){return parseFiniteKPIValue(aggregateValueForUiKey(aggregate,kpi.key))!==null;});
+    }));
+  }
   if(buId)return !!(MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]&&Object.keys(MonthlyScoreData[buId][year]).length);
   return BUs.some(function(bu){return hasImportedData(bu.id,year);});
 }
@@ -721,6 +730,10 @@ function getPortfolioCurrentData(){
 
 function hasYearKpiData(buId){
   var year = getSelectedYear();
+  if(KpiAggregates && Number(KpiAggregates.reportingYear)===Number(year)){
+    if(buId)return hasImportedData(buId,year);
+    return hasImportedData(null,year);
+  }
   if(buId){
     return getKpiRecordsForYear(buId,year).some(function(record){
       return KPIs.some(function(kpi){return parseFiniteKPIValue(record[kpi.key])!==null;});
@@ -1111,7 +1124,7 @@ function applyPersistedMonthlyKpiRecords(records,options){
 
 async function fetchMonthlyKpiAggregates(){
   var year = getSelectedYear();
-  var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year),{headers:{'Accept':'application/json'}});
+  var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year),{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
   var payload = await res.json().catch(function(){return {};});
   if(!res.ok)throw new Error(payload.error || 'Unable to load Monthly KPI aggregates.');
   KpiAggregates = payload;
@@ -1122,7 +1135,7 @@ async function fetchSavedMonthlyKpiRecords(buId){
   try{
     var url = '/api/monthly-kpi/records';
     if(buId)url += '?business_unit='+encodeURIComponent(getBUApiValue(buId));
-    var res = await fetch(url,{headers:{'Accept':'application/json'}});
+    var res = await fetch(url,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Unable to load saved Monthly KPI records.');
     applyPersistedMonthlyKpiRecords(payload.records || [],buId?{businessUnitId:buId}:{reset:true});
@@ -1139,7 +1152,8 @@ async function saveImportedMonthlyKpiRecords(fileName,records,buId){
   var selectedBuId = buId || selectedBusinessUnitId;
   var res = await fetch('/api/monthly-kpi/import',{
     method:'POST',
-    headers:{'Content-Type':'application/json','Accept':'application/json'},
+    cache:'no-store',
+    headers:{'Content-Type':'application/json','Accept':'application/json','Cache-Control':'no-cache'},
     body:JSON.stringify({source_file_name:fileName,business_unit:getBUApiValue(selectedBuId),records:records})
   });
   var payload = await res.json().catch(function(){return {};});
@@ -1736,12 +1750,19 @@ async function clearData(){
   if(!confirmed)return;
   setClearingKpiRecords(true);
   try{
-    var res = await fetch('/api/monthly-kpi/records?business_unit='+encodeURIComponent(getBUApiValue(bu.id)),{method:'DELETE',headers:{'Accept':'application/json'}});
+    var deleteUrl = '/api/monthly-kpi/records?business_unit='+encodeURIComponent(getBUApiValue(bu.id))+'&reporting_year='+encodeURIComponent(getSelectedYear());
+    var res = await fetch(deleteUrl,{method:'DELETE',cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Failed to clear KPI records.');
-    Object.keys(Charts).forEach(function(key){if(key.indexOf(bu.id+'-')===0){Charts[key].destroy();delete Charts[key];}});
-    await fetchSavedMonthlyKpiRecords(bu.id);
-    renderSummary();
+    Object.keys(Charts).forEach(function(key){if(key.indexOf(bu.id+'-')===0 || key.indexOf('summary-')===0){Charts[key].destroy();delete Charts[key];}});
+    if(Array.isArray(payload.records)){
+      applyPersistedMonthlyKpiRecords(payload.records,{reset:true});
+      KpiAggregates = payload.aggregates || null;
+      if(!KpiAggregates)await fetchMonthlyKpiAggregates();
+    }else{
+      await fetchSavedMonthlyKpiRecords();
+    }
+    renderSummaryDashboard();
     renderBUCharts(bu.id);
     updateChartLoadingOverlays();
     showToast('success','KPI records cleared for '+bu.label+'.');

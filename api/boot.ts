@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
@@ -14,6 +15,7 @@ import fs from "fs";
 import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
 import { aggregateMonthlyKpiRecords } from "../src/modules/monthly-kpi/kpiAggregation";
+import type { PersistedMonthlyKpiRecord } from "../src/modules/monthly-kpi/kpiAggregation";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -369,38 +371,82 @@ function normalizeMonthlyKpiRecord(input: any, fallbackSourceFileName?: string |
 
 logBootStage("registering monthly KPI scorecard routes");
 
+function preventMonthlyKpiResponseCaching(c: Context) {
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  c.header("Pragma", "no-cache");
+  c.header("Expires", "0");
+}
+
+function rowsFromDb<T>(result: unknown): T[] {
+  if (result && typeof result === "object" && "rows" in result) {
+    const rows = (result as { rows?: unknown }).rows;
+    return Array.isArray(rows) ? (rows as T[]) : [];
+  }
+  return Array.isArray(result) ? (result as T[]) : [];
+}
+
+async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: string | null; reportingYear?: number | null; reportingMonth?: number | null } = {}) {
+  const businessUnitParam = filters.businessUnit?.trim() || null;
+  const reportingYear = Number.isInteger(filters.reportingYear) ? filters.reportingYear : null;
+  const reportingMonth = Number.isInteger(filters.reportingMonth) ? filters.reportingMonth : null;
+  const rows = await getDb().execute(sql`
+    SELECT
+      id,
+      business_unit,
+      reporting_month,
+      reporting_year,
+      source_file_name,
+      imported_at,
+      pm_compliance,
+      pm_planned,
+      schedule_compliance,
+      budget_spend,
+      pm_cm_work_order_ratio,
+      pm_cm_cost_ratio,
+      mtbf_days,
+      mttr_days,
+      facility_uptime,
+      raw_imported_values
+    FROM monthly_kpi_records
+    WHERE (${businessUnitParam}::text IS NULL OR business_unit = ${businessUnitParam})
+      AND (${reportingYear}::int IS NULL OR reporting_year = ${reportingYear})
+      AND (${reportingMonth}::int IS NULL OR reporting_month = ${reportingMonth})
+    ORDER BY reporting_year DESC, reporting_month DESC, business_unit ASC
+  `);
+  return rowsFromDb<Record<string, unknown>>(rows);
+}
+
+async function fetchMonthlyKpiAggregateForResponse(reportingYear: number) {
+  const rows = await getDb().execute(sql`
+    SELECT
+      business_unit,
+      reporting_month,
+      reporting_year,
+      pm_compliance,
+      schedule_compliance,
+      budget_spend,
+      pm_cm_work_order_ratio,
+      pm_cm_cost_ratio,
+      mtbf_days,
+      mttr_days,
+      facility_uptime
+    FROM monthly_kpi_records
+    WHERE reporting_year = ${reportingYear}
+    ORDER BY business_unit ASC, reporting_month ASC
+  `);
+  return aggregateMonthlyKpiRecords(rowsFromDb<PersistedMonthlyKpiRecord>(rows), reportingYear);
+}
+
 app.get("/api/monthly-kpi/records", async (c) => {
   try {
+    preventMonthlyKpiResponseCaching(c);
     await ensureDbReady();
-    const db = getDb();
-    const businessUnitParam = c.req.query("business_unit")?.trim() || null;
-    const reportingYear = c.req.query("reporting_year");
-    const reportingMonth = c.req.query("reporting_month");
-    const rows = await db.execute(sql`
-      SELECT
-        id,
-        business_unit,
-        reporting_month,
-        reporting_year,
-        source_file_name,
-        imported_at,
-        pm_compliance,
-        pm_planned,
-        schedule_compliance,
-        budget_spend,
-        pm_cm_work_order_ratio,
-        pm_cm_cost_ratio,
-        mtbf_days,
-        mttr_days,
-        facility_uptime,
-        raw_imported_values
-      FROM monthly_kpi_records
-      WHERE (${businessUnitParam}::text IS NULL OR business_unit = ${businessUnitParam})
-        AND (${reportingYear ?? null}::int IS NULL OR reporting_year = ${reportingYear ? Number(reportingYear) : null})
-        AND (${reportingMonth ?? null}::int IS NULL OR reporting_month = ${reportingMonth ? Number(reportingMonth) : null})
-      ORDER BY reporting_year DESC, reporting_month DESC, business_unit ASC
-    `);
-    return c.json({ records: (rows as any).rows ?? rows });
+    const records = await fetchMonthlyKpiRecordsForResponse({
+      businessUnit: c.req.query("business_unit")?.trim() || null,
+      reportingYear: c.req.query("reporting_year") ? Number(c.req.query("reporting_year")) : null,
+      reportingMonth: c.req.query("reporting_month") ? Number(c.req.query("reporting_month")) : null,
+    });
+    return c.json({ records });
   } catch (e: any) {
     console.error("[monthly-kpi] GET records failed", e);
     return c.json({ error: e?.message ?? "Unable to fetch Monthly KPI records" }, 500);
@@ -409,29 +455,13 @@ app.get("/api/monthly-kpi/records", async (c) => {
 
 app.get("/api/monthly-kpi/aggregates", async (c) => {
   try {
+    preventMonthlyKpiResponseCaching(c);
     await ensureDbReady();
     const reportingYear = Number(c.req.query("reporting_year"));
     if (!Number.isInteger(reportingYear)) {
       return c.json({ error: "reporting_year query parameter is required" }, 400);
     }
-    const rows = await getDb().execute(sql`
-      SELECT
-        business_unit,
-        reporting_month,
-        reporting_year,
-        pm_compliance,
-        schedule_compliance,
-        budget_spend,
-        pm_cm_work_order_ratio,
-        pm_cm_cost_ratio,
-        mtbf_days,
-        mttr_days,
-        facility_uptime
-      FROM monthly_kpi_records
-      WHERE reporting_year = ${reportingYear}
-      ORDER BY business_unit ASC, reporting_month ASC
-    `);
-    return c.json(aggregateMonthlyKpiRecords(((rows as any).rows ?? rows) as any[], reportingYear));
+    return c.json(await fetchMonthlyKpiAggregateForResponse(reportingYear));
   } catch (e: any) {
     console.error("[monthly-kpi] GET aggregates failed", e);
     return c.json({ error: e?.message ?? "Unable to aggregate Monthly KPI records" }, 500);
@@ -529,8 +559,10 @@ app.post("/api/monthly-kpi/import", async (c) => {
 
 app.delete("/api/monthly-kpi/records", async (c) => {
   try {
+    preventMonthlyKpiResponseCaching(c);
     await ensureDbReady();
     const businessUnit = c.req.query("business_unit");
+    const reportingYear = Number(c.req.query("reporting_year"));
     if (!businessUnit || !businessUnit.trim()) {
       return c.json({ error: "business_unit query parameter is required" }, 400);
     }
@@ -539,8 +571,18 @@ app.delete("/api/monthly-kpi/records", async (c) => {
       WHERE business_unit = ${businessUnit.trim()}
       RETURNING id
     `);
-    const rows = (result as any).rows ?? result;
-    return c.json({ success: true, business_unit: businessUnit.trim(), deletedCount: rows.length });
+    const rows = rowsFromDb<{ id: number }>(result);
+    const records = await fetchMonthlyKpiRecordsForResponse();
+    const aggregates = Number.isInteger(reportingYear)
+      ? await fetchMonthlyKpiAggregateForResponse(reportingYear)
+      : null;
+    return c.json({
+      success: true,
+      business_unit: businessUnit.trim(),
+      deletedCount: rows.length,
+      records,
+      aggregates,
+    });
   } catch (e: any) {
     console.error("[monthly-kpi] delete failed", e);
     return c.json({ error: e?.message ?? "Unable to delete Monthly KPI records" }, 500);
