@@ -13,6 +13,7 @@ import { Paths } from "@contracts/constants";
 import fs from "fs";
 import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
+import { aggregateMonthlyKpiRecords } from "../src/modules/monthly-kpi/kpiAggregation";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -403,6 +404,37 @@ app.get("/api/monthly-kpi/records", async (c) => {
   } catch (e: any) {
     console.error("[monthly-kpi] GET records failed", e);
     return c.json({ error: e?.message ?? "Unable to fetch Monthly KPI records" }, 500);
+  }
+});
+
+app.get("/api/monthly-kpi/aggregates", async (c) => {
+  try {
+    await ensureDbReady();
+    const reportingYear = Number(c.req.query("reporting_year"));
+    if (!Number.isInteger(reportingYear)) {
+      return c.json({ error: "reporting_year query parameter is required" }, 400);
+    }
+    const rows = await getDb().execute(sql`
+      SELECT
+        business_unit,
+        reporting_month,
+        reporting_year,
+        pm_compliance,
+        schedule_compliance,
+        budget_spend,
+        pm_cm_work_order_ratio,
+        pm_cm_cost_ratio,
+        mtbf_days,
+        mttr_days,
+        facility_uptime
+      FROM monthly_kpi_records
+      WHERE reporting_year = ${reportingYear}
+      ORDER BY business_unit ASC, reporting_month ASC
+    `);
+    return c.json(aggregateMonthlyKpiRecords(((rows as any).rows ?? rows) as any[], reportingYear));
+  } catch (e: any) {
+    console.error("[monthly-kpi] GET aggregates failed", e);
+    return c.json({ error: e?.message ?? "Unable to aggregate Monthly KPI records" }, 500);
   }
 });
 

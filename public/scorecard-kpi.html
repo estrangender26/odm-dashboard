@@ -302,11 +302,11 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   <!-- CONTROLS -->
   <div class="controls">
     <select id="businessUnitSel" class="ctrl-gray" onchange="handleBusinessUnitChange()" aria-label="Business Unit"></select>
-    <select id="yearSel" class="ctrl-gray">
+    <select id="yearSel" class="ctrl-gray" onchange="handleReportingContextChange()">
       <option value="2026" selected>2026</option>
       <option value="2025">2025</option>
     </select>
-    <select id="monthSel" class="ctrl-gray">
+    <select id="monthSel" class="ctrl-gray" onchange="handleReportingContextChange()">
       <option value="1">January</option><option value="2">February</option><option value="3">March</option>
       <option value="4">April</option><option value="5" selected>May</option><option value="6">June</option>
       <option value="7">July</option><option value="8">August</option><option value="9">September</option>
@@ -348,9 +348,12 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
             <tr>
               <th>Business Unit</th>
               <th>PM Compliance (%)</th>
-              <th>PM:CM Ratio (Work Order)</th>
+              <th>Schedule Compliance (%)</th>
               <th>Budget Spend (%)</th>
+              <th>PM:CM Ratio (Work Order)</th>
               <th>PM:CM Ratio (Cost)</th>
+              <th>MTBF (days)</th>
+              <th>MTTR (days)</th>
               <th>Facility Uptime (%)</th>
             </tr>
           </thead>
@@ -522,6 +525,7 @@ var GaugeKPIs = KPIs.map(function(kpi){return kpi.key;});
 // ===== STATE =====
 var ScoreData = {};
 var MonthlyScoreData = {};
+var KpiAggregates = null;
 var Charts = {};
 var isImporting = false;
 var isFetchingSavedRecords = false;
@@ -587,6 +591,11 @@ function initManualSelectors(){
     yearSel.innerHTML = '<option value="">Select year</option>'+options;
   }
 }
+function handleReportingContextChange(){
+  persistDeckContext();
+  fetchSavedMonthlyKpiRecords(isSummaryTabActive()?null:selectedBusinessUnitId);
+}
+
 function handleBusinessUnitChange(){
   var sel = document.getElementById('businessUnitSel');
   selectedBusinessUnitId = sel && sel.value ? sel.value : 'ez';
@@ -656,36 +665,51 @@ function parseFiniteKPIValue(val){
   return isNaN(num)?null:num;
 }
 
-function averageKPIValues(values){
-  var valid = values.map(parseFiniteKPIValue).filter(function(v){return v!==null;});
-  if(!valid.length)return null;
-  return valid.reduce(function(sum,v){return sum+v;},0)/valid.length;
-}
-
 function getKpiRecordsForYear(buId,year){
   var months = MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]?MonthlyScoreData[buId][year]:{};
   return Object.keys(months).map(function(month){return months[month];}).filter(Boolean);
 }
 
+function aggregateKeyForUiKey(key){
+  if(key==='pmcmWORatio')return 'pmCmWorkOrderRatio';
+  if(key==='pmcmCostRatio')return 'pmCmCostRatio';
+  if(key==='mtbf')return 'mtbfDays';
+  if(key==='mttr')return 'mttrDays';
+  return key;
+}
+
+function aggregateValueForUiKey(source,key){
+  if(!source)return null;
+  var aggregateKey = aggregateKeyForUiKey(key);
+  return source[aggregateKey]===undefined ? null : source[aggregateKey];
+}
+
+function getAggregateForBusinessUnit(buId,year){
+  if(!KpiAggregates || Number(KpiAggregates.reportingYear)!==Number(year))return null;
+  var bu = getBUById(buId);
+  var map = KpiAggregates.byBusinessUnitMap || {};
+  return map[bu.label] || map[bu.apiValue] || map[bu.name] || null;
+}
+
 function getBusinessUnitYearAverage(buId,year,key){
-  return averageKPIValues(getKpiRecordsForYear(buId,year).map(function(record){return record[key];}));
+  return aggregateValueForUiKey(getAggregateForBusinessUnit(buId,year),key);
 }
 
 function getBusinessUnitYearAverages(buId,year){
+  var aggregate = getAggregateForBusinessUnit(buId,year);
   var data = {reportingYear:year,businessUnit:getBUApiValue(buId)};
-  KPIs.forEach(function(kpi){data[kpi.key] = getBusinessUnitYearAverage(buId,year,kpi.key);});
+  KPIs.forEach(function(kpi){data[kpi.key] = aggregateValueForUiKey(aggregate,kpi.key);});
   return data;
 }
 
 function getPortfolioAverageForMonth(year,month,key){
-  return averageKPIValues(BUs.map(function(bu){
-    var record = getMonthlyRecord(bu.id,year,month);
-    return record ? record[key] : null;
-  }));
+  if(!KpiAggregates || Number(KpiAggregates.reportingYear)!==Number(year))return null;
+  return aggregateValueForUiKey((KpiAggregates.portfolioMonthlyAverages || {})[month],key);
 }
 
 function getPortfolioYearAverage(year,key){
-  return averageKPIValues(BUs.map(function(bu){return getBusinessUnitYearAverage(bu.id,year,key);}));
+  if(!KpiAggregates || Number(KpiAggregates.reportingYear)!==Number(year))return null;
+  return aggregateValueForUiKey(KpiAggregates.portfolioYearAverage,key);
 }
 
 function getPortfolioCurrentData(){
@@ -1085,6 +1109,14 @@ function applyPersistedMonthlyKpiRecords(records,options){
   });
 }
 
+async function fetchMonthlyKpiAggregates(){
+  var year = getSelectedYear();
+  var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year),{headers:{'Accept':'application/json'}});
+  var payload = await res.json().catch(function(){return {};});
+  if(!res.ok)throw new Error(payload.error || 'Unable to load Monthly KPI aggregates.');
+  KpiAggregates = payload;
+}
+
 async function fetchSavedMonthlyKpiRecords(buId){
   setFetchingSavedRecords(true);
   try{
@@ -1094,6 +1126,7 @@ async function fetchSavedMonthlyKpiRecords(buId){
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Unable to load saved Monthly KPI records.');
     applyPersistedMonthlyKpiRecords(payload.records || [],buId?{businessUnitId:buId}:{reset:true});
+    await fetchMonthlyKpiAggregates();
   }catch(err){
     console.error('Saved KPI load error:',err);
     showToast('error','Unable to load saved KPI records: '+err.message);
@@ -1133,13 +1166,7 @@ function getKPIStatus(key,val){
 
 function getSummaryKPIs(bu){
   var d = getBusinessUnitYearAverages(bu.id,getSelectedYear());
-  var summaryKPIs = [
-    {key:'pmCompliance',name:'PM Compliance',fmt:'%'},
-    {key:'pmcmWORatio',name:'PM:CM Ratio WO',fmt:':'},
-    {key:'budgetSpend',name:'Budget Spend',fmt:'%'},
-    {key:'pmcmCostRatio',name:'PM:CM Ratio Cost',fmt:':'},
-    {key:'facilityUptime',name:'Facility Uptime',fmt:'%'}
-  ];
+  var summaryKPIs = KPIs;
   return summaryKPIs.map(function(sk){
     var val = d[sk.key];
     var status = getKPIStatus(sk.key,val);
@@ -1154,16 +1181,19 @@ function getSummaryKPIs(bu){
 // ===== RENDER SUMMARY =====
 function renderSummary(){
   var tbody = document.getElementById('summaryBody');
-  if(isKpiLoading()){tbody.innerHTML = '<tr><td colspan="6">'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...')+'</td></tr>';return;}
-  if(!hasImportedData(null,getSelectedYear())){tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No KPI data imported yet.</div></td></tr>';return;}
+  if(isKpiLoading()){tbody.innerHTML = '<tr><td colspan="9">'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...')+'</td></tr>';return;}
+  if(!hasImportedData(null,getSelectedYear())){tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">No KPI data imported yet.</div></td></tr>';return;}
   var html = '';
   // Benchmark row
   html += '<tr class="benchmark-row">';
   html += '<td>BENCHMARK</td>';
   html += '<td>95%</td>';
-  html += '<td>&ge;86% (6:1)</td>';
+  html += '<td>95%</td>';
   html += '<td>95% - 105%</td>';
+  html += '<td>&ge;86% (6:1)</td>';
   html += '<td>&ge;60% (1.5:1)</td>';
+  html += '<td>Tracked</td>';
+  html += '<td>Tracked</td>';
   html += '<td>99.97%</td>';
   html += '</tr>';
   BUs.forEach(function(bu){
