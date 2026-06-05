@@ -43,8 +43,21 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(summaryTable).not.toContain("PM Planned");
   });
 
-  it("retains PM Planned only in Monthly Imported Records presentation", () => {
-    expect(scorecardHtml).toContain("'Month','PM Compliance (%)','PM Planned'");
-    expect(scorecardHtml).toContain("'pmCompliance','pmPlanned','scheduleCompliance'");
+  it("hides PM Planned from per-BU imported monthly records tables", () => {
+    const monthlyRecordsRenderer = scorecardHtml.slice(
+      scorecardHtml.indexOf("function renderMonthlyRecords(buId)"),
+      scorecardHtml.indexOf("// ===== CHARTS ====="),
+    );
+
+    expect(monthlyRecordsRenderer).toContain("'Month','PM Compliance (%)','Schedule Compliance (%)'");
+    expect(monthlyRecordsRenderer).toContain("'pmCompliance','scheduleCompliance','budgetSpend'");
+    expect(monthlyRecordsRenderer).not.toContain("PM Planned");
+    expect(monthlyRecordsRenderer).not.toContain("pmPlanned");
+  });
+
+  it("keeps PM Planned available internally for imports and saved records", () => {
+    expect(scorecardHtml).toContain("pmPlanned:'pm_planned'");
+    expect(scorecardHtml).toContain("record.pmPlanned = row.pm_planned");
+    expect(scorecardHtml).toContain("pm_planned: record.pmPlanned ?? null");
   });
 });

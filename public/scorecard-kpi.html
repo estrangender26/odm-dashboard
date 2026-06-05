@@ -1330,17 +1330,16 @@ function renderMonthlyRecords(buId){
     return;
   }
   var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div><div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
-  ['Month','PM Compliance (%)','PM Planned','Schedule Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTBF (days)','MTTR (days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
+  ['Month','PM Compliance (%)','Schedule Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTBF (days)','MTTR (days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
   html += '</tr></thead><tbody>';
   for(var month=1;month<=12;month++){
     var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
-    ['pmCompliance','pmPlanned','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'].forEach(function(key){
-      var val = key==='pmPlanned' ? r[key] : (hasImportedKpiValue(r,key)?r[key]:null);
+    ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'].forEach(function(key){
+      var val = hasImportedKpiValue(r,key)?r[key]:null;
       var display = formatKPIValue(val,{blank:''});
-      var cls = key==='pmPlanned'?'':getKPIStatus(key,val).cls;
-      var emptyDisplay = key==='pmPlanned' ? '--' : 'No Data';
-      html += '<td class="'+cls+'">'+(display===''?emptyDisplay:display)+'</td>';
+      var cls = getKPIStatus(key,val).cls;
+      html += '<td class="'+cls+'">'+(display===''?'No Data':display)+'</td>';
     });
     html += '</tr>';
   }
