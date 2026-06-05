@@ -358,6 +358,11 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
         </table>
       </div>
     </div>
+    <div class="matrix-card">
+      <div class="matrix-title">Portfolio Average KPI Cards</div>
+      <div id="summary-gauges" class="gauge-grid"></div>
+    </div>
+    <div id="summary-trend-section"></div>
   </div>
 
   <!-- BU TABS -->
@@ -497,7 +502,7 @@ var KPIs = [
   {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing'},
   {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%'}
 ];
-var GaugeKPIs = ['pmCompliance','pmcmWORatio','budgetSpend','pmcmCostRatio','facilityUptime'];
+var GaugeKPIs = KPIs.map(function(kpi){return kpi.key;});
 
 // ===== STATE =====
 var ScoreData = {};
@@ -523,14 +528,17 @@ function showTab(id,btn,skipFetch){
   panel.classList.add('active');
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
   if(btn)btn.classList.add('active');
-  if(id!=='summary'){
-    selectedBusinessUnitId = id;
-    var sel = document.getElementById('businessUnitSel');
-    if(sel)sel.value = id;
-    persistDeckContext();
-    renderBUCharts(id);
-    if(!skipFetch)fetchSavedMonthlyKpiRecords(id);
+  if(id==='summary'){
+    renderSummaryDashboard();
+    if(!skipFetch)fetchSavedMonthlyKpiRecords();
+    return;
   }
+  selectedBusinessUnitId = id;
+  var sel = document.getElementById('businessUnitSel');
+  if(sel)sel.value = id;
+  persistDeckContext();
+  renderBUCharts(id);
+  if(!skipFetch)fetchSavedMonthlyKpiRecords(id);
 }
 
 function getBUById(buId){return BUs.find(function(bu){return bu.id===buId;}) || BUs[0];}
@@ -619,6 +627,43 @@ function formatBenchmark(kpi){
 function hasImportedData(buId,year){
   if(buId)return !!(MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]&&Object.keys(MonthlyScoreData[buId][year]).length);
   return BUs.some(function(bu){return hasImportedData(bu.id,year);});
+}
+
+function parseFiniteKPIValue(val){
+  if(isBlankDisplayValue(val))return null;
+  var num = typeof val==='number'?val:parseFloat(String(val).replace(/,/g,'').replace(/%/g,''));
+  return isNaN(num)?null:num;
+}
+
+function averageKPIValues(values){
+  var valid = values.map(parseFiniteKPIValue).filter(function(v){return v!==null;});
+  if(!valid.length)return null;
+  return valid.reduce(function(sum,v){return sum+v;},0)/valid.length;
+}
+
+function getPortfolioAverageForMonth(year,month,key){
+  return averageKPIValues(BUs.map(function(bu){
+    var record = getMonthlyRecord(bu.id,year,month);
+    return record ? record[key] : null;
+  }));
+}
+
+function getPortfolioCurrentData(){
+  var year = getSelectedYear();
+  var month = getSelectedMonth();
+  var data = {reportingYear:year,reportingMonth:month};
+  KPIs.forEach(function(kpi){data[kpi.key] = getPortfolioAverageForMonth(year,month,kpi.key);});
+  return data;
+}
+
+function hasSelectedMonthKpiData(buId){
+  var year = getSelectedYear();
+  var month = getSelectedMonth();
+  if(buId){
+    var record = getMonthlyRecord(buId,year,month);
+    return !!(record && KPIs.some(function(kpi){return parseFiniteKPIValue(record[kpi.key])!==null;}));
+  }
+  return BUs.some(function(bu){return hasSelectedMonthKpiData(bu.id);});
 }
 
 function getChartValue(record,key){
@@ -807,7 +852,7 @@ function getMonthlyRecord(buId,year,month){
 }
 
 function getCurrentData(buId){
-  return getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth()) || ScoreData[buId] || {};
+  return getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth()) || {};
 }
 
 function mapSummaryHeader(header){
@@ -1047,8 +1092,9 @@ function renderGauges(buId){
   var container = document.getElementById(buId+'-gauges');
   if(!container)return;
   if(isKpiLoading()){container.innerHTML = renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI cards...');return;}
-  var d = getCurrentData(buId);
-  if(!hasImportedData(buId,getSelectedYear())){container.innerHTML = '<div class="empty-state">No KPI data imported yet.</div>';return;}
+  var isSummary = buId==='summary';
+  var d = isSummary ? getPortfolioCurrentData() : getCurrentData(buId);
+  if(!hasSelectedMonthKpiData(isSummary?null:buId)){container.innerHTML = '<div class="empty-state">No KPI data imported for the selected month.</div>';return;}
   var html = '';
   GaugeKPIs.forEach(function(key){
     var kpi = KPIs.find(function(k){return k.key===key});
@@ -1057,9 +1103,11 @@ function renderGauges(buId){
     var display = '--';
     var pct = 0;
     if(val!==undefined&&val!==null&&val!==''){
-      var v = parseFloat(val);
-      display = formatKPIValue(v);
-      if(kpi.benchmark>0)pct = Math.min((v/kpi.benchmark)*100,100);
+      var v = parseFiniteKPIValue(val);
+      if(v!==null){
+        display = formatKPIValue(v);
+        if(kpi.benchmark>0)pct = Math.min((v/kpi.benchmark)*100,100);
+      }
     }
     html += '<div class="gauge-card">';
     html += '<div class="gauge-title">'+kpi.name+'</div>';
@@ -1244,6 +1292,27 @@ function exportChartImage(chartKey){
   link.click();
 }
 
+function renderSummaryDashboard(){
+  renderSummary();
+  renderGauges('summary');
+  renderSummaryCharts();
+  updateChartLoadingOverlays();
+}
+
+function renderSummaryCharts(){
+  buildTrendSection('summary');
+  var year = getSelectedYear();
+  var months = ShortMonthNames.slice();
+  TrendKpiConfig.forEach(function(cfg){
+    var chartKey = 'summary-'+cfg.key;
+    if(Charts[chartKey])Charts[chartKey].destroy();
+    var ctx = document.getElementById(chartKey+'-chart');
+    if(!ctx)return;
+    var data = months.map(function(_,index){return getPortfolioAverageForMonth(year,index+1,cfg.key);});
+    Charts[chartKey] = new Chart(ctx,{type:'line',data:{labels:months,datasets:[{label:'Portfolio Average '+cfg.title.replace(' Trend',''),data:data,borderColor:cfg.color,backgroundColor:cfg.color,pointBackgroundColor:data.map(function(v){return v===null||v===undefined?'#CBD5E1':cfg.color;}),pointRadius:4,pointHoverRadius:7,tension:.25,fill:false,spanGaps:false}]},options:makeChartOptions(cfg.key,cfg.axis)});
+  });
+}
+
 function renderBUCharts(buId){
   renderBUContext(buId);
   renderGauges(buId);
@@ -1265,11 +1334,14 @@ function renderBUCharts(buId){
 // ===== LOAD / INIT DATA =====
 function loadData(){
   persistDeckContext();
-  updateChartLoadingOverlays();
-  renderSummary();
   var activePanel = document.querySelector('.tc.active');
-  if(!activePanel || activePanel.id==='t-summary') return;
+  if(!activePanel || activePanel.id==='t-summary'){
+    renderSummaryDashboard();
+    return;
+  }
+  renderSummary();
   renderBUCharts(selectedBusinessUnitId);
+  updateChartLoadingOverlays();
 }
 
 function initForm(){
