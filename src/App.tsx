@@ -11,6 +11,7 @@ import OmManualsLibrary from "./pages/OmManualsLibrary"
 import ScorecardDashboard from "./pages/ScorecardDashboard"
 import PostPlanningInsights from "./pages/PostPlanningInsights"
 import OperatorDrivenMaintenance from "./pages/OperatorDrivenMaintenance"
+import PresentationCenter from "./pages/PresentationCenter"
 
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
       <Route path="/scorecard-kpi" element={<ScorecardDashboard />} />
       <Route path="/post-planning-insights" element={<PostPlanningInsights />} />
       <Route path="/operator-maintenance" element={<OperatorDrivenMaintenance />} />
+      <Route path="/presentation-center" element={<PresentationCenter />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
