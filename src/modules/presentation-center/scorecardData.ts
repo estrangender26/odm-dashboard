@@ -24,10 +24,17 @@ type PersistedMonthlyKpiRecord = {
 };
 
 const businessUnitLabels: Record<string, string> = {
-  ez: "Manila Water / EZ",
+  "amd-ez": "AMD-EZ",
+  "amd-wz": "AMD-WZ",
+  ez: "AMD-EZ",
+  wz: "AMD-WZ",
+  "laguna water": "Laguna Water",
   laguna: "Laguna Water",
+  "clark water": "Clark Water",
   clark: "Clark Water",
+  "tagum water": "Tagum Water",
   tagum: "Tagum Water",
+  "estate water": "Estate Water",
   estate: "Estate Water",
 };
 
@@ -174,29 +181,39 @@ export function getScorecardSummary(records = currentMonthlyKpiScorecard) {
   };
 }
 
+function getSelectedMonthlyKpiContext() {
+  const now = new Date();
+  const businessUnit = window.localStorage.getItem("monthlyKpiSelectedBusinessUnit") || "AMD-EZ";
+  const businessUnitLabel = window.localStorage.getItem("monthlyKpiSelectedBusinessUnitLabel") || businessUnitLabelForDeck(businessUnit);
+  const reportingYear = Number(window.localStorage.getItem("monthlyKpiSelectedYear")) || now.getFullYear();
+  const reportingMonth = Number(window.localStorage.getItem("monthlyKpiSelectedMonth")) || now.getMonth() + 1;
+  return { businessUnit, businessUnitLabel, reportingYear, reportingMonth };
+}
+
+function businessUnitLabelForDeck(value: string) {
+  return businessUnitLabel(value);
+}
+
 export async function getPersistedMonthlyKpiScorecard() {
-  const response = await fetch("/api/monthly-kpi/records", {
+  const context = getSelectedMonthlyKpiContext();
+  const params = new URLSearchParams({
+    business_unit: context.businessUnit,
+    reporting_year: String(context.reportingYear),
+    reporting_month: String(context.reportingMonth),
+  });
+  const response = await fetch(`/api/monthly-kpi/records?${params.toString()}`, {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) throw new Error("Unable to load persisted Monthly KPI records.");
   const payload = (await response.json()) as { records?: PersistedMonthlyKpiRecord[] };
   const records = payload.records || [];
-  if (records.length === 0) return {
-    records: currentMonthlyKpiScorecard,
-    reportingMonthLabel: getReportingMonthLabel(),
-  };
-
-  const latest = records.reduce((best, record) => {
-    if (!best) return record;
-    if (record.reporting_year !== best.reporting_year) return record.reporting_year > best.reporting_year ? record : best;
-    return record.reporting_month > best.reporting_month ? record : best;
-  });
-  const latestPeriodRecords = records.filter(
-    record => record.reporting_year === latest.reporting_year && record.reporting_month === latest.reporting_month
-  );
+  if (records.length === 0) {
+    throw new Error("No KPI data available for selected business unit.");
+  }
 
   return {
-    records: latestPeriodRecords.map(evaluatePersistedRecord),
-    reportingMonthLabel: `${monthName(latest.reporting_month)} ${latest.reporting_year}`,
+    records: records.map(evaluatePersistedRecord),
+    reportingMonthLabel: `${monthName(context.reportingMonth)} ${context.reportingYear}`,
+    businessUnit: context.businessUnitLabel,
   };
 }
