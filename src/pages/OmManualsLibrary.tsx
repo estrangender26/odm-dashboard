@@ -205,7 +205,7 @@ function fileExists(folders: TreeFolder[], targetId: number): boolean {
 // Download a file to browser
 function triggerDownload(data: string, mime: string, filename: string) {
   const a = document.createElement("a");
-  a.href = `data:${mime};base64,${data}`;
+  a.href = data.trim().startsWith("data:") ? data.trim() : `data:${mime};base64,${data}`;
   a.download = filename;
   a.style.display = "none";
   document.body.appendChild(a);
@@ -384,61 +384,53 @@ function TreeFolderItem({
 // PDF Viewer Component
 // ═══════════════════════════════════════════════════════════
 
-/* Convert base64 string → Blob URL (more reliable than data: URI for PDFs) */
-function base64ToBlobUrl(b64: string, mime: string): string {
-  try {
-    const byteChars = atob(b64);
-    const byteNums = new Array(byteChars.length);
-    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-    const blob = new Blob([new Uint8Array(byteNums)], { type: mime });
-    return URL.createObjectURL(blob);
-  } catch {
-    return "";
-  }
-}
-
-function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData: string | null; fileUrl: string | null; title: string; fileName: string; onDelete?: () => void }) {
+function PdfViewer({ fileId, fileData, fileUrl, title, fileName, onDelete }: { fileId: number; fileData: string | null; fileUrl: string | null; title: string; fileName: string; onDelete?: () => void }) {
   const [zoom, setZoom] = useState(1);
   const [loadError, setLoadError] = useState(false);
-  const [revokeUrl, setRevokeUrl] = useState<string | null>(null);
 
-  /* Build src — prefer Blob URL from base64, fallback to fileUrl */
-  const src = useMemo(() => {
-    // Cleanup previous blob URL
-    if (revokeUrl) { URL.revokeObjectURL(revokeUrl); setRevokeUrl(null); }
-
+  const hasFileData = useMemo(() => {
     const b64 = fileData?.trim();
-    if (b64 && b64.length > 100) {
-      const url = base64ToBlobUrl(b64, "application/pdf");
-      if (url) { setRevokeUrl(url); return url; }
+    return !!b64 && b64.length > 100;
+  }, [fileData]);
+  const previewUrl = useMemo(() => `/api/documents/files/${fileId}/view`, [fileId]);
+  const downloadUrl = useMemo(() => `/api/documents/files/${fileId}/download`, [fileId]);
+  const externalPreviewUrl = useMemo(() => {
+    const candidate = fileUrl?.trim();
+    if (!candidate) return null;
+    try {
+      const parsed = new URL(candidate, window.location.origin);
+      if (window.location.protocol === "https:" && parsed.protocol === "http:") return null;
+      return parsed.href;
+    } catch {
+      return null;
     }
-    if (fileUrl?.trim()) return fileUrl.trim();
-    return null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileData, fileUrl]);
+  }, [fileUrl]);
 
-  const hasData = useMemo(() => {
-    const b64 = fileData?.trim();
-    return (b64 && b64.length > 100) || !!fileUrl?.trim();
-  }, [fileData, fileUrl]);
+  /* Build src — prefer the same-origin streaming route so Chrome receives a real PDF response with inline headers. */
+  const src = hasFileData ? previewUrl : externalPreviewUrl;
+  const effectiveDownloadUrl = hasFileData ? downloadUrl : externalPreviewUrl;
 
-  const handleDownload = useCallback(() => {
-    if (!src) return;
+  const hasData = hasFileData || !!externalPreviewUrl;
+
+  const openLink = useCallback((href: string, download = false) => {
     const a = document.createElement("a");
-    a.href = src;
-    a.download = fileName || title || "document.pdf";
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    if (download) a.download = fileName || title || "document.pdf";
     a.style.display = "none";
     document.body.appendChild(a);
     a.click();
     setTimeout(() => document.body.removeChild(a), 100);
-  }, [src, fileName, title]);
+  }, [fileName, title]);
 
-  useEffect(() => {
-    setLoadError(false);
-  }, [src]);
+  const handleOpenInNewTab = useCallback(() => {
+    if (src) openLink(src);
+  }, [openLink, src]);
 
-  /* Cleanup blob URL on unmount */
-  useEffect(() => () => { if (revokeUrl) URL.revokeObjectURL(revokeUrl); }, [revokeUrl]);
+  const handleDownload = useCallback(() => {
+    if (effectiveDownloadUrl) openLink(effectiveDownloadUrl, true);
+  }, [effectiveDownloadUrl, openLink]);
 
   if (!hasData) {
     return (
@@ -446,7 +438,7 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
         <div className="text-center max-w-md text-gray-400">
           <div className="text-6xl mb-4">📄</div>
           <h3 className="text-lg font-semibold text-gray-500 mb-2">No PDF Available</h3>
-          <p className="text-sm">This document has no file data attached.<br />Upload a PDF or check the file URL.</p>
+          <p className="text-sm">This document has no same-origin file data or secure preview URL attached.<br />Upload a PDF or check the file URL.</p>
           {onDelete && (
             <button type="button" onClick={onDelete} className="mt-4 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100">
               🗑️ Delete File
@@ -464,10 +456,15 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
           <div className="text-5xl mb-4">⚠️</div>
           <h3 className="text-lg font-semibold text-gray-600 mb-2">Cannot Preview PDF</h3>
           <p className="text-sm mb-4">Your browser cannot render this PDF inline.</p>
-          <button type="button" onClick={handleDownload} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto">
-            <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            Download PDF
-          </button>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+            <button type="button" onClick={handleOpenInNewTab} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2">
+              Open PDF in new tab
+            </button>
+            <button type="button" onClick={handleDownload} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-100 flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Download PDF
+            </button>
+          </div>
           {onDelete && (
             <button type="button" onClick={onDelete} className="mt-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100 flex items-center gap-2 mx-auto">
               <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M3 3h6M5 3V2h2v1M4 3v7M6 3v7M8 3v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -490,6 +487,9 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
           <button type="button" onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">+</button>
           <button type="button" onClick={() => setZoom(1)} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200">Fit</button>
         </div>
+        <button type="button" onClick={handleOpenInNewTab} className="px-2.5 py-1.5 bg-white border border-blue-200 text-blue-600 rounded text-xs hover:bg-blue-50 font-semibold flex items-center gap-1 flex-shrink-0">
+          Open PDF in new tab
+        </button>
         <button type="button" onClick={handleDownload} className="px-2.5 py-1.5 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 font-semibold flex items-center gap-1 flex-shrink-0">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
           Download
@@ -501,7 +501,7 @@ function PdfViewer({ fileData, fileUrl, title, fileName, onDelete }: { fileData:
           </button>
         )}
       </div>
-      {/* PDF viewer using iframe with Blob URL */}
+      {/* PDF viewer using iframe with same-origin preview URL */}
       <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-4">
         <div
           style={{
@@ -578,7 +578,7 @@ export default function OmManualsLibrary() {
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
-  const tree = treeData?.tree || [];
+  const tree = useMemo(() => treeData?.tree || [], [treeData?.tree]);
   const { data: aiContext } = trpc.documents.getAiContext.useQuery({ includeSample: true }, {
     staleTime: 60_000,
     gcTime: 5 * 60_000,
@@ -593,7 +593,9 @@ export default function OmManualsLibrary() {
   );
 
   useEffect(() => {
-    if (fileDetail) setSelectedFileData(fileDetail);
+    if (!fileDetail) return;
+    const handle = window.setTimeout(() => setSelectedFileData(fileDetail), 0);
+    return () => window.clearTimeout(handle);
   }, [fileDetail]);
 
   useEffect(() => {
@@ -629,9 +631,10 @@ export default function OmManualsLibrary() {
       } else {
         setBanner({ type: "error", message: "No file data available for download" });
       }
-    }).catch((e: any) => {
+    }).catch((e: unknown) => {
       setIsDownloading(false);
-      setBanner({ type: "error", message: `Download failed: ${e.message}` });
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setBanner({ type: "error", message: `Download failed: ${message}` });
     });
   }, [selectedFileData, utils]);
 
@@ -650,8 +653,9 @@ export default function OmManualsLibrary() {
       const fresh = await utils.documents.getTree.fetch();
       console.log(`[OM] Tree refreshed. Folders: ${fresh?.tree?.length ?? 0}, total items: ${fresh?.count ?? 0}`);
       return fresh;
-    } catch (e: any) {
-      setBanner({ type: "error", message: `Failed to refresh library tree. ${e?.message || "Unknown error"}` });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setBanner({ type: "error", message: `Failed to refresh library tree. ${message}` });
       throw e;
     }
   }, [utils]);
@@ -710,15 +714,18 @@ export default function OmManualsLibrary() {
 
   useEffect(() => {
     if (!treeData?.tree) return;
-    if (selectedFolderId !== null && !folderExists(treeData.tree, selectedFolderId)) {
-      setSelectedFolderId(null);
-      setBanner((prev) => prev ?? { type: "info", message: "Selected folder no longer exists and was cleared." });
-    }
-    if (selectedFileId !== null && !fileExists(treeData.tree, selectedFileId)) {
-      setSelectedFileId(null);
-      setSelectedFileData(null);
-      setBanner((prev) => prev ?? { type: "info", message: "Selected file no longer exists and was cleared." });
-    }
+    const handle = window.setTimeout(() => {
+      if (selectedFolderId !== null && !folderExists(treeData.tree, selectedFolderId)) {
+        setSelectedFolderId(null);
+        setBanner((prev) => prev ?? { type: "info", message: "Selected folder no longer exists and was cleared." });
+      }
+      if (selectedFileId !== null && !fileExists(treeData.tree, selectedFileId)) {
+        setSelectedFileId(null);
+        setSelectedFileData(null);
+        setBanner((prev) => prev ?? { type: "info", message: "Selected file no longer exists and was cleared." });
+      }
+    }, 0);
+    return () => window.clearTimeout(handle);
   }, [treeData, selectedFolderId, selectedFileId]);
 
   // ── Search ──
@@ -734,6 +741,12 @@ export default function OmManualsLibrary() {
   const expandAll = useCallback(() => { setExpandedIds(new Set(collectIds(tree))); }, [tree]);
   const collapseAll = useCallback(() => { setExpandedIds(new Set()); }, []);
 
+  const onSelectFile = useCallback((file: TreeFile) => {
+    setSelectedFileId(file.id);
+    setSelectedFileData(null);
+    setMobileView("detail");
+  }, []);
+
   // ── Context menus ──
   const handleFolderContextMenu = useCallback((e: React.MouseEvent, folder: TreeFolder) => {
     setSelectedFolderId(folder.id);
@@ -748,7 +761,7 @@ export default function OmManualsLibrary() {
     });
   }, []);
 
-  const handleFileContextMenu = useCallback((e: React.MouseEvent, file: TreeFile, _folderId: number) => {
+  const handleFileContextMenu = useCallback((e: React.MouseEvent, file: TreeFile) => {
     setSelectedFileId(file.id);
     setContextMenu({
       x: e.clientX, y: e.clientY,
@@ -760,13 +773,7 @@ export default function OmManualsLibrary() {
         { label: "Delete", icon: "🗑️", onClick: () => { setModal({ type: "deleteFile", fileId: file.id }); }, danger: true },
       ],
     });
-  }, [handleDownloadFile]);
-
-  const onSelectFile = useCallback((file: TreeFile) => {
-    setSelectedFileId(file.id);
-    setSelectedFileData(null);
-    setMobileView("detail");
-  }, []);
+  }, [handleDownloadFile, onSelectFile]);
 
   const onSelectFolder = useCallback((id: number) => {
     setSelectedFolderId(id);
@@ -983,6 +990,8 @@ export default function OmManualsLibrary() {
 
           {selectedFileData ? (
             <PdfViewer
+              key={selectedFileData.id}
+              fileId={selectedFileData.id}
               fileData={selectedFileData.fileData}
               fileUrl={selectedFileData.fileUrl}
               title={selectedFileData.title}

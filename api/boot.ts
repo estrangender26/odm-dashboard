@@ -12,9 +12,65 @@ import { authenticateRequest, createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import fs from "fs";
 import path from "path";
-import { governanceMilestoneState, governanceUploads } from "../db/schema";
+import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
+
+
+const DOC_FILE_MIME_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+  txt: "text/plain",
+  csv: "text/csv",
+  json: "application/json",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  doc: "application/msword",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppt: "application/vnd.ms-powerpoint",
+  zip: "application/zip",
+};
+
+function sanitizeHeaderFilename(fileName: string): string {
+  return (fileName || "document.pdf").replace(/[\r\n"]/g, "_");
+}
+
+function inferMimeType(fileName: string, storedMimeType?: string | null): string {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  const typeFromExtension = ext ? DOC_FILE_MIME_TYPES[ext] : undefined;
+  const typeFromStorage = storedMimeType?.trim();
+  if (typeFromExtension === "application/pdf") return typeFromExtension;
+  return typeFromStorage && typeFromStorage !== "application/octet-stream"
+    ? typeFromStorage
+    : typeFromExtension || "application/octet-stream";
+}
+
+function parseBase64FileData(fileData: string | null, fileName: string, storedMimeType?: string | null) {
+  const rawData = fileData?.trim();
+  if (!rawData) return null;
+
+  let mimeType = inferMimeType(fileName, storedMimeType);
+  let base64Data = rawData;
+
+  if (rawData.startsWith("data:")) {
+    const match = rawData.match(/^data:([^;,]+)?(?:;[^,]*)?,(.*)$/s);
+    if (!match) return null;
+    if (match[1]) mimeType = match[1];
+    base64Data = match[2];
+  }
+
+  return {
+    mimeType,
+    buffer: Buffer.from(base64Data, "base64"),
+  };
+}
+
 
 let bootStageCounter = 0;
 function logBootStage(message: string, details?: Record<string, unknown>): void {
@@ -425,6 +481,77 @@ app.delete("/api/governance/files/:id", async (c) => {
     await db.execute(sql`DELETE FROM governance_files WHERE id = ${id}`);
     return c.json({ success: true });
   } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+
+// GET /api/documents/files/:id/view - stream O&M Manual Library files inline for same-origin previews.
+app.get("/api/documents/files/:id/view", async (c) => {
+  try {
+    const id = Number.parseInt(c.req.param("id"), 10);
+    if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
+
+    const rows = await getDb().select().from(docFiles).where(eq(docFiles.id, id)).limit(1);
+    const file = rows[0];
+    if (!file) return c.json({ error: "File not found" }, 404);
+
+    const fileName = sanitizeHeaderFilename(file.fileName || file.title || "document.pdf");
+    const parsed = parseBase64FileData(file.fileData, fileName, file.fileType);
+    if (!parsed || parsed.buffer.length === 0) return c.json({ error: "No previewable file data" }, 404);
+
+    const range = c.req.header("range");
+    c.header("Content-Type", parsed.mimeType);
+    c.header("Content-Disposition", `inline; filename="${fileName}"`);
+    c.header("Cache-Control", "private, max-age=300");
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Accept-Ranges", "bytes");
+
+    if (range) {
+      const match = range.match(/^bytes=(\d*)-(\d*)$/);
+      if (match) {
+        const requestedStart = match[1] ? Number.parseInt(match[1], 10) : 0;
+        const requestedEnd = match[2] ? Number.parseInt(match[2], 10) : parsed.buffer.length - 1;
+        const start = Math.min(Math.max(requestedStart, 0), parsed.buffer.length - 1);
+        const end = Math.min(Math.max(requestedEnd, start), parsed.buffer.length - 1);
+        const chunk = parsed.buffer.subarray(start, end + 1);
+        c.status(206);
+        c.header("Content-Range", `bytes ${start}-${end}/${parsed.buffer.length}`);
+        c.header("Content-Length", String(chunk.length));
+        return c.body(chunk);
+      }
+    }
+
+    c.header("Content-Length", String(parsed.buffer.length));
+    return c.body(parsed.buffer);
+  } catch (e: any) {
+    console.error("[documents/view] Error:", e.message, e.stack);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// GET /api/documents/files/:id/download - download O&M Manual Library files only when requested.
+app.get("/api/documents/files/:id/download", async (c) => {
+  try {
+    const id = Number.parseInt(c.req.param("id"), 10);
+    if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
+
+    const rows = await getDb().select().from(docFiles).where(eq(docFiles.id, id)).limit(1);
+    const file = rows[0];
+    if (!file) return c.json({ error: "File not found" }, 404);
+
+    const fileName = sanitizeHeaderFilename(file.fileName || file.title || "document.pdf");
+    const parsed = parseBase64FileData(file.fileData, fileName, file.fileType);
+    if (!parsed || parsed.buffer.length === 0) return c.json({ error: "No file data" }, 404);
+
+    c.header("Content-Type", parsed.mimeType);
+    c.header("Content-Disposition", `attachment; filename="${fileName}"`);
+    c.header("Content-Length", String(parsed.buffer.length));
+    c.header("Cache-Control", "private, max-age=300");
+    c.header("X-Content-Type-Options", "nosniff");
+    return c.body(parsed.buffer);
+  } catch (e: any) {
+    console.error("[documents/download] Error:", e.message, e.stack);
     return c.json({ error: e.message }, 500);
   }
 });
