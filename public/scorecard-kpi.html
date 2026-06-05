@@ -140,6 +140,15 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .modal-close:hover{background:var(--bg)}
 
 /* FORM TABLE */
+.manual-controls{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px;margin-bottom:14px;background:#F8FAFC;border:1px solid var(--border);border-radius:var(--r);padding:14px}
+.manual-field{display:flex;flex-direction:column;gap:6px}
+.manual-field label{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);letter-spacing:.3px}
+.manual-field select{width:100%;padding:8px 10px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:var(--r);background:#fff;color:var(--text);outline:none}
+.manual-field select:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(0,102,166,.12)}
+.manual-editing-context{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;border-radius:var(--r);background:#EEF6FF;border:1px solid #BFD7EA;color:var(--navy);font-size:13px}
+.manual-editing-context strong{font-size:12px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted)}
+.manual-validation{display:none;margin-bottom:12px;border:1px solid #FECACA;background:#FEF2F2;color:#991B1B;border-radius:var(--r);padding:10px 12px;font-size:12px;font-weight:700}
+.manual-validation.active{display:block}
 .form-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
 .form-table th{padding:10px 8px;text-align:left;background:#F1F5F9;color:var(--muted);font-weight:700;font-size:11px;text-transform:uppercase;border-bottom:2px solid var(--border)}
 .form-table td{padding:8px;border-bottom:1px solid #EDF1F4}
@@ -184,6 +193,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   .chart-wrap{height:240px}
   .chart-card{padding:14px}
   .modal{max-width:95vw;padding:20px}
+  .manual-controls{grid-template-columns:repeat(3,1fr);gap:10px;padding:12px}
   .form-table{font-size:12px}
   .form-table th,.form-table td{padding:7px 6px}
 }
@@ -212,6 +222,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   .legend-item{font-size:11px}
   .modal{max-width:100vw;max-height:100vh;border-radius:0;padding:16px}
   .modal-overlay{padding:0}
+  .manual-controls{grid-template-columns:1fr}
   .modal-title{font-size:16px}
   .form-table input{padding:7px;font-size:12px}
 }
@@ -400,10 +411,25 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
       <div class="modal-title">Input KPI Data Manually</div>
       <button class="modal-close" onclick="closeModal()">&times;</button>
     </div>
+    <div class="manual-controls">
+      <div class="manual-field">
+        <label for="manualBusinessUnitSel">Business Unit</label>
+        <select id="manualBusinessUnitSel" onchange="handleManualContextChange()" aria-label="Manual Entry Business Unit"></select>
+      </div>
+      <div class="manual-field">
+        <label for="manualMonthSel">Month</label>
+        <select id="manualMonthSel" onchange="handleManualContextChange()" aria-label="Manual Entry Reporting Month"></select>
+      </div>
+      <div class="manual-field">
+        <label for="manualYearSel">Year</label>
+        <select id="manualYearSel" onchange="handleManualContextChange()" aria-label="Manual Entry Reporting Year"></select>
+      </div>
+    </div>
+    <div id="manualEditingContext" class="manual-editing-context"></div>
+    <div id="manualValidation" class="manual-validation" role="alert"></div>
     <table class="form-table">
       <thead>
         <tr>
-          <th>Business Unit</th>
           <th>PM Compliance (%)</th>
           <th>Schedule Compliance (%)</th>
           <th>Budget Spend (%)</th>
@@ -460,6 +486,7 @@ var isFetchingSavedRecords = false;
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded',function(){
   initBusinessUnitSelector();
+  initManualSelectors();
   initForm();
   fetchSavedMonthlyKpiRecords();
 });
@@ -487,6 +514,18 @@ function initBusinessUnitSelector(){
   if(!sel)return;
   sel.innerHTML = BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
   sel.value = selectedBusinessUnitId;
+}
+function initManualSelectors(){
+  var buSel = document.getElementById('manualBusinessUnitSel');
+  var monthSel = document.getElementById('manualMonthSel');
+  var yearSel = document.getElementById('manualYearSel');
+  if(buSel)buSel.innerHTML = '<option value="">Select business unit</option>'+BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
+  if(monthSel)monthSel.innerHTML = '<option value="">Select month</option>'+MonthNames.map(function(name,index){return '<option value="'+(index+1)+'">'+name+'</option>';}).join('');
+  if(yearSel){
+    var pageYearSel = document.getElementById('yearSel');
+    var options = pageYearSel ? Array.prototype.map.call(pageYearSel.options,function(opt){return '<option value="'+opt.value+'">'+opt.textContent+'</option>';}).join('') : '<option value="2026">2026</option><option value="2025">2025</option>';
+    yearSel.innerHTML = '<option value="">Select year</option>'+options;
+  }
 }
 function handleBusinessUnitChange(){
   var sel = document.getElementById('businessUnitSel');
@@ -1144,48 +1183,151 @@ function loadData(){
 
 function initForm(){
   var tbody = document.getElementById('formBody');
-  var html = '';
-  BUs.forEach(function(bu){
-    html += '<tr>';
-    html += '<td class="form-bu">'+bu.name+'</td>';
-    KPIs.forEach(function(kpi){
-      html += '<td><input type="number" step="0.01" id="form-'+bu.id+'-'+kpi.key+'" placeholder="--"></td>';
-    });
-    html += '</tr>';
+  var html = '<tr>';
+  KPIs.forEach(function(kpi){
+    html += '<td><input type="number" step="0.01" id="form-manual-'+kpi.key+'" placeholder="--" aria-label="'+kpi.name+'"></td>';
   });
+  html += '</tr>';
   tbody.innerHTML = html;
+}
+
+function setSelectValue(selectId,value){
+  var sel = document.getElementById(selectId);
+  if(!sel)return;
+  var textValue = String(value || '');
+  if(textValue && !Array.prototype.some.call(sel.options,function(opt){return opt.value===textValue;})){
+    sel.insertAdjacentHTML('beforeend','<option value="'+textValue+'">'+textValue+'</option>');
+  }
+  sel.value = textValue;
+}
+
+function getManualContext(){
+  var buId = (document.getElementById('manualBusinessUnitSel')||{}).value || '';
+  var monthValue = (document.getElementById('manualMonthSel')||{}).value || '';
+  var yearValue = (document.getElementById('manualYearSel')||{}).value || '';
+  return {
+    buId: buId,
+    month: monthValue ? parseInt(monthValue,10) : null,
+    year: yearValue ? parseInt(yearValue,10) : null,
+    bu: buId ? getBUById(buId) : null
+  };
+}
+
+function getManualContextLabel(ctx){
+  if(!ctx || !ctx.bu || !ctx.month || !ctx.year)return '';
+  return ctx.bu.label+' - '+MonthNames[ctx.month-1]+' '+ctx.year;
+}
+
+function setManualValidation(message){
+  var validation = document.getElementById('manualValidation');
+  if(!validation)return;
+  validation.textContent = message || '';
+  validation.classList.toggle('active',!!message);
+}
+
+function syncManualSelectorsFromPage(){
+  setSelectValue('manualBusinessUnitSel',selectedBusinessUnitId);
+  setSelectValue('manualMonthSel',getSelectedMonth());
+  setSelectValue('manualYearSel',getSelectedYear());
+}
+
+function updateManualEditingContext(){
+  var ctx = getManualContext();
+  var container = document.getElementById('manualEditingContext');
+  if(container){
+    var label = getManualContextLabel(ctx);
+    container.innerHTML = label ? '<strong>Editing:</strong><span>'+label+'</span>' : '<strong>Editing:</strong><span>Select Business Unit, Month, and Year</span>';
+  }
+  preloadManualFormValues(ctx);
+}
+
+function handleManualContextChange(){
+  setManualValidation('');
+  updateManualEditingContext();
+}
+
+function preloadManualFormValues(ctx){
+  var record = ctx && ctx.buId && ctx.year && ctx.month ? getMonthlyRecord(ctx.buId,ctx.year,ctx.month) : null;
+  KPIs.forEach(function(kpi){
+    var inp = document.getElementById('form-manual-'+kpi.key);
+    if(inp)inp.value = record && record[kpi.key]!==undefined && record[kpi.key]!==null ? record[kpi.key] : '';
+  });
+}
+
+function validateManualContext(ctx){
+  var missing = [];
+  if(!ctx.buId)missing.push('Business Unit');
+  if(!ctx.month)missing.push('Month');
+  if(!ctx.year)missing.push('Year');
+  if(missing.length){
+    setManualValidation('Please select '+missing.join(', ')+' before saving.');
+    return false;
+  }
+  setManualValidation('');
+  return true;
 }
 
 // ===== MODAL =====
 function openManualInput(){
-  // Populate existing data
-  BUs.forEach(function(bu){
-    var d = getCurrentData(bu.id);
-    KPIs.forEach(function(kpi){
-      var inp = document.getElementById('form-'+bu.id+'-'+kpi.key);
-      if(inp)inp.value = d[kpi.key]!==undefined?d[kpi.key]:'';
-    });
-  });
+  syncManualSelectorsFromPage();
+  setManualValidation('');
+  updateManualEditingContext();
   document.getElementById('modal').classList.add('active');
 }
 function closeModal(){document.getElementById('modal').classList.remove('active');}
 
-// ===== SAVE =====
-function saveManualData(){
-  var year = getSelectedYear();
-  var month = getSelectedMonth();
-  BUs.forEach(function(bu){
-    var record = ensureMonthlyRecord(bu.id,year,month);
-    KPIs.forEach(function(kpi){
-      var inp = document.getElementById('form-'+bu.id+'-'+kpi.key);
-      if(inp&&inp.value!==''){
-        record[kpi.key] = parseFloat(inp.value);
-      }
-    });
-    ScoreData[bu.id] = record;
+function manualPayloadFromForm(ctx){
+  var payload = {
+    business_unit: getBUApiValue(ctx.buId),
+    reporting_month: ctx.month,
+    reporting_year: ctx.year,
+    source_file_name: 'Manual entry',
+    raw_imported_values: {source:'manual',values:{}}
+  };
+  var columns = {
+    pmCompliance:'pm_compliance',
+    scheduleCompliance:'schedule_compliance',
+    budgetSpend:'budget_spend',
+    pmcmWORatio:'pm_cm_work_order_ratio',
+    pmcmCostRatio:'pm_cm_cost_ratio',
+    mtbf:'mtbf_days',
+    mttr:'mttr_days',
+    facilityUptime:'facility_uptime'
+  };
+  KPIs.forEach(function(kpi){
+    var inp = document.getElementById('form-manual-'+kpi.key);
+    var parsed = inp && inp.value!=='' ? parseFloat(inp.value) : null;
+    payload[columns[kpi.key]] = isNaN(parsed) ? null : parsed;
+    payload.raw_imported_values.values[columns[kpi.key]] = inp ? inp.value : null;
   });
-  closeModal();
-  loadData();
+  return payload;
+}
+
+// ===== SAVE =====
+async function saveManualData(){
+  var ctx = getManualContext();
+  if(!validateManualContext(ctx))return;
+  var existingRecord = getMonthlyRecord(ctx.buId,ctx.year,ctx.month);
+  var wasUpdate = !!(existingRecord && existingRecord.id);
+  var label = getManualContextLabel(ctx);
+  var saveBtn = document.querySelector('#modal .ctrl-green');
+  if(saveBtn)saveBtn.disabled = true;
+  try{
+    await saveImportedMonthlyKpiRecords('Manual entry',[manualPayloadFromForm(ctx)]);
+    await fetchSavedMonthlyKpiRecords();
+    selectedBusinessUnitId = ctx.buId;
+    setSelectValue('businessUnitSel',ctx.buId);
+    setSelectValue('monthSel',ctx.month);
+    setSelectValue('yearSel',ctx.year);
+    closeModal();
+    loadData();
+    showToast('success','KPI data '+(wasUpdate?'updated':'saved')+' for '+label+'.');
+  }catch(err){
+    console.error('Manual KPI save error:',err);
+    showToast('error','Unable to save KPI data for '+label+': '+err.message);
+  }finally{
+    if(saveBtn)saveBtn.disabled = false;
+  }
 }
 
 // ===== EXCEL IMPORT =====
