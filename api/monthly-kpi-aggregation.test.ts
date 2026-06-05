@@ -42,4 +42,26 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.portfolioYearAverage.pmCompliance).toBe(82.5);
     expect(result.portfolioMonthlyAverages[1].pmCompliance).toBe(95);
   });
+  it("removes deleted business-unit values and recalculates portfolio averages from remaining records", () => {
+    const beforeDelete = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_compliance: 98.66 },
+        { ...base, business_unit: "Laguna Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 97 },
+      ],
+      2026
+    );
+
+    const afterDelete = aggregateMonthlyKpiRecords(
+      [{ ...base, business_unit: "Laguna Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 97 }],
+      2026
+    );
+
+    expect(beforeDelete.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo(99.33, 2);
+    expect(afterDelete.byBusinessUnitMap["AMD-EZ"]).toBeUndefined();
+    expect(afterDelete.byBusinessUnit.map((aggregate) => aggregate.businessUnit)).toEqual(["Laguna Water"]);
+    expect(afterDelete.portfolioYearAverage.pmCompliance).toBe(97);
+    expect(afterDelete.portfolioMonthlyAverages[2].pmCompliance).toBeNull();
+  });
+
 });
