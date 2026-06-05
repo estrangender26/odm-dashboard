@@ -350,12 +350,9 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
             <tr>
               <th>Business Unit</th>
               <th>PM Compliance (%)</th>
-              <th>Schedule Compliance (%)</th>
-              <th>Budget Spend (%)</th>
               <th>PM:CM Ratio (Work Order)</th>
+              <th>Budget Spend (%)</th>
               <th>PM:CM Ratio (Cost)</th>
-              <th>MTBF (days)</th>
-              <th>MTTR (days)</th>
               <th>Facility Uptime (%)</th>
             </tr>
           </thead>
@@ -523,6 +520,7 @@ var KPIs = [
   {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%'}
 ];
 var GaugeKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','facilityUptime','pmcmWORatio','pmcmCostRatio','mtbf','mttr'];
+var SummaryMatrixKPIs = ['pmCompliance','pmcmWORatio','budgetSpend','pmcmCostRatio','facilityUptime'];
 
 // ===== STATE =====
 var ScoreData = {};
@@ -1249,7 +1247,7 @@ function getKPIStatus(key,val){
 
 function getSummaryKPIs(bu){
   var d = getBusinessUnitYearAverages(bu.id,getSelectedYear());
-  var summaryKPIs = KPIs;
+  var summaryKPIs = SummaryMatrixKPIs.map(function(key){return KPIs.find(function(kpi){return kpi.key===key;});}).filter(Boolean);
   return summaryKPIs.map(function(sk){
     var val = d[sk.key];
     var status = getKPIStatus(sk.key,val);
@@ -1264,19 +1262,16 @@ function getSummaryKPIs(bu){
 // ===== RENDER SUMMARY =====
 function renderSummary(){
   var tbody = document.getElementById('summaryBody');
-  if(isKpiLoading()){tbody.innerHTML = '<tr><td colspan="9">'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...')+'</td></tr>';return;}
-  if(!hasImportedData(null,getSelectedYear())){tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">No KPI data imported yet.</div></td></tr>';return;}
+  if(isKpiLoading()){tbody.innerHTML = '<tr><td colspan="6">'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...')+'</td></tr>';return;}
+  if(!hasImportedData(null,getSelectedYear())){tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No KPI data imported yet.</div></td></tr>';return;}
   var html = '';
   // Benchmark row
   html += '<tr class="benchmark-row">';
   html += '<td>BENCHMARK</td>';
   html += '<td>95%</td>';
-  html += '<td>95%</td>';
-  html += '<td>95% - 105%</td>';
   html += '<td>&ge;86% (6:1)</td>';
+  html += '<td>95% - 105%</td>';
   html += '<td>&ge;60% (1.5:1)</td>';
-  html += '<td>Tracked</td>';
-  html += '<td>Tracked</td>';
   html += '<td>99.97%</td>';
   html += '</tr>';
   BUs.forEach(function(bu){
