@@ -1,5 +1,6 @@
 /* ─── Gantt Dependency Engine — MS Project-style FS/SS/FF/SF + Auto-Scheduling ─── */
-import { GanttTask, GanttLink, parseDate, addDays, depTypeName } from "./schedulingEngine";
+import type { GanttTask, GanttLink } from "./schedulingEngine";
+import { parseDate, addDays, daysBetween, depTypeName } from "./schedulingEngine";
 
 export { depTypeName };
 
@@ -9,6 +10,7 @@ export interface DependencyScheduleResult {
   plannedStart: string;
   plannedEnd: string;
   duration: number;
+  anchorSource?: "actual" | "planned";
   skipped?: false;
 }
 
@@ -17,12 +19,24 @@ export interface DependencyScheduleSkip {
   reason: string;
 }
 
-export type DependencyScheduleOutcome = DependencyScheduleResult | DependencyScheduleSkip;
+export type DependencyScheduleOutcome =
+  | DependencyScheduleResult
+  | DependencyScheduleSkip;
 
 export function normalizeDependencyType(type?: string | null): DependencyType {
-  const typeMap: Record<string, DependencyType> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
+  const typeMap: Record<string, DependencyType> = {
+    "0": "FS",
+    "1": "SS",
+    "2": "FF",
+    "3": "SF",
+  };
   const raw = String(type || "NONE").toUpperCase();
-  return typeMap[raw] || (["FS", "SS", "FF", "SF", "NONE"].includes(raw) ? raw as DependencyType : "NONE");
+  return (
+    typeMap[raw] ||
+    (["FS", "SS", "FF", "SF", "NONE"].includes(raw)
+      ? (raw as DependencyType)
+      : "NONE")
+  );
 }
 
 export function formatIsoDate(date: Date): string {
@@ -30,41 +44,138 @@ export function formatIsoDate(date: Date): string {
 }
 
 export function safeDuration(duration?: number | string | null): number {
-  const n = typeof duration === "string" ? parseInt(duration, 10) : Number(duration);
-  return Math.max(1, Number.isFinite(n) ? n : 1);
+  const n =
+    typeof duration === "string" ? parseInt(duration, 10) : Number(duration);
+  return Math.max(1, Math.round(Number.isFinite(n) ? n : 1));
 }
 
-export function endFromStartAndDuration(start: string, duration?: number | string | null): string {
+export function endFromStartAndDuration(
+  start: string,
+  duration?: number | string | null
+): string {
   const startDate = parseDate(start);
   if (!startDate) return "";
   return formatIsoDate(addDays(startDate, safeDuration(duration) - 1));
 }
 
-export function startFromEndAndDuration(end: string, duration?: number | string | null): string {
+export function startFromEndAndDuration(
+  end: string,
+  duration?: number | string | null
+): string {
   const endDate = parseDate(end);
   if (!endDate) return "";
   return formatIsoDate(addDays(endDate, -(safeDuration(duration) - 1)));
 }
 
-function taskHasChildren(taskId: number, tasks: Pick<GanttTask, "id" | "parent">[]): boolean {
+function taskHasChildren(
+  taskId: number,
+  tasks: Pick<GanttTask, "id" | "parent">[]
+): boolean {
   return tasks.some(t => t.id !== taskId && t.parent === taskId);
+}
+
+function dateValue(date?: string | null): number {
+  const parsed = parseDate(date);
+  return parsed ? parsed.getTime() : Number.NEGATIVE_INFINITY;
+}
+
+function getActualAwareStart(
+  task: Pick<GanttTask, "plannedStart" | "startDate">
+): { date: Date | null; source: "actual" | "planned" | null } {
+  const actualStart = parseDate(task.startDate);
+  if (actualStart) return { date: actualStart, source: "actual" };
+  const plannedStart = parseDate(task.plannedStart);
+  return { date: plannedStart, source: plannedStart ? "planned" : null };
+}
+
+function getActualAwareFinish(
+  task: Pick<GanttTask, "plannedEnd" | "endDate">
+): { date: Date | null; source: "actual" | "planned" | null } {
+  const actualFinish = parseDate(task.endDate);
+  if (actualFinish) return { date: actualFinish, source: "actual" };
+  const plannedFinish = parseDate(task.plannedEnd);
+  return { date: plannedFinish, source: plannedFinish ? "planned" : null };
+}
+
+function preferLaterSchedule(
+  existing: DependencyScheduleResult | undefined,
+  candidate: DependencyScheduleResult,
+  type: DependencyType
+): DependencyScheduleResult {
+  if (!existing) return candidate;
+  const compareExisting =
+    type === "FF" || type === "SF"
+      ? existing.plannedEnd
+      : existing.plannedStart;
+  const compareCandidate =
+    type === "FF" || type === "SF"
+      ? candidate.plannedEnd
+      : candidate.plannedStart;
+  return dateValue(compareCandidate) > dateValue(compareExisting)
+    ? candidate
+    : existing;
+}
+
+export function validateTaskSchedule(
+  task: Pick<
+    GanttTask,
+    "plannedStart" | "plannedEnd" | "startDate" | "endDate" | "duration"
+  >
+): string | null {
+  const plannedStart = parseDate(task.plannedStart);
+  const plannedEnd = parseDate(task.plannedEnd);
+  const actualStart = parseDate(task.startDate);
+  const actualEnd = parseDate(task.endDate);
+
+  if (task.plannedStart && !plannedStart)
+    return "Planned Start is not a valid date.";
+  if (task.plannedEnd && !plannedEnd) return "Planned End is not a valid date.";
+  if (task.startDate && !actualStart)
+    return "Actual Start is not a valid date.";
+  if (task.endDate && !actualEnd) return "Actual Finish is not a valid date.";
+  if (plannedStart && plannedEnd && daysBetween(plannedStart, plannedEnd) < 0)
+    return "Planned End cannot be before Planned Start.";
+  if (actualStart && actualEnd && daysBetween(actualStart, actualEnd) < 0)
+    return "Actual Finish cannot be before Actual Start.";
+  if (Number(task.duration) < 1) return "Duration must be at least 1 day.";
+  return null;
 }
 
 /* One canonical dependency date calculator. Relationship logic is independent of hierarchy. */
 export function calculateDependencyPlannedDates(input: {
-  predecessor?: Pick<GanttTask, "plannedStart" | "plannedEnd"> | null;
-  successor?: Pick<GanttTask, "duration" | "plannedStart" | "plannedEnd"> | null;
+  predecessor?: Pick<
+    GanttTask,
+    "plannedStart" | "plannedEnd" | "startDate" | "endDate"
+  > | null;
+  successor?: Pick<
+    GanttTask,
+    "duration" | "plannedStart" | "plannedEnd"
+  > | null;
   type?: string | null;
   lagDays?: number | string | null;
 }): DependencyScheduleOutcome {
   const type = normalizeDependencyType(input.type);
-  if (type === "NONE") return { skipped: true, reason: "Relationship is None; dependency auto-scheduling is disabled." };
-  if (!input.predecessor) return { skipped: true, reason: "Select a predecessor to auto-schedule planned dates." };
-  if (!input.successor) return { skipped: true, reason: "Select a successor to auto-schedule planned dates." };
+  if (type === "NONE")
+    return {
+      skipped: true,
+      reason: "Relationship is None; dependency auto-scheduling is disabled.",
+    };
+  if (!input.predecessor)
+    return {
+      skipped: true,
+      reason: "Select a predecessor to auto-schedule planned dates.",
+    };
+  if (!input.successor)
+    return {
+      skipped: true,
+      reason: "Select a successor to auto-schedule planned dates.",
+    };
 
-  const predecessorStart = parseDate(input.predecessor.plannedStart);
-  const predecessorFinish = parseDate(input.predecessor.plannedEnd);
-  const lagDays = Number.isFinite(Number(input.lagDays)) ? Number(input.lagDays) : 0;
+  const predecessorStart = getActualAwareStart(input.predecessor);
+  const predecessorFinish = getActualAwareFinish(input.predecessor);
+  const lagDays = Number.isFinite(Number(input.lagDays))
+    ? Number(input.lagDays)
+    : 0;
   const duration = safeDuration(input.successor.duration);
 
   let plannedStart: Date | null = null;
@@ -72,23 +183,39 @@ export function calculateDependencyPlannedDates(input: {
 
   switch (type) {
     case "FS":
-      if (!predecessorFinish) return { skipped: true, reason: "Predecessor planned finish is required for FS scheduling." };
-      plannedStart = addDays(predecessorFinish, lagDays);
+      if (!predecessorFinish.date)
+        return {
+          skipped: true,
+          reason: "Predecessor finish is required for FS scheduling.",
+        };
+      plannedStart = addDays(predecessorFinish.date, lagDays);
       plannedEnd = addDays(plannedStart, duration - 1);
       break;
     case "SS":
-      if (!predecessorStart) return { skipped: true, reason: "Predecessor planned start is required for SS scheduling." };
-      plannedStart = addDays(predecessorStart, lagDays);
+      if (!predecessorStart.date)
+        return {
+          skipped: true,
+          reason: "Predecessor start is required for SS scheduling.",
+        };
+      plannedStart = addDays(predecessorStart.date, lagDays);
       plannedEnd = addDays(plannedStart, duration - 1);
       break;
     case "FF":
-      if (!predecessorFinish) return { skipped: true, reason: "Predecessor planned finish is required for FF scheduling." };
-      plannedEnd = addDays(predecessorFinish, lagDays);
+      if (!predecessorFinish.date)
+        return {
+          skipped: true,
+          reason: "Predecessor finish is required for FF scheduling.",
+        };
+      plannedEnd = addDays(predecessorFinish.date, lagDays);
       plannedStart = addDays(plannedEnd, -(duration - 1));
       break;
     case "SF":
-      if (!predecessorStart) return { skipped: true, reason: "Predecessor planned start is required for SF scheduling." };
-      plannedEnd = addDays(predecessorStart, lagDays);
+      if (!predecessorStart.date)
+        return {
+          skipped: true,
+          reason: "Predecessor start is required for SF scheduling.",
+        };
+      plannedEnd = addDays(predecessorStart.date, lagDays);
       plannedStart = addDays(plannedEnd, -(duration - 1));
       break;
   }
@@ -97,6 +224,10 @@ export function calculateDependencyPlannedDates(input: {
     plannedStart: formatIsoDate(plannedStart),
     plannedEnd: formatIsoDate(plannedEnd),
     duration,
+    anchorSource:
+      (type === "FS" || type === "FF"
+        ? predecessorFinish.source
+        : predecessorStart.source) || "planned",
   };
 }
 
@@ -107,11 +238,22 @@ export function applyDependency(
   type: string,
   lag: number
 ): { plannedStart: string; plannedEnd: string } | null {
-  const result = calculateDependencyPlannedDates({ predecessor: pred, successor: succ, type, lagDays: lag });
-  return result.skipped ? null : { plannedStart: result.plannedStart, plannedEnd: result.plannedEnd };
+  const result = calculateDependencyPlannedDates({
+    predecessor: pred,
+    successor: succ,
+    type,
+    lagDays: lag,
+  });
+  return result.skipped
+    ? null
+    : { plannedStart: result.plannedStart, plannedEnd: result.plannedEnd };
 }
 
-export function wouldCreateDependencyCycle(source: number, target: number, links: Array<Pick<GanttLink, "source" | "target">>): boolean {
+export function wouldCreateDependencyCycle(
+  source: number,
+  target: number,
+  links: Array<Pick<GanttLink, "source" | "target">>
+): boolean {
   if (!source || !target) return false;
   if (source === target) return true;
   const successors = new Map<number, number[]>();
@@ -142,7 +284,10 @@ export function autoSchedule(
   const taskMap = new Map<number, GanttTask>();
   tasks.forEach(t => taskMap.set(t.id, t));
 
-  const updates = new Map<number, { plannedStart: string; plannedEnd: string; duration: number }>();
+  const updates = new Map<
+    number,
+    { plannedStart: string; plannedEnd: string; duration: number }
+  >();
 
   const successors = new Map<number, GanttLink[]>();
   links.forEach(lk => {
@@ -167,10 +312,34 @@ export function autoSchedule(
       if (taskHasChildren(succ.id, tasks)) continue;
 
       const predUpdate = updates.get(lk.source);
-      const effPred = predUpdate ? { ...pred, plannedStart: predUpdate.plannedStart, plannedEnd: predUpdate.plannedEnd } : pred;
-      const result = calculateDependencyPlannedDates({ predecessor: effPred, successor: succ, type: lk.type, lagDays: lk.lag || 0 });
+      const succUpdate = updates.get(lk.target);
+      const effPred = predUpdate
+        ? {
+            ...pred,
+            plannedStart: predUpdate.plannedStart,
+            plannedEnd: predUpdate.plannedEnd,
+          }
+        : pred;
+      const effSucc = succUpdate
+        ? {
+            ...succ,
+            plannedStart: succUpdate.plannedStart,
+            plannedEnd: succUpdate.plannedEnd,
+            duration: succUpdate.duration,
+          }
+        : succ;
+      const result = calculateDependencyPlannedDates({
+        predecessor: effPred,
+        successor: effSucc,
+        type: lk.type,
+        lagDays: lk.lag || 0,
+      });
       if (!result.skipped) {
-        updates.set(lk.target, result);
+        const type = normalizeDependencyType(lk.type);
+        updates.set(
+          lk.target,
+          preferLaterSchedule(updates.get(lk.target), result, type)
+        );
         visit(lk.target);
       }
     }
@@ -192,7 +361,13 @@ export function buildConnectors(
   headerHeight: number,
   rowHeight: number
 ): { x1: number; y1: number; x2: number; y2: number; type: string }[] {
-  const connectors: { x1: number; y1: number; x2: number; y2: number; type: string }[] = [];
+  const connectors: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    type: string;
+  }[] = [];
   for (const lk of links) {
     if (normalizeDependencyType(lk.type) === "NONE") continue;
     const from = taskPositions.get(lk.source);
