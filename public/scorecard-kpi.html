@@ -315,7 +315,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <button class="ctrl-btn ctrl-blue" onclick="loadData()">Load</button>
     <button class="ctrl-btn ctrl-green" onclick="openManualInput()">Input Data Manually</button>
     <button id="importBtn" class="ctrl-btn ctrl-gray" onclick="triggerExcelImport()"><span id="importBtnLabel">Import Excel</span></button>
-    <button class="ctrl-btn ctrl-red" onclick="clearData()">Clear</button>
+    <button id="clearKpiBtn" class="ctrl-btn ctrl-red" onclick="clearData()" title="Select a Business Unit before clearing KPI records.">Clear</button>
   </div>
   <div class="status-region"><div id="importProgress" class="import-progress"><span class="spinner-blue"></span><span>Importing KPI workbook...</span></div></div>
   <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
@@ -475,6 +475,21 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   </div>
 </div>
 
+<!-- CLEAR CONFIRMATION MODAL -->
+<div class="modal-overlay" id="clearConfirmModal" role="dialog" aria-modal="true" aria-labelledby="clearConfirmTitle">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <div class="modal-title" id="clearConfirmTitle">Clear KPI Records</div>
+      <button class="modal-close" id="clearConfirmCloseBtn" onclick="resolveClearConfirmation(false)" aria-label="Cancel clear KPI records">&times;</button>
+    </div>
+    <p id="clearConfirmMessage" style="color:var(--muted);font-size:13px;font-weight:700;line-height:1.6;margin-bottom:18px"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button id="clearCancelBtn" class="ctrl-btn ctrl-gray" onclick="resolveClearConfirmation(false)">Cancel</button>
+      <button id="clearConfirmBtn" class="ctrl-btn ctrl-red" onclick="resolveClearConfirmation(true)">Clear Records</button>
+    </div>
+  </div>
+</div>
+
 <div class="footer" style="text-align:right;padding-right:20px">
   Program Oversight Center &copy; 2026
 </div>
@@ -510,6 +525,8 @@ var MonthlyScoreData = {};
 var Charts = {};
 var isImporting = false;
 var isFetchingSavedRecords = false;
+var isClearingKpiRecords = false;
+var pendingClearConfirmationResolver = null;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded',function(){
@@ -517,6 +534,7 @@ document.addEventListener('DOMContentLoaded',function(){
   initManualSelectors();
   initImportSelectors();
   initForm();
+  updateClearButtonState();
   fetchSavedMonthlyKpiRecords();
 });
 
@@ -537,12 +555,14 @@ function showTab(id,btn,skipFetch){
   var sel = document.getElementById('businessUnitSel');
   if(sel)sel.value = id;
   persistDeckContext();
+  updateClearButtonState(id);
   renderBUCharts(id);
   if(!skipFetch)fetchSavedMonthlyKpiRecords(id);
 }
 
 function getBUById(buId){return BUs.find(function(bu){return bu.id===buId;}) || BUs[0];}
 function getSelectedBU(){return getBUById(selectedBusinessUnitId);}
+function isSummaryTabActive(){var activePanel=document.querySelector('.tc.active');return !activePanel || activePanel.id==='t-summary';}
 function getBUApiValue(buId){var bu=getBUById(buId);return bu.apiValue || bu.label || bu.id;}
 function initBusinessUnitSelector(){
   var sel = document.getElementById('businessUnitSel');
@@ -571,6 +591,7 @@ function handleBusinessUnitChange(){
   var sel = document.getElementById('businessUnitSel');
   selectedBusinessUnitId = sel && sel.value ? sel.value : 'ez';
   persistDeckContext();
+  updateClearButtonState(selectedBusinessUnitId);
   var tabBtn = Array.prototype.find.call(document.querySelectorAll('.tab'),function(btn){return btn.getAttribute('onclick') && btn.getAttribute('onclick').indexOf("'"+selectedBusinessUnitId+"'")>-1;});
   showTab(selectedBusinessUnitId,tabBtn);
   loadData();
@@ -700,7 +721,7 @@ function getChartValue(record,key){
   return isBlankDisplayValue(val)?null:val;
 }
 
-function isKpiLoading(){return isImporting || isFetchingSavedRecords;}
+function isKpiLoading(){return isImporting || isFetchingSavedRecords || isClearingKpiRecords;}
 
 function setImporting(flag){
   isImporting = flag;
@@ -709,9 +730,10 @@ function setImporting(flag){
   var progress = document.getElementById('importProgress');
   if(btn)btn.disabled = flag;
   if(label)label.innerHTML = flag?'<span class="spinner"></span> Importing...':'Import Excel';
-  if(progress)progress.classList.toggle('active',flag || isFetchingSavedRecords);
+  if(progress)progress.classList.toggle('active',flag || isFetchingSavedRecords || isClearingKpiRecords);
   var progressText = progress?progress.querySelector('span:last-child'):null;
-  if(progressText)progressText.textContent = isFetchingSavedRecords && !flag ? 'Loading saved KPI records...' : 'Importing KPI workbook...';
+  if(progressText)progressText.textContent = isClearingKpiRecords ? 'Clearing KPI records...' : (isFetchingSavedRecords && !flag ? 'Loading saved KPI records...' : 'Importing KPI workbook...');
+  updateClearButtonState();
   updateImportButtonState();
   loadData();
 }
@@ -719,10 +741,49 @@ function setImporting(flag){
 function setFetchingSavedRecords(flag){
   isFetchingSavedRecords = flag;
   var progress = document.getElementById('importProgress');
-  if(progress)progress.classList.toggle('active',flag || isImporting);
+  if(progress)progress.classList.toggle('active',flag || isImporting || isClearingKpiRecords);
   var progressText = progress?progress.querySelector('span:last-child'):null;
-  if(progressText)progressText.textContent = flag && !isImporting ? 'Loading saved KPI records...' : 'Importing KPI workbook...';
+  if(progressText)progressText.textContent = isClearingKpiRecords ? 'Clearing KPI records...' : (flag && !isImporting ? 'Loading saved KPI records...' : 'Importing KPI workbook...');
+  updateClearButtonState();
   loadData();
+}
+
+function setClearingKpiRecords(flag){
+  isClearingKpiRecords = flag;
+  var progress = document.getElementById('importProgress');
+  if(progress)progress.classList.toggle('active',flag || isImporting || isFetchingSavedRecords);
+  var progressText = progress?progress.querySelector('span:last-child'):null;
+  if(progressText)progressText.textContent = flag ? 'Clearing KPI records...' : (isFetchingSavedRecords ? 'Loading saved KPI records...' : 'Importing KPI workbook...');
+  updateClearButtonState();
+  loadData();
+}
+
+function updateClearButtonState(activeTabId){
+  var btn = document.getElementById('clearKpiBtn');
+  if(!btn)return;
+  var summarySelected = activeTabId ? activeTabId==='summary' : isSummaryTabActive();
+  btn.disabled = isClearingKpiRecords || summarySelected;
+  btn.title = summarySelected ? 'Select a Business Unit before clearing KPI records.' : (isClearingKpiRecords ? 'Clearing KPI records...' : 'Clear KPI records for '+getSelectedBU().label+'.');
+  btn.innerHTML = isClearingKpiRecords ? '<span class="spinner"></span> Clearing...' : 'Clear';
+}
+
+function resolveClearConfirmation(confirmed){
+  var modal = document.getElementById('clearConfirmModal');
+  if(modal)modal.classList.remove('active');
+  var resolver = pendingClearConfirmationResolver;
+  pendingClearConfirmationResolver = null;
+  if(resolver)resolver(!!confirmed);
+}
+
+function confirmClearKpiRecords(bu){
+  var modal = document.getElementById('clearConfirmModal');
+  var message = document.getElementById('clearConfirmMessage');
+  if(!modal || !message)return Promise.resolve(window.confirm('Clear KPI records for '+bu.label+'? This will permanently remove saved KPI data for this business unit only.'));
+  message.textContent = 'Clear KPI records for '+bu.label+'? This will permanently remove saved KPI data for this business unit only.';
+  modal.classList.add('active');
+  var confirmBtn = document.getElementById('clearConfirmBtn');
+  if(confirmBtn)confirmBtn.focus();
+  return new Promise(function(resolve){pendingClearConfirmationResolver = resolve;});
 }
 
 function showToast(type,message){
@@ -804,7 +865,7 @@ function updateChartLoadingOverlays(){
       if(!existing){
         var overlay = document.createElement('div');
         overlay.className = 'chart-loading';
-        overlay.innerHTML = '<span class="spinner-blue"></span><span>'+(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI chart...')+'</span>';
+        overlay.innerHTML = '<span class="spinner-blue"></span><span>'+(isClearingKpiRecords?'Clearing KPI records...':(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI chart...'))+'</span>';
         wrap.appendChild(overlay);
       }
     }else if(existing){
@@ -1119,7 +1180,7 @@ function renderSummary(){
 function renderGauges(buId){
   var container = document.getElementById(buId+'-gauges');
   if(!container)return;
-  if(isKpiLoading()){container.innerHTML = renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI cards...');return;}
+  if(isKpiLoading()){container.innerHTML = renderLoadingPanel(isClearingKpiRecords?'Clearing KPI records...':(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI cards...'));return;}
   var isSummary = buId==='summary';
   var d = isSummary ? getPortfolioCurrentData() : getBusinessUnitYearAverages(buId,getSelectedYear());
   if(!hasYearKpiData(isSummary?null:buId)){container.innerHTML = '<div class="empty-state">No KPI data imported for the selected year.</div>';return;}
@@ -1151,7 +1212,7 @@ function renderGauges(buId){
 function renderMonthlyRecords(buId){
   var container = document.getElementById(buId+'-monthly-records');
   if(!container)return;
-  if(isKpiLoading()){container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div>'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...');return;}
+  if(isKpiLoading()){container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div>'+renderLoadingPanel(isClearingKpiRecords?'Clearing KPI records...':(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...'));return;}
   var year = getSelectedYear();
   var hasData = !!(MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]);
   if(!hasData){
@@ -1226,7 +1287,7 @@ var noDataPlugin = {
     ctx.fillStyle = '#5A6B7D';
     ctx.font = '700 13px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(isKpiLoading()?(isFetchingSavedRecords?'Loading saved KPI records...':'Importing KPI workbook...'):'No trend data available.', (area.left+area.right)/2, (area.top+area.bottom)/2);
+    ctx.fillText(isKpiLoading()?(isClearingKpiRecords?'Clearing KPI records...':(isFetchingSavedRecords?'Loading saved KPI records...':'Importing KPI workbook...')):'No trend data available.', (area.left+area.right)/2, (area.top+area.bottom)/2);
     ctx.restore();
   }
 };
@@ -1633,27 +1694,39 @@ function importExcel(){
 
 // ===== CLEAR =====
 async function clearData(){
+  if(isClearingKpiRecords)return;
+  if(isSummaryTabActive()){
+    showToast('warning','Select a Business Unit before clearing KPI records.');
+    updateClearButtonState('summary');
+    return;
+  }
   var bu = getSelectedBU();
   if(!bu)return;
-  if(!confirm('Clear KPI records for '+bu.label+'? This will remove saved KPI data for this business unit.'))return;
+  var confirmed = await confirmClearKpiRecords(bu);
+  if(!confirmed)return;
+  setClearingKpiRecords(true);
   try{
     var res = await fetch('/api/monthly-kpi/records?business_unit='+encodeURIComponent(getBUApiValue(bu.id)),{method:'DELETE',headers:{'Accept':'application/json'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Failed to clear KPI records.');
-    if(MonthlyScoreData[bu.id])delete MonthlyScoreData[bu.id];
-    if(ScoreData[bu.id])delete ScoreData[bu.id];
     Object.keys(Charts).forEach(function(key){if(key.indexOf(bu.id+'-')===0){Charts[key].destroy();delete Charts[key];}});
-    loadData();
+    await fetchSavedMonthlyKpiRecords(bu.id);
+    renderSummary();
+    renderBUCharts(bu.id);
+    updateChartLoadingOverlays();
     showToast('success','KPI records cleared for '+bu.label+'.');
   }catch(err){
     console.error('Clear KPI records error:',err);
-    showToast('error','Failed to clear KPI records.');
+    showToast('error','Failed to clear KPI records for '+bu.label+'.');
+  }finally{
+    setClearingKpiRecords(false);
   }
 }
 
 // Close modal on overlay click
 document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
 document.getElementById('importModal').addEventListener('click',function(e){if(e.target===this)closeImportModal();});
+document.getElementById('clearConfirmModal').addEventListener('click',function(e){if(e.target===this)resolveClearConfirmation(false);});
 
 /* ============================================================
    AI ASSISTANT for Scorecard KPI Dashboard
