@@ -340,8 +340,8 @@ function asRequiredInteger(value: unknown, fieldName: string): number {
   return parsed;
 }
 
-function normalizeMonthlyKpiRecord(input: any, fallbackSourceFileName?: string | null) {
-  const businessUnit = String(input?.business_unit ?? input?.businessUnit ?? "").trim();
+function normalizeMonthlyKpiRecord(input: any, fallbackSourceFileName?: string | null, fallbackBusinessUnit?: string | null) {
+  const businessUnit = String(input?.business_unit ?? input?.businessUnit ?? fallbackBusinessUnit ?? "").trim();
   if (!businessUnit) throw new Error("business_unit is required");
   const reportingMonth = asRequiredInteger(input?.reporting_month ?? input?.reportingMonth, "reporting_month");
   const reportingYear = asRequiredInteger(input?.reporting_year ?? input?.reportingYear, "reporting_year");
@@ -372,7 +372,7 @@ app.get("/api/monthly-kpi/records", async (c) => {
   try {
     await ensureDbReady();
     const db = getDb();
-    const businessUnit = c.req.query("business_unit");
+    const businessUnitParam = c.req.query("business_unit")?.trim() || null;
     const reportingYear = c.req.query("reporting_year");
     const reportingMonth = c.req.query("reporting_month");
     const rows = await db.execute(sql`
@@ -394,7 +394,7 @@ app.get("/api/monthly-kpi/records", async (c) => {
         facility_uptime,
         raw_imported_values
       FROM monthly_kpi_records
-      WHERE (${businessUnit ?? null}::text IS NULL OR business_unit = ${businessUnit ?? null})
+      WHERE (${businessUnitParam}::text IS NULL OR business_unit = ${businessUnitParam})
         AND (${reportingYear ?? null}::int IS NULL OR reporting_year = ${reportingYear ? Number(reportingYear) : null})
         AND (${reportingMonth ?? null}::int IS NULL OR reporting_month = ${reportingMonth ? Number(reportingMonth) : null})
       ORDER BY reporting_year DESC, reporting_month DESC, business_unit ASC
@@ -411,12 +411,13 @@ app.post("/api/monthly-kpi/import", async (c) => {
     await ensureDbReady();
     const body = await c.req.json();
     const sourceFileName = body?.source_file_name ?? body?.sourceFileName ?? null;
+    const fallbackBusinessUnit = body?.business_unit ?? body?.businessUnit ?? null;
     const payloadRecords = Array.isArray(body?.records) ? body.records : [];
     if (payloadRecords.length === 0) return c.json({ error: "records array is required" }, 400);
     const db = getDb();
     const saved: any[] = [];
     for (const payloadRecord of payloadRecords) {
-      const record = normalizeMonthlyKpiRecord(payloadRecord, sourceFileName);
+      const record = normalizeMonthlyKpiRecord(payloadRecord, sourceFileName, fallbackBusinessUnit);
       const result = await db.execute(sql`
         INSERT INTO monthly_kpi_records (
           business_unit,

@@ -330,7 +330,6 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   <div class="tabs">
     <button class="tab active" onclick="showTab('summary',this)">Summary Matrix</button>
     <button class="tab" onclick="showTab('ez',this)">AMD-EZ</button>
-    <button class="tab" onclick="showTab('wz',this)">AMD-WZ</button>
     <button class="tab" onclick="showTab('laguna',this)">Laguna Water</button>
     <button class="tab" onclick="showTab('clark',this)">Clark Water</button>
     <button class="tab" onclick="showTab('tagum',this)">Tagum Water</button>
@@ -367,12 +366,6 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <div id="ez-trend-section"></div>
   </div>
 
-  <div id="t-wz" class="tc">
-    <div id="wz-context" class="bu-context"></div>
-    <div id="wz-gauges" class="gauge-grid"></div>
-    <div id="wz-monthly-records" class="matrix-card"></div>
-    <div id="wz-trend-section"></div>
-  </div>
 
   <div id="t-laguna" class="tc">
     <div id="laguna-context" class="bu-context"></div>
@@ -457,13 +450,15 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 // ===== CONFIG =====
 var BUs = [
   {id:'ez',apiValue:'AMD-EZ',name:'AMD-EZ',label:'AMD-EZ'},
-  {id:'wz',apiValue:'AMD-WZ',name:'AMD-WZ',label:'AMD-WZ'},
   {id:'laguna',apiValue:'Laguna Water',name:'Laguna Water',label:'Laguna Water'},
   {id:'clark',apiValue:'Clark Water',name:'Clark Water',label:'Clark Water'},
   {id:'tagum',apiValue:'Tagum Water',name:'Tagum Water',label:'Tagum Water'},
   {id:'estate',apiValue:'Estate Water',name:'Estate Water',label:'Estate Water'}
 ];
-var selectedBusinessUnitId = 'ez';
+var selectedBusinessUnitId = (function(){
+  try{return normalizePersistedBusinessUnit(localStorage.getItem('monthlyKpiSelectedBusinessUnit')) || 'ez';}
+  catch(err){return 'ez';}
+})();
 var KPIs = [
   {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%'},
   {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%'},
@@ -492,9 +487,11 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 // ===== TAB SWITCH =====
-function showTab(id,btn){
+function showTab(id,btn,skipFetch){
+  var panel = document.getElementById('t-'+id);
+  if(!panel)return;
   document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('active')});
-  document.getElementById('t-'+id).classList.add('active');
+  panel.classList.add('active');
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
   if(btn)btn.classList.add('active');
   if(id!=='summary'){
@@ -503,6 +500,7 @@ function showTab(id,btn){
     if(sel)sel.value = id;
     persistDeckContext();
     renderBUCharts(id);
+    if(!skipFetch)fetchSavedMonthlyKpiRecords(id);
   }
 }
 
@@ -815,12 +813,18 @@ function normalizePersistedBusinessUnit(value){
   var exact = BUs.find(function(bu){return text===bu.id.toLowerCase() || text===String(bu.apiValue||'').toLowerCase() || text===bu.name.toLowerCase() || text===bu.label.toLowerCase();});
   if(exact)return exact.id;
   var fuzzy = BUs.find(function(bu){return text.includes(bu.id.toLowerCase()) || text.includes(String(bu.apiValue||'').toLowerCase()) || text.includes(bu.name.toLowerCase()) || text.includes(bu.label.toLowerCase());});
-  return fuzzy?fuzzy.id:text;
+  return fuzzy?fuzzy.id:'';
 }
 
-function applyPersistedMonthlyKpiRecords(records){
-  MonthlyScoreData = {};
-  ScoreData = {};
+function applyPersistedMonthlyKpiRecords(records,options){
+  options = options || {};
+  if(options.reset){
+    MonthlyScoreData = {};
+    ScoreData = {};
+  }else if(options.businessUnitId){
+    delete MonthlyScoreData[options.businessUnitId];
+    delete ScoreData[options.businessUnitId];
+  }
   (records||[]).forEach(function(row){
     var buId = normalizePersistedBusinessUnit(row.business_unit);
     if(!buId)return;
@@ -860,13 +864,15 @@ function applyPersistedMonthlyKpiRecords(records){
   });
 }
 
-async function fetchSavedMonthlyKpiRecords(){
+async function fetchSavedMonthlyKpiRecords(buId){
   setFetchingSavedRecords(true);
   try{
-    var res = await fetch('/api/monthly-kpi/records',{headers:{'Accept':'application/json'}});
+    var url = '/api/monthly-kpi/records';
+    if(buId)url += '?business_unit='+encodeURIComponent(getBUApiValue(buId));
+    var res = await fetch(url,{headers:{'Accept':'application/json'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Unable to load saved Monthly KPI records.');
-    applyPersistedMonthlyKpiRecords(payload.records || []);
+    applyPersistedMonthlyKpiRecords(payload.records || [],buId?{businessUnitId:buId}:{reset:true});
   }catch(err){
     console.error('Saved KPI load error:',err);
     showToast('error','Unable to load saved KPI records: '+err.message);
@@ -875,11 +881,12 @@ async function fetchSavedMonthlyKpiRecords(){
   }
 }
 
-async function saveImportedMonthlyKpiRecords(fileName,records){
+async function saveImportedMonthlyKpiRecords(fileName,records,buId){
+  var selectedBuId = buId || selectedBusinessUnitId;
   var res = await fetch('/api/monthly-kpi/import',{
     method:'POST',
     headers:{'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({source_file_name:fileName,records:records})
+    body:JSON.stringify({source_file_name:fileName,business_unit:getBUApiValue(selectedBuId),records:records})
   });
   var payload = await res.json().catch(function(){return {};});
   if(!res.ok)throw new Error(payload.error || 'Unable to save imported KPI records.');
@@ -1173,12 +1180,9 @@ function loadData(){
   persistDeckContext();
   updateChartLoadingOverlays();
   renderSummary();
-  var activeTab = document.querySelector('.tab.active');
-  var tabId = activeTab?activeTab.textContent.toLowerCase().replace(/\s+/g,''):'summary';
-  if(tabId==='summary') return;
-  var buMap = {'amd-ez':'ez','amd-wz':'wz','lagunawater':'laguna','clarkwater':'clark','tagumwater':'tagum','estatewater':'estate'};
-  var buId = buMap[tabId];
-  if(buId)renderBUCharts(buId);
+  var activePanel = document.querySelector('.tc.active');
+  if(!activePanel || activePanel.id==='t-summary') return;
+  renderBUCharts(selectedBusinessUnitId);
 }
 
 function initForm(){
@@ -1313,8 +1317,8 @@ async function saveManualData(){
   var saveBtn = document.querySelector('#modal .ctrl-green');
   if(saveBtn)saveBtn.disabled = true;
   try{
-    await saveImportedMonthlyKpiRecords('Manual entry',[manualPayloadFromForm(ctx)]);
-    await fetchSavedMonthlyKpiRecords();
+    await saveImportedMonthlyKpiRecords('Manual entry',[manualPayloadFromForm(ctx)],ctx.buId);
+    await fetchSavedMonthlyKpiRecords(ctx.buId);
     selectedBusinessUnitId = ctx.buId;
     setSelectValue('businessUnitSel',ctx.buId);
     setSelectValue('monthSel',ctx.month);
@@ -1344,8 +1348,8 @@ function importExcel(ev){
         var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
         if(hasSummary){
           var summaryImport = importSummaryWorkbook(workbook,file.name);
-          await saveImportedMonthlyKpiRecords(file.name,summaryImport.records);
-          await fetchSavedMonthlyKpiRecords();
+          await saveImportedMonthlyKpiRecords(file.name,summaryImport.records,selectedBusinessUnitId);
+          await fetchSavedMonthlyKpiRecords(selectedBusinessUnitId);
           if(summaryImport.imported!==12){
             showToast('warning','Imported '+summaryImport.imported+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
           }
@@ -1373,13 +1377,16 @@ function importExcel(ev){
         var month = getSelectedMonth();
         var importedLegacy = 0;
         var legacyRecords = [];
+        var importBuId = selectedBusinessUnitId;
+        var importBu = getSelectedBU();
         for(var i=1;i<rows.length;i++){
           var row = rows[i];
-          if(headerMap.bu===undefined||isEmptyValue(row[headerMap.bu]))continue;
-          var buName = String(cleanCellValue(row[headerMap.bu])).toLowerCase().trim();
-          var bu = BUs.find(function(b){return buName.includes(b.id.toLowerCase())||buName.includes(String(b.apiValue||'').toLowerCase())||buName.includes(b.name.toLowerCase())||buName.includes(b.label.toLowerCase())});
-          if(!bu)continue;
-          var record = ensureMonthlyRecord(bu.id,year,month);
+          if(headerMap.bu!==undefined && !isEmptyValue(row[headerMap.bu])){
+            var buName = String(cleanCellValue(row[headerMap.bu])).toLowerCase().trim();
+            var isSelectedRow = buName.includes(importBu.id.toLowerCase()) || buName.includes(String(importBu.apiValue||'').toLowerCase()) || buName.includes(importBu.name.toLowerCase()) || buName.includes(importBu.label.toLowerCase());
+            if(!isSelectedRow)continue;
+          }
+          var record = ensureMonthlyRecord(importBuId,year,month);
           var rawImportedValues = {sourceSheet:workbook.SheetNames[0],rowNumber:i+1,values:{}};
           Object.keys(headerMap).forEach(function(key){
             if(key==='bu')return;
@@ -1387,9 +1394,9 @@ function importExcel(ev){
             rawImportedValues.values[key] = cleanCellValue(row[headerMap[key]]);
             record[key]=parsed;
           });
-          ScoreData[bu.id] = record;
+          ScoreData[importBuId] = record;
           legacyRecords.push({
-            business_unit: getBUApiValue(bu.id),
+            business_unit: getBUApiValue(importBuId),
             reporting_month: month,
             reporting_year: year,
             source_file_name: file.name,
@@ -1406,8 +1413,9 @@ function importExcel(ev){
           });
           importedLegacy++;
         }
-        await saveImportedMonthlyKpiRecords(file.name,legacyRecords);
-        await fetchSavedMonthlyKpiRecords();
+        if(legacyRecords.length===0)throw new Error('No KPI rows matched the selected business unit.');
+        await saveImportedMonthlyKpiRecords(file.name,legacyRecords,selectedBusinessUnitId);
+        await fetchSavedMonthlyKpiRecords(selectedBusinessUnitId);
         showToast('success','KPI records imported and saved.');
       }catch(err){
         console.error('Import error:',err);

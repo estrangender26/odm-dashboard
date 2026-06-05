@@ -25,9 +25,7 @@ type PersistedMonthlyKpiRecord = {
 
 const businessUnitLabels: Record<string, string> = {
   "amd-ez": "AMD-EZ",
-  "amd-wz": "AMD-WZ",
   ez: "AMD-EZ",
-  wz: "AMD-WZ",
   "laguna water": "Laguna Water",
   laguna: "Laguna Water",
   "clark water": "Clark Water",
