@@ -116,6 +116,11 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .gauge-title{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;line-height:1.25}
 .gauge-value{font-size:22px;font-weight:700;color:var(--text);margin-bottom:3px;line-height:1.15}
 .gauge-value.no-data{font-size:15px;color:#9CA3AF;font-style:italic;font-weight:700}
+.kpi-dual-value{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;line-height:1.1;white-space:nowrap}
+.kpi-dual-primary{display:block}
+.kpi-dual-secondary{display:block;font-size:.78em;font-weight:700;color:#64748B}
+.gauge-value .kpi-dual-secondary{font-size:12px}
+.matrix-table .kpi-dual-value{min-width:58px}
 .gauge-benchmark{font-size:10px;color:var(--muted);margin-bottom:5px;line-height:1.2}
 .gauge-bar{height:6px;background:#E2E8F0;border-radius:4px;overflow:hidden}
 .gauge-fill{height:100%;border-radius:4px;transition:width .3s ease}
@@ -669,6 +674,40 @@ function formatKPIValue(val,opts){
   return String(val);
 }
 
+function isPmCmRatioKey(key){
+  return key==='pmcmWORatio'||key==='pmcmCostRatio';
+}
+
+function formatPmCmRatioEquivalent(val){
+  var pct = parseFiniteKPIValue(val);
+  if(pct===null)return '--';
+  if(pct>=100)return 'No CM';
+  var cmShare = 100 - pct;
+  if(cmShare<=0)return 'No CM';
+  return (pct / cmShare).toFixed(1)+':1';
+}
+
+function formatPmCmRatioText(val){
+  var pct = parseFiniteKPIValue(val);
+  if(pct===null)return '--';
+  return formatKPIValue(pct)+'% ('+formatPmCmRatioEquivalent(pct)+')';
+}
+
+function formatPmCmRatioHtml(val){
+  var pct = parseFiniteKPIValue(val);
+  if(pct===null)return '--';
+  return '<span class="kpi-dual-value"><span class="kpi-dual-primary">'+formatKPIValue(pct)+'%</span><span class="kpi-dual-secondary">('+formatPmCmRatioEquivalent(pct)+')</span></span>';
+}
+
+function formatDisplayKpiValue(key,val,opts){
+  opts = opts || {};
+  if(isPmCmRatioKey(key)){
+    if(opts.text)return formatPmCmRatioText(val);
+    return formatPmCmRatioHtml(val);
+  }
+  return formatKPIValue(val,opts);
+}
+
 function formatBenchmark(kpi){
   if(!kpi)return '';
   if(kpi.range)return formatKPIValue(kpi.range[0])+'% - '+formatKPIValue(kpi.range[1])+'%';
@@ -937,8 +976,8 @@ function buildKpiRecordExportRows(records){
       'PM Planned': exportRecordValue(row,'pm_planned'),
       'Schedule Compliance': exportRecordValue(row,'schedule_compliance'),
       'Budget Spend': exportRecordValue(row,'budget_spend'),
-      'PM:CM Ratio (WO)': exportRecordValue(row,'pm_cm_work_order_ratio'),
-      'PM:CM Ratio (Cost)': exportRecordValue(row,'pm_cm_cost_ratio'),
+      'PM:CM Ratio (WO)': formatPmCmRatioText(exportRecordValue(row,'pm_cm_work_order_ratio')),
+      'PM:CM Ratio (Cost)': formatPmCmRatioText(exportRecordValue(row,'pm_cm_cost_ratio')),
       'MTBF': exportRecordValue(row,'mtbf_days'),
       'MTTR': exportRecordValue(row,'mttr_days'),
       'Facility Uptime': exportRecordValue(row,'facility_uptime'),
@@ -957,8 +996,8 @@ function buildCsvExportRows(records){
       'PM Planned': exportRecordValue(row,'pm_planned'),
       'Schedule Compliance': exportRecordValue(row,'schedule_compliance'),
       'Budget Spend': exportRecordValue(row,'budget_spend'),
-      'PM:CM Ratio (WO)': exportRecordValue(row,'pm_cm_work_order_ratio'),
-      'PM:CM Ratio (Cost)': exportRecordValue(row,'pm_cm_cost_ratio'),
+      'PM:CM Ratio (WO)': formatPmCmRatioText(exportRecordValue(row,'pm_cm_work_order_ratio')),
+      'PM:CM Ratio (Cost)': formatPmCmRatioText(exportRecordValue(row,'pm_cm_cost_ratio')),
       'MTBF': exportRecordValue(row,'mtbf_days'),
       'MTTR': exportRecordValue(row,'mttr_days'),
       'Facility Uptime': exportRecordValue(row,'facility_uptime')
@@ -982,9 +1021,9 @@ function buildSummaryMatrixExportRows(aggregates,scope){
     rows.push({
       'Business Unit': bu.label,
       'PM Compliance (%)': aggregateValueForUiKey(aggregate,'pmCompliance'),
-      'PM:CM Ratio (Work Order)': aggregateValueForUiKey(aggregate,'pmcmWORatio'),
+      'PM:CM Ratio (Work Order)': formatPmCmRatioText(aggregateValueForUiKey(aggregate,'pmcmWORatio')),
       'Budget Spend (%)': aggregateValueForUiKey(aggregate,'budgetSpend'),
-      'PM:CM Ratio (Cost)': aggregateValueForUiKey(aggregate,'pmcmCostRatio'),
+      'PM:CM Ratio (Cost)': formatPmCmRatioText(aggregateValueForUiKey(aggregate,'pmcmCostRatio')),
       'Facility Uptime (%)': aggregateValueForUiKey(aggregate,'facilityUptime')
     });
   });
@@ -1003,8 +1042,8 @@ function buildPortfolioAverageRows(aggregates){
     'PM Planned':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmPlanned'),
     'Schedule Compliance':aggregateValueForUiKey(aggregates.portfolioYearAverage,'scheduleCompliance'),
     'Budget Spend':aggregateValueForUiKey(aggregates.portfolioYearAverage,'budgetSpend'),
-    'PM:CM Ratio (WO)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmWORatio'),
-    'PM:CM Ratio (Cost)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmCostRatio'),
+    'PM:CM Ratio (WO)':formatPmCmRatioText(aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmWORatio')),
+    'PM:CM Ratio (Cost)':formatPmCmRatioText(aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmCostRatio')),
     'MTBF':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mtbf'),
     'MTTR':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mttr'),
     'Facility Uptime':aggregateValueForUiKey(aggregates.portfolioYearAverage,'facilityUptime')
@@ -1017,8 +1056,8 @@ function buildPortfolioAverageRows(aggregates){
       'PM Planned':aggregateValueForUiKey(avg,'pmPlanned'),
       'Schedule Compliance':aggregateValueForUiKey(avg,'scheduleCompliance'),
       'Budget Spend':aggregateValueForUiKey(avg,'budgetSpend'),
-      'PM:CM Ratio (WO)':aggregateValueForUiKey(avg,'pmcmWORatio'),
-      'PM:CM Ratio (Cost)':aggregateValueForUiKey(avg,'pmcmCostRatio'),
+      'PM:CM Ratio (WO)':formatPmCmRatioText(aggregateValueForUiKey(avg,'pmcmWORatio')),
+      'PM:CM Ratio (Cost)':formatPmCmRatioText(aggregateValueForUiKey(avg,'pmcmCostRatio')),
       'MTBF':aggregateValueForUiKey(avg,'mtbf'),
       'MTTR':aggregateValueForUiKey(avg,'mttr'),
       'Facility Uptime':aggregateValueForUiKey(avg,'facilityUptime')
@@ -1523,9 +1562,9 @@ function getSummaryKPIs(bu){
   return summaryKPIs.map(function(sk){
     var val = d[sk.key];
     var status = getKPIStatus(sk.key,val);
-    var display = 'No Data';
+    var display = isPmCmRatioKey(sk.key) ? '--' : 'No Data';
     if(val!==undefined&&val!==null&&val!==''){
-      display = formatKPIValue(val);
+      display = formatDisplayKpiValue(sk.key,val);
     }
     return {val:val,display:display,cls:status.cls};
   });
@@ -1570,13 +1609,13 @@ function renderGauges(buId){
     var kpi = KPIs.find(function(k){return k.key===key});
     var val = d[key];
     var status = getKPIStatus(key,val);
-    var display = 'No Data';
+    var display = isPmCmRatioKey(key) ? '--' : 'No Data';
     var valueClass = ' no-data';
     var pct = 0;
     if(val!==undefined&&val!==null&&val!==''){
       var v = parseFiniteKPIValue(val);
       if(v!==null){
-        display = formatKPIValue(v);
+        display = formatDisplayKpiValue(key,v);
         valueClass = '';
         if(kpi.benchmark>0)pct = Math.min((v/kpi.benchmark)*100,100);
       }
@@ -1610,7 +1649,7 @@ function renderMonthlyRecords(buId){
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
     ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'].forEach(function(key){
       var val = hasImportedKpiValue(r,key)?r[key]:null;
-      var display = formatKPIValue(val,{blank:''});
+      var display = isPmCmRatioKey(key) ? formatDisplayKpiValue(key,val) : formatKPIValue(val,{blank:''});
       var cls = getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+(display===''?'No Data':display)+'</td>';
     });
@@ -1720,6 +1759,7 @@ function makeChartOptions(kpiKey,yTitle){
           label:function(context){
             var value = context.parsed.y;
             if(value===null||value===undefined)return context.dataset.label+': No Data';
+            if(isPmCmRatioKey(kpiKey))return [context.dataset.label+' / '+ShortMonthNames[context.dataIndex]+': '+formatKPIValue(value)+'%','('+formatPmCmRatioEquivalent(value)+')'];
             return context.dataset.label+' / '+ShortMonthNames[context.dataIndex]+': '+formatKPIValue(value);
           },
           footer:function(){return getTooltipFooter(kpiKey);}
