@@ -641,6 +641,21 @@ function averageKPIValues(values){
   return valid.reduce(function(sum,v){return sum+v;},0)/valid.length;
 }
 
+function getKpiRecordsForYear(buId,year){
+  var months = MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]?MonthlyScoreData[buId][year]:{};
+  return Object.keys(months).map(function(month){return months[month];}).filter(Boolean);
+}
+
+function getBusinessUnitYearAverage(buId,year,key){
+  return averageKPIValues(getKpiRecordsForYear(buId,year).map(function(record){return record[key];}));
+}
+
+function getBusinessUnitYearAverages(buId,year){
+  var data = {reportingYear:year,businessUnit:getBUApiValue(buId)};
+  KPIs.forEach(function(kpi){data[kpi.key] = getBusinessUnitYearAverage(buId,year,kpi.key);});
+  return data;
+}
+
 function getPortfolioAverageForMonth(year,month,key){
   return averageKPIValues(BUs.map(function(bu){
     var record = getMonthlyRecord(bu.id,year,month);
@@ -648,12 +663,25 @@ function getPortfolioAverageForMonth(year,month,key){
   }));
 }
 
+function getPortfolioYearAverage(year,key){
+  return averageKPIValues(BUs.map(function(bu){return getBusinessUnitYearAverage(bu.id,year,key);}));
+}
+
 function getPortfolioCurrentData(){
   var year = getSelectedYear();
-  var month = getSelectedMonth();
-  var data = {reportingYear:year,reportingMonth:month};
-  KPIs.forEach(function(kpi){data[kpi.key] = getPortfolioAverageForMonth(year,month,kpi.key);});
+  var data = {reportingYear:year};
+  KPIs.forEach(function(kpi){data[kpi.key] = getPortfolioYearAverage(year,kpi.key);});
   return data;
+}
+
+function hasYearKpiData(buId){
+  var year = getSelectedYear();
+  if(buId){
+    return getKpiRecordsForYear(buId,year).some(function(record){
+      return KPIs.some(function(kpi){return parseFiniteKPIValue(record[kpi.key])!==null;});
+    });
+  }
+  return BUs.some(function(bu){return hasYearKpiData(bu.id);});
 }
 
 function hasSelectedMonthKpiData(buId){
@@ -1043,7 +1071,7 @@ function getKPIStatus(key,val){
 }
 
 function getSummaryKPIs(bu){
-  var d = getCurrentData(bu.id);
+  var d = getBusinessUnitYearAverages(bu.id,getSelectedYear());
   var summaryKPIs = [
     {key:'pmCompliance',name:'PM Compliance',fmt:'%'},
     {key:'pmcmWORatio',name:'PM:CM Ratio WO',fmt:':'},
@@ -1093,8 +1121,8 @@ function renderGauges(buId){
   if(!container)return;
   if(isKpiLoading()){container.innerHTML = renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI cards...');return;}
   var isSummary = buId==='summary';
-  var d = isSummary ? getPortfolioCurrentData() : getCurrentData(buId);
-  if(!hasSelectedMonthKpiData(isSummary?null:buId)){container.innerHTML = '<div class="empty-state">No KPI data imported for the selected month.</div>';return;}
+  var d = isSummary ? getPortfolioCurrentData() : getBusinessUnitYearAverages(buId,getSelectedYear());
+  if(!hasYearKpiData(isSummary?null:buId)){container.innerHTML = '<div class="empty-state">No KPI data imported for the selected year.</div>';return;}
   var html = '';
   GaugeKPIs.forEach(function(key){
     var kpi = KPIs.find(function(k){return k.key===key});
