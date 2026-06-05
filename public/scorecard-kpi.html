@@ -47,6 +47,11 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:va
 .ctrl-btn:active{transform:scale(.97)}
 .ctrl-btn:disabled{opacity:.6;cursor:not-allowed;transform:none;box-shadow:none}
 .ctrl-btn .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+.export-menu-wrap{position:relative;display:inline-flex}
+.export-dropdown{position:absolute;top:calc(100% + 6px);left:0;z-index:300;background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:0 14px 34px rgba(15,23,42,.16);min-width:280px;padding:6px;display:none}
+.export-dropdown.active{display:block}
+.export-option{width:100%;display:block;text-align:left;border:none;background:#fff;color:var(--text);font-family:inherit;font-size:12px;font-weight:700;padding:9px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.export-option:hover{background:#EAF6FC;color:var(--blue)}
 select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radius:var(--r);border:1px solid var(--border);background:#fff;cursor:pointer}
 
 /* IMPORT STATUS */
@@ -318,6 +323,15 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <button class="ctrl-btn ctrl-green" onclick="openManualInput()">Input Data Manually</button>
     <button id="importBtn" class="ctrl-btn ctrl-gray" onclick="triggerExcelImport()"><span id="importBtnLabel">Import Excel</span></button>
     <button id="clearKpiBtn" class="ctrl-btn ctrl-red" onclick="clearData()" title="Select a Business Unit before clearing KPI records.">Clear</button>
+    <div class="export-menu-wrap">
+      <button id="exportDataBtn" class="ctrl-btn ctrl-blue" onclick="toggleExportMenu(event)" aria-haspopup="true" aria-expanded="false"><span id="exportBtnLabel">Export Data</span></button>
+      <div id="exportDataMenu" class="export-dropdown" role="menu" aria-label="Export KPI Data">
+        <button class="export-option" role="menuitem" onclick="exportKpiData('current','excel')">Export Current Business Unit (Excel)</button>
+        <button class="export-option" role="menuitem" onclick="exportKpiData('current','csv')">Export Current Business Unit (CSV)</button>
+        <button class="export-option" role="menuitem" onclick="exportKpiData('all','excel')">Export All Business Units (Excel)</button>
+        <button class="export-option" role="menuitem" onclick="exportKpiData('all','csv')">Export All Business Units (CSV)</button>
+      </div>
+    </div>
   </div>
   <div class="status-region"><div id="importProgress" class="import-progress"><span class="spinner-blue"></span><span>Importing KPI workbook...</span></div></div>
   <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
@@ -530,6 +544,7 @@ var Charts = {};
 var isImporting = false;
 var isFetchingSavedRecords = false;
 var isClearingKpiRecords = false;
+var isExportingKpiRecords = false;
 var pendingClearConfirmationResolver = null;
 
 // ===== INIT =====
@@ -539,6 +554,7 @@ document.addEventListener('DOMContentLoaded',function(){
   initImportSelectors();
   initForm();
   updateClearButtonState();
+  updateExportButtonState();
   fetchSavedMonthlyKpiRecords();
 });
 
@@ -560,6 +576,7 @@ function showTab(id,btn,skipFetch){
   if(sel)sel.value = id;
   persistDeckContext();
   updateClearButtonState(id);
+  updateExportButtonState(id);
   renderBUCharts(id);
   if(!skipFetch)fetchSavedMonthlyKpiRecords(id);
 }
@@ -601,6 +618,7 @@ function handleBusinessUnitChange(){
   selectedBusinessUnitId = sel && sel.value ? sel.value : 'ez';
   persistDeckContext();
   updateClearButtonState(selectedBusinessUnitId);
+  updateExportButtonState(selectedBusinessUnitId);
   var tabBtn = Array.prototype.find.call(document.querySelectorAll('.tab'),function(btn){return btn.getAttribute('onclick') && btn.getAttribute('onclick').indexOf("'"+selectedBusinessUnitId+"'")>-1;});
   showTab(selectedBusinessUnitId,tabBtn);
   loadData();
@@ -820,6 +838,7 @@ function setImporting(flag){
   if(progressText)progressText.textContent = isClearingKpiRecords ? 'Clearing KPI records...' : (isFetchingSavedRecords && !flag ? 'Loading saved KPI records...' : 'Importing KPI workbook...');
   updateClearButtonState();
   updateImportButtonState();
+  updateExportButtonState();
   loadData();
 }
 
@@ -830,6 +849,7 @@ function setFetchingSavedRecords(flag){
   var progressText = progress?progress.querySelector('span:last-child'):null;
   if(progressText)progressText.textContent = isClearingKpiRecords ? 'Clearing KPI records...' : (flag && !isImporting ? 'Loading saved KPI records...' : 'Importing KPI workbook...');
   updateClearButtonState();
+  updateExportButtonState();
   loadData();
 }
 
@@ -840,6 +860,7 @@ function setClearingKpiRecords(flag){
   var progressText = progress?progress.querySelector('span:last-child'):null;
   if(progressText)progressText.textContent = flag ? 'Clearing KPI records...' : (isFetchingSavedRecords ? 'Loading saved KPI records...' : 'Importing KPI workbook...');
   updateClearButtonState();
+  updateExportButtonState();
   loadData();
 }
 
@@ -850,6 +871,256 @@ function updateClearButtonState(activeTabId){
   btn.disabled = isClearingKpiRecords || summarySelected;
   btn.title = summarySelected ? 'Select a Business Unit before clearing KPI records.' : (isClearingKpiRecords ? 'Clearing KPI records...' : 'Clear KPI records for '+getSelectedBU().label+'.');
   btn.innerHTML = isClearingKpiRecords ? '<span class="spinner"></span> Clearing...' : 'Clear';
+}
+
+function closeExportMenu(){
+  var menu = document.getElementById('exportDataMenu');
+  var btn = document.getElementById('exportDataBtn');
+  if(menu)menu.classList.remove('active');
+  if(btn)btn.setAttribute('aria-expanded','false');
+}
+
+function toggleExportMenu(event){
+  if(event)event.stopPropagation();
+  if(isExportingKpiRecords)return;
+  var menu = document.getElementById('exportDataMenu');
+  var btn = document.getElementById('exportDataBtn');
+  if(!menu)return;
+  var active = !menu.classList.contains('active');
+  menu.classList.toggle('active',active);
+  if(btn)btn.setAttribute('aria-expanded',active?'true':'false');
+}
+
+document.addEventListener('click',function(event){
+  var wrap = document.querySelector('.export-menu-wrap');
+  if(wrap && !wrap.contains(event.target))closeExportMenu();
+});
+
+function updateExportButtonState(){
+  var btn = document.getElementById('exportDataBtn');
+  var label = document.getElementById('exportBtnLabel');
+  if(btn)btn.disabled = isExportingKpiRecords || isKpiLoading();
+  if(label)label.innerHTML = isExportingKpiRecords ? '<span class="spinner"></span> Exporting...' : 'Export Data';
+}
+
+function setExportingKpiRecords(flag){
+  isExportingKpiRecords = flag;
+  updateExportButtonState();
+  if(flag)closeExportMenu();
+}
+
+function exportRecordValue(row,key){
+  if(row[key]===undefined || row[key]===null)return '';
+  return row[key];
+}
+
+function monthNameForNumber(month){
+  var index = parseInt(month,10)-1;
+  return MonthNames[index] || String(month || '');
+}
+
+function formatExportDate(value){
+  if(!value)return '';
+  var date = new Date(value);
+  if(isNaN(date.getTime()))return String(value);
+  return date;
+}
+
+function buildKpiRecordExportRows(records){
+  return (records || []).map(function(row){
+    return {
+      'Reporting Year': exportRecordValue(row,'reporting_year'),
+      'Reporting Month': monthNameForNumber(row.reporting_month),
+      'Business Unit': exportRecordValue(row,'business_unit'),
+      'PM Compliance': exportRecordValue(row,'pm_compliance'),
+      'PM Planned': exportRecordValue(row,'pm_planned'),
+      'Schedule Compliance': exportRecordValue(row,'schedule_compliance'),
+      'Budget Spend': exportRecordValue(row,'budget_spend'),
+      'PM:CM Ratio (WO)': exportRecordValue(row,'pm_cm_work_order_ratio'),
+      'PM:CM Ratio (Cost)': exportRecordValue(row,'pm_cm_cost_ratio'),
+      'MTBF': exportRecordValue(row,'mtbf_days'),
+      'MTTR': exportRecordValue(row,'mttr_days'),
+      'Facility Uptime': exportRecordValue(row,'facility_uptime'),
+      'Imported Date': formatExportDate(row.imported_at)
+    };
+  });
+}
+
+function buildCsvExportRows(records){
+  return (records || []).map(function(row){
+    return {
+      'Business Unit': exportRecordValue(row,'business_unit'),
+      'Reporting Year': exportRecordValue(row,'reporting_year'),
+      'Reporting Month': monthNameForNumber(row.reporting_month),
+      'PM Compliance': exportRecordValue(row,'pm_compliance'),
+      'PM Planned': exportRecordValue(row,'pm_planned'),
+      'Schedule Compliance': exportRecordValue(row,'schedule_compliance'),
+      'Budget Spend': exportRecordValue(row,'budget_spend'),
+      'PM:CM Ratio (WO)': exportRecordValue(row,'pm_cm_work_order_ratio'),
+      'PM:CM Ratio (Cost)': exportRecordValue(row,'pm_cm_cost_ratio'),
+      'MTBF': exportRecordValue(row,'mtbf_days'),
+      'MTTR': exportRecordValue(row,'mttr_days'),
+      'Facility Uptime': exportRecordValue(row,'facility_uptime')
+    };
+  });
+}
+
+function buildSummaryMatrixExportRows(aggregates,scope){
+  var rows = [{
+    'Business Unit':'BENCHMARK',
+    'PM Compliance (%)':'95%',
+    'PM:CM Ratio (Work Order)':'≥86% (6:1)',
+    'Budget Spend (%)':'95% - 105%',
+    'PM:CM Ratio (Cost)':'≥60% (1.5:1)',
+    'Facility Uptime (%)':'99.97%'
+  }];
+  var allowedBu = scope==='current' ? getBUApiValue(selectedBusinessUnitId) : null;
+  BUs.forEach(function(bu){
+    if(allowedBu && getBUApiValue(bu.id)!==allowedBu)return;
+    var aggregate = (aggregates.byBusinessUnitMap || {})[getBUApiValue(bu.id)] || (aggregates.byBusinessUnitMap || {})[bu.label] || null;
+    rows.push({
+      'Business Unit': bu.label,
+      'PM Compliance (%)': aggregateValueForUiKey(aggregate,'pmCompliance'),
+      'PM:CM Ratio (Work Order)': aggregateValueForUiKey(aggregate,'pmcmWORatio'),
+      'Budget Spend (%)': aggregateValueForUiKey(aggregate,'budgetSpend'),
+      'PM:CM Ratio (Cost)': aggregateValueForUiKey(aggregate,'pmcmCostRatio'),
+      'Facility Uptime (%)': aggregateValueForUiKey(aggregate,'facilityUptime')
+    });
+  });
+  return rows;
+}
+
+function buildPortfolioAverageRows(aggregates){
+  var rows = [{
+    'Scope':'Current Benchmark Values','Reporting Year':getSelectedYear(),'Reporting Month':'All Months',
+    'PM Compliance':'95%','PM Planned':'','Schedule Compliance':'95%','Budget Spend':'95% - 105%',
+    'PM:CM Ratio (WO)':'≥86%','PM:CM Ratio (Cost)':'≥60%','MTBF':'Available','MTTR':'Available','Facility Uptime':'99.97%'
+  }];
+  rows.push({
+    'Scope':'Portfolio Year Average','Reporting Year':getSelectedYear(),'Reporting Month':'All Months',
+    'PM Compliance':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmCompliance'),
+    'PM Planned':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmPlanned'),
+    'Schedule Compliance':aggregateValueForUiKey(aggregates.portfolioYearAverage,'scheduleCompliance'),
+    'Budget Spend':aggregateValueForUiKey(aggregates.portfolioYearAverage,'budgetSpend'),
+    'PM:CM Ratio (WO)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmWORatio'),
+    'PM:CM Ratio (Cost)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmCostRatio'),
+    'MTBF':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mtbf'),
+    'MTTR':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mttr'),
+    'Facility Uptime':aggregateValueForUiKey(aggregates.portfolioYearAverage,'facilityUptime')
+  });
+  (aggregates.portfolioMonthlyAverages ? Object.keys(aggregates.portfolioMonthlyAverages) : []).sort(function(a,b){return Number(a)-Number(b);}).forEach(function(month){
+    var avg = aggregates.portfolioMonthlyAverages[month];
+    rows.push({
+      'Scope':'Portfolio Monthly Average','Reporting Year':getSelectedYear(),'Reporting Month':monthNameForNumber(month),
+      'PM Compliance':aggregateValueForUiKey(avg,'pmCompliance'),
+      'PM Planned':aggregateValueForUiKey(avg,'pmPlanned'),
+      'Schedule Compliance':aggregateValueForUiKey(avg,'scheduleCompliance'),
+      'Budget Spend':aggregateValueForUiKey(avg,'budgetSpend'),
+      'PM:CM Ratio (WO)':aggregateValueForUiKey(avg,'pmcmWORatio'),
+      'PM:CM Ratio (Cost)':aggregateValueForUiKey(avg,'pmcmCostRatio'),
+      'MTBF':aggregateValueForUiKey(avg,'mtbf'),
+      'MTTR':aggregateValueForUiKey(avg,'mttr'),
+      'Facility Uptime':aggregateValueForUiKey(avg,'facilityUptime')
+    });
+  });
+  return rows;
+}
+
+function fitWorksheetColumns(ws,rows){
+  var headers = rows.length ? Object.keys(rows[0]) : [];
+  ws['!cols'] = headers.map(function(header){
+    var max = String(header).length;
+    rows.forEach(function(row){max = Math.max(max,String(row[header]===undefined||row[header]===null?'':row[header]).length);});
+    return {wch:Math.min(Math.max(max+2,12),34)};
+  });
+  ws['!freeze'] = {xSplit:0,ySplit:1};
+}
+
+function applyWorksheetDateFormatting(ws,dateColumnName){
+  if(!ws['!ref'])return;
+  var range = XLSX.utils.decode_range(ws['!ref']);
+  var headerColumn = null;
+  for(var c=range.s.c;c<=range.e.c;c++){
+    var headerCell = ws[XLSX.utils.encode_cell({r:0,c:c})];
+    if(headerCell && headerCell.v===dateColumnName){headerColumn = c;break;}
+  }
+  if(headerColumn===null)return;
+  for(var r=1;r<=range.e.r;r++){
+    var cell = ws[XLSX.utils.encode_cell({r:r,c:headerColumn})];
+    if(cell && cell.v instanceof Date){cell.t='d';cell.z='yyyy-mm-dd hh:mm';}
+  }
+}
+
+function appendJsonSheet(workbook,name,rows,dateColumnName){
+  var ws = XLSX.utils.json_to_sheet(rows.length?rows:[{}]);
+  fitWorksheetColumns(ws,rows.length?rows:[{}]);
+  applyWorksheetDateFormatting(ws,dateColumnName);
+  XLSX.utils.book_append_sheet(workbook,ws,name);
+}
+
+async function fetchExportKpiRecords(scope){
+  var params = new URLSearchParams();
+  params.set('reporting_year',String(getSelectedYear()));
+  if(scope==='current')params.set('business_unit',getBUApiValue(selectedBusinessUnitId));
+  var res = await fetch('/api/monthly-kpi/records?'+params.toString(),{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
+  var payload = await res.json().catch(function(){return {};});
+  if(!res.ok)throw new Error(payload.error || 'Unable to fetch KPI records for export.');
+  return payload.records || [];
+}
+
+async function fetchExportAggregates(){
+  var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(getSelectedYear()),{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
+  var payload = await res.json().catch(function(){return {};});
+  if(!res.ok)throw new Error(payload.error || 'Unable to fetch KPI summaries for export.');
+  return payload;
+}
+
+function exportCsvFile(records,scope){
+  var rows = buildCsvExportRows(records);
+  if(rows.length===0)throw new Error('No persisted KPI records found for the selected export filters.');
+  var ws = XLSX.utils.json_to_sheet(rows);
+  var csv = XLSX.utils.sheet_to_csv(ws);
+  var blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = buildExportFileName(scope,'csv');
+  link.click();
+  setTimeout(function(){URL.revokeObjectURL(link.href);},500);
+}
+
+function exportExcelFile(records,aggregates,scope){
+  var recordRows = buildKpiRecordExportRows(records);
+  if(recordRows.length===0)throw new Error('No persisted KPI records found for the selected export filters.');
+  var workbook = XLSX.utils.book_new();
+  appendJsonSheet(workbook,'KPI Records',recordRows,'Imported Date');
+  appendJsonSheet(workbook,'Summary Matrix Export',buildSummaryMatrixExportRows(aggregates,scope));
+  appendJsonSheet(workbook,'Portfolio Averages',buildPortfolioAverageRows(aggregates));
+  XLSX.writeFile(workbook,buildExportFileName(scope,'xlsx'),{cellDates:true});
+}
+
+function buildExportFileName(scope,ext){
+  var bu = scope==='current' ? getBUApiValue(selectedBusinessUnitId).replace(/[^a-z0-9]+/gi,'-') : 'All-Business-Units';
+  return 'Monthly-KPI-'+bu+'-'+getSelectedYear()+'.'+ext;
+}
+
+async function exportKpiData(scope,format){
+  if(isExportingKpiRecords)return;
+  setExportingKpiRecords(true);
+  try{
+    var records = await fetchExportKpiRecords(scope);
+    if(format==='csv'){
+      exportCsvFile(records,scope);
+    }else{
+      var aggregates = await fetchExportAggregates();
+      exportExcelFile(records,aggregates,scope);
+    }
+    showToast('success','KPI export generated for '+(scope==='current'?getSelectedBU().label:'all business units')+'.');
+  }catch(err){
+    console.error('KPI export error:',err);
+    showToast('error','Unable to export KPI data: '+err.message);
+  }finally{
+    setExportingKpiRecords(false);
+  }
 }
 
 function resolveClearConfirmation(confirmed){
