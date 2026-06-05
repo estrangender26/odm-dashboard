@@ -26,6 +26,19 @@ function formatDeckValue(value: number | null | undefined, digits = 2) {
     : "--";
 }
 
+function formatPmCmEquivalentRatio(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  if (value >= 100) return "No CM";
+  const cmShare = 100 - value;
+  if (cmShare <= 0) return "No CM";
+  return `${(value / cmShare).toFixed(1)}:1`;
+}
+
+function formatDeckPmCmRatio(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${formatDeckValue(value)}\n(${formatPmCmEquivalentRatio(value)})`;
+}
+
 function kpiRows(records = currentMonthlyKpiScorecard) {
   return [
     ["Business Unit", ...scorecardBenchmarks.map(benchmark => benchmark.label)],
@@ -34,8 +47,8 @@ function kpiRows(records = currentMonthlyKpiScorecard) {
       formatDeckValue(record.pmCompliance),
       formatDeckValue(record.scheduleCompliance),
       formatDeckValue(record.budgetSpend),
-      formatDeckValue(record.pmCmWorkOrderRatio),
-      formatDeckValue(record.pmCmCostRatio),
+      formatDeckPmCmRatio(record.pmCmWorkOrderRatio),
+      formatDeckPmCmRatio(record.pmCmCostRatio),
       formatDeckValue(record.mtbfDays, 2).replace("%", " days"),
       formatDeckValue(record.mttrDays, 2).replace("%", " days"),
       formatDeckValue(record.facilityUptime),

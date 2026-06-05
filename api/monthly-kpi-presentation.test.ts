@@ -11,7 +11,7 @@ function extractScriptArray(name: string) {
 }
 
 describe("Monthly KPI dashboard presentation", () => {
-  it("keeps the dashboard KPI cards to the required 8-card layout without PM Planned", () => {
+  it("keeps the dashboard KPI cards to the required layout without PM Planned", () => {
     expect(extractScriptArray("GaugeKPIs")).toEqual([
       "pmCompliance",
       "scheduleCompliance",
@@ -19,8 +19,6 @@ describe("Monthly KPI dashboard presentation", () => {
       "facilityUptime",
       "pmcmWORatio",
       "pmcmCostRatio",
-      "mtbf",
-      "mttr",
     ]);
     expect(extractScriptArray("GaugeKPIs")).not.toContain("pmPlanned");
   });
@@ -28,8 +26,9 @@ describe("Monthly KPI dashboard presentation", () => {
   it("limits the Summary Matrix to the required KPI metrics without PM Planned", () => {
     expect(extractScriptArray("SummaryMatrixKPIs")).toEqual([
       "pmCompliance",
-      "pmcmWORatio",
+      "scheduleCompliance",
       "budgetSpend",
+      "pmcmWORatio",
       "pmcmCostRatio",
       "facilityUptime",
     ]);
@@ -41,6 +40,17 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(summaryTable).toContain("PM:CM Ratio (Cost)");
     expect(summaryTable).toContain("Facility Uptime (%)");
     expect(summaryTable).not.toContain("PM Planned");
+  });
+
+
+  it("renders PM:CM ratios as percentages with equivalent ratios", () => {
+    expect(scorecardHtml).toContain("function formatPmCmRatioEquivalent");
+    expect(scorecardHtml).toContain("return (pct / cmShare).toFixed(1)+':1';");
+    expect(scorecardHtml).toContain("return formatKPIValue(pct)+'% ('+formatPmCmRatioEquivalent(pct)+')';");
+    expect(scorecardHtml).toContain("formatDisplayKpiValue(sk.key,val)");
+    expect(scorecardHtml).toContain("formatDisplayKpiValue(key,v)");
+    expect(scorecardHtml).toContain("formatDisplayKpiValue(key,val)");
+    expect(scorecardHtml).toContain("if(pct>=100)return 'No CM';");
   });
 
   it("hides PM Planned from per-BU imported monthly records tables", () => {
