@@ -292,6 +292,36 @@ export default function Home() {
               Open O&M Library →
             </span>
           </Link>
+
+          {/* Presentation Center */}
+          <Link
+            to="/presentation-center"
+            className={navCardClassName}
+            style={navCardStyle}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #005BAC 0%, #00A8D2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                📊
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3, margin: 0 }}>Presentation Center</h3>
+                <p style={{ fontSize: 12, color: '#8BA3B8', margin: '4px 0 0' }}>
+                  Create, manage, and generate PowerPoint presentations from dashboard data.
+                </p>
+              </div>
+            </div>
+            <p style={{ fontSize: 14, color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
+              Upload PowerPoint decks, maintain a presentation library, generate Monthly KPI Scorecard decks, and prepare for future AI-assisted deck generation.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#DBEAFE', color: '#005BAC' }}>PPTX</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Generate</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#D1FAE5', color: '#059669' }}>Library</span>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#005BAC', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Open Presentation Center →
+            </span>
+          </Link>
         </div>
       </main>
 
