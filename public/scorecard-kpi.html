@@ -1642,12 +1642,12 @@ function renderMonthlyRecords(buId){
     return;
   }
   var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div><div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
-  ['Month','PM Compliance (%)','Schedule Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTBF (days)','MTTR (days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
+  ['Month','PM Compliance (%)','Schedule Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
   html += '</tr></thead><tbody>';
   for(var month=1;month<=12;month++){
     var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
-    ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'].forEach(function(key){
+    ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','facilityUptime'].forEach(function(key){
       var val = hasImportedKpiValue(r,key)?r[key]:null;
       var display = isPmCmRatioKey(key) ? formatDisplayKpiValue(key,val) : formatKPIValue(val,{blank:''});
       var cls = getKPIStatus(key,val).cls;
