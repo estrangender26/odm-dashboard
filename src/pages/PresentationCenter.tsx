@@ -10,6 +10,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import { deckGeneratorRegistry } from "@/modules/presentation-center/generators";
 import {
   blobToDataUrl,
@@ -184,19 +185,23 @@ export default function PresentationCenter() {
             "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)",
         }}
       >
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <Link to="/" className="text-sm font-bold text-white no-underline">
-            ← Back to Dashboards
+        <div className="mx-auto flex max-w-7xl items-center px-4 py-3">
+          <Link
+            to="/"
+            aria-label="Dashboard Home"
+            title="Dashboard Home"
+            className="flex items-center gap-3 text-white no-underline"
+          >
+            <ProgramsEngineeringLogo size={44} borderRadius={8} />
+            <div>
+              <h1 className="text-base font-bold leading-tight sm:text-lg">
+                Presentation Center
+              </h1>
+              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">
+                PowerPoint Hub
+              </p>
+            </div>
           </Link>
-          <div className="flex items-center gap-2">
-            <Presentation className="h-5 w-5" />
-            <h1 className="text-base font-bold sm:text-lg">
-              Presentation Center
-            </h1>
-          </div>
-          <span className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">
-            PowerPoint Hub
-          </span>
         </div>
       </header>
 
