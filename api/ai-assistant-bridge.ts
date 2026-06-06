@@ -67,7 +67,10 @@ export const odmTalkSourceInputSchema = z.object({
   sourcePage: z.string().min(1).max(255),
   sourceRecordId: z.string().min(1).max(255),
   sourceRecordLabel: z.string().max(500).optional(),
-  sourceUrl: z.string().min(1).max(1000),
+  sourceUrl: z.string().min(1).max(1000).refine(
+    (value) => value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\"),
+    { message: "sourceUrl must be an internal app path" },
+  ),
   assistantName: z.string().min(1).max(255),
   userId: z.string().max(255).optional(),
 });
@@ -79,6 +82,8 @@ export const odmTalkBridgeInputSchema = odmTalkSourceInputSchema.extend({
   threadType: odmTalkThreadTypeSchema.default("General Discussion"),
   shareType: odmTalkShareTypeSchema.default("AI summary"),
 });
+
+let odmTalkTablesInitialization: Promise<void> | null = null;
 
 export async function ensureOdmTalkTables() {
   await db.execute(sql.raw(`
@@ -138,6 +143,20 @@ export async function ensureOdmTalkTables() {
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS odm_talk_messages_share_idx ON odm_talk_messages(share_type)`));
 }
 
+export async function ensureOdmTalkTablesOnce() {
+  if (!odmTalkTablesInitialization) {
+    odmTalkTablesInitialization = ensureOdmTalkTables().catch((error) => {
+      odmTalkTablesInitialization = null;
+      throw error;
+    });
+  }
+  return odmTalkTablesInitialization;
+}
+
+export function requiresApprovalForThreadType(threadType?: string) {
+  return (threadType || "").includes("Decision") ? 1 : 0;
+}
+
 function defaultThreadTitle(input: OdmTalkBridgePayload) {
   const record = input.sourceRecordLabel || input.sourceRecordId;
   return `${input.threadType || "General Discussion"}: ${record}`;
@@ -175,13 +194,32 @@ function notificationFor(input: OdmTalkBridgePayload, threadId: number, messageI
 }
 
 export async function postAssistantBridgeMessage(input: OdmTalkBridgePayload) {
-  await ensureOdmTalkTables();
+  await ensureOdmTalkTablesOnce();
 
-  let threadId = input.threadId;
-  if (!threadId) {
-    const inserted = await db.insert(odmTalkThreads).values({
-      title: input.title || defaultThreadTitle(input),
-      threadType: input.threadType || "General Discussion",
+  return db.transaction(async (tx) => {
+    let threadId = input.threadId;
+    if (!threadId) {
+      const inserted = await tx.insert(odmTalkThreads).values({
+        title: input.title || defaultThreadTitle(input),
+        threadType: input.threadType || "General Discussion",
+        sourceModule: input.sourceModule,
+        sourcePage: input.sourcePage,
+        sourceRecordId: input.sourceRecordId,
+        sourceRecordLabel: input.sourceRecordLabel || null,
+        sourceUrl: input.sourceUrl,
+        assistantName: input.assistantName,
+        userId: input.userId || null,
+        requiresApproval: requiresApprovalForThreadType(input.threadType),
+      }).returning({ id: odmTalkThreads.id });
+      threadId = inserted[0].id;
+    }
+
+    const messageRows = await tx.insert(odmTalkMessages).values({
+      threadId,
+      role: "assistant",
+      content: input.content,
+      shareType: input.shareType || "AI summary",
+      isAiGenerated: 1,
       sourceModule: input.sourceModule,
       sourcePage: input.sourcePage,
       sourceRecordId: input.sourceRecordId,
@@ -189,41 +227,24 @@ export async function postAssistantBridgeMessage(input: OdmTalkBridgePayload) {
       sourceUrl: input.sourceUrl,
       assistantName: input.assistantName,
       userId: input.userId || null,
-      requiresApproval: input.threadType === "Post-PPP Decision" ? 1 : 0,
-    }).returning({ id: odmTalkThreads.id });
-    threadId = inserted[0].id;
-  }
+      metadata: {
+        aiGenerated: true,
+        threadType: input.threadType || "General Discussion",
+        createdByBridge: "aiAssistantBridge",
+      },
+    }).returning({ id: odmTalkMessages.id });
 
-  const messageRows = await db.insert(odmTalkMessages).values({
-    threadId,
-    role: "assistant",
-    content: input.content,
-    shareType: input.shareType || "AI summary",
-    isAiGenerated: 1,
-    sourceModule: input.sourceModule,
-    sourcePage: input.sourcePage,
-    sourceRecordId: input.sourceRecordId,
-    sourceRecordLabel: input.sourceRecordLabel || null,
-    sourceUrl: input.sourceUrl,
-    assistantName: input.assistantName,
-    userId: input.userId || null,
-    metadata: {
-      aiGenerated: true,
-      threadType: input.threadType || "General Discussion",
-      createdByBridge: "aiAssistantBridge",
-    },
-  }).returning({ id: odmTalkMessages.id });
+    await tx.update(odmTalkThreads).set({ updatedAt: new Date() }).where(eq(odmTalkThreads.id, threadId));
 
-  await db.update(odmTalkThreads).set({ updatedAt: new Date() }).where(eq(odmTalkThreads.id, threadId));
+    const notification = notificationFor(input, threadId, messageRows[0].id);
+    await tx.insert(odmTalkNotifications).values(notification);
 
-  const notification = notificationFor(input, threadId, messageRows[0].id);
-  await db.insert(odmTalkNotifications).values(notification);
-
-  return { threadId, messageId: messageRows[0].id };
+    return { threadId, messageId: messageRows[0].id };
+  });
 }
 
 export async function getRelatedOdmTalkThreads(source: Pick<OdmTalkSource, "sourceModule" | "sourceRecordId">) {
-  await ensureOdmTalkTables();
+  await ensureOdmTalkTablesOnce();
   return db.select().from(odmTalkThreads)
     .where(and(eq(odmTalkThreads.sourceModule, source.sourceModule), eq(odmTalkThreads.sourceRecordId, source.sourceRecordId)))
     .orderBy(desc(odmTalkThreads.updatedAt))
@@ -231,7 +252,7 @@ export async function getRelatedOdmTalkThreads(source: Pick<OdmTalkSource, "sour
 }
 
 export async function searchOdmTalk(query: string) {
-  await ensureOdmTalkTables();
+  await ensureOdmTalkTablesOnce();
   const q = `%${query}%`;
   return db.select({ thread: odmTalkThreads, message: odmTalkMessages }).from(odmTalkMessages)
     .innerJoin(odmTalkThreads, eq(odmTalkMessages.threadId, odmTalkThreads.id))

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { odmTalkMessages, odmTalkNotifications, odmTalkThreads } from "@db/schema";
 import { createRouter, publicQuery } from "./middleware";
 import {
-  ensureOdmTalkTables,
+  ensureOdmTalkTablesOnce,
   getRelatedOdmTalkThreads,
   odmTalkBridgeInputSchema,
   odmTalkSourceInputSchema,
@@ -23,7 +23,7 @@ export const odmTalkRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       return postAssistantBridgeMessage({
         ...input,
-        userId: input.userId || ctx.user?.id?.toString(),
+        userId: ctx.user?.id?.toString() ?? undefined,
       });
     }),
 
@@ -32,7 +32,7 @@ export const odmTalkRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       return postAssistantBridgeMessage({
         ...input,
-        userId: input.userId || ctx.user?.id?.toString(),
+        userId: ctx.user?.id?.toString() ?? undefined,
       });
     }),
 
@@ -43,14 +43,14 @@ export const odmTalkRouter = createRouter({
   listThreads: publicQuery
     .input(z.object({ limit: z.number().int().min(1).max(100).default(25) }).optional())
     .query(async ({ input }) => {
-      await ensureOdmTalkTables();
+      await ensureOdmTalkTablesOnce();
       return db.select().from(odmTalkThreads).orderBy(desc(odmTalkThreads.updatedAt)).limit(input?.limit || 25);
     }),
 
   getThread: publicQuery
     .input(z.object({ threadId: z.number().int().positive() }))
     .query(async ({ input }) => {
-      await ensureOdmTalkTables();
+      await ensureOdmTalkTablesOnce();
       const [thread] = await db.select().from(odmTalkThreads).where(eq(odmTalkThreads.id, input.threadId)).limit(1);
       const messages = await db.select().from(odmTalkMessages)
         .where(eq(odmTalkMessages.threadId, input.threadId))
@@ -65,7 +65,7 @@ export const odmTalkRouter = createRouter({
   notifications: publicQuery
     .input(z.object({ limit: z.number().int().min(1).max(100).default(25) }).optional())
     .query(async ({ input, ctx }) => {
-      await ensureOdmTalkTables();
+      await ensureOdmTalkTablesOnce();
       const userId = ctx.user?.id?.toString();
       const rows = await db.select().from(odmTalkNotifications)
         .where(userId ? eq(odmTalkNotifications.userId, userId) : undefined)
