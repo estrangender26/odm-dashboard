@@ -23,7 +23,7 @@ export const odmTalkRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       return postAssistantBridgeMessage({
         ...input,
-        userId: ctx.user?.id?.toString() ?? undefined,
+        userId: ctx.user?.id?.toString() ?? null,
       });
     }),
 
@@ -32,7 +32,7 @@ export const odmTalkRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       return postAssistantBridgeMessage({
         ...input,
-        userId: ctx.user?.id?.toString() ?? undefined,
+        userId: ctx.user?.id?.toString() ?? null,
       });
     }),
 

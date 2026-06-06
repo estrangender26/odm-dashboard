@@ -51,7 +51,7 @@ export type OdmTalkSource = {
   sourceRecordLabel?: string;
   sourceUrl: string;
   assistantName: string;
-  userId?: string;
+  userId?: string | null;
 };
 
 export type OdmTalkBridgePayload = OdmTalkSource & {
@@ -153,7 +153,7 @@ export async function ensureOdmTalkTablesOnce() {
   return odmTalkTablesInitialization;
 }
 
-export function requiresApprovalForThreadType(threadType: string | null | undefined): 0 | 1 {
+export function requiresApprovalForThreadType(threadType?: string | null): 0 | 1 {
   return (threadType || "").includes("Decision") ? 1 : 0;
 }
 
@@ -163,7 +163,7 @@ function defaultThreadTitle(input: OdmTalkBridgePayload) {
 }
 
 function notificationFor(input: OdmTalkBridgePayload, threadId: number, messageId: number) {
-  if ((input.threadType || "").includes("Decision")) {
+  if (requiresApprovalForThreadType(input.threadType) === 1) {
     return {
       threadId,
       messageId,
