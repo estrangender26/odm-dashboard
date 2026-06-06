@@ -153,7 +153,7 @@ export async function ensureOdmTalkTablesOnce() {
   return odmTalkTablesInitialization;
 }
 
-export function requiresApprovalForThreadType(threadType?: string) {
+export function requiresApprovalForThreadType(threadType: string | null | undefined): 0 | 1 {
   return (threadType || "").includes("Decision") ? 1 : 0;
 }
 

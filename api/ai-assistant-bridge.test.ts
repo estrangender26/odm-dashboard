@@ -23,7 +23,9 @@ describe("ODM Talk bridge validation", () => {
 
   it("uses one decision-thread approval rule", () => {
     expect(requiresApprovalForThreadType("Post-PPP Decision")).toBe(1);
-    expect(requiresApprovalForThreadType("Decision Review" as never)).toBe(1);
+    expect(requiresApprovalForThreadType("Decision Review")).toBe(1);
     expect(requiresApprovalForThreadType("General Discussion")).toBe(0);
+    expect(requiresApprovalForThreadType(null)).toBe(0);
+    expect(requiresApprovalForThreadType(undefined)).toBe(0);
   });
 });
