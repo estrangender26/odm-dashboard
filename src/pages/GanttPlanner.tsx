@@ -3234,7 +3234,14 @@ export default function GanttPlanner() {
       <AIAssistant
         contextType="gantt"
         data={taskList}
-        metadata={{ currentProjectId, currentProjectName, source: "live-task-store" }}
+        metadata={{
+          currentProjectId,
+          currentProjectName,
+          source: "live-task-store",
+          sourceModule: "Gantt Charts",
+          sourceRecordId: currentProjectId || "gantt-planner",
+          sourceRecordLabel: currentProjectName || "Gantt Planner",
+        }}
         title="Gantt AI"
       />
 

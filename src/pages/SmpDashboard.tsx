@@ -639,7 +639,7 @@ export default function SmpDashboard() {
       )}
 
       {/* AI Assistant */}
-      <AIAssistant contextType="maintenance" data={allDocs} quickQuestions={[
+      <AIAssistant contextType="smp" data={allDocs} metadata={{ sourceModule: "Standard Maintenance Procedures", sourceRecordId: "smp-library", sourceRecordLabel: "SMP Library" }} title="SMP AI" quickQuestions={[
         "Which equipment types are missing SMPs?",
         "Which SMPs are expired or under review?",
         "Summarize SMP coverage by system.",

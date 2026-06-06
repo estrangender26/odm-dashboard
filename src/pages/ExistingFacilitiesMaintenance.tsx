@@ -1186,7 +1186,8 @@ export default function ExistingFacilitiesMaintenance() {
         contextType="maintenance"
         data={data?.items || []}
         filters={{ plant: activePlant, frequency: freqFilter, implementor: implFilter, equipment: equipFilter, status: statusFilter }}
-        title="Maintenance AI"
+        metadata={{ sourceModule: "Existing Facilities Maintenance Plans", sourceRecordId: activePlant || "all-facilities", sourceRecordLabel: activePlant || "All Existing Facilities" }}
+        title="Existing Facilities AI"
       />
 
       {/* ── Styles ── */}
