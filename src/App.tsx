@@ -12,6 +12,7 @@ import ScorecardDashboard from "./pages/ScorecardDashboard"
 import PostPlanningInsights from "./pages/PostPlanningInsights"
 import OperatorDrivenMaintenance from "./pages/OperatorDrivenMaintenance"
 import PresentationCenter from "./pages/PresentationCenter"
+import OdmTalk from "./pages/OdmTalk"
 
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
       <Route path="/post-planning-insights" element={<PostPlanningInsights />} />
       <Route path="/operator-maintenance" element={<OperatorDrivenMaintenance />} />
       <Route path="/presentation-center" element={<PresentationCenter />} />
+      <Route path="/odm-talk" element={<OdmTalk />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )

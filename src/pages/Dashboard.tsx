@@ -3,9 +3,10 @@ import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import AIAssistant from "@/components/AIAssistant";
 
 // ── Types ──
-const VALID_OPS = ["", "Operator", "AMD in-house", "Outsourced SLA"] as const;
+const VALID_OPS = ["", "Operator", "AMD In-house", "Outsourced SLA"] as const;
 const VALID_FAM = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
 
 interface PendingChange {
@@ -1275,6 +1276,19 @@ export default function Dashboard() {
       <footer className="text-right py-5 px-5 text-sm text-gray-500 border-t border-gray-200 mt-4">
         Program Oversight Center &copy; 2026
       </footer>
+
+      <AIAssistant
+        contextType="postPlanningInsights"
+        data={data?.groups?.flatMap((group) => group.tasks) || []}
+        filters={{ dataset: activeTab, search, equipFilter, freqFilter, personFilter, familiarityFilter }}
+        metadata={{
+          sourceModule: "Maintenance Planning",
+          sourceRecordId: activeTab,
+          sourceRecordLabel: activeTab === "htt" ? "HTT STP Maintenance Planning" : "Aglipay STP Maintenance Planning",
+          disableSampleRecords: true,
+        }}
+        title="Maintenance Planning AI"
+      />
     </div>
   );
 }

@@ -22,7 +22,7 @@ type FutureDoer = "Operator" | "AMD In-house" | "Outsourced SLA";
 type ConsensusStatus =
   | "Full Consensus"
   | "Partial Consensus"
-  | "No Consensus"
+  | "Conflict"
   | "Unassigned";
 type RecommendedFutureDoer = FutureDoer | "Conflict" | "Unassigned";
 type ChartFilter = {
@@ -119,7 +119,7 @@ const TRANSITION_COLORS: Record<RecommendedFutureDoer, string> = {
 const CONSENSUS_COLORS: Record<ConsensusStatus, string> = {
   "Full Consensus": "bg-emerald-50 text-emerald-800 border-emerald-200",
   "Partial Consensus": "bg-amber-50 text-amber-800 border-amber-200",
-  "No Consensus": "bg-rose-50 text-rose-800 border-rose-200",
+  Conflict: "bg-rose-50 text-rose-800 border-rose-200",
   Unassigned: "bg-slate-100 text-slate-700 border-slate-300",
 };
 const ACTION_COLORS: Record<ActionType, string> = {
@@ -226,7 +226,7 @@ function deriveConsensus(task: TaskRow): {
   }
 
   return {
-    status: "No Consensus",
+    status: "Conflict",
     recommendedFutureDoer: "Conflict",
     majorityValue: null,
   };
@@ -556,7 +556,7 @@ export default function PostPlanningInsights() {
       {
         "Full Consensus": 0,
         "Partial Consensus": 0,
-        "No Consensus": 0,
+        Conflict: 0,
         Unassigned: 0,
         conflict: 0,
         unassigned: 0,
@@ -1367,6 +1367,7 @@ export default function PostPlanningInsights() {
         metadata={{
           facilityName: PLANT_LABELS[plant],
           source: "post-planning-insights-task-data",
+          sourceModule: "Post-PPP Planning",
           disableSampleRecords: true,
           dashboardTaskCount: filteredTasks.length,
           sourceTaskCount: kpis.sourceCount,
@@ -1378,7 +1379,7 @@ export default function PostPlanningInsights() {
           consensusModel:
             "Operations, AMD, and ARD are independent preference inputs. Consensus status is derived separately from the recommended future doer. Do not force tie-breaks; ties/no consensus become Conflict and all blanks become Unassigned.",
         }}
-        title="Post-Planning AI"
+        title="Post-PPP Planning AI"
         quickQuestions={[
           "Show ownership conflicts",
           "Show tasks with full consensus",

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/providers/trpc";
+import { formatOdmTalkAiPost, inferOdmTalkSource, type OdmTalkShareType, type OdmTalkThreadType } from "@/lib/odmTalkBridge";
 import { normProgress, rowStatus } from "@/modules/gantt/engine/schedulingEngine";
 import { calcProjectCompletion, normalizeTaskStatus, taskCompletionPercent } from "@/modules/gantt/engine/uiUtilsEngine";
 
@@ -533,7 +534,30 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [odmTalkStatus, setOdmTalkStatus] = useState("");
+  const [selectedThreadId, setSelectedThreadId] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const odmTalkSource = inferOdmTalkSource(contextType, title, metadata, filters);
+  const relatedThreads = trpc.odmTalk.related.useQuery(
+    { sourceModule: odmTalkSource.sourceModule, sourceRecordId: odmTalkSource.sourceRecordId },
+    { enabled: open }
+  );
+  const odmTalkUtils = trpc.useUtils();
+  const createOdmTalkThread = trpc.odmTalk.createThread.useMutation({
+    onSuccess: (res) => {
+      setSelectedThreadId(String(res.threadId));
+      setOdmTalkStatus(`Posted to ODM Talk thread #${res.threadId}.`);
+      odmTalkUtils.odmTalk.related.invalidate({ sourceModule: odmTalkSource.sourceModule, sourceRecordId: odmTalkSource.sourceRecordId });
+    },
+    onError: (e) => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
+  });
+  const postToOdmTalkThread = trpc.odmTalk.postToThread.useMutation({
+    onSuccess: (res) => {
+      setOdmTalkStatus(`Added to ODM Talk thread #${res.threadId}.`);
+      odmTalkUtils.odmTalk.related.invalidate({ sourceModule: odmTalkSource.sourceModule, sourceRecordId: odmTalkSource.sourceRecordId });
+    },
+    onError: (e) => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
+  });
 
   const chatMut = trpc.ai.maintenanceChat.useMutation({
     onSuccess: (res) => {
@@ -565,10 +589,13 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
 
     // Build data context and prepend to message
     const dataContext = buildDataContext(data, contextType, filters, metadata);
+    const odmTalkContext = relatedThreads.data?.length
+      ? `\n=== RELATED ODM TALK THREADS (secondary context only; module data remains source of truth) ===\n${relatedThreads.data.map((t) => `- #${t.id} ${t.threadType}: ${t.title} (${t.status})`).join("\n")}\n`
+      : "";
     const baseInstruction = contextType === "gantt"
       ? "Answer based ONLY on the dashboard data provided above. Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records. Completed tasks are not overdue even if planned finish date is in the past. If a task is completed, do not classify it as delayed or overdue."
       : "Answer based ONLY on the dashboard data provided above. Be specific with numbers and names.";
-    let fullMessage = dataContext + `USER QUESTION: ${msg}\n\n${baseInstruction}`;
+    let fullMessage = dataContext + odmTalkContext + `USER QUESTION: ${msg}\n\n${baseInstruction}`;
     if (fullMessage.length > MAX_AI_CONTEXT_CHARS) {
       const keepTail = `\n\nUSER QUESTION: ${msg}\n\n${baseInstruction}`;
       const allowedContext = Math.max(0, MAX_AI_CONTEXT_CHARS - keepTail.length);
@@ -585,6 +612,24 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
   };
 
   const prompts = quickQuestions || CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.help;
+
+  const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant")?.content || "";
+  const postLastAssistantMessage = (threadType: OdmTalkThreadType, shareType: OdmTalkShareType, threadId?: number) => {
+    if (!lastAssistantMessage || createOdmTalkThread.isPending || postToOdmTalkThread.isPending) return;
+    const payload = {
+      ...odmTalkSource,
+      threadType,
+      shareType,
+      title: `${threadType}: ${odmTalkSource.sourceRecordLabel || odmTalkSource.sourceRecordId}`,
+      content: formatOdmTalkAiPost(lastAssistantMessage, odmTalkSource),
+    };
+    setOdmTalkStatus("Posting to ODM Talk...");
+    if (threadId) {
+      postToOdmTalkThread.mutate({ ...payload, threadId });
+    } else {
+      createOdmTalkThread.mutate(payload);
+    }
+  };
 
   return (
     <>
@@ -673,6 +718,34 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
                 </span>
               </div>
             )}
+          </div>
+
+          {/* ODM Talk bridge actions */}
+          <div style={{ padding: "8px 12px", borderTop: "1px solid #E2E8F0", background: "#FAFBFF" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: "#334155", textTransform: "uppercase", letterSpacing: .5 }}>ODM Talk Bridge</span>
+              <a href="/odm-talk" style={{ fontSize: 10, color: "#2563EB", textDecoration: "none", fontWeight: 700 }}>Open Hub</a>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
+              <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #C7D2FE", borderRadius: 8, background: lastAssistantMessage ? "#EEF2FF" : "#F1F5F9", color: "#3730A3", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Send to ODM Talk</button>
+              <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #C7D2FE", borderRadius: 8, background: lastAssistantMessage ? "#EEF2FF" : "#F1F5F9", color: "#3730A3", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Create Discussion</button>
+              <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #DDD6FE", borderRadius: 8, background: lastAssistantMessage ? "#F5F3FF" : "#F1F5F9", color: "#5B21B6", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Share Summary</button>
+              <button onClick={() => postLastAssistantMessage("Post-PPP Decision", "Decision")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #FED7AA", borderRadius: 8, background: lastAssistantMessage ? "#FFF7ED" : "#F1F5F9", color: "#9A3412", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Create Decision Thread</button>
+              <button onClick={() => postLastAssistantMessage("Maintenance Recommendation", "AI recommendation")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #BBF7D0", borderRadius: 8, background: lastAssistantMessage ? "#F0FDF4" : "#F1F5F9", color: "#166534", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Share Recommendation</button>
+              <button onClick={() => postLastAssistantMessage("Action Tracking", "AI-generated action items")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #BAE6FD", borderRadius: 8, background: lastAssistantMessage ? "#F0F9FF" : "#F1F5F9", color: "#075985", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Share Action Items</button>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <select value={selectedThreadId} onChange={(e) => setSelectedThreadId(e.target.value)} style={{ flex: 1, minWidth: 0, padding: "5px 6px", fontSize: 10, border: "1px solid #CBD5E1", borderRadius: 8 }}>
+                <option value="">Add to Discussion...</option>
+                {(relatedThreads.data || []).map((thread) => (
+                  <option key={thread.id} value={thread.id}>#{thread.id} {thread.threadType}</option>
+                ))}
+              </select>
+              <button onClick={() => selectedThreadId && postLastAssistantMessage("General Discussion", "AI summary", Number(selectedThreadId))} disabled={!lastAssistantMessage || !selectedThreadId || postToOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #CBD5E1", borderRadius: 8, background: selectedThreadId && lastAssistantMessage ? "#FFFFFF" : "#F1F5F9", color: "#334155", cursor: selectedThreadId && lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Add to Discussion</button>
+            </div>
+            <div style={{ marginTop: 5, fontSize: 9, color: odmTalkStatus.includes("failed") ? "#B91C1C" : "#64748B" }}>
+              {odmTalkStatus || `${odmTalkSource.assistantName} shares labels, backlinks, source record metadata, and keeps ${odmTalkSource.sourceModule} data as primary context.`}
+            </div>
           </div>
 
           {/* Input */}

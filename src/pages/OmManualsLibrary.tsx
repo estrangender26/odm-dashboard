@@ -1094,7 +1094,8 @@ export default function OmManualsLibrary() {
       <AIAssistant
         contextType="manuals"
         data={{ folders: counts.folders, files: counts.files, tree }}
-        metadata={{ aiContext }}
+        metadata={{ aiContext, sourceModule: "O&M Manual Governance", sourceRecordId: "om-manuals-library", sourceRecordLabel: "O&M Manuals Library" }}
+        title="O&M Governance AI"
         position="bottom-right"
         quickQuestions={[
           "Which facility types (WTP/WWTP/WPS/WWLS) have missing manuals?",

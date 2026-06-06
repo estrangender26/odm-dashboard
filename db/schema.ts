@@ -311,3 +311,64 @@ export const ganttProjects = pgTable("gantt_projects", {
   index("gantt_projects_session_idx").on(table.sessionId),
   index("gantt_projects_user_idx").on(table.userId),
 ]);
+
+/* ── ODM Talk AI Collaboration Hub ── */
+export const odmTalkThreads = pgTable("odm_talk_threads", {
+  id: serial("id").primaryKey(),
+  title: varchar("title", { length: 500 }).notNull(),
+  threadType: varchar("thread_type", { length: 100 }).notNull().default("General Discussion"),
+  sourceModule: varchar("source_module", { length: 150 }).notNull(),
+  sourcePage: varchar("source_page", { length: 255 }).notNull(),
+  sourceRecordId: varchar("source_record_id", { length: 255 }).notNull(),
+  sourceRecordLabel: varchar("source_record_label", { length: 500 }),
+  sourceUrl: text("source_url").notNull(),
+  assistantName: varchar("assistant_name", { length: 255 }).notNull(),
+  userId: varchar("user_id", { length: 255 }),
+  status: varchar("status", { length: 50 }).notNull().default("open"),
+  requiresApproval: integer("requires_approval").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("odm_talk_threads_source_idx").on(table.sourceModule, table.sourceRecordId),
+  index("odm_talk_threads_type_idx").on(table.threadType),
+  index("odm_talk_threads_updated_idx").on(table.updatedAt),
+]);
+
+export const odmTalkMessages = pgTable("odm_talk_messages", {
+  id: serial("id").primaryKey(),
+  threadId: integer("thread_id").notNull().references(() => odmTalkThreads.id),
+  role: varchar("role", { length: 50 }).notNull().default("assistant"),
+  content: text("content").notNull(),
+  shareType: varchar("share_type", { length: 100 }).notNull().default("AI summary"),
+  isAiGenerated: integer("is_ai_generated").notNull().default(1),
+  sourceModule: varchar("source_module", { length: 150 }).notNull(),
+  sourcePage: varchar("source_page", { length: 255 }).notNull(),
+  sourceRecordId: varchar("source_record_id", { length: 255 }).notNull(),
+  sourceRecordLabel: varchar("source_record_label", { length: 500 }),
+  sourceUrl: text("source_url").notNull(),
+  assistantName: varchar("assistant_name", { length: 255 }).notNull(),
+  userId: varchar("user_id", { length: 255 }),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("odm_talk_messages_thread_idx").on(table.threadId),
+  index("odm_talk_messages_source_idx").on(table.sourceModule, table.sourceRecordId),
+  index("odm_talk_messages_share_idx").on(table.shareType),
+  index("odm_talk_messages_created_idx").on(table.createdAt),
+]);
+
+export const odmTalkNotifications = pgTable("odm_talk_notifications", {
+  id: serial("id").primaryKey(),
+  threadId: integer("thread_id").notNull().references(() => odmTalkThreads.id),
+  messageId: integer("message_id").references(() => odmTalkMessages.id),
+  notificationType: varchar("notification_type", { length: 100 }).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  body: text("body"),
+  userId: varchar("user_id", { length: 255 }),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("odm_talk_notifications_thread_idx").on(table.threadId),
+  index("odm_talk_notifications_user_idx").on(table.userId),
+  index("odm_talk_notifications_created_idx").on(table.createdAt),
+]);
