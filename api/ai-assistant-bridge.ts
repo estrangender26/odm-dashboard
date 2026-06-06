@@ -62,15 +62,18 @@ export type OdmTalkBridgePayload = OdmTalkSource & {
   shareType?: OdmTalkShareType;
 };
 
+function isSafeInternalSourceUrl(value: string) {
+  return value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\");
+}
+
 export const odmTalkSourceInputSchema = z.object({
   sourceModule: sourceModuleSchema,
   sourcePage: z.string().min(1).max(255),
   sourceRecordId: z.string().min(1).max(255),
   sourceRecordLabel: z.string().max(500).optional(),
-  sourceUrl: z.string().min(1).max(1000).refine(
-    (value) => value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\"),
-    { message: "sourceUrl must be an internal app path" },
-  ),
+  sourceUrl: z.string().min(1).max(1000).refine(isSafeInternalSourceUrl, {
+    message: "sourceUrl must be an internal app path",
+  }),
   assistantName: z.string().min(1).max(255),
   userId: z.string().max(255).optional(),
 });
