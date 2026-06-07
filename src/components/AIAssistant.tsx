@@ -30,6 +30,8 @@ interface AIAssistantProps {
 
 const MAX_AI_CONTEXT_CHARS = 3900;
 const MAX_GANTT_TASK_ROWS = 40;
+const SHARED_ASSISTANT_TITLE = "ODM Dashboard AI";
+const SHARED_ASSISTANT_SUBTITLE = "Grounded in active dashboard data";
 
 const DASHBOARD_GROUNDING_INSTRUCTION = `Answer based only on the dashboard data and module context provided. Use dashboard data first and active module data first. No stale current-world answers: for current facts, rankings, market prices, news, laws, live internet, or other time-sensitive questions, say "Live web lookup is not enabled in this dashboard AI." Then redirect back to the ODM Dashboard context. If module data is empty or unavailable, say the module data is not loaded instead of inventing. Do not invent missing data, task counts, KPI values, equipment names, ownership decisions, document counts, schedule delays, or file/folder counts.`;
 
@@ -821,15 +823,15 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
       <button
         className="odm-ai-fab"
         onClick={() => setOpen(!open)}
-        title={title || "AI Analysis"}
-        aria-label={open ? `Close ${title || "AI Analysis"}` : `Open ${title || "AI Analysis"}`}
+        title={SHARED_ASSISTANT_TITLE}
+        aria-label={open ? `Close ${SHARED_ASSISTANT_TITLE}` : `Open ${SHARED_ASSISTANT_TITLE}`}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
       </button>
 
       {/* Panel */}
       {open && (
-        <div className="odm-ai-panel" role="dialog" aria-label={title || "AI Analysis"}>
+        <div className="odm-ai-panel" role="dialog" aria-label={SHARED_ASSISTANT_TITLE}>
           {/* Header */}
           <div className="odm-ai-header">
             <div className="odm-ai-title-wrap">
@@ -837,8 +839,8 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
               </span>
               <div>
-                <div className="odm-ai-title">{title || "AI Analysis"}</div>
-                <div className="odm-ai-subtitle">Grounded in {odmTalkSource.sourceModule}</div>
+                <div className="odm-ai-title">{SHARED_ASSISTANT_TITLE}</div>
+                <div className="odm-ai-subtitle">{SHARED_ASSISTANT_SUBTITLE}</div>
               </div>
             </div>
             <div className="odm-ai-header-actions">
