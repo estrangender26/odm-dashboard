@@ -19,5 +19,6 @@ describe("AI assistant voice agent helpers", () => {
     expect(source).toContain("Start voice listening");
     expect(source).toContain("Voice reply ON");
     expect(source).toContain("VOICE_UNSUPPORTED_MESSAGE");
+    expect(source).toContain("ODM Talk Bridge");
   });
 });
