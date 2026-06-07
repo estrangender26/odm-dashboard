@@ -35,9 +35,9 @@ describe("duplicate AI assistant regression", () => {
   it("does not render the legacy scorecard iframe AI widget", () => {
     const html = repoFile("public/scorecard-kpi.html");
 
-    expect(html).not.toContain(["Scorecard", "AI"].join(""));
-    expect(html).not.toContain(["aiFab", "Btn"].join(""));
-    expect(html).not.toContain(["aiScorecard", "Panel"].join(""));
-    expect(html).not.toContain(["aiScorecard", "Overlay"].join(""));
+    expect(html).not.toContain("ScorecardAI");
+    expect(html).not.toContain("aiFabBtn");
+    expect(html).not.toContain("aiScorecardPanel");
+    expect(html).not.toContain("aiScorecardOverlay");
   });
 });
