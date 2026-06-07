@@ -1,11 +1,29 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/providers/trpc";
-import { VOICE_UNSUPPORTED_MESSAGE, describeSpeechRecognitionError, getSpeechRecognitionConstructor } from "@/lib/voiceAgent";
-import { formatOdmTalkAiPost, inferOdmTalkSource, type OdmTalkShareType, type OdmTalkThreadType } from "@/lib/odmTalkBridge";
-import { normProgress, rowStatus } from "@/modules/gantt/engine/schedulingEngine";
-import { calcProjectCompletion, normalizeTaskStatus, taskCompletionPercent } from "@/modules/gantt/engine/uiUtilsEngine";
+import {
+  VOICE_UNSUPPORTED_MESSAGE,
+  describeSpeechRecognitionError,
+  getSpeechRecognitionConstructor,
+} from "@/lib/voiceAgent";
+import {
+  formatOdmTalkAiPost,
+  inferOdmTalkSource,
+  type OdmTalkShareType,
+  type OdmTalkThreadType,
+} from "@/lib/odmTalkBridge";
+import {
+  normProgress,
+  rowStatus,
+} from "@/modules/gantt/engine/schedulingEngine";
+import {
+  calcProjectCompletion,
+  normalizeTaskStatus,
+  taskCompletionPercent,
+} from "@/modules/gantt/engine/uiUtilsEngine";
 
-type VoiceRecognition = InstanceType<NonNullable<ReturnType<typeof getSpeechRecognitionConstructor>>>;
+type VoiceRecognition = InstanceType<
+  NonNullable<ReturnType<typeof getSpeechRecognitionConstructor>>
+>;
 
 export type DashboardContext =
   | "maintenance"
@@ -32,6 +50,19 @@ const MAX_AI_CONTEXT_CHARS = 3900;
 const MAX_GANTT_TASK_ROWS = 40;
 const SHARED_ASSISTANT_TITLE = "ODM Dashboard AI";
 const SHARED_ASSISTANT_SUBTITLE = "Grounded in active dashboard data";
+const MODULE_DATA_NOT_LOADED_MESSAGE =
+  "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data.";
+const NO_VOICE_CAPTURED_MESSAGE =
+  "No voice captured. Please try again or use text chat.";
+const VOICE_CAPTURED_REVIEW_MESSAGE = "Voice captured. Review then tap Send.";
+const VOICE_CAPTURE_TIMEOUT_MS = 10000;
+
+const GENERAL_HELP_PROMPTS = [
+  "What can this dashboard do?",
+  "Which module should I open?",
+  "How do I use Maintenance Planning?",
+  "How do I use ODM Talk?",
+];
 
 const DASHBOARD_GROUNDING_INSTRUCTION = `Answer based only on the dashboard data and module context provided. Use dashboard data first and active module data first. No stale current-world answers: for current facts, rankings, market prices, news, laws, live internet, or other time-sensitive questions, say "Live web lookup is not enabled in this dashboard AI." Then redirect back to the ODM Dashboard context. If module data is empty or unavailable, say the module data is not loaded instead of inventing. Do not invent missing data, task counts, KPI values, equipment names, ownership decisions, document counts, schedule delays, or file/folder counts.`;
 
@@ -95,11 +126,71 @@ const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
   ],
 };
 
+function hasUsableModuleData(
+  data: any[] | any,
+  contextType: DashboardContext,
+  metadata?: any
+): boolean {
+  if (contextType === "help") return false;
+
+  if (Array.isArray(data)) return data.length > 0;
+
+  if (data && typeof data === "object") {
+    if (contextType === "scorecard") {
+      return (
+        (Array.isArray(data.kpis) && data.kpis.length > 0) ||
+        (Array.isArray(data.monthlyScoreData) &&
+          data.monthlyScoreData.length > 0) ||
+        (data.aggregates && Object.keys(data.aggregates).length > 0)
+      );
+    }
+
+    if (contextType === "gantt") {
+      return Array.isArray(data.tasks) && data.tasks.length > 0;
+    }
+
+    if (contextType === "manuals") {
+      const aiTotals = metadata?.aiContext?.totals;
+      return Boolean(
+        Number(data.folders) > 0 ||
+        Number(data.files) > 0 ||
+        (data.tree && Object.keys(data.tree).length > 0) ||
+        Number(aiTotals?.folders) > 0 ||
+        Number(aiTotals?.files) > 0
+      );
+    }
+
+    return Object.values(data).some(value => {
+      if (Array.isArray(value)) return value.length > 0;
+      if (value && typeof value === "object")
+        return Object.keys(value).length > 0;
+      return value !== undefined && value !== null && value !== "";
+    });
+  }
+
+  return Boolean(
+    Number(metadata?.dashboardTaskCount) > 0 ||
+    Number(metadata?.sourceTaskCount) > 0 ||
+    (Array.isArray(metadata?.uploads) && metadata.uploads.length > 0)
+  );
+}
+
+function isDataAnalysisQuestion(message: string): boolean {
+  return /\b(analy[sz]e|analysis|trend|trends|risk|high-risk|equipment|kpi|kpis|benchmark|schedule|delay|delays|critical path|resource conflict|compliance|overdue|work order|task count|document count|folder|file|coverage|underperform|ownership|responsible|corrective action|recommendation|milestone|inspection|smp|manual)\b/i.test(
+    message
+  );
+}
+
 /**
  * Build a rich data context string from dashboard data.
  * Handles arrays, objects, and nested structures.
  */
-function buildDataContext(data: any[] | any, contextType: DashboardContext, filters?: any, metadata?: any): string {
+function buildDataContext(
+  data: any[] | any,
+  contextType: DashboardContext,
+  filters?: any,
+  metadata?: any
+): string {
   let ctx = "";
   const now = new Date().toISOString().slice(0, 10);
 
@@ -109,7 +200,9 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
 
   // Filters
   if (filters && Object.keys(filters).length > 0) {
-    const activeFilters = Object.entries(filters).filter(([, v]) => v !== "" && v !== undefined && v !== null);
+    const activeFilters = Object.entries(filters).filter(
+      ([, v]) => v !== "" && v !== undefined && v !== null
+    );
     if (activeFilters.length > 0) {
       ctx += `Active Filters: ${activeFilters.map(([k, v]) => `${k}=${v}`).join(", ")}\n`;
     }
@@ -118,13 +211,20 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
   // Metadata
   if (metadata) {
     if (metadata.facilityName) ctx += `Facility: ${metadata.facilityName}\n`;
-    if (metadata.dashboardTaskCount !== undefined) ctx += `Dashboard Task Count: ${metadata.dashboardTaskCount}\n`;
-    if (metadata.sourceTaskCount !== undefined) ctx += `Source Task Count: ${metadata.sourceTaskCount}\n`;
+    if (metadata.dashboardTaskCount !== undefined)
+      ctx += `Dashboard Task Count: ${metadata.dashboardTaskCount}\n`;
+    if (metadata.sourceTaskCount !== undefined)
+      ctx += `Source Task Count: ${metadata.sourceTaskCount}\n`;
     if (metadata.source) ctx += `Data Source: ${metadata.source}\n`;
-    if (metadata.uploads?.length) ctx += `Uploads: ${metadata.uploads.length} documents\n`;
+    if (metadata.uploads?.length)
+      ctx += `Uploads: ${metadata.uploads.length} documents\n`;
     const metadataEvidence = Object.fromEntries(
-      Object.entries(metadata).filter(([key, value]) =>
-        !["aiContext", "uploads"].includes(key) && value !== undefined && value !== null && typeof value !== "function"
+      Object.entries(metadata).filter(
+        ([key, value]) =>
+          !["aiContext", "uploads"].includes(key) &&
+          value !== undefined &&
+          value !== null &&
+          typeof value !== "function"
       )
     );
     if (Object.keys(metadataEvidence).length > 0) {
@@ -132,7 +232,10 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     }
     if (metadata.aiContext && contextType === "manuals") {
       const aiCtx = metadata.aiContext;
-      const safeEntries = (record: Record<string, number> | undefined, limit = 10) =>
+      const safeEntries = (
+        record: Record<string, number> | undefined,
+        limit = 10
+      ) =>
         Object.entries(record || {})
           .sort(([, a], [, b]) => b - a)
           .slice(0, limit)
@@ -147,7 +250,10 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       ctx += `Counts by approval/status: ${safeEntries(aiCtx?.distribution?.approvalStatus)}\n`;
       ctx += `Latest revisions summary: ${(aiCtx?.latestRevisionHints || []).slice(0, 5).join(" | ") || "None"}\n`;
       ctx += `Indicators (missing/obsolete/overdue): ${aiCtx?.totals?.missingIndicators ?? 0}/${aiCtx?.totals?.obsoleteIndicators ?? 0}/${aiCtx?.totals?.overdueIndicators ?? 0}\n`;
-      if (Array.isArray(aiCtx?.sampleRecords) && aiCtx.sampleRecords.length > 0) {
+      if (
+        Array.isArray(aiCtx?.sampleRecords) &&
+        aiCtx.sampleRecords.length > 0
+      ) {
         ctx += `Sample records (max 5):\n`;
         aiCtx.sampleRecords.slice(0, 5).forEach((s: any, i: number) => {
           ctx += `${i + 1}. ${s.title || "Untitled"} | ${s.revision || "No rev"} | ${s.facilityPath || "No path"}\n`;
@@ -177,7 +283,12 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     const fields = Object.keys(first || {});
 
     // --- MAINTENANCE PLANNING dashboard (trpc.tasks.list task data) ---
-    if (contextType === "maintenance" && (fields.includes("taskList") || fields.includes("responsiblePersonnel") || fields.includes("currentPppDoer"))) {
+    if (
+      contextType === "maintenance" &&
+      (fields.includes("taskList") ||
+        fields.includes("responsiblePersonnel") ||
+        fields.includes("currentPppDoer"))
+    ) {
       const countBy = (picker: (r: any) => string | null | undefined) => {
         const map: Record<string, number> = {};
         data.forEach((r: any) => {
@@ -186,19 +297,42 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         });
         return Object.entries(map).sort(([, a], [, b]) => b - a);
       };
-      const getCurrentPppDoer = (r: any) => r.currentPppDoer || r.Responsible || r.responsible || r.responsiblePersonnel;
+      const getCurrentPppDoer = (r: any) =>
+        r.currentPppDoer ||
+        r.Responsible ||
+        r.responsible ||
+        r.responsiblePersonnel;
       ctx += `=== MAINTENANCE PLANNING TASK DATA (trpc.tasks.list) ===\n`;
       ctx += `Total Tasks: ${data.length}\n`;
       ctx += `Ownership Rule: Responsible/currentPppDoer/responsiblePersonnel is the current PPP execution doer only. Operations, AMD, and ARD are future ownership preference fields and must not be treated as the current doer.\n`;
       ctx += `Current PPP Doer (top):\n`;
-      countBy(getCurrentPppDoer).slice(0, 10).forEach(([name, c]) => { ctx += `- ${name}: ${c} tasks\n`; });
+      countBy(getCurrentPppDoer)
+        .slice(0, 10)
+        .forEach(([name, c]) => {
+          ctx += `- ${name}: ${c} tasks\n`;
+        });
       ctx += `Frequencies:\n`;
-      countBy((r) => r.frequency || r.Frequency).slice(0, 10).forEach(([name, c]) => { ctx += `- ${name}: ${c} tasks\n`; });
+      countBy(r => r.frequency || r.Frequency)
+        .slice(0, 10)
+        .forEach(([name, c]) => {
+          ctx += `- ${name}: ${c} tasks\n`;
+        });
       ctx += `Equipment (top):\n`;
-      countBy((r) => r.equipmentName || r.equipment?.name || r.Equipment || r.equipment).slice(0, 10).forEach(([name, c]) => { ctx += `- ${name}: ${c} tasks\n`; });
+      countBy(
+        r => r.equipmentName || r.equipment?.name || r.Equipment || r.equipment
+      )
+        .slice(0, 10)
+        .forEach(([name, c]) => {
+          ctx += `- ${name}: ${c} tasks\n`;
+        });
       ctx += `Future preference fields (do not confuse with current PPP doer):\n`;
-      ["operations", "amd", "ard"].forEach((field) => {
-        ctx += `- ${field.toUpperCase()}: ${countBy((r) => r[field]).slice(0, 6).map(([name, c]) => `${name}=${c}`).join(", ") || "No values loaded"}\n`;
+      ["operations", "amd", "ard"].forEach(field => {
+        ctx += `- ${field.toUpperCase()}: ${
+          countBy(r => r[field])
+            .slice(0, 6)
+            .map(([name, c]) => `${name}=${c}`)
+            .join(", ") || "No values loaded"
+        }\n`;
       });
       ctx += `Task Records (first ${Math.min(15, data.length)}):\n`;
       data.slice(0, 15).forEach((r: any, i: number) => {
@@ -212,7 +346,8 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       const statusMap: Record<string, number> = {};
       const plantMap: Record<string, { total: number; overdue: number }> = {};
       const overdueItems: string[] = [];
-      let pmCount = 0, cmCount = 0;
+      let pmCount = 0,
+        cmCount = 0;
 
       data.forEach((r: any) => {
         const st = r.Status || r.status || "Unknown";
@@ -231,9 +366,11 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       });
 
       ctx += `=== STATUS BREAKDOWN ===\n`;
-      Object.entries(statusMap).sort(([, a], [, b]) => (b as number) - (a as number)).forEach(([s, c]) => {
-        ctx += `- ${s}: ${c}\n`;
-      });
+      Object.entries(statusMap)
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .forEach(([s, c]) => {
+          ctx += `- ${s}: ${c}\n`;
+        });
 
       ctx += `\n=== PLANT / FACILITY BREAKDOWN ===\n`;
       Object.entries(plantMap)
@@ -244,14 +381,19 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
 
       if (overdueItems.length > 0) {
         ctx += `\n=== OVERDUE ITEMS (${overdueItems.length}) ===\n`;
-        overdueItems.slice(0, 15).forEach((item) => { ctx += `- ${item}\n`; });
+        overdueItems.slice(0, 15).forEach(item => {
+          ctx += `- ${item}\n`;
+        });
       }
 
       ctx += `\nWork Order Types: ${pmCount} PM, ${cmCount} CM\n`;
     }
 
     // --- GANTT dashboard ---
-    else if (contextType === "gantt" && (fields.includes("text") || fields.includes("name"))) {
+    else if (
+      contextType === "gantt" &&
+      (fields.includes("text") || fields.includes("name"))
+    ) {
       const toDate = (value: any): Date | null => {
         if (!value) return null;
         const d = new Date(value);
@@ -263,7 +405,11 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       };
       const isCompletedStatus = (statusRaw: string): boolean => {
         const normalized = statusRaw.toLowerCase();
-        return normalized.includes("complete") || normalized.includes("done") || normalized === "closed";
+        return (
+          normalized.includes("complete") ||
+          normalized.includes("done") ||
+          normalized === "closed"
+        );
       };
       const pickDate = (...values: any[]): Date | null => {
         for (const value of values) {
@@ -272,7 +418,12 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         }
         return null;
       };
-      const toStatus = (statusRaw: string, overdue: boolean, progress: number, completed: boolean): string => {
+      const toStatus = (
+        statusRaw: string,
+        overdue: boolean,
+        progress: number,
+        completed: boolean
+      ): string => {
         if (completed) return "Completed";
         if (statusRaw) return statusRaw;
         if (overdue) return "Overdue";
@@ -281,35 +432,120 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       };
 
       const totalTasks = data.length;
-      const milestones = data.filter((t: any) => (t.type || "").toLowerCase() === "milestone").length;
-      const projects = data.filter((t: any) => (t.type || "").toLowerCase() === "project").length;
-      const parentTasks = data.filter((t: any) => t.parent === 0 || t.parent === undefined || t.parent === null).length;
-      const childTasks = data.filter((t: any) => t.parent && t.parent !== 0).length;
+      const milestones = data.filter(
+        (t: any) => (t.type || "").toLowerCase() === "milestone"
+      ).length;
+      const projects = data.filter(
+        (t: any) => (t.type || "").toLowerCase() === "project"
+      ).length;
+      const parentTasks = data.filter(
+        (t: any) =>
+          t.parent === 0 || t.parent === undefined || t.parent === null
+      ).length;
+      const childTasks = data.filter(
+        (t: any) => t.parent && t.parent !== 0
+      ).length;
       const taskById = new Map(data.map((t: any) => [t.id, t]));
       const today = new Date();
-      const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const todayMs = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate()
+      ).getTime();
       const normalizedTasks = data.map((t: any) => {
-        const progress = Math.max(0, Math.min(100, normProgress(t.progressPercent ?? t.progress_percent ?? t.progress)));
+        const progress = Math.max(
+          0,
+          Math.min(
+            100,
+            normProgress(t.progressPercent ?? t.progress_percent ?? t.progress)
+          )
+        );
         const duration = Math.max(0, asNum(t.duration, 0));
-        const statusRaw = `${rowStatus(t) ?? t.status ?? t.Status ?? ""}`.trim();
-        const completed = progress >= 100 || isCompletedStatus(statusRaw) || !!pickDate(t.actual_end, t.actualEnd, t.actual_end_date, t.actualEndDate, t.end_date, t.endDate);
-        const plannedStart = pickDate(t.planned_start, t.plannedStart, t.start_date, t.startDate);
-        const plannedEnd = pickDate(t.planned_end, t.plannedEnd, t.end_date, t.endDate);
-        const actualStart = pickDate(t.actual_start, t.actualStart, t.actual_start_date, t.actualStartDate, t.start_date, t.startDate);
-        const actualEnd = pickDate(t.actual_end, t.actualEnd, t.actual_end_date, t.actualEndDate, t.end_date, t.endDate);
+        const statusRaw =
+          `${rowStatus(t) ?? t.status ?? t.Status ?? ""}`.trim();
+        const completed =
+          progress >= 100 ||
+          isCompletedStatus(statusRaw) ||
+          !!pickDate(
+            t.actual_end,
+            t.actualEnd,
+            t.actual_end_date,
+            t.actualEndDate,
+            t.end_date,
+            t.endDate
+          );
+        const plannedStart = pickDate(
+          t.planned_start,
+          t.plannedStart,
+          t.start_date,
+          t.startDate
+        );
+        const plannedEnd = pickDate(
+          t.planned_end,
+          t.plannedEnd,
+          t.end_date,
+          t.endDate
+        );
+        const actualStart = pickDate(
+          t.actual_start,
+          t.actualStart,
+          t.actual_start_date,
+          t.actualStartDate,
+          t.start_date,
+          t.startDate
+        );
+        const actualEnd = pickDate(
+          t.actual_end,
+          t.actualEnd,
+          t.actual_end_date,
+          t.actualEndDate,
+          t.end_date,
+          t.endDate
+        );
         const scheduleEnd = actualEnd ?? plannedEnd;
-        const isOverdue = !!(scheduleEnd && scheduleEnd.getTime() < todayMs && !completed);
-        const predecessorId = t.predecessorTaskId ?? t.predecessor_task_id ?? t.predecessorId ?? t.predecessor ?? null;
+        const isOverdue = !!(
+          scheduleEnd &&
+          scheduleEnd.getTime() < todayMs &&
+          !completed
+        );
+        const predecessorId =
+          t.predecessorTaskId ??
+          t.predecessor_task_id ??
+          t.predecessorId ??
+          t.predecessor ??
+          null;
         return {
           id: t.id,
           taskName: t.text || t.name || `Task ${t.id ?? "?"}`,
           type: `${t.taskType ?? t.type ?? "task"}`.toLowerCase(),
           parentId: t.parentTaskId ?? t.parent ?? 0,
           hierarchy: (t.parentTaskId ?? t.parent ?? 0) ? "child" : "parent",
-          plannedStartRaw: t.planned_start ?? t.plannedStart ?? t.start_date ?? t.startDate ?? plannedStart?.toISOString() ?? "",
-          plannedEndRaw: t.planned_end ?? t.plannedEnd ?? t.end_date ?? t.endDate ?? "",
-          actualStartRaw: t.actual_start ?? t.actualStart ?? t.actual_start_date ?? t.actualStartDate ?? t.start_date ?? t.startDate ?? actualStart?.toISOString() ?? "",
-          actualEndRaw: t.actual_end ?? t.actualEnd ?? t.actual_end_date ?? t.actualEndDate ?? t.end_date ?? t.endDate ?? "",
+          plannedStartRaw:
+            t.planned_start ??
+            t.plannedStart ??
+            t.start_date ??
+            t.startDate ??
+            plannedStart?.toISOString() ??
+            "",
+          plannedEndRaw:
+            t.planned_end ?? t.plannedEnd ?? t.end_date ?? t.endDate ?? "",
+          actualStartRaw:
+            t.actual_start ??
+            t.actualStart ??
+            t.actual_start_date ??
+            t.actualStartDate ??
+            t.start_date ??
+            t.startDate ??
+            actualStart?.toISOString() ??
+            "",
+          actualEndRaw:
+            t.actual_end ??
+            t.actualEnd ??
+            t.actual_end_date ??
+            t.actualEndDate ??
+            t.end_date ??
+            t.endDate ??
+            "",
           duration,
           progress,
           status: toStatus(statusRaw, isOverdue, progress, completed),
@@ -320,16 +556,19 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       });
 
       const childrenByParent = new Map<number, any[]>();
-      normalizedTasks.forEach((task) => {
-        if (!childrenByParent.has(task.parentId)) childrenByParent.set(task.parentId, []);
+      normalizedTasks.forEach(task => {
+        if (!childrenByParent.has(task.parentId))
+          childrenByParent.set(task.parentId, []);
         childrenByParent.get(task.parentId)!.push(task);
       });
-      normalizedTasks.forEach((task) => {
+      normalizedTasks.forEach(task => {
         const children = childrenByParent.get(task.id) || [];
         if (children.length === 0) return;
-        const allChildrenCompleted = children.every((child) => child.isCompleted);
-        const anyChildInProgress = children.some((child) => !child.isCompleted && child.progress > 0);
-        const anyChildOverdue = children.some((child) => child.isOverdue);
+        const allChildrenCompleted = children.every(child => child.isCompleted);
+        const anyChildInProgress = children.some(
+          child => !child.isCompleted && child.progress > 0
+        );
+        const anyChildOverdue = children.some(child => child.isOverdue);
         if (allChildrenCompleted) {
           task.isCompleted = true;
           task.isOverdue = false;
@@ -344,28 +583,44 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         }
       });
 
-      normalizedTasks.forEach((t) => {
+      normalizedTasks.forEach(t => {
         if (t.isCompleted) {
           t.isOverdue = false;
           if (t.status.toLowerCase() === "not started") t.status = "Completed";
         }
       });
 
-      const completedCount = normalizedTasks.filter((t) => normalizeTaskStatus(t.status) === "completed").length;
-      const inProgressCount = normalizedTasks.filter((t) => normalizeTaskStatus(t.status) === "in progress").length;
-      const notStartedCount = normalizedTasks.filter((t) => normalizeTaskStatus(t.status) === "not started").length;
-      const overdueCount = normalizedTasks.filter((t) => {
+      const completedCount = normalizedTasks.filter(
+        t => normalizeTaskStatus(t.status) === "completed"
+      ).length;
+      const inProgressCount = normalizedTasks.filter(
+        t => normalizeTaskStatus(t.status) === "in progress"
+      ).length;
+      const notStartedCount = normalizedTasks.filter(
+        t => normalizeTaskStatus(t.status) === "not started"
+      ).length;
+      const overdueCount = normalizedTasks.filter(t => {
         const end = pickDate(t.actualEndRaw, t.plannedEndRaw);
-        return !!(end && end.getTime() < todayMs && normalizeTaskStatus(t.status) !== "completed");
+        return !!(
+          end &&
+          end.getTime() < todayMs &&
+          normalizeTaskStatus(t.status) !== "completed"
+        );
       }).length;
-      const completionPct = calcProjectCompletion(normalizedTasks.map((t) => ({
-        status: t.status,
-        progress_percent: taskCompletionPercent(t),
-        duration_days: t.duration,
-      })));
-      const avgDuration = normalizedTasks.length > 0
-        ? (normalizedTasks.reduce((sum, t) => sum + t.duration, 0) / normalizedTasks.length).toFixed(1)
-        : "0.0";
+      const completionPct = calcProjectCompletion(
+        normalizedTasks.map(t => ({
+          status: t.status,
+          progress_percent: taskCompletionPercent(t),
+          duration_days: t.duration,
+        }))
+      );
+      const avgDuration =
+        normalizedTasks.length > 0
+          ? (
+              normalizedTasks.reduce((sum, t) => sum + t.duration, 0) /
+              normalizedTasks.length
+            ).toFixed(1)
+          : "0.0";
 
       ctx += `=== GANTT SUMMARY ===\n`;
       ctx += `- Total Tasks: ${totalTasks}\n`;
@@ -381,16 +636,32 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       ctx += `- Average Duration: ${avgDuration} days\n`;
 
       // Date range
-      const starts = data.map((t: any) => t.start_date).filter(Boolean).sort();
-      const ends = data.map((t: any) => t.end_date).filter(Boolean).sort();
+      const starts = data
+        .map((t: any) => t.start_date)
+        .filter(Boolean)
+        .sort();
+      const ends = data
+        .map((t: any) => t.end_date)
+        .filter(Boolean)
+        .sort();
       if (starts.length && ends.length) {
         ctx += `- Date Range: ${starts[0]} to ${ends[ends.length - 1]}\n`;
       }
 
       ctx += `\n=== TASK RECORDS (max ${MAX_GANTT_TASK_ROWS}) ===\n`;
       normalizedTasks.slice(0, MAX_GANTT_TASK_ROWS).forEach((t, i) => {
-        const parentName = t.parentId && taskById.get(t.parentId) ? (taskById.get(t.parentId)?.text || taskById.get(t.parentId)?.name || `Task ${t.parentId}`) : "ROOT";
-        const predName = t.predecessorId && taskById.get(t.predecessorId) ? (taskById.get(t.predecessorId)?.text || taskById.get(t.predecessorId)?.name || `Task ${t.predecessorId}`) : "None";
+        const parentName =
+          t.parentId && taskById.get(t.parentId)
+            ? taskById.get(t.parentId)?.text ||
+              taskById.get(t.parentId)?.name ||
+              `Task ${t.parentId}`
+            : "ROOT";
+        const predName =
+          t.predecessorId && taskById.get(t.predecessorId)
+            ? taskById.get(t.predecessorId)?.text ||
+              taskById.get(t.predecessorId)?.name ||
+              `Task ${t.predecessorId}`
+            : "None";
         ctx += `${i + 1}. ${t.taskName} | type=${t.type} (${t.hierarchy}) | parent=${parentName} (${t.parentId || 0}) | plannedStart=${t.plannedStartRaw || "-"} | plannedEnd=${t.plannedEndRaw || "-"} | actualStart=${t.actualStartRaw || "-"} | actualEnd=${t.actualEndRaw || "-"} | dur=${t.duration}d | prog=${t.progress}% | status=${t.status} | isCompleted=${t.isCompleted ? "Y" : "N"} | isOverdue=${t.isOverdue ? "Y" : "N"} | pred=${predName}${t.predecessorId ? ` (${t.predecessorId})` : ""}\n`;
       });
       if (normalizedTasks.length > MAX_GANTT_TASK_ROWS) {
@@ -401,8 +672,13 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     // --- POST-PLANNING INSIGHTS dashboard ---
     else if (contextType === "postPlanningInsights") {
       const count = (field: string, value: string) =>
-        data.filter((r: any) => `${r[field] || ""}`.toLowerCase() === value.toLowerCase()).length;
-      const groupCount = (field: string, predicate: (r: any) => boolean = () => true) => {
+        data.filter(
+          (r: any) => `${r[field] || ""}`.toLowerCase() === value.toLowerCase()
+        ).length;
+      const groupCount = (
+        field: string,
+        predicate: (r: any) => boolean = () => true
+      ) => {
         const map: Record<string, number> = {};
         data.filter(predicate).forEach((r: any) => {
           const key = r[field] || "Blank";
@@ -413,7 +689,8 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       const loadByFutureDoer: Record<string, number> = {};
       data.forEach((r: any) => {
         const future = r.futureDoer || "Blank";
-        loadByFutureDoer[future] = (loadByFutureDoer[future] || 0) + Number(r.monthlyResourceLoad || 0);
+        loadByFutureDoer[future] =
+          (loadByFutureDoer[future] || 0) + Number(r.monthlyResourceLoad || 0);
       });
 
       ctx += `=== POST-PLANNING OWNERSHIP MODEL ===\n`;
@@ -423,32 +700,36 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       ctx += `Use this context to answer current PPP execution, future post-PPP execution, transition workload, training backlog, SMP backlog, and resource requirements.\n`;
 
       ctx += `\nFuture Post-PPP Execution Model:\n`;
-      ["Operator", "AMD In-house", "Outsourced SLA"].forEach((name) => {
+      ["Operator", "AMD In-house", "Outsourced SLA"].forEach(name => {
         ctx += `- ${name}: ${count("futureDoer", name)} tasks\n`;
       });
 
       ctx += `\nCurrent PPP Execution (top doers):\n`;
-      groupCount("currentPppDoer").slice(0, 10).forEach(([name, c]) => {
-        ctx += `- ${name}: ${c} tasks\n`;
-      });
+      groupCount("currentPppDoer")
+        .slice(0, 10)
+        .forEach(([name, c]) => {
+          ctx += `- ${name}: ${c} tasks\n`;
+        });
 
       ctx += `\nTransition Workload (Current PPP Doer -> Future Doer):\n`;
-      groupCount("transition").slice(0, 12).forEach(([name, c]) => {
-        ctx += `- ${name}: ${c} tasks\n`;
-      });
+      groupCount("transition")
+        .slice(0, 12)
+        .forEach(([name, c]) => {
+          ctx += `- ${name}: ${c} tasks\n`;
+        });
 
       ctx += `\nTraining Backlog by Future Doer:\n`;
-      ["Operator", "AMD In-house", "Outsourced SLA"].forEach((name) => {
+      ["Operator", "AMD In-house", "Outsourced SLA"].forEach(name => {
         ctx += `- ${name}: ${data.filter((r: any) => r.futureDoer === name && r.trainingBacklog === "Yes").length} tasks\n`;
       });
 
       ctx += `\nSMP Backlog by Future Doer:\n`;
-      ["Operator", "AMD In-house", "Outsourced SLA"].forEach((name) => {
+      ["Operator", "AMD In-house", "Outsourced SLA"].forEach(name => {
         ctx += `- ${name}: ${data.filter((r: any) => r.futureDoer === name && r.smpBacklog === "Yes").length} tasks\n`;
       });
 
       ctx += `\nResource Requirements by Future Doer (monthly load units):\n`;
-      ["Operator", "AMD In-house", "Outsourced SLA"].forEach((name) => {
+      ["Operator", "AMD In-house", "Outsourced SLA"].forEach(name => {
         ctx += `- ${name}: ${(loadByFutureDoer[name] || 0).toFixed(2)}\n`;
       });
     }
@@ -461,11 +742,19 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
         statusMap[st] = (statusMap[st] || 0) + 1;
       });
       ctx += `=== MILESTONE STATUS ===\n`;
-      Object.entries(statusMap).forEach(([s, c]) => { ctx += `- ${s}: ${c}\n`; });
+      Object.entries(statusMap).forEach(([s, c]) => {
+        ctx += `- ${s}: ${c}\n`;
+      });
     }
 
     // --- SMP dashboard ---
-    else if (contextType === "smp" || (fields.includes("smp") || fields.includes("SMP") || fields.includes("document") || fields.includes("Document"))) {
+    else if (
+      contextType === "smp" ||
+      fields.includes("smp") ||
+      fields.includes("SMP") ||
+      fields.includes("document") ||
+      fields.includes("Document")
+    ) {
       ctx += `=== SMP DOCUMENTS ===\n`;
       ctx += `Total Documents: ${data.length}\n`;
 
@@ -476,31 +765,54 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       data.forEach((r: any) => {
         const st = r.Status || r.status || "Unknown";
         statusMap[st] = (statusMap[st] || 0) + 1;
-        const eq = r.EquipmentType || r.equipmentType || r.System || r.system || "Unknown";
+        const eq =
+          r.EquipmentType ||
+          r.equipmentType ||
+          r.System ||
+          r.system ||
+          "Unknown";
         equipMap[eq] = (equipMap[eq] || 0) + 1;
-        const resp = r.Responsible || r.responsible || r.Owner || r.owner || "Unknown";
+        const resp =
+          r.Responsible || r.responsible || r.Owner || r.owner || "Unknown";
         respMap[resp] = (respMap[resp] || 0) + 1;
       });
 
       ctx += `\nStatus Breakdown:\n`;
-      Object.entries(statusMap).forEach(([s, c]) => { ctx += `- ${s}: ${c}\n`; });
+      Object.entries(statusMap).forEach(([s, c]) => {
+        ctx += `- ${s}: ${c}\n`;
+      });
 
       ctx += `\nEquipment Types:\n`;
-      Object.entries(equipMap).sort(([, a], [, b]) => (b as number) - (a as number)).slice(0, 10).forEach(([e, c]) => { ctx += `- ${e}: ${c}\n`; });
+      Object.entries(equipMap)
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .slice(0, 10)
+        .forEach(([e, c]) => {
+          ctx += `- ${e}: ${c}\n`;
+        });
 
       ctx += `\nResponsible Parties:\n`;
-      Object.entries(respMap).sort(([, a], [, b]) => (b as number) - (a as number)).slice(0, 10).forEach(([r, c]) => { ctx += `- ${r}: ${c}\n`; });
+      Object.entries(respMap)
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .slice(0, 10)
+        .forEach(([r, c]) => {
+          ctx += `- ${r}: ${c}\n`;
+        });
     }
 
     // --- SCORECARD dashboard ---
-    else if (contextType === "scorecard" || (fields.includes("kpi") || fields.includes("KPI"))) {
+    else if (
+      contextType === "scorecard" ||
+      fields.includes("kpi") ||
+      fields.includes("KPI")
+    ) {
       ctx += `=== KPI DATA ===\n`;
       ctx += `Total KPIs: ${data.length}\n\n`;
 
       data.slice(0, 20).forEach((r: any, i: number) => {
         const name = r.kpi || r.KPI || r.name || r.Name || `KPI ${i + 1}`;
         const actual = r.actual ?? r.Actual ?? r.value ?? r.Value ?? "N/A";
-        const target = r.target ?? r.Target ?? r.benchmark ?? r.Benchmark ?? "N/A";
+        const target =
+          r.target ?? r.Target ?? r.benchmark ?? r.Benchmark ?? "N/A";
         const status = (r.status || r.Status) ?? "";
         ctx += `${i + 1}. ${name}: Actual=${actual}, Target=${target}${status ? `, Status=${status}` : ""}\n`;
       });
@@ -511,15 +823,20 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       ctx += `Fields: ${fields.join(", ")}\n\n`;
 
       // Numeric summary for numeric fields
-      const numericFields = fields.filter((f) => {
+      const numericFields = fields.filter(f => {
         const v = first[f];
-        return typeof v === "number" || (typeof v === "string" && !isNaN(Number(v)) && v !== "");
+        return (
+          typeof v === "number" ||
+          (typeof v === "string" && !isNaN(Number(v)) && v !== "")
+        );
       });
 
       if (numericFields.length > 0) {
         ctx += `=== NUMERIC SUMMARIES ===\n`;
-        numericFields.forEach((f) => {
-          const values = data.map((r: any) => Number(r[f])).filter((v: number) => !isNaN(v));
+        numericFields.forEach(f => {
+          const values = data
+            .map((r: any) => Number(r[f]))
+            .filter((v: number) => !isNaN(v));
           if (values.length > 0) {
             const sum = values.reduce((a: number, b: number) => a + b, 0);
             const avg = (sum / values.length).toFixed(1);
@@ -535,7 +852,10 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
       if (!metadata?.disableSampleRecords) {
         ctx += `=== DASHBOARD RECORDS EXCERPT (first ${Math.min(10, data.length)}) ===\n`;
         data.slice(0, 10).forEach((r: any, i: number) => {
-          const summary = fields.slice(0, 5).map((f) => `${f}=${JSON.stringify(r[f]).slice(0, 40)}`).join(", ");
+          const summary = fields
+            .slice(0, 5)
+            .map(f => `${f}=${JSON.stringify(r[f]).slice(0, 40)}`)
+            .join(", ");
           ctx += `${i + 1}. ${summary}\n`;
         });
       }
@@ -549,7 +869,8 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
 
     if (contextType === "scorecard") {
       const kpis = Array.isArray(data.kpis) ? data.kpis : [];
-      const hasRuntimeData = kpis.length > 0 || !!data.aggregates || !!data.monthlyScoreData;
+      const hasRuntimeData =
+        kpis.length > 0 || !!data.aggregates || !!data.monthlyScoreData;
       ctx += `=== MONTHLY KPI IFRAME RUNTIME STATE ===\n`;
       ctx += `Selected BU/year/month: ${data.selectedBusinessUnitId ?? "not loaded"}/${data.selectedYear ?? "not loaded"}/${data.selectedMonth ?? "not loaded"}\n`;
       ctx += `KPIs loaded: ${kpis.length}\n`;
@@ -581,7 +902,8 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
           if (!node || typeof node !== "object") return 0;
           let count = 1;
           Object.values(node).forEach((child: any) => {
-            if (typeof child === "object" && child !== null) count += countNodes(child, depth + 1);
+            if (typeof child === "object" && child !== null)
+              count += countNodes(child, depth + 1);
           });
           return count;
         };
@@ -591,7 +913,7 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
 
     // Help context
     if (contextType === "help") {
-      ctx += `Help Topics: ${keys.filter((k) => k !== "__html").join(", ")}\n`;
+      ctx += `Help Topics: ${keys.filter(k => k !== "__html").join(", ")}\n`;
     }
   }
 
@@ -599,10 +921,19 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
   return ctx;
 }
 
-export default function AIAssistant({ contextType, data, filters, metadata, title, quickQuestions }: AIAssistantProps) {
+export default function AIAssistant({
+  contextType,
+  data,
+  filters,
+  metadata,
+  title,
+  quickQuestions,
+}: AIAssistantProps) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [messages, setMessages] = useState<
+    { role: "user" | "assistant"; content: string }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [odmTalkStatus, setOdmTalkStatus] = useState("");
   const [selectedThreadId, setSelectedThreadId] = useState("");
@@ -612,42 +943,65 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
   const [copyStatus, setCopyStatus] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<VoiceRecognition | null>(null);
+  const voiceCaptureTimeoutRef = useRef<ReturnType<
+    typeof globalThis.setTimeout
+  > | null>(null);
+  const manualVoiceStopRef = useRef(false);
   const voiceReplyEnabledRef = useRef(voiceReplyEnabled);
-  const odmTalkSource = inferOdmTalkSource(contextType, title, metadata, filters);
+  const hasModuleData = hasUsableModuleData(data, contextType, metadata);
+  const odmTalkSource = inferOdmTalkSource(
+    contextType,
+    title,
+    metadata,
+    filters
+  );
   const relatedThreads = trpc.odmTalk.related.useQuery(
-    { sourceModule: odmTalkSource.sourceModule, sourceRecordId: odmTalkSource.sourceRecordId },
+    {
+      sourceModule: odmTalkSource.sourceModule,
+      sourceRecordId: odmTalkSource.sourceRecordId,
+    },
     { enabled: open }
   );
   const odmTalkUtils = trpc.useUtils();
   const createOdmTalkThread = trpc.odmTalk.createThread.useMutation({
-    onSuccess: (res) => {
+    onSuccess: res => {
       setSelectedThreadId(String(res.threadId));
       setOdmTalkStatus(`Posted to ODM Talk thread #${res.threadId}.`);
-      odmTalkUtils.odmTalk.related.invalidate({ sourceModule: odmTalkSource.sourceModule, sourceRecordId: odmTalkSource.sourceRecordId });
+      odmTalkUtils.odmTalk.related.invalidate({
+        sourceModule: odmTalkSource.sourceModule,
+        sourceRecordId: odmTalkSource.sourceRecordId,
+      });
     },
-    onError: (e) => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
+    onError: e => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
   });
   const postToOdmTalkThread = trpc.odmTalk.postToThread.useMutation({
-    onSuccess: (res) => {
+    onSuccess: res => {
       setOdmTalkStatus(`Added to ODM Talk thread #${res.threadId}.`);
-      odmTalkUtils.odmTalk.related.invalidate({ sourceModule: odmTalkSource.sourceModule, sourceRecordId: odmTalkSource.sourceRecordId });
+      odmTalkUtils.odmTalk.related.invalidate({
+        sourceModule: odmTalkSource.sourceModule,
+        sourceRecordId: odmTalkSource.sourceRecordId,
+      });
     },
-    onError: (e) => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
+    onError: e => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
   });
 
   const chatMut = trpc.ai.maintenanceChat.useMutation({
-    onSuccess: (res) => {
+    onSuccess: res => {
       setLoading(false);
-      setMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
-      if (voiceReplyEnabledRef.current && typeof window !== "undefined" && "speechSynthesis" in window) {
+      setMessages(prev => [...prev, { role: "assistant", content: res.reply }]);
+      if (
+        voiceReplyEnabledRef.current &&
+        typeof window !== "undefined" &&
+        "speechSynthesis" in window
+      ) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(res.reply);
         window.speechSynthesis.speak(utterance);
       }
     },
-    onError: (e) => {
+    onError: e => {
       setLoading(false);
-      setMessages((prev) => [
+      setMessages(prev => [
         ...prev,
         {
           role: "assistant",
@@ -659,13 +1013,21 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
 
   useEffect(() => {
     voiceReplyEnabledRef.current = voiceReplyEnabled;
-    if (!voiceReplyEnabled && typeof window !== "undefined" && "speechSynthesis" in window) {
+    if (
+      !voiceReplyEnabled &&
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window
+    ) {
       window.speechSynthesis.cancel();
     }
   }, [voiceReplyEnabled]);
 
   useEffect(() => {
     return () => {
+      if (voiceCaptureTimeoutRef.current) {
+        globalThis.clearTimeout(voiceCaptureTimeoutRef.current);
+        voiceCaptureTimeoutRef.current = null;
+      }
       recognitionRef.current?.stop();
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
@@ -674,40 +1036,58 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
   }, []);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages, loading]);
 
   const send = (text?: string) => {
     const msg = (text || input).trim();
     if (!msg || loading) return;
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: msg }]);
+    setMessages(prev => [...prev, { role: "user", content: msg }]);
+
+    if (!hasModuleData && isDataAnalysisQuestion(msg)) {
+      setMessages(prev => [
+        ...prev,
+        { role: "assistant", content: MODULE_DATA_NOT_LOADED_MESSAGE },
+      ]);
+      return;
+    }
+
     setLoading(true);
 
     // Build data context and prepend to message
     const dataContext = buildDataContext(data, contextType, filters, metadata);
     const odmTalkContext = relatedThreads.data?.length
-      ? `\n=== RELATED ODM TALK THREADS (secondary context only; module data remains source of truth) ===\n${relatedThreads.data.map((t) => `- #${t.id} ${t.threadType}: ${t.title} (${t.status})`).join("\n")}\n`
+      ? `\n=== RELATED ODM TALK THREADS (secondary context only; module data remains source of truth) ===\n${relatedThreads.data.map(t => `- #${t.id} ${t.threadType}: ${t.title} (${t.status})`).join("\n")}\n`
       : "";
-    const baseInstruction = contextType === "gantt"
-      ? `${DASHBOARD_GROUNDING_INSTRUCTION} Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records. Completed tasks are not overdue even if planned finish date is in the past. If a task is completed, do not classify it as delayed or overdue.`
-      : `${DASHBOARD_GROUNDING_INSTRUCTION} Be specific with numbers and names from the active module data.`;
-    let fullMessage = dataContext + odmTalkContext + `=== REQUIRED ANSWERING RULES ===\n${baseInstruction}\n\nUSER QUESTION: ${msg}`;
+    const baseInstruction =
+      contextType === "gantt"
+        ? `${DASHBOARD_GROUNDING_INSTRUCTION} Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records. Completed tasks are not overdue even if planned finish date is in the past. If a task is completed, do not classify it as delayed or overdue.`
+        : `${DASHBOARD_GROUNDING_INSTRUCTION} Be specific with numbers and names from the active module data.`;
+    let fullMessage =
+      dataContext +
+      odmTalkContext +
+      `=== REQUIRED ANSWERING RULES ===\n${baseInstruction}\n\nUSER QUESTION: ${msg}`;
     if (fullMessage.length > MAX_AI_CONTEXT_CHARS) {
       const keepTail = `\n\n=== REQUIRED ANSWERING RULES ===\n${baseInstruction}\n\nUSER QUESTION: ${msg}`;
-      const allowedContext = Math.max(0, MAX_AI_CONTEXT_CHARS - keepTail.length);
+      const allowedContext = Math.max(
+        0,
+        MAX_AI_CONTEXT_CHARS - keepTail.length
+      );
       const summarized = dataContext.slice(0, allowedContext);
       fullMessage = `${summarized}\n[context summarized due to size]${keepTail}`;
     }
 
-    const history = messages.slice(-6).map((m) => ({
+    const history = messages.slice(-6).map(m => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     }));
 
     chatMut.mutate({ message: fullMessage, history });
   };
-
 
   const startVoiceListening = () => {
     if (listening || loading) return;
@@ -719,6 +1099,7 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
     }
 
     const recognition = new Recognition();
+    manualVoiceStopRef.current = false;
     recognitionRef.current = recognition;
     recognition.lang = "en-US";
     recognition.continuous = false;
@@ -730,11 +1111,23 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
     recognition.onstart = () => {
       setListening(true);
       setVoiceStatus("Listening…");
+      if (voiceCaptureTimeoutRef.current) {
+        globalThis.clearTimeout(voiceCaptureTimeoutRef.current);
+      }
+      voiceCaptureTimeoutRef.current = globalThis.setTimeout(() => {
+        if (recognitionRef.current === recognition) {
+          hadVoiceError = true;
+          recognitionRef.current = null;
+          setListening(false);
+          setVoiceStatus(NO_VOICE_CAPTURED_MESSAGE);
+          recognition.stop();
+        }
+      }, VOICE_CAPTURE_TIMEOUT_MS);
     };
 
-    recognition.onresult = (event) => {
+    recognition.onresult = event => {
       const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript || "")
+        .map(result => result[0]?.transcript || "")
         .join(" ")
         .trim();
       if (transcript) {
@@ -743,33 +1136,62 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
       }
     };
 
-    recognition.onerror = (event) => {
+    recognition.onerror = event => {
       hadVoiceError = true;
+      if (voiceCaptureTimeoutRef.current) {
+        globalThis.clearTimeout(voiceCaptureTimeoutRef.current);
+        voiceCaptureTimeoutRef.current = null;
+      }
       setVoiceStatus(describeSpeechRecognitionError(event));
       setListening(false);
     };
 
     recognition.onend = () => {
+      if (voiceCaptureTimeoutRef.current) {
+        globalThis.clearTimeout(voiceCaptureTimeoutRef.current);
+        voiceCaptureTimeoutRef.current = null;
+      }
       setListening(false);
-      recognitionRef.current = null;
+      if (recognitionRef.current === recognition) {
+        recognitionRef.current = null;
+      }
+      if (manualVoiceStopRef.current) {
+        manualVoiceStopRef.current = false;
+        return;
+      }
       if (finalTranscript.trim()) {
         setInput(finalTranscript);
-        setVoiceStatus("Voice captured. Review then tap Send.");
+        setVoiceStatus(VOICE_CAPTURED_REVIEW_MESSAGE);
       } else if (!hadVoiceError) {
-        setVoiceStatus("Voice input stopped. Please try again or use text chat.");
+        setVoiceStatus(NO_VOICE_CAPTURED_MESSAGE);
       }
     };
 
     try {
       recognition.start();
     } catch {
+      if (voiceCaptureTimeoutRef.current) {
+        globalThis.clearTimeout(voiceCaptureTimeoutRef.current);
+        voiceCaptureTimeoutRef.current = null;
+      }
+      recognitionRef.current = null;
+      manualVoiceStopRef.current = false;
       setListening(false);
-      setVoiceStatus("Voice input is already active. Please stop listening before starting again.");
+      setVoiceStatus(
+        "Voice input is already active. Please stop listening before starting again."
+      );
     }
   };
 
   const stopVoiceListening = () => {
-    recognitionRef.current?.stop();
+    if (voiceCaptureTimeoutRef.current) {
+      globalThis.clearTimeout(voiceCaptureTimeoutRef.current);
+      voiceCaptureTimeoutRef.current = null;
+    }
+    const recognition = recognitionRef.current;
+    manualVoiceStopRef.current = true;
+    recognitionRef.current = null;
+    recognition?.stop();
     setListening(false);
     setVoiceStatus("");
   };
@@ -793,15 +1215,29 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
       setCopyStatus("Copied assistant response.");
       globalThis.setTimeout(() => setCopyStatus(""), 2200);
     } catch {
-      setCopyStatus("Copy failed. Please select and copy the response manually.");
+      setCopyStatus(
+        "Copy failed. Please select and copy the response manually."
+      );
     }
   };
 
-  const prompts = quickQuestions || CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.help;
+  const prompts = hasModuleData
+    ? quickQuestions || CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.help
+    : GENERAL_HELP_PROMPTS;
 
-  const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant")?.content || "";
-  const postLastAssistantMessage = (threadType: OdmTalkThreadType, shareType: OdmTalkShareType, threadId?: number) => {
-    if (!lastAssistantMessage || createOdmTalkThread.isPending || postToOdmTalkThread.isPending) return;
+  const lastAssistantMessage =
+    [...messages].reverse().find(m => m.role === "assistant")?.content || "";
+  const postLastAssistantMessage = (
+    threadType: OdmTalkThreadType,
+    shareType: OdmTalkShareType,
+    threadId?: number
+  ) => {
+    if (
+      !lastAssistantMessage ||
+      createOdmTalkThread.isPending ||
+      postToOdmTalkThread.isPending
+    )
+      return;
     const payload = {
       ...odmTalkSource,
       threadType,
@@ -824,28 +1260,75 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
         className="odm-ai-fab"
         onClick={() => setOpen(!open)}
         title={SHARED_ASSISTANT_TITLE}
-        aria-label={open ? `Close ${SHARED_ASSISTANT_TITLE}` : `Open ${SHARED_ASSISTANT_TITLE}`}
+        aria-label={
+          open
+            ? `Close ${SHARED_ASSISTANT_TITLE}`
+            : `Open ${SHARED_ASSISTANT_TITLE}`
+        }
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
+          <path d="M12 16v-4" />
+          <path d="M12 8h.01" />
+        </svg>
       </button>
 
       {/* Panel */}
       {open && (
-        <div className="odm-ai-panel" role="dialog" aria-label={SHARED_ASSISTANT_TITLE}>
+        <div
+          className="odm-ai-panel"
+          role="dialog"
+          aria-label={SHARED_ASSISTANT_TITLE}
+        >
           {/* Header */}
           <div className="odm-ai-header">
             <div className="odm-ai-title-wrap">
               <span className="odm-ai-header-icon" aria-hidden="true">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
               </span>
               <div>
                 <div className="odm-ai-title">{SHARED_ASSISTANT_TITLE}</div>
-                <div className="odm-ai-subtitle">{SHARED_ASSISTANT_SUBTITLE}</div>
+                <div className="odm-ai-subtitle">
+                  {SHARED_ASSISTANT_SUBTITLE}
+                </div>
               </div>
             </div>
             <div className="odm-ai-header-actions">
-              <button onClick={() => { setMessages([]); setOdmTalkStatus(""); setCopyStatus(""); }} className="odm-ai-header-btn">Clear</button>
-              <button onClick={() => setOpen(false)} className="odm-ai-close-btn" aria-label="Close AI assistant">&times;</button>
+              <button
+                onClick={() => {
+                  setMessages([]);
+                  setOdmTalkStatus("");
+                  setCopyStatus("");
+                }}
+                className="odm-ai-header-btn"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => setOpen(false)}
+                className="odm-ai-close-btn"
+                aria-label="Close AI assistant"
+              >
+                &times;
+              </button>
             </div>
           </div>
 
@@ -856,8 +1339,12 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
                 <div className="odm-ai-empty-icon">✨</div>
                 <p>Ask AI to analyze this dashboard&apos;s data.</p>
                 <div className="odm-ai-prompt-grid">
-                  {prompts.map((p) => (
-                    <button key={p} onClick={() => send(p)} className="odm-ai-prompt-chip">
+                  {prompts.map(p => (
+                    <button
+                      key={p}
+                      onClick={() => send(p)}
+                      className="odm-ai-prompt-chip"
+                    >
                       {p}
                     </button>
                   ))}
@@ -865,19 +1352,31 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
               </div>
             )}
             {messages.map((m, i) => (
-              <div key={`${m.role}-${i}`} className={`odm-ai-message-row ${m.role === "user" ? "odm-ai-message-row-user" : "odm-ai-message-row-assistant"}`}>
-                <div className={`odm-ai-message-bubble ${m.role === "user" ? "odm-ai-user-bubble" : "odm-ai-assistant-bubble"}`}>
+              <div
+                key={`${m.role}-${i}`}
+                className={`odm-ai-message-row ${m.role === "user" ? "odm-ai-message-row-user" : "odm-ai-message-row-assistant"}`}
+              >
+                <div
+                  className={`odm-ai-message-bubble ${m.role === "user" ? "odm-ai-user-bubble" : "odm-ai-assistant-bubble"}`}
+                >
                   {m.content}
                 </div>
                 {m.role === "assistant" && (
-                  <button onClick={() => copyAssistantMessage(m.content)} className="odm-ai-copy-btn" aria-label="Copy assistant response">
+                  <button
+                    onClick={() => copyAssistantMessage(m.content)}
+                    className="odm-ai-copy-btn"
+                    aria-label="Copy assistant response"
+                  >
                     Copy
                   </button>
                 )}
               </div>
             ))}
             {loading && (
-              <div className="odm-ai-loading-bubble" aria-label="AI response loading">
+              <div
+                className="odm-ai-loading-bubble"
+                aria-label="AI response loading"
+              >
                 <span className="odm-ai-loading-dot" />
                 <span className="odm-ai-loading-dot" />
                 <span className="odm-ai-loading-dot" />
@@ -887,7 +1386,10 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
 
           <div className="odm-ai-footer">
             {/* Voice controls: kept immediately above the input row on desktop and mobile. */}
-            <div className="odm-ai-voice-controls" aria-label="AI voice controls">
+            <div
+              className="odm-ai-voice-controls"
+              aria-label="AI voice controls"
+            >
               <button
                 onClick={startVoiceListening}
                 disabled={listening || loading}
@@ -907,15 +1409,19 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
                 Stop
               </button>
               <button
-                onClick={() => setVoiceReplyEnabled((enabled) => !enabled)}
+                onClick={() => setVoiceReplyEnabled(enabled => !enabled)}
                 title={voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
-                aria-label={voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
+                aria-label={
+                  voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"
+                }
                 className={`odm-ai-voice-btn odm-ai-voice-reply ${voiceReplyEnabled ? "odm-ai-voice-reply-on" : ""}`}
               >
                 {voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
               </button>
               {voiceStatus && (
-                <span className={`odm-ai-voice-status ${voiceStatus === VOICE_UNSUPPORTED_MESSAGE || voiceStatus.includes("Microphone permission") ? "odm-ai-status-error" : ""}`}>
+                <span
+                  className={`odm-ai-voice-status ${voiceStatus === VOICE_UNSUPPORTED_MESSAGE || voiceStatus.includes("Microphone permission") ? "odm-ai-status-error" : ""}`}
+                >
                   {listening ? "Listening…" : voiceStatus}
                 </span>
               )}
@@ -925,13 +1431,22 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
             <div className="odm-ai-input-row">
               <textarea
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }}}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
                 placeholder="Ask about this dashboard's data..."
                 rows={1}
                 className="odm-ai-input"
               />
-              <button onClick={() => send()} disabled={!input.trim() || loading} className="odm-ai-send-btn">
+              <button
+                onClick={() => send()}
+                disabled={!input.trim() || loading}
+                className="odm-ai-send-btn"
+              >
                 Send
               </button>
             </div>
@@ -943,24 +1458,109 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
                 <a href="/odm-talk">Open Hub</a>
               </div>
               <div className="odm-ai-odm-actions">
-                <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Send to ODM Talk</button>
-                <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Create Discussion</button>
-                <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Share Summary</button>
-                <button onClick={() => postLastAssistantMessage("Post-PPP Decision", "Decision")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Create Decision Thread</button>
-                <button onClick={() => postLastAssistantMessage("Maintenance Recommendation", "AI recommendation")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Share Recommendation</button>
-                <button onClick={() => postLastAssistantMessage("Action Tracking", "AI-generated action items")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Share Action Items</button>
+                <button
+                  onClick={() =>
+                    postLastAssistantMessage("General Discussion", "AI summary")
+                  }
+                  disabled={
+                    !lastAssistantMessage || createOdmTalkThread.isPending
+                  }
+                >
+                  Send to ODM Talk
+                </button>
+                <button
+                  onClick={() =>
+                    postLastAssistantMessage("General Discussion", "AI summary")
+                  }
+                  disabled={
+                    !lastAssistantMessage || createOdmTalkThread.isPending
+                  }
+                >
+                  Create Discussion
+                </button>
+                <button
+                  onClick={() =>
+                    postLastAssistantMessage("General Discussion", "AI summary")
+                  }
+                  disabled={
+                    !lastAssistantMessage || createOdmTalkThread.isPending
+                  }
+                >
+                  Share Summary
+                </button>
+                <button
+                  onClick={() =>
+                    postLastAssistantMessage("Post-PPP Decision", "Decision")
+                  }
+                  disabled={
+                    !lastAssistantMessage || createOdmTalkThread.isPending
+                  }
+                >
+                  Create Decision Thread
+                </button>
+                <button
+                  onClick={() =>
+                    postLastAssistantMessage(
+                      "Maintenance Recommendation",
+                      "AI recommendation"
+                    )
+                  }
+                  disabled={
+                    !lastAssistantMessage || createOdmTalkThread.isPending
+                  }
+                >
+                  Share Recommendation
+                </button>
+                <button
+                  onClick={() =>
+                    postLastAssistantMessage(
+                      "Action Tracking",
+                      "AI-generated action items"
+                    )
+                  }
+                  disabled={
+                    !lastAssistantMessage || createOdmTalkThread.isPending
+                  }
+                >
+                  Share Action Items
+                </button>
               </div>
               <div className="odm-ai-discussion-row">
-                <select value={selectedThreadId} onChange={(e) => setSelectedThreadId(e.target.value)}>
+                <select
+                  value={selectedThreadId}
+                  onChange={e => setSelectedThreadId(e.target.value)}
+                >
                   <option value="">Add to Discussion...</option>
-                  {(relatedThreads.data || []).map((thread) => (
-                    <option key={thread.id} value={thread.id}>#{thread.id} {thread.threadType}</option>
+                  {(relatedThreads.data || []).map(thread => (
+                    <option key={thread.id} value={thread.id}>
+                      #{thread.id} {thread.threadType}
+                    </option>
                   ))}
                 </select>
-                <button onClick={() => selectedThreadId && postLastAssistantMessage("General Discussion", "AI summary", Number(selectedThreadId))} disabled={!lastAssistantMessage || !selectedThreadId || postToOdmTalkThread.isPending}>Add to Discussion</button>
+                <button
+                  onClick={() =>
+                    selectedThreadId &&
+                    postLastAssistantMessage(
+                      "General Discussion",
+                      "AI summary",
+                      Number(selectedThreadId)
+                    )
+                  }
+                  disabled={
+                    !lastAssistantMessage ||
+                    !selectedThreadId ||
+                    postToOdmTalkThread.isPending
+                  }
+                >
+                  Add to Discussion
+                </button>
               </div>
-              <div className={`odm-ai-bridge-status ${odmTalkStatus.includes("failed") ? "odm-ai-status-error" : ""}`}>
-                {odmTalkStatus || copyStatus || `${odmTalkSource.assistantName} shares labels, backlinks, source record metadata, and keeps ${odmTalkSource.sourceModule} data as primary context.`}
+              <div
+                className={`odm-ai-bridge-status ${odmTalkStatus.includes("failed") ? "odm-ai-status-error" : ""}`}
+              >
+                {odmTalkStatus ||
+                  copyStatus ||
+                  `${odmTalkSource.assistantName} shares labels, backlinks, source record metadata, and keeps ${odmTalkSource.sourceModule} data as primary context.`}
               </div>
             </div>
           </div>
