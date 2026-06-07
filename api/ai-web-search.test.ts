@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { classifyAiQuery } from "./ai-router";
+import { classifyAiQuery, finalizeAiReplyForWebSearch } from "./ai-router";
 import { formatWebSearchResultsForPrompt } from "./web-search";
 
 const repoFile = (path: string) => readFileSync(path, "utf8");
@@ -19,6 +19,7 @@ describe("ODM Dashboard AI web-search routing", () => {
   it("classifies current/live questions for web search or configured fallback", () => {
     expect(classifyAiQuery("What is the latest pump efficiency standard?")).toBe("web-current");
     expect(classifyAiQuery("current news about water utilities")).toBe("web-current");
+    expect(classifyAiQuery("Who is the richest person in the world?")).toBe("web-current");
 
     const routerSource = repoFile("api/ai-router.ts");
     expect(routerSource).toContain("webSearch(userQuestion, 4)");
@@ -49,9 +50,82 @@ describe("ODM Dashboard AI web-search routing", () => {
       ],
     });
 
-    expect(formatted).toContain("Title: Example Source");
-    expect(formatted).toContain("Domain: example.com");
-    expect(formatted).toContain("URL: https://example.com/result");
+    expect(formatted).toContain("SYNTHESIS REQUIREMENTS:");
+    expect(formatted).toContain("answer the user's question directly before listing sources");
+    expect(formatted).toContain("Do not merely list raw source metadata");
+    expect(formatted).toContain("Do not mention knowledge cutoff");
+    expect(formatted).toContain("Source title: Example Source");
+    expect(formatted).toContain("Source domain: example.com");
+    expect(formatted).toContain("Source URL: https://example.com/result");
+    expect(formatted).toContain("Relevant content: Short snippet only.");
+  });
+
+  it("finalizes web search replies with direct Answer and Sources sections", () => {
+    const reply = finalizeAiReplyForWebSearch(
+      "Elon Musk is listed as the richest person in the world based on the provided result content.",
+      "web-current",
+      {
+        provider: "tavily",
+        results: [
+          {
+            title: "Forbes Billionaires List",
+            domain: "forbes.com",
+            url: "https://www.forbes.com/billionaires/",
+            snippet: "Forbes lists Elon Musk at the top of its billionaires ranking.",
+          },
+        ],
+      }
+    );
+
+    expect(reply).toMatch(/^Answer:/);
+    expect(reply).toContain("Elon Musk");
+    expect(reply).toContain("Sources:");
+    expect(reply).toContain("Forbes Billionaires List — forbes.com");
+    expect(reply).toContain("https://www.forbes.com/billionaires/");
+  });
+
+  it("removes knowledge-cutoff disclaimers when web search results exist", () => {
+    const reply = finalizeAiReplyForWebSearch(
+      "Answer:\nBased on my knowledge cutoff, this may not be up to date.\nForbes lists Elon Musk first.",
+      "web-current",
+      {
+        provider: "tavily",
+        results: [
+          {
+            title: "Forbes Billionaires List",
+            domain: "forbes.com",
+            url: "https://www.forbes.com/billionaires/",
+            snippet: "Forbes lists Elon Musk first.",
+          },
+        ],
+      }
+    );
+
+    expect(reply.toLowerCase()).not.toContain("knowledge cutoff");
+    expect(reply).toContain("Sources:");
+  });
+
+  it("does not return only source metadata when search results exist", () => {
+    const reply = finalizeAiReplyForWebSearch(
+      "- Forbes Billionaires List\n- Domain: forbes.com\n- URL: https://www.forbes.com/billionaires/",
+      "web-current",
+      {
+        provider: "tavily",
+        results: [
+          {
+            title: "Forbes Billionaires List",
+            domain: "forbes.com",
+            url: "https://www.forbes.com/billionaires/",
+            snippet: "",
+          },
+        ],
+      }
+    );
+
+    expect(reply).toMatch(/^Answer:/);
+    expect(reply).toContain("I found a relevant source, but the search result did not include enough detail to answer confidently.");
+    expect(reply).toContain("Sources:");
+    expect(reply).not.toMatch(/^[-*]\s*Forbes Billionaires List\n[-*]\s*Domain:/);
   });
 
   it("keeps module hallucination guardrails and Post-PPP semantics", () => {

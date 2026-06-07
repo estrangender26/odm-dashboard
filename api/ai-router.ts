@@ -7,9 +7,10 @@ import {
   getWebSearchProvider,
   isWebSearchConfigured,
   webSearch,
+  type WebSearchResponse,
 } from "./web-search";
 
-const SYSTEM_PROMPT = `You are a senior maintenance and reliability engineering advisor for water and wastewater facilities inside the ODM Dashboard. Classify each request as a module-data question, general knowledge question, web/current question, or combined module + web question. Answer from active dashboard data first and module context first for module-specific questions. General knowledge questions may be answered normally from model knowledge. Use provided WEB SEARCH CONTEXT only for current, live, recent, or external information. If web search context is provided, clearly include "Web search result:" with source title/domain and URL; for combined module + web questions use separate sections "From dashboard data:" and "From web search:". If search failed, say "I could not retrieve live web results right now." If web search is not configured, say "Live web search is not configured for this deployment." If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for module records and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
+const SYSTEM_PROMPT = `You are a senior maintenance and reliability engineering advisor for water and wastewater facilities inside the ODM Dashboard. Classify each request as a module-data question, general knowledge question, web/current question, or combined module + web question. Answer from active dashboard data first and module context first for module-specific questions. General knowledge questions may be answered normally from model knowledge. Use provided WEB SEARCH CONTEXT only for current, live, recent, or external information, and synthesize the result content into a natural answer like ChatGPT instead of listing raw search metadata. For general/current web questions, use exactly this structure: "Answer:" followed by a direct answer in 1-3 concise paragraphs, then "Sources:" with source title/domain and URL. For combined module + web questions, use exactly this structure: "From dashboard data:" for module facts, "From web search:" for external context if search was used, then "Sources:" with source title/domain and URL. Do not return only titles, domains, URLs, snippets, search provider names, or other raw source metadata as the final answer. Do not mention a knowledge cutoff when live web search results are provided. If a relevant web source is found but the search result content does not include enough detail to answer confidently, say exactly "I found a relevant source, but the search result did not include enough detail to answer confidently." before listing sources. If search failed, say "I could not retrieve live web results right now." If web search is not configured, say "Live web search is not configured for this deployment." If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for task counts, KPI values, equipment names, document counts, schedule delays, ownership decisions, and Post-PPP recommendations, and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -37,7 +38,7 @@ const USER_QUESTION_PATTERN = /USER QUESTION:\s*([\s\S]*)$/i;
 
 const MODULE_CONTEXT_PATTERN = /=== DASHBOARD CONTEXT ===|Dashboard Type:|=== REQUIRED ANSWERING RULES ===/i;
 const MODULE_DATA_TERMS = /\b(active module|dashboard data|module data|this dashboard|these records|this module|work orders?|tasks?|task count|kpis?|equipment|smp|manuals?|documents?|folders?|files?|schedule|critical path|milestones?|governance|inspection|post-ppp|ppp|currentpppdoer|responsible|ownership|coverage|uploads?|records?)\b/i;
-const CURRENT_WEB_TERMS = /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
+const CURRENT_WEB_TERMS = /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability|richest|wealthiest|billionaires?)\b/i;
 const CURRENT_PPP_ONLY_PATTERN = /\bcurrent\s+ppp|currentpppdoer|current\s+doer|current\s+execution\s+doer\b/i;
 
 export type AiQueryClass = "module-data" | "general-knowledge" | "web-current" | "combined-module-web";
@@ -61,6 +62,65 @@ export function classifyAiQuery(message: string): AiQueryClass {
 
 function queryNeedsWebSearch(queryClass: AiQueryClass): boolean {
   return queryClass === "web-current" || queryClass === "combined-module-web";
+}
+
+function formatSourcesSection(response: WebSearchResponse): string {
+  const lines = ["Sources:"];
+  for (const result of response.results) {
+    lines.push(`- ${result.title || "Untitled"} — ${result.domain || "Unknown domain"}`);
+    if (result.url) lines.push(`  ${result.url}`);
+  }
+  return lines.join("\n");
+}
+
+function removeKnowledgeCutoffLines(reply: string): string {
+  return reply
+    .split("\n")
+    .filter((line) => !/knowledge\s+cutoff/i.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function isOnlySourceMetadata(reply: string): boolean {
+  const lines = reply.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return false;
+  const metadataLineCount = lines.filter((line) =>
+    /^(?:[-*]\s*)?(?:source\s*)?(?:title|domain|url|snippet|provider|web search result|result\s*\d*)\b/i.test(line) ||
+    /^[-*]\s*[^:]{3,120}$/i.test(line) ||
+    /^[-*]\s*https?:\/\//i.test(line) ||
+    /^https?:\/\//i.test(line)
+  ).length;
+  return metadataLineCount >= Math.max(2, Math.ceil(lines.length * 0.75));
+}
+
+export function finalizeAiReplyForWebSearch(
+  reply: string,
+  queryClass: AiQueryClass,
+  searchResponse?: WebSearchResponse | null
+): string {
+  if (!searchResponse?.results.length || !queryNeedsWebSearch(queryClass)) return reply;
+
+  const sources = formatSourcesSection(searchResponse);
+  let finalReply = removeKnowledgeCutoffLines(reply);
+
+  if (isOnlySourceMetadata(finalReply)) {
+    finalReply = `Answer:\nI found a relevant source, but the search result did not include enough detail to answer confidently.\n\n${sources}`;
+  }
+
+  if (queryClass === "web-current" && !/^\s*Answer:/i.test(finalReply)) {
+    finalReply = `Answer:\n${finalReply}`;
+  }
+
+  if (queryClass === "combined-module-web" && !/^\s*From dashboard data:/i.test(finalReply)) {
+    finalReply = `From dashboard data:\n${finalReply}`;
+  }
+
+  if (!/\bSources:/i.test(finalReply)) {
+    finalReply = `${finalReply.trim()}\n\n${sources}`;
+  }
+
+  return finalReply.trim();
 }
 
 interface GroqChatCompletionResponse {
@@ -238,6 +298,7 @@ export const aiRouter = createRouter({
       const queryClass = classifyAiQuery(input.message);
       const userQuestion = extractUserQuestion(input.message);
       let webContext = "";
+      let successfulSearchResponse: WebSearchResponse | null = null;
 
       if (queryNeedsWebSearch(queryClass)) {
         if (!isWebSearchConfigured()) {
@@ -251,6 +312,7 @@ export const aiRouter = createRouter({
         } else {
           try {
             const searchResponse = await webSearch(userQuestion, 4);
+            successfulSearchResponse = searchResponse.results.length > 0 ? searchResponse : null;
             webContext = `\n\n=== WEB SEARCH CONTEXT ===\n${formatWebSearchResultsForPrompt(searchResponse)}`;
           } catch (error) {
             console.error("[WEB SEARCH ERROR]", error);
@@ -304,7 +366,8 @@ export const aiRouter = createRouter({
         }
 
         const data = (await resp.json()) as GroqChatCompletionResponse;
-        const reply = data.choices?.[0]?.message?.content?.trim() || "No response from AI.";
+        const rawReply = data.choices?.[0]?.message?.content?.trim() || "No response from AI.";
+        const reply = finalizeAiReplyForWebSearch(rawReply, queryClass, successfulSearchResponse);
         return { reply, error: null };
       } catch (e: unknown) {
         console.error("AI chat error:", e);
