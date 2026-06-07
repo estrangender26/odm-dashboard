@@ -31,6 +31,8 @@ interface AIAssistantProps {
 const MAX_AI_CONTEXT_CHARS = 3900;
 const MAX_GANTT_TASK_ROWS = 40;
 
+const DASHBOARD_GROUNDING_INSTRUCTION = `Answer based only on the dashboard data and module context provided. Use dashboard data first and active module data first. No stale current-world answers: for current facts, rankings, market prices, news, laws, live internet, or other time-sensitive questions, say "Live web lookup is not enabled in this dashboard AI." Then redirect back to the ODM Dashboard context. If module data is empty or unavailable, say the module data is not loaded instead of inventing. Do not invent missing data, task counts, KPI values, equipment names, ownership decisions, document counts, schedule delays, or file/folder counts.`;
+
 const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
   maintenance: [
     "Analyze PM compliance trends",
@@ -118,6 +120,14 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     if (metadata.sourceTaskCount !== undefined) ctx += `Source Task Count: ${metadata.sourceTaskCount}\n`;
     if (metadata.source) ctx += `Data Source: ${metadata.source}\n`;
     if (metadata.uploads?.length) ctx += `Uploads: ${metadata.uploads.length} documents\n`;
+    const metadataEvidence = Object.fromEntries(
+      Object.entries(metadata).filter(([key, value]) =>
+        !["aiContext", "uploads"].includes(key) && value !== undefined && value !== null && typeof value !== "function"
+      )
+    );
+    if (Object.keys(metadataEvidence).length > 0) {
+      ctx += `Module Metadata Evidence: ${JSON.stringify(metadataEvidence).slice(0, 1200)}\n`;
+    }
     if (metadata.aiContext && contextType === "manuals") {
       const aiCtx = metadata.aiContext;
       const safeEntries = (record: Record<string, number> | undefined, limit = 10) =>
@@ -164,8 +174,38 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     const first = data[0];
     const fields = Object.keys(first || {});
 
+    // --- MAINTENANCE PLANNING dashboard (trpc.tasks.list task data) ---
+    if (contextType === "maintenance" && (fields.includes("taskList") || fields.includes("responsiblePersonnel") || fields.includes("currentPppDoer"))) {
+      const countBy = (picker: (r: any) => string | null | undefined) => {
+        const map: Record<string, number> = {};
+        data.forEach((r: any) => {
+          const key = (picker(r) || "Blank").trim() || "Blank";
+          map[key] = (map[key] || 0) + 1;
+        });
+        return Object.entries(map).sort(([, a], [, b]) => b - a);
+      };
+      const getCurrentPppDoer = (r: any) => r.currentPppDoer || r.Responsible || r.responsible || r.responsiblePersonnel;
+      ctx += `=== MAINTENANCE PLANNING TASK DATA (trpc.tasks.list) ===\n`;
+      ctx += `Total Tasks: ${data.length}\n`;
+      ctx += `Ownership Rule: Responsible/currentPppDoer/responsiblePersonnel is the current PPP execution doer only. Operations, AMD, and ARD are future ownership preference fields and must not be treated as the current doer.\n`;
+      ctx += `Current PPP Doer (top):\n`;
+      countBy(getCurrentPppDoer).slice(0, 10).forEach(([name, c]) => { ctx += `- ${name}: ${c} tasks\n`; });
+      ctx += `Frequencies:\n`;
+      countBy((r) => r.frequency || r.Frequency).slice(0, 10).forEach(([name, c]) => { ctx += `- ${name}: ${c} tasks\n`; });
+      ctx += `Equipment (top):\n`;
+      countBy((r) => r.equipmentName || r.equipment?.name || r.Equipment || r.equipment).slice(0, 10).forEach(([name, c]) => { ctx += `- ${name}: ${c} tasks\n`; });
+      ctx += `Future preference fields (do not confuse with current PPP doer):\n`;
+      ["operations", "amd", "ard"].forEach((field) => {
+        ctx += `- ${field.toUpperCase()}: ${countBy((r) => r[field]).slice(0, 6).map(([name, c]) => `${name}=${c}`).join(", ") || "No values loaded"}\n`;
+      });
+      ctx += `Task Records (first ${Math.min(15, data.length)}):\n`;
+      data.slice(0, 15).forEach((r: any, i: number) => {
+        ctx += `${i + 1}. equipment=${r.equipmentName || r.equipment?.name || "Unknown"} | task=${r.taskList || "Untitled"} | frequency=${r.frequency || "Blank"} | currentPppDoer=${getCurrentPppDoer(r) || "Blank"} | operations=${r.operations || "Blank"} | amd=${r.amd || "Blank"} | ard=${r.ard || "Blank"}\n`;
+      });
+    }
+
     // --- MAINTENANCE / EFM dashboard ---
-    if (contextType === "maintenance" && fields.includes("Equipment")) {
+    else if (contextType === "maintenance" && fields.includes("Equipment")) {
       // Status breakdown
       const statusMap: Record<string, number> = {};
       const plantMap: Record<string, { total: number; overdue: number }> = {};
@@ -505,6 +545,31 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
     const keys = Object.keys(data);
     ctx += `Data Type: Object with keys [${keys.join(", ")}]\n`;
 
+    if (contextType === "scorecard") {
+      const kpis = Array.isArray(data.kpis) ? data.kpis : [];
+      const hasRuntimeData = kpis.length > 0 || !!data.aggregates || !!data.monthlyScoreData;
+      ctx += `=== MONTHLY KPI IFRAME RUNTIME STATE ===\n`;
+      ctx += `Selected BU/year/month: ${data.selectedBusinessUnitId ?? "not loaded"}/${data.selectedYear ?? "not loaded"}/${data.selectedMonth ?? "not loaded"}\n`;
+      ctx += `KPIs loaded: ${kpis.length}\n`;
+      if (!hasRuntimeData) {
+        ctx += `Status: KPI iframe runtime data is not loaded. Do not invent KPI values.\n`;
+      } else {
+        ctx += `KPI Definitions: ${JSON.stringify(kpis).slice(0, 1200)}\n`;
+        ctx += `KpiAggregates: ${JSON.stringify(data.aggregates ?? null).slice(0, 1200)}\n`;
+        ctx += `MonthlyScoreData: ${JSON.stringify(data.monthlyScoreData ?? null).slice(0, 1200)}\n`;
+      }
+    }
+
+    if (contextType === "gantt" && Array.isArray(data.tasks)) {
+      ctx += buildDataContext(data.tasks, contextType, filters, metadata);
+      const links = Array.isArray(data.links) ? data.links : [];
+      ctx += `=== GANTT LINKS / DEPENDENCIES ===\n`;
+      ctx += `Total Links: ${links.length}\n`;
+      links.slice(0, 40).forEach((l: any, i: number) => {
+        ctx += `${i + 1}. source=${l.source ?? l.predecessorTaskId ?? "?"} target=${l.target ?? l.successorTaskId ?? "?"} type=${l.type ?? l.dependencyType ?? "FS"} lag=${l.lag ?? l.lagDays ?? 0}\n`;
+      });
+    }
+
     // O&M Manuals folder structure
     if (contextType === "manuals") {
       if (data.folders !== undefined) ctx += `Folders: ${data.folders}\n`;
@@ -623,11 +688,11 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
       ? `\n=== RELATED ODM TALK THREADS (secondary context only; module data remains source of truth) ===\n${relatedThreads.data.map((t) => `- #${t.id} ${t.threadType}: ${t.title} (${t.status})`).join("\n")}\n`
       : "";
     const baseInstruction = contextType === "gantt"
-      ? "Answer based ONLY on the dashboard data provided above. Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records. Completed tasks are not overdue even if planned finish date is in the past. If a task is completed, do not classify it as delayed or overdue."
-      : "Answer based ONLY on the dashboard data provided above. Be specific with numbers and names.";
-    let fullMessage = dataContext + odmTalkContext + `USER QUESTION: ${msg}\n\n${baseInstruction}`;
+      ? `${DASHBOARD_GROUNDING_INSTRUCTION} Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records. Completed tasks are not overdue even if planned finish date is in the past. If a task is completed, do not classify it as delayed or overdue.`
+      : `${DASHBOARD_GROUNDING_INSTRUCTION} Be specific with numbers and names from the active module data.`;
+    let fullMessage = dataContext + odmTalkContext + `=== REQUIRED ANSWERING RULES ===\n${baseInstruction}\n\nUSER QUESTION: ${msg}`;
     if (fullMessage.length > MAX_AI_CONTEXT_CHARS) {
-      const keepTail = `\n\nUSER QUESTION: ${msg}\n\n${baseInstruction}`;
+      const keepTail = `\n\n=== REQUIRED ANSWERING RULES ===\n${baseInstruction}\n\nUSER QUESTION: ${msg}`;
       const allowedContext = Math.max(0, MAX_AI_CONTEXT_CHARS - keepTail.length);
       const summarized = dataContext.slice(0, allowedContext);
       fullMessage = `${summarized}\n[context summarized due to size]${keepTail}`;
@@ -905,7 +970,7 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
           position: fixed;
           bottom: calc(1rem + env(safe-area-inset-bottom));
           right: 1rem;
-          z-index: 200;
+          z-index: 2147483000;
           width: 48px;
           height: 48px;
           border-radius: 999px;
@@ -924,9 +989,9 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
           position: fixed;
           bottom: calc(5.5rem + env(safe-area-inset-bottom));
           right: 1rem;
-          z-index: 200;
+          z-index: 2147483000;
           width: min(390px, calc(100vw - 32px));
-          height: min(560px, calc(100vh - 120px));
+          height: min(560px, calc(100dvh - 120px));
           background: #fff;
           border-radius: 16px;
           box-shadow: 0 20px 60px rgba(15, 23, 42, .26);
@@ -995,7 +1060,7 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
             left: .75rem;
             bottom: calc(4.75rem + env(safe-area-inset-bottom));
             width: auto;
-            height: min(620px, calc(100vh - 96px));
+            height: min(620px, calc(100dvh - 96px - env(safe-area-inset-bottom)));
             border-radius: 14px;
           }
           .odm-ai-title, .odm-ai-subtitle { max-width: 175px; }

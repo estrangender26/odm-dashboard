@@ -1278,8 +1278,13 @@ export default function Dashboard() {
       </footer>
 
       <AIAssistant
-        contextType="postPlanningInsights"
-        data={data?.groups?.flatMap((group) => group.tasks) || []}
+        contextType="maintenance"
+        data={data?.groups?.flatMap((group) => group.tasks.map((task) => ({
+          ...task,
+          equipmentName: group.equipment.name,
+          equipmentInitials: group.equipment.initials,
+          currentPppDoer: task.responsiblePersonnel,
+        }))) || []}
         filters={{ dataset: activeTab, search, equipFilter, freqFilter, personFilter, familiarityFilter }}
         metadata={{
           sourceModule: "Maintenance Planning",
