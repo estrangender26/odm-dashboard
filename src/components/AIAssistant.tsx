@@ -64,7 +64,7 @@ const GENERAL_HELP_PROMPTS = [
   "How do I use ODM Talk?",
 ];
 
-const DASHBOARD_GROUNDING_INSTRUCTION = `Use dashboard data first and active module data first for module-specific questions. General knowledge questions may be answered normally. Current, live, recent, or external questions may use server-side web search when available. If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module data, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, schedule delays, or file/folder counts. Web search must not override dashboard/module records.`;
+const DASHBOARD_GROUNDING_INSTRUCTION = `Use dashboard data first and active module data first for module-specific questions. General knowledge questions may be answered normally. Current, live, recent, or external questions may use server-side web search when available, except simple time/date questions must use dashboard/browser runtime time instead of web search. If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module data, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, schedule delays, or file/folder counts. Web search must not override dashboard/module records.`;
 
 const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
   maintenance: [
@@ -203,10 +203,17 @@ function buildDataContext(
   metadata?: any
 ): string {
   let ctx = "";
-  const now = new Date().toISOString().slice(0, 10);
+  const browserNow = new Date();
+  const now = browserNow.toISOString().slice(0, 10);
+  const browserTimeZone =
+    typeof Intl !== "undefined"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown"
+      : "unknown";
 
   ctx += `=== DASHBOARD CONTEXT ===\n`;
   ctx += `Current Date: ${now}\n`;
+  ctx += `Dashboard/browser runtime ISO: ${browserNow.toISOString()}\n`;
+  ctx += `Dashboard/browser runtime timezone: ${browserTimeZone}\n`;
   ctx += `Dashboard Type: ${contextType}\n`;
 
   // Filters
