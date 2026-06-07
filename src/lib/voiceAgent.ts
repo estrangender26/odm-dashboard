@@ -46,3 +46,15 @@ export function describeSpeechRecognitionError(event?: SpeechRecognitionErrorLik
 
   return event?.message || "Voice input stopped. Please try again or use text chat.";
 }
+
+export function buildSpeechFriendlyAssistantReply(reply: string): string {
+  return reply
+    .replace(/^\s*Sources:\s*None\s*$/gim, "")
+    .replace(/\bhttps?:\/\/\S+/gi, "")
+    .replace(/^\s*[-*]\s*[^\n]*\s+—\s+[^\n]*$/gim, "")
+    .replace(/^\s*Sources:\s*\n(?:\s*[-*].*\n?)*/gim, "")
+    .replace(/^\s*ODM Talk[^\n]*$/gim, "")
+    .replace(/^\s*(?:Source title|Source domain|Source URL|Provider|Snippet):.*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

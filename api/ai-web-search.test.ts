@@ -17,10 +17,10 @@ const repoFile = (path: string) => readFileSync(path, "utf8");
 
 describe("ODM Dashboard AI web-search routing", () => {
   it("classifies general knowledge without requiring module data", () => {
-    expect(classifyAiQuery("What is cavitation?")).toBe("general-knowledge");
-    expect(classifyAiQuery("What is MTBF?")).toBe("general-knowledge");
+    expect(classifyAiQuery("What is cavitation?")).toBe("general_knowledge");
+    expect(classifyAiQuery("What is MTBF?")).toBe("general_knowledge");
     expect(classifyAiQuery("What is the difference between PM and PdM?")).toBe(
-      "general-knowledge"
+      "general_knowledge"
     );
 
     const assistantSource = repoFile("src/components/AIAssistant.tsx");
@@ -34,7 +34,7 @@ describe("ODM Dashboard AI web-search routing", () => {
     const message = `=== DASHBOARD CONTEXT ===\nCurrent Date: 2026-06-07\nDashboard/browser runtime ISO: 2026-06-07T15:30:00.000Z\nDashboard/browser runtime timezone: America/New_York\nDashboard Type: help\n\nUSER QUESTION: What time is it?`;
 
     expect(isRuntimeTimeQuestion(message)).toBe(true);
-    expect(classifyAiQuery(message)).toBe("general-knowledge");
+    expect(classifyAiQuery(message)).toBe("runtime_time_date");
     expect(queryNeedsWebSearch(classifyAiQuery(message))).toBe(false);
 
     const reply = buildRuntimeTimeReply(message);
@@ -75,28 +75,28 @@ describe("ODM Dashboard AI web-search routing", () => {
   it("classifies current/live questions for web search or configured fallback", () => {
     expect(
       classifyAiQuery("What is the latest pump efficiency standard?")
-    ).toBe("web-current");
+    ).toBe("current_web");
     expect(classifyAiQuery("current news about water utilities")).toBe(
-      "web-current"
+      "current_web"
     );
     expect(classifyAiQuery("Who is the richest person in the world?")).toBe(
-      "web-current"
+      "current_web"
     );
     expect(classifyAiQuery("Who is the richest man in the world?")).toBe(
-      "web-current"
+      "current_web"
     );
     expect(classifyAiQuery("Who is the richest man on earth?")).toBe(
-      "web-current"
+      "current_web"
     );
     expect(classifyAiQuery("Who is the current CEO of Microsoft?")).toBe(
-      "web-current"
+      "current_web"
     );
     expect(classifyAiQuery("What is the current price of Bitcoin?")).toBe(
-      "web-current"
+      "current_web"
     );
     expect(
       classifyAiQuery("What is the latest standard/version of ECMAScript?")
-    ).toBe("web-current");
+    ).toBe("current_web");
 
     const routerSource = repoFile("api/ai-router.ts");
     expect(routerSource).toContain("webSearch(userQuestion, 4)");
@@ -110,7 +110,7 @@ describe("ODM Dashboard AI web-search routing", () => {
 
   it("classifies dashboard questions with current web context as combined", () => {
     const message = `=== DASHBOARD CONTEXT ===\nDashboard Type: smp\n=== REQUIRED ANSWERING RULES ===\nUSER QUESTION: Compare current SMP coverage in this dashboard with latest industry guidance`;
-    expect(classifyAiQuery(message)).toBe("combined-module-web");
+    expect(classifyAiQuery(message)).toBe("combined_dashboard_web");
 
     const routerSource = repoFile("api/ai-router.ts");
     expect(routerSource).toContain("From dashboard data:");
@@ -141,7 +141,7 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(answer).not.toContain("Module data is not loaded");
     expect(answer).toContain("Sources:");
     expect(answer).toContain("- Forbes Billionaires List — forbes.com");
-    expect(answer).toContain("- https://www.forbes.com/billionaires/");
+    expect(answer).not.toContain("- https://www.forbes.com/billionaires/");
     expect(answer.toLowerCase()).not.toContain("knowledge cutoff");
   });
 
@@ -173,7 +173,7 @@ describe("ODM Dashboard AI web-search routing", () => {
   it("finalizes web search replies with direct Answer and Sources sections", () => {
     const reply = finalizeAiReplyForWebSearch(
       "Elon Musk is listed as the richest person in the world based on the provided result content.",
-      "web-current",
+      "current_web",
       {
         provider: "tavily",
         results: [
@@ -192,13 +192,13 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(reply).toContain("Elon Musk");
     expect(reply).toContain("Sources:");
     expect(reply).toContain("Forbes Billionaires List — forbes.com");
-    expect(reply).toContain("https://www.forbes.com/billionaires/");
+    expect(reply).not.toContain("https://www.forbes.com/billionaires/");
   });
 
   it("removes knowledge-cutoff disclaimers when web search results exist", () => {
     const reply = finalizeAiReplyForWebSearch(
       "Answer:\nBased on my knowledge cutoff, this may not be up to date.\nForbes lists Elon Musk first.",
-      "web-current",
+      "current_web",
       {
         provider: "tavily",
         results: [
@@ -219,7 +219,7 @@ describe("ODM Dashboard AI web-search routing", () => {
   it("does not return only source metadata when search results exist", () => {
     const reply = finalizeAiReplyForWebSearch(
       "- Forbes Billionaires List\n- Domain: forbes.com\n- URL: https://www.forbes.com/billionaires/",
-      "web-current",
+      "current_web",
       {
         provider: "tavily",
         results: [
@@ -246,7 +246,7 @@ describe("ODM Dashboard AI web-search routing", () => {
   it("preserves plain answer bullets while adding web answer framing", () => {
     const reply = finalizeAiReplyForWebSearch(
       "- Elon Musk leads the ranking.\n- Larry Ellison follows in the provided source.",
-      "web-current",
+      "current_web",
       {
         provider: "tavily",
         results: [
@@ -317,7 +317,7 @@ describe("ODM Dashboard AI web-search routing", () => {
   it("keeps combined dashboard-plus-web formatting available", () => {
     const reply = finalizeAiReplyForWebSearch(
       "Dashboard records show 12 SMPs are active.\n\nFrom web search:\nRecent industry guidance emphasizes annual review cycles.",
-      "combined-module-web",
+      "combined_dashboard_web",
       {
         provider: "tavily",
         results: [
@@ -337,12 +337,12 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(reply).toContain("Sources:");
   });
 
-  it("keeps module-data unloaded fallback for true module-analysis questions", () => {
+  it("keeps dashboard_data unloaded fallback for true module-analysis questions", () => {
     const assistantSource = repoFile("src/components/AIAssistant.tsx");
 
     expect(
       classifyAiQuery("Analyze overdue work orders in this dashboard")
-    ).toBe("module-data");
+    ).toBe("dashboard_data");
     expect(assistantSource).toContain(
       "appendAssistantMessage(MODULE_DATA_NOT_LOADED_MESSAGE)"
     );
