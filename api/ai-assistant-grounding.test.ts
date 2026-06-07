@@ -8,9 +8,10 @@ describe("AI assistant grounding/system behavior", () => {
     const combined = `${assistantSource}\n${routerSource}`;
 
     expect(combined).toContain("dashboard data first");
-    expect(combined).toContain("no stale current-world answers");
-    expect(combined).toContain("live web lookup is not enabled");
-    expect(combined).toContain("do not invent missing data");
+    expect(combined).toContain("general knowledge questions may be answered normally");
+    expect(combined).toContain("web search");
+    expect(combined).toContain("do not invent missing");
+    expect(combined).not.toContain("live web lookup is not enabled");
   });
 
   it("preserves Post-PPP ownership semantics in assistant grounding", () => {

@@ -64,7 +64,7 @@ const GENERAL_HELP_PROMPTS = [
   "How do I use ODM Talk?",
 ];
 
-const DASHBOARD_GROUNDING_INSTRUCTION = `Answer based only on the dashboard data and module context provided. Use dashboard data first and active module data first. No stale current-world answers: for current facts, rankings, market prices, news, laws, live internet, or other time-sensitive questions, say "Live web lookup is not enabled in this dashboard AI." Then redirect back to the ODM Dashboard context. If module data is empty or unavailable, say the module data is not loaded instead of inventing. Do not invent missing data, task counts, KPI values, equipment names, ownership decisions, document counts, schedule delays, or file/folder counts.`;
+const DASHBOARD_GROUNDING_INSTRUCTION = `Use dashboard data first and active module data first for module-specific questions. General knowledge questions may be answered normally. Current, live, recent, or external questions may use server-side web search when available. If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module data, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, schedule delays, or file/folder counts. Web search must not override dashboard/module records.`;
 
 const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
   maintenance: [
@@ -183,6 +183,10 @@ function hasUsableModuleData(
 }
 
 function isDataAnalysisQuestion(message: string): boolean {
+  const definitionQuestion = /\b(what is|what are|define|explain|difference between|compare)\b/i.test(message);
+  const activeModuleReference = /\b(this|these|active|dashboard|module|loaded|my|our)\b/i.test(message);
+  if (definitionQuestion && !activeModuleReference) return false;
+
   return /\b(analy[sz]e|analysis|trend|trends|risk|high-risk|equipment|kpi|kpis|benchmark|schedule|delay|delays|critical path|resource conflict|compliance|overdue|work order|task count|document count|folder|file|coverage|underperform|ownership|responsible|corrective action|recommendation|milestone|inspection|smp|manual)\b/i.test(
     message
   );

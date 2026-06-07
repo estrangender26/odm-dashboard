@@ -2,8 +2,14 @@ import fs from "fs/promises";
 import path from "path";
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
+import {
+  formatWebSearchResultsForPrompt,
+  getWebSearchProvider,
+  isWebSearchConfigured,
+  webSearch,
+} from "./web-search";
 
-const SYSTEM_PROMPT = `You are a senior maintenance and reliability engineering advisor for water and wastewater facilities inside the ODM Dashboard. Answer from active dashboard data first and module context first. Answer based only on the dashboard data and module context provided. No stale current-world answers: for current facts, rankings, market prices, news, laws, live internet, or other time-sensitive questions, say exactly "Live web lookup is not enabled in this dashboard AI." Then redirect the user back to ODM Dashboard context. If module data is empty or unavailable, say that the module data is not loaded instead of inventing. Do not invent missing data, task counts, KPI values, equipment names, ownership decisions, document counts, file/folder counts, or schedule delays. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
+const SYSTEM_PROMPT = `You are a senior maintenance and reliability engineering advisor for water and wastewater facilities inside the ODM Dashboard. Classify each request as a module-data question, general knowledge question, web/current question, or combined module + web question. Answer from active dashboard data first and module context first for module-specific questions. General knowledge questions may be answered normally from model knowledge. Use provided WEB SEARCH CONTEXT only for current, live, recent, or external information. If web search context is provided, clearly include "Web search result:" with source title/domain and URL; for combined module + web questions use separate sections "From dashboard data:" and "From web search:". If search failed, say "I could not retrieve live web results right now." If web search is not configured, say "Live web search is not configured for this deployment." If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for module records and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -24,6 +30,37 @@ const IGNORED_TREE_ENTRIES = new Set([
 interface RepoTreeEntry {
   path: string;
   type: "blob" | "tree" | string;
+}
+
+
+const USER_QUESTION_PATTERN = /USER QUESTION:\s*([\s\S]*)$/i;
+
+const MODULE_CONTEXT_PATTERN = /=== DASHBOARD CONTEXT ===|Dashboard Type:|=== REQUIRED ANSWERING RULES ===/i;
+const MODULE_DATA_TERMS = /\b(active module|dashboard data|module data|this dashboard|these records|this module|work orders?|tasks?|task count|kpis?|equipment|smp|manuals?|documents?|folders?|files?|schedule|critical path|milestones?|governance|inspection|post-ppp|ppp|currentpppdoer|responsible|ownership|coverage|uploads?|records?)\b/i;
+const CURRENT_WEB_TERMS = /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
+const CURRENT_PPP_ONLY_PATTERN = /\bcurrent\s+ppp|currentpppdoer|current\s+doer|current\s+execution\s+doer\b/i;
+
+export type AiQueryClass = "module-data" | "general-knowledge" | "web-current" | "combined-module-web";
+
+export function extractUserQuestion(message: string): string {
+  const match = USER_QUESTION_PATTERN.exec(message);
+  return (match?.[1] || message).trim();
+}
+
+export function classifyAiQuery(message: string): AiQueryClass {
+  const question = extractUserQuestion(message);
+  const hasDashboardContext = MODULE_CONTEXT_PATTERN.test(message);
+  const isModuleQuestion = MODULE_DATA_TERMS.test(question) || (hasDashboardContext && MODULE_DATA_TERMS.test(message));
+  const needsLiveWeb = CURRENT_WEB_TERMS.test(question) && !CURRENT_PPP_ONLY_PATTERN.test(question);
+
+  if (isModuleQuestion && needsLiveWeb) return "combined-module-web";
+  if (needsLiveWeb) return "web-current";
+  if (isModuleQuestion) return "module-data";
+  return "general-knowledge";
+}
+
+function queryNeedsWebSearch(queryClass: AiQueryClass): boolean {
+  return queryClass === "web-current" || queryClass === "combined-module-web";
 }
 
 interface GroqChatCompletionResponse {
@@ -165,6 +202,8 @@ export const aiRouter = createRouter({
       configured: keySet,
       provider: "groq",
       model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      webSearchProvider: getWebSearchProvider(),
+      webSearchConfigured: isWebSearchConfigured(),
       envVarList: allKeys,
       message: keySet
         ? "AI is configured and ready"
@@ -196,6 +235,30 @@ export const aiRouter = createRouter({
         };
       }
 
+      const queryClass = classifyAiQuery(input.message);
+      const userQuestion = extractUserQuestion(input.message);
+      let webContext = "";
+
+      if (queryNeedsWebSearch(queryClass)) {
+        if (!isWebSearchConfigured()) {
+          if (queryClass === "web-current") {
+            return {
+              reply: "Live web search is not configured for this deployment.",
+              error: "WEB_SEARCH_NOT_CONFIGURED",
+            };
+          }
+          webContext = `\n\n=== WEB SEARCH CONTEXT ===\nWEB SEARCH STATUS: Live web search is not configured for this deployment. Add this exact sentence after the dashboard-data answer if live context is requested.`;
+        } else {
+          try {
+            const searchResponse = await webSearch(userQuestion, 4);
+            webContext = `\n\n=== WEB SEARCH CONTEXT ===\n${formatWebSearchResultsForPrompt(searchResponse)}`;
+          } catch (error) {
+            console.error("[WEB SEARCH ERROR]", error);
+            webContext = `\n\n=== WEB SEARCH CONTEXT ===\nWEB SEARCH STATUS: Search failed. Say exactly "I could not retrieve live web results right now." where live context is requested.`;
+          }
+        }
+      }
+
       const apiKey = process.env.GROQ_API_KEY;
       if (!apiKey) {
         return {
@@ -210,7 +273,10 @@ export const aiRouter = createRouter({
           role: h.role as "user" | "assistant",
           content: h.content,
         })),
-        { role: "user" as const, content: input.message },
+        {
+          role: "user" as const,
+          content: `${input.message}${webContext}\n\n=== AI QUERY CLASSIFICATION ===\n${queryClass}`,
+        },
       ];
 
       try {
