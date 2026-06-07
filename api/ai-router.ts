@@ -4,17 +4,19 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import {
   formatWebSearchResultsForPrompt,
+  synthesizeWebSearchAnswer,
   getWebSearchProvider,
   isWebSearchConfigured,
   webSearch,
 } from "./web-search";
 
-const SYSTEM_PROMPT = `You are a senior maintenance and reliability engineering advisor for water and wastewater facilities inside the ODM Dashboard. Classify each request as a module-data question, general knowledge question, web/current question, or combined module + web question. Answer from active dashboard data first and module context first for module-specific questions. General knowledge questions may be answered normally from model knowledge. Use provided WEB SEARCH CONTEXT only for current, live, recent, or external information. If web search context is provided, clearly include "Web search result:" with source title/domain and URL; for combined module + web questions use separate sections "From dashboard data:" and "From web search:". If search failed, say "I could not retrieve live web results right now." If web search is not configured, say "Live web search is not configured for this deployment." If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for module records and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
+const SYSTEM_PROMPT = `You are a senior maintenance and reliability engineering advisor for water and wastewater facilities inside the ODM Dashboard. Classify each request as a module-data question, general knowledge question, web/current question, or combined module + web question. Answer from active dashboard data first and module context first for module-specific questions. General knowledge questions may be answered normally from model knowledge. Use provided WEB SEARCH CONTEXT only for current, live, recent, or external information. If web search context is provided, synthesize a direct answer from the snippets/results instead of listing only source metadata, use the provided Sources section, and do not mention model knowledge cutoff; for combined module + web questions use separate sections "From dashboard data:" and "From web search:". If search failed, say "I could not retrieve live web results right now." If web search is not configured, say "Live web search is not configured for this deployment." If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for module records and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
 
 const GITHUB_API = "https://api.github.com";
-const REPO_TREE_PROMPT = /\b(list|show|display|print)\b[\s\S]*\b(all\s+)?files?\b[\s\S]*\b(repo|repository|file\s*tree|tree)\b/i;
+const REPO_TREE_PROMPT =
+  /\b(list|show|display|print)\b[\s\S]*\b(all\s+)?files?\b[\s\S]*\b(repo|repository|file\s*tree|tree)\b/i;
 const MAX_TREE_ITEMS = 1200;
 const MAX_LOCAL_DEPTH = 8;
 const IGNORED_TREE_ENTRIES = new Set([
@@ -32,15 +34,22 @@ interface RepoTreeEntry {
   type: "blob" | "tree" | string;
 }
 
-
 const USER_QUESTION_PATTERN = /USER QUESTION:\s*([\s\S]*)$/i;
 
-const MODULE_CONTEXT_PATTERN = /=== DASHBOARD CONTEXT ===|Dashboard Type:|=== REQUIRED ANSWERING RULES ===/i;
-const MODULE_DATA_TERMS = /\b(active module|dashboard data|module data|this dashboard|these records|this module|work orders?|tasks?|task count|kpis?|equipment|smp|manuals?|documents?|folders?|files?|schedule|critical path|milestones?|governance|inspection|post-ppp|ppp|currentpppdoer|responsible|ownership|coverage|uploads?|records?)\b/i;
-const CURRENT_WEB_TERMS = /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
-const CURRENT_PPP_ONLY_PATTERN = /\bcurrent\s+ppp|currentpppdoer|current\s+doer|current\s+execution\s+doer\b/i;
+const MODULE_CONTEXT_PATTERN =
+  /=== DASHBOARD CONTEXT ===|Dashboard Type:|=== REQUIRED ANSWERING RULES ===/i;
+const MODULE_DATA_TERMS =
+  /\b(active module|dashboard data|module data|this dashboard|these records|this module|work orders?|tasks?|task count|kpis?|equipment|smp|manuals?|documents?|folders?|files?|schedule|critical path|milestones?|governance|inspection|post-ppp|ppp|currentpppdoer|responsible|ownership|coverage|uploads?|records?)\b/i;
+const CURRENT_WEB_TERMS =
+  /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|richest|wealthiest|billionaire|billionaires|net worth|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
+const CURRENT_PPP_ONLY_PATTERN =
+  /\bcurrent\s+ppp|currentpppdoer|current\s+doer|current\s+execution\s+doer\b/i;
 
-export type AiQueryClass = "module-data" | "general-knowledge" | "web-current" | "combined-module-web";
+export type AiQueryClass =
+  | "module-data"
+  | "general-knowledge"
+  | "web-current"
+  | "combined-module-web";
 
 export function extractUserQuestion(message: string): string {
   const match = USER_QUESTION_PATTERN.exec(message);
@@ -50,8 +59,12 @@ export function extractUserQuestion(message: string): string {
 export function classifyAiQuery(message: string): AiQueryClass {
   const question = extractUserQuestion(message);
   const hasDashboardContext = MODULE_CONTEXT_PATTERN.test(message);
-  const isModuleQuestion = MODULE_DATA_TERMS.test(question) || (hasDashboardContext && MODULE_DATA_TERMS.test(message));
-  const needsLiveWeb = CURRENT_WEB_TERMS.test(question) && !CURRENT_PPP_ONLY_PATTERN.test(question);
+  const isModuleQuestion =
+    MODULE_DATA_TERMS.test(question) ||
+    (hasDashboardContext && MODULE_DATA_TERMS.test(message));
+  const needsLiveWeb =
+    CURRENT_WEB_TERMS.test(question) &&
+    !CURRENT_PPP_ONLY_PATTERN.test(question);
 
   if (isModuleQuestion && needsLiveWeb) return "combined-module-web";
   if (needsLiveWeb) return "web-current";
@@ -86,7 +99,10 @@ function githubHeaders(): Record<string, string> {
   return headers;
 }
 
-async function getDefaultGithubBranch(owner: string, repo: string): Promise<string> {
+async function getDefaultGithubBranch(
+  owner: string,
+  repo: string
+): Promise<string> {
   if (process.env.GITHUB_BRANCH) return process.env.GITHUB_BRANCH;
 
   const response = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, {
@@ -98,7 +114,10 @@ async function getDefaultGithubBranch(owner: string, repo: string): Promise<stri
   return data.default_branch || "main";
 }
 
-function formatTreeEntries(entries: RepoTreeEntry[], rootLabel: string): string {
+function formatTreeEntries(
+  entries: RepoTreeEntry[],
+  rootLabel: string
+): string {
   const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path));
   const visibleEntries = sorted.slice(0, MAX_TREE_ITEMS);
   const lines = [`${rootLabel}/`];
@@ -111,7 +130,9 @@ function formatTreeEntries(entries: RepoTreeEntry[], rootLabel: string): string 
   }
 
   if (sorted.length > visibleEntries.length) {
-    lines.push(`  ... ${sorted.length - visibleEntries.length} more entries not shown`);
+    lines.push(
+      `  ... ${sorted.length - visibleEntries.length} more entries not shown`
+    );
   }
 
   return lines.join("\n");
@@ -130,11 +151,16 @@ async function getGithubRepositoryTree(): Promise<string | null> {
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(`GitHub tree request failed (${response.status}): ${errorText || response.statusText}`);
+    throw new Error(
+      `GitHub tree request failed (${response.status}): ${errorText || response.statusText}`
+    );
   }
 
-  const data = (await response.json()) as { tree?: RepoTreeEntry[]; truncated?: boolean };
-  const entries = (data.tree || []).filter((entry) => {
+  const data = (await response.json()) as {
+    tree?: RepoTreeEntry[];
+    truncated?: boolean;
+  };
+  const entries = (data.tree || []).filter(entry => {
     const firstSegment = entry.path.split("/")[0];
     return !IGNORED_TREE_ENTRIES.has(firstSegment);
   });
@@ -150,17 +176,25 @@ async function walkLocalRepositoryTree(
   depth = 0,
   entries: RepoTreeEntry[] = []
 ): Promise<RepoTreeEntry[]> {
-  if (entries.length >= MAX_TREE_ITEMS || depth > MAX_LOCAL_DEPTH) return entries;
+  if (entries.length >= MAX_TREE_ITEMS || depth > MAX_LOCAL_DEPTH)
+    return entries;
 
   const dirents = await fs.readdir(dir, { withFileTypes: true });
   for (const dirent of dirents.sort((a, b) => a.name.localeCompare(b.name))) {
     if (entries.length >= MAX_TREE_ITEMS) break;
     if (IGNORED_TREE_ENTRIES.has(dirent.name)) continue;
 
-    const relativePath = relativeDir ? `${relativeDir}/${dirent.name}` : dirent.name;
+    const relativePath = relativeDir
+      ? `${relativeDir}/${dirent.name}`
+      : dirent.name;
     if (dirent.isDirectory()) {
       entries.push({ path: relativePath, type: "tree" });
-      await walkLocalRepositoryTree(path.join(dir, dirent.name), relativePath, depth + 1, entries);
+      await walkLocalRepositoryTree(
+        path.join(dir, dirent.name),
+        relativePath,
+        depth + 1,
+        entries
+      );
     } else if (dirent.isFile()) {
       entries.push({ path: relativePath, type: "blob" });
     }
@@ -180,14 +214,26 @@ async function buildRepositoryTreeReply(): Promise<string> {
   try {
     const githubTree = await getGithubRepositoryTree();
     if (githubTree) {
-      return ["Here is the repository file tree from GitHub:", "", "```text", githubTree, "```"].join("\n");
+      return [
+        "Here is the repository file tree from GitHub:",
+        "",
+        "```text",
+        githubTree,
+        "```",
+      ].join("\n");
     }
   } catch (error) {
     console.error("Repository tree GitHub lookup failed:", error);
   }
 
   const localTree = await getLocalRepositoryTree();
-  return ["Here is the repository file tree from the local app workspace:", "", "```text", localTree, "```"].join("\n");
+  return [
+    "Here is the repository file tree from the local app workspace:",
+    "",
+    "```text",
+    localTree,
+    "```",
+  ].join("\n");
 }
 
 export const aiRouter = createRouter({
@@ -195,8 +241,18 @@ export const aiRouter = createRouter({
   status: publicQuery.query(() => {
     const key = process.env.GROQ_API_KEY;
     const keySet = !!key;
-    const allKeys = Object.keys(process.env).filter(k => !k.includes("SECRET") && !k.includes("PASS") && !k.includes("TOKEN")).sort();
-    console.log("[AI DEBUG] GROQ_API_KEY present:", keySet, "| Key starts with:", key ? key.slice(0, 8) : "undefined");
+    const allKeys = Object.keys(process.env)
+      .filter(
+        k =>
+          !k.includes("SECRET") && !k.includes("PASS") && !k.includes("TOKEN")
+      )
+      .sort();
+    console.log(
+      "[AI DEBUG] GROQ_API_KEY present:",
+      keySet,
+      "| Key starts with:",
+      key ? key.slice(0, 8) : "undefined"
+    );
     console.log("[AI DEBUG] Available env vars:", allKeys.join(", "));
     return {
       configured: keySet,
@@ -251,6 +307,15 @@ export const aiRouter = createRouter({
         } else {
           try {
             const searchResponse = await webSearch(userQuestion, 4);
+            if (
+              queryClass === "web-current" &&
+              searchResponse.results.length > 0
+            ) {
+              return {
+                reply: synthesizeWebSearchAnswer(searchResponse),
+                error: null,
+              };
+            }
             webContext = `\n\n=== WEB SEARCH CONTEXT ===\n${formatWebSearchResultsForPrompt(searchResponse)}`;
           } catch (error) {
             console.error("[WEB SEARCH ERROR]", error);
@@ -262,14 +327,15 @@ export const aiRouter = createRouter({
       const apiKey = process.env.GROQ_API_KEY;
       if (!apiKey) {
         return {
-          reply: "⚠️ GROQ_API_KEY not set.\n\nTo activate the AI chat:\n\n1. Go to https://console.groq.com\n2. Sign up with your email\n3. Create a free API key\n4. Add GROQ_API_KEY to your Render environment variables\n\nGroq is completely free — no credit card required.",
+          reply:
+            "⚠️ GROQ_API_KEY not set.\n\nTo activate the AI chat:\n\n1. Go to https://console.groq.com\n2. Sign up with your email\n3. Create a free API key\n4. Add GROQ_API_KEY to your Render environment variables\n\nGroq is completely free — no credit card required.",
           error: "MISSING_API_KEY",
         };
       }
 
       const messages = [
         { role: "system" as const, content: SYSTEM_PROMPT },
-        ...(input.history || []).map((h) => ({
+        ...(input.history || []).map(h => ({
           role: h.role as "user" | "assistant",
           content: h.content,
         })),
@@ -304,7 +370,8 @@ export const aiRouter = createRouter({
         }
 
         const data = (await resp.json()) as GroqChatCompletionResponse;
-        const reply = data.choices?.[0]?.message?.content?.trim() || "No response from AI.";
+        const reply =
+          data.choices?.[0]?.message?.content?.trim() || "No response from AI.";
         return { reply, error: null };
       } catch (e: unknown) {
         console.error("AI chat error:", e);
