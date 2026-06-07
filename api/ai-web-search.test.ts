@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { classifyAiQuery, finalizeAiReplyForWebSearch } from "./ai-router";
+import {
+  buildRuntimeTimeReply,
+  classifyAiQuery,
+  finalizeAiReplyForWebSearch,
+  isRuntimeTimeQuestion,
+  queryNeedsWebSearch,
+} from "./ai-router";
 import {
   formatWebSearchResultsForPrompt,
   synthesizeWebSearchAnswer,
@@ -21,6 +27,39 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(assistantSource).toContain(
       "General knowledge questions may be answered normally"
     );
+  });
+
+
+  it("answers simple runtime time/date questions without web search", () => {
+    const message = `=== DASHBOARD CONTEXT ===\nCurrent Date: 2026-06-07\nDashboard/browser runtime ISO: 2026-06-07T15:30:00.000Z\nDashboard/browser runtime timezone: America/New_York\nDashboard Type: help\n\nUSER QUESTION: What time is it?`;
+
+    expect(isRuntimeTimeQuestion(message)).toBe(true);
+    expect(classifyAiQuery(message)).toBe("general-knowledge");
+    expect(queryNeedsWebSearch(classifyAiQuery(message))).toBe(false);
+
+    const reply = buildRuntimeTimeReply(message);
+    expect(reply).toMatch(/^Answer:/);
+    expect(reply).toContain("The current time is");
+    expect(reply).toContain("on Sunday, June 7, 2026");
+    expect(reply).toContain("This is based on the dashboard/browser runtime time.");
+    expect(reply).toContain("Sources:\n- Dashboard/browser runtime time");
+    expect(reply).not.toContain("I could not retrieve live web results right now.");
+    expect(reply).not.toContain("Sources: None");
+  });
+
+  it("uses server runtime fallback when browser timezone is unavailable", () => {
+    const message = `=== DASHBOARD CONTEXT ===\nDashboard/browser runtime ISO: 2026-06-07T15:30:00.000Z\nDashboard/browser runtime timezone: unknown\nDashboard Type: help\n\nUSER QUESTION: Current date`;
+    const reply = buildRuntimeTimeReply(
+      message,
+      new Date("2026-06-07T12:00:00.000Z")
+    );
+
+    expect(isRuntimeTimeQuestion(message)).toBe(true);
+    expect(queryNeedsWebSearch(classifyAiQuery(message))).toBe(false);
+    expect(reply).toContain("The current server time is 12:00 PM UTC on Sunday, June 7, 2026.");
+    expect(reply).toContain("Your local timezone was not available to the dashboard AI.");
+    expect(reply).not.toContain("I could not retrieve live web results right now.");
+    expect(reply).not.toContain("Sources: None");
   });
 
   it("classifies current/live questions for web search or configured fallback", () => {

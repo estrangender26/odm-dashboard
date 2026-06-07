@@ -51,9 +51,81 @@ export type AiQueryClass =
   | "web-current"
   | "combined-module-web";
 
+const SIMPLE_RUNTIME_TIME_PATTERN =
+  /^\s*(?:what(?:\s+is|'s)?\s+(?:the\s+)?time(?:\s+is\s+it)?|what\s+time\s+is\s+it|current\s+time|time\s+now)\??\s*$/i;
+const SIMPLE_RUNTIME_DATE_PATTERN =
+  /^\s*(?:what(?:\s+is|'s)?\s+(?:today(?:'s|’s)?\s+date|the\s+date|today)|what\s+day\s+is\s+it|current\s+date|date\s+today)\??\s*$/i;
+const BROWSER_RUNTIME_ISO_PATTERN = /Dashboard\/browser runtime ISO:\s*([^\n]+)/i;
+const BROWSER_RUNTIME_TIMEZONE_PATTERN =
+  /Dashboard\/browser runtime timezone:\s*([^\n]+)/i;
+
 export function extractUserQuestion(message: string): string {
   const match = USER_QUESTION_PATTERN.exec(message);
   return (match?.[1] || message).trim();
+}
+
+export function isRuntimeTimeQuestion(message: string): boolean {
+  const question = extractUserQuestion(message).trim();
+  return (
+    SIMPLE_RUNTIME_TIME_PATTERN.test(question) ||
+    SIMPLE_RUNTIME_DATE_PATTERN.test(question)
+  );
+}
+
+function getRuntimeContextValue(
+  message: string,
+  pattern: RegExp
+): string | null {
+  const value = pattern.exec(message)?.[1]?.trim();
+  if (!value || value.toLowerCase() === "unknown") return null;
+  return value;
+}
+
+function formatRuntimeDateTime(date: Date, timeZone?: string): string {
+  const options = timeZone ? { timeZone } : undefined;
+  const time = new Intl.DateTimeFormat("en-US", {
+    ...options,
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+  const day = new Intl.DateTimeFormat("en-US", {
+    ...options,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(date);
+  return `${time} on ${day}`;
+}
+
+export function buildRuntimeTimeReply(message: string, now = new Date()): string {
+  const browserIso = getRuntimeContextValue(message, BROWSER_RUNTIME_ISO_PATTERN);
+  const browserTimeZone = getRuntimeContextValue(
+    message,
+    BROWSER_RUNTIME_TIMEZONE_PATTERN
+  );
+
+  if (browserIso && browserTimeZone) {
+    const browserDate = new Date(browserIso);
+    if (!Number.isNaN(browserDate.getTime())) {
+      return [
+        "Answer:",
+        `The current time is ${formatRuntimeDateTime(browserDate, browserTimeZone)}. This is based on the dashboard/browser runtime time.`,
+        "",
+        "Sources:",
+        "- Dashboard/browser runtime time",
+      ].join("\n");
+    }
+  }
+
+  return [
+    "Answer:",
+    `The current server time is ${formatRuntimeDateTime(now, "UTC")}. Your local timezone was not available to the dashboard AI.`,
+    "",
+    "Sources:",
+    "- Server runtime time",
+  ].join("\n");
 }
 
 export function classifyAiQuery(message: string): AiQueryClass {
@@ -63,6 +135,7 @@ export function classifyAiQuery(message: string): AiQueryClass {
     MODULE_DATA_TERMS.test(question) ||
     (hasDashboardContext && MODULE_DATA_TERMS.test(message));
   const needsLiveWeb =
+    !isRuntimeTimeQuestion(question) &&
     CURRENT_WEB_TERMS.test(question) &&
     !CURRENT_PPP_ONLY_PATTERN.test(question);
 
@@ -72,7 +145,7 @@ export function classifyAiQuery(message: string): AiQueryClass {
   return "general-knowledge";
 }
 
-function queryNeedsWebSearch(queryClass: AiQueryClass): boolean {
+export function queryNeedsWebSearch(queryClass: AiQueryClass): boolean {
   return queryClass === "web-current" || queryClass === "combined-module-web";
 }
 
@@ -382,6 +455,13 @@ export const aiRouter = createRouter({
       if (wantsRepositoryFileTree(input.message)) {
         return {
           reply: await buildRepositoryTreeReply(),
+          error: null,
+        };
+      }
+
+      if (isRuntimeTimeQuestion(input.message)) {
+        return {
+          reply: buildRuntimeTimeReply(input.message),
           error: null,
         };
       }
