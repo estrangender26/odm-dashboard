@@ -74,7 +74,9 @@ describe("AI assistant voice agent helpers", () => {
     expect(generalPromptsBlock).toContain("How do I use ODM Talk?");
     expect(generalPromptsBlock).not.toContain("Analyze PM compliance trends");
     expect(generalPromptsBlock).not.toContain("Identify high-risk equipment");
-    expect(generalPromptsBlock).not.toContain("Which KPIs are below benchmark?");
+    expect(generalPromptsBlock).not.toContain(
+      "Which KPIs are below benchmark?"
+    );
     expect(generalPromptsBlock).not.toContain("Analyze schedule delays");
   });
 
@@ -100,5 +102,30 @@ describe("AI assistant voice agent helpers", () => {
       false
     );
     expect(changedFiles.some(file => file.includes("governance"))).toBe(false);
+  });
+  it("speaks assistant replies from every response path when voice reply is enabled", () => {
+    const source = readFileSync("src/components/AIAssistant.tsx", "utf8");
+
+    expect(source).toContain("const speakAssistantReply = (reply: string)");
+    expect(source).toContain(
+      "const appendAssistantMessage = (content: string)"
+    );
+    expect(source).toContain("appendAssistantMessage(res.reply)");
+    expect(source).toContain(
+      "appendAssistantMessage(MODULE_DATA_NOT_LOADED_MESSAGE)"
+    );
+    expect(source).toContain("window.speechSynthesis.cancel()");
+    expect(source).toContain("window.speechSynthesis.speak(utterance)");
+    expect(source).not.toContain(
+      'setMessages(prev => [...prev, { role: "assistant", content: res.reply }])'
+    );
+  });
+
+  it("shows unsupported voice-reply copy and exposes a compact manual replay button", () => {
+    const source = readFileSync("src/components/AIAssistant.tsx", "utf8");
+
+    expect(source).toContain("Voice reply is not supported on this browser.");
+    expect(source).toContain("Speak last reply");
+    expect(source).toContain("VOICE_REPLY_UNSUPPORTED_MESSAGE");
   });
 });

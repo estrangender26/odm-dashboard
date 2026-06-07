@@ -54,6 +54,8 @@ const MODULE_DATA_NOT_LOADED_MESSAGE =
   "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data.";
 const NO_VOICE_CAPTURED_MESSAGE =
   "No voice captured. Please try again or use text chat.";
+const VOICE_REPLY_UNSUPPORTED_MESSAGE =
+  "Voice reply is not supported on this browser.";
 const VOICE_CAPTURED_REVIEW_MESSAGE = "Voice captured. Review then tap Send.";
 const VOICE_CAPTURE_TIMEOUT_MS = 10000;
 
@@ -182,9 +184,32 @@ function hasUsableModuleData(
   return false;
 }
 
+function isRuntimeTimeQuestion(message: string): boolean {
+  return /^\s*(?:what(?:\s+is|'s)?\s+(?:the\s+)?time(?:\s+is\s+it)?|what\s+time\s+is\s+it|current\s+time|time\s+now|what(?:\s+is|'s)?\s+(?:today(?:'s|’s)?\s+date|the\s+date|today)|what\s+day\s+is\s+it|current\s+date|date\s+today)\??\s*$/i.test(
+    message
+  );
+}
+
+function isPureWebCurrentQuestion(message: string): boolean {
+  if (isRuntimeTimeQuestion(message)) return false;
+
+  const pureWebCurrentTerms =
+    /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|richest|wealthiest|billionaire|billionaires|net worth|ceo|chief executive|weather|forecast|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
+  const moduleAnchorTerms =
+    /\b(this dashboard|active dashboard|dashboard data|module data|active module|these records|loaded records|my dashboard|our dashboard)\b/i;
+
+  return pureWebCurrentTerms.test(message) && !moduleAnchorTerms.test(message);
+}
+
 function isDataAnalysisQuestion(message: string): boolean {
-  const definitionQuestion = /\b(what is|what are|define|explain|difference between|compare)\b/i.test(message);
-  const activeModuleReference = /\b(this|these|active|dashboard|module|loaded|my|our)\b/i.test(message);
+  if (isPureWebCurrentQuestion(message)) return false;
+
+  const definitionQuestion =
+    /\b(what is|what are|define|explain|difference between|compare)\b/i.test(
+      message
+    );
+  const activeModuleReference =
+    /\b(this|these|active|dashboard|module|loaded|my|our)\b/i.test(message);
   if (definitionQuestion && !activeModuleReference) return false;
 
   return /\b(analy[sz]e|analysis|trend|trends|risk|high-risk|equipment|kpi|kpis|benchmark|schedule|delay|delays|critical path|resource conflict|compliance|overdue|work order|task count|document count|folder|file|coverage|underperform|ownership|responsible|corrective action|recommendation|milestone|inspection|smp|manual)\b/i.test(
@@ -1003,29 +1028,44 @@ export default function AIAssistant({
     onError: e => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
   });
 
+  const speakAssistantReply = (reply: string) => {
+    if (!voiceReplyEnabledRef.current) return;
+
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setVoiceStatus(VOICE_REPLY_UNSUPPORTED_MESSAGE);
+      return;
+    }
+
+    const Utterance =
+      window.SpeechSynthesisUtterance ||
+      (typeof SpeechSynthesisUtterance !== "undefined"
+        ? SpeechSynthesisUtterance
+        : undefined);
+    if (!Utterance) {
+      setVoiceStatus(VOICE_REPLY_UNSUPPORTED_MESSAGE);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new Utterance(reply);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const appendAssistantMessage = (content: string) => {
+    setMessages(prev => [...prev, { role: "assistant", content }]);
+    speakAssistantReply(content);
+  };
+
   const chatMut = trpc.ai.maintenanceChat.useMutation({
     onSuccess: res => {
       setLoading(false);
-      setMessages(prev => [...prev, { role: "assistant", content: res.reply }]);
-      if (
-        voiceReplyEnabledRef.current &&
-        typeof window !== "undefined" &&
-        "speechSynthesis" in window
-      ) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(res.reply);
-        window.speechSynthesis.speak(utterance);
-      }
+      appendAssistantMessage(res.reply);
     },
     onError: e => {
       setLoading(false);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `⚠️ Error: ${e.message}\n\nThe AI service may not be configured. Please set GROQ_API_KEY in your Render environment variables.\n\nGet a free key at: https://console.groq.com`,
-        },
-      ]);
+      appendAssistantMessage(
+        `⚠️ Error: ${e.message}\n\nThe AI service may not be configured. Please set GROQ_API_KEY in your Render environment variables.\n\nGet a free key at: https://console.groq.com`
+      );
     },
   });
 
@@ -1067,10 +1107,7 @@ export default function AIAssistant({
     setMessages(prev => [...prev, { role: "user", content: msg }]);
 
     if (!hasModuleData && isDataAnalysisQuestion(msg)) {
-      setMessages(prev => [
-        ...prev,
-        { role: "assistant", content: MODULE_DATA_NOT_LOADED_MESSAGE },
-      ]);
+      appendAssistantMessage(MODULE_DATA_NOT_LOADED_MESSAGE);
       return;
     }
 
@@ -1443,9 +1480,27 @@ export default function AIAssistant({
               >
                 {voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
               </button>
+              <button
+                onClick={() => {
+                  const lastAssistantReply = [...messages]
+                    .reverse()
+                    .find(message => message.role === "assistant")?.content;
+                  if (lastAssistantReply)
+                    speakAssistantReply(lastAssistantReply);
+                }}
+                disabled={
+                  !voiceReplyEnabled ||
+                  !messages.some(message => message.role === "assistant")
+                }
+                title="Speak last reply"
+                aria-label="Speak last reply"
+                className="odm-ai-voice-btn odm-ai-voice-speak-last"
+              >
+                Speak last reply
+              </button>
               {voiceStatus && (
                 <span
-                  className={`odm-ai-voice-status ${voiceStatus === VOICE_UNSUPPORTED_MESSAGE || voiceStatus.includes("Microphone permission") ? "odm-ai-status-error" : ""}`}
+                  className={`odm-ai-voice-status ${voiceStatus === VOICE_UNSUPPORTED_MESSAGE || voiceStatus === VOICE_REPLY_UNSUPPORTED_MESSAGE || voiceStatus.includes("Microphone permission") ? "odm-ai-status-error" : ""}`}
                 >
                   {listening ? "Listening…" : voiceStatus}
                 </span>

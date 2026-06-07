@@ -59,7 +59,8 @@ const SIMPLE_RUNTIME_TIME_PATTERN =
   /^\s*(?:what(?:\s+is|'s)?\s+(?:the\s+)?time(?:\s+is\s+it)?|what\s+time\s+is\s+it|current\s+time|time\s+now)\??\s*$/i;
 const SIMPLE_RUNTIME_DATE_PATTERN =
   /^\s*(?:what(?:\s+is|'s)?\s+(?:today(?:'s|’s)?\s+date|the\s+date|today)|what\s+day\s+is\s+it|current\s+date|date\s+today)\??\s*$/i;
-const BROWSER_RUNTIME_ISO_PATTERN = /Dashboard\/browser runtime ISO:\s*([^\n]+)/i;
+const BROWSER_RUNTIME_ISO_PATTERN =
+  /Dashboard\/browser runtime ISO:\s*([^\n]+)/i;
 const BROWSER_RUNTIME_TIMEZONE_PATTERN =
   /Dashboard\/browser runtime timezone:\s*([^\n]+)/i;
 
@@ -103,8 +104,14 @@ function formatRuntimeDateTime(date: Date, timeZone?: string): string {
   return `${time} on ${day}`;
 }
 
-export function buildRuntimeTimeReply(message: string, now = new Date()): string {
-  const browserIso = getRuntimeContextValue(message, BROWSER_RUNTIME_ISO_PATTERN);
+export function buildRuntimeTimeReply(
+  message: string,
+  now = new Date()
+): string {
+  const browserIso = getRuntimeContextValue(
+    message,
+    BROWSER_RUNTIME_ISO_PATTERN
+  );
   const browserTimeZone = getRuntimeContextValue(
     message,
     BROWSER_RUNTIME_TIMEZONE_PATTERN
@@ -179,7 +186,10 @@ function isSourceMetadataLine(
   line: string,
   sourceTitles: Set<string> = new Set()
 ): boolean {
-  const normalizedLine = line.replace(/^[-*]\s*/, "").trim().toLowerCase();
+  const normalizedLine = line
+    .replace(/^[-*]\s*/, "")
+    .trim()
+    .toLowerCase();
 
   return (
     sourceTitles.has(normalizedLine) ||
@@ -187,9 +197,7 @@ function isSourceMetadataLine(
       line
     ) ||
     /^(?:[-*]\s*)?https?:\/\//i.test(line) ||
-    /^[-*]\s*(?:source\s+)?[^:]{3,120}\s+—\s+[^:]{3,120}$/i.test(
-      line
-    )
+    /^[-*]\s*(?:source\s+)?[^:]{3,120}\s+—\s+[^:]{3,120}$/i.test(line)
   );
 }
 
@@ -491,11 +499,15 @@ export const aiRouter = createRouter({
               searchResponse.results.length > 0 ? searchResponse : null;
 
             if (queryClass === "web-current") {
+              const reply = successfulSearchResponse
+                ? synthesizeWebSearchAnswer(successfulSearchResponse)
+                : WEB_SEARCH_FAILURE_REPLY;
               return {
-                reply: successfulSearchResponse
-                  ? synthesizeWebSearchAnswer(successfulSearchResponse)
-                  : WEB_SEARCH_FAILURE_REPLY,
-                error: successfulSearchResponse ? null : "WEB_SEARCH_NO_RESULTS",
+                reply,
+                error:
+                  reply === WEB_SEARCH_FAILURE_REPLY
+                    ? "WEB_SEARCH_NO_USABLE_RESULTS"
+                    : null,
               };
             }
 
