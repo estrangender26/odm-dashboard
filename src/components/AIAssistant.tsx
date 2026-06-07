@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/providers/trpc";
 import {
   VOICE_UNSUPPORTED_MESSAGE,
+  buildSpeechFriendlyAssistantReply,
   describeSpeechRecognitionError,
   getSpeechRecognitionConstructor,
 } from "@/lib/voiceAgent";
@@ -1046,8 +1047,11 @@ export default function AIAssistant({
       return;
     }
 
+    const speechReply = buildSpeechFriendlyAssistantReply(reply);
+    if (!speechReply) return;
+
     window.speechSynthesis.cancel();
-    const utterance = new Utterance(reply);
+    const utterance = new Utterance(speechReply);
     window.speechSynthesis.speak(utterance);
   };
 

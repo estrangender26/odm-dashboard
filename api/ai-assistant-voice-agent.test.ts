@@ -2,12 +2,25 @@ import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
+  VOICE_UNSUPPORTED_MESSAGE,
+  buildSpeechFriendlyAssistantReply,
   describeSpeechRecognitionError,
   getSpeechRecognitionConstructor,
-  VOICE_UNSUPPORTED_MESSAGE,
 } from "../src/lib/voiceAgent";
 
 describe("AI assistant voice agent helpers", () => {
+  it("cleans web sources and URLs before voice playback", () => {
+    const speech = buildSpeechFriendlyAssistantReply(
+      "Answer:\nElon Musk is listed first in this result.\n\nSources:\n- Forbes Billionaires List — forbes.com\n- https://www.forbes.com/billionaires/\nSources: None"
+    );
+
+    expect(speech).toContain("Elon Musk is listed first");
+    expect(speech).not.toContain("https://");
+    expect(speech).not.toContain("Sources:");
+    expect(speech).not.toContain("Sources: None");
+    expect(speech).not.toContain("forbes.com");
+  });
+
   it("returns undefined without browser speech recognition so fallback can render without crashing", () => {
     expect(getSpeechRecognitionConstructor()).toBeUndefined();
     expect(VOICE_UNSUPPORTED_MESSAGE).toBe(

@@ -61,10 +61,6 @@ function getSourceDomain(result: WebSearchResult): string {
   return result.domain || getDomain(result.url) || "Unknown domain";
 }
 
-function getSourceUrl(result: WebSearchResult): string {
-  return result.url || "No URL available";
-}
-
 function getSnippetSentences(
   results: WebSearchResult[],
   maxSentences = 3
@@ -91,10 +87,9 @@ function getSnippetSentences(
 
 export function synthesizeWebSearchAnswer(response: WebSearchResponse): string {
   const sources = response.results.slice(0, 4);
-  const sourceLines = sources.flatMap(result => [
-    `- ${getSourceTitle(result)} — ${getSourceDomain(result)}`,
-    `- ${getSourceUrl(result)}`,
-  ]);
+  const sourceLines = sources.map(
+    result => `- ${getSourceTitle(result)} — ${getSourceDomain(result)}`
+  );
 
   if (sources.length === 0) {
     return "I could not retrieve live web results right now.";
@@ -123,8 +118,8 @@ export function formatWebSearchResultsForPrompt(
     "- Use the result content below to answer the user's question directly before listing sources.",
     "- Do not merely list raw source metadata such as title, domain, URL, provider, or snippet.",
     "- Do not mention knowledge cutoff because live search results are available.",
-    "- For a general/current web question, format the final response as: Answer: then Sources:.",
-    "- For a dashboard + web question, format the final response as: From dashboard data: then From web search: then Sources:.",
+    "- For a general/current web question, format the final response as: Answer: then Sources with source title and domain only.",
+    "- For a dashboard + web question, format the final response as: From dashboard data: then From web search: then Sources with source title and domain only.",
     "- If these results do not contain enough detail to answer confidently, say: I found a relevant source, but the search result did not include enough detail to answer confidently.",
     "SEARCH RESULT CONTENT TO SYNTHESIZE:",
   ];
