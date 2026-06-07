@@ -126,6 +126,17 @@ const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
   ],
 };
 
+function hasNonEmptyRecord(value: any): boolean {
+  if (!value || typeof value !== "object") return false;
+  return Object.values(value).some(
+    field =>
+      field !== undefined &&
+      field !== null &&
+      field !== "" &&
+      !(Array.isArray(field) && field.length === 0)
+  );
+}
+
 function hasUsableModuleData(
   data: any[] | any,
   contextType: DashboardContext,
@@ -133,20 +144,20 @@ function hasUsableModuleData(
 ): boolean {
   if (contextType === "help") return false;
 
-  if (Array.isArray(data)) return data.length > 0;
+  if (Array.isArray(data)) return data.some(hasNonEmptyRecord);
 
   if (data && typeof data === "object") {
     if (contextType === "scorecard") {
       return (
-        (Array.isArray(data.kpis) && data.kpis.length > 0) ||
+        (Array.isArray(data.kpis) && data.kpis.some(hasNonEmptyRecord)) ||
         (Array.isArray(data.monthlyScoreData) &&
-          data.monthlyScoreData.length > 0) ||
+          data.monthlyScoreData.some(hasNonEmptyRecord)) ||
         (data.aggregates && Object.keys(data.aggregates).length > 0)
       );
     }
 
     if (contextType === "gantt") {
-      return Array.isArray(data.tasks) && data.tasks.length > 0;
+      return Array.isArray(data.tasks) && data.tasks.some(hasNonEmptyRecord);
     }
 
     if (contextType === "manuals") {
@@ -161,18 +172,14 @@ function hasUsableModuleData(
     }
 
     return Object.values(data).some(value => {
-      if (Array.isArray(value)) return value.length > 0;
+      if (Array.isArray(value)) return value.some(hasNonEmptyRecord);
       if (value && typeof value === "object")
         return Object.keys(value).length > 0;
-      return value !== undefined && value !== null && value !== "";
+      return false;
     });
   }
 
-  return Boolean(
-    Number(metadata?.dashboardTaskCount) > 0 ||
-    Number(metadata?.sourceTaskCount) > 0 ||
-    (Array.isArray(metadata?.uploads) && metadata.uploads.length > 0)
-  );
+  return false;
 }
 
 function isDataAnalysisQuestion(message: string): boolean {
@@ -1133,6 +1140,10 @@ export default function AIAssistant({
       if (transcript) {
         finalTranscript = transcript;
         setInput(transcript);
+        if (voiceCaptureTimeoutRef.current) {
+          globalThis.clearTimeout(voiceCaptureTimeoutRef.current);
+          voiceCaptureTimeoutRef.current = null;
+        }
       }
     };
 
@@ -1141,6 +1152,9 @@ export default function AIAssistant({
       if (voiceCaptureTimeoutRef.current) {
         globalThis.clearTimeout(voiceCaptureTimeoutRef.current);
         voiceCaptureTimeoutRef.current = null;
+      }
+      if (recognitionRef.current === recognition) {
+        recognitionRef.current = null;
       }
       setVoiceStatus(describeSpeechRecognitionError(event));
       setListening(false);
