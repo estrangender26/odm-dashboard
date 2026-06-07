@@ -532,7 +532,7 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
   return ctx;
 }
 
-export default function AIAssistant({ contextType, data, filters, metadata, title, quickQuestions, position = "bottom-left" }: AIAssistantProps) {
+export default function AIAssistant({ contextType, data, filters, metadata, title, quickQuestions }: AIAssistantProps) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
@@ -542,6 +542,7 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
   const [listening, setListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<VoiceRecognition | null>(null);
   const voiceReplyEnabledRef = useRef(voiceReplyEnabled);
@@ -706,6 +707,29 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
     setVoiceStatus("");
   };
 
+  const copyAssistantMessage = async (content: string) => {
+    if (!content) return;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(content);
+      } else if (typeof document !== "undefined") {
+        const textarea = document.createElement("textarea");
+        textarea.value = content;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopyStatus("Copied assistant response.");
+      globalThis.setTimeout(() => setCopyStatus(""), 2200);
+    } catch {
+      setCopyStatus("Copy failed. Please select and copy the response manually.");
+    }
+  };
+
   const prompts = quickQuestions || CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.help;
 
   const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant")?.content || "";
@@ -730,69 +754,43 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
     <>
       {/* Floating button */}
       <button
+        className="odm-ai-fab"
         onClick={() => setOpen(!open)}
-        style={{
-          position: "fixed",
-          bottom: "calc(1rem + env(safe-area-inset-bottom))",
-          right: position === "bottom-right" ? "1rem" : undefined,
-          left: position === "bottom-left" ? "1rem" : undefined,
-          zIndex: 200,
-          width: 48,
-          height: 48,
-          borderRadius: "50%",
-          background: "linear-gradient(135deg, #7C3AED, #6D28D9)",
-          color: "#fff",
-          border: "none",
-          boxShadow: "0 4px 16px rgba(124,58,237,.35)",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 20,
-          transition: "all .2s",
-        }}
         title={title || "AI Analysis"}
+        aria-label={open ? `Close ${title || "AI Analysis"}` : `Open ${title || "AI Analysis"}`}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
       </button>
 
       {/* Panel */}
       {open && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "calc(5.5rem + env(safe-area-inset-bottom))",
-            right: position === "bottom-right" ? "1rem" : undefined,
-            left: position === "bottom-left" ? "1rem" : undefined,
-            zIndex: 200,
-            width: "min(380px, calc(100vw - 40px))",
-            height: "min(480px, calc(100vh - 120px))",
-            background: "#fff",
-            borderRadius: 16,
-            boxShadow: "0 20px 60px rgba(0,0,0,.25)",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            fontFamily: "Inter, sans-serif",
-            border: "1px solid #D6DFE8",
-          }}
-        >
+        <div className="odm-ai-panel" role="dialog" aria-label={title || "AI Analysis"}>
           {/* Header */}
-          <div style={{ padding: "12px 16px", background: "linear-gradient(135deg, #7C3AED, #6D28D9)", color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-            <span style={{ fontSize: 12, fontWeight: 700, flex: 1 }}>{title || "AI Analysis"}</span>
-            <button onClick={() => setMessages([])} style={{ background: "none", border: "none", color: "#fff", fontSize: 10, cursor: "pointer", opacity: .8 }}>Clear</button>
-            <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>&times;</button>
+          <div className="odm-ai-header">
+            <div className="odm-ai-title-wrap">
+              <span className="odm-ai-header-icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              </span>
+              <div>
+                <div className="odm-ai-title">{title || "AI Analysis"}</div>
+                <div className="odm-ai-subtitle">Grounded in {odmTalkSource.sourceModule}</div>
+              </div>
+            </div>
+            <div className="odm-ai-header-actions">
+              <button onClick={() => { setMessages([]); setOdmTalkStatus(""); setCopyStatus(""); }} className="odm-ai-header-btn">Clear</button>
+              <button onClick={() => setOpen(false)} className="odm-ai-close-btn" aria-label="Close AI assistant">&times;</button>
+            </div>
           </div>
 
           {/* Messages */}
-          <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div ref={scrollRef} className="odm-ai-messages">
             {messages.length === 0 && (
-              <div style={{ textAlign: "center", padding: "16px 8px", color: "#94A3B8", fontSize: 11 }}>
-                <p style={{ margin: "0 0 12px" }}>Ask AI to analyze this dashboard&apos;s data.</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+              <div className="odm-ai-empty-state">
+                <div className="odm-ai-empty-icon">✨</div>
+                <p>Ask AI to analyze this dashboard&apos;s data.</p>
+                <div className="odm-ai-prompt-grid">
                   {prompts.map((p) => (
-                    <button key={p} onClick={() => send(p)} style={{ padding: "4px 10px", fontSize: 10, border: "1px solid #D6DFE8", borderRadius: 12, background: "#fff", color: "#475569", cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
+                    <button key={p} onClick={() => send(p)} className="odm-ai-prompt-chip">
                       {p}
                     </button>
                   ))}
@@ -800,102 +798,216 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
               </div>
             )}
             {messages.map((m, i) => (
-              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", padding: "6px 10px", borderRadius: m.role === "user" ? "10px 10px 2px 10px" : "10px 10px 10px 2px", background: m.role === "user" ? "#7C3AED" : "#F1F5F9", color: m.role === "user" ? "#fff" : "#2D3748", fontSize: 11, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                {m.content}
+              <div key={`${m.role}-${i}`} className={`odm-ai-message-row ${m.role === "user" ? "odm-ai-message-row-user" : "odm-ai-message-row-assistant"}`}>
+                <div className={`odm-ai-message-bubble ${m.role === "user" ? "odm-ai-user-bubble" : "odm-ai-assistant-bubble"}`}>
+                  {m.content}
+                </div>
+                {m.role === "assistant" && (
+                  <button onClick={() => copyAssistantMessage(m.content)} className="odm-ai-copy-btn" aria-label="Copy assistant response">
+                    Copy
+                  </button>
+                )}
               </div>
             ))}
             {loading && (
-              <div style={{ alignSelf: "flex-start", padding: "8px 12px", background: "#F1F5F9", borderRadius: "10px 10px 10px 2px" }}>
-                <span style={{ display: "inline-flex", gap: 3 }}>
-                  <span style={{ width: 5, height: 5, background: "#94A3B8", borderRadius: "50%", animation: "dotPulse 1.4s ease-in-out infinite" }} />
-                  <span style={{ width: 5, height: 5, background: "#94A3B8", borderRadius: "50%", animation: "dotPulse 1.4s ease-in-out infinite .2s" }} />
-                  <span style={{ width: 5, height: 5, background: "#94A3B8", borderRadius: "50%", animation: "dotPulse 1.4s ease-in-out infinite .4s" }} />
-                </span>
+              <div className="odm-ai-loading-bubble" aria-label="AI response loading">
+                <span className="odm-ai-loading-dot" />
+                <span className="odm-ai-loading-dot" />
+                <span className="odm-ai-loading-dot" />
               </div>
             )}
           </div>
 
-          {/* ODM Talk bridge actions */}
-          <div style={{ padding: "8px 12px", borderTop: "1px solid #E2E8F0", background: "#FAFBFF" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: "#334155", textTransform: "uppercase", letterSpacing: .5 }}>ODM Talk Bridge</span>
-              <a href="/odm-talk" style={{ fontSize: 10, color: "#2563EB", textDecoration: "none", fontWeight: 700 }}>Open Hub</a>
+          <div className="odm-ai-footer">
+            {/* Voice controls: kept immediately above the input row on desktop and mobile. */}
+            <div className="odm-ai-voice-controls" aria-label="AI voice controls">
+              <button
+                onClick={startVoiceListening}
+                disabled={listening || loading}
+                title="Start voice listening"
+                aria-label="Start voice listening"
+                className="odm-ai-voice-btn odm-ai-voice-start"
+              >
+                🎙️ Start voice listening
+              </button>
+              <button
+                onClick={stopVoiceListening}
+                disabled={!listening}
+                title="Stop voice listening"
+                aria-label="Stop voice listening"
+                className="odm-ai-voice-btn odm-ai-voice-stop"
+              >
+                Stop
+              </button>
+              <button
+                onClick={() => setVoiceReplyEnabled((enabled) => !enabled)}
+                title={voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
+                aria-label={voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
+                className={`odm-ai-voice-btn odm-ai-voice-reply ${voiceReplyEnabled ? "odm-ai-voice-reply-on" : ""}`}
+              >
+                {voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
+              </button>
+              {voiceStatus && (
+                <span className={`odm-ai-voice-status ${voiceStatus === VOICE_UNSUPPORTED_MESSAGE || voiceStatus.includes("Microphone permission") ? "odm-ai-status-error" : ""}`}>
+                  {listening ? "Listening…" : voiceStatus}
+                </span>
+              )}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
-              <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #C7D2FE", borderRadius: 8, background: lastAssistantMessage ? "#EEF2FF" : "#F1F5F9", color: "#3730A3", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Send to ODM Talk</button>
-              <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #C7D2FE", borderRadius: 8, background: lastAssistantMessage ? "#EEF2FF" : "#F1F5F9", color: "#3730A3", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Create Discussion</button>
-              <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #DDD6FE", borderRadius: 8, background: lastAssistantMessage ? "#F5F3FF" : "#F1F5F9", color: "#5B21B6", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Share Summary</button>
-              <button onClick={() => postLastAssistantMessage("Post-PPP Decision", "Decision")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #FED7AA", borderRadius: 8, background: lastAssistantMessage ? "#FFF7ED" : "#F1F5F9", color: "#9A3412", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Create Decision Thread</button>
-              <button onClick={() => postLastAssistantMessage("Maintenance Recommendation", "AI recommendation")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #BBF7D0", borderRadius: 8, background: lastAssistantMessage ? "#F0FDF4" : "#F1F5F9", color: "#166534", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Share Recommendation</button>
-              <button onClick={() => postLastAssistantMessage("Action Tracking", "AI-generated action items")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #BAE6FD", borderRadius: 8, background: lastAssistantMessage ? "#F0F9FF" : "#F1F5F9", color: "#075985", cursor: lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Share Action Items</button>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <select value={selectedThreadId} onChange={(e) => setSelectedThreadId(e.target.value)} style={{ flex: 1, minWidth: 0, padding: "5px 6px", fontSize: 10, border: "1px solid #CBD5E1", borderRadius: 8 }}>
-                <option value="">Add to Discussion...</option>
-                {(relatedThreads.data || []).map((thread) => (
-                  <option key={thread.id} value={thread.id}>#{thread.id} {thread.threadType}</option>
-                ))}
-              </select>
-              <button onClick={() => selectedThreadId && postLastAssistantMessage("General Discussion", "AI summary", Number(selectedThreadId))} disabled={!lastAssistantMessage || !selectedThreadId || postToOdmTalkThread.isPending} style={{ padding: "5px 8px", fontSize: 10, border: "1px solid #CBD5E1", borderRadius: 8, background: selectedThreadId && lastAssistantMessage ? "#FFFFFF" : "#F1F5F9", color: "#334155", cursor: selectedThreadId && lastAssistantMessage ? "pointer" : "not-allowed", fontWeight: 700 }}>Add to Discussion</button>
-            </div>
-            <div style={{ marginTop: 5, fontSize: 9, color: odmTalkStatus.includes("failed") ? "#B91C1C" : "#64748B" }}>
-              {odmTalkStatus || `${odmTalkSource.assistantName} shares labels, backlinks, source record metadata, and keeps ${odmTalkSource.sourceModule} data as primary context.`}
-            </div>
-          </div>
 
-          {/* Voice controls */}
-          <div style={{ padding: "8px 12px 0", borderTop: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <button
-              onClick={startVoiceListening}
-              disabled={listening || loading}
-              title="Start voice listening"
-              aria-label="Start voice listening"
-              style={{ padding: "5px 8px", fontSize: 10, fontWeight: 700, border: "1px solid #C4B5FD", borderRadius: 8, background: listening ? "#F5F3FF" : "#FFFFFF", color: "#5B21B6", cursor: listening || loading ? "not-allowed" : "pointer" }}
-            >
-              🎙️ Start voice listening
-            </button>
-            <button
-              onClick={stopVoiceListening}
-              disabled={!listening}
-              title="Stop voice listening"
-              aria-label="Stop voice listening"
-              style={{ padding: "5px 8px", fontSize: 10, fontWeight: 700, border: "1px solid #CBD5E1", borderRadius: 8, background: listening ? "#FFFFFF" : "#F1F5F9", color: "#334155", cursor: listening ? "pointer" : "not-allowed" }}
-            >
-              Stop
-            </button>
-            <button
-              onClick={() => setVoiceReplyEnabled((enabled) => !enabled)}
-              title={voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
-              aria-label={voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
-              style={{ padding: "5px 8px", fontSize: 10, fontWeight: 700, border: "1px solid #BAE6FD", borderRadius: 8, background: voiceReplyEnabled ? "#E0F2FE" : "#FFFFFF", color: "#075985", cursor: "pointer" }}
-            >
-              {voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
-            </button>
-            {voiceStatus && (
-              <span style={{ flexBasis: "100%", fontSize: 10, color: voiceStatus === VOICE_UNSUPPORTED_MESSAGE || voiceStatus.includes("Microphone permission") ? "#B91C1C" : "#64748B" }}>
-                {listening ? "Listening…" : voiceStatus}
-              </span>
-            )}
-          </div>
+            {/* Input */}
+            <div className="odm-ai-input-row">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }}}
+                placeholder="Ask about maintenance, PM, KPIs..."
+                rows={1}
+                className="odm-ai-input"
+              />
+              <button onClick={() => send()} disabled={!input.trim() || loading} className="odm-ai-send-btn">
+                Send
+              </button>
+            </div>
 
-          {/* Input */}
-          <div style={{ padding: "8px 12px", display: "flex", gap: 6, alignItems: "flex-end" }}>
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }}}
-              placeholder="Ask about maintenance, PM, KPIs..."
-              rows={1}
-              style={{ flex: 1, padding: "6px 10px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 8, fontFamily: "Inter, sans-serif", resize: "none", outline: "none", maxHeight: 60 }}
-            />
-            <button onClick={() => send()} disabled={!input.trim() || loading} style={{ padding: "6px 14px", fontSize: 11, fontWeight: 600, background: input.trim() && !loading ? "#7C3AED" : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, cursor: input.trim() && !loading ? "pointer" : "not-allowed" }}>
-              Send
-            </button>
+            {/* ODM Talk bridge actions */}
+            <div className="odm-ai-odm-talk">
+              <div className="odm-ai-odm-talk-header">
+                <span>ODM Talk Bridge</span>
+                <a href="/odm-talk">Open Hub</a>
+              </div>
+              <div className="odm-ai-odm-actions">
+                <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Send to ODM Talk</button>
+                <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Create Discussion</button>
+                <button onClick={() => postLastAssistantMessage("General Discussion", "AI summary")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Share Summary</button>
+                <button onClick={() => postLastAssistantMessage("Post-PPP Decision", "Decision")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Create Decision Thread</button>
+                <button onClick={() => postLastAssistantMessage("Maintenance Recommendation", "AI recommendation")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Share Recommendation</button>
+                <button onClick={() => postLastAssistantMessage("Action Tracking", "AI-generated action items")} disabled={!lastAssistantMessage || createOdmTalkThread.isPending}>Share Action Items</button>
+              </div>
+              <div className="odm-ai-discussion-row">
+                <select value={selectedThreadId} onChange={(e) => setSelectedThreadId(e.target.value)}>
+                  <option value="">Add to Discussion...</option>
+                  {(relatedThreads.data || []).map((thread) => (
+                    <option key={thread.id} value={thread.id}>#{thread.id} {thread.threadType}</option>
+                  ))}
+                </select>
+                <button onClick={() => selectedThreadId && postLastAssistantMessage("General Discussion", "AI summary", Number(selectedThreadId))} disabled={!lastAssistantMessage || !selectedThreadId || postToOdmTalkThread.isPending}>Add to Discussion</button>
+              </div>
+              <div className={`odm-ai-bridge-status ${odmTalkStatus.includes("failed") ? "odm-ai-status-error" : ""}`}>
+                {odmTalkStatus || copyStatus || `${odmTalkSource.assistantName} shares labels, backlinks, source record metadata, and keeps ${odmTalkSource.sourceModule} data as primary context.`}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      <style>{`@keyframes dotPulse { 0%,80%,100%{opacity:.3;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }`}</style>
+      <style>{`
+        .odm-ai-fab {
+          position: fixed;
+          bottom: calc(1rem + env(safe-area-inset-bottom));
+          right: 1rem;
+          z-index: 200;
+          width: 48px;
+          height: 48px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #7C3AED, #6D28D9);
+          color: #fff;
+          border: none;
+          box-shadow: 0 4px 16px rgba(124, 58, 237, .35);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: transform .2s ease, box-shadow .2s ease;
+        }
+        .odm-ai-fab:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(124, 58, 237, .42); }
+        .odm-ai-panel {
+          position: fixed;
+          bottom: calc(5.5rem + env(safe-area-inset-bottom));
+          right: 1rem;
+          z-index: 200;
+          width: min(390px, calc(100vw - 32px));
+          height: min(560px, calc(100vh - 120px));
+          background: #fff;
+          border-radius: 16px;
+          box-shadow: 0 20px 60px rgba(15, 23, 42, .26);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          font-family: Inter, sans-serif;
+          border: 1px solid #D6DFE8;
+        }
+        .odm-ai-header { padding: 12px 14px; background: linear-gradient(135deg, #7C3AED, #6D28D9); color: #fff; display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+        .odm-ai-title-wrap { min-width: 0; display: flex; align-items: center; gap: 8px; }
+        .odm-ai-header-icon { flex: 0 0 auto; display: inline-flex; }
+        .odm-ai-title { font-size: 12px; font-weight: 800; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+        .odm-ai-subtitle { font-size: 9px; opacity: .78; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+        .odm-ai-header-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+        .odm-ai-header-btn, .odm-ai-close-btn { background: rgba(255,255,255,.12); border: none; color: #fff; cursor: pointer; border-radius: 7px; font-family: Inter, sans-serif; }
+        .odm-ai-header-btn { font-size: 10px; padding: 5px 8px; font-weight: 700; }
+        .odm-ai-close-btn { font-size: 20px; line-height: 1; width: 28px; height: 28px; }
+        .odm-ai-messages { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #fff; }
+        .odm-ai-empty-state { text-align: center; padding: 16px 8px; color: #94A3B8; font-size: 11px; }
+        .odm-ai-empty-state p { margin: 0 0 12px; }
+        .odm-ai-empty-icon { width: 30px; height: 30px; margin: 0 auto 8px; border-radius: 999px; background: #F5F3FF; color: #6D28D9; display: flex; align-items: center; justify-content: center; }
+        .odm-ai-prompt-grid { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+        .odm-ai-prompt-chip { padding: 4px 10px; font-size: 10px; border: 1px solid #D6DFE8; border-radius: 12px; background: #fff; color: #475569; cursor: pointer; font-family: Inter, sans-serif; }
+        .odm-ai-message-row { max-width: 88%; display: flex; flex-direction: column; gap: 3px; }
+        .odm-ai-message-row-user { align-self: flex-end; align-items: flex-end; }
+        .odm-ai-message-row-assistant { align-self: flex-start; align-items: flex-start; }
+        .odm-ai-message-bubble { padding: 7px 10px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+        .odm-ai-user-bubble { border-radius: 11px 11px 3px 11px; background: #7C3AED; color: #fff; }
+        .odm-ai-assistant-bubble { border-radius: 11px 11px 11px 3px; background: #F1F5F9; color: #2D3748; }
+        .odm-ai-copy-btn { font-size: 9px; color: #64748B; background: none; border: none; cursor: pointer; padding: 0 2px; font-family: Inter, sans-serif; font-weight: 700; }
+        .odm-ai-loading-bubble { align-self: flex-start; padding: 8px 12px; background: #F1F5F9; border-radius: 11px 11px 11px 3px; display: inline-flex; gap: 3px; }
+        .odm-ai-loading-dot { width: 5px; height: 5px; background: #94A3B8; border-radius: 999px; animation: dotPulse 1.4s ease-in-out infinite; }
+        .odm-ai-loading-dot:nth-child(2) { animation-delay: .2s; }
+        .odm-ai-loading-dot:nth-child(3) { animation-delay: .4s; }
+        .odm-ai-footer { flex: 0 0 auto; border-top: 1px solid #E2E8F0; background: #fff; }
+        .odm-ai-voice-controls { padding: 8px 12px 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; background: #FFFFFF; }
+        .odm-ai-voice-btn { padding: 5px 8px; font-size: 10px; font-weight: 800; border-radius: 8px; cursor: pointer; font-family: Inter, sans-serif; }
+        .odm-ai-voice-btn:disabled { cursor: not-allowed; }
+        .odm-ai-voice-start { border: 1px solid #C4B5FD; background: #FFFFFF; color: #5B21B6; }
+        .odm-ai-voice-start:disabled { background: #F5F3FF; }
+        .odm-ai-voice-stop { border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155; }
+        .odm-ai-voice-stop:disabled { background: #F1F5F9; }
+        .odm-ai-voice-reply { border: 1px solid #BAE6FD; background: #FFFFFF; color: #075985; }
+        .odm-ai-voice-reply-on { background: #E0F2FE; }
+        .odm-ai-voice-status { flex-basis: 100%; font-size: 10px; color: #64748B; }
+        .odm-ai-status-error { color: #B91C1C; }
+        .odm-ai-input-row { padding: 0 12px 8px; display: flex; gap: 6px; align-items: flex-end; }
+        .odm-ai-input { flex: 1; min-width: 0; padding: 7px 10px; font-size: 11px; border: 1px solid #D6DFE8; border-radius: 8px; font-family: Inter, sans-serif; resize: none; outline: none; max-height: 64px; line-height: 1.4; }
+        .odm-ai-send-btn { padding: 7px 14px; font-size: 11px; font-weight: 800; background: #7C3AED; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-family: Inter, sans-serif; }
+        .odm-ai-send-btn:disabled { background: #CBD5E1; cursor: not-allowed; }
+        .odm-ai-odm-talk { padding: 8px 12px; border-top: 1px solid #E2E8F0; background: #FAFBFF; }
+        .odm-ai-odm-talk-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+        .odm-ai-odm-talk-header span { font-size: 10px; font-weight: 900; color: #334155; text-transform: uppercase; letter-spacing: .5px; }
+        .odm-ai-odm-talk-header a { font-size: 10px; color: #2563EB; text-decoration: none; font-weight: 800; }
+        .odm-ai-odm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+        .odm-ai-odm-actions button, .odm-ai-discussion-row button { padding: 5px 8px; font-size: 10px; border: 1px solid #C7D2FE; border-radius: 8px; background: #EEF2FF; color: #3730A3; cursor: pointer; font-weight: 800; font-family: Inter, sans-serif; }
+        .odm-ai-odm-actions button:disabled, .odm-ai-discussion-row button:disabled { background: #F1F5F9; color: #64748B; border-color: #CBD5E1; cursor: not-allowed; }
+        .odm-ai-discussion-row { display: flex; gap: 6px; }
+        .odm-ai-discussion-row select { flex: 1; min-width: 0; padding: 5px 6px; font-size: 10px; border: 1px solid #CBD5E1; border-radius: 8px; font-family: Inter, sans-serif; }
+        .odm-ai-bridge-status { margin-top: 5px; font-size: 9px; color: #64748B; line-height: 1.35; }
+        @media (max-width: 640px) {
+          .odm-ai-fab { right: 1rem; bottom: calc(.875rem + env(safe-area-inset-bottom)); }
+          .odm-ai-panel {
+            right: .75rem;
+            left: .75rem;
+            bottom: calc(4.75rem + env(safe-area-inset-bottom));
+            width: auto;
+            height: min(620px, calc(100vh - 96px));
+            border-radius: 14px;
+          }
+          .odm-ai-title, .odm-ai-subtitle { max-width: 175px; }
+          .odm-ai-voice-controls { padding-top: 8px; }
+          .odm-ai-voice-btn { flex: 1 1 auto; }
+          .odm-ai-input-row { align-items: stretch; }
+          .odm-ai-input { min-height: 36px; }
+          .odm-ai-send-btn { min-width: 64px; }
+          .odm-ai-odm-actions { grid-template-columns: 1fr; }
+        }
+        @keyframes dotPulse { 0%,80%,100%{opacity:.3;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
+      `}</style>
     </>
   );
 }

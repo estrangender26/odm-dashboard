@@ -20,6 +20,7 @@ describe("AI assistant voice agent helpers", () => {
     expect(source).toContain("Voice reply ON");
     expect(source).toContain("Voice captured. Review then tap Send.");
     expect(source).toContain("VOICE_UNSUPPORTED_MESSAGE");
+    expect(source).toContain("ODM Talk Bridge");
   });
 
   it("does not auto-send the captured final transcript when recognition ends", () => {
