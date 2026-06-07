@@ -15,7 +15,7 @@ describe("AI assistant voice agent helpers", () => {
 
   it("keeps text chat and voice controls in the assistant UI source", () => {
     const source = readFileSync("src/components/AIAssistant.tsx", "utf8");
-    expect(source).toContain("Ask about maintenance");
+    expect(source).toContain("Ask about this dashboard's data");
     expect(source).toContain("Start voice listening");
     expect(source).toContain("Voice reply ON");
     expect(source).toContain("Voice captured. Review then tap Send.");

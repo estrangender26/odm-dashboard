@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
-import AiChatPanel from "@/components/AiChatPanel";
+import AIAssistant from "@/components/AIAssistant";
 
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
@@ -360,8 +360,18 @@ export default function Home() {
         Program Oversight Center &copy; 2026
       </footer>
 
-      {/* AI Maintenance Expert Chat */}
-      <AiChatPanel />
+      {/* Unified AI Assistant */}
+      <AIAssistant
+        contextType="maintenance"
+        data={[]}
+        filters={{ source: "home" }}
+        metadata={{
+          sourceModule: "Maintenance Planning",
+          sourceRecordId: "home-dashboard-suite",
+          sourceRecordLabel: "Dashboard Suite Home",
+        }}
+        title="Maintenance Planning AI"
+      />
     </div>
   );
 }
