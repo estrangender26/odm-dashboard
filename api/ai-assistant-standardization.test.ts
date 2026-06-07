@@ -57,6 +57,20 @@ describe("AI assistant visual standardization", () => {
     expect(shell).not.toContain("#005BAC");
   });
 
+
+  it("keeps the visible assistant chrome shared instead of module-titled", () => {
+    const source = assistantSource();
+    const shell = assistantShell();
+    const headerChrome = shell.slice(0, shell.indexOf("          {/* Messages */}"));
+
+    expect(source).toContain('const SHARED_ASSISTANT_TITLE = "ODM Dashboard AI";');
+    expect(source).toContain('const SHARED_ASSISTANT_SUBTITLE = "Grounded in active dashboard data";');
+    expect(headerChrome).toContain("{SHARED_ASSISTANT_TITLE}");
+    expect(headerChrome).toContain("{SHARED_ASSISTANT_SUBTITLE}");
+    expect(headerChrome).not.toContain('title || "AI Analysis"');
+    expect(headerChrome).not.toContain("odmTalkSource.sourceModule");
+  });
+
   it("renders one shared visual section for fab, panel, header, input, voice, and ODM Talk", () => {
     const shell = assistantShell();
 
