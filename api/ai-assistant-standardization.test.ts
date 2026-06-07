@@ -70,7 +70,8 @@ describe("AI assistant visual standardization", () => {
     expect(source).toContain("Voice reply ON");
     expect(source).toContain("Voice captured. Review then tap Send.");
     expect(source).toContain("ODM Talk Bridge");
-    expect(source).toContain("Live web lookup is not enabled in this dashboard AI.");
+    expect(source).toContain("server-side web search when available");
+    expect(source).not.toContain("Live web lookup is not enabled in this dashboard AI.");
   });
 
   it("keeps each audited page on exactly one unified React AIAssistant", () => {
