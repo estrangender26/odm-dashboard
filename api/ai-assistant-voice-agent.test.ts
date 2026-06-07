@@ -63,6 +63,31 @@ describe("AI assistant voice agent helpers", () => {
     expect(source).toMatch(/hasModuleData\s*\?/);
   });
 
+  it("does not expose module-analysis prompt copy in the unloaded general prompt list", () => {
+    const source = readFileSync("src/components/AIAssistant.tsx", "utf8");
+    const generalPromptsBlock =
+      source.match(/const GENERAL_HELP_PROMPTS = \[([\s\S]*?)\];/)?.[0] || "";
+
+    expect(generalPromptsBlock).toContain("What can this dashboard do?");
+    expect(generalPromptsBlock).toContain("Which module should I open?");
+    expect(generalPromptsBlock).toContain("How do I use Maintenance Planning?");
+    expect(generalPromptsBlock).toContain("How do I use ODM Talk?");
+    expect(generalPromptsBlock).not.toContain("Analyze PM compliance trends");
+    expect(generalPromptsBlock).not.toContain("Identify high-risk equipment");
+    expect(generalPromptsBlock).not.toContain("Which KPIs are below benchmark?");
+    expect(generalPromptsBlock).not.toContain("Analyze schedule delays");
+  });
+
+  it("requires usable module data before module-specific quick questions are shown", () => {
+    const source = readFileSync("src/components/AIAssistant.tsx", "utf8");
+
+    expect(source).toContain("function hasUsableModuleData");
+    expect(source).toContain("return false;");
+    expect(source).toContain(
+      "const prompts = hasModuleData\n    ? quickQuestions || CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.help\n    : GENERAL_HELP_PROMPTS;"
+    );
+  });
+
   it("does not include forbidden route files in the working diff", () => {
     const changedFiles = execSync("git diff --name-only HEAD", {
       encoding: "utf8",
