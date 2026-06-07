@@ -5,6 +5,7 @@ import { createRouter, publicQuery } from "./middleware";
 import {
   formatWebSearchResultsForPrompt,
   getWebSearchProvider,
+  synthesizeWebSearchAnswer,
   isWebSearchConfigured,
   webSearch,
   type WebSearchResponse,
@@ -41,7 +42,7 @@ const MODULE_CONTEXT_PATTERN =
 const MODULE_DATA_TERMS =
   /\b(active module|dashboard data|module data|this dashboard|these records|this module|work orders?|tasks?|task count|kpis?|equipment|smp|manuals?|documents?|folders?|files?|schedule|critical path|milestones?|governance|inspection|post-ppp|ppp|currentpppdoer|responsible|ownership|coverage|uploads?|records?)\b/i;
 const CURRENT_WEB_TERMS =
-  /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|richest|wealthiest|billionaire|billionaires|net worth|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
+  /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|richest|wealthiest|billionaire|billionaires|net worth|ceo|chief executive|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
 const CURRENT_PPP_ONLY_PATTERN =
   /\bcurrent\s+ppp|currentpppdoer|current\s+doer|current\s+execution\s+doer\b/i;
 
@@ -50,6 +51,9 @@ export type AiQueryClass =
   | "general-knowledge"
   | "web-current"
   | "combined-module-web";
+
+export const WEB_SEARCH_FAILURE_REPLY =
+  "I could not retrieve live web results right now.";
 
 const SIMPLE_RUNTIME_TIME_PATTERN =
   /^\s*(?:what(?:\s+is|'s)?\s+(?:the\s+)?time(?:\s+is\s+it)?|what\s+time\s+is\s+it|current\s+time|time\s+now)\??\s*$/i;
@@ -156,7 +160,7 @@ function formatSourcesSection(response: WebSearchResponse): string {
     lines.push(
       `- ${result.title || "Untitled"} — ${result.domain || "Unknown domain"}`
     );
-    if (result.url) lines.push(`  ${result.url}`);
+    if (result.url) lines.push(`- ${result.url}`);
   }
 
   return lines.join("\n");
@@ -475,7 +479,7 @@ export const aiRouter = createRouter({
         if (!isWebSearchConfigured()) {
           if (queryClass === "web-current") {
             return {
-              reply: "Live web search is not configured for this deployment.",
+              reply: WEB_SEARCH_FAILURE_REPLY,
               error: "WEB_SEARCH_NOT_CONFIGURED",
             };
           }
@@ -485,10 +489,27 @@ export const aiRouter = createRouter({
             const searchResponse = await webSearch(userQuestion, 4);
             successfulSearchResponse =
               searchResponse.results.length > 0 ? searchResponse : null;
+
+            if (queryClass === "web-current") {
+              return {
+                reply: successfulSearchResponse
+                  ? synthesizeWebSearchAnswer(successfulSearchResponse)
+                  : WEB_SEARCH_FAILURE_REPLY,
+                error: successfulSearchResponse ? null : "WEB_SEARCH_NO_RESULTS",
+              };
+            }
+
             webContext = `\n\n=== WEB SEARCH CONTEXT ===\n${formatWebSearchResultsForPrompt(searchResponse)}`;
           } catch (error) {
             console.error("[WEB SEARCH ERROR]", error);
-            webContext = `\n\n=== WEB SEARCH CONTEXT ===\nWEB SEARCH STATUS: Search failed. Say exactly "I could not retrieve live web results right now." where live context is requested.`;
+            if (queryClass === "web-current") {
+              return {
+                reply: WEB_SEARCH_FAILURE_REPLY,
+                error: "WEB_SEARCH_FAILED",
+              };
+            }
+
+            webContext = `\n\n=== WEB SEARCH CONTEXT ===\nWEB SEARCH STATUS: Search failed. Say exactly "${WEB_SEARCH_FAILURE_REPLY}" where live context is requested.`;
           }
         }
       }

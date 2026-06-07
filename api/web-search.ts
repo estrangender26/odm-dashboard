@@ -97,13 +97,7 @@ export function synthesizeWebSearchAnswer(response: WebSearchResponse): string {
   ]);
 
   if (sources.length === 0) {
-    return [
-      "From web search:",
-      "I could not retrieve live web results right now.",
-      "",
-      "Sources:",
-      "- No sources returned",
-    ].join("\n");
+    return "I could not retrieve live web results right now.";
   }
 
   const snippetSentences = getSnippetSentences(sources);
@@ -113,7 +107,7 @@ export function synthesizeWebSearchAnswer(response: WebSearchResponse): string {
       : "I found a relevant source, but the result snippet did not include enough detail to answer confidently.";
 
   return [
-    "From web search:",
+    "Answer:",
     directAnswer,
     "",
     "Sources:",
