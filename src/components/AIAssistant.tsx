@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/providers/trpc";
+import { VOICE_UNSUPPORTED_MESSAGE, describeSpeechRecognitionError, getSpeechRecognitionConstructor } from "@/lib/voiceAgent";
 import { formatOdmTalkAiPost, inferOdmTalkSource, type OdmTalkShareType, type OdmTalkThreadType } from "@/lib/odmTalkBridge";
 import { normProgress, rowStatus } from "@/modules/gantt/engine/schedulingEngine";
 import { calcProjectCompletion, normalizeTaskStatus, taskCompletionPercent } from "@/modules/gantt/engine/uiUtilsEngine";
+
+type VoiceRecognition = InstanceType<NonNullable<ReturnType<typeof getSpeechRecognitionConstructor>>>;
 
 export type DashboardContext =
   | "maintenance"
@@ -261,9 +264,9 @@ function buildDataContext(data: any[] | any, contextType: DashboardContext, filt
           type: `${t.taskType ?? t.type ?? "task"}`.toLowerCase(),
           parentId: t.parentTaskId ?? t.parent ?? 0,
           hierarchy: (t.parentTaskId ?? t.parent ?? 0) ? "child" : "parent",
-          plannedStartRaw: t.planned_start ?? t.plannedStart ?? t.start_date ?? t.startDate ?? "",
+          plannedStartRaw: t.planned_start ?? t.plannedStart ?? t.start_date ?? t.startDate ?? plannedStart?.toISOString() ?? "",
           plannedEndRaw: t.planned_end ?? t.plannedEnd ?? t.end_date ?? t.endDate ?? "",
-          actualStartRaw: t.actual_start ?? t.actualStart ?? t.actual_start_date ?? t.actualStartDate ?? t.start_date ?? t.startDate ?? "",
+          actualStartRaw: t.actual_start ?? t.actualStart ?? t.actual_start_date ?? t.actualStartDate ?? t.start_date ?? t.startDate ?? actualStart?.toISOString() ?? "",
           actualEndRaw: t.actual_end ?? t.actualEnd ?? t.actual_end_date ?? t.actualEndDate ?? t.end_date ?? t.endDate ?? "",
           duration,
           progress,
@@ -536,7 +539,12 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
   const [loading, setLoading] = useState(false);
   const [odmTalkStatus, setOdmTalkStatus] = useState("");
   const [selectedThreadId, setSelectedThreadId] = useState("");
+  const [listening, setListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
+  const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<VoiceRecognition | null>(null);
+  const voiceReplyEnabledRef = useRef(voiceReplyEnabled);
   const odmTalkSource = inferOdmTalkSource(contextType, title, metadata, filters);
   const relatedThreads = trpc.odmTalk.related.useQuery(
     { sourceModule: odmTalkSource.sourceModule, sourceRecordId: odmTalkSource.sourceRecordId },
@@ -563,6 +571,11 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
     onSuccess: (res) => {
       setLoading(false);
       setMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
+      if (voiceReplyEnabledRef.current && typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(res.reply);
+        window.speechSynthesis.speak(utterance);
+      }
     },
     onError: (e) => {
       setLoading(false);
@@ -575,6 +588,22 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
       ]);
     },
   });
+
+  useEffect(() => {
+    voiceReplyEnabledRef.current = voiceReplyEnabled;
+    if (!voiceReplyEnabled && typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, [voiceReplyEnabled]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -609,6 +638,72 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
     }));
 
     chatMut.mutate({ message: fullMessage, history });
+  };
+
+
+  const startVoiceListening = () => {
+    if (listening || loading) return;
+
+    const Recognition = getSpeechRecognitionConstructor();
+    if (!Recognition) {
+      setVoiceStatus(VOICE_UNSUPPORTED_MESSAGE);
+      return;
+    }
+
+    const recognition = new Recognition();
+    recognitionRef.current = recognition;
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    let finalTranscript = "";
+    let hadVoiceError = false;
+
+    recognition.onstart = () => {
+      setListening(true);
+      setVoiceStatus("Listening…");
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript || "")
+        .join(" ")
+        .trim();
+      if (transcript) {
+        finalTranscript = transcript;
+        setInput(transcript);
+      }
+    };
+
+    recognition.onerror = (event) => {
+      hadVoiceError = true;
+      setVoiceStatus(describeSpeechRecognitionError(event));
+      setListening(false);
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+      if (finalTranscript.trim()) {
+        setVoiceStatus("");
+        send(finalTranscript);
+      } else if (!hadVoiceError) {
+        setVoiceStatus("Voice input stopped. Please try again or use text chat.");
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setListening(false);
+      setVoiceStatus("Voice input is already active. Please stop listening before starting again.");
+    }
+  };
+
+  const stopVoiceListening = () => {
+    recognitionRef.current?.stop();
+    setListening(false);
+    setVoiceStatus("");
   };
 
   const prompts = quickQuestions || CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.help;
@@ -748,13 +843,48 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
             </div>
           </div>
 
+          {/* Voice controls */}
+          <div style={{ padding: "8px 12px 0", borderTop: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <button
+              onClick={startVoiceListening}
+              disabled={listening || loading}
+              title="Start voice listening"
+              aria-label="Start voice listening"
+              style={{ padding: "5px 8px", fontSize: 10, fontWeight: 700, border: "1px solid #C4B5FD", borderRadius: 8, background: listening ? "#F5F3FF" : "#FFFFFF", color: "#5B21B6", cursor: listening || loading ? "not-allowed" : "pointer" }}
+            >
+              🎙️ Start voice listening
+            </button>
+            <button
+              onClick={stopVoiceListening}
+              disabled={!listening}
+              title="Stop voice listening"
+              aria-label="Stop voice listening"
+              style={{ padding: "5px 8px", fontSize: 10, fontWeight: 700, border: "1px solid #CBD5E1", borderRadius: 8, background: listening ? "#FFFFFF" : "#F1F5F9", color: "#334155", cursor: listening ? "pointer" : "not-allowed" }}
+            >
+              Stop
+            </button>
+            <button
+              onClick={() => setVoiceReplyEnabled((enabled) => !enabled)}
+              title={voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
+              aria-label={voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
+              style={{ padding: "5px 8px", fontSize: 10, fontWeight: 700, border: "1px solid #BAE6FD", borderRadius: 8, background: voiceReplyEnabled ? "#E0F2FE" : "#FFFFFF", color: "#075985", cursor: "pointer" }}
+            >
+              {voiceReplyEnabled ? "Voice reply ON" : "Voice reply OFF"}
+            </button>
+            {voiceStatus && (
+              <span style={{ flexBasis: "100%", fontSize: 10, color: voiceStatus === VOICE_UNSUPPORTED_MESSAGE || voiceStatus.includes("Microphone permission") ? "#B91C1C" : "#64748B" }}>
+                {listening ? "Listening…" : voiceStatus}
+              </span>
+            )}
+          </div>
+
           {/* Input */}
-          <div style={{ padding: "8px 12px", borderTop: "1px solid #E2E8F0", display: "flex", gap: 6, alignItems: "flex-end" }}>
+          <div style={{ padding: "8px 12px", display: "flex", gap: 6, alignItems: "flex-end" }}>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }}}
-              placeholder="Ask AI..."
+              placeholder="Ask about maintenance, PM, KPIs..."
               rows={1}
               style={{ flex: 1, padding: "6px 10px", fontSize: 11, border: "1px solid #D6DFE8", borderRadius: 8, fontFamily: "Inter, sans-serif", resize: "none", outline: "none", maxHeight: 60 }}
             />
