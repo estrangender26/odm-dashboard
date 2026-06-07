@@ -6,6 +6,7 @@ import {
   finalizeAiReplyForWebSearch,
   isRuntimeTimeQuestion,
   queryNeedsWebSearch,
+  WEB_SEARCH_FAILURE_REPLY,
 } from "./ai-router";
 import {
   formatWebSearchResultsForPrompt,
@@ -72,6 +73,18 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(classifyAiQuery("Who is the richest person in the world?")).toBe(
       "web-current"
     );
+    expect(classifyAiQuery("Who is the richest man on earth?")).toBe(
+      "web-current"
+    );
+    expect(classifyAiQuery("Who is the current CEO of Microsoft?")).toBe(
+      "web-current"
+    );
+    expect(classifyAiQuery("What is the current price of Bitcoin?")).toBe(
+      "web-current"
+    );
+    expect(
+      classifyAiQuery("What is the latest standard/version of ECMAScript?")
+    ).toBe("web-current");
 
     const routerSource = repoFile("api/ai-router.ts");
     expect(routerSource).toContain("webSearch(userQuestion, 4)");
@@ -110,8 +123,10 @@ describe("ODM Dashboard AI web-search routing", () => {
     });
 
     expect(answer).toContain(
-      "From web search:\nElon Musk is the richest person in the world"
+      "Answer:\nElon Musk is the richest person in the world"
     );
+    expect(answer).not.toContain("From dashboard data");
+    expect(answer).not.toContain("Module data is not loaded");
     expect(answer).toContain("Sources:");
     expect(answer).toContain("- Forbes Billionaires List — forbes.com");
     expect(answer).toContain("- https://www.forbes.com/billionaires/");
@@ -239,6 +254,28 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(reply).toContain("Sources:");
   });
 
+  it("returns only the live-web failure sentence when pure web search has no results", () => {
+    const answer = synthesizeWebSearchAnswer({
+      provider: "tavily",
+      results: [],
+    });
+
+    expect(answer).toBe(WEB_SEARCH_FAILURE_REPLY);
+    expect(answer).not.toContain("From dashboard data");
+    expect(answer).not.toContain("Module data is not loaded");
+    expect(answer).not.toContain("Sources: None");
+    expect(answer).not.toContain("Sources:");
+  });
+
+  it("keeps pure web failure output free of dashboard fallback text", () => {
+    expect(WEB_SEARCH_FAILURE_REPLY).toBe(
+      "I could not retrieve live web results right now."
+    );
+    expect(WEB_SEARCH_FAILURE_REPLY).not.toContain("From dashboard data");
+    expect(WEB_SEARCH_FAILURE_REPLY).not.toContain("Module data is not loaded");
+    expect(WEB_SEARCH_FAILURE_REPLY).not.toContain("Sources: None");
+  });
+
   it("uses the explicit insufficient-snippet answer when web details are missing", () => {
     const answer = synthesizeWebSearchAnswer({
       provider: "tavily",
@@ -255,6 +292,7 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(answer).toContain(
       "I found a relevant source, but the result snippet did not include enough detail to answer confidently."
     );
+    expect(answer).toMatch(/^Answer:/);
     expect(answer).toContain("Sources:");
   });
 
