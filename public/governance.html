@@ -1,14 +1,2436 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="refresh" content="0; url=/governance" />
-    <title>Opening O&amp;M Manual Governance</title>
-    <script>window.location.replace('/governance');</script>
-  </head>
-  <body>
-    <p>Opening the unified React O&amp;M Manual Governance dashboard…</p>
-    <p><a href="/governance">Continue to O&amp;M Manual Governance</a></p>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>O&M Manual Governance — Facility Onboarding Alignment Tracker</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=2" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+/* ---------- FILE UPLOAD API (Database Storage) ---------- */
+const FILE_API = '/api/trpc';
+
+function govUploadFile(facilitySlug, milestoneId, tocItem, fileName, fileType, fileSize, base64Data) {
+  return fetch(FILE_API + '/govFiles.upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      json: { facilitySlug, milestoneId, tocItem, fileName, fileType, fileSize, fileData: base64Data }
+    })
+  }).then(r => r.json());
+}
+
+function govListFiles(facilitySlug, milestoneId) {
+  return fetch(FILE_API + '/govFiles.list', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: { facilitySlug, milestoneId } })
+  }).then(r => r.json());
+}
+
+function govDownloadFile(fileId) {
+  return fetch(FILE_API + '/govFiles.download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: { id: fileId } })
+  }).then(r => r.json());
+}
+
+function govDeleteFile(fileId) {
+  return fetch(FILE_API + '/govFiles.delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: { id: fileId } })
+  }).then(r => r.json());
+}
+
+function govListByFacility(facilitySlug) {
+  return fetch(FILE_API + '/govFiles.listByFacility', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: { facilitySlug } })
+  }).then(r => r.json());
+}
+
+/* ---------- Progress Bar ---------- */
+function pbShow(text, sub) {
+  var el = document.getElementById('pb-overlay');
+  if (!el) return;
+  document.getElementById('pb-text').textContent = text || 'Uploading...';
+  document.getElementById('pb-sub').textContent = sub || '';
+  document.getElementById('pb-fill').style.width = '0%';
+  document.getElementById('pb-count').textContent = '';
+  el.style.display = 'flex';
+}
+function pbUpdate(pct, sub, count) {
+  var fill = document.getElementById('pb-fill');
+  if (fill) fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+  if (sub) document.getElementById('pb-sub').textContent = sub;
+  if (count) document.getElementById('pb-count').textContent = count;
+}
+function pbHide() {
+  var el = document.getElementById('pb-overlay');
+  if (el) el.style.display = 'none';
+}
+
+// Load files from DB with retry — source of truth for UI
+var __lfRetryCount = 0;
+function loadFilesFromDB(facility){
+  // DEPRECATED: replaced by fetchStateFromDB
+  // All calls now trigger a full DB refresh
+  var f = facility || document.getElementById('fs').value;
+  fetchStateFromDB(f).then(function(){
+    updateSyncStatus('Synced: ' + getTotalFileCount() + ' files');
+    ALL();
+  });
+}
+
+// Console debug helpers
+window.debugGovState = function() {
+  var f = document.getElementById('fs').value;
+  console.log('[GOV DEBUG] Facility:', f);
+  console.log('[GOV DEBUG] ST[f].up keys:', ST[f] && ST[f].up ? Object.keys(ST[f].up) : 'null');
+  loadFilesFromDB(f);
+};
+// Direct API test — bypass upload handler
+window.testUploadDirect = function() {
+  var f = document.getElementById('fs').value;
+  var dbSlug = f.toLowerCase();
+  var b64 = 'data:text/plain;base64,' + btoa('test '+Date.now());
+  console.log('[GOV TEST] Direct upload to DB, facility:', dbSlug);
+  govUploadFile(dbSlug, 'M1', 'TOC-01', 'direct-test.txt', 'text/plain', 20, b64)
+    .then(function(res) {
+      console.log('[GOV TEST] Upload response:', JSON.stringify(res));
+      setTimeout(function() {
+        console.log('[GOV TEST] Now listing...');
+        govListByFacility(dbSlug).then(function(listRes) {
+          var files = (listRes && listRes.result && listRes.result.data && listRes.result.data.json) || [];
+          console.log('[GOV TEST] List returned', files.length, 'files:', files.map(function(x){return x.fileName;}));
+          loadFilesFromDB(f);
+        });
+      }, 500);
+    })
+    .catch(function(err) { console.error('[GOV TEST] Upload failed:', err); });
+};
+
+// Test: List ALL files in DB (no filter)
+window.testListAll = function() {
+  console.log('[GOV TEST] Calling listAll...');
+  fetch('/api/trpc/govFiles.listAll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({})
+  }).then(function(r){ return r.json(); }).then(function(data){
+    console.log('[GOV TEST] listAll raw response:', data);
+    if (data && data.result && data.result.data && data.result.data.json) {
+      var files = data.result.data.json;
+      console.log('[GOV TEST] Total files in DB:', files.length);
+      files.forEach(function(f, i) {
+        console.log('[GOV TEST] File #' + i + ':', f.id, f.facilitySlug, f.milestoneId, f.tocItem, f.fileName);
+      });
+    } else {
+      console.error('[GOV TEST] Invalid response:', data);
+    }
+  }).catch(function(err){ console.error('[GOV TEST] listAll error:', err); });
+};
+
+// Test: Upload a tiny dummy file
+window.testUpload = function() {
+  var facility = document.getElementById('fs').value;
+  var tinyFile = 'data:text/plain;base64,' + btoa('Test upload at ' + new Date().toISOString());
+  console.log('[GOV TEST] Uploading tiny test file to facility:', facility);
+  govUploadFile(facility, 'M1', 'TOC-1', 'test-upload.txt', 'text/plain', 50, tinyFile)
+    .then(function(res) {
+      console.log('[GOV TEST] Upload response:', res);
+      if (res && res.result && res.result.data && res.result.data.json) {
+        console.log('[GOV TEST] Upload success! id:', res.result.data.json.id);
+      } else {
+        console.error('[GOV TEST] Upload failed or invalid response');
+      }
+      // Immediately check DB
+      setTimeout(function() { loadFilesFromDB(facility); window.testListAll(); }, 500);
+    })
+    .catch(function(err) { console.error('[GOV TEST] Upload error:', err); });
+};
+
+/* ---------- Multi-User Sync: Manual Refresh Only ---------- */
+// Auto-polling removed — it was interfering with uploads by re-rendering
+// the UI during active upload operations. Use the Refresh button instead.
+
+function updateSyncStatus(text) {
+  var el = document.getElementById('sync-status');
+  if (el) el.textContent = text;
+}
+
+function forceRefresh() {
+  var facility = document.getElementById('fs').value;
+  console.log('[GOV] Manual refresh for facility:', facility);
+  updateSyncStatus('Refreshing...');
+  loadFilesFromDB(facility);
+  INIT();
+  var btn = document.querySelector('button[onclick="forceRefresh()"]');
+  if (btn) { var orig = btn.textContent; btn.textContent = '✓ Refreshed'; setTimeout(function(){ btn.textContent = orig; }, 1200); }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<link rel="stylesheet" href="/governance.css?v=2" />
+<link rel="stylesheet" href="/ProgramsEngineeringLogo.css" />
+
+</head>
+<body>
+<!-- Progress Bar Overlay -->
+<div id="pb-overlay">
+  <div id="pb-box">
+    <div id="pb-text">Uploading...</div>
+    <div id="pb-bar"><div id="pb-fill"></div></div>
+    <div id="pb-sub">Preparing file...</div>
+    <div id="pb-count"></div>
+  </div>
+</div>
+<script>
+// Multi-User API Sync Layer for Governance
+(function(){
+  const API_BASE = '/api/trpc';
+  let syncTimeout = null;
+
+  function syncToServer() {
+    const milestoneData = localStorage.getItem('milestoneData');
+    if (!milestoneData) return;
+
+    const data = JSON.parse(milestoneData);
+    const facilities = ['aglipay','htt','eastbay','kaysakat'];
+    const currentFacility = (window.currentFacility || facilities[0]).toLowerCase();
+
+    // Send each milestone to the server
+    Object.entries(data).forEach(([milestoneId, values]) => {
+      var cleanPPP=safePP(values.ppp);
+      var cleanComp=values.comp!==undefined&&values.comp!==null&&values.comp!==''?normalizeDateOnly(values.comp):null;
+      const payload = {
+        facilitySlug: currentFacility,
+        milestoneId: milestoneId,
+        pppDate: cleanPPP||null,
+        compDate: cleanComp||null,
+        customPct: values.customPct || null,
+      };
+      fetch(API_BASE + '/governance.saveMilestone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: payload })
+      }).catch(() => {});
+    });
+  }
+
+  function loadFromServer() {
+    const facilities = ['aglipay','htt','eastbay','kaysakat'];
+    const currentFacility = (window.currentFacility || facilities[0]).toLowerCase();
+
+    fetch(API_BASE + '/governance.milestoneState?input=' + encodeURIComponent(JSON.stringify({ facilitySlug: currentFacility })))
+      .then(r => r.json())
+      .then(data => {
+        if (data.result?.data?.json) {
+          const state = {};
+          data.result.data.json.forEach(row => {
+            state[row.milestoneId] = {
+              ppp: normalizeDateOnly(row.pppDate) || '',
+              comp: row.compDate !== undefined && row.compDate !== null ? normalizeDateOnly(row.compDate) : null,
+              customPct: row.customPct || null
+            };
+          });
+          localStorage.setItem('milestoneData', JSON.stringify(state));
+          // Refresh the UI if possible
+          if (typeof window.refreshMilestoneUI === 'function') {
+            window.refreshMilestoneUI();
+          }
+        }
+      })
+      .catch(() => {});
+  }
+
+  const origSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(key, value) {
+    origSetItem(key, value);
+    if (key === 'milestoneData') {
+      clearTimeout(syncTimeout);
+      syncTimeout = setTimeout(syncToServer, 2000);
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){INIT();});
+  } else {
+    setTimeout(function(){INIT();}, 500);
+  }
+})();
+</script>
+
+<style>
+#app-splash{position:fixed;top:0;left:0;width:100%;height:100%;background:#1e3a5f;z-index:99999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:system-ui,sans-serif;transition:opacity .3s}
+#app-splash.fade-out{opacity:0;pointer-events:none}
+#app-splash .spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#viz-debug{display:none!important}
+/* AI Panel animations */
+#ai-panel{animation:slideInRight 0.3s ease-out}
+@keyframes slideInRight{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+#ai-panel::-webkit-scrollbar{width:6px}
+#ai-panel::-webkit-scrollbar-track{background:rgba(255,255,255,0.02)}
+#ai-panel::-webkit-scrollbar-thumb{background:rgba(99,102,241,0.3);border-radius:3px}
+#ask-ai-fab:hover .ai-glow{opacity:1}
+.ai-glow{animation:aiPulse 2s ease-in-out infinite}
+@keyframes aiPulse{0%,100%{opacity:0}50%{opacity:0.3}}
+</style>
+<div id="app-splash"><div style="text-align:center"><div class="spinner"></div><div>Loading dashboard...</div></div></div>
+<script>
+window.addEventListener("load",function(){setTimeout(function(){var s=document.getElementById("app-splash");if(s){s.classList.add("fade-out");setTimeout(function(){s.remove()},300)}},200)});
+</script>
+
+<header class="hdr">
+<div class="hdr-in">
+  <div class="brand">
+    <a href="/" title="Return to Program Oversight Center" aria-label="Return to Program Oversight Center" style="display:flex;align-items:center;gap:10px;text-decoration:none;min-width:0">
+      <span class="pe-liquid-logo" style="width:72px;height:72px;background:#fff;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;">
+        <img class="pe-liquid-logo__base" src="/programs_engineering_vertical_logo.svg" alt="Programs Logo" style="width:72px;height:72px;border-radius:10px;padding:4px;flex-shrink:0;object-fit:contain;display:block;-webkit-backface-visibility:hidden;backface-visibility:hidden;transform:translateZ(0);" />      </span>
+</span>
+      <div style="border-left:1px solid rgba(255,255,255,.25);padding-left:14px">
+        <h1 style="font-size:16px;font-weight:700;margin:0;color:#fff">O&amp;M Manual Governance</h1>
+        <span style="font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:.5px;color:#fff;display:block;margin-top:1px">Facility Onboarding Alignment Tracker</span>
+      </div>
+    </a>
+  </div>
+  <div class="acts">
+    <div class="hdr-chip">
+      <label>Facility</label>
+      <select id="fs"><option value="AGLIPAY">AGLIPAY STP</option><option value="HTT">HTT STP</option><option value="EASTBAY">EASTBAY PH-2 TP</option><option value="KAYSAKAT">KAYSAKAT TP</option></select>
+    </div>
+    <div class="hdr-chip">
+      <label>PPP Start</label>
+      <input type="date" id="pp" disabled placeholder="--" style="width:110px;text-align:center;font-weight:600;color:#fff;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:var(--r-md);padding:6px 8px;font-family:Inter,sans-serif;font-size:11px;">
+    </div>
+    <button class="btn-g" onclick="forceRefresh()" title="Refresh uploads from server">🔄 Refresh</button>
+    <button class="btn-r" onclick="rsA()">Reset</button>
+    <button class="btn-g" id="btn-edit" onclick="startEdit()" style="display:inline-block">✏️ Edit</button>
+    <button class="btn-p" id="btn-save" onclick="saveAll()" style="display:none;background:#059669">💾 Save</button>
+    <button class="btn-r" id="btn-cancel" onclick="cancelEdit()" style="display:none">✕ Cancel</button>
+    <button class="btn-g" onclick="toggleAIPanel()" title="AI Governance Insights" style="background:linear-gradient(135deg,#7C3AED,#6366F1);border:none;position:relative;overflow:hidden">
+      <span style="position:relative;z-index:1">✨ AI Insights</span>
+      <span class="ai-glow" style="position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,rgba(124,58,237,0.4),rgba(99,102,241,0.4));opacity:0;transition:opacity 0.3s"></span>
+    </button>
+    <span id="edit-status" style="font-size:10px;opacity:0.7;white-space:nowrap;color:#fbbf24"></span>
+    <span id="sync-status" style="font-size:10px;opacity:0.7;white-space:nowrap">Ready</span>
+  </div>
+</div>
+</header>
+
+<!-- AI Summary Cards Bar -->
+<div id="ai-cards-bar" style="display:none;background:linear-gradient(135deg,#0B1D44 0%,#1e3a5f 100%);padding:12px 0;border-bottom:1px solid rgba(99,102,241,0.2)">
+  <div style="max-width:1400px;margin:0 auto;padding:0 20px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+    <div style="flex:1;min-width:200px;background:rgba(255,255,255,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:10px 14px">
+      <div style="font-size:9px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Governance Readiness</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <div style="flex:1;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden">
+          <div id="ai-readiness-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#7C3AED,#6366F1);border-radius:3px;transition:width 0.5s"></div>
+        </div>
+        <span id="ai-readiness-pct" style="font-size:14px;font-weight:700;color:#fff">--%</span>
+      </div>
+    </div>
+    <div style="min-width:140px;background:rgba(255,255,255,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:10px 14px">
+      <div style="font-size:9px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Risk Level</div>
+      <div id="ai-risk-badge" style="font-size:13px;font-weight:700;color:#FBBF24;margin-top:4px">--</div>
+    </div>
+    <div style="min-width:140px;background:rgba(255,255,255,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:10px 14px">
+      <div style="font-size:9px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Milestones Complete</div>
+      <div id="ai-milestones-count" style="font-size:13px;font-weight:700;color:#fff;margin-top:4px">--</div>
+    </div>
+    <div style="min-width:140px;background:rgba(255,255,255,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:10px;padding:10px 14px">
+      <div style="font-size:9px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">PPP Status</div>
+      <div id="ai-ppp-status" style="font-size:13px;font-weight:700;color:#fff;margin-top:4px">--</div>
+    </div>
+    <div style="min-width:100px">
+      <button onclick="toggleAIPanel()" style="width:100%;padding:8px 12px;font-size:11px;font-weight:600;background:rgba(124,58,237,0.15);color:#A78BFA;border:1px solid rgba(124,58,237,0.3);border-radius:8px;cursor:pointer">View Details →</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Full Panel -->
+<div id="ai-panel" style="display:none;position:fixed;top:0;right:0;width:420px;max-width:100vw;height:100vh;background:#0f172a;z-index:1000;box-shadow:-4px 0 24px rgba(0,0,0,0.3);border-left:1px solid rgba(99,102,241,0.2);overflow-y:auto">
+  <div style="position:sticky;top:0;background:linear-gradient(135deg,#1e1b4b,#0f172a);padding:16px 20px;border-bottom:1px solid rgba(99,102,241,0.2);z-index:10">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#7C3AED,#6366F1);display:flex;align-items:center;justify-content:center;font-size:18px">✨</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#fff">AI Governance Insights</div>
+          <div style="font-size:10px;color:#8BA3B8">Powered by O&amp;M Intelligence Engine</div>
+        </div>
+      </div>
+      <button onclick="toggleAIPanel()" style="background:none;border:none;color:#8BA3B8;font-size:20px;cursor:pointer;padding:4px">✕</button>
+    </div>
+  </div>
+
+  <div style="padding:20px">
+    <!-- AI Ask Input -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:10px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">Ask AI about this facility</div>
+      <div style="display:flex;gap:8px">
+        <input id="ai-question" type="text" placeholder="e.g., Which milestones are missing?" style="flex:1;padding:10px 12px;font-size:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(99,102,241,0.2);border-radius:8px;color:#fff;font-family:Inter,sans-serif" onkeydown="if(event.key==='Enter')askAI()">
+        <button onclick="askAI()" style="padding:10px 16px;font-size:12px;font-weight:600;background:linear-gradient(135deg,#7C3AED,#6366F1);color:#fff;border:none;border-radius:8px;cursor:pointer">Ask</button>
+        <button onclick="clearAIGov()" style="padding:10px 12px;font-size:11px;background:rgba(255,255,255,0.08);border:1px solid rgba(99,102,241,0.15);border-radius:8px;color:#94A3B8;cursor:pointer" title="Clear chat">Clear</button>
+      </div>
+      <div id="ai-chat-loading" style="display:none;margin-top:8px;font-size:11px;color:#A78BFA">🤖 Analyzing governance data...</div>
+      <div id="ai-chat-answer" style="display:none;margin-top:12px;padding:12px;background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.15);border-radius:8px;font-size:12px;color:#E2E8F0;line-height:1.6"></div>
+    </div>
+
+    <!-- Quick Questions -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:10px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">Quick Questions</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button onclick="quickAsk('Which facilities are missing SOPs?')" style="text-align:left;padding:8px 12px;font-size:11px;background:rgba(255,255,255,0.03);border:1px solid rgba(99,102,241,0.1);border-radius:6px;color:#CBD5E1;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">Which milestones are missing completion dates?</button>
+        <button onclick="quickAsk('What is the governance readiness?')" style="text-align:left;padding:8px 12px;font-size:11px;background:rgba(255,255,255,0.03);border:1px solid rgba(99,102,241,0.1);border-radius:6px;color:#CBD5E1;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">What is the overall readiness status?</button>
+        <button onclick="quickAsk('What are the governance gaps?')" style="text-align:left;padding:8px 12px;font-size:11px;background:rgba(255,255,255,0.03);border:1px solid rgba(99,102,241,0.1);border-radius:6px;color:#CBD5E1;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">What governance gaps exist?</button>
+        <button onclick="quickAsk('What are the recommendations?')" style="text-align:left;padding:8px 12px;font-size:11px;background:rgba(255,255,255,0.03);border:1px solid rgba(99,102,241,0.1);border-radius:6px;color:#CBD5E1;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">What should be done next?</button>
+      </div>
+    </div>
+
+    <!-- Detailed Analysis -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:10px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">Detailed Analysis</div>
+      <div id="ai-details" style="font-size:11px;color:#CBD5E1;line-height:1.7">
+        <div style="color:#64748B;text-align:center;padding:20px">Click "Analyze" to generate AI insights for this facility.</div>
+      </div>
+    </div>
+
+    <!-- Recommendations -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:10px;color:#8BA3B8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">AI Recommendations</div>
+      <div id="ai-recommendations" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+</div>
+
+<main class="main">
+<div class="tabs-wrap">
+  <div class="tabs">
+    <button class="tab a" onclick="sw('p',this)">Progress</button>
+    <button class="tab" onclick="sw('d',this)">Deliverables</button>
+    <button class="tab" onclick="sw('a',this)">Acceptance</button>
+    <button class="tab" onclick="sw('r',this)">References</button>
+  </div>
+</div>
+
+<!-- TAB 1: PROGRESS -->
+<div id="t-p" class="tc a">
+  <div id="fetch-status" style="background:#1a1a2e;color:#00ff88;padding:8px 12px;font-family:monospace;font-size:11px;border-radius:6px;margin-bottom:10px">Loading data...</div>
+  <div id="viz-debug" style="background:#1a1a2e;color:#ffdd00;padding:8px 12px;font-family:monospace;font-size:10px;border-radius:6px;margin-bottom:10px;max-height:200px;overflow-y:auto"></div>
+  <script>
+  // Visible debug logger — shows on page for mobile debugging
+  window._vdLog=function(tag,msg){
+    var el=document.getElementById('viz-debug');
+    if(!el)return;
+    el.style.display='block';
+    var line='['+new Date().toLocaleTimeString()+']['+tag+'] '+msg;
+    el.innerHTML+=line+'<br>';
+    if(el.innerHTML.length>3000)el.innerHTML=el.innerHTML.slice(-2000);
+    console.log(line);
+  };
+  window._vdLog('BOOT','Script parsed OK v4');
+  </script>
+  <!-- S-Curve Card -->
+  <div class="card">
+    <div class="ch"><h2>S-Curve Progress — Logistic Model</h2><span class="badge" style="background:var(--bg);color:var(--t2)" data-tip="30-month view showing Pre-PPP (-8 to 0), PPP (0 to +12), and Post-PPP (+12 to +20) phases">28-Month Project | 30-Month Curve View</span></div>
+    <div id="sc-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px"></div>
+    <div class="cw"><canvas id="sc"></canvas></div>
+    <p style="font-size:11px;color:var(--t2);margin-top:8px">Planned = cumulative earned value at target dates (11.1% per milestone) &nbsp;|&nbsp; Actual = cumulative earned value at completion dates (11.1% per milestone) &nbsp;|&nbsp; 30-Month View &nbsp;|&nbsp; Pre-PPP (-8 to 0) &rarr; PPP (0 to +12) &rarr; Post-PPP (+12 to +20) &nbsp;|&nbsp; PPP Start drives all milestone calendar dates</p>
+  </div>
+  <!-- Milestone & Timeline Tracker (combined) -->
+  <div class="card"><div class="ch"><h2>Milestone Tracker & Timeline — <span id="fl"></span></h2><span class="badge" id="mb" style="background:var(--bg);color:var(--t2)" data-tip="Milestones completed out of 9 total">0 / 9</span></div><div id="ph"></div></div>
+</div>
+
+<!-- TAB 2: DELIVERABLES -->
+<div id="t-d" class="tc">
+  <div class="card"><div class="ch"><h2>TOC Deliverables — <span id="dlf"></span></h2><span class="badge" id="db" style="background:var(--bg);color:var(--t2)" data-tip="TOC items with uploaded documents out of 14 total">0 / 14</span></div><div id="dl"></div></div>
+</div>
+
+<!-- TAB 3: ACCEPTANCE -->
+<div id="t-a" class="tc">
+  <div class="card">
+    <div class="ch"><h2>Acceptance Stages</h2></div>
+    <div class="ra-box a1"><div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:4px">P1 &mdash; Provisional Acceptance</div><div style="font-size:12px;color:var(--t2)">Initial acceptance when core commissioning/testing documentation is complete. Facility may begin limited operations under supervision. Not final.</div></div>
+    <div class="ra-box a2"><div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:4px">P2 &mdash; Final Acceptance</div><div style="font-size:12px;color:var(--t2)">Granted only when ALL verified: documentation complete, SOPs/SMPs approved, training fulfilled, digital onboarding verified, critical spares handover completed.</div></div>
+    <div class="ra-box ac"><div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">Critical Rule</div><div style="font-size:12px;color:var(--t2)">Facilities shall not be endorsed for Final Acceptance without a fully compliant O&M Manual. All 14 TOC items and 9 annexes must be complete. Ownership transfers to Operations only after formal Final Acceptance approval. No exceptions.</div></div>
+  </div>
+  <div class="card"><div class="ch"><h2>Rejection Grounds</h2></div><div id="rj"></div></div>
+</div>
+
+<!-- TAB 4: REFERENCES -->
+<div id="t-r" class="tc">
+  <div class="card"><div class="ch"><h2>Reference Documents</h2><span style="font-size:12px;color:var(--mw-muted)">Standard governance framework documents</span></div><div id="ref-debug" style="background:#1a1a2e;color:#00ff88;padding:8px 12px;font-family:monospace;font-size:11px;border-radius:6px;margin-bottom:8px"></div><div id="ref-doc-list"></div><div id="ref-doc-upload" style="display:none;margin-top:10px"></div></div>
+  <div class="card"><div class="ch"><h2>TOC-to-Annex Mapping</h2></div><div id="ref2"></div></div>
+  <div class="card"><div class="ch"><h2>Annexes Reference</h2></div><div id="ref"></div></div>
+</div>
+
+</main>
+
+<script>
+
+// ═══ GLOBAL ERROR CATCHER — logs fatal errors to page ═══
+window.onerror=function(msg,url,line,col,err){
+  console.error('[FATAL]',msg,'at',url+':'+line);
+  var dbg=document.getElementById('fetch-status');
+  if(dbg){dbg.style.background='#d1383e';dbg.style.color='#fff';dbg.textContent='JS ERROR: '+msg+' (line '+line+')';}
+  var bd=document.createElement('div');
+  bd.style.cssText='position:fixed;top:60px;left:10px;right:10px;background:#d1383e;color:#fff;padding:12px;font-size:13px;z-index:99999;border-radius:8px;font-family:monospace;';
+  bd.textContent='[FATAL] '+msg+' at line '+line;
+  document.body.appendChild(bd);
+  return false;
+};
+console.log('[BOOT] Script starting. Version marker check...');
+
+// CONSTANTS
+const FAC=['AGLIPAY','HTT','EASTBAY','KAYSAKAT'];
+const PH={p1:{l:'PRE-PPP',c:'pp1',m:['M1','M2','M3']},p2:{l:'PPP',c:'pp2',m:['M4','M5','M6']},p3:{l:'POST-PPP',c:'pp3',m:['M7','M8','M9']}};
+const MSD={
+  M1:{n:'T&C Check Sheets Complete',o:-6,ph:'p1',t:['08'],a:['4'],d:'MC, EC/IC verifications, redlines captured',pct:0},
+  M2:{n:'Wet Commissioning Passed',o:-4,ph:'p1',t:['08'],a:['4'],d:'Functional tests, alarms/interlocks validated',pct:0},
+  M3:{n:'Defects/Punchlist Closed',o:-1,ph:'p1',t:['08'],a:['4','7'],d:'Readiness threshold, critical spares confirmed',pct:0},
+  M4:{n:'PM Task Lists in SAP-PM',o:2,ph:'p2',t:['06','11'],a:['3','6'],d:'Asset hierarchy, measurement points, job plans',pct:0},
+  M5:{n:'PM/PdM Execution Started',o:6,ph:'p2',t:['06','05'],a:['3','2'],d:'Shadowing, first cycle, condition monitoring',pct:0},
+  M6:{n:'Training Completed',o:11,ph:'p2',t:['10','07'],a:['5'],d:'Classroom + OJT, competency sign-off',pct:0},
+  M7:{n:'Plan Refined (PPP Learnings)',o:13,ph:'p3',t:['02','03','06','04','05'],a:['3','9'],d:'Interval optimization, spares strategy refined',pct:0},
+  M8:{n:'Contracts/SLA Activated',o:16,ph:'p3',t:['06','13'],a:['8'],d:'RACI clarified, SLA KPIs, vendor scope',pct:0},
+  M9:{n:'BAU Governance Established',o:19,ph:'p3',t:['06','13','14','11'],a:['3','8','9'],d:'Weekly reviews, dashboards, CI loop',pct:0}
+};
+const TOC=[
+  {num:'01',ti:'Executive Summary',dc:'High-level overview of facility, scope, key operational parameters',ax:''},
+  {num:'02',ti:'Facility Overview & Process Description',dc:'Process flow, equipment inventory, design capacities, operating envelopes',ax:''},
+  {num:'03',ti:'Operating Philosophy',dc:'Guiding principles for safe, reliable, efficient facility operation',ax:''},
+  {num:'04',ti:'Standard Operating Procedures (SOPs)',dc:'Start-up, normal operation, shutdown, abnormal conditions, emergencies',ax:'ANNEX 1'},
+  {num:'05',ti:'Standard Maintenance Procedures (SMPs)',dc:'Mechanical, electrical, I&C maintenance procedures with LOTO',ax:'ANNEX 2'},
+  {num:'06',ti:'Maintenance Management Framework',dc:'PM/CM strategy, SMP-to-PM mapping, contractor vs. in-house scope',ax:'ANNEX 3'},
+  {num:'07',ti:'SCADA and Automation',dc:'Control system architecture, alarm management, interlock logic, HMI',ax:''},
+  {num:'08',ti:'Testing, Commissioning & Proving',dc:'Dry/wet commissioning records, functional tests, alarm validation',ax:'ANNEX 4'},
+  {num:'09',ti:'As-Built Drawings & Technical Docs',dc:'PFDs, P&IDs, GA drawings, electrical SLDs, instrument loop diagrams',ax:'ANNEX 4'},
+  {num:'10',ti:'Training & Competency Records',dc:'Classroom + OJT records, competency sign-offs, OEM certificates',ax:'ANNEX 5'},
+  {num:'11',ti:'Digital / SAP S/4HANA Onboarding',dc:'Asset hierarchy, functional locations, equipment records, BOMs, PM task lists',ax:'ANNEX 6'},
+  {num:'12',ti:'Critical Spares Handover',dc:'Contractual critical spares list per asset/package with quantities, part IDs',ax:'ANNEX 7'},
+  {num:'13',ti:'Acceptance and Handover',dc:'Provisional and Final Acceptance criteria, ownership transfer process',ax:'ANNEX 8'},
+  {num:'14',ti:'Facility-Specific Addenda',dc:'Unique process units, special safety considerations, regulatory requirements',ax:'ANNEX 9'}
+];
+const ANX=[
+  {id:'1',ti:'SOPs',cr:'Step-by-step, unambiguous, reference alarms/interlocks'},
+  {id:'2',ti:'SMPs',cr:'LOTO, step-by-step, post-maintenance testing'},
+  {id:'3',ti:'Maintenance Mgmt',cr:'PM/CM strategy, SMP-to-PM mapping, contractor scope'},
+  {id:'4',ti:'T&C + As-Built',cr:'Functional tests, alarm validation, baseline params'},
+  {id:'5',ti:'Training',cr:'Classroom + OJT, competency sign-offs, OEM certificates'},
+  {id:'6',ti:'Digital/SAP',cr:'Asset hierarchy, BOMs, PM lists, validated in SAP'},
+  {id:'7',ti:'Critical Spares',cr:'Per asset/package, supplier details, local contacts'},
+  {id:'8',ti:'Acceptance',cr:'Provisional/Final Acceptance criteria, sign-off process'},
+  {id:'9',ti:'Addenda',cr:'Unique process units, safety considerations, regulatory requirements'}
+];
+const ALM=[
+  {it:'01 Executive Summary',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
+  {it:'02 Facility Overview',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
+  {it:'03 Operating Philosophy',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
+  {it:'04 SOPs (A1)',M1:'',M2:'',M3:'S',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
+  {it:'05 SMPs (A2)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
+  {it:'06 Maint Mgmt (A3)',M1:'',M2:'',M3:'',M4:'P',M5:'P',M6:'',M7:'P',M8:'P',M9:'P'},
+  {it:'07 SCADA & Automation',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'',M8:'',M9:''},
+  {it:'08 T&C / Proving (A4)',M1:'P',M2:'P',M3:'P',M4:'',M5:'',M6:'',M7:'',M8:'',M9:''},
+  {it:'09 As-Built Drawings (A4)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
+  {it:'10 Training (A5)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'P',M7:'',M8:'',M9:''},
+  {it:'11 Digital/SAP (A6)',M1:'',M2:'',M3:'',M4:'P',M5:'',M6:'',M7:'',M8:'',M9:'P'},
+  {it:'12 Critical Spares (A7)',M1:'',M2:'',M3:'S',M4:'',M5:'',M6:'',M7:'P',M8:'',M9:''},
+  {it:'13 Acceptance (A8)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'',M8:'',M9:'P'},
+  {it:'14 Addenda (A9)',M1:'',M2:'',M3:'',M4:'',M5:'',M6:'',M7:'',M8:'',M9:'P'}
+];
+const RJG=['OEM manuals without integration — standalone manufacturer documents not incorporated into facility-specific O&M structure','Missing training records — incomplete classroom/OJT documentation, missing competency sign-offs or OEM certificates','Missing commissioning records — absent dry/wet commissioning data, incomplete test records or proving period documentation','Missing as-built drawings — incomplete PFDs, P&IDs, GA drawings, electrical SLDs, or instrument loop diagrams','Absence of digital onboarding data — missing SAP S/4HANA asset hierarchy, equipment records, BOMs, or PM task lists','Missing Critical Spares Handover List — absent supplier/vendor details or local support contacts for critical assets/packages'];
+
+// String.padStart polyfill for older browsers
+if(!String.prototype.padStart)String.prototype.padStart=function(t,p){var s=String(this);if(s.length>=t)return s;p=p||' ';var r=Math.ceil((t-s.length)/p.length);return p.repeat?p.repeat(r).slice(0,t-s.length)+s:Array(r+1).join(p).slice(0,t-s.length)+s};
+// STATE — DB-backed (no localStorage)
+let ST={},CH=null,PENDING={},PENDING_REF=[],EDIT_MODE=false,DRAFT_UP={},DRAFT_RM={},DRAFT_PP=null;
+// In-memory tab cache: timestamp of last successful fetch per tab (ms)
+var TAB_CACHE={p:0,r:0,d:0,a:0};
+// PP safety net: every 3 seconds, ensure pp input matches ST
+setInterval(function(){
+  var fsEl=document.getElementById('fs');
+  var ppInp=document.getElementById('pp');
+  if(!fsEl||!ppInp)return;
+  var f=fsEl.value;
+  if(!f||!ST[f])return;
+  var stPP=safePP(ST[f].pp);
+  var inpVal=ppInp.value||'';
+  if(stPP&&inpVal!==stPP){
+    console.log('[PPP-SAFETY] Repairing input: was='+inpVal+' should='+stPP);
+    ppInp.value=stPP;
+  }
+},3000);
+const CACHE_TTL=60000; // 60 seconds stale time
+const CB=function(){return '_='+Date.now();}; // cache buster
+var ACTIVE_TAB='p'; // track active tab
+const CU=()=>ST[document.getElementById('fs').value];
+const DF=()=>{
+  var f=document.getElementById('fs').value;
+  var d={pp:'',ms:{},up:{}};
+  if(ST[f]){
+    var pp1=safePP(ST[f].pp);
+    var pp2=safePP(ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate);
+    d.pp=pp1||pp2||'';
+    d.ms=JSON.parse(JSON.stringify(ST[f].ms));
+    d.up=ST[f].up?JSON.parse(JSON.stringify(ST[f].up)):{};}
+  if(PENDING[f]&&PENDING[f].ms){
+    Object.entries(PENDING[f].ms).forEach(function(e){
+      var k=e[0],v=e[1];
+      if(!d.ms[k])d.ms[k]={};
+      if(v.compDate!==undefined)d.ms[k].compDate=v.compDate;
+    });
+  }
+  return d;
+};
+
+
+// ═══ DB API FUNCTIONS (source of truth) ═══
+const API_BASE='';
+
+// Fetch ALL state from DB — this is the ONLY source of milestone data
+async function fetchStateFromDB(facility,opts){
+  if(!facility)return null;
+  opts=opts||{};
+  var which=opts.which||'all';
+  var statusEl=document.getElementById('fetch-status');
+  function setStatus(msg){console.log('[API]',msg);if(statusEl)statusEl.textContent=msg;if(window._vdLog)window._vdLog('API',msg);}
+  try{
+    setStatus('Fetching '+facility+' ('+which+')...');
+    var url=API_BASE+'/api/governance/state/'+encodeURIComponent(facility)+'?_='+Date.now();
+    var ctrl=new AbortController();
+    var tmr=setTimeout(function(){ctrl.abort();},15000);
+    var resp=await fetch(url,{signal:ctrl.signal});
+    clearTimeout(tmr);
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    var data=await resp.json();
+    var states=Array.isArray(data.states)?data.states:[];
+    var files=Array.isArray(data.files)?data.files:[];
+    var refFiles=Array.isArray(data.referenceFiles)?data.referenceFiles:[];
+    var state0msg='states='+states.length;
+    if(states.length>0){
+      state0msg+=' keys='+Object.keys(states[0]).join(',');
+      state0msg+=' ppp_date='+JSON.stringify(states[0].ppp_date);
+      state0msg+=' pppDate='+JSON.stringify(states[0].pppDate);
+      state0msg+(' comp_date='+JSON.stringify(states[0].comp_date));
+    }
+    console.log('[LOAD-FE] '+state0msg);if(window._vdLog)window._vdLog('LOAD',state0msg);
+    setStatus('HTTP 200 | st='+states.length+' mf='+files.length+' rf='+refFiles.length);
+    if(!ST[facility])ST[facility]={pp:'',ms:{},up:{}};
+    if(!ST[facility].ms)ST[facility].ms={};
+    if(!ST[facility].up)ST[facility].up={};
+    var mCount=0;
+    states.forEach(function(s){
+      var mid=s.milestone_id;if(!mid)return;
+      if(!ST[facility].ms[mid])ST[facility].ms[mid]={done:false};
+      // Robust column name access — driver may return snake_case or camelCase
+      var rawPP=s.ppp_date!==undefined?s.ppp_date:(s.pppDate!==undefined?s.pppDate:null);
+      var rawCD=s.comp_date!==undefined?s.comp_date:(s.compDate!==undefined?s.compDate:null);
+      var mapMsg='M='+mid+' pp='+JSON.stringify(rawPP)+' cd='+JSON.stringify(rawCD);
+      console.log('[LOAD-FE] '+mapMsg);if(window._vdLog)window._vdLog('LOAD',mapMsg);
+      // PPP date
+      if(rawPP&&rawPP!=='undefined'&&rawPP!=='null'&&rawPP!=='NaN'){
+        var cleanPP=normalizeDateOnly(rawPP);
+        if(cleanPP){ST[facility].ms[mid].pppDate=cleanPP;console.log('[LOAD-FE] → pppDate SET:',cleanPP);}
+        else{console.warn('[SANITIZE] Rejected invalid ppp_date for',mid,':',JSON.stringify(rawPP));}
+      }else{console.log('[LOAD-FE] → no ppp_date for',mid);}
+      // Comp date
+      if(rawCD!==undefined&&rawCD!==null&&rawCD!==''){
+        if(rawCD==='undefined'||rawCD==='null'||rawCD==='NaN'){
+          console.warn('[SANITIZE] Rejected garbage comp_date for',mid,':',JSON.stringify(rawCD));
+          delete ST[facility].ms[mid].compDate;
+          ST[facility].ms[mid].done=false;
+        }else{
+          var cleanCD=normalizeDateOnly(rawCD);
+          if(cleanCD){ST[facility].ms[mid].compDate=cleanCD;ST[facility].ms[mid].done=true;console.log('[LOAD-FE] → compDate SET:',cleanCD);}
+          else{console.warn('[SANITIZE] Rejected invalid comp_date for',mid,':',JSON.stringify(rawCD));}
+        }
+      }else if(rawCD===null||rawCD===''){
+        delete ST[facility].ms[mid].compDate;
+        ST[facility].ms[mid].done=false;
+        console.log('[LOAD-FE] → compDate CLEARED for',mid);
+      }
+      if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
+      mCount++;
+    });
+    // Map PPP from M1
+    var m1State=ST[facility].ms['M1'];
+    console.log('[LOAD-FE] After loop: M1 keys:',m1State?Object.keys(m1State):'none');
+    if(m1State&&m1State.pppDate){
+      var pppStr=safePP(m1State.pppDate);
+      var oldPP=ST[facility].pp||'';
+      ST[facility].pp=pppStr;
+      console.log('[LOAD-FE] SET facility.pp: old='+oldPP+' new='+pppStr);
+    }else{
+      console.log('[LOAD-FE] No M1 pppDate. m1State:',JSON.stringify(m1State));
+    }
+    var finalPP=ST[facility].pp||'';
+    var loadMsg='[LOAD] Final PP='+finalPP+' M1.pppDate='+(ST[facility].ms['M1']&&ST[facility].ms['M1'].pppDate||'null');
+    console.log('[LOAD-FE] '+loadMsg);if(window._vdLog)window._vdLog('LOAD',loadMsg);
+    // Sync PP input
+    var ppInp=document.getElementById('pp');
+    var fsEl=document.getElementById('fs');
+    if(ppInp&&fsEl&&fsEl.value===facility){
+      var targetPP=safePP(ST[facility].pp);
+      ppInp.value=targetPP;
+      console.log('[LOAD-FE] INPUT SYNC pp.value='+targetPP);
+    }
+    if(which==='all'||which==='references'){
+      REFERENCE_DOCS=refFiles.map(function(f){
+        return{id:f.id,name:f.file_name,date:f.uploaded_at,by:f.uploaded_by||''};
+      });
+      TAB_CACHE.r=Date.now();
+    }
+    if(which==='all'||which==='progress'){
+      var fCount=0;
+      files.forEach(function(f){
+        var mid=f.milestone_id;
+        if(!mid||mid==='__ref'||mid===null)return;
+        var cat=String(f.category||'').toLowerCase();
+        if(cat==='references')return;
+        if(!ST[facility].up[mid])ST[facility].up[mid]={};
+        var tkey=f.toc_item||'OTHER';
+        if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
+        var already=ST[facility].up[mid][tkey].find(function(u){return u.id===f.id;});
+        if(!already){
+          ST[facility].up[mid][tkey].push({id:f.id,n:f.file_name});
+          fCount++;
+        }
+      });
+      TAB_CACHE.p=Date.now();TAB_CACHE.d=Date.now();TAB_CACHE.a=Date.now();
+    }
+    setStatus('Done: '+mCount+' m, '+files.length+' mf, '+refFiles.length+' rf');
+    return {milestones:mCount,files:files.length,refs:refFiles.length};
+  }catch(err){
+    setStatus('Fetch error: '+err.message);
+    console.error('[API] fetchStateFromDB error:',err);
+    return null;
+  }
+}
+
+// Save milestone state to DB
+async function saveMilestoneToDB(facility,mId,changes){
+  try{
+    var payload={milestoneId:mId,compDate:changes.compDate!==undefined?changes.compDate:undefined,customPct:changes.pct!==undefined?changes.pct:undefined,pppDate:changes.ppp!==undefined?changes.ppp:undefined};
+    console.log('[SAVE-FE] Sending to REST:',facility,mId,JSON.stringify(payload));
+    var resp=await fetch(API_BASE+'/api/governance/state/'+encodeURIComponent(facility),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    var respText=await resp.text();
+    var data=respText?JSON.parse(respText):{};
+    var feMsg='BE resp: status='+resp.status+' savedPP='+JSON.stringify(data.savedPP)+' savedCD='+JSON.stringify(data.savedCD);
+    console.log('[SAVE-FE]',feMsg);if(window._vdLog)window._vdLog('SAVE',feMsg);
+    if(!resp.ok)throw new Error('HTTP '+resp.status+' '+respText);
+    return data.success;
+  }catch(e){
+    console.error('[SAVE-FE] FAILED',mId,e.message);
+    return false;
+  }
+}
+
+// Save file record to DB via REST endpoint (governance_uploads table)
+// fileData can be: {n,d,s} (milestone) or {name,data,size,type} (reference)
+async function saveFileToDB(facility,milestoneId,tocItem,fileData){
+  try{
+    var fileName=fileData.n||fileData.name||'file';
+    var fileUrl=fileData.d||fileData.data||'';
+    var fileSize=fileData.s||fileData.size||0;
+    var reqBody={facilitySlug:facility,milestoneId:milestoneId,tocItem:tocItem||'',filename:fileName,fileUrl:fileUrl,fileSize:fileSize,uploadedAt:new Date().toISOString()};
+    console.log('[API] saveFileToDB POST',API_BASE+'/api/governance/files');
+    var resp=await fetch(API_BASE+'/api/governance/files',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(reqBody)
+    });
+    console.log('[API] saveFileToDB HTTP status:',resp.status);
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    var data=await resp.json();
+    console.log('[API] saveFileToDB full response:',JSON.stringify(data));
+    var dbg=document.getElementById('ref-debug');
+    if(dbg)dbg.dataset.lastApiStatus=resp.status+' '+JSON.stringify(data).substring(0,150);
+    // Extract ID from any possible response shape
+    var insertedId=data&&data.file&&data.file.id?data.file.id:(data&&data.id?data.id:(data&&data.insertedId?data.insertedId:null));
+    console.log('[API] saveFileToDB extracted id:',insertedId);
+    if(insertedId){
+      return {id:insertedId,name:fileName,url:fileUrl,facility:facility,milestone:milestoneId};
+    }
+    return data&&data.file?data.file:data;
+  }catch(e){console.log('[API] saveFileToDB failed:',e.message);return null;}
+}
+
+// Delete file from DB
+async function deleteFileFromDB(fileId){
+  try{
+    var resp=await fetch(API_BASE+'/api/governance/files/'+fileId,{method:'DELETE'});
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    console.log('[API] Deleted file',fileId);return true;
+  }catch(e){console.log('[API] deleteFileFromDB failed:',e.message);return false;}
+}
+
+// Get total file count from ST (handles nested keyed objects)
+function getTotalFileCount(){
+  var f=document.getElementById('fs').value;
+  if(!ST[f]||!ST[f].up)return 0;
+  var count=0;
+  Object.values(ST[f].up).forEach(function(mVal){
+    if(!mVal)return;
+    if(Array.isArray(mVal)){count+=mVal.length;return;}
+    // mVal is an object keyed by toc_item/annex
+    Object.values(mVal).forEach(function(arr){if(Array.isArray(arr))count+=arr.length;});});
+  return count;
+}
+
+// STORAGE (DEPRECATED — data now comes from API)
+// Only facility preference is saved in localStorage
+
+/* ═══ PPP AUDIT — detects unexpected clearing ═══ */
+var PPP_AUDIT=[],_lastPP='';
+function logPP(event,detail){
+  var entry={t:Date.now(),e:event,d:detail};
+  PPP_AUDIT.push(entry);if(PPP_AUDIT.length>200)PPP_AUDIT=PPP_AUDIT.slice(-200);
+  console.log('[PPP-AUDIT]',event,JSON.stringify(detail));
+}
+function checkPP(label){
+  var f=document.getElementById('fs')&&document.getElementById('fs').value;
+  var inp=document.getElementById('pp');
+  var stVal=f&&ST[f]?ST[f].pp||'':'';
+  var inpVal=inp?inp.value||'':'';
+  if(inpVal!==_lastPP){
+    logPP(label,{facility:f,stPP:stVal,inpVal:inpVal,prev:_lastPP});
+    _lastPP=inpVal;
+  }
+  return{stPP:stVal,inpVal:inpVal};
+}
+
+function LD(){
+  // Initialize ST with empty structure for all facilities
+  // (data will be merged from DB via fetchStateFromDB)
+  ST={};
+  FAC.forEach(function(f){
+    ST[f]={pp:'',ms:{},up:{}};
+    Object.keys(MSD).forEach(function(m){
+      ST[f].ms[m]={subDate:'',compDate:'',pct:null};
+    });
+  });
+  // Version marker for cache-busting verification
+  window._GOV_VERSION='2025-05-14-v4';
+  console.log('[GOV] Version',window._GOV_VERSION);
+  // Date formatter: converts YYYY-MM-DD → JAN-01-2026 format (consistent across all browsers)
+  function fmtDate(isoStr){
+    if(!isoStr||isoStr===''||isoStr==='null')return '';
+    var parts=isoStr.split('T')[0].split('-');
+    if(parts.length!==3)return isoStr;
+    var months=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    var mIdx=parseInt(parts[1],10)-1;
+    if(mIdx<0||mIdx>11)return isoStr;
+    return months[mIdx]+'-'+parts[2]+'-'+parts[0];
+  }
+  // Inverse: JAN-01-2026 → 2026-01-01
+  function parseDate(fmtStr){
+    if(!fmtStr||fmtStr==='')return '';
+    var months={'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};
+    var parts=fmtStr.split('-');
+    if(parts.length!==3)return fmtStr;
+    var m=months[parts[0].toUpperCase()];
+    if(!m)return fmtStr;
+    return parts[2]+'-'+m+'-'+parts[1];
+  }
+  // PPP fallbacks removed — PPP now comes ONLY from DB or user input
+  // Hardcoded fallbacks caused PPP to revert to wrong dates on every render
+  console.log('[LD] No fallbacks — PPP from DB or user input only');
+  // Load facility preference from localStorage only
+  var savedFac=null;
+  try{savedFac=localStorage.getItem('omg5_facility');}catch(e){}
+  if(savedFac&&FAC.includes(savedFac)){
+    document.getElementById('fs').value=savedFac;
+  }
+}
+function SV(){
+  // Only save facility preference, NOT data
+  try{localStorage.setItem('omg5_facility',document.getElementById('fs').value);}catch(e){}
+}
+function saveFacilityPreference(){SV();}
+
+// ═══ AI FUNCTIONS ═══
+var _AI_INSIGHTS=null;
+
+function toggleAIPanel(){
+  var p=document.getElementById('ai-panel');
+  var showing=p.style.display!=='none';
+  p.style.display=showing?'none':'block';
+  if(!showing) refreshAICards();
+}
+
+function quickAsk(q){
+  document.getElementById('ai-question').value=q;
+  askAI();
+}
+function clearAIGov(){
+  document.getElementById('ai-question').value='';
+  var ansEl=document.getElementById('ai-chat-answer');
+  ansEl.style.display='none';
+  ansEl.innerHTML='';
+  document.getElementById('ai-chat-loading').style.display='none';
+}
+
+async function askAI(){
+  var inp=document.getElementById('ai-question');
+  var q=inp.value.trim();
+  if(!q)return;
+  var facility=document.getElementById('fs').value;
+  var st=ST[facility]||{pp:'',ms:{},up:{}};
+  var ms=st.ms||{};
+  var completed=0,total=0,missingDates=[],overdue=[],upcoming=[];
+  var now=new Date();
+  var thirtyDays=new Date(now.getTime()+30*24*60*60*1000);
+  var pppDate=st.pp?new Date(st.pp):null;
+  for(var mid in MSD){
+    total++;
+    var def=MSD[mid];
+    var mState=ms[mid]||{};
+    if(mState.done){completed++;continue;}
+    if(!(mState.compDate&&mState.compDate.length===10))missingDates.push(def.n);
+    // Calculate target date from PPP + offset months
+    if(pppDate){
+      var target=new Date(pppDate);
+      target.setMonth(target.getMonth()+def.o);
+      var tgtStr=target.toISOString().slice(0,10);
+      if(target<now)overdue.push({name:def.n,target:tgtStr,daysPast:Math.floor((now-target)/(86400000))});
+      else if(target<thirtyDays)upcoming.push({name:def.n,target:tgtStr,daysLeft:Math.floor((target-now)/(86400000))});
+    }
+  }
+  var dateAnalysis='';
+  if(overdue.length)dateAnalysis+='\nOVERDUE MILESTONES ('+overdue.length+'):\n'+overdue.map(function(o){return '- '+o.name+' (target: '+o.target+', '+o.daysPast+' days past)';}).join('\n');
+  if(upcoming.length)dateAnalysis+='\nUPCOMING DEADLINES ('+upcoming.length+' within 30 days):\n'+upcoming.map(function(u){return '- '+u.name+' (target: '+u.target+', '+u.daysLeft+' days left)';}).join('\n');
+  var context='Facility: '+facility+'\nCurrent Date: '+now.toISOString().slice(0,10)+'\nPPP Date: '+(st.pp||'NOT SET')+'\nMilestones: '+completed+'/'+total+' completed\nMissing dates: '+(missingDates.length?missingDates.join(', '):'none')+'\nUploads: '+(st.up?Object.keys(st.up).length:0)+' milestones with files'+dateAnalysis+'\n\nQuestion: '+q;
+  var ansEl=document.getElementById('ai-chat-answer');
+  var loadEl=document.getElementById('ai-chat-loading');
+  loadEl.style.display='block';
+  ansEl.style.display='none';
+  try{
+    // Use working AI endpoint via tRPC with dashboard data context
+    var resp=await fetch('/api/trpc/ai.maintenanceChat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({json:{message:context}})
+    });
+    var data=await resp.json();
+    loadEl.style.display='none';
+    var reply=data&&data.result&&data.result.data&&data.result.data.json?data.result.data.json.reply:null;
+    if(reply){
+      ansEl.style.display='block';
+      ansEl.innerHTML='<div style="color:#A78BFA;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🤖 AI Response</div>'+escapeHtml(reply)+'<div style="margin-top:8px;font-size:10px;color:#64748B">Powered by Groq AI</div>';
+    }else{
+      ansEl.style.display='block';
+      ansEl.innerHTML='<div style="color:#F87171">Error: AI temporarily unavailable</div>';
+    }
+  }catch(e){
+    loadEl.style.display='none';
+    ansEl.style.display='block';
+    // Fallback: local AI analysis
+    var localAnswer=localAIAsk(q);
+    ansEl.innerHTML='<div style="color:#A78BFA;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🤖 AI Response (Local)</div>'+localAnswer;
+  }
+}
+
+function localAIAsk(q){
+  var f=document.getElementById('fs').value;
+  var st=ST[f]||{pp:'',ms:{},up:{}};
+  var ql=q.toLowerCase();
+  var ms=st.ms||{};
+  var completed=0,total=0,missingDates=[];
+  for(var mid in MSD){
+    total++;
+    if(ms[mid]&&ms[mid].done)completed++;
+    else if(!(ms[mid]&&ms[mid].compDate))missingDates.push(mid);
+  }
+  if(ql.indexOf('ppp')>=0||(ql.indexOf('start')>=0&&ql.indexOf('date')>=0)){
+    return st.pp?'PPP Start Date is <b>'+fmtDate(st.pp)+'</b>. This drives all milestone target dates.':'No PPP Start Date is set for this facility. This is critical — set M1 PPP Start to activate the schedule.';
+  }
+  if(ql.indexOf('ready')>=0||ql.indexOf('turnover')>=0){
+    var pct=total>0?Math.round((completed/total)*100):0;
+    return 'Facility readiness: <b>'+pct+'%</b> ('+completed+'/'+total+' milestones). '+(pct>=80?'Ready for turnover.':pct>=50?'In progress — complete remaining milestones.':'Critical gaps — address missing items urgently.');
+  }
+  if(ql.indexOf('gap')>=0||ql.indexOf('missing')>=0){
+    if(missingDates.length===0)return 'No critical gaps. All milestones have completion dates or are done.';
+    return 'Gaps found: '+missingDates.map(function(m){return '<b>'+m+'</b> ('+MSD[m].n+')';}).join(', ')+'. Set completion dates for these milestones.';
+  }
+  if(ql.indexOf('summary')>=0||ql.indexOf('status')>=0){
+    var ppStatus=st.pp?'set ('+fmtDate(st.pp)+')':'<b>NOT SET</b>';
+    return 'Summary: '+completed+'/'+total+' milestones complete. PPP: '+ppStatus+'. Missing dates: '+missingDates.length+'. Uploads: '+(st.up?Object.keys(st.up).length:0)+' milestones with files.';
+  }
+  return 'Governance status: '+completed+'/'+total+' milestones complete. Ask about PPP dates, missing items, readiness, or recommendations.';
+}
+
+async function refreshAICards(){
+  var f=document.getElementById('fs').value;
+  if(!f)return;
+  var st=ST[f]||{pp:'',ms:{},up:{}};
+  var ms=st.ms||{};
+  var completed=0,total=0,missingDates=[],overdue=[],upcoming=[];
+  var now=new Date();
+  var thirtyDays=new Date(now.getTime()+30*24*60*60*1000);
+  var pppDate=st.pp?new Date(st.pp):null;
+  for(var mid in MSD){
+    total++;
+    var def=MSD[mid];
+    var mState=ms[mid]||{};
+    if(mState.done){completed++;continue;}
+    if(!(mState.compDate&&mState.compDate.length===10))missingDates.push(def.n);
+    if(pppDate){
+      var target=new Date(pppDate);
+      target.setMonth(target.getMonth()+def.o);
+      var tgtStr=target.toISOString().slice(0,10);
+      if(target<now)overdue.push({name:def.n,target:tgtStr,daysPast:Math.floor((now-target)/(86400000))});
+      else if(target<thirtyDays)upcoming.push({name:def.n,target:tgtStr,daysLeft:Math.floor((target-now)/(86400000))});
+    }
+  }
+  var dateAnalysis='';
+  if(overdue.length)dateAnalysis+='\nOVERDUE MILESTONES ('+overdue.length+'):\n'+overdue.map(function(o){return '- '+o.name+' (target: '+o.target+', '+o.daysPast+' days past due)';}).join('\n');
+  if(upcoming.length)dateAnalysis+='\nUPCOMING DEADLINES ('+upcoming.length+' within 30 days):\n'+upcoming.map(function(u){return '- '+u.name+' (target: '+u.target+', '+u.daysLeft+' days remaining)';}).join('\n');
+  var context='Analyze this governance data for facility '+f+':\nCurrent Date: '+now.toISOString().slice(0,10)+'\nPPP Date: '+(st.pp||'NOT SET')+'\nMilestones: '+completed+'/'+total+' completed\nMissing completion dates: '+(missingDates.length?missingDates.join(', '):'none')+'\nUploads: '+(st.up?Object.keys(st.up).length:0)+' milestones with files'+dateAnalysis+'\nProvide insights on compliance, risks, and recommendations.';
+  var bar=document.getElementById('ai-cards-bar');
+  bar.style.display='block';
+  try{
+    var resp=await fetch('/api/trpc/ai.maintenanceChat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({json:{message:context}})
+    });
+    var data=await resp.json();
+    var reply=data&&data.result&&data.result.data&&data.result.data.json?data.result.data.json.reply:null;
+    if(reply){
+      // Build insights from local data + AI reply
+      var insights=generateLocalInsights(f);
+      // Parse: split by numbered items (1. 2. 3.) or (**bold headers**)
+      var recs=[];
+      var buffer='';
+      var lines=reply.split('\n');
+      for(var i=0;i<lines.length;i++){
+        var line=lines[i].trim();
+        if(!line) continue;
+        // Check if new numbered item or bold header starts
+        if(line.match(/^(\d+\.\s|[-*•]\s)/)){
+          if(buffer) recs.push(buffer.trim());
+          buffer=line.replace(/^(\d+\.\s|[-*•]\s)/,'').trim();
+        }else if(line.match(/^\*\*/)){
+          if(buffer) recs.push(buffer.trim());
+          buffer=line.replace(/\*\*/g,'').trim();
+        }else{
+          buffer+=' '+line;
+        }
+      }
+      if(buffer) recs.push(buffer.trim());
+      // Filter: remove pure labels ending with colon (no content after)
+      insights.recommendations=recs.filter(function(r){
+        var trimmed=r.trim();
+        // Keep if: has content after a colon, or no colon at all, and long enough
+        if(trimmed.length<15) return false;
+        var colonIdx=trimmed.indexOf(':');
+        if(colonIdx>0 && colonIdx===trimmed.length-1) return false; // ends with colon only
+        return true;
+      });
+      insights.aiSummary=reply.substring(0,200);
+      _AI_INSIGHTS=insights;
+      renderAIInsights(insights);
+    }
+  }catch(e){
+    console.log('[AI] Error:',e);
+    document.getElementById('ai-insight-panel').innerHTML='<div style="color:#F87171;font-size:12px">AI temporarily unavailable. Please try again.</div>';
+  }
+}
+
+function generateLocalInsights(facility){
+  var st=ST[facility]||{pp:'',ms:{},up:{}};
+  var ms=st.ms||{};
+  var completed=0,total=0,readinessSum=0;
+  var milestoneAnalysis=[];
+  for(var mid in MSD){
+    total++;
+    var mState=ms[mid]||{};
+    var done=mState.done||false;
+    var hasComp=!!(mState.compDate&&mState.compDate.length===10);
+    var hasPPP=!!(mState.pppDate&&mState.pppDate.length===10);
+    if(done)completed++;
+    var r=done?100:hasComp?75:hasPPP?50:10;
+    readinessSum+=r;
+    milestoneAnalysis.push({id:mid,name:MSD[mid].n,phase:MSD[mid].ph,completed:done,readiness:r,hasPPPDate:hasPPP,hasCompDate:hasComp});
+  }
+  var overall=total>0?Math.round(readinessSum/total):0;
+  var risk=overall>=80?'LOW':overall>=50?'MEDIUM':overall>=20?'HIGH':'CRITICAL';
+  var gaps=[];
+  if(!st.pp&&!(ms['M1']&&ms['M1'].pppDate))gaps.push('No PPP Start Date set');
+  for(var i=0;i<milestoneAnalysis.length;i++){
+    var m=milestoneAnalysis[i];
+    if(!m.completed&&!m.hasCompDate)gaps.push(m.id+' ('+m.name+') missing completion date');
+  }
+  var recs=[];
+  if(!st.pp)recs.push('Set M1 PPP Start Date to activate the schedule');
+  var incomplete=milestoneAnalysis.filter(function(m){return !m.completed});
+  if(incomplete.length>0)recs.push('Complete '+incomplete.length+' pending milestones');
+  return {
+    overallReadiness:overall,riskLevel:risk,
+    milestoneAnalysis:milestoneAnalysis,
+    phaseAnalysis:[],
+    hasPPP:!!st.pp,gaps:gaps,
+    recommendations:recs,missingDeliverables:[],
+    uploadStats:{total:0,required:0,percent:0},
+    crossFacilityRank:0,totalFacilities:0
+  };
+}
+
+function renderAIInsights(ins){
+  var rBar=document.getElementById('ai-readiness-bar');
+  var rPct=document.getElementById('ai-readiness-pct');
+  var rBadge=document.getElementById('ai-risk-badge');
+  var mCount=document.getElementById('ai-milestones-count');
+  var pppEl=document.getElementById('ai-ppp-status');
+  if(rBar)rBar.style.width=(ins.overallReadiness||0)+'%';
+  if(rPct)rPct.textContent=(ins.overallReadiness||0)+'%';
+  if(rBadge){
+    rBadge.textContent=ins.riskLevel||'UNKNOWN';
+    var riskColors={LOW:'#10B981',MEDIUM:'#F59E0B',HIGH:'#F97316',CRITICAL:'#EF4444',UNKNOWN:'#94A3B8'};
+    rBadge.style.color=riskColors[ins.riskLevel]||'#94A3B8';
+  }
+  if(mCount){
+    var c=ins.milestoneAnalysis?ins.milestoneAnalysis.filter(function(m){return m.completed}).length:0;
+    var t=ins.milestoneAnalysis?ins.milestoneAnalysis.length:0;
+    mCount.innerHTML='<span style="color:#10B981">'+c+'</span> / <span style="color:#fff">'+t+'</span>';
+  }
+  if(pppEl){
+    pppEl.innerHTML=ins.hasPPP?'<span style="color:#10B981">✓ Set</span>':'<span style="color:#EF4444">✗ Missing</span>';
+  }
+  // Render details in panel
+  var detailsEl=document.getElementById('ai-details');
+  if(detailsEl&&ins.milestoneAnalysis){
+    var html='<div style="margin-bottom:12px;font-size:13px;color:#CBD5E1;line-height:1.6">';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#94A3B8">Overall Readiness</span><span style="color:#fff;font-weight:700;font-size:14px">'+ins.overallReadiness+'%</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#94A3B8">Risk Level</span><span style="font-weight:700;color:'+(riskColors[ins.riskLevel]||'#fff')+'">'+ins.riskLevel+'</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#94A3B8">PPP Status</span><span>'+(ins.hasPPP?'<span style="color:#34D399">✓ Set</span>':'<span style="color:#EF4444">✗ Missing</span>')+'</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#94A3B8">Gaps Found</span><span style="color:#FBBF24;font-weight:700">'+(ins.gaps?ins.gaps.length:0)+'</span></div>';
+    html+='</div>';
+    if(ins.gaps&&ins.gaps.length>0){
+      html+='<div style="margin-top:8px">';
+      html+='<div style="font-size:11px;color:#FBBF24;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px">⚠️ Gaps</div>';
+      for(var i=0;i<Math.min(ins.gaps.length,5);i++){
+        html+='<div style="padding:8px 10px;margin-bottom:6px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);border-radius:6px;font-size:13px;color:#F1F5F9">'+escapeHtml(ins.gaps[i])+'</div>';
+      }
+      if(ins.gaps.length>5)html+='<div style="font-size:11px;color:#94A3B8">...and '+(ins.gaps.length-5)+' more</div>';
+      html+='</div>';
+    }
+    detailsEl.innerHTML=html;
+  }
+  // Render recommendations
+  var recEl=document.getElementById('ai-recommendations');
+  if(recEl&&ins.recommendations){
+    if(ins.recommendations.length===0){
+      recEl.innerHTML='<div style="padding:8px;font-size:11px;color:#64748B;text-align:center">All items on track. No recommendations.</div>';
+    }else{
+      var idx=0;
+      recEl.innerHTML=ins.recommendations.map(function(r){
+        var isHeaderOnly=r.trim().indexOf(':')===r.trim().length-1;
+        if(isHeaderOnly) return '';
+        var clean=r.replace(/^\*\*|\*\*$/g,'').trim();
+        idx++;
+        return '<div style="padding:12px 14px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);border-radius:8px;font-size:14px;line-height:1.6;color:#F1F5F9;margin-bottom:8px;word-break:break-word;"><span style="color:#34D399;font-weight:700;font-size:15px;">'+idx+'.</span> '+escapeHtml(clean)+'</div>';
+      }).filter(function(s){return s.length>0;}).join('');
+    }
+  }
+}
+
+var riskColors={LOW:'#10B981',MEDIUM:'#F59E0B',HIGH:'#F97316',CRITICAL:'#EF4444',UNKNOWN:'#94A3B8'};
+
+function escapeHtml(text){
+  if(!text)return'';
+  var d=document.createElement('div');
+  d.textContent=text;
+  return d.innerHTML;
+}
+
+// INIT
+async function INIT(){
+  if(window._vdLog)window._vdLog('INIT','=== ENTER ===');
+  console.log('[INIT] === ENTER ===');
+  // Auto-cleanup corrupted DB dates on every load
+  try{
+    var cleanupResp=await fetch(API_BASE+'/api/governance/cleanup-dates',{method:'POST'});
+    var cleanupData=await cleanupResp.json();
+    console.log('[INIT] DB cleanup:',JSON.stringify(cleanupData));
+  }catch(cleanupErr){console.log('[INIT] Cleanup skipped:',cleanupErr.message);}
+  try{LD();console.log('[INIT] LD() done');if(window._vdLog)window._vdLog('INIT','LD done');}catch(e){console.error('[INIT] LD() FAILED:',e.message);window.onerror&&window.onerror('LD: '+e.message,'',0,0,e);if(window._vdLog)window._vdLog('FATAL','LD: '+e.message);return;}
+  var f=document.getElementById('fs').value;
+  console.log('[INIT] Facility:',f);if(window._vdLog)window._vdLog('INIT','Facility='+f);
+
+  try{document.getElementById('fs').addEventListener('change',hFC);}catch(e){console.error('[INIT] fs listener:',e.message);if(window._vdLog)window._vdLog('ERR','fs listener: '+e.message);}
+  try{document.getElementById('pp').addEventListener('change',hPP);}catch(e){console.error('[INIT] pp listener:',e.message);if(window._vdLog)window._vdLog('ERR','pp listener: '+e.message);}
+  try{document.getElementById('pp').addEventListener('input',hPP);}catch(e){console.error('[INIT] pp input listener:',e.message);if(window._vdLog)window._vdLog('ERR','pp input listener: '+e.message);}
+
+  document.getElementById('fl').textContent=f;
+  document.getElementById('dlf').textContent=f;
+  console.log('[INIT] Step 1: listeners attached');if(window._vdLog)window._vdLog('INIT','listeners attached');
+
+  console.log('[INIT] About to call fetchStateFromDB...');if(window._vdLog)window._vdLog('INIT','about to fetchStateFromDB');
+  try{
+    var r=await fetchStateFromDB(f,{which:'progress'});
+    console.log('[INIT] fetchStateFromDB returned:',JSON.stringify(r));if(window._vdLog)window._vdLog('INIT','fetch returned: '+JSON.stringify(r));
+  }catch(err){console.error('[INIT] fetchState FAILED:',err.message);if(window._vdLog)window._vdLog('ERR','fetchState FAILED: '+err.message);}
+
+  console.log('[INIT] Step 4: ST.ms='+(ST[f]&&ST[f].ms?Object.keys(ST[f].ms).join(','):'none'));
+  var m1s=ST[f]&&ST[f].ms&&ST[f].ms['M1'];
+  console.log('[INIT] m1s:',JSON.stringify(m1s));
+  if(!ST[f].pp||ST[f].pp===''){
+    if(m1s&&m1s.pppDate){ST[f].pp=safePP(m1s.pppDate);console.log('[INIT] PP set from M1:',ST[f].pp);}
+    else{console.log('[INIT] PP stays blank');}
+  }
+  var ppVal=safePP(ST[f]&&ST[f].pp);
+  document.getElementById('pp').value=ppVal;
+  console.log('[INIT] PP input:',ppVal);if(window._vdLog)window._vdLog('INIT','PP='+ppVal);
+
+  console.log('[INIT] About to call ALL()...');if(window._vdLog)window._vdLog('INIT','about to ALL()');
+  try{ALL();console.log('[INIT] ALL() success');if(window._vdLog)window._vdLog('INIT','ALL() success');}catch(e){console.error('[INIT] ALL() FAILED:',e.message);window.onerror&&window.onerror('ALL: '+e.message,'',0,0,e);if(window._vdLog)window._vdLog('FATAL','ALL: '+e.message);}
+  setTimeout(function(){if(!window.__INIT_DONE){window.__INIT_DONE=true;ALL();}},6000);
+  window.__INIT_DONE=true;
+  console.log('[INIT] === DONE ===');if(window._vdLog)window._vdLog('INIT','=== DONE ===');
+}
+async function hFC(e){
+  EDIT_MODE=false;PENDING={};updateEditButtons();
+  document.getElementById('fl').textContent=e.target.value;
+  document.getElementById('dlf').textContent=e.target.value;
+  SV();
+  await fetchStateFromDB(e.target.value,{which:'all'});
+  var newPP=safePP(ST[e.target.value]&&ST[e.target.value].pp);
+  document.getElementById('pp').value=newPP;
+  ALL();syncEditMode();
+}
+function hPP(e){
+  if(!EDIT_MODE){return;}
+  var f=document.getElementById('fs').value;
+  if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
+  ST[f].pp=e.target.value;
+  DRAFT_PP=e.target.value;
+  console.log('[PPP] Changed to',e.target.value,'(pending save)');
+  ALL();
+}
+
+function ALL(){
+  // Refresh AI insights whenever data changes
+  refreshAICards();
+  // Only render the active tab — lazy loading for performance
+  if(ACTIVE_TAB==='p'){RM();RS();}
+  else if(ACTIVE_TAB==='r'){RREF();RREFTAB();}
+  else if(ACTIVE_TAB==='d'){RD();}
+  else if(ACTIVE_TAB==='a'){RAC();}
+  syncEditMode();
+  renderRefDocs();
+  // PP safety sync — ensure pp input matches ST value
+  syncPPInput();
+}
+
+function syncPPInput(){
+  var f=document.getElementById('fs')&&document.getElementById('fs').value;
+  var inp=document.getElementById('pp');
+  if(!f||!inp||!ST[f])return;
+  var stPP=safePP(ST[f].pp);
+  var inpVal=inp.value||'';
+  if(stPP&&inpVal!==stPP){
+    logPP('SYNC_REPAIR',{facility:f,stPP:stPP,inpVal:inpVal});
+    inp.value=stPP;
+  }
+}
+
+// TABS
+function sw(id,btn){
+  ACTIVE_TAB=id;
+  document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('a')});
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('a')});
+  document.getElementById('t-'+id).classList.add('a');
+  btn.classList.add('a');
+  var f=document.getElementById('fs').value;
+  var now=Date.now();
+  // Render cached data immediately
+  if(id==='p'){RM();RS();}
+  else if(id==='r'){RREF();RREFTAB();}
+  else if(id==='d'){RD();}
+  else if(id==='a'){RAC();}
+  // Lazy fetch only if cache is stale (60s TTL)
+  if(id==='r'&&now-TAB_CACHE.r>CACHE_TTL){
+    console.log('[TAB] Refetching references (stale)');
+    fetchStateFromDB(f,{which:'references'});
+  }
+}
+
+// DATE
+function cd(pp,o){
+  // Multi-layer defense against corrupted date strings
+  if(!pp)return'';
+  if(typeof pp!=='string')return'';
+  var trimmed=pp.trim();
+  if(!trimmed||trimmed==='undefined'||trimmed==='null'||trimmed==='NaN'||trimmed==='undefined-NaN-NaN')return'';
+  // Validate pp is a real date string (YYYY-MM-DD)
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(trimmed))return'';
+  var p=trimmed.split('-').map(Number);
+  // All parts must be valid numbers
+  if(p.some(isNaN))return'';
+  var nd=new Date(p[0],p[1]-1+o,p[2]);
+  // Guard: if the date is invalid, return empty
+  if(isNaN(nd.getTime()))return'';
+  var yy=nd.getFullYear(),mm=String(nd.getMonth()+1).padStart(2,'0'),dd=String(nd.getDate()).padStart(2,'0');
+  // Final guard: ensure all parts are valid numbers
+  if(typeof yy!=='number'||isNaN(yy)||isNaN(parseInt(mm,10))||isNaN(parseInt(dd,10)))return'';
+  return yy+'-'+mm+'-'+dd
+}
+function moDiff(d1,d2){
+  if(!d1||!d2||typeof d1!=='string'||typeof d2!=='string')return 0;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d1)||!/^\d{4}-\d{2}-\d{2}$/.test(d2))return 0;
+  var dt1=new Date(d1+'T12:00:00'),dt2=new Date(d2+'T12:00:00');
+  if(isNaN(dt1.getTime())||isNaN(dt2.getTime()))return 0;
+  return(dt2.getFullYear()-dt1.getFullYear())*12+(dt2.getMonth()-dt1.getMonth())
+}
+function fmtDate(iso){
+  // Defensive: reject non-string, empty, or garbage input
+  if(!iso||typeof iso!=='string')return'\u2014';
+  var trimmed=iso.trim();
+  if(!trimmed||trimmed==='undefined'||trimmed==='null'||trimmed==='NaN'||trimmed==='undefined-NaN-NaN')return'\u2014';
+  // Must match YYYY-MM-DD format
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(trimmed))return'\u2014';
+  var p=trimmed.split('-');
+  var M=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  var mIdx=parseInt(p[1],10)-1;
+  if(isNaN(mIdx)||mIdx<0||mIdx>11)return'\u2014';
+  var d=parseInt(p[2],10);
+  if(isNaN(d)||d<1||d>31)return'\u2014';
+  return M[mIdx]+'-'+p[2]+'-'+p[0]
+}
+function parseDate(fmtStr){if(!fmtStr||fmtStr==='')return'';var months={'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};var parts=fmtStr.split('-');if(parts.length!==3)return fmtStr;var m=months[parts[0].toUpperCase()];if(!m)return fmtStr;return parts[2]+'-'+m+'-'+parts[1]}
+// Validate YYYY-MM-DD format (strict)
+function isValidISODate(str){
+  if(!str||typeof str!=='string')return false;
+  // Reject literal 'undefined', 'null', 'NaN', empty
+  if(str==='undefined'||str==='null'||str==='NaN'||str===''||str==='undefined-NaN-NaN')return false;
+  // Must match YYYY-MM-DD pattern
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(str))return false;
+  // Must be a valid calendar date
+  var p=str.split('-').map(Number);
+  var dt=new Date(p[0],p[1]-1,p[2]);
+  return dt.getFullYear()===p[0]&&dt.getMonth()===p[1]-1&&dt.getDate()===p[2];
+}
+function normalizeDateOnly(value){
+  if(!value)return'';
+  if(typeof value==='string'){
+    var s=value.slice(0,10);
+    return isValidISODate(s)?s:'';
+  }
+  if(value instanceof Date){
+    // Use local date parts — toISOString() shifts to UTC and can change the date
+    var y=value.getFullYear();
+    var m=String(value.getMonth()+1);if(m.length<2)m='0'+m;
+    var d=String(value.getDate());if(d.length<2)d='0'+d;
+    return y+'-'+m+'-'+d;
+  }
+  if(typeof value==='object'&&value.toISOString){
+    var dt=value.toISOString().slice(0,10);
+    return isValidISODate(dt)?dt:'';
+  }
+  return'';
+}
+function safePP(val){
+  var n=normalizeDateOnly(val);
+  return isValidISODate(n)?n:'';
+}
+
+function tocT(num){var t=TOC.find(function(x){return x.num===num});return t?t.ti:''}
+function anxT(id){var a=ANX.find(function(x){return x.id===id});return a?a.ti:''}
+function fM(n){var m=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(n))m.push(e[0])});return m}
+function fMA(id){var m=[];Object.entries(MSD).forEach(function(e){if(e[1].a.includes(id))m.push(e[0])});return m}
+
+function gMPct(mid,c){
+  // Completed milestone = 100% always
+  if(c.ms[mid].compDate&&c.ms[mid].compDate.length>0)return 100;
+  // If custom pct is set, use it
+  if(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined)return c.ms[mid].pct;
+  // Otherwise calculate from upload coverage
+  var d=MSD[mid],reqUploads=0,hasUploads=0;
+  d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(tocOwner[tkey]!==mid)return;reqUploads++;if(c.up[mid]&&c.up[mid][tkey]&&c.up[mid][tkey].length>0)hasUploads++});
+  var coveredA=new Set();d.t.forEach(function(tnum){var ti=TOC.find(function(x){return x.num===tnum});if(ti&&ti.ax){var m2=ti.ax.match(/ANNEX\s*(\d+)/i);if(m2)coveredA.add(m2[1])}});
+  d.a.forEach(function(aid){if(coveredA.has(aid))return;reqUploads++;var akey='A'+aid;if(c.up[mid]&&c.up[mid][akey]&&c.up[mid][akey].length>0)hasUploads++});
+  return reqUploads>0?Math.round((hasUploads/reqUploads)*100):0;
+}
+
+// Build map: TOC item -> first milestone that links to it
+var tocOwner={};
+Object.entries(MSD).forEach(function(e){var mid=e[0],d=e[1];d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(!tocOwner[tkey])tocOwner[tkey]=mid})});
+
+// PROGRESS TAB: Milestones with TOC-specific uploads
+function RM(){const c=DF();if(!c)return;const el=document.getElementById('ph');if(!el)return;el.innerHTML='';let cp=0;
+Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
+  var pd=document.createElement('div');pd.style.marginBottom='16px';
+  var h=document.createElement('div');h.className='ph '+pv.c;h.textContent=pv.l+' Phase';pd.appendChild(h);
+  var b=document.createElement('div');b.className='pb';
+  // Scrollable track wrapper for milestone grid rows
+  var track=document.createElement('div');track.className='ms-track';
+  b.appendChild(track);
+  // Column header row — repeated for each phase
+  var hdr=document.createElement('div');hdr.className='ms-h';
+  ['M#','Milestone','Offset','Target Date','Completed','Status','Done'].forEach(function(h,i){var d=document.createElement('div');d.textContent=h;if(i===0||i===1)d.style.textAlign='left';hdr.appendChild(d)});
+  track.appendChild(hdr);
+  pv.m.forEach(function(mid){
+    var d=MSD[mid],st=c.ms[mid]||{};
+    if(mid==='M1'){console.log('[RENDER-M1] c.pp:',JSON.stringify(c.pp),'st.compDate:',JSON.stringify(st.compDate),'st.pppDate:',JSON.stringify(st.pppDate));}
+    var isComp=st.compDate&&st.compDate.length>0;if(isComp)cp++;
+    var dt=cd(c.pp,d.o);
+    // Count total files for this milestone
+    var mFileCount=0;
+    if(c.up[mid]){Object.values(c.up[mid]).forEach(function(v){if(Array.isArray(v))mFileCount+=v.length;});}
+    // Count required uploads vs actual uploads for this milestone
+    var reqUploads=0,hasUploads=0;
+    d.t.forEach(function(tnum){var tkey='TOC-'+tnum;if(tocOwner[tkey]!==mid)return;reqUploads++;if(c.up[mid]&&c.up[mid][tkey]&&c.up[mid][tkey].length>0)hasUploads++});
+    var coveredA=new Set();d.t.forEach(function(tnum){var ti=TOC.find(function(x){return x.num===tnum});if(ti&&ti.ax){var m=ti.ax.match(/ANNEX\s*(\d+)/i);if(m)coveredA.add(m[1])}});
+    d.a.forEach(function(aid){if(coveredA.has(aid))return;reqUploads++;var akey='A'+aid;if(c.up[mid]&&c.up[mid][akey]&&c.up[mid][akey].length>0)hasUploads++});
+    var allUp=reqUploads>0&&hasUploads>=reqUploads;
+    // Effective %: manual override if set, else auto-computed from upload ratio
+    // If all uploads present → 100%; If compDate set → 100%; Else compute from uploads
+    var effPct=allUp?100:gMPct(mid,c);
+    console.log('[STATUS]',mid,'reqUp=',reqUploads,'hasUp=',hasUploads,'allUp=',allUp,'effPct=',effPct,'compDate=',c.ms[mid].compDate);
+    var rc=effPct>=100?'rg':effPct>=50?'ra':'rr';
+    // Milestone header row
+    var row=document.createElement('div');row.className='ms';
+    // Column 1: Milestone code
+    var c1=document.createElement('div');c1.className='msi';c1.textContent=mid;row.appendChild(c1);
+    // Column 2: Name + description + tags + file count
+    var c2=document.createElement('div');
+    var nameDiv=document.createElement('div');nameDiv.className='msn';nameDiv.textContent=d.n;c2.appendChild(nameDiv);
+    var descDiv=document.createElement('div');descDiv.className='msd';descDiv.textContent=d.d;c2.appendChild(descDiv);
+    if(mFileCount>0){var fcDiv=document.createElement('div');fcDiv.style.cssText='font-size:11px;color:var(--mw-blue);font-weight:600;margin-top:2px;';fcDiv.textContent=mFileCount+' file'+(mFileCount>1?'s':'')+' uploaded';c2.appendChild(fcDiv);}
+    var tagsDiv=document.createElement('div');tagsDiv.style.cssText='grid-column:2;margin-top:3px';
+    d.t.forEach(function(t){var ti=TOC.find(function(x){return x.num===t});var s=document.createElement('span');s.className='tag tg';s.dataset.tip=ti?ti.ti:'';s.textContent='TOC-'+t;tagsDiv.appendChild(s)});
+    d.a.forEach(function(a){var ai=ANX.find(function(x){return x.id===a});var s=document.createElement('span');s.className='tag og';s.dataset.tip=ai?ai.ti+' | '+ai.cr:'';s.textContent='A'+a;tagsDiv.appendChild(s)});
+    c2.appendChild(tagsDiv);row.appendChild(c2);
+    // Right-side meta columns grouped for responsive layout
+    var metaWrap=document.createElement('div');metaWrap.className='ms-meta';
+    var c3=document.createElement('div');c3.style.cssText='text-align:center;font-size:11px;color:var(--t2)';c3.dataset.tip='Month offset from PPP start';c3.textContent=(d.o>0?'+':'')+d.o+'mo';metaWrap.appendChild(c3);
+    var c4=document.createElement('div');c4.style.cssText='text-align:center;font-size:11px;font-weight:600';c4.dataset.tip='Planned target date';
+    // Triple-defense target date rendering
+    var targetDateText='—';
+    if(dt&&typeof dt==='string'&&dt!==''&&dt!=='undefined-NaN-NaN'&&/^\d{4}-\d{2}-\d{2}$/.test(dt)){targetDateText=fmtDate(dt);}
+    c4.textContent=targetDateText;
+    metaWrap.appendChild(c4);
+    // Column 5: Completion date input
+    var c5=document.createElement('div');c5.className='comp-date';c5.style.cssText='text-align:center';
+    var compIn=document.createElement('input');compIn.type='date';compIn.value=st.compDate||'';compIn.disabled=!EDIT_MODE;
+    compIn.style.cssText='padding:3px 4px;border:1px solid '+(isComp?'#d1383e':'#ddd')+';border-radius:4px;font-size:10px;font-family:Inter,sans-serif;width:110px;cursor:pointer;color:'+(isComp?'#d1383e':'var(--t2)');
+    compIn.dataset.tip='Completion date';
+    compIn.addEventListener('change',function(ev){
+      console.log('[DATE] change fired, EDIT_MODE='+EDIT_MODE+', value='+ev.target.value);
+      if(!EDIT_MODE){console.log('[DATE] Ignored - not edit mode');return;}
+      var f=document.getElementById('fs').value;
+      if(!PENDING[f])PENDING[f]={ms:{}};
+      PENDING[f].ms[mid]={compDate:ev.target.value||null};
+      console.log('[DATE] PENDING updated:',PENDING);
+      updateEditButtons();ALL();
+    });
+    c5.appendChild(compIn);metaWrap.appendChild(c5);
+    // Column 7: Plan% badge
+    var c7=document.createElement('div');c7.className='mst';
+    var badge=document.createElement('span');badge.className='badge '+rc;badge.dataset.tip='Completion: '+effPct+'%'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?' (manual)':' (auto from uploads)');badge.textContent=effPct+'%';c7.appendChild(badge);metaWrap.appendChild(c7);
+    // Column 8: Checkbox
+    var c8=document.createElement('div');c8.className='msc';
+    var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';console.log('[RENDER] '+mid+' isComp='+isComp+' compDate='+st.compDate);cb.disabled=!EDIT_MODE;cb.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:18px;height:18px;display:inline-block;opacity:'+(EDIT_MODE?'1':'.5')+';-webkit-appearance:checkbox;-moz-appearance:checkbox;appearance:auto;';cb.addEventListener('change',function(ev){
+      console.log('[CHK] change fired, EDIT_MODE='+EDIT_MODE+', checked='+ev.target.checked);
+      if(!EDIT_MODE){console.log('[CHK] Ignored - not edit mode');return;}
+      var f=document.getElementById('fs').value;
+      var dbCompleted=ST[f]&&ST[f].ms&&ST[f].ms[mid]&&ST[f].ms[mid].compDate;
+      var checked=ev.target.checked;
+      console.log('[CHK] dbCompleted='+dbCompleted+', checked='+checked+', match='+(checked===!!dbCompleted));
+      if(checked===!!dbCompleted){console.log('[CHK] Reverting to DB');if(PENDING[f])delete PENDING[f].ms[mid];updateEditButtons();ALL();return;}
+      if(!PENDING[f])PENDING[f]={ms:{}};
+      if(checked){
+        var ppDate=normalizeDateOnly(ST[f]&&ST[f].pp)||normalizeDateOnly(ST[f]&&ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'';
+        var dt='';
+        if(ppDate&&ppDate.length>=10){
+          dt=cd(ppDate,MSD[mid].o);
+        }else if(ST[f]&&ST[f].ms&&ST[f].ms[mid]&&ST[f].ms[mid].compDate){
+          // Preserve existing completion date if PPP is not available
+          dt=ST[f].ms[mid].compDate;
+          console.log('[CHK] Preserving existing compDate for '+mid+':',dt);
+        }else{
+          // Use today's date as last resort (avoid empty string which clears DB)
+          var today=new Date();
+          dt=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+          console.log('[CHK] No PPP date, using today for '+mid+':',dt);
+        }
+        PENDING[f].ms[mid]={compDate:dt};
+        console.log('[CHK] Set complete: ppDate='+ppDate+' offset='+MSD[mid].o+' dt='+dt);
+      }
+      else{PENDING[f].ms[mid]={compDate:null,done:false};console.log('[CHK] Set incomplete (null)');}
+      console.log('[CHK] PENDING now:',JSON.stringify(PENDING));updateEditButtons();ALL();
+    });
+    c8.appendChild(cb);metaWrap.appendChild(c8);
+    // Append meta wrap to row
+    row.appendChild(metaWrap);
+    track.appendChild(row);
+    // Disable checkbox in row if uploads incomplete
+    var cbEl=row.querySelector('input[type=checkbox]');
+    if(cbEl){cbEl.disabled=!allUp&&!isComp;cbEl.title=allUp?(isComp?'Click to uncheck':'All uploads complete — click to mark done'):'Upload all required documents first';if(!allUp&&!isComp){cbEl.style.opacity='0.4';cbEl.style.cursor='not-allowed'}}
+    // Upload progress indicator — placed directly after milestone row in track
+    var upInd=document.createElement('div');upInd.style.cssText='padding:6px 16px 6px 78px;font-size:11px;color:var(--mw-muted);background:#F8FAFC;border-bottom:1px solid #EDF1F4;display:flex;align-items:center;gap:8px;min-width:1180px';
+    upInd.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span data-tip="Required uploads: '+reqUploads+' | Completed: '+hasUploads+'">'+hasUploads+' / '+reqUploads+' uploads</span>'+(allUp?' <span class="badge rg" style="font-size:10px;padding:2px 8px;margin-left:auto">READY</span>':' <span class="badge rr" style="font-size:10px;padding:2px 8px;margin-left:auto">INCOMPLETE</span>');
+    track.appendChild(upInd);
+    // Modified badge when pending
+    var fSlug2=document.getElementById('fs').value;
+    if(PENDING[fSlug2]&&PENDING[fSlug2].ms&&PENDING[fSlug2].ms[mid]){
+      var modRow=document.createElement('div');modRow.style.cssText='padding:4px 16px;text-align:center;background:#FFFBEB;border-bottom:1px solid #FEF3C7;min-width:1180px';
+      var modBadge=document.createElement('span');
+      modBadge.style.cssText='background:#FEF3C7;color:#D97706;font-size:9px;padding:2px 8px;border-radius:12px;font-weight:600;';
+      modBadge.textContent='Modified';
+      modRow.appendChild(modBadge);track.appendChild(modRow);
+    }
+    // TOC upload slots - using DOM methods (deduplicated: only first milestone shows each TOC item)
+    d.t.forEach(function(tnum){
+      var tkey='TOC-'+tnum;
+      // Skip if another milestone "owns" this TOC item (first-occurrence dedup)
+      if(tocOwner[tkey]!==mid) return;
+      // Check milestone bucket AND __deliv bucket (files uploaded from Deliverables tab)
+      var msFiles=(c.up[mid]&&c.up[mid][tkey])||[];
+      var delivFiles=(c.up['__deliv']&&c.up['__deliv'][tkey])||[];
+      var files=msFiles.concat(delivFiles);
+      var tr=document.createElement('div');tr.className='toc-up';
+      var tinfo=TOC.find(function(x){return x.num===tnum});
+      // Left: label
+      var lblDiv=document.createElement('div');lblDiv.className='toc-lbl';
+      lblDiv.innerHTML='<strong>'+tkey+'</strong> &mdash; '+(tinfo?tinfo.ti:'')+'<br><span>'+(tinfo?tinfo.dc:'')+'</span>';
+      tr.appendChild(lblDiv);
+      // Center: annex badge
+      var cenDiv=document.createElement('div');cenDiv.style.textAlign='center';
+      if(tinfo&&tinfo.ax){var axn2=tinfo.ax.match(/\d+/);var axd2=axn2?ANX.find(function(x){return x.id===axn2[0]}):null;cenDiv.innerHTML='<span class="tag og" data-tip="'+(axd2?axd2.ti+' | '+axd2.cr:tinfo.ax)+'">'+tinfo.ax+'</span>'}else{cenDiv.textContent='—'}
+      tr.appendChild(cenDiv);
+      // Right: upload zone with styled button
+      var rDiv=document.createElement('div');rDiv.className='up-area';
+      var fileInId='fi-'+mid+'-'+tkey.replace(/[^a-zA-Z0-9]/g,'');
+      var fileIn=document.createElement('input');
+      fileIn.type='file';fileIn.multiple=true;fileIn.id=fileInId;fileIn.className='hidden-fi';
+      fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,tkey,ev)});
+      var label=document.createElement('label');
+      label.htmlFor=fileInId;label.className='up-btn'+(EDIT_MODE?'':' disabled');
+      label.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload '+tkey);
+      if(!EDIT_MODE){label.style.opacity='0.4';label.style.cursor='not-allowed';}
+      rDiv.appendChild(fileIn);rDiv.appendChild(label);
+      // File list
+      if(files.length>0){
+        var flDiv=document.createElement('div');flDiv.className='fl';
+        files.forEach(function(fi,ix){
+          var frDiv=document.createElement('div');frDiv.className='file-action-row';
+          // File name + pending tag
+          var nameWrap=document.createElement('span');nameWrap.className='fr-name';
+          nameWrap.textContent=fi.name||fi.n||'File';
+          if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
+          frDiv.appendChild(nameWrap);
+          // Action buttons container
+          var actDiv=document.createElement('div');actDiv.className='fr-actions';
+          var fid=fi.id||fi.dbId;
+          if(fid&&!fi.isPending){
+            var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+            viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+            actDiv.appendChild(viewBtn);
+            var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+            dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+            actDiv.appendChild(dldBtn);
+          }
+          // Remove button (edit mode only)
+          var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
+          rmBtn.addEventListener('click',function(ev){ev.stopPropagation();rTocUp(mid,tkey,ix)});
+          actDiv.appendChild(rmBtn);
+          frDiv.appendChild(actDiv);
+          flDiv.appendChild(frDiv);
+        });
+        // Move file list OUT of upload column — span full row width
+        flDiv.className='fl toc-files';
+        tr.appendChild(flDiv);
+      }
+      tr.appendChild(rDiv);
+      track.appendChild(tr);
+    });
+    // Annex upload slots - SKIP if covered by a TOC item in this milestone
+    // Build set of annex IDs already referenced by this milestone's TOC items
+    var coveredAnnexes=new Set();
+    d.t.forEach(function(tnum){var ti=TOC.find(function(x){return x.num===tnum});if(ti&&ti.ax){var m=ti.ax.match(/ANNEX\s*(\d+)/i);if(m)coveredAnnexes.add(m[1])}});
+    d.a.forEach(function(aid){
+      // Skip if this annex is already covered by a TOC item in this milestone
+      if(coveredAnnexes.has(aid))return;
+      var akey='A'+aid;
+      var aMsFiles=(c.up[mid]&&c.up[mid][akey])||[];
+      var aDelivFiles=(c.up['__deliv']&&c.up['__deliv'][akey])||[];
+      var files=aMsFiles.concat(aDelivFiles);
+      var tr=document.createElement('div');tr.className='toc-up';
+      var ainfo=ANX.find(function(x){return x.id===aid});
+      // Left: label
+      var lblDiv=document.createElement('div');lblDiv.className='toc-lbl';
+      lblDiv.innerHTML='<strong style="color:var(--orange)">ANNEX '+aid+'</strong> &mdash; '+(ainfo?ainfo.ti:'')+'<br><span>'+(ainfo?ainfo.cr:'')+'</span>';
+      tr.appendChild(lblDiv);
+      // Center: standalone annex badge
+      var cenDiv=document.createElement('div');cenDiv.style.textAlign='center';
+      cenDiv.innerHTML='<span class="tag og" data-tip="Standalone annex requirement, not covered by any TOC item in this milestone">STANDALONE</span>';
+      tr.appendChild(cenDiv);
+      // Right: upload zone with styled button
+      var rDiv=document.createElement('div');rDiv.className='up-area';
+      var fileInId='fi-'+mid+'-A'+aid;
+      var fileIn=document.createElement('input');
+      fileIn.type='file';fileIn.multiple=true;fileIn.id=fileInId;fileIn.className='hidden-fi';
+      fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,akey,ev)});
+      var label=document.createElement('label');
+      label.htmlFor=fileInId;label.className='up-btn'+(EDIT_MODE?'':' disabled');
+      label.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload A'+aid);
+      if(!EDIT_MODE){label.style.opacity='0.4';label.style.cursor='not-allowed';}
+      rDiv.appendChild(fileIn);rDiv.appendChild(label);
+      // File list
+      if(files.length>0){
+        var flDiv=document.createElement('div');flDiv.className='fl';
+        files.forEach(function(fi,ix){
+          var frDiv=document.createElement('div');frDiv.className='file-action-row';
+          var nameWrap=document.createElement('span');nameWrap.className='fr-name';
+          nameWrap.textContent=fi.name||fi.n||'File';
+          if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
+          frDiv.appendChild(nameWrap);
+          var fid=fi.id||fi.dbId;
+          var actDiv=document.createElement('div');actDiv.className='fr-actions';
+          if(fid&&!fi.isPending){
+            var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+            viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+            actDiv.appendChild(viewBtn);
+            var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+            dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+            actDiv.appendChild(dldBtn);
+          }
+          var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
+          rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
+          actDiv.appendChild(rmBtn);
+          frDiv.appendChild(actDiv);
+          flDiv.appendChild(frDiv);
+        });
+        flDiv.className='fl toc-files';
+        tr.appendChild(flDiv);
+      }
+      tr.appendChild(rDiv);
+      track.appendChild(tr);
+    });
+    // OTHER upload slot — generic catch-all for additional files
+    var otherKey='OTHER';
+    var oMsFiles=(c.up[mid]&&c.up[mid][otherKey])||[];
+    var oDelivFiles=(c.up['__deliv']&&c.up['__deliv'][otherKey])||[];
+    var otherFiles=oMsFiles.concat(oDelivFiles);
+    var otherRow=document.createElement('div');otherRow.className='toc-up';
+    var otherLbl=document.createElement('div');otherLbl.className='toc-lbl';
+    otherLbl.innerHTML='<strong style="color:var(--mw-muted)">Other relevant files</strong><br><span>Additional supporting documents not listed above</span>';
+    otherRow.appendChild(otherLbl);
+    var otherCen=document.createElement('div');otherCen.style.textAlign='center';
+    otherCen.innerHTML='<span class="tag tg" data-tip="Optional additional files for this milestone">EXTRA</span>';
+    otherRow.appendChild(otherCen);
+    var otherR=document.createElement('div');otherR.className='up-area';
+    var otherInId='fi-'+mid+'-OTHER';
+    var otherIn=document.createElement('input');
+    otherIn.type='file';otherIn.multiple=true;otherIn.id=otherInId;otherIn.className='hidden-fi';
+    otherIn.addEventListener('change',function(ev){hTocUp(mid,otherKey,ev)});
+    var otherLabel=document.createElement('label');
+    otherLabel.htmlFor=otherInId;otherLabel.className='up-btn'+(EDIT_MODE?'':' disabled');
+    otherLabel.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(otherFiles.length?otherFiles.length+' file(s)':'Upload Other');
+    if(!EDIT_MODE){otherLabel.style.opacity='0.4';otherLabel.style.cursor='not-allowed';}
+    otherR.appendChild(otherIn);otherR.appendChild(otherLabel);
+    if(otherFiles.length>0){
+      var otherFl=document.createElement('div');otherFl.className='fl';
+      otherFiles.forEach(function(fi,ix){
+        var otherFr=document.createElement('div');otherFr.className='file-action-row';
+        var nameWrap=document.createElement('span');nameWrap.className='fr-name';
+        nameWrap.textContent=fi.name||fi.n||'File';
+        if(fi.isPending){var pt=document.createElement('em');pt.className='pending-tag';pt.textContent='Pending save';nameWrap.appendChild(pt);}
+        otherFr.appendChild(nameWrap);
+        var actDiv=document.createElement('div');actDiv.className='fr-actions';
+        var fid=fi.id||fi.dbId;
+        if(fid&&!fi.isPending){
+          var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+          viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+          actDiv.appendChild(viewBtn);
+          var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+          dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+          actDiv.appendChild(dldBtn);
+        }
+        var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
+        rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
+        actDiv.appendChild(rmBtn);
+        otherFr.appendChild(actDiv);
+        otherFl.appendChild(otherFr);
+      });
+      otherFl.className='fl toc-files';
+      otherRow.appendChild(otherFl);
+    }
+    otherRow.appendChild(otherR);
+    track.appendChild(otherRow);
+  });
+  pd.appendChild(b);el.appendChild(pd);
+});
+document.getElementById('mb').textContent=cp+' / 9 Complete';
+}
+function tMComp(m,d){var st=CU().ms[m];st.compDate=d;st.done=d&&d.length>0;SV();ALL()}
+function tMPct(m,v){var st=CU().ms[m];st.pct=v;SV();ALL()}
+
+// EDIT / SAVE / CANCEL
+function updateEditButtons(){var f=document.getElementById('fs').value;var hasPending=PENDING[f]&&PENDING[f].ms&&Object.keys(PENDING[f].ms).length>0;var eB=document.getElementById('btn-edit');var sB=document.getElementById('btn-save');var cB=document.getElementById('btn-cancel');var st=document.getElementById('edit-status');if(eB)eB.style.display=EDIT_MODE?'none':'inline-block';if(sB)sB.style.display=EDIT_MODE?'inline-block':'none';if(cB)cB.style.display=EDIT_MODE?'inline-block':'none';if(st)st.textContent=EDIT_MODE?(hasPending?'⚠ Unsaved changes':'Editing...'):'';;renderRefDocs()}
+// Sync ALL existing interactive controls with current EDIT_MODE
+function syncEditMode(){console.log('[syncEditMode] EDIT_MODE='+EDIT_MODE);
+  // PPP start date input
+  var ppInp=document.getElementById('pp');
+  if(ppInp){ppInp.disabled=!EDIT_MODE;ppInp.style.cursor=EDIT_MODE?'pointer':'not-allowed';ppInp.style.opacity=EDIT_MODE?'1':'.5';}
+  // Checkboxes (Done)
+  var cbEls=document.querySelectorAll('.msc input[type="checkbox"]');console.log('[syncEditMode] checkboxes='+cbEls.length);cbEls.forEach(function(cb){cb.disabled=!EDIT_MODE;cb.style.cursor=EDIT_MODE?'pointer':'not-allowed';cb.style.opacity=EDIT_MODE?'1':'.5';});
+  // Date inputs (completion date)
+  var diEls=document.querySelectorAll('.comp-date input[type="date"]');console.log('[syncEditMode] dateInputs='+diEls.length);diEls.forEach(function(inp){inp.disabled=!EDIT_MODE;inp.style.cursor=EDIT_MODE?'pointer':'not-allowed';inp.style.opacity=EDIT_MODE?'1':'.5';});
+  // File inputs (hidden)
+  document.querySelectorAll('input[type="file"].hidden-fi').forEach(function(fi){fi.disabled=!EDIT_MODE;});
+  // Styled upload labels
+  document.querySelectorAll('.up-btn').forEach(function(lbl){var disabled=!EDIT_MODE;lbl.classList.toggle('disabled',disabled);lbl.style.cursor=disabled?'not-allowed':'pointer';lbl.style.opacity=disabled?'0.4':'1';});
+  // Legacy file inputs (if any remain)
+  document.querySelectorAll('input[type="file"]:not(.hidden-fi)').forEach(function(fi){fi.disabled=!EDIT_MODE;fi.style.cursor=EDIT_MODE?'pointer':'not-allowed';fi.style.opacity=EDIT_MODE?'1':'.5';});
+  // Remove buttons (.fr-rm class)
+  document.querySelectorAll('.fr-rm').forEach(function(b){b.disabled=!EDIT_MODE;b.style.cursor=EDIT_MODE?'pointer':'not-allowed';b.style.opacity=EDIT_MODE?'1':'0.3';});
+  // Legacy Remove buttons (deliverables tab without .fr-rm class)
+  document.querySelectorAll('.fl button, button').forEach(function(b){if(b.textContent==='Remove'&&!b.classList.contains('fr-rm')){b.disabled=!EDIT_MODE;b.style.cursor=EDIT_MODE?'pointer':'not-allowed';b.style.opacity=EDIT_MODE?'1':'.3';}});
+  // Select all checkbox
+  var selAll=document.getElementById('sel-all');if(selAll){selAll.disabled=!EDIT_MODE;selAll.style.cursor=EDIT_MODE?'pointer':'not-allowed';selAll.style.opacity=EDIT_MODE?'1':'.3';}
+}
+function startEdit(){EDIT_MODE=true;document.body.classList.add('editing');DRAFT_UP={};DRAFT_RM={};var f=document.getElementById('fs').value;if(ST[f]&&ST[f].pp){DRAFT_PP=safePP(ST[f].pp);}else{DRAFT_PP=null;}console.log('[EDIT] Edit mode ON, original PPP:',DRAFT_PP);updateEditButtons();syncEditMode();ALL();}
+async function saveAll(){
+  var f=document.getElementById('fs').value;
+  console.log('[SAVE-ALL] === START facility='+f+' ===');
+  console.log('[SAVE-ALL] ST.pp BEFORE:',safePP(ST[f]&&ST[f].pp));
+  console.log('[SAVE-ALL] ST.ms.M1 BEFORE:',ST[f]&&ST[f].ms&&ST[f].ms['M1']?JSON.stringify(ST[f].ms['M1']):'none');
+  console.log('[SAVE-ALL] PENDING:',JSON.stringify(PENDING[f]&&PENDING[f].ms?PENDING[f].ms:{}));
+  console.log('[SAVE-ALL] DRAFT_PP:',DRAFT_PP);
+  DRAFT_UP={};DRAFT_RM={};
+  // Save PPP start date — read from DOM as primary source, ST as fallback
+  var domPP=document.getElementById('pp').value||'';
+  var stPP=safePP(ST[f]&&ST[f].pp)||'';
+  var pppToSave=safePP(domPP||stPP);
+  var saveMsg='[SAVE] PPP DOM='+domPP+' ST='+stPP+' final='+pppToSave;
+  console.log(saveMsg);if(window._vdLog)window._vdLog('SAVE',saveMsg);
+  if(pppToSave){
+    if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
+    ST[f].pp=pppToSave;
+    var ok=await saveMilestoneToDB(f,'M1',{ppp:pppToSave});
+    var resultMsg='[SAVE] PPP '+(ok?'SAVED ✓':'FAILED ✗')+': '+pppToSave;
+    console.log(resultMsg);if(window._vdLog)window._vdLog('SAVE',resultMsg);
+    DRAFT_PP=null;
+  }else{
+    var skipMsg='[SAVE] No PPP to save (both DOM and ST empty)';
+    console.log(skipMsg);if(window._vdLog)window._vdLog('SAVE',skipMsg);
+  }
+  // Save milestone changes
+  if(PENDING[f]&&PENDING[f].ms){
+    if(!ST[f])ST[f]={pp:'',ms:{},up:{}};
+    await Promise.all(Object.entries(PENDING[f].ms).map(function(e){
+      return new Promise(function(resolve){
+        var mId=e[0],v=e[1];
+        if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};
+        if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate}).then(resolve).catch(resolve);}
+        else{resolve();}
+      });
+    }));
+  }
+  PENDING={};
+  EDIT_MODE=false;
+  document.body.classList.remove('editing');
+  console.log('[SAVE-ALL] === DONE ===');
+  console.log('[SAVE-ALL] ST.pp AFTER:',safePP(ST[f]&&ST[f].pp));
+  console.log('[SAVE-ALL] ST.ms.M1 AFTER:',ST[f]&&ST[f].ms&&ST[f].ms['M1']?JSON.stringify(ST[f].ms['M1']):'none');
+  // Re-render UI to show saved state
+  ALL();
+  updateEditButtons();
+  syncEditMode();
+  // Only re-render the active tab (no full refetch)
+  ALL();
+  var el=document.getElementById('edit-status');
+  if(el)el.textContent='✓ Saved';
+  setTimeout(function(){var e2=document.getElementById('edit-status');if(e2)e2.textContent='';},2000);
+}
+
+function cancelEdit(){
+  console.log('[EDIT] Cancelled');
+  PENDING={};
+  PENDING_REF=[];
+  DRAFT_UP={};DRAFT_RM={};
+  // Revert PPP date to original (only if we captured a real value)
+  if(DRAFT_PP!==null&&DRAFT_PP!==''){
+    var f=document.getElementById('fs').value;
+    var revertPP=safePP(DRAFT_PP);
+    if(ST[f])ST[f].pp=revertPP;
+    var ppInp=document.getElementById('pp');
+    if(ppInp)ppInp.value=revertPP;
+    console.log('[EDIT] PPP reverted to:',revertPP);
+  }
+  DRAFT_PP=null;
+  EDIT_MODE=false;
+  document.body.classList.remove('editing');
+  updateEditButtons();
+  syncEditMode();
+  ALL();
+}
+
+function getTotalFileCount(){
+  var f=document.getElementById('fs').value;
+  if(!ST[f]||!ST[f].up)return 0;
+  var count=0;
+  Object.values(ST[f].up).forEach(function(mVal){
+    if(!mVal)return;
+    if(Array.isArray(mVal)){count+=mVal.length;return;}
+    Object.values(mVal).forEach(function(arr){if(Array.isArray(arr))count+=arr.length;});});
+  return count;
+}
+
+// S-CURVE (same as working version)
+function lg(t,k,mi){return 100/(1+Math.exp(-k*(t-mi)))}
+function RS(){
+  var canvas=document.getElementById('sc');if(!canvas)return;
+  var c2=DF();if(!c2)return;
+  if(!c2.pp){if(CH){CH.destroy();CH=null}return}
+  var START_MO=-8, END_MO=21, MID=6;
+  var lbl=[], pl=[], ac=[], mileData=[];
+  var compCount=0;
+  Object.entries(MSD).forEach(function(e){var mst=c2.ms[e[0]];if(mst.compDate&&mst.compDate.length>0)compCount++});
+  for(var o=START_MO; o<=END_MO; o++){
+    var dt=cd(c2.pp,o);
+    lbl.push(fmtDate(dt));
+    // Planned: cumulative earned value from milestones whose target offset <= current offset
+    var plannedCount=0;
+    Object.entries(MSD).forEach(function(e){var d=e[1];if(d.o<=o)plannedCount++});
+    pl.push(Math.min(plannedCount*100/9,100));
+    // Actual: cumulative earned value from milestones whose completion offset <= current offset
+    var actualCount=0;
+    Object.entries(MSD).forEach(function(e){var mid=e[0];var mst=c2.ms[mid];if(mst.compDate&&mst.compDate.length>0){var aOff=moDiff(c2.pp,mst.compDate);if(o>=aOff)actualCount++}});
+    ac.push(Math.min(actualCount*100/9,100));
+    var ms=null;
+    Object.entries(MSD).forEach(function(e){if(e[1].o===o)ms=e});
+    if(ms){
+      var compInfo=c2.ms[ms[0]].compDate?' | Completed: '+c2.ms[ms[0]].compDate:' | Not completed';
+      var effP=gMPct(ms[0],c2);
+      mileData.push({idx:o-START_MO, code:ms[0], name:ms[1].n, pct:effP, dt:dt, comp:c2.ms[ms[0]].compDate});
+    }else{mileData.push(null)}
+  }
+  if(CH){CH.destroy();CH=null}
+  if(typeof Chart==='undefined')return;
+  var P_ID='phases_'+Date.now();
+  var phasePlugin={
+    id:P_ID,
+    beforeDraw:function(chart){
+      var ctx=chart.ctx, area=chart.chartArea;
+      if(!area)return;
+      var totalM=END_MO-START_MO+1;
+      function pxI(i){return area.left+(i/(totalM-1))*(area.right-area.left)}
+      function pxM(mo){return pxI(mo-START_MO)}
+      var x0=pxM(0), x12=pxM(12), x20=pxM(20);
+      ctx.save();
+      if(x0>area.left){ctx.fillStyle='rgba(15,76,117,0.06)';ctx.fillRect(area.left,area.top,x0-area.left,area.bottom-area.top)}
+      if(x12>x0){ctx.fillStyle='rgba(0,168,210,0.08)';ctx.fillRect(x0,area.top,x12-x0,area.bottom-area.top)}
+      if(x20>x12){ctx.fillStyle='rgba(42,170,138,0.06)';ctx.fillRect(x12,area.top,x20-x12,area.bottom-area.top)}
+      if(area.right>x20){ctx.fillStyle='rgba(200,200,200,0.04)';ctx.fillRect(x20,area.top,area.right-x20,area.bottom-area.top)}
+      ctx.strokeStyle='#64748b';ctx.lineWidth=1;ctx.setLineDash([5,3]);
+      [0,12,20].forEach(function(mo){var px=pxM(mo);ctx.beginPath();ctx.moveTo(px,area.top);ctx.lineTo(px,area.bottom);ctx.stroke()});
+      ctx.setLineDash([]);ctx.restore();
+    },
+    afterDraw:function(chart){
+      var ctx=chart.ctx, x=chart.scales.x, y=chart.scales.y, area=chart.chartArea;
+      if(!x||!y||!area)return;
+      var totalM=END_MO-START_MO+1;
+      var cw=chart.width;
+      var isMobile=cw<640;
+      function pxI(i){return area.left+(i/(totalM-1))*(area.right-area.left)}
+      function pxM(mo){return pxI(mo-START_MO)}
+      ctx.save();
+      // Phase labels at top — compact, non-overlapping
+      var pLabels=[
+        {mo:-4,t:'PRE-PPP',c:'#0F4C75',bg:'rgba(15,76,117,0.15)'},
+        {mo:6,t:'PPP',c:'#0077a3',bg:'rgba(0,168,210,0.18)'},
+        {mo:16,t:'POST-PPP',c:'#1a7a5e',bg:'rgba(42,170,138,0.15)'}
+      ];
+      var pLabelY=area.top+(isMobile?8:18);
+      var pLabelSize=isMobile?'bold 9px':'bold 10px';
+      pLabels.forEach(function(l){
+        var px=pxM(l.mo);
+        ctx.font=pLabelSize+' Inter,sans-serif';
+        var tw=ctx.measureText(l.t).width+12;
+        var th=isMobile?14:18;
+        ctx.fillStyle=l.bg;
+        ctx.beginPath();ctx.roundRect(px-tw/2,pLabelY-th/2,tw,th,3);ctx.fill();
+        ctx.fillStyle=l.c;ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(l.t,px,pLabelY);
+      });
+      ctx.textBaseline='alphabetic';ctx.restore();ctx.save();
+      // Today marker
+      var todayOff=moDiff(c2.pp,new Date().toISOString().slice(0,10));
+      if(todayOff>=START_MO&&todayOff<=END_MO){
+        var tPx=pxM(todayOff);
+        ctx.strokeStyle='#d1383e';ctx.lineWidth=isMobile?1.5:2;ctx.setLineDash([4,4]);
+        ctx.beginPath();ctx.moveTo(tPx,area.top);ctx.lineTo(tPx,area.bottom);ctx.stroke();
+        ctx.setLineDash([]);ctx.fillStyle='#d1383e';ctx.textAlign='center';
+        ctx.font=isMobile?'bold 8px':'bold 10px'+' Inter,sans-serif';
+        ctx.fillText('TODAY',tPx,area.top+(isMobile?4:6));
+      }
+      ctx.restore();ctx.save();
+      // Milestone dots on the curve — just code + dot, no long names
+      mileData.forEach(function(m){if(!m)return;
+        var isComp=c2.ms[m.code].compDate&&c2.ms[m.code].compDate.length>0;
+        var px,py;
+        if(isComp){
+          var aOff=moDiff(c2.pp,c2.ms[m.code].compDate);
+          var aIdx=Math.max(0,Math.min(aOff-START_MO,ac.length-1));
+          px=pxI(aIdx);py=y.getPixelForValue(ac[aIdx]);
+        }else{
+          px=pxI(m.idx);py=y.getPixelForValue(pl[m.idx]);
+        }
+        // Draw cross tick
+        ctx.strokeStyle=isComp?'#d1383e':'#94a3b8';ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.moveTo(px,py-4);ctx.lineTo(px,py+4);ctx.stroke();
+        // Draw dot
+        ctx.fillStyle=isComp?'#d1383e':'#94a3b8';
+        ctx.beginPath();ctx.arc(px,py,isComp?5:3,0,Math.PI*2);ctx.fill();
+        // Milestone label — code + short name with white background pill
+        var labelText=isMobile?m.code:(m.code+': '+m.name);
+        ctx.font=isMobile?'bold 8px':'bold 9px'+' Inter,sans-serif';
+        var labelW=ctx.measureText(labelText).width+8;
+        var labelH=isMobile?14:16;
+        var labelY=isMobile?py+16:py+20;
+        // White pill background
+        ctx.fillStyle='rgba(255,255,255,0.85)';
+        ctx.beginPath();ctx.roundRect(px-labelW/2,labelY-labelH/2,labelW,labelH,3);ctx.fill();
+        // Text
+        ctx.fillStyle=isComp?'#d1383e':'#374151';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(labelText,px,labelY);
+      });
+      ctx.restore();
+    }
+  };
+  CH=new Chart(canvas,{
+    type:'line',
+    data:{labels:lbl,datasets:[
+      {label:'Planned',data:pl,borderColor:'#00a8d2',backgroundColor:'rgba(0,168,210,0.08)',tension:0.35,fill:true,pointRadius:0,pointStyle:'line',borderWidth:3},
+      {label:'Actual',data:ac,borderColor:'#d1383e',backgroundColor:'rgba(209,56,62,0.08)',tension:0.35,fill:true,pointRadius:0,pointStyle:'line',borderWidth:3}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      layout:{padding:{top:28,bottom:22,left:10,right:40}},
+      plugins:{
+        legend:{position:'bottom',labels:{font:{size:12},usePointStyle:true,boxWidth:8,padding:16}},
+        tooltip:{
+          backgroundColor:'rgba(11,29,68,0.95)',titleFont:{size:13},bodyFont:{size:12},padding:10,
+          callbacks:{
+            title:function(i){return'Date: '+i[0].label},
+            label:function(ctx){return ctx.dataset.label+': '+Math.round(ctx.raw*10)/10+'%'}
+          }
+        }
+      },
+      scales:{
+        y:{min:0,max:100,grid:{color:'#f0f3f5'},ticks:{callback:function(v){return v+'%'},font:{size:11},padding:8}},
+        x:{grid:{color:'#f0f3f5',lineWidth:0.5},ticks:{maxRotation:0,minRotation:0,font:{size:10},autoSkip:true,maxTicksLimit:12,callback:function(val,idx){var dt=lbl[idx];if(!dt)return'';var parts=dt.split('-');return parts[0]+'-'+parts[2]}}}
+      }
+    },
+    plugins:[phasePlugin]
+  });
+  RSC();
+}
+
+// S-CURVE SUMMARY: Planned, Actual, Variance, RAG
+function RSC(){
+  var c2=DF();
+  var el=document.getElementById('sc-summary');
+  if(!el||!c2.pp){el&&(el.innerHTML='');return}
+  var todayOff=moDiff(c2.pp,new Date().toISOString().slice(0,10));
+  // Planned: cumulative earned value from milestones whose target offset <= today
+  var plannedCount=0;
+  Object.entries(MSD).forEach(function(e){var d=e[1];if(d.o<=todayOff)plannedCount++});
+  var plannedVal=Math.min(plannedCount*100/9,100);
+  // Actual: cumulative earned value from all completed milestones
+  var actualCount=0;
+  Object.entries(MSD).forEach(function(e){var mst=c2.ms[e[0]];if(mst.compDate&&mst.compDate.length>0)actualCount++});
+  var actualVal=Math.min(actualCount*100/9,100);
+  var variance=Math.round((actualVal-plannedVal)*10)/10;
+  var vAbs=Math.abs(variance);
+  var ragC,ragT;
+  if(variance>=0){ragC='#059669';ragT='GREEN — On track or ahead';ragL='rg'}
+  else if(vAbs<=10){ragC='#e8890c';ragT='AMBER — Slight delay (≤10%)';ragL='ra'}
+  else{ragC='#d1383e';ragT='RED — Behind schedule (>10%)';ragL='rr'}
+  var isMobile=window.innerWidth<768;
+  var pad=isMobile?'6px 4px':'10px 6px';
+  var valSize=isMobile?'14px':'18px';
+  var lblSize=isMobile?'9px':'10px';
+  var ragText=isMobile?(variance>=0?'On track':(vAbs<=10?'Slight delay':'Behind')):ragT;
+  el.innerHTML='<div style="text-align:center;padding:'+pad+';background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:'+lblSize+';color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Planned</div><div style="font-size:'+valSize+';font-weight:700;color:var(--blue)">'+Math.round(plannedVal)+'%</div></div>'+
+    '<div style="text-align:center;padding:'+pad+';background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:'+lblSize+';color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Actual</div><div style="font-size:'+valSize+';font-weight:700;color:var(--red)">'+Math.round(actualVal)+'%</div></div>'+
+    '<div style="text-align:center;padding:'+pad+';background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><div style="font-size:'+lblSize+';color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">Variance</div><div style="font-size:'+valSize+';font-weight:700;color:'+(variance>=0?'var(--green)':'var(--red)')+'">'+(variance>=0?'+':'')+variance+'%</div></div>'+
+    '<div style="text-align:center;padding:'+pad+';border-radius:6px;border:1px solid '+ragC+';background:'+ragC+'10"><div style="font-size:'+lblSize+';color:'+ragC+';text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px">RAG</div><div style="font-size:'+valSize+';font-weight:700;color:'+ragC+'">'+ragText+'</div></div>';
+}
+
+
+function RD(){const c=CU();const f=document.getElementById('fs').value;document.getElementById('dlf').textContent=f;
+var el=document.getElementById('dl');el.innerHTML='';
+// Batch download button bar
+var batchBar=document.createElement('div');batchBar.style.cssText='display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;padding:10px 14px;background:#F1F5F9;border-radius:var(--r-md);border:1px solid var(--mw-border)';
+var selAll=document.createElement('input');selAll.type='checkbox';selAll.id='sel-all';selAll.disabled=!EDIT_MODE;selAll.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:16px;height:16px;opacity:'+(EDIT_MODE?'1':'0.3');
+selAll.addEventListener('change',function(ev){document.querySelectorAll('.dld-cb').forEach(function(cb){cb.checked=ev.target.checked})});
+batchBar.appendChild(selAll);
+var selAllLbl=document.createElement('label');selAllLbl.htmlFor='sel-all';selAllLbl.style.cssText='font-size:12px;color:var(--t2);cursor:pointer;margin-right:8px';selAllLbl.textContent='Select all';
+batchBar.appendChild(selAllLbl);
+var batchBtn=document.createElement('button');batchBtn.className='btn-p';batchBtn.textContent='Download Selected as ZIP';batchBtn.disabled=!EDIT_MODE;batchBtn.style.opacity=EDIT_MODE?'1':'0.3';batchBtn.style.cursor=EDIT_MODE?'pointer':'not-allowed';batchBtn.style.cssText='padding:7px 16px;font-size:12px;font-weight:700;border:none;border-radius:var(--r-md);background:var(--mw-navy);color:#fff;cursor:pointer;white-space:nowrap;box-shadow:0 2px 4px rgba(11,29,68,0.25)';
+batchBtn.addEventListener('click',dldBatch);
+batchBar.appendChild(batchBtn);
+var batchInfo=document.createElement('span');batchInfo.id='dld-info';batchInfo.style.cssText='font-size:11px;color:var(--mw-muted);flex:1;min-width:0';
+batchInfo.textContent='Check files, then click to download as a single ZIP';
+batchBar.appendChild(batchInfo);
+el.appendChild(batchBar);
+// Header row
+var grid=document.createElement('div');grid.className='dlv-g';
+['TOC Item','Annex','Linked Milestones','Uploads'].forEach(function(h){var d=document.createElement('div');d.className='dlv-h';d.style.cssText='justify-content:flex-start;padding-left:12px';d.textContent=h;if(h!=='TOC Item'){d.style.justifyContent='center';d.style.paddingLeft='10px'}grid.appendChild(d)});
+let cp=0;
+TOC.forEach(function(t){var tnum=t.num;
+// Collect all files for this TOC across all sources
+var allFiles=[];
+var linkedMs=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(tnum))linkedMs.push(e[0])});
+linkedMs.forEach(function(mid){var key='TOC-'+tnum;if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].forEach(function(fi,ix){allFiles.push({n:fi.name||fi.n||'File',d:fi.url||fi.d||'',id:fi.id||fi.dbId||null,src:mid,loc:'up',mid:mid,key:key,ix:ix})})}});
+if(c.up['__deliv']&&c.up['__deliv']['TOC-'+tnum]){c.up['__deliv']['TOC-'+tnum].forEach(function(fi,ix){allFiles.push({n:fi.name||fi.n||'File',d:fi.url||fi.d||'',id:fi.id||fi.dbId||null,src:'general',loc:'__deliv',mid:'__deliv',key:'TOC-'+tnum,ix:ix})})}
+// DEDUPLICATE: same file may appear in multiple milestone buckets + __deliv
+var seenDbIds=new Set();var uniqueFiles=[];
+allFiles.forEach(function(fi){if(fi.dbId&&seenDbIds.has(fi.dbId))return;if(fi.dbId)seenDbIds.add(fi.dbId);uniqueFiles.push(fi)});
+allFiles=uniqueFiles;
+if(allFiles.length>0)cp++;
+// Cell 1: TOC name + description
+var c1=document.createElement('div');c1.className='dlv-n';c1.style.cssText='flex-direction:column;align-items:flex-start;gap:2px';
+c1.innerHTML='<div style="font-weight:600">'+tnum+' — '+t.ti+'</div><div style="font-size:11px;color:var(--t2)">'+t.dc+'</div>';
+grid.appendChild(c1);
+// Cell 2: Annex badge
+var c2=document.createElement('div');c2.className='dlv-c';
+if(t.ax){var axNum=t.ax.match(/\d+/);var axI=axNum?ANX.find(function(x){return x.id===axNum[0]}):null;c2.innerHTML='<span class="tag og" data-tip="'+(axI?axI.ti+' | '+axI.cr:t.ax)+'">'+t.ax+'</span>'}else{c2.innerHTML='<span style="color:var(--t2);font-size:11px">—</span>'}
+grid.appendChild(c2);
+// Cell 3: Linked milestones
+var c3=document.createElement('div');c3.className='dlv-c';c3.style.flexWrap='wrap';c3.style.gap='2px';
+if(linkedMs.length>0){linkedMs.forEach(function(m){var s=document.createElement('span');s.className='tag tg';s.textContent=m;s.dataset.tip=MSD[m]?MSD[m].n:m;c3.appendChild(s)})}else{c3.innerHTML='<span style="color:var(--t2);font-size:11px">Not linked to milestones</span>'}
+grid.appendChild(c3);
+// Cell 4: Uploads with checkboxes
+var c4=document.createElement('div');c4.className='dlv-c';c4.style.flexDirection='column';c4.style.alignItems='flex-start';
+if(allFiles.length>0){
+  allFiles.forEach(function(fi,idx){
+    var fr=document.createElement('div');fr.className='file-action-row';
+    var cb=document.createElement('input');cb.type='checkbox';cb.className='dld-cb';cb.dataset.fname=fi.n;cb.dataset.fdata=fi.d;cb.style.cssText='cursor:pointer;width:14px;height:14px;margin:0';
+    fr.appendChild(cb);
+    // File name
+    var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.n||'File';
+    fr.appendChild(nameSpan);
+    var sp=document.createElement('span');sp.style.cssText='font-size:10px;color:var(--t2);flex-shrink:0';sp.textContent='from '+fi.src;
+    fr.appendChild(sp);
+    // View button
+    if(fi.id){
+      var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+      viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fi.id+'/view','_blank');});
+      fr.appendChild(viewBtn);
+      var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+      dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fi.id+'/download','_blank');});
+      fr.appendChild(dldBtn);
+    }
+    // Remove button (edit mode only)
+    var rm=document.createElement('button');rm.textContent='Remove';rm.className='fr-rm';rm.disabled=!EDIT_MODE;
+    rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.id){govDeleteFile(fi.id).then(function(){console.log('Deleted from DB:',fi.id)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
+    fr.appendChild(rm);
+    c4.appendChild(fr);
+  });
+}else{
+  var dlvR=document.createElement('div');dlvR.className='up-area';
+  var dlvInId='fi-dlv-'+tnum;
+  var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.id=dlvInId;fileIn.className='hidden-fi';
+  fileIn.addEventListener('change',function(ev){hDlvUp(tnum,ev)});
+  var dlvLabel=document.createElement('label');
+  dlvLabel.htmlFor=dlvInId;dlvLabel.className='up-btn'+(EDIT_MODE?'':' disabled');
+  dlvLabel.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload '+tnum;
+  if(!EDIT_MODE){dlvLabel.style.opacity='0.4';dlvLabel.style.cursor='not-allowed';}
+  dlvR.appendChild(fileIn);dlvR.appendChild(dlvLabel);
+  c4.appendChild(dlvR);
+}
+grid.appendChild(c4);
+});
+el.appendChild(grid);
+document.getElementById('db').textContent=cp+' / 14 with uploads';
+}
+
+// DELIVERABLES upload handler
+function hDlvUp(tnum,e){if(!EDIT_MODE){alert('Press Edit to upload files');return;}const fileInput=e.target;
+  const files=fileInput.files;
+  if(!files||files.length===0)return;
+  var key='TOC-'+tnum;
+  var owner=tocOwner[key];
+  var facilitySlug=document.getElementById('fs').value;
+  var dbSlug=facilitySlug.toLowerCase();
+  var targetMid=owner||'__deliv';
+  var total=files.length, done=0, failed=0;
+  pbShow('Uploading '+total+' file(s)', 'Reading files...');
+  console.log('[GOV] hDlvUp:', total, 'files | facility:', facilitySlug, 'key:', key, 'mid:', targetMid);
+
+  Array.from(files).forEach(function(f){
+    if(f.size > 35 * 1024 * 1024){
+      alert('File "'+f.name+'" is too large ('+(f.size/1024/1024).toFixed(1)+'MB). Max is 30MB.');
+      done++; failed++;
+      if(done===total){ pbHide(); fileInput.value=''; }
+      return;
+    }
+    var r=new FileReader();
+    r.onload=function(ev){
+      var b64=ev.target.result;
+      done++;
+      pbUpdate((done/total)*50, 'Uploading '+f.name+' ('+(b64.length/1024).toFixed(0)+'KB)...', done+' / '+total);
+      govUploadFile(dbSlug, targetMid, key, f.name, f.type||'application/octet-stream', f.size, b64)
+        .then(function(res){
+          if(res && res.error){
+            var errMsg = (res.error.json && res.error.json.message) || 'Server error';
+            console.error('[GOV] Server error for', f.name, ':', errMsg);
+            alert('Upload failed for "'+f.name+'": '+errMsg);
+            failed++;
+          } else {
+            console.log('[GOV] Uploaded:', f.name, res);
+          }
+          if(done===total){
+            pbUpdate(100, failed>0 ? failed+' failed, refreshing...' : 'Refreshing...');
+            setTimeout(function(){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }, 400);
+          } else {
+            pbUpdate(50 + (done/total)*50, 'Uploading...', done+' / '+total);
+          }
+        })
+        .catch(function(err){
+          failed++;
+          console.error('[GOV] Network error:', f.name, err);
+          alert('Upload failed for "'+f.name+'": '+(err.message||'Network error'));
+          if(done===total){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }
+        });
+    };
+    r.onerror=function(){
+      done++; failed++;
+      alert('Cannot read file: '+f.name);
+      if(done===total){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }
+    };
+    r.readAsDataURL(f);
+  });
+}
+
+// REMOVE file from Deliverables tab — DB first, then UI
+function rDlvUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');return;}var c=CU();
+  if(!c.up[mid]||!c.up[mid][key])return;
+  var fi=c.up[mid][key][ix];
+  if(!fi)return;
+  if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;
+  if(fi.dbId){
+    govDeleteFile(fi.dbId).then(function(){console.log('[GOV] Deleted from DB:',fi.dbId);})
+    .catch(function(err){console.error('[GOV] DB delete failed:',err);});
+  }
+  c.up[mid][key].splice(ix,1);
+  if(c.up[mid][key].length===0)delete c.up[mid][key];
+  SV();RD();RM();RS();
+}
+
+function dldBatch(){
+  const cbs=document.querySelectorAll('.dld-cb:checked');
+  if(cbs.length===0){alert('No files selected. Check the boxes next to files you want to download.');return}
+  var zip=new JSZip();
+  cbs.forEach(function(cb){
+    var name=cb.dataset.fname;
+    var data=cb.dataset.fdata;
+    if(data&&data.indexOf('base64,')>-1){var b64=data.split('base64,')[1];zip.file(name,b64,{base64:true})}else if(data){zip.file(name,data)}
+  });
+  zip.generateAsync({type:'blob'}).then(function(content){
+    var filename='O&M_Documents_'+new Date().toISOString().slice(0,10)+'.zip';
+    // Try File System Access API for Save As dialog (asks for location)
+    if(window.showSaveFilePicker){
+      window.showSaveFilePicker({
+        suggestedName:filename,
+        types:[{description:'ZIP Archive',accept:{'application/zip':['.zip']}}]
+      }).then(function(handle){
+        return handle.createWritable().then(function(writable){
+          return writable.write(content).then(function(){writable.close()});
+        });
+      }).catch(function(err){if(err.name!=='AbortError'){fallbackDownload(content,filename)}});
+    }else{
+      fallbackDownload(content,filename);
+    }
+  });
+}
+function fallbackDownload(blob,filename){
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href)},100);
+}
+
+function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
+
+// UPLOAD a file under a milestone+key (Progress tab TOC/Annex/Other)
+function hTocUp(mid,key,e){if(!EDIT_MODE){alert('Press Edit to upload files');return;}const fileInput=e.target;
+  const files=fileInput.files;
+  if(!files||files.length===0)return;
+  var facilitySlug=document.getElementById('fs').value;
+  var dbSlug=facilitySlug.toLowerCase();
+  var total=files.length, done=0, failed=0;
+  pbShow('Uploading '+total+' file(s)', 'Reading files...');
+  console.log('[GOV] hTocUp:', total, 'files | facility:', facilitySlug, 'mid:', mid, 'key:', key);
+
+  Array.from(files).forEach(function(f, idx){
+    // Check file size before reading (max ~30MB before base64 inflation)
+    if(f.size > 35 * 1024 * 1024){
+      alert('File "'+f.name+'" is too large ('+(f.size/1024/1024).toFixed(1)+'MB). Max is 30MB.');
+      done++; failed++;
+      if(done===total){ pbHide(); fileInput.value=''; }
+      return;
+    }
+    var r=new FileReader();
+    r.onload=function(ev){
+      var b64=ev.target.result;
+      done++;
+      pbUpdate((done/total)*50, 'Uploading '+f.name+' ('+(b64.length/1024).toFixed(0)+'KB)...', done+' / '+total);
+      govUploadFile(dbSlug, mid, key, f.name, f.type||'application/octet-stream', f.size, b64)
+        .then(function(res){
+          // Check for tRPC error response
+          if(res && res.error){
+            var errMsg = (res.error.json && res.error.json.message) || 'Server error';
+            console.error('[GOV] Server error for', f.name, ':', errMsg);
+            alert('Upload failed for "'+f.name+'": '+errMsg);
+            failed++;
+          } else {
+            console.log('[GOV] Uploaded:', f.name, res);
+          }
+          if(done===total){
+            pbUpdate(100, failed>0 ? failed+' failed, refreshing...' : 'Refreshing...');
+            setTimeout(function(){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }, 400);
+          } else {
+            pbUpdate(50 + (done/total)*50, 'Uploading...', done+' / '+total);
+          }
+        })
+        .catch(function(err){
+          failed++;
+          console.error('[GOV] Network error:', f.name, err);
+          alert('Upload failed for "'+f.name+'": '+(err.message||'Network error'));
+          if(done===total){
+            pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug);
+          }
+        });
+    };
+    r.onerror=function(){
+      failed++; done++;
+      alert('Cannot read file: '+f.name);
+      if(done===total){ pbHide(); fileInput.value=''; loadFilesFromDB(facilitySlug); }
+    };
+    r.readAsDataURL(f);
+  });
+}
+// REMOVE file from Progress tab — DB first, then UI
+function rTocUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');return;}var c=CU();
+  if(!c.up[mid]||!c.up[mid][key])return;
+  var fi=c.up[mid][key][ix];
+  if(!fi)return;
+  var fName=fi.name||fi.n||'File';
+  if(!confirm('Delete "'+fName+'"?\n\nThe completion date for this milestone will also be cleared.'))return;
+  var fileId=fi.id||fi.dbId;
+  if(fileId){
+    govDeleteFile(fileId).then(function(){console.log('[GOV] Deleted from DB:',fileId);})
+    .catch(function(err){console.error('[GOV] DB delete failed:',err);});
+  }
+  c.up[mid][key].splice(ix,1);
+  if(c.up[mid][key].length===0)delete c.up[mid][key];
+  SV();RM();RD();
+}
+
+// IMPORT/EXPORT/RESET
+
+
+
+function rsA(){if(!confirm('Reset all data?'))return;localStorage.removeItem('omg5');LD();ALL()}
+
+// REFERENCES TAB
+// ═══ Reference Documents (milestone_id = '__ref') ═══
+let REFERENCE_DOCS=[];
+
+async function fetchReferenceDocs(){
+  // If already loaded from fetchStateFromDB, don't re-fetch
+  if(REFERENCE_DOCS&&REFERENCE_DOCS.length>0)return;
+  // Fallback: try standalone endpoint
+  var el=document.getElementById('ref-doc-list');
+  if(el)el.innerHTML='<div class="ref-doc-empty">Loading...</div>';
+  try{
+    var ctrl=new AbortController();
+    var tmr=setTimeout(function(){ctrl.abort();},5000);
+    var resp=await fetch(API_BASE+'/api/governance/references',{signal:ctrl.signal});
+    clearTimeout(tmr);
+    var data=await resp.json();
+    REFERENCE_DOCS=(data.files||[]).map(function(f){
+      return{id:f.id,name:f.file_name,url:f.file_url,date:f.uploaded_at,by:f.uploaded_by||''};
+    });
+    if(el&&REFERENCE_DOCS.length===0){
+      el.innerHTML='<div class="ref-doc-empty">No reference documents uploaded yet.</div>';
+    }
+  }catch(err){
+    REFERENCE_DOCS=[];
+    if(el)el.innerHTML='<div class="ref-doc-empty">Failed to load reference documents.</div>';
+  }
+}
+
+function renderRefDocs(){
+  console.log('[renderRefDocs] EDIT_MODE='+EDIT_MODE+' DB='+REFERENCE_DOCS.length+' Pending='+PENDING_REF.length);
+  var el=document.getElementById('ref-doc-list');
+  var dbg=document.getElementById('ref-debug');
+  if(dbg){
+    var d='Edit:'+EDIT_MODE+' | DB:'+REFERENCE_DOCS.length+' | Pending:'+PENDING_REF.length;
+    if(dbg.dataset.lastSelected)d+=' | Sel:'+dbg.dataset.lastSelected;
+    if(dbg.dataset.saveStatus)d+=' | Save:'+dbg.dataset.saveStatus;
+    if(dbg.dataset.lastApiStatus)d+=' | API:'+dbg.dataset.lastApiStatus;
+    if(dbg.dataset.fetchResult)d+=' | Fetch:'+dbg.dataset.fetchResult;
+    dbg.textContent=d;
+  }
+  if(!el){console.log('[renderRefDocs] No ref-doc-list element');return;}
+  var allFiles=[];
+  REFERENCE_DOCS.forEach(function(f){allFiles.push({id:f.id,name:f.name||f.file_name||'File',url:f.url||f.file_url,date:f.date||f.uploaded_at,fromDB:true});});
+  console.log('[renderRefDocs] allFiles.length='+allFiles.length);
+  if(allFiles.length===0){
+    el.innerHTML='';
+    var emptyDiv=document.createElement('div');emptyDiv.className='ref-doc-empty';emptyDiv.textContent='No reference documents uploaded yet.';
+    el.appendChild(emptyDiv);
+    if(EDIT_MODE){
+      var upDiv=document.createElement('div');upDiv.style.marginTop='10px';
+      var fi=document.createElement('input');fi.type='file';fi.id='ref-fi';fi.className='hidden-fi';fi.accept='.pdf,.docx,.doc,.xlsx,.xls';
+      fi.addEventListener('change',function(ev){hRefUp(ev);});
+      var lbl=document.createElement('label');lbl.htmlFor='ref-fi';lbl.className='up-btn';lbl.textContent='+ Upload Reference File';
+      upDiv.appendChild(fi);upDiv.appendChild(lbl);
+      el.appendChild(upDiv);
+    }else{
+      var hintDiv=document.createElement('div');hintDiv.style.marginTop='8px';hintDiv.style.fontSize='12px';hintDiv.style.color='var(--mw-muted)';
+      hintDiv.innerHTML='Click <strong>Edit</strong> to upload a reference document.';
+      el.appendChild(hintDiv);
+    }
+    return;
+  }
+  var flDiv=document.createElement('div');flDiv.className='fl toc-files';
+  allFiles.forEach(function(fi,ix){
+    var frDiv=document.createElement('div');frDiv.className='file-action-row';
+    var nameWrap=document.createElement('span');nameWrap.className='fr-name';
+    nameWrap.textContent=fi.name;
+    frDiv.appendChild(nameWrap);
+    var actDiv=document.createElement('div');actDiv.className='fr-actions';
+    var fid=fi.id;
+    if(fid&&!fi.pending){
+      var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
+      viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+      actDiv.appendChild(viewBtn);
+      var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
+      dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+      actDiv.appendChild(dldBtn);
+    }
+    var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
+    if(fi.pending){rmBtn.addEventListener('click',function(){rRefUp(ix);});}
+    else if(fid){rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!EDIT_MODE){alert('Press Edit to remove');return;}if(confirm('Delete?')){deleteRefDoc(fid);}});}
+    actDiv.appendChild(rmBtn);
+    frDiv.appendChild(actDiv);
+    flDiv.appendChild(frDiv);
+  });
+  el.innerHTML='';el.appendChild(flDiv);
+  if(EDIT_MODE){
+    var upWrap=document.createElement('div');upWrap.style.marginTop='10px';
+    var fi2=document.createElement('input');fi2.type='file';fi2.id='ref-fi';fi2.className='hidden-fi';fi2.accept='.pdf,.docx,.doc,.xlsx,.xls';
+    fi2.addEventListener('change',function(ev){console.log('[REF] File input change fired');hRefUp(ev);});
+    var lbl2=document.createElement('label');lbl2.htmlFor='ref-fi';lbl2.className='up-btn';lbl2.textContent='+ Upload Reference File';
+    upWrap.appendChild(fi2);upWrap.appendChild(lbl2);
+    el.appendChild(upWrap);
+    console.log('[renderRefDocs] Upload button (non-empty) created with addEventListener');
+  }
+}
+
+
+// Handle reference file upload (from file input change)
+function hRefUp(ev){
+  if(!EDIT_MODE){alert('Press Edit to upload reference files');return;}
+  var files=ev.target.files;if(!files||!files.length)return;
+  var total=files.length,done=0,failed=0;
+  Array.from(files).forEach(function(file){
+    if(file.size>35*1024*1024){alert('File too large: '+file.name);done++;failed++;return;}
+    var r=new FileReader();
+    r.onload=function(e){
+      var b64=e.target.result;
+      done++;
+      saveFileToDB('all','__ref','references',{n:file.name,d:b64,s:file.size})
+        .then(function(res){
+          if(res&&res.id){
+            // Optimistic: add to local state immediately, no full refetch
+            REFERENCE_DOCS.push({id:res.id,name:file.name,url:b64,date:new Date().toISOString(),by:''});
+            renderRefDocs();
+          }else{
+            console.error('[REF] Upload failed:',JSON.stringify(res).substring(0,100));failed++;
+          }
+          if(done===total){ev.target.value='';}
+        })
+        .catch(function(err){failed++;console.error('[REF] Error:',err.message);if(done===total){ev.target.value='';}});
+    };
+    r.onerror=function(){failed++;done++;alert('Cannot read: '+file.name);if(done===total){ev.target.value='';}};
+    r.readAsDataURL(file);
+  });
+}
+
+// Remove a pending reference upload
+function rRefUp(ix){
+  if(!EDIT_MODE){alert('Press Edit to remove files');return;}
+  PENDING_REF.splice(ix,1);
+  renderRefDocs();
+}
+
+async function deleteRefDoc(fileId){
+  try{
+    var resp=await fetch(API_BASE+'/api/governance/files/'+fileId,{method:'DELETE'});
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    fetchReferenceDocs().then(function(){renderRefDocs();}).catch(function(e){console.error('[REF] Refetch after delete:',e.message);});
+  }catch(err){
+    console.error('[REF] Delete failed:',err.message);
+    alert('Failed to delete reference document.');
+  }
+}
+
+async function RREF(){
+if(!REFERENCE_DOCS||REFERENCE_DOCS.length===0){fetchReferenceDocs().then(function(){RREFDOCS();RREFTAB();}).catch(function(e){console.error('[REF] RREF fetch:',e.message);});return;}
+RREFDOCS();RREFTAB();}
+
+function RREFDOCS(){renderRefDocs();}
+
+function RREFTAB(){
+var el1=document.getElementById('ref');
+var h='<table class="ref-table"><thead><tr style="background:#f0f3f5"><th style="padding:8px;text-align:left;width:80px;white-space:nowrap">Annex</th><th style="padding:8px;text-align:left">Title</th><th style="padding:8px;text-align:left">Criteria</th><th style="padding:8px;text-align:center">Linked TOC</th></tr></thead><tbody>';
+ANX.forEach(function(a){var linkedToc=TOC.filter(function(t){return t.ax&&t.ax.includes(a.id)}).map(function(t){return '<span class="tag tg" data-tip="'+t.ti+'">'+t.num+'</span>'}).join('')||'<span style="color:var(--t2);font-size:11px">\u2014</span>';h+='<tr style="border-bottom:1px solid #edf1f4"><td style="padding:8px;font-weight:700;color:var(--orange);white-space:nowrap">ANNEX '+a.id+'</td><td style="padding:8px;font-weight:500">'+a.ti+'</td><td style="padding:8px;color:var(--t2)">'+a.cr+'</td><td style="padding:8px;text-align:center">'+linkedToc+'</td></tr>'});
+h+='</tbody></table>';el1.innerHTML=h;
+var el2=document.getElementById('ref2');
+var h2='<table class="ref-table"><thead><tr style="background:#f0f3f5"><th style="padding:8px;text-align:left">TOC Item</th><th style="padding:8px;text-align:center">Annex</th><th style="padding:8px;text-align:left">Milestones</th></tr></thead><tbody>';
+TOC.forEach(function(t){var ax=t.ax?'<span class="tag og" data-tip="'+anxT(t.ax.replace(/ANNEX\s*/,''))+'">'+t.ax+'</span>':'<span style="color:var(--t2);font-size:11px">\u2014</span>';var ms=ALM.find(function(r){return r.it.startsWith(t.num)});var mBadges='';if(ms){['M1','M2','M3','M4','M5','M6','M7','M8','M9'].forEach(function(m){if(ms[m]){var rc=ms[m]==='P'?'rg':'ra';var tt=ms[m]==='P'?'Primary alignment':'Secondary alignment';mBadges+='<span class="badge '+rc+'" style="font-size:10px;padding:2px 6px" data-tip="'+tt+'">'+m+'</span> '}})}h2+='<tr style="border-bottom:1px solid #edf1f4"><td style="padding:8px"><strong>'+t.num+'</strong> \u2014 '+t.ti+'<br><span style="font-size:11px;color:var(--t2)">'+t.dc+'</span></td><td style="padding:8px;text-align:center">'+ax+'</td><td style="padding:8px">'+mBadges+'</td></tr>'});
+h2+='</tbody></table>';el2.innerHTML=h2;
+}
+
+INIT();
+</script>
+<style>
+</style>
+<div style="text-align:right;padding:20px;font-size:11px;color:#5A6B7D;border-top:1px solid #D6DFE8;margin-top:20px">Program Oversight Center &copy; 2026</div>
+  <!-- Floating Ask AI Button -->
+  <button id="ask-ai-fab" onclick="toggleAIPanel()" title="Ask AI" style="position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#7C3AED,#6366F1);color:#fff;border:none;box-shadow:0 4px 16px rgba(124,58,237,0.4);cursor:pointer;z-index:999;font-size:22px;display:flex;align-items:center;justify-content:center;transition:transform .2s,box-shadow .2s" onmouseover="this.style.transform='scale(1.1)';this.style.boxShadow='0 6px 24px rgba(124,58,237,0.5)'" onmouseout="this.style.transform='scale(1)';this.style.boxShadow='0 4px 16px rgba(124,58,237,0.4)'">
+    ✨
+  </button>
+
+</body>
 </html>

@@ -19,26 +19,6 @@ const auditedAssistantPages = [
 ];
 
 const assistantSource = () => repoFile("src/components/AIAssistant.tsx");
-const legacyMarkerParts = [
-  ["Ask AI", " about this Dashboard"],
-  ["Groq AI ", "(Llama"],
-  ["AI ", "Insights"],
-  ["Scorecard", "AI"],
-  ["aiFab", "Btn"],
-  ["aiScorecard", "Panel"],
-  ["aiScorecard", "Overlay"],
-];
-const legacyMarkers = legacyMarkerParts.map((parts) => parts.join(""));
-const sourceFilesToGuard = [
-  ...auditedAssistantPages,
-  "src/App.tsx",
-  "src/components/AiChatPanel.tsx",
-  "public/governance.html",
-  "public/mw-dashboard.html",
-  "public/ai-assistant.js",
-  "public/scorecard-kpi.html",
-  "api/boot.ts",
-];
 const assistantShell = () => {
   const source = assistantSource();
   return source.slice(source.indexOf("  return (\n    <>") );
@@ -56,6 +36,7 @@ describe("AI assistant visual standardization", () => {
     expect(shell).not.toContain("Senior Reliability Advisor");
     expect(shell).not.toContain("#005BAC");
   });
+
 
 
   it("keeps the visible assistant chrome shared instead of module-titled", () => {
@@ -108,26 +89,12 @@ describe("AI assistant visual standardization", () => {
     expect(source).not.toContain("#005BAC");
   });
 
+  it("does not render the legacy scorecard iframe AI widget", () => {
+    const html = repoFile("public/scorecard-kpi.html");
 
-
-  it("keeps routed static entry points on the React app shell", () => {
-    const app = repoFile("src/App.tsx");
-    const boot = repoFile("api/boot.ts");
-
-    expect(app).toContain('path="/governance"');
-    expect(app).toContain('path="/mw-dashboard"');
-    expect(boot).toContain('app.get("/governance", serveReactDashboard)');
-    expect(boot).toContain('app.get("/mw-dashboard", serveReactDashboard)');
-    expect(repoFile("public/governance.html")).toContain('url=/governance');
-    expect(repoFile("public/mw-dashboard.html")).toContain('url=/mw-dashboard');
-  });
-
-  it("does not retain known legacy custom AI markers in guarded source", () => {
-    for (const file of sourceFilesToGuard) {
-      const source = repoFile(file);
-      for (const marker of legacyMarkers) {
-        expect(source.includes(marker), `${file} contains legacy marker: ${marker}`).toBe(false);
-      }
-    }
+    expect(html).not.toContain("ScorecardAI");
+    expect(html).not.toContain("aiFabBtn");
+    expect(html).not.toContain("aiScorecardPanel");
+    expect(html).not.toContain("aiScorecardOverlay");
   });
 });

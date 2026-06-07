@@ -1,14 +1,3029 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="refresh" content="0; url=/mw-dashboard" />
-    <title>Opening Operator-Driven Maintenance</title>
-    <script>window.location.replace('/mw-dashboard');</script>
-  </head>
-  <body>
-    <p>Opening the unified React Operator-Driven Maintenance dashboard…</p>
-    <p><a href="/mw-dashboard">Continue to Operator-Driven Maintenance</a></p>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <link rel="icon" type="image/png" href="/favicon.png?v=2" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <title>Programs — ODM Dashboard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ProgramsEngineeringLogo.css?v=2" />
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/analytics-engine.js?v=1"></script>
+  <script src="/chart-interactions.js?v=1"></script>
+  <script src="/ai-assistant.js?v=1"></script>
+
+  <style>
+    /* ============================================================
+       MANILA WATER ENTERPRISE DESIGN SYSTEM
+       ============================================================ */
+    :root {
+      /* Brand Colors */
+      --mw-primary:       #005BAC;
+      --mw-primary-light: #0077CC;
+      --mw-accent:        #00AEEF;
+      --mw-aqua:          #4FC3F7;
+      --mw-navy:          #16324F;
+      --mw-navy-light:    #1E3F5E;
+      --mw-navy-dark:     #0D2137;
+
+      /* Semantic Colors */
+      --success:          #1F9D55;
+      --success-light:    #E8F5E9;
+      --warning:          #F59E0B;
+      --warning-light:    #FEF3C7;
+      --danger:           #DC2626;
+      --danger-light:     #FEE2E2;
+      --info:             #005BAC;
+      --info-light:       #E3F2FD;
+
+      /* Backgrounds */
+      --bg-primary:       #F4F9FC;
+      --bg-secondary:     #EDF3F8;
+      --bg-card:          #FFFFFF;
+      --bg-glass:         rgba(255,255,255,0.72);
+      --bg-elevated:      #FFFFFF;
+      --bg-hover:         #F5F8FB;
+
+      /* Borders */
+      --border-subtle:    rgba(0,91,172,0.08);
+      --border-light:     rgba(0,91,172,0.12);
+      --border-medium:    rgba(0,91,172,0.18);
+
+      /* Text */
+      --text-primary:     #16324F;
+      --text-secondary:   #4A6380;
+      --text-muted:       #8BA3B8;
+      --text-inverse:     #FFFFFF;
+
+      /* Shadows */
+      --shadow-xs:        0 1px 2px rgba(22,50,79,0.04);
+      --shadow-sm:        0 1px 3px rgba(22,50,79,0.06), 0 1px 2px rgba(22,50,79,0.04);
+      --shadow-md:        0 4px 12px rgba(22,50,79,0.08), 0 2px 4px rgba(22,50,79,0.04);
+      --shadow-lg:        0 8px 24px rgba(22,50,79,0.10), 0 4px 8px rgba(22,50,79,0.04);
+      --shadow-xl:        0 16px 40px rgba(22,50,79,0.12), 0 8px 16px rgba(22,50,79,0.06);
+      --shadow-glow:      0 0 20px rgba(0,91,172,0.15);
+
+      /* Radii */
+      --radius-sm:        8px;
+      --radius-md:        12px;
+      --radius-lg:        16px;
+      --radius-xl:        20px;
+      --radius-full:      9999px;
+
+      /* Spacing Scale */
+      --space-1:          4px;
+      --space-2:          8px;
+      --space-3:          12px;
+      --space-4:          16px;
+      --space-5:          20px;
+      --space-6:          24px;
+      --space-8:          32px;
+      --space-10:         40px;
+      --space-12:         48px;
+
+      /* Transitions */
+      --transition-fast:    150ms cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-base:    250ms cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-slow:    350ms cubic-bezier(0.4, 0, 0.2, 1);
+
+      /* Layout */
+      --header-height:      64px;
+      --sidebar-width:      260px;
+      --content-max:        1600px;
+    }
+
+    /* ============================================================
+       RESET & BASE
+       ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,91,172,0.2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(0,91,172,0.35); }
+
+    /* ============================================================
+       APP SHELL — HEADER
+       ============================================================ */
+    .app-header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--header-height);
+      background: linear-gradient(135deg, var(--mw-navy) 0%, var(--mw-navy-dark) 50%, var(--mw-navy) 100%);
+      background-size: 200% 200%;
+      animation: headerShimmer 8s ease-in-out infinite;
+      z-index: 1000;
+      box-shadow: var(--shadow-lg);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    @keyframes headerShimmer {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    .header-inner {
+      max-width: var(--content-max);
+      margin: 0 auto;
+      padding: 0 var(--space-6);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+
+    .brand-logo {
+      width: 72px; height: 72px;
+      background: #fff;
+      border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .brand-logo img { width: 72px; height: 72px; object-fit: contain; image-rendering: crisp-edges; }
+
+    .brand-text h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.3px;
+      line-height: 1.3;
+      margin: 0;
+    }
+
+    .brand-text span {
+      display: block;
+      font-size: 10px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.55);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    .header-center {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-3);
+    }
+
+    .header-filename {
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.7);
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .progress-bar {
+      width: 180px;
+      height: 6px;
+      background: rgba(255,255,255,0.15);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+      position: relative;
+      display: none;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--mw-accent), var(--mw-aqua));
+      width: 0%;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: var(--radius-full);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      outline: none;
+      transition: all var(--transition-fast);
+      white-space: nowrap;
+      letter-spacing: 0.2px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--mw-primary) 0%, var(--mw-primary-light) 100%);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0,91,172,0.3);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(0,91,172,0.4);
+    }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-ghost {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.9);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .btn-ghost:hover {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.22);
+      transform: translateY(-1px);
+    }
+
+    .btn-ghost-warn {
+      background: rgba(245,158,11,0.1);
+      color: #F59E0B;
+      border: 1px solid rgba(245,158,11,0.2);
+    }
+    .btn-ghost-warn:hover {
+      background: rgba(245,158,11,0.2);
+    }
+
+    .upload-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+    .upload-wrap input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+    }
+
+
+
+
+    /* ============================================================
+       MAIN LAYOUT
+       ============================================================ */
+    .app-body {
+      padding-top: var(--header-height);
+      min-height: 100vh;
+    }
+
+    .main {
+      width: 100%;
+      padding: var(--space-6) 0;
+    }
+
+    /* ============================================================
+       EMPTY STATE
+       ============================================================ */
+    .empty-state {
+      text-align: center;
+      padding: 100px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty-state-icon {
+      width: 80px; height: 80px;
+      margin: 0 auto 24px;
+      background: linear-gradient(135deg, var(--info-light), #fff);
+      border-radius: var(--radius-xl);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-subtle);
+    }
+    .empty-state-icon svg { color: var(--mw-primary); }
+
+    .empty-state h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin: 0 0 8px;
+    }
+    .empty-state p { font-size: 14px; margin: 0; color: var(--text-secondary); }
+
+    /* ============================================================
+       ALERTS
+       ============================================================ */
+    .alert {
+      display: none;
+      align-items: center;
+      gap: var(--space-3);
+      padding: 14px 18px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: var(--space-5);
+      border: 1px solid;
+      animation: alertSlideIn 0.35s ease-out;
+    }
+
+    @keyframes alertSlideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .alert-danger {
+      background: linear-gradient(135deg, #FEF2F2, #FEE2E2);
+      color: #991B1B;
+      border-color: rgba(220,38,38,0.15);
+    }
+
+    /* ============================================================
+       FILTERS PANEL
+       ============================================================ */
+    .filters-card {
+      display: none;
+      flex-wrap: wrap;
+      gap: var(--space-4);
+      align-items: flex-end;
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      margin-bottom: var(--space-5);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-subtle);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .filters-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--mw-primary), var(--mw-accent), var(--mw-aqua));
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 160px;
+      flex: 1;
+    }
+
+    .filter-group label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    select, input[type="date"] {
+      padding: 9px 12px;
+      font-size: 12px;
+      font-family: inherit;
+      font-weight: 500;
+      border: 1.5px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      outline: none;
+      transition: all var(--transition-fast);
+      width: 100%;
+    }
+
+    select:focus, input[type="date"]:focus {
+      border-color: var(--mw-primary);
+      box-shadow: 0 0 0 3px rgba(0,91,172,0.1);
+      background: #fff;
+    }
+
+    select:hover, input[type="date"]:hover {
+      border-color: var(--border-medium);
+    }
+
+    /* ============================================================
+       KPI GRID
+       ============================================================ */
+    .kpi-grid {
+      display: none;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: var(--space-4);
+      margin-bottom: var(--space-5);
+    }
+
+    .kpi-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-subtle);
+      position: relative;
+      overflow: hidden;
+      transition: all var(--transition-base);
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .kpi-accent-primary::before { background: linear-gradient(90deg, var(--mw-primary), var(--mw-accent)); }
+    .kpi-accent-success::before { background: linear-gradient(90deg, #1F9D55, #34D399); }
+    .kpi-accent-warning::before { background: linear-gradient(90deg, #F59E0B, #FBBF24); }
+    .kpi-accent-danger::before  { background: linear-gradient(90deg, #DC2626, #F87171); }
+    .kpi-accent-info::before    { background: linear-gradient(90deg, var(--mw-primary), #0077CC); }
+
+    .kpi-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-3);
+    }
+
+    .kpi-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .kpi-icon {
+      width: 36px; height: 36px;
+      border-radius: var(--radius-md);
+      display: flex; align-items: center; justify-content: center;
+      transition: transform var(--transition-fast);
+    }
+    .kpi-card:hover .kpi-icon { transform: scale(1.1); }
+
+    .kpi-icon-primary { background: linear-gradient(135deg, #E3F2FD, #BBDEFB); color: var(--mw-primary); }
+    .kpi-icon-success { background: linear-gradient(135deg, #E8F5E9, #C8E6C9); color: #1F9D55; }
+    .kpi-icon-warning { background: linear-gradient(135deg, #FEF3C7, #FDE68A); color: #D97706; }
+    .kpi-icon-danger  { background: linear-gradient(135deg, #FEE2E2, #FECACA); color: #DC2626; }
+    .kpi-icon-info    { background: linear-gradient(135deg, #E0F2FE, #BAE6FD); color: #0284C7; }
+
+    .kpi-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text-primary);
+      line-height: 1.2;
+      letter-spacing: -1px;
+    }
+
+    .kpi-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+
+    .kpi-trend {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: var(--space-2);
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+    }
+    .kpi-trend-up { color: #1F9D55; background: rgba(31,157,85,0.1); }
+    .kpi-trend-down { color: #DC2626; background: rgba(220,38,38,0.1); }
+
+    /* ============================================================
+       MAIN INNER WRAPPER (max-width for large screens)
+       ============================================================ */
+    .main-inner {
+      max-width: 1600px;
+      margin: 0 auto;
+      width: 100%;
+      padding: 0 24px;
+      box-sizing: border-box;
+    }
+
+    /* 1440px+: extra breathing room */
+    @media (min-width: 1440px) {
+      .main-inner { padding: 0 32px; }
+    }
+
+    /* 1280-1439px: MacBook Air / laptop */
+    @media (max-width: 1439px) and (min-width: 1280px) {
+      .main-inner { padding: 0 24px; }
+    }
+
+    /* 992-1279px: smaller laptop */
+    @media (max-width: 1279px) and (min-width: 992px) {
+      .main-inner { padding: 0 20px; }
+    }
+
+    /* 768-991px: tablet */
+    @media (max-width: 991px) and (min-width: 769px) {
+      .main-inner { padding: 0 16px; }
+    }
+
+    /* ============================================================
+       DASHBOARD GRID (balanced 2-column layout)
+       ============================================================ */
+    .dash-grid {
+      display: none;
+      grid-template-columns: 1fr;
+      gap: var(--space-5);
+      margin-bottom: var(--space-5);
+    }
+
+    /* 1100px+: side-by-side charts (wider left chart) */
+    @media (min-width: 1100px) {
+      .dash-grid {
+        grid-template-columns: minmax(0, 1.4fr) minmax(420px, 0.9fr);
+        gap: 24px;
+        align-items: start;
+      }
+    }
+
+    /* Safety: any stray elements inside dash-grid span all columns */
+    .dash-grid > *:nth-child(n+3) {
+      grid-column: 1 / -1;
+    }
+
+    /* ============================================================
+       CARDS
+       ============================================================ */
+    .card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-subtle);
+      transition: box-shadow var(--transition-base);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-md);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-4);
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .card-title-icon {
+      width: 32px; height: 32px;
+      border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #E3F2FD, #BBDEFB);
+      color: var(--mw-primary);
+      flex-shrink: 0;
+    }
+
+    .card-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: var(--radius-full);
+      background: var(--info-light);
+      color: var(--mw-primary);
+      letter-spacing: 0.3px;
+    }
+
+    /* ============================================================
+       CUMULATIVE ALERT BOX
+       ============================================================ */
+    .cumulative-box {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      padding: 14px 18px;
+      background: linear-gradient(135deg, #FEF2F2, #FEE2E2);
+      border: 1px solid rgba(220,38,38,0.12);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-4);
+      animation: pulseAlert 3s ease-in-out infinite;
+    }
+
+    @keyframes pulseAlert {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.08); }
+      50% { box-shadow: 0 0 0 8px rgba(220,38,38,0); }
+    }
+
+    .cumulative-icon {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, #FECACA, #FEE2E2);
+      border-radius: var(--radius-md);
+      display: flex; align-items: center; justify-content: center;
+      color: #DC2626;
+      flex-shrink: 0;
+    }
+
+    .cumulative-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #991B1B;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .cumulative-value {
+      font-size: 24px;
+      font-weight: 800;
+      color: #DC2626;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -1px;
+    }
+
+    /* ============================================================
+       TABLES
+       ============================================================ */
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-card);
+      box-shadow: var(--shadow-xs);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 12px;
+    }
+
+    thead {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    thead tr {
+      background: linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 100%);
+    }
+
+    th {
+      padding: 12px 14px;
+      text-align: left;
+      font-weight: 700;
+      color: var(--text-secondary);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      border-bottom: 2px solid var(--border-light);
+      white-space: nowrap;
+      position: relative;
+    }
+
+    th::after {
+      content: '';
+      position: absolute;
+      bottom: -2px; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--mw-primary), var(--mw-accent));
+      opacity: 0;
+      transition: opacity var(--transition-fast);
+    }
+
+    thead:hover th::after { opacity: 1; }
+
+    td {
+      padding: 11px 14px;
+      border-bottom: 1px solid rgba(0,91,172,0.04);
+      color: var(--text-primary);
+      font-weight: 500;
+      transition: background var(--transition-fast);
+    }
+
+    tbody tr {
+      transition: background var(--transition-fast);
+    }
+
+    tbody tr:nth-child(even) {
+      background: rgba(0,91,172,0.015);
+    }
+
+    tbody tr:hover {
+      background: rgba(0,91,172,0.05);
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    .num {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      color: var(--text-primary);
+    }
+
+    /* ============================================================
+       TAGS / BADGES
+       ============================================================ */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      border-radius: var(--radius-full);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      line-height: 1.4;
+    }
+
+    .tag-success { background: var(--success-light); color: var(--success); }
+    .tag-warning { background: var(--warning-light); color: #B45309; }
+    .tag-danger  { background: var(--danger-light);  color: var(--danger); }
+    .tag-neutral { background: #F1F5F9; color: var(--text-muted); }
+    .tag-info    { background: var(--info-light); color: var(--mw-primary); }
+
+    /* ============================================================
+       TABS — SEGMENTED CONTROL STYLE
+       ============================================================ */
+    .tabs-panel {
+      display: none;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-subtle);
+      overflow: hidden;
+    }
+
+    .tab-bar {
+      display: flex;
+      flex-wrap: wrap;
+      width: 100%;
+      gap: 4px;
+      padding: 6px;
+      background: linear-gradient(180deg, #F8FAFC, #F1F5F9);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--text-secondary);
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      white-space: nowrap;
+      position: relative;
+      letter-spacing: 0.2px;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-primary);
+      background: rgba(255,255,255,0.6);
+    }
+
+    .tab-btn.active {
+      color: var(--mw-primary);
+      background: #fff;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .tab-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 18px;
+      padding: 0 6px;
+      border-radius: var(--radius-full);
+      background: var(--border-light);
+      color: var(--text-secondary);
+      font-size: 10px;
+      font-weight: 800;
+      transition: all var(--transition-fast);
+    }
+
+    .tab-btn.active .tab-count {
+      background: linear-gradient(135deg, var(--mw-primary), var(--mw-accent));
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(0,91,172,0.3);
+    }
+
+    .tab-content {
+      display: none;
+      width: 100%;
+      padding: var(--space-5);
+      animation: tabFadeIn 0.3s ease-out;
+      box-sizing: border-box;
+    }
+
+    .tab-content.active { display: block; }
+
+    @keyframes tabFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ============================================================
+       EMPTY TABLE MESSAGE
+       ============================================================ */
+    .empty-table-msg {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .empty-table-msg svg {
+      display: block;
+      margin: 0 auto 12px;
+      color: var(--border-medium);
+    }
+
+    /* ============================================================
+       FLOATING HOME BUTTON (Mobile)
+       ============================================================ */
+
+
+
+
+
+
+    /* ============================================================
+       SECTION HEADER
+       ============================================================ */
+    .section-divider {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin: var(--space-6) 0 var(--space-4);
+    }
+
+    .section-divider::before {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, var(--border-subtle), transparent);
+    }
+
+    .section-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-subtle));
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      white-space: nowrap;
+    }
+
+    /* ============================================================
+       ANIMATIONS
+       ============================================================ */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    .animate-fade-in-up {
+      animation: fadeInUp 0.5s ease-out forwards;
+    }
+
+    .animate-fade-in {
+      animation: fadeIn 0.4s ease-out forwards;
+    }
+
+    .animate-scale-in {
+      animation: scaleIn 0.35s ease-out forwards;
+    }
+
+    /* Stagger delays */
+    .delay-1 { animation-delay: 0.05s; opacity: 0; }
+    .delay-2 { animation-delay: 0.10s; opacity: 0; }
+    .delay-3 { animation-delay: 0.15s; opacity: 0; }
+    .delay-4 { animation-delay: 0.20s; opacity: 0; }
+    .delay-5 { animation-delay: 0.25s; opacity: 0; }
+    .delay-6 { animation-delay: 0.30s; opacity: 0; }
+
+    /* ============================================================
+       RESPONSIVE
+       ============================================================ */
+    @media (max-width: 1024px) {
+      .dash-grid { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    }
+
+    /* ============================================================
+       MOBILE RESPONSIVE — iPhone Safari optimized
+       ============================================================ */
+
+    /* --- Header: 2-row layout on mobile --- */
+    @media (max-width: 768px) {
+      :root { --header-height: auto; }
+      .app-header { height: auto; position: sticky; }
+      .header-inner {
+        flex-wrap: wrap;
+        padding: 8px var(--space-4);
+        gap: 8px;
+      }
+      .brand { flex: 1 1 auto; min-width: 0; }
+      .brand-logo { width: 72px; height: 72px; }
+      .brand-logo img { width: 72px; height: 72px; }
+      .brand-text h1 { font-size: 14px; }
+      .brand-text span
+      .header-center
+      .header-actions {
+        flex: 1 1 100%;
+        justify-content: flex-end;
+        gap: 6px;
+        order: 3;
+      }
+      .header-actions .btn {
+        height: 36px;
+        padding: 6px 12px;
+        font-size: 11px;
+        gap: 4px;
+      }
+      .header-actions .btn svg { width: 12px; height: 12px; }
+
+      .main { padding: var(--space-3); padding-bottom: calc(var(--space-3) + 60px); }
+
+      /* --- Filters: 2-column compact grid --- */
+      .filters-card {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 14px;
+      }
+      .filter-group { min-width: unset; gap: 4px; }
+      .filter-group label { font-size: 10px; letter-spacing: 0.5px; }
+      select, input[type="date"] { padding: 7px 10px; font-size: 12px; height: 38px; }
+      .filter-group:last-child { grid-column: 1 / -1; }
+      .filter-group:last-child .btn { width: 100%; justify-content: center; }
+
+      /* --- KPI: compact 2-column --- */
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      .kpi-card { padding: 14px; min-height: unset; }
+      .kpi-card:hover { transform: none; box-shadow: var(--shadow-sm); }
+      .kpi-header { margin-bottom: 8px; }
+      .kpi-label { font-size: 10px; letter-spacing: 0.5px; }
+      .kpi-icon { width: 32px; height: 32px; }
+      .kpi-icon svg { width: 14px; height: 14px; }
+      .kpi-value { font-size: 26px; letter-spacing: -0.5px; }
+      .kpi-sub { font-size: 10px; margin-top: 2px; }
+      .kpi-trend { font-size: 10px; margin-top: 4px; }
+
+      /* --- Charts: compact --- */
+      .dash-grid { gap: var(--space-3); }
+      .card { padding: 14px; }
+      .card-header { margin-bottom: var(--space-3); }
+      .card-title { font-size: 13px; }
+      .card-title-icon { width: 28px; height: 28px; }
+      .card-badge { font-size: 10px; padding: 3px 10px; }
+      .cumulative-box { padding: 10px 14px; gap: var(--space-3); }
+      .cumulative-icon { width: 36px; height: 36px; }
+      .cumulative-value { font-size: 20px; }
+      .main-inner { padding: 0 var(--space-3); }
+      #chartEscalations { height: 280px !important; }
+      #chartPareto { height: 280px !important; min-width: 320px; }
+
+      /* --- Table: horizontal scroll --- */
+      .table-wrap { -webkit-overflow-scrolling: touch; }
+      table { font-size: 11px; }
+      th, td { padding: 8px 10px; }
+
+      /* --- Tabs --- */
+      .tab-btn { padding: 7px 10px; font-size: 11px; }
+      .tab-bar { gap: 4px; }
+      .tab-content { padding: var(--space-3); }
+
+      /* --- Floating home button --- */
+
+      .section-divider { margin: var(--space-4) 0 var(--space-3); }
+      .alert { padding: 10px 14px; font-size: 12px; margin-bottom: var(--space-4); }
+      .empty-state { padding: 60px 16px; }
+      .empty-state-icon { width: 56px; height: 56px; }
+      .empty-state h2 { font-size: 16px; }
+      .empty-state p { font-size: 12px; }
+    }
+
+    @media (max-width: 390px) {
+      .filters-card { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: 1fr; }
+      .brand-text h1 { font-size: 12px; }
+    }
+
+    @media (min-width: 769px) {
+
+    }
+
+    /* ============================================================
+       CHART.JS OVERRIDES
+       ============================================================ */
+    canvas { max-height: 320px; }
+
+    /* Chart heights — desktop (1440px+) */
+    #chartEscalations { height: 400px !important; }
+    #chartPareto { height: 400px !important; min-width: 460px; }
+
+    /* Chart heights — laptop (1100px-1439px) */
+    @media (max-width: 1439px) and (min-width: 1100px) {
+      #chartEscalations { height: 380px !important; }
+      #chartPareto { height: 380px !important; min-width: 420px; }
+    }
+
+    /* Chart heights — smaller laptop (992px-1099px) */
+    @media (max-width: 1099px) and (min-width: 769px) {
+      #chartEscalations { height: 340px !important; }
+      #chartPareto { height: 340px !important; min-width: 380px; }
+    }
+
+    /* Pareto chart scroll wrapper */
+    .chart-scroll-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+    /* Tabs panel full width */
+    .tabs-panel { margin-top: var(--space-5); width: 100%; }
+
+    /* Tab content full width */
+    .tab-content { width: 100%; }
+
+    /* Table wrappers full width */
+    .table-wrap { width: 100%; }
+    .table-wrap table { width: 100%; }
+
+    /* ===== AI OPERATIONAL INSIGHTS ===== */
+    .insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .insight-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      border: 1px solid var(--border-light);
+      box-shadow: var(--shadow-sm);
+      transition: var(--transition-base);
+      position: relative;
+      overflow: hidden;
+    }
+    .insight-card:hover { box-shadow: var(--shadow-md); border-color: var(--border-medium); }
+    .insight-card::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 4px;
+      border-radius: var(--radius-md) 0 0 var(--radius-md);
+    }
+    .insight-card.critical::before { background: linear-gradient(to bottom, #DC2626, #EF4444); }
+    .insight-card.high::before { background: linear-gradient(to bottom, #F59E0B, #FBBF24); }
+    .insight-card.medium::before { background: linear-gradient(to bottom, #005BAC, #00AEEF); }
+    .insight-card.low::before { background: linear-gradient(to bottom, #8BA3B8, #B0C4DE); }
+    .insight-card.info::before { background: linear-gradient(to bottom, #1F9D55, #34D399); }
+    .insight-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .insight-icon { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+    .insight-card.critical .insight-icon { background: var(--danger-light); color: var(--danger); }
+    .insight-card.high .insight-icon { background: var(--warning-light); color: #D97706; }
+    .insight-card.medium .insight-icon { background: var(--info-light); color: var(--info); }
+    .insight-card.low .insight-icon { background: #F1F5F9; color: #64748B; }
+    .insight-card.info .insight-icon { background: var(--success-light); color: var(--success); }
+    .insight-title { font-size: 13px; font-weight: 700; color: var(--text-primary); flex: 1; line-height: 1.3; }
+    .insight-severity {
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+      padding: 2px 8px; border-radius: 999px; flex-shrink: 0;
+    }
+    .insight-card.critical .insight-severity { background: var(--danger-light); color: var(--danger); }
+    .insight-card.high .insight-severity { background: var(--warning-light); color: #D97706; }
+    .insight-card.medium .insight-severity { background: var(--info-light); color: var(--info); }
+    .insight-card.low .insight-severity { background: #F1F5F9; color: #64748B; }
+    .insight-card.info .insight-severity { background: var(--success-light); color: var(--success); }
+    .insight-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 8px; }
+    .insight-metric { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--text-primary); background: var(--bg-secondary); padding: 3px 10px; border-radius: 6px; margin-bottom: 8px; }
+    .insight-rec { font-size: 11px; color: var(--text-muted); line-height: 1.4; padding: 8px 10px; background: rgba(0,91,172,0.03); border-radius: 6px; border-left: 2px solid rgba(0,91,172,0.15); }
+    .insight-rec strong { color: var(--text-primary); font-weight: 600; }
+
+    @media (max-width: 768px) {
+      .insights-grid { grid-template-columns: 1fr; gap: 10px; }
+      .insight-card { padding: 14px; }
+      .insight-title { font-size: 12px; }
+      .insight-desc { font-size: 11px; }
+      #filterChipContainer { flex-wrap: wrap; }
+      #drillDownContainer table { font-size: 10px; }
+      #drillDownContainer table th,
+      #drillDownContainer table td { padding: 3px 2px; }
+    }
+
+    /* Filter chip */
+    #filterChipContainer {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+      padding: 0 2px;
+      animation: fadeIn .2s ease;
+    }
+
+    /* Drill-down panel */
+    #drillDownContainer {
+      display: none;
+      animation: fadeIn .25s ease;
+    }
+    #drillDownContainer table th,
+    #drillDownContainer table td {
+      padding: 5px 4px;
+    }
+    #drillDownContainer table tbody tr:hover {
+      background: #FAFBFC;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===== ASK AI BUTTON ===== */
+    .btn-ai {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: Inter, sans-serif;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all .2s cubic-bezier(.4,0,.2,1);
+      white-space: nowrap;
+      background: linear-gradient(135deg, #005BAC, #0066A6);
+      color: #fff;
+      box-shadow: 0 1px 4px rgba(0,102,166,.25), inset 0 1px 0 rgba(255,255,255,.1);
+    }
+    .btn-ai:hover {
+      background: linear-gradient(135deg, #004D99, #005BAC);
+      box-shadow: 0 3px 12px rgba(0,102,166,.3);
+      transform: translateY(-1px);
+    }
+    .btn-ai:active { transform: scale(.97) translateY(0); }
+    .btn-ai svg { flex-shrink: 0; }
+
+    /* ===== AI CHIPS ===== */
+    .ai-chip {
+      font-size: 11px;
+      font-weight: 500;
+      font-family: Inter, sans-serif;
+      color: #4A6380;
+      background: #F1F5F9;
+      border: 1px solid #D6DFE8;
+      border-radius: 999px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: all .15s ease;
+      white-space: nowrap;
+    }
+    .ai-chip:hover {
+      background: #E3F2FD;
+      border-color: #BBDEFB;
+      color: #005BAC;
+    }
+    .ai-chip:active { transform: scale(.96); }
+
+    /* ===== AI LOADING SPINNER ===== */
+    .ai-loading {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #D6DFE8;
+      border-top-color: #005BAC;
+      border-radius: 50%;
+      animation: ai-spin .8s linear infinite;
+    }
+    @keyframes ai-spin { to { transform: rotate(360deg); } }
+
+    /* ===== AI PANEL MOBILE ===== */
+    @media (max-width: 640px) {
+      #aiPanel { width: 96%; max-height: 92vh; border-radius: 12px; }
+      .ai-chip { font-size: 10px; padding: 4px 10px; }
+    }
+  </style>
+</head>
+
+<body>
+<!-- ============================================================
+     HEADER
+     ============================================================ -->
+<header class="app-header">
+  <div class="header-inner">
+    <a href="/" class="brand" title="Return to Program Oversight Center" aria-label="Return to Program Oversight Center" style="text-decoration:none;color:inherit">
+      <span class="brand-logo pe-liquid-logo" style="position:relative;display:flex;align-items:center;justify-content:center;">
+        <img class="pe-liquid-logo__base" src="/programs_engineering_vertical_logo.svg" alt="Programs Logo" style="width:100%;height:100%;object-fit:contain;display:block;" />
+      </span>
+      <div class="brand-text">
+        <h1>ODM Dashboard</h1>
+        <span>Programs</span>
+      </div>
+    </a>
+
+    <div class="header-center">
+      <span class="header-filename" id="loadedFileName"></span>
+      <div class="progress-bar" id="uploadProgress">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+
+
+      <button class="btn btn-ghost" id="refreshBtn" style="display:none">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        Refresh
+      </button>
+
+      <div class="upload-wrap">
+        <button class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Import Excel
+        </button>
+        <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.csv" />
+      </div>
+
+      <button class="btn btn-ai" id="askAiBtn" onclick="AIAssistant.openPanel()" title="Ask questions about inspection results, negative findings, trends, and dashboard data.">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+        Ask AI
+      </button>
+
+      <button class="btn btn-ghost-warn" id="clearDataBtn" style="display:none">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+        Clear
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================
+     MAIN CONTENT
+     ============================================================ -->
+<div class="app-body">
+  <main class="main">
+    <div class="main-inner">
+
+    <!-- Alert -->
+    <div id="alertLowDQ" class="alert alert-danger">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <span>Automated alert: Data quality score is low for current filters.</span>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="empty-state animate-fade-in">
+      <div class="empty-state-icon">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+      </div>
+      <h2>No Inspection Data Loaded</h2>
+      <p>Upload an ODM Excel file to begin analysis</p>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-card animate-fade-in-up" id="filters">
+      <div class="filter-group">
+        <label>Date From</label>
+        <input type="date" id="dateFrom">
+      </div>
+      <div class="filter-group">
+        <label>Date To</label>
+        <input type="date" id="dateTo">
+      </div>
+      <div class="filter-group">
+        <label>Plant / Facility</label>
+        <select id="plantFilter"><option value="">All Plants</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Equipment Type</label>
+        <select id="equipFilter"><option value="">All Types</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Category</label>
+        <select id="categoryFilter"><option value="">All Categories</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Inspector</label>
+        <select id="inspectorFilter"><option value="">All Inspectors</option></select>
+      </div>
+      <div class="filter-group" style="flex:0 0 auto;min-width:auto">
+        <label>&nbsp;</label>
+        <button class="btn btn-ghost" id="clearFilters" style="color:var(--text-secondary);border-color:var(--border-light);background:var(--bg-primary);padding:9px 16px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+          </svg>
+          Reset
+        </button>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid" id="kpis">
+      <div class="kpi-card kpi-accent-primary animate-fade-in-up delay-1">
+        <div class="kpi-header">
+          <span class="kpi-label">Total Inspections</span>
+          <div class="kpi-icon kpi-icon-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="kpiTotalInspections">0</div>
+        <div class="kpi-sub">inspection records</div>
+      </div>
+
+      <div class="kpi-card kpi-accent-success animate-fade-in-up delay-2">
+        <div class="kpi-header">
+          <span class="kpi-label">Unique Assets</span>
+          <div class="kpi-icon kpi-icon-success">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="kpiUniqueAssets">0</div>
+        <div class="kpi-sub">equipment units tracked</div>
+      </div>
+
+      <div class="kpi-card kpi-accent-info animate-fade-in-up delay-3">
+        <div class="kpi-header">
+          <span class="kpi-label">Health Score</span>
+          <div class="kpi-icon kpi-icon-info">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="kpiHealthScore">0%</div>
+        <div class="kpi-sub">overall equipment health</div>
+      </div>
+
+      <div class="kpi-card kpi-accent-warning animate-fade-in-up delay-4">
+        <div class="kpi-header">
+          <span class="kpi-label">Data Quality</span>
+          <div class="kpi-icon kpi-icon-warning">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="kpiDQScore">0%</div>
+        <div class="kpi-sub">completion rate</div>
+      </div>
+
+      <div class="kpi-card kpi-accent-danger animate-fade-in-up delay-5">
+        <div class="kpi-header">
+          <span class="kpi-label">Predictive Risk</span>
+          <div class="kpi-icon kpi-icon-danger">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="kpiPredRisk">Normal</div>
+        <div class="kpi-sub">maintenance risk level</div>
+      </div>
+    </div>
+
+    <!-- AI Operational Insights -->
+    <div id="insightsSection" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#E3F2FD,#BBDEFB);display:flex;align-items:center;justify-content:center;color:#005BAC">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/></svg>
+        </div>
+        <h3 style="font-size:14px;font-weight:700;color:var(--text-primary);letter-spacing:-.3px">AI Operational Insights</h3>
+        <span id="insightsBadge" style="font-size:10px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--danger-light);color:var(--danger);display:none">0 alerts</span>
+      </div>
+      <div class="insights-grid" id="insightsContainer"></div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="dash-grid" id="mainGrid">
+      <!-- Negative Findings Chart -->
+      <div class="card animate-scale-in delay-2">
+        <div class="card-header">
+          <h3 class="card-title">
+            <span class="card-title-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>
+              </svg>
+            </span>
+            Daily Distinct Negative Findings Trend
+          </h3>
+          <span class="card-badge">Operational Analytics</span>
+        </div>
+
+        <!-- Cumulative Alert Box -->
+        <div class="cumulative-box">
+          <div class="cumulative-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div>
+            <div class="cumulative-label">CUMULATIVE DISTINCT NEGATIVE FINDINGS</div>
+            <div class="cumulative-value" id="cumulativeValue">0</div>
+          </div>
+        </div>
+
+        <canvas id="chartEscalations"></canvas>
+      </div>
+
+      <!-- Pareto Analysis of Negative Findings -->
+      <div class="card animate-scale-in delay-2">
+        <div class="card-header">
+          <h3 class="card-title">
+            <span class="card-title-icon" style="background:linear-gradient(135deg,#FEF3C7,#FDE68A);color:#D97706">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 3v18h18"/><path d="M7 16v-3"/><path d="M11 16V8"/><path d="M15 16v-5"/><path d="M19 16v-9"/>
+              </svg>
+            </span>
+            Pareto Analysis of Repetitive Equipment Issues
+          </h3>
+          <span class="card-badge">Distinct Asset-Based Negative Findings</span>
+        </div>
+        <div class="cumulative-box" style="background:linear-gradient(135deg,#FFFBEB,#FEF3C7);border-color:#FDE68A">
+          <div class="cumulative-icon" style="background:#FEF3C7;color:#D97706">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            </svg>
+          </div>
+          <div>
+            <div class="cumulative-label">Equipment Types at 80%</div>
+            <div class="cumulative-value" id="pareto80Value">—</div>
+          </div>
+        </div>
+        <div class="chart-scroll-wrap">
+          <canvas id="chartPareto"></canvas>
+        </div>
+      </div>
+    </div><!-- .dash-grid -->
+
+    <!-- Active Filter Indicator -->
+    <div id="filterChipContainer" style="display:none;align-items:center;margin-bottom:10px;padding:0 2px"></div>
+
+    <!-- Drill-Down Detail Panel -->
+    <div id="drillDownContainer" style="display:none"></div>
+
+    <!-- Tabs Panel -->
+    <div class="tabs-panel" id="tablesPanel">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="tabDQ">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          Data Quality
+          <span class="tab-count" id="tabCountDQ">0</span>
+        </button>
+        <button class="tab-btn" data-tab="tabEsc">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          Negative Findings
+          <span class="tab-count" id="tabCountEsc">0</span>
+        </button>
+        <button class="tab-btn" data-tab="tabNotes">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          Inspection Notes
+          <span class="tab-count" id="tabCountNotes">0</span>
+        </button>
+        <button class="tab-btn" data-tab="tabInspector">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          Inspector Performance
+          <span class="tab-count" id="tabCountInspector">0</span>
+        </button>
+      </div>
+
+      <!-- Tab: Data Quality -->
+      <div class="tab-content active" id="tabDQ">
+        <div class="card-header" style="padding-top:4px">
+          <h3 class="card-title">
+            <span class="card-title-icon" style="background:linear-gradient(135deg,#FFF3E0,#FFE0B2);color:#E65100">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+            </span>
+            Data Quality Issues — Missing Required Fields
+          </h3>
+          <span class="card-badge" id="dqCountBadge">0 records with issues</span>
+        </div>
+        <div class="table-wrap">
+          <table id="tblDQ">
+            <thead>
+              <tr>
+                <th>Submission ID</th>
+                <th>Date</th>
+                <th>Inspector</th>
+                <th>Asset</th>
+                <th>Category</th>
+                <th>Task</th>
+                <th style="text-align:center">Missing Fields</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Escalated Inspections -->
+      <div class="tab-content" id="tabEsc">
+        <div class="card-header" style="padding-top:4px">
+          <h3 class="card-title">
+            <span class="card-title-icon" style="background:linear-gradient(135deg,#FEE2E2,#FECACA);color:#DC2626">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </span>
+            Negative Findings — EntryNotes & Capture Response
+          </h3>
+          <span class="card-badge" id="escCountBadge" style="background:var(--danger-light);color:var(--danger)">0 with negative findings</span>
+        </div>
+        <div class="table-wrap">
+          <table id="tblEscalated">
+            <thead>
+              <tr>
+                <th>Submission ID</th>
+                <th>Date</th>
+                <th>Inspector</th>
+                <th>Asset</th>
+                <th>Category</th>
+                <th>Task</th>
+                <th style="min-width:160px">Entry Notes</th>
+                <th style="min-width:160px">Capture Response</th>
+                <th>Escalation Trigger</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Inspection Notes Log -->
+      <div class="tab-content" id="tabNotes">
+        <div class="card-header" style="padding-top:4px">
+          <h3 class="card-title">
+            <span class="card-title-icon" style="background:linear-gradient(135deg,#E3F2FD,#BBDEFB);color:#005BAC">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </span>
+            Inspection Notes Log
+          </h3>
+          <span class="card-badge" id="notesCountBadge">0 records</span>
+        </div>
+        <div class="table-wrap">
+          <table id="tblNotes">
+            <thead>
+              <tr>
+                <th>Submission ID</th>
+                <th>Date</th>
+                <th>Inspector</th>
+                <th>Asset</th>
+                <th>Category</th>
+                <th>Task</th>
+                <th style="min-width:220px">Entry Notes</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Inspector Performance -->
+      <div class="tab-content" id="tabInspector">
+        <div class="card-header" style="padding-top:4px">
+          <h3 class="card-title">
+            <span class="card-title-icon" style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9);color:#1F9D55">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </span>
+            Inspector Performance
+          </h3>
+          <span class="card-badge" id="inspectorCountBadge">0 inspectors</span>
+        </div>
+        <div class="table-wrap">
+          <table id="tblInspectors">
+            <thead>
+              <tr>
+                <th>Inspector</th>
+                <th style="text-align:center">Inspections</th>
+                <th style="text-align:center">Data Quality</th>
+                <th style="text-align:center">Negative Rate</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    </div><!-- .main-inner -->
+  </main>
+</div>
+
+
+
+<script>
+/* ============================================================
+   Operator-Driven Maintenance Dashboard
+   Manila Water Corporate Edition — Enterprise UI/UX Redesign
+   ALL BUSINESS LOGIC PRESERVED — UI ENHANCEMENT PASS ONLY
+   ============================================================ */
+
+let rawRows = [];
+let chartEsc = null;
+let chartPareto = null;
+
+/* ---------- Event Listeners ---------- */
+document.getElementById('fileInput').addEventListener('change', handleFile, false);
+document.getElementById('clearFilters').addEventListener('click', () => {
+  document.getElementById('dateFrom').value = '';
+  document.getElementById('dateTo').value = '';
+  ['plantFilter','equipFilter','categoryFilter','inspectorFilter'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  refreshAll();
+});
+
+['dateFrom','dateTo','plantFilter','equipFilter','categoryFilter','inspectorFilter']
+  .forEach(id => document.getElementById(id).addEventListener('change', refreshAll));
+
+/* ---------- Tab Switching ---------- */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    // Lazy render Inspector Performance table when tab is first activated
+    if (btn.dataset.tab === 'tabInspector' && !inspectorTabRendered) {
+      inspectorTabRendered = true;
+      const rows = getFilteredRows();
+      if (rows.length) updateInspectorTable(rows);
+    }
+  });
+});
+let inspectorTabRendered = false;
+
+/* ---------- Persistence (localStorage) ---------- */
+const LS_KEY = 'mwc_odm_data';
+const LS_FILENAME = 'mwc_odm_filename';
+
+function saveToStorage() {
+  const storable = rawRows.map(r => ({
+    ...r,
+    InspectionDate: r.InspectionDate ? r.InspectionDate.toISOString() : null
+  }));
+  localStorage.setItem(LS_KEY, JSON.stringify(storable));
+}
+
+function loadFromStorage() {
+  const saved = localStorage.getItem(LS_KEY);
+  if (!saved) return false;
+  try {
+    const parsed = JSON.parse(saved);
+    rawRows = parsed.map(r => ({
+      ...r,
+      InspectionDate: r.InspectionDate ? new Date(r.InspectionDate) : null
+    }));
+    return true;
+  } catch (err) {
+    console.error('Failed to restore saved data:', err);
+    localStorage.removeItem(LS_KEY);
+    return false;
+  }
+}
+
+function clearStorageUI() {
+  rawRows = [];
+  if (chartEsc) { chartEsc.destroy(); chartEsc = null; }
+  if (chartPareto) { chartPareto.destroy(); chartPareto = null; }
+  document.getElementById('filters').style.display = 'none';
+  document.getElementById('kpis').style.display = 'none';
+  document.getElementById('mainGrid').style.display = 'none';
+  document.getElementById('tablesPanel').style.display = 'none';
+  document.getElementById('emptyState').style.display = 'block';
+  document.getElementById('refreshBtn').style.display = 'none';
+  document.getElementById('clearDataBtn').style.display = 'none';
+  document.getElementById('loadedFileName').textContent = '';
+  ['plantFilter','equipFilter','categoryFilter','inspectorFilter'].forEach(id => {
+    document.getElementById(id).innerHTML = '<option value="">All</option>';
+  });
+  document.getElementById('fileInput').value = '';
+}
+
+function clearStorage() {
+  resetDatabase();
+}
+
+/* ---------- Refresh & Clear Data Buttons ---------- */
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  loadFromDatabase().then(() => {
+    alert('Data refreshed from database. All users will see the same data.');
+  });
+});
+
+document.getElementById('clearDataBtn').addEventListener('click', () => {
+  clearStorage();
+});
+
+/* ---------- File Handling ---------- */
+function handleFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  document.getElementById('loadedFileName').textContent = 'Reading ' + file.name + '...';
+
+  const isCSV = file.name.toLowerCase().endsWith('.csv');
+  const reader = new FileReader();
+
+  reader.onerror = function() {
+    alert('Failed to read file: ' + file.name);
+    document.getElementById('loadedFileName').textContent = 'Error reading file';
+  };
+
+  reader.onload = function(evt) {
+    try {
+      let wb;
+      if (isCSV) {
+        const text = evt.target.result;
+        wb = XLSX.read(text, {type:'string', cellDates:true});
+      } else {
+        const data = new Uint8Array(evt.target.result);
+        wb = XLSX.read(data, {type:'array', cellDates:true});
+      }
+
+      const skipSheets = ['lists', 'lookup', 'reference', 'config', 'settings', 'dropdown', 'dropdowns', 'master', 'template'];
+      let bestSheet = null;
+      let bestSheetName = '';
+      let maxRows = 0;
+
+      for (const name of wb.SheetNames) {
+        if (skipSheets.includes(name.toLowerCase())) continue;
+        const sheet = wb.Sheets[name];
+        const json = XLSX.utils.sheet_to_json(sheet, {defval:''});
+        if (json.length > maxRows) {
+          maxRows = json.length;
+          bestSheet = sheet;
+          bestSheetName = name;
+        }
+      }
+
+      if (!bestSheet || maxRows === 0) {
+        for (const name of wb.SheetNames) {
+          const sheet = wb.Sheets[name];
+          const json = XLSX.utils.sheet_to_json(sheet, {defval:''});
+          if (json.length > maxRows) {
+            maxRows = json.length;
+            bestSheet = sheet;
+            bestSheetName = name;
+          }
+        }
+      }
+
+      if (!bestSheet || maxRows === 0) {
+        alert('No data found in any sheet of ' + file.name + '. Sheets found: ' + wb.SheetNames.join(', '));
+        return;
+      }
+
+      document.getElementById('loadedFileName').textContent = 'Parsing ' + maxRows + ' rows from sheet "' + bestSheetName + '"...';
+
+      const json = XLSX.utils.sheet_to_json(bestSheet, {defval:''});
+      const parsedRows = json.map(r => normalizeRow(r));
+      const validRows = parsedRows.filter(r => r.Plant || r.Inspector || r.Category);
+
+      if (validRows.length === 0) {
+        alert('Sheet "' + bestSheetName + '" has ' + json.length + ' rows but no valid data.\n\nFound columns: ' + Object.keys(json[0]||{}).join(', ') + '\n\nExpected columns: Plant, Inspector, Category, EquipmentType, Status, Score, Findings, InspectionDate');
+        return;
+      }
+
+      importToDatabase(validRows, file.name);
+
+    } catch (err) {
+      console.error('Import error:', err);
+      alert('Import failed: ' + err.message);
+      document.getElementById('loadedFileName').textContent = 'Import failed';
+    }
+  };
+
+  if (isCSV) {
+    reader.readAsText(file);
+  } else {
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+/* ---------- Load from database on page load ---------- */
+window.addEventListener('DOMContentLoaded', () => {
+  loadFromDatabase();
+});
+
+function showDashboard() {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('filters').style.display = 'flex';
+  document.getElementById('kpis').style.display = 'grid';
+  document.getElementById('mainGrid').style.display = 'grid';
+  document.getElementById('tablesPanel').style.display = 'block';
+}
+
+/* ---------- Row Normalisation ---------- */
+function normalizeRow(r) {
+  function getVal(...keys) {
+    for (const k of keys) {
+      if (r[k] !== undefined && r[k] !== '') return r[k];
+    }
+    return '';
+  }
+  return {
+    SubmissionID:      getVal('SubmissionID','ID','No','No.','#'),
+    InspectionDate:    parseExcelDate(getVal('InspectionDate','Date','Inspection Date','Inspected','Date Inspected')),
+    Inspector:         getVal('Inspector','Staff','Person','InspectorName','Inspected By','By'),
+    AssetTag:          getVal('AssetTag','Tag','Asset ID','ID Tag'),
+    AssetName:         getVal('AssetName','Asset','Equipment Name','Item'),
+    Plant:             getVal('Plant','Facility','Site','Location','Station','Plant ID'),
+    EquipmentType:     getVal('EquipmentType','Type','Equip Type','Equipment','Equip'),
+    Category:          getVal('Category','Cat','Group','Class','Discipline'),
+    Task:              getVal('Task','Activity','Work','Job','Description'),
+    Capture1Label:     getVal('Capture1Label','Label','Field','Question'),
+    Capture1Response:  getVal('Capture1Response','Response','Answer','Result','Value'),
+    EscalationTrigger: getVal('EscalationTrigger','Escalation','Trigger','Alert','Flag'),
+    EntryNotes:        getVal('EntryNotes','Notes','Remarks','Comments','Observation'),
+    Status:            getVal('Status','State','Condition','Equipment Status'),
+    SubmittedAt:       getVal('SubmittedAt','Submitted At','Submit Time','Timestamp','Date Submitted'),
+    Score:             getVal('Score','Rating','Points','Grade','Health Score'),
+    Findings:          getVal('Findings','Finding','Result','Outcome','Observation'),
+    Frequency:         getVal('Frequency','Freq','Interval','Period','Schedule')
+  };
+}
+
+function parseExcelDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v === 'string') {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof v === 'number') {
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    return new Date(epoch.getTime() + v * 86400000);
+  }
+  return null;
+}
+
+/* ---------- Filter Population ---------- */
+function buildFilterOptions() {
+  const plants = new Set(), equips = new Set(), cats = new Set(), inspectors = new Set();
+  rawRows.forEach(r => {
+    if (r.Plant) plants.add(r.Plant);
+    if (r.EquipmentType) equips.add(r.EquipmentType);
+    if (r.Category) cats.add(r.Category);
+    if (r.Inspector) inspectors.add(r.Inspector);
+  });
+  fillSelect('plantFilter',     plants,     'All Plants');
+  fillSelect('equipFilter',      equips,     'All Types');
+  fillSelect('categoryFilter',   cats,       'All Categories');
+  fillSelect('inspectorFilter',  inspectors, 'All Inspectors');
+}
+
+function fillSelect(id, set, defaultText) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = '<option value="">' + defaultText + '</option>';
+  Array.from(set).sort().forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v;
+    sel.appendChild(opt);
+  });
+}
+
+/* ---------- Filtering ---------- */
+function getFilteredRows() {
+  const df    = document.getElementById('dateFrom').value;
+  const dt    = document.getElementById('dateTo').value;
+  const plant = document.getElementById('plantFilter').value;
+  const equip = document.getElementById('equipFilter').value;
+  const cat   = document.getElementById('categoryFilter').value;
+  const insp  = document.getElementById('inspectorFilter').value;
+
+  return rawRows.filter(r => {
+    if (df && (!r.InspectionDate || r.InspectionDate < new Date(df))) return false;
+    if (dt && (!r.InspectionDate || r.InspectionDate > new Date(dt))) return false;
+    if (plant && r.Plant !== plant) return false;
+    if (equip && r.EquipmentType !== equip) return false;
+    if (cat   && r.Category !== cat)   return false;
+    if (insp  && r.Inspector !== insp) return false;
+    return true;
+  });
+}
+
+function refreshAll() {
+  const rows = getFilteredRows();
+  updateKPIs(rows);
+  updateEscalationChart(rows);
+  updateParetoChart(rows);
+  // Inspector table: lazy render only if tab is active, otherwise flag for next activation
+  const inspectorTab = document.getElementById('tabInspector');
+  if (inspectorTab && inspectorTab.classList.contains('active')) {
+    updateInspectorTable(rows);
+    inspectorTabRendered = true;
+  } else {
+    inspectorTabRendered = false;
+  }
+  updateDQTable(rows);
+  updateEscalatedTable(rows);
+  updateNotesTable(rows);
+  if (typeof AnalyticsEngine !== 'undefined') renderInsights(rows);
+}
+
+/* ============================================================
+   ABNORMALITY & HEALTH SCORING
+   ============================================================ */
+
+const ABNORMAL_KEYWORDS = [
+  'leak','loose','vibration','vibrating','noisy','noise','abnormal',
+  'hot','overheat','overheating','smoke','blocked','jammed','misaligned',
+  'worn','crack','damage','fail','alarm','not ok','not_ok','ng','no good',
+  'defect','fault','error','critical','urgent','repair','replace','broken'
+];
+
+function hasAbnormalKeyword(text) {
+  if (!text || text.toString().trim() === '') return false;
+  const t = text.toString().toLowerCase();
+  return ABNORMAL_KEYWORDS.some(k => t.includes(k));
+}
+
+function isAbnormalEntryNotes(text) {
+  return hasAbnormalKeyword(text);
+}
+
+function hasNegativeFindings(row) {
+  if (hasAbnormalKeyword(row.EntryNotes)) return true;
+  if (hasAbnormalKeyword(row.Capture1Response)) return true;
+  if (hasAbnormalKeyword(row.Findings)) return true;
+  return false;
+}
+
+function isAbnormalRow(row) {
+  if (hasNegativeFindings(row)) return true;
+  if (row.Status && /offline|down|fault|alarm|critical/i.test(row.Status.toString())) return true;
+  return false;
+}
+
+function computeHealthScore(rows) {
+  let unhealthy = 0;
+  rows.forEach(r => {
+    if (isAbnormalRow(r)) unhealthy++;
+  });
+  const total = rows.length;
+  return total ? 100 - (unhealthy / total) * 100 : 100;
+}
+
+/* ============================================================
+   DATA QUALITY SCORING
+   ============================================================ */
+
+const DQ_FIELDS = [
+  'AssetTag','AssetName','Plant','EquipmentType',
+  'Category','Task','Capture1Label','Capture1Response','EscalationTrigger'
+];
+
+function computeDataQuality(rows) {
+  let filled = 0;
+  const totalFields = rows.length * DQ_FIELDS.length;
+  rows.forEach(r => {
+    DQ_FIELDS.forEach(f => {
+      const v = r[f];
+      if (v && v.toString().trim() !== '') filled++;
+    });
+  });
+  return { score: totalFields ? (filled / totalFields) * 100 : 100 };
+}
+
+/* ============================================================
+   PREDICTIVE MAINTENANCE RISK
+   ============================================================ */
+
+function computePredictiveRisk(rows) {
+  if (!rows.length) return 'Normal';
+
+  const daily = new Map();
+  let totalAbnormal = 0;
+  rows.forEach(r => {
+    if (!r.InspectionDate) return;
+    const key = r.InspectionDate.toISOString().slice(0,10);
+    if (!daily.has(key)) daily.set(key, 0);
+    if (isAbnormalRow(r)) {
+      daily.set(key, daily.get(key) + 1);
+      totalAbnormal++;
+    }
+  });
+
+  const abnormalityRate = totalAbnormal / rows.length;
+
+  const dates = Array.from(daily.keys()).sort();
+  let slope = 0;
+  if (dates.length >= 3) {
+    const xs = dates.map((_, i) => i);
+    const ys = dates.map(d => daily.get(d));
+    let n = xs.length, sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (let i = 0; i < n; i++) {
+      sumX += xs[i]; sumY += ys[i]; sumXY += xs[i] * ys[i]; sumXX += xs[i] * xs[i];
+    }
+    const denom = n * sumXX - sumX * sumX;
+    slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+  }
+
+  if (abnormalityRate > 0.10 || slope > 0.5) return 'High';
+  if (abnormalityRate > 0.05 || slope > 0.2) return 'Elevated';
+  return 'Normal';
+}
+
+/* ============================================================
+   KPI UPDATES
+   ============================================================ */
+
+function updateKPIs(rows) {
+  document.getElementById('kpiTotalInspections').textContent = rows.length.toLocaleString();
+  document.getElementById('kpiUniqueAssets').textContent =
+    new Set(rows.map(r => r.AssetTag).filter(Boolean)).size.toLocaleString();
+
+  const healthScore = computeHealthScore(rows);
+  document.getElementById('kpiHealthScore').textContent = healthScore.toFixed(1) + '%';
+
+  const dq = computeDataQuality(rows);
+  document.getElementById('kpiDQScore').textContent = dq.score.toFixed(1) + '%';
+  document.getElementById('alertLowDQ').style.display = dq.score < 80 ? 'flex' : 'none';
+
+  document.getElementById('kpiPredRisk').textContent = computePredictiveRisk(rows);
+}
+
+/* ============================================================
+   CHART: Predictive Maintenance Trend
+   ============================================================ */
+
+function updateEscalationChart(rows) {
+  const ctx = document.getElementById('chartEscalations').getContext('2d');
+
+  // Deduplicate: per day, count each unique asset only once
+  // dailyMap: date -> { assets: Set<assetId>, total: number }
+  const dailyMap = new Map();
+  rows.forEach(r => {
+    if (!r.InspectionDate) return;
+    const key = r.InspectionDate.toISOString().slice(0, 10);
+    if (!hasNegativeFindings(r)) return;
+
+    // Unique asset identifier priority: AssetTag > AssetName > EquipmentType > composite
+    const assetId = r.AssetTag || r.AssetName || r.EquipmentType || 'Unknown';
+
+    if (!dailyMap.has(key)) dailyMap.set(key, { assets: new Set(), total: 0 });
+    const day = dailyMap.get(key);
+    day.assets.add(assetId);
+    day.total++;
+  });
+
+  const labels = Array.from(dailyMap.keys()).sort();
+  const distinctArr = labels.map(d => dailyMap.get(d).assets.size);
+  const totalArr = labels.map(d => dailyMap.get(d).total);
+
+  const cumulativeTotal = distinctArr.reduce((a, b) => a + b, 0);
+  document.getElementById('cumulativeValue').textContent = cumulativeTotal.toLocaleString();
+
+  if (chartEsc) chartEsc.destroy();
+  chartEsc = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Distinct Affected Assets',
+        data: distinctArr,
+        backgroundColor: 'rgba(220,38,38,0.6)',
+        borderColor: '#DC2626',
+        borderWidth: 1,
+        borderRadius: 6,
+        borderSkipped: false,
+        barPercentage: 0.65
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (e, elements) => {
+        if (typeof ChartInteractions !== 'undefined') {
+          ChartInteractions.onDailyChartClick(elements, labels, distinctArr, totalArr, rows);
+        }
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            font: { family: 'Inter', size: 11, weight: '600' },
+            color: '#4A6380',
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 20
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(22,50,79,0.95)',
+          titleFont: { family: 'Inter', size: 12, weight: '700' },
+          bodyFont: { family: 'Inter', size: 11 },
+          padding: 12,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            title: (items) => {
+              const d = new Date(items[0].label);
+              return d.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+            },
+            label: (item) => {
+              const idx = item.dataIndex;
+              return [
+                'Distinct Affected Assets: ' + distinctArr[idx],
+                'Repeated Inspection Entries: ' + totalArr[idx]
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            font: { family: 'Inter', size: 10 },
+            color: '#8BA3B8',
+            maxRotation: 45,
+            callback: function(val, idx) {
+              const d = new Date(this.getLabelForValue(val));
+              return (idx % 2 === 0) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+            }
+          }
+        },
+        y: {
+          grid: { color: 'rgba(0,91,172,0.04)', drawBorder: false },
+          ticks: { font: { family: 'Inter', size: 10 }, color: '#8BA3B8', precision: 0 },
+          beginAtZero: true
+        }
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' },
+      onHover: (e, elements) => {
+        e.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      }
+    }
+  });
+  if (typeof ChartInteractions !== 'undefined') {
+    ChartInteractions.enableLegendToggle(chartEsc);
+    ChartInteractions.addHoverCursor(chartEsc);
+  }
+}
+
+/* ============================================================
+   CHART: Pareto Analysis of Repetitive Equipment Issues
+   ============================================================ */
+
+function updateParetoChart(rows) {
+  const ctx = document.getElementById('chartPareto').getContext('2d');
+
+  // Deduplication: group by EquipmentType, track UNIQUE assets + total inspections
+  // catData: Map<category, { assets: Set<string>, total: number }>
+  const catData = new Map();
+  rows.forEach(r => {
+    if (!hasNegativeFindings(r)) return;
+
+    const category = r.EquipmentType || 'Unknown';
+    // Unique equipment identifier priority: AssetTag > AssetName > composite
+    const assetId = r.AssetTag || r.AssetName || (r.Plant + '|' + category) || 'Unknown';
+
+    if (!catData.has(category)) {
+      catData.set(category, { assets: new Set(), total: 0 });
+    }
+    const data = catData.get(category);
+    data.assets.add(assetId);   // unique equipment per category
+    data.total++;                // total repeated inspections
+  });
+
+  // Sort by distinct unique equipment count (descending)
+  const sorted = Array.from(catData.entries())
+    .map(([cat, data]) => ({
+      category: cat,
+      distinct: data.assets.size,
+      total: data.total
+    }))
+    .sort((a, b) => b.distinct - a.distinct);
+
+  if (sorted.length === 0) {
+    document.getElementById('pareto80Value').textContent = '—';
+    if (chartPareto) { chartPareto.destroy(); chartPareto = null; }
+    return;
+  }
+
+  // Top 15 for readability
+  const top = sorted.slice(0, 15);
+  const labels = top.map(d => d.category);
+  const distinctCounts = top.map(d => d.distinct);
+  const totalInspections = top.map(d => d.total);
+  const totalDistinct = distinctCounts.reduce((a, b) => a + b, 0);
+
+  // Cumulative percentage (based on DISTINCT counts)
+  let cum = 0;
+  const cumPct = distinctCounts.map(c => {
+    cum += c;
+    return parseFloat(((cum / totalDistinct) * 100).toFixed(1));
+  });
+
+  // Find how many categories hit 80%
+  let catsAt80 = cumPct.findIndex(p => p >= 80);
+  if (catsAt80 === -1) catsAt80 = distinctCounts.length - 1;
+  else catsAt80 += 1;
+  const pctOfTotal = Math.round((catsAt80 / distinctCounts.length) * 100);
+  document.getElementById('pareto80Value').textContent =
+    catsAt80 + ' of ' + distinctCounts.length + ' (' + pctOfTotal + '%)';
+
+  // Truncate labels for display
+  const displayLabels = labels.map(l => l.length > 18 ? l.slice(0, 16) + '…' : l);
+
+  if (chartPareto) chartPareto.destroy();
+  chartPareto = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: displayLabels,
+      _fullLabels: labels,
+      datasets: [
+        {
+          type: 'line',
+          label: '80% Threshold',
+          data: labels.map(() => 80),
+          borderColor: '#F59E0B',
+          borderWidth: 2,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          yAxisID: 'y1',
+          order: 0
+        },
+        {
+          type: 'line',
+          label: 'Cumulative %',
+          data: cumPct,
+          borderColor: '#005BAC',
+          backgroundColor: 'rgba(0,91,172,0.08)',
+          borderWidth: 2.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#005BAC',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1.5,
+          fill: false,
+          tension: 0.3,
+          yAxisID: 'y1',
+          order: 1
+        },
+        {
+          type: 'bar',
+          label: 'Distinct Equipment',
+          data: distinctCounts,
+          backgroundColor: 'rgba(220,38,38,0.55)',
+          borderColor: '#DC2626',
+          borderWidth: 1,
+          borderRadius: 4,
+          borderSkipped: false,
+          barPercentage: 0.6,
+          yAxisID: 'y',
+          order: 2
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (e, elements) => {
+        if (typeof ChartInteractions !== 'undefined') {
+          const fullLabels = chartPareto.data._fullLabels || labels;
+          ChartInteractions.onParetoChartClick(elements, fullLabels, distinctCounts, totalInspections, cumPct, rows);
+        }
+      },
+      onHover: (e, elements) => {
+        e.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            font: { family: 'Inter', size: 11, weight: '600' },
+            color: '#4A6380',
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 16
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(22,50,79,0.95)',
+          titleFont: { family: 'Inter', size: 12, weight: '700' },
+          bodyFont: { family: 'Inter', size: 11 },
+          padding: 12,
+          cornerRadius: 8,
+          callbacks: {
+            title: (items) => labels[items[0].dataIndex],
+            label: (item) => {
+              const idx = item.dataIndex;
+              if (item.dataset.label === 'Distinct Equipment') {
+                return [
+                  'Distinct equipment: ' + distinctCounts[idx],
+                  'Total inspections: ' + totalInspections[idx],
+                  'Cumulative: ' + cumPct[idx] + '%'
+                ];
+              }
+              return item.dataset.label + ': ' + item.raw + '%';
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            font: { family: 'Inter', size: 9 },
+            color: '#8BA3B8',
+            maxRotation: 45,
+            minRotation: 30,
+            autoSkip: true,
+            maxTicksLimit: 12
+          }
+        },
+        y: {
+          type: 'linear',
+          position: 'left',
+          grid: { color: 'rgba(0,91,172,0.04)', drawBorder: false },
+          ticks: { font: { family: 'Inter', size: 10 }, color: '#8BA3B8', precision: 0 },
+          beginAtZero: true,
+          title: { display: true, text: 'Distinct Count', font: { size: 10, family: 'Inter' }, color: '#8BA3B8' }
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          min: 0,
+          max: 100,
+          grid: { display: false },
+          ticks: {
+            font: { family: 'Inter', size: 10 },
+            color: '#005BAC',
+            callback: v => v + '%',
+            stepSize: 20
+          },
+          title: { display: true, text: 'Cumulative %', font: { size: 10, family: 'Inter' }, color: '#005BAC' }
+        }
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' }
+    }
+  });
+  if (typeof ChartInteractions !== 'undefined') {
+    ChartInteractions.enableLegendToggle(chartPareto);
+    ChartInteractions.addHoverCursor(chartPareto);
+  }
+}
+
+/* ============================================================
+   INSPECTOR PERFORMANCE TABLE
+   ============================================================ */
+
+function updateInspectorTable(rows) {
+  const tbody = document.querySelector('#tblInspectors tbody');
+  tbody.innerHTML = '';
+  const byInspector = new Map();
+
+  rows.forEach(r => {
+    const key = r.Inspector || '(Unknown)';
+    if (!byInspector.has(key)) byInspector.set(key, []);
+    byInspector.get(key).push(r);
+  });
+
+  document.getElementById('inspectorCountBadge').textContent =
+    byInspector.size + ' inspector' + (byInspector.size !== 1 ? 's' : '');
+  const tabCount = document.getElementById('tabCountInspector');
+  if (tabCount) tabCount.textContent = byInspector.size;
+
+  byInspector.forEach((list, inspector) => {
+    const dq = computeDataQuality(list);
+    let escCount = 0;
+    list.forEach(r => {
+      if (hasNegativeFindings(r)) escCount++;
+    });
+    const escRate = list.length ? (escCount / list.length) * 100 : 0;
+
+    let escTagClass = 'tag-success';
+    if (escRate > 10) escTagClass = 'tag-warning';
+    if (escRate > 25) escTagClass = 'tag-danger';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td style="font-weight:600">' + escHtml(inspector) + '</td>' +
+      '<td class="num">' + list.length.toLocaleString() + '</td>' +
+      '<td class="num">' + dq.score.toFixed(1) + '%</td>' +
+      '<td style="text-align:center"><span class="tag ' + escTagClass + '">' + escRate.toFixed(1) + '%</span></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+/* ============================================================
+   DATA QUALITY DETAILS TABLE
+   ============================================================ */
+
+function updateDQTable(rows) {
+  const tbody = document.querySelector('#tblDQ tbody');
+  tbody.innerHTML = '';
+  let issueCount = 0;
+
+  rows.forEach(r => {
+    const missing = [];
+    DQ_FIELDS.forEach(f => {
+      const v = r[f];
+      if (!v || v.toString().trim() === '') missing.push(f);
+    });
+
+    if (missing.length > 0) {
+      issueCount++;
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="font-family:monospace;font-size:11px;color:var(--text-secondary)">' + escHtml(r.SubmissionID) + '</td>' +
+        '<td>' + (r.InspectionDate ? r.InspectionDate.toISOString().slice(0,10) : '') + '</td>' +
+        '<td>' + escHtml(r.Inspector) + '</td>' +
+        '<td>' + escHtml(r.AssetTag || r.AssetName) + '</td>' +
+        '<td>' + escHtml(r.Category) + '</td>' +
+        '<td>' + escHtml(r.Task) + '</td>' +
+        '<td style="text-align:center"><span class="tag tag-danger">' + missing.length + ' fields</span></td>';
+      tbody.appendChild(tr);
+    }
+  });
+
+  if (issueCount === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="empty-table-msg">' +
+      '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto 12px;color:var(--mw-primary)">' +
+      '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>' +
+      '<polyline points="22 4 12 14.01 9 11.01"/>' +
+      '</svg>' +
+      '<strong style="color:var(--text-primary)">All records complete</strong><br/>' +
+      '<span style="font-size:12px">No data quality issues found for current filters.</span>' +
+      '</td>';
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById('dqCountBadge').textContent =
+    issueCount + ' record' + (issueCount !== 1 ? 's' : '') + ' with issues';
+  document.getElementById('tabCountDQ').textContent = issueCount;
+}
+
+/* ============================================================
+   ESCALATED INSPECTIONS TABLE
+   ============================================================ */
+
+function updateEscalatedTable(rows) {
+  const tbody = document.querySelector('#tblEscalated tbody');
+  tbody.innerHTML = '';
+  let escCount = 0;
+
+  rows.forEach(r => {
+    if (!hasNegativeFindings(r)) return;
+    escCount++;
+
+    const notes = r.EntryNotes ? r.EntryNotes.toString().trim() : '';
+    const capture = r.Capture1Response ? r.Capture1Response.toString().trim() : '';
+    const escTrigger = r.EscalationTrigger ? r.EscalationTrigger.toString().trim() : '';
+    const notesAbnormal = isAbnormalEntryNotes(notes);
+    const captureAbnormal = isAbnormalEntryNotes(capture);
+
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td style="font-family:monospace;font-size:11px;color:var(--text-secondary)">' + escHtml(r.SubmissionID) + '</td>' +
+      '<td>' + (r.InspectionDate ? r.InspectionDate.toISOString().slice(0,10) : '') + '</td>' +
+      '<td>' + escHtml(r.Inspector) + '</td>' +
+      '<td>' + escHtml(r.AssetTag || r.AssetName) + '</td>' +
+      '<td>' + escHtml(r.Category) + '</td>' +
+      '<td>' + escHtml(r.Task) + '</td>' +
+      '<td style="max-width:220px;white-space:normal;word-break:break-word;font-size:11px">' +
+        (notes ? (notesAbnormal ? '<span class="tag tag-danger" style="margin-bottom:4px;display:inline-block">Negative Finding</span><br/>' : '') + escHtml(notes)
+              : '<em style="color:var(--text-muted)">-</em>') + '</td>' +
+      '<td style="max-width:220px;white-space:normal;word-break:break-word;font-size:11px">' +
+        (capture ? (captureAbnormal ? '<span class="tag tag-danger" style="margin-bottom:4px;display:inline-block">Negative Finding</span><br/>' : '') + escHtml(capture)
+                 : '<em style="color:var(--text-muted)">-</em>') + '</td>' +
+      '<td style="text-align:center">' +
+        (escTrigger ? '<span class="tag tag-warning">' + escHtml(escTrigger) + '</span>' :
+                      '<em style="color:var(--text-muted)">-</em>') + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  if (escCount === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="9" class="empty-table-msg">' +
+      '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto 12px;color:var(--success)">' +
+      '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>' +
+      '<polyline points="22 4 12 14.01 9 11.01"/>' +
+      '</svg>' +
+      '<strong style="color:var(--text-primary)">No negative findings detected</strong><br/>' +
+      '<span style="font-size:12px">All inspections are within normal parameters for current filters.</span>' +
+      '</td>';
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById('escCountBadge').textContent =
+    escCount + ' with negative findings';
+  document.getElementById('tabCountEsc').textContent = escCount;
+}
+
+/* ============================================================
+   INSPECTION NOTES LOG TABLE
+   ============================================================ */
+
+function updateNotesTable(rows) {
+  const tbody = document.querySelector('#tblNotes tbody');
+  tbody.innerHTML = '';
+  let notesCount = 0;
+
+  rows.forEach(r => {
+    const notes = r.EntryNotes ? r.EntryNotes.toString().trim() : '';
+    if (!notes) return;
+    notesCount++;
+
+    const isAbnormal = isAbnormalEntryNotes(notes);
+
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td style="font-family:monospace;font-size:11px;color:var(--text-secondary)">' + escHtml(r.SubmissionID) + '</td>' +
+      '<td>' + (r.InspectionDate ? r.InspectionDate.toISOString().slice(0,10) : '') + '</td>' +
+      '<td>' + escHtml(r.Inspector) + '</td>' +
+      '<td>' + escHtml(r.AssetTag || r.AssetName) + '</td>' +
+      '<td>' + escHtml(r.Category) + '</td>' +
+      '<td>' + escHtml(r.Task) + '</td>' +
+      '<td style="max-width:320px;white-space:normal;word-break:break-word;font-size:11px">' +
+        (isAbnormal ? '<span class="tag tag-danger" style="margin-bottom:4px;display:inline-block">Abnormal</span><br/>' : '') +
+        escHtml(notes) + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  if (notesCount === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="empty-table-msg">' +
+      '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto 12px;color:var(--mw-primary)">' +
+      '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>' +
+      '<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>' +
+      '</svg>' +
+      '<strong style="color:var(--text-primary)">No inspection notes found</strong><br/>' +
+      '<span style="font-size:12px">No entry notes recorded for current filters.</span>' +
+      '</td>';
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById('notesCountBadge').textContent =
+    notesCount + ' record' + (notesCount !== 1 ? 's' : '') + ' with notes';
+  document.getElementById('tabCountNotes').textContent = notesCount;
+}
+
+/* ============================================================
+   DATABASE API LAYER
+   ============================================================ */
+const API_BASE = '/api/trpc';
+
+function apiCall(endpoint, payload, callback, errback) {
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', API_BASE + endpoint, true);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.timeout = 30000;
+  xhr.ontimeout = function() { if(errback) errback(new Error('Timeout')); };
+  xhr.onerror = function() { if(errback) errback(new Error('Network error')); };
+  xhr.onload = function() {
+    if(xhr.status >= 200 && xhr.status < 300) {
+      try { var d = JSON.parse(xhr.responseText); if(callback) callback(d); }
+      catch(e) { if(errback) errback(e); }
+    } else { if(errback) errback(new Error('HTTP ' + xhr.status)); }
+  };
+  xhr.send(JSON.stringify({ json: payload }));
+}
+
+function loadFromDatabase() {
+  apiCall('/mw.listInspections', {},
+    function(res) {
+      apiAvailable = true;
+      var rows = res.result && res.result.data && res.result.data.json || [];
+      if (rows.length === 0) {
+        document.getElementById('loadedFileName').textContent = 'No records in database';
+        if (loadFromStorage()) {
+          document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage';
+          document.getElementById('refreshBtn').style.display = 'inline-flex';
+          document.getElementById('clearDataBtn').style.display = 'inline-flex';
+          buildFilterOptions();
+          showDashboard();
+          refreshAll();
+        }
+        return;
+      }
+
+      rawRows = rows.map(function(r) { return {
+        SubmissionID: r.submissionId || '',
+        Plant: r.facilityId || '',
+        Inspector: r.inspector || '',
+        InspectionDate: r.inspectionDate ? new Date(r.inspectionDate) : (r.date ? new Date(r.date) : null),
+        AssetTag: r.assetTag || '',
+        AssetName: r.assetName || '',
+        EquipmentType: r.equipmentType || '',
+        EquipmentName: r.assetName || '',
+        Category: r.category || '',
+        Task: r.task || '',
+        Capture1Label: r.capture1Label || '',
+        Capture1Response: r.capture1Response || '',
+        EscalationTrigger: r.escalationTrigger || '',
+        EntryNotes: r.entryNotes || '',
+        Status: r.status || 'Pending',
+        Score: r.score || 0,
+        Findings: r.findings || '',
+        SubmittedAt: r.submittedAt || r.submitted_at || '',
+        Frequency: r.frequency || '',
+        _dbId: r.id
+      };});
+
+      document.getElementById('loadedFileName').textContent = rows.length + ' records from database';
+      document.getElementById('uploadProgress').style.display = 'none';
+      document.getElementById('refreshBtn').style.display = 'inline-flex';
+      document.getElementById('clearDataBtn').style.display = 'inline-flex';
+      buildFilterOptions();
+      showDashboard();
+      refreshAll();
+    },
+    function(err) {
+      console.error('DB load failed:', err);
+      apiAvailable = false;
+      if (loadFromStorage()) {
+        document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage (API unavailable)';
+        document.getElementById('refreshBtn').style.display = 'inline-flex';
+        document.getElementById('clearDataBtn').style.display = 'inline-flex';
+        buildFilterOptions();
+        showDashboard();
+        refreshAll();
+      }
+    }
+  );
+}
+
+var apiAvailable = true;
+
+function importToDatabase(rows, filename) {
+  document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — uploading ' + rows.length + ' rows...';
+  document.getElementById('refreshBtn').style.display = 'inline-flex';
+  document.getElementById('clearDataBtn').style.display = 'inline-flex';
+
+  var payload = rows.map(function(r) {
+    return {
+    submissionId: r.SubmissionID || null,
+    facilityId: r.Plant || 'unknown',
+    inspector: r.Inspector || '',
+    inspectionDate: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
+    assetTag: r.AssetTag || null,
+    assetName: r.AssetName || null,
+    equipmentType: r.EquipmentType || null,
+    category: r.Category || '',
+    task: r.Task || null,
+    capture1Label: r.Capture1Label || null,
+    capture1Response: r.Capture1Response || null,
+    escalationTrigger: r.EscalationTrigger || null,
+    entryNotes: r.EntryNotes || null,
+    status: r.Status || 'pending',
+    score: r.Score != null ? Number(r.Score) || null : null,
+    findings: r.Findings || '',
+    date: r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : null,
+    submittedAt: r.SubmittedAt || null,
+    frequency: r.Frequency || null,
+  };});
+
+  if (!apiAvailable) {
+    useClientSide(rows, filename);
+    return;
+  }
+
+  document.getElementById('uploadProgress').style.display = 'inline-block';
+  document.getElementById('progressFill').style.width = '0%';
+
+  var CHUNK_SIZE = 200;
+  var totalProcessed = 0;
+  var totalChunks = Math.ceil(payload.length / CHUNK_SIZE);
+  var currentChunk = 0;
+
+  function sendNextChunk() {
+    if (currentChunk >= totalChunks) {
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('loadedFileName').textContent =
+        (filename || 'Importing') + ' — ' + totalProcessed + ' rows processed (server).';
+      loadFromDatabase();
+      return;
+    }
+    var start = currentChunk * CHUNK_SIZE;
+    var chunk = payload.slice(start, start + CHUNK_SIZE);
+    currentChunk++;
+
+    var pct = Math.round(((currentChunk - 1) / totalChunks) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('loadedFileName').textContent =
+      (filename || 'Importing') + ' — chunk ' + currentChunk + '/' + totalChunks + ' (' + chunk.length + ' rows)...';
+
+    var retries = 0;
+    function trySend() {
+      apiCall('/mw.importExcel', { rows: chunk, filename: filename || '' },
+        function(res) {
+          apiAvailable = true;
+          var result = res.result && res.result.data && res.result.data.json;
+          if (result) {
+            totalProcessed += result.processed || 0;
+          }
+          var pct = Math.round((currentChunk / totalChunks) * 100);
+          document.getElementById('progressFill').style.width = pct + '%';
+          sendNextChunk();
+        },
+        function(err) {
+          retries++;
+          if (retries >= 2) {
+            apiAvailable = false;
+            useClientSide(rows, filename);
+            return;
+          }
+          setTimeout(trySend, 2000);
+        }
+      );
+    }
+    trySend();
+  }
+
+  setTimeout(sendNextChunk, 50);
+}
+
+function useClientSide(rows, filename) {
+  document.getElementById('uploadProgress').style.display = 'none';
+
+  var groupMap = {};
+  rows.forEach(function(r) {
+    var dateStr = r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().split('T')[0] : String(r.InspectionDate)) : '';
+    var key = (r.AssetTag || '') + '|' + (r.Task || '') + '|' + dateStr + '|' + (r.SubmittedAt || '');
+    // Always overwrite with latest row — re-uploading same file updates records
+    groupMap[key] = r;
+  });
+  var uniqueRows = Object.values(groupMap);
+
+  rawRows = uniqueRows;
+  saveToStorage();
+
+  document.getElementById('loadedFileName').textContent =
+    (filename || 'Import') + ' — ' + uniqueRows.length + ' records (client-side, API unavailable)';
+  document.getElementById('refreshBtn').style.display = 'inline-flex';
+  document.getElementById('clearDataBtn').style.display = 'inline-flex';
+  buildFilterOptions();
+  showDashboard();
+  refreshAll();
+}
+
+function resetDatabase() {
+  if (!confirm('Are you sure you want to clear ALL inspection data?')) return;
+  localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(LS_FILENAME);
+  apiCall('/mw.resetAll', {},
+    function() { rawRows = []; clearStorageUI(); },
+    function(err) { rawRows = []; clearStorageUI(); }
+  );
+}
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+function escHtml(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/* ============================================================
+   AI OPERATIONAL INSIGHTS RENDERER
+   ============================================================ */
+
+const INSIGHT_ICONS = {
+  trend: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
+  risk: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  inspector: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  anomaly: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+  coverage: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+  recommendation: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/></svg>'
+};
+
+function renderInsights(rows) {
+  const section = document.getElementById('insightsSection');
+  const container = document.getElementById('insightsContainer');
+  const badge = document.getElementById('insightsBadge');
+  if (!section || !container) return;
+
+  const insights = AnalyticsEngine.generateInsights({ rows });
+  if (!insights.length) {
+    section.style.display = 'none';
+    return;
+  }
+
+  const criticalHigh = insights.filter(i => i.severity === 'critical' || i.severity === 'high').length;
+  if (badge) {
+    badge.textContent = criticalHigh > 0 ? criticalHigh + ' alert' + (criticalHigh > 1 ? 's' : '') : insights.length + ' insight' + (insights.length > 1 ? 's' : '');
+    badge.style.display = 'inline-flex';
+    if (criticalHigh > 0) {
+      badge.style.background = 'var(--danger-light)';
+      badge.style.color = 'var(--danger)';
+    } else {
+      badge.style.background = 'var(--info-light)';
+      badge.style.color = 'var(--info)';
+    }
+  }
+
+  container.innerHTML = insights.map(insight => {
+    const icon = INSIGHT_ICONS[insight.type] || INSIGHT_ICONS.recommendation;
+    return '<div class="insight-card ' + insight.severity + '">' +
+      '<div class="insight-header">' +
+        '<div class="insight-icon">' + icon + '</div>' +
+        '<div class="insight-title">' + escHtml(insight.title) + '</div>' +
+        '<span class="insight-severity">' + insight.severity + '</span>' +
+      '</div>' +
+      '<div class="insight-desc">' + escHtml(insight.description) + '</div>' +
+      '<div class="insight-metric">' + escHtml(insight.metric) + '</div>' +
+      '<div class="insight-rec"><strong>Recommendation:</strong> ' + escHtml(insight.recommendation) + '</div>' +
+    '</div>';
+  }).join('');
+
+  section.style.display = 'block';
+}
+
+/* ---------- AI Assistant Init ---------- */
+if (typeof AIAssistant !== 'undefined') {
+  AIAssistant.renderSuggestedChips('aiSuggestedChips');
+}
+</script>
+
+<!-- AI Assistant Panel -->
+<div id="aiPanelOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(22,50,79,0.35);z-index:9998;backdrop-filter:blur(2px)" onclick="AIAssistant.closePanel()"></div>
+<div id="aiPanel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;max-width:640px;max-height:85vh;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.2);z-index:9999;overflow:hidden;display:flex;flex-direction:column;border:1px solid #D6DFE8">
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #EDF1F4;background:linear-gradient(135deg,#16324F,#005BAC)">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#fff">Ask AI about this Dashboard</div>
+        <div style="font-size:10px;color:rgba(255,255,255,.65)">Groq AI (Llama 3.3 70B) with data-aware insights</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px">
+      <button onclick="AIAssistant.clearChat()" style="background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;transition:all .15s;font-family:Inter" onmouseover="this.style.background='rgba(255,255,255,.25)';this.style.color='#fff'" onmouseout="this.style.background='rgba(255,255,255,.12)';this.style.color='rgba(255,255,255,.8)'">Clear</button>
+      <button onclick="AIAssistant.closePanel()" style="background:none;border:none;color:rgba(255,255,255,.7);cursor:pointer;font-size:18px;line-height:1;padding:4px;border-radius:4px;transition:color .15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">&times;</button>
+    </div>
+  </div>
+  <!-- Body -->
+  <div style="flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+    <!-- Suggested chips -->
+    <div>
+      <div style="font-size:10px;font-weight:600;color:#8BA3B8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Suggested Questions</div>
+      <div id="aiSuggestedChips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+    </div>
+    <!-- Input -->
+    <div style="display:flex;gap:8px">
+      <input id="aiQuestionInput" type="text" placeholder="Ask anything about inspection data, trends, or equipment..." onkeydown="AIAssistant.handleKeyDown(event)"
+        style="flex:1;padding:10px 14px;border:1px solid #D6DFE8;border-radius:8px;font-size:13px;font-family:Inter;color:#2D3748;background:#FAFBFC;outline:none;transition:border-color .15s"
+        onfocus="this.style.borderColor='#005BAC';this.style.boxShadow='0 0 0 3px rgba(0,91,172,.08)'"
+        onblur="this.style.borderColor='#D6DFE8';this.style.boxShadow='none'" />
+      <button onclick="AIAssistant.ask()" style="padding:10px 18px;background:#005BAC;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;font-family:Inter;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:6px;white-space:nowrap"
+        onmouseover="this.style.background='#004D99'" onmouseout="this.style.background='#005BAC'" onmousedown="this.style.transform='scale(.97)'" onmouseup="this.style.transform='scale(1)'">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Ask
+      </button>
+    </div>
+    <!-- Response -->
+    <div id="aiResponseArea" style="display:none;background:#FAFBFC;border:1px solid #EDF1F4;border-radius:10px;min-height:60px"></div>
+  </div>
+</div>
+
+<div style="text-align:right;padding:20px;font-size:11px;color:#5A6B7D;border-top:1px solid #D6DFE8;margin-top:20px">Program Oversight Center &copy; 2026</div>
+</body>
 </html>
