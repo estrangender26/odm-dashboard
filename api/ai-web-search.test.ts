@@ -30,7 +30,6 @@ describe("ODM Dashboard AI web-search routing", () => {
     );
   });
 
-
   it("answers simple runtime time/date questions without web search", () => {
     const message = `=== DASHBOARD CONTEXT ===\nCurrent Date: 2026-06-07\nDashboard/browser runtime ISO: 2026-06-07T15:30:00.000Z\nDashboard/browser runtime timezone: America/New_York\nDashboard Type: help\n\nUSER QUESTION: What time is it?`;
 
@@ -42,9 +41,13 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(reply).toMatch(/^Answer:/);
     expect(reply).toContain("The current time is");
     expect(reply).toContain("on Sunday, June 7, 2026");
-    expect(reply).toContain("This is based on the dashboard/browser runtime time.");
+    expect(reply).toContain(
+      "This is based on the dashboard/browser runtime time."
+    );
     expect(reply).toContain("Sources:\n- Dashboard/browser runtime time");
-    expect(reply).not.toContain("I could not retrieve live web results right now.");
+    expect(reply).not.toContain(
+      "I could not retrieve live web results right now."
+    );
     expect(reply).not.toContain("Sources: None");
   });
 
@@ -57,9 +60,15 @@ describe("ODM Dashboard AI web-search routing", () => {
 
     expect(isRuntimeTimeQuestion(message)).toBe(true);
     expect(queryNeedsWebSearch(classifyAiQuery(message))).toBe(false);
-    expect(reply).toContain("The current server time is 12:00 PM UTC on Sunday, June 7, 2026.");
-    expect(reply).toContain("Your local timezone was not available to the dashboard AI.");
-    expect(reply).not.toContain("I could not retrieve live web results right now.");
+    expect(reply).toContain(
+      "The current server time is 12:00 PM UTC on Sunday, June 7, 2026."
+    );
+    expect(reply).toContain(
+      "Your local timezone was not available to the dashboard AI."
+    );
+    expect(reply).not.toContain(
+      "I could not retrieve live web results right now."
+    );
     expect(reply).not.toContain("Sources: None");
   });
 
@@ -71,6 +80,9 @@ describe("ODM Dashboard AI web-search routing", () => {
       "web-current"
     );
     expect(classifyAiQuery("Who is the richest person in the world?")).toBe(
+      "web-current"
+    );
+    expect(classifyAiQuery("Who is the richest man in the world?")).toBe(
       "web-current"
     );
     expect(classifyAiQuery("Who is the richest man on earth?")).toBe(
@@ -226,7 +238,9 @@ describe("ODM Dashboard AI web-search routing", () => {
       "I found a relevant source, but the search result did not include enough detail to answer confidently."
     );
     expect(reply).toContain("Sources:");
-    expect(reply).not.toMatch(/^[-*]\s*Forbes Billionaires List\n[-*]\s*Domain:/);
+    expect(reply).not.toMatch(
+      /^[-*]\s*Forbes Billionaires List\n[-*]\s*Domain:/
+    );
   });
 
   it("preserves plain answer bullets while adding web answer framing", () => {
@@ -240,7 +254,8 @@ describe("ODM Dashboard AI web-search routing", () => {
             title: "Forbes Billionaires List",
             domain: "forbes.com",
             url: "https://www.forbes.com/billionaires/",
-            snippet: "Forbes ranks billionaires using real-time net worth estimates.",
+            snippet:
+              "Forbes ranks billionaires using real-time net worth estimates.",
           },
         ],
       }
@@ -274,9 +289,12 @@ describe("ODM Dashboard AI web-search routing", () => {
     expect(WEB_SEARCH_FAILURE_REPLY).not.toContain("From dashboard data");
     expect(WEB_SEARCH_FAILURE_REPLY).not.toContain("Module data is not loaded");
     expect(WEB_SEARCH_FAILURE_REPLY).not.toContain("Sources: None");
+    expect(WEB_SEARCH_FAILURE_REPLY.toLowerCase()).not.toContain(
+      "knowledge cutoff"
+    );
   });
 
-  it("uses the explicit insufficient-snippet answer when web details are missing", () => {
+  it("treats pure web results without usable snippets as live-web failure", () => {
     const answer = synthesizeWebSearchAnswer({
       provider: "tavily",
       results: [
@@ -289,11 +307,48 @@ describe("ODM Dashboard AI web-search routing", () => {
       ],
     });
 
-    expect(answer).toContain(
-      "I found a relevant source, but the result snippet did not include enough detail to answer confidently."
+    expect(answer).toBe(WEB_SEARCH_FAILURE_REPLY);
+    expect(answer).not.toContain("From dashboard data");
+    expect(answer).not.toContain("Module data is not loaded");
+    expect(answer).not.toContain("Sources:");
+    expect(answer.toLowerCase()).not.toContain("knowledge cutoff");
+  });
+
+  it("keeps combined dashboard-plus-web formatting available", () => {
+    const reply = finalizeAiReplyForWebSearch(
+      "Dashboard records show 12 SMPs are active.\n\nFrom web search:\nRecent industry guidance emphasizes annual review cycles.",
+      "combined-module-web",
+      {
+        provider: "tavily",
+        results: [
+          {
+            title: "SMP Guidance",
+            domain: "example.org",
+            url: "https://example.org/smp-guidance",
+            snippet:
+              "Recent industry guidance emphasizes annual review cycles.",
+          },
+        ],
+      }
     );
-    expect(answer).toMatch(/^Answer:/);
-    expect(answer).toContain("Sources:");
+
+    expect(reply).toContain("From dashboard data:");
+    expect(reply).toContain("From web search:");
+    expect(reply).toContain("Sources:");
+  });
+
+  it("keeps module-data unloaded fallback for true module-analysis questions", () => {
+    const assistantSource = repoFile("src/components/AIAssistant.tsx");
+
+    expect(
+      classifyAiQuery("Analyze overdue work orders in this dashboard")
+    ).toBe("module-data");
+    expect(assistantSource).toContain(
+      "appendAssistantMessage(MODULE_DATA_NOT_LOADED_MESSAGE)"
+    );
+    expect(assistantSource).toContain(
+      "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data."
+    );
   });
 
   it("keeps module hallucination guardrails and Post-PPP semantics", () => {

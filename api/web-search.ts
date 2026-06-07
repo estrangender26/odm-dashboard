@@ -101,18 +101,13 @@ export function synthesizeWebSearchAnswer(response: WebSearchResponse): string {
   }
 
   const snippetSentences = getSnippetSentences(sources);
-  const directAnswer =
-    snippetSentences.length > 0
-      ? snippetSentences.join(" ")
-      : "I found a relevant source, but the result snippet did not include enough detail to answer confidently.";
+  if (snippetSentences.length === 0) {
+    return "I could not retrieve live web results right now.";
+  }
 
-  return [
-    "Answer:",
-    directAnswer,
-    "",
-    "Sources:",
-    ...sourceLines,
-  ].join("\n");
+  const directAnswer = snippetSentences.join(" ");
+
+  return ["Answer:", directAnswer, "", "Sources:", ...sourceLines].join("\n");
 }
 
 export function formatWebSearchResultsForPrompt(
