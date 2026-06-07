@@ -291,43 +291,25 @@ app.get("/api/oauth/authorize", (c) => {
   return c.redirect(`${env.kimiAuthUrl}/api/oauth/authorize?${params.toString()}`, 302);
 });
 
-logBootStage("registering static HTML dashboard routes");
+logBootStage("registering unified React dashboard routes");
 
-// Serve O&M Governance Dashboard at /governance
-app.get("/governance", async (c) => {
+async function serveReactDashboard(c: Context) {
   const dp = distPath || findDistPublic();
   if (!dp) return c.json({ error: "dist/public not found" }, 500);
-  const governancePath = path.join(dp, "governance.html");
-  if (fs.existsSync(governancePath)) {
-    const content = fs.readFileSync(governancePath, "utf-8");
-    // Aggressive cache-busting: unique ETag based on file mtime + content length
-    const stat = fs.statSync(governancePath);
-    const etag = `"gov-${stat.mtime.getTime()}-${content.length}"`;
-    c.header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
-    c.header("Pragma", "no-cache");
-    c.header("Expires", "0");
-    c.header("Vary", "*");
-    c.header("ETag", etag);
-    // If client sends matching If-None-Match, still return 200 to force refresh
-    return c.html(content);
-  }
-  return c.json({ error: "Governance dashboard not found", path: governancePath }, 404);
-});
+  const indexPath = path.join(dp, "index.html");
+  if (!fs.existsSync(indexPath)) return c.json({ error: "React dashboard shell not found", path: indexPath }, 404);
 
-// Serve Manila Water Operator-Driven Maintenance Dashboard at /mw-dashboard
-app.get("/mw-dashboard", async (c) => {
-  const dp = distPath || findDistPublic();
-  if (!dp) return c.json({ error: "dist/public not found" }, 500);
-  const mwPath = path.join(dp, "mw-dashboard.html");
-  if (fs.existsSync(mwPath)) {
-    const content = fs.readFileSync(mwPath, "utf-8");
-    c.header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
-    c.header("Pragma", "no-cache");
-    c.header("Expires", "0");
-    return c.html(content);
-  }
-  return c.json({ error: "MW dashboard not found", path: mwPath }, 404);
-});
+  c.header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
+  c.header("Pragma", "no-cache");
+  c.header("Expires", "0");
+  return c.html(fs.readFileSync(indexPath, "utf-8"));
+}
+
+// Serve the React O&M Governance module so it uses the shared AIAssistant shell.
+app.get("/governance", serveReactDashboard);
+
+// Serve the React inspection / ODM module so it uses the shared AIAssistant shell.
+app.get("/mw-dashboard", serveReactDashboard);
 
 
 function asNullableKpiNumber(value: unknown): number | null {

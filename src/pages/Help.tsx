@@ -99,7 +99,7 @@ const DASHBOARDS = [
     icon: "🏗️",
     bg: "#FFF7ED",
     title: "O&M Manual Governance",
-    route: "/governance.html",
+    route: "/governance",
     desc: "Track O&M manual delivery progress across water treatment facilities (Aglipay, HTT, East Bay, Kaysakat).",
     steps: [
       "Tabs: Progress Chart, Deliverables, S-Curve, Extra Uploads.",
@@ -113,7 +113,7 @@ const DASHBOARDS = [
     icon: "🔧",
     bg: "#F0FDF4",
     title: "ODM Dashboard",
-    route: "/mw-dashboard.html",
+    route: "/mw-dashboard",
     desc: "View operator-driven maintenance inspection records and KPIs (asset health, compliance, abnormalities).",
     steps: [
       "Import Excel: upload inspection data from .xlsx files.",
