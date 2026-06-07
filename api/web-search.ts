@@ -129,18 +129,26 @@ export function formatWebSearchResultsForPrompt(
   }
 
   const lines = [
-    `WEB SEARCH STATUS: Results from ${response.provider}. Use only as secondary/external context.`,
-    "When web results contain enough snippet detail, synthesize a direct answer instead of listing only source metadata.",
-    "Do not mention model knowledge cutoff when these web search results are available.",
-    "Use this exact web-search format: From web search: [direct answer in 1-3 sentences.] Sources: - [Title] — [domain] - [URL if available]",
-    "If snippets do not contain enough detail to answer confidently, say exactly: I found a relevant source, but the result snippet did not include enough detail to answer confidently.",
-    "Pre-synthesized web answer to use or adapt:",
-    synthesizeWebSearchAnswer(response),
+    `WEB SEARCH STATUS: ${response.results.length} result(s) from ${response.provider}. Live web search succeeded.`,
+    "SYNTHESIS REQUIREMENTS:",
+    "- Use the result content below to answer the user's question directly before listing sources.",
+    "- Do not merely list raw source metadata such as title, domain, URL, provider, or snippet.",
+    "- Do not mention knowledge cutoff because live search results are available.",
+    "- For a general/current web question, format the final response as: Answer: then Sources:.",
+    "- For a dashboard + web question, format the final response as: From dashboard data: then From web search: then Sources:.",
+    "- If these results do not contain enough detail to answer confidently, say: I found a relevant source, but the search result did not include enough detail to answer confidently.",
+    "SEARCH RESULT CONTENT TO SYNTHESIZE:",
   ];
 
   response.results.forEach((result, index) => {
     lines.push(
-      `${index + 1}. Title: ${result.title || "Untitled"}\nDomain: ${result.domain || "Unknown domain"}\nURL: ${result.url || "No URL"}\nSnippet: ${result.snippet || "No snippet"}`
+      [
+        `Result ${index + 1}:`,
+        `Source title: ${result.title || "Untitled"}`,
+        `Source domain: ${result.domain || "Unknown domain"}`,
+        `Source URL: ${result.url || "No URL"}`,
+        `Relevant content: ${result.snippet || "No result detail was provided."}`,
+      ].join("\n")
     );
   });
 
