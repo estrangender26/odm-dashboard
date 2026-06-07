@@ -925,7 +925,7 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }}}
-                placeholder="Ask about maintenance, PM, KPIs..."
+                placeholder="Ask about this dashboard's data..."
                 rows={1}
                 className="odm-ai-input"
               />
