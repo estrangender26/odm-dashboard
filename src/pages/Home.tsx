@@ -362,15 +362,19 @@ export default function Home() {
 
       {/* Unified AI Assistant */}
       <AIAssistant
-        contextType="maintenance"
-        data={[]}
-        filters={{ source: "home" }}
+        contextType="help"
         metadata={{
-          sourceModule: "Maintenance Planning",
+          sourceModule: "Help",
           sourceRecordId: "home-dashboard-suite",
           sourceRecordLabel: "Dashboard Suite Home",
         }}
-        title="Maintenance Planning AI"
+        title="ODM Dashboard AI"
+        quickQuestions={[
+          "What can this dashboard do?",
+          "Which module should I open?",
+          "How do I use Maintenance Planning?",
+          "How do I use ODM Talk?",
+        ]}
       />
     </div>
   );
