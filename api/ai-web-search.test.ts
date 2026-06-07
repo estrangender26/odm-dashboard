@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildRuntimeTimeReply,
   classifyAiQuery,
@@ -11,11 +11,61 @@ import {
 import {
   formatWebSearchResultsForPrompt,
   synthesizeWebSearchAnswer,
+  webSearch,
 } from "./web-search";
 
 const repoFile = (path: string) => readFileSync(path, "utf8");
 
+const ORIGINAL_WEB_SEARCH_ENV = {
+  WEB_SEARCH_API_KEY: process.env.WEB_SEARCH_API_KEY,
+  WEB_SEARCH_PROVIDER: process.env.WEB_SEARCH_PROVIDER,
+  TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+};
+
+afterEach(() => {
+  for (const [key, value] of Object.entries(ORIGINAL_WEB_SEARCH_ENV)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  vi.restoreAllMocks();
+});
+
 describe("ODM Dashboard AI web-search routing", () => {
+  it("logs sanitized provider diagnostics when Tavily returns an HTTP error", async () => {
+    process.env.WEB_SEARCH_PROVIDER = "tavily";
+    process.env.WEB_SEARCH_API_KEY = "generic-secret-key";
+    process.env.TAVILY_API_KEY = "tavily-secret-key";
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("do not log response bodies", {
+        status: 401,
+        statusText: "Unauthorized",
+      })
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await expect(webSearch("latest water utility news", 4)).rejects.toThrow(
+      "Tavily search failed with HTTP 401"
+    );
+
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    const logged = String(consoleError.mock.calls[0]?.[0] || "");
+    expect(logged).toContain("[web-search] provider=tavily");
+    expect(logged).toContain("genericKeyPresent=true");
+    expect(logged).toContain("tavilyKeyPresent=true");
+    expect(logged).toContain("status=401");
+    expect(logged).toContain('error="Unauthorized"');
+    expect(logged).not.toContain("generic-secret-key");
+    expect(logged).not.toContain("tavily-secret-key");
+    expect(logged).not.toContain("do not log response bodies");
+  });
+
   it("classifies general knowledge without requiring module data", () => {
     expect(classifyAiQuery("What is cavitation?")).toBe("general_knowledge");
     expect(classifyAiQuery("What is MTBF?")).toBe("general_knowledge");

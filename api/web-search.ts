@@ -14,6 +14,73 @@ const MAX_QUERY_LENGTH = 500;
 const DEFAULT_RESULT_LIMIT = 4;
 const SUPPORTED_PROVIDERS = new Set(["tavily", "serper", "brave"]);
 
+class WebSearchProviderError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly logMessage = message
+  ) {
+    super(message);
+    this.name = "WebSearchProviderError";
+  }
+}
+
+function isEnvValuePresent(name: string): boolean {
+  return Boolean(process.env[name]?.trim());
+}
+
+function sanitizeLogMessage(error: unknown): string {
+  const rawMessage =
+    error instanceof WebSearchProviderError
+      ? error.logMessage
+      : error instanceof Error
+        ? error.message
+        : String(error || "Unknown error");
+  let sanitized = cleanText(rawMessage, 180);
+
+  const secretValues = [
+    process.env.WEB_SEARCH_API_KEY,
+    process.env.TAVILY_API_KEY,
+    process.env.SERPER_API_KEY,
+    process.env.BRAVE_SEARCH_API_KEY,
+  ]
+    .map(value => value?.trim())
+    .filter((value): value is string => Boolean(value));
+
+  for (const secret of secretValues) {
+    sanitized = sanitized.split(secret).join("[redacted]");
+  }
+
+  return sanitized
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
+    .replace(
+      /(api[_-]?key|token|secret|authorization)=([^\s&]+)/gi,
+      "$1=[redacted]"
+    )
+    .replace(
+      /(api[_-]?key|token|secret|authorization)["']?\s*:\s*["'][^"']+["']/gi,
+      '$1="[redacted]"'
+    );
+}
+
+function getWebSearchErrorStatus(error: unknown): number | undefined {
+  if (error instanceof WebSearchProviderError) return error.status;
+  return undefined;
+}
+
+function logWebSearchDiagnostic(provider: string, error: unknown): void {
+  const status = getWebSearchErrorStatus(error);
+  const errorMessage = sanitizeLogMessage(error).replace(/"/g, "'");
+
+  console.error(
+    `[web-search] provider=${provider} genericKeyPresent=${isEnvValuePresent(
+      "WEB_SEARCH_API_KEY"
+    )} tavilyKeyPresent=${isEnvValuePresent("TAVILY_API_KEY")} status=${
+      status ?? "n/a"
+    } error="${errorMessage}"`
+  );
+}
+
 function cleanText(value: unknown, maxLength = 450): string {
   return String(value || "")
     .replace(/\s+/g, " ")
@@ -175,7 +242,11 @@ async function tavilySearch(
   });
 
   if (!response.ok)
-    throw new Error(`Tavily search failed with HTTP ${response.status}`);
+    throw new WebSearchProviderError(
+      `Tavily search failed with HTTP ${response.status}`,
+      response.status,
+      response.statusText || `Tavily search failed with HTTP ${response.status}`
+    );
   const data = (await response.json()) as { results?: any[] };
   return (data.results || [])
     .map(normalizeResult)
@@ -197,7 +268,11 @@ async function serperSearch(
   });
 
   if (!response.ok)
-    throw new Error(`Serper search failed with HTTP ${response.status}`);
+    throw new WebSearchProviderError(
+      `Serper search failed with HTTP ${response.status}`,
+      response.status,
+      response.statusText || `Serper search failed with HTTP ${response.status}`
+    );
   const data = (await response.json()) as { organic?: any[] };
   return (data.organic || [])
     .slice(0, limit)
@@ -222,7 +297,11 @@ async function braveSearch(
   });
 
   if (!response.ok)
-    throw new Error(`Brave search failed with HTTP ${response.status}`);
+    throw new WebSearchProviderError(
+      `Brave search failed with HTTP ${response.status}`,
+      response.status,
+      response.statusText || `Brave search failed with HTTP ${response.status}`
+    );
   const data = (await response.json()) as { web?: { results?: any[] } };
   return (data.web?.results || [])
     .slice(0, limit)
@@ -236,8 +315,13 @@ export async function webSearch(
 ): Promise<WebSearchResponse> {
   const provider = getWebSearchProvider();
   const apiKey = getWebSearchApiKey(provider);
-  if (!apiKey)
-    throw new Error("Live web search is not configured for this deployment.");
+  if (!apiKey) {
+    const error = new Error(
+      "Live web search is not configured for this deployment."
+    );
+    logWebSearchDiagnostic(provider, error);
+    throw error;
+  }
 
   const safeQuery = cleanText(query, MAX_QUERY_LENGTH);
   const safeLimit = Math.min(
@@ -245,14 +329,19 @@ export async function webSearch(
     5
   );
 
-  let results: WebSearchResult[];
-  if (provider === "serper") {
-    results = await serperSearch(safeQuery, apiKey, safeLimit);
-  } else if (provider === "brave") {
-    results = await braveSearch(safeQuery, apiKey, safeLimit);
-  } else {
-    results = await tavilySearch(safeQuery, apiKey, safeLimit);
-  }
+  try {
+    let results: WebSearchResult[];
+    if (provider === "serper") {
+      results = await serperSearch(safeQuery, apiKey, safeLimit);
+    } else if (provider === "brave") {
+      results = await braveSearch(safeQuery, apiKey, safeLimit);
+    } else {
+      results = await tavilySearch(safeQuery, apiKey, safeLimit);
+    }
 
-  return { provider, results: results.slice(0, safeLimit) };
+    return { provider, results: results.slice(0, safeLimit) };
+  } catch (error) {
+    logWebSearchDiagnostic(provider, error);
+    throw error;
+  }
 }
