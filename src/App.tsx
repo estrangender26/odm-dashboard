@@ -11,6 +11,7 @@ import OmManualsLibrary from "./pages/OmManualsLibrary"
 import ScorecardDashboard from "./pages/ScorecardDashboard"
 import PostPlanningInsights from "./pages/PostPlanningInsights"
 import OperatorDrivenMaintenance from "./pages/OperatorDrivenMaintenance"
+import GovernanceDashboard from "./pages/GovernanceDashboard"
 import PresentationCenter from "./pages/PresentationCenter"
 import OdmTalk from "./pages/OdmTalk"
 
@@ -26,9 +27,11 @@ export default function App() {
       <Route path="/existing-facilities" element={<ExistingFacilitiesMaintenance />} />
       <Route path="/smp-dashboard" element={<SmpDashboard />} />
       <Route path="/om-manuals-library" element={<OmManualsLibrary />} />
+      <Route path="/governance" element={<GovernanceDashboard />} />
       <Route path="/scorecard-kpi" element={<ScorecardDashboard />} />
       <Route path="/post-planning-insights" element={<PostPlanningInsights />} />
       <Route path="/operator-maintenance" element={<OperatorDrivenMaintenance />} />
+      <Route path="/mw-dashboard" element={<OperatorDrivenMaintenance />} />
       <Route path="/presentation-center" element={<PresentationCenter />} />
       <Route path="/odm-talk" element={<OdmTalk />} />
       <Route path="*" element={<NotFound />} />
