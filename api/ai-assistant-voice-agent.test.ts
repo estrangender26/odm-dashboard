@@ -18,6 +18,17 @@ describe("AI assistant voice agent helpers", () => {
     expect(source).toContain("Ask about maintenance");
     expect(source).toContain("Start voice listening");
     expect(source).toContain("Voice reply ON");
+    expect(source).toContain("Voice captured. Review then tap Send.");
     expect(source).toContain("VOICE_UNSUPPORTED_MESSAGE");
+  });
+
+  it("does not auto-send the captured final transcript when recognition ends", () => {
+    const source = readFileSync("src/components/AIAssistant.tsx", "utf8");
+    const onEndHandler = source.match(/recognition\.onend = \(\) => \{[\s\S]*?\n    \};/)?.[0] || "";
+
+    expect(onEndHandler).toContain("finalTranscript.trim()");
+    expect(onEndHandler).toContain("setInput(finalTranscript)");
+    expect(onEndHandler).toContain("Voice captured. Review then tap Send.");
+    expect(onEndHandler).not.toContain("send(finalTranscript)");
   });
 });

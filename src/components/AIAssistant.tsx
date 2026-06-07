@@ -685,8 +685,8 @@ export default function AIAssistant({ contextType, data, filters, metadata, titl
       setListening(false);
       recognitionRef.current = null;
       if (finalTranscript.trim()) {
-        setVoiceStatus("");
-        send(finalTranscript);
+        setInput(finalTranscript);
+        setVoiceStatus("Voice captured. Review then tap Send.");
       } else if (!hadVoiceError) {
         setVoiceStatus("Voice input stopped. Please try again or use text chat.");
       }
