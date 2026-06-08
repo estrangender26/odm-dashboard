@@ -13,8 +13,12 @@ interface TreeFolder {
   name: string;
   parentId: number | null;
   sortOrder: number;
+  childFolderCount: number;
+  fileCount: number;
+  hasChildren: boolean;
   children: TreeFolder[];
   files: TreeFile[];
+  isChildrenLoaded?: boolean;
 }
 
 interface TreeFile {
@@ -89,6 +93,12 @@ function ProgressOverlay({ visible, label, sublabel, progress }: { visible: bool
   );
 }
 
+const isDev = import.meta.env.DEV;
+
+function logTiming(message: string, ...args: unknown[]) {
+  if (isDev) console.info(message, ...args);
+}
+
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}>
@@ -151,19 +161,6 @@ function filterTree(folders: TreeFolder[], query: string): TreeFolder[] {
     .filter(Boolean) as TreeFolder[];
 }
 
-function countItems(folders: TreeFolder[]): { folders: number; files: number } {
-  let fc = 0, fl = 0;
-  function walk(fs: TreeFolder[]) {
-    for (const f of fs) {
-      fc++;
-      fl += f.files.length;
-      walk(f.children);
-    }
-  }
-  walk(folders);
-  return { folders: fc, files: fl };
-}
-
 function getFolderPath(folders: TreeFolder[], targetId: number): TreeFolder[] {
   function walk(fs: TreeFolder[], path: TreeFolder[]): TreeFolder[] | null {
     for (const f of fs) {
@@ -186,6 +183,50 @@ function fileExists(folders: TreeFolder[], targetId: number): boolean {
     if (fileExists(folder.children, targetId)) return true;
   }
   return false;
+}
+
+function mergeFolderSummaries(nextFolders: TreeFolder[], previousFolders: TreeFolder[]): TreeFolder[] {
+  const previousById = new Map(previousFolders.map((folder) => [folder.id, folder] as const));
+  return nextFolders.map((folder) => {
+    const previous = previousById.get(folder.id);
+    return previous?.isChildrenLoaded
+      ? { ...folder, children: previous.children, files: previous.files, isChildrenLoaded: true }
+      : folder;
+  });
+}
+
+function markFullTreeLoaded(folders: TreeFolder[]): TreeFolder[] {
+  return folders.map((folder) => ({
+    ...folder,
+    isChildrenLoaded: true,
+    children: markFullTreeLoaded(folder.children),
+  }));
+}
+
+function updateFolderContents(
+  folders: TreeFolder[],
+  parentId: number | null,
+  nextChildren: TreeFolder[],
+  nextFiles: TreeFile[],
+): TreeFolder[] {
+  if (parentId === null) return mergeFolderSummaries(nextChildren, folders);
+
+  return folders.map((folder) => {
+    if (folder.id === parentId) {
+      return {
+        ...folder,
+        childFolderCount: nextChildren.length,
+        fileCount: nextFiles.length,
+        hasChildren: nextChildren.length > 0 || nextFiles.length > 0,
+        children: mergeFolderSummaries(nextChildren, folder.children),
+        files: nextFiles,
+        isChildrenLoaded: true,
+      };
+    }
+
+    if (folder.children.length === 0) return folder;
+    return { ...folder, children: updateFolderContents(folder.children, parentId, nextChildren, nextFiles) };
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -222,12 +263,12 @@ function ContextMenu({ x, y, items, onClose }: {
 // Recursive Tree Folder Component
 // ═══════════════════════════════════════════════════════════
 
-function TreeFolderItem({
+const TreeFolderItem = memo(function TreeFolderItem({
   folder, level, expanded, onToggle,
   selectedFolderId, selectedFileId, onSelectFolder, onSelectFile,
   onContextMenuFolder, onContextMenuFile,
   onDownloadFile, onDeleteFile,
-  searchQuery, matchedIds, expandedIds,
+  searchQuery, matchedIds, expandedIds, loadingFolderIds,
 }: {
   folder: TreeFolder;
   level: number;
@@ -244,8 +285,10 @@ function TreeFolderItem({
   searchQuery: string;
   matchedIds: Set<number>;
   expandedIds: Set<number>;
+  loadingFolderIds: Set<number>;
 }) {
-  const hasContent = folder.children.length > 0 || folder.files.length > 0;
+  const isLoadingChildren = loadingFolderIds.has(folder.id);
+  const hasContent = folder.hasChildren || folder.children.length > 0 || folder.files.length > 0;
   const isDimmed = searchQuery.length > 0 && !matchedIds.has(folder.id) && !folder.files.some(f => f.title.toLowerCase().includes(searchQuery.toLowerCase()) || f.fileName.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
@@ -264,15 +307,15 @@ function TreeFolderItem({
           className="w-4 h-4 flex items-center justify-center text-gray-400 flex-shrink-0"
           onClick={(e) => { e.stopPropagation(); onToggle(folder.id); }}
         >
-          {hasContent ? <Chevron expanded={expanded} /> : <span className="w-2" />}
+          {isLoadingChildren ? <span className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin" /> : hasContent ? <Chevron expanded={expanded} /> : <span className="w-2" />}
         </button>
         <span className="text-sm flex-shrink-0">{expanded ? "📂" : "📁"}</span>
         <span className={`text-xs font-semibold truncate flex-1 ${selectedFolderId === folder.id ? "text-blue-800" : "text-gray-700"}`}>{folder.name}</span>
-        {(folder.children.length > 0 || folder.files.length > 0) && (
+        {(folder.childFolderCount > 0 || folder.fileCount > 0) && (
           <span className="text-[0.6rem] text-gray-400 flex-shrink-0 mr-1">
-            {folder.children.length > 0 && `${folder.children.length}f`}
-            {folder.children.length > 0 && folder.files.length > 0 && " · "}
-            {folder.files.length > 0 && `${folder.files.length}d`}
+            {folder.childFolderCount > 0 && `${folder.childFolderCount}f`}
+            {folder.childFolderCount > 0 && folder.fileCount > 0 && " · "}
+            {folder.fileCount > 0 && `${folder.fileCount}d`}
           </span>
         )}
         {/* Action menu button */}
@@ -289,6 +332,9 @@ function TreeFolderItem({
       {/* Children */}
       {expanded && (
         <div>
+          {isLoadingChildren && folder.children.length === 0 && folder.files.length === 0 && (
+            <div className="text-[0.65rem] text-gray-400 py-1" style={{ paddingLeft: `${(level + 1) * 12 + 8}px` }}>Loading contents...</div>
+          )}
           {/* Sub-folders */}
           {folder.children.map(child => (
             <TreeFolderItem
@@ -308,6 +354,7 @@ function TreeFolderItem({
               searchQuery={searchQuery}
               matchedIds={matchedIds}
               expandedIds={expandedIds}
+              loadingFolderIds={loadingFolderIds}
             />
           ))}
           {/* Files */}
@@ -353,7 +400,17 @@ function TreeFolderItem({
       )}
     </div>
   );
-}
+}, (prev, next) => (
+  prev.folder === next.folder &&
+  prev.level === next.level &&
+  prev.expanded === next.expanded &&
+  prev.selectedFolderId === next.selectedFolderId &&
+  prev.selectedFileId === next.selectedFileId &&
+  prev.searchQuery === next.searchQuery &&
+  prev.matchedIds === next.matchedIds &&
+  prev.expandedIds === next.expandedIds &&
+  prev.loadingFolderIds === next.loadingFolderIds
+));
 
 // ═══════════════════════════════════════════════════════════
 // PDF Viewer Component
@@ -538,7 +595,13 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 export default function OmManualsLibrary() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [tree, setTree] = useState<TreeFolder[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [loadedFolderIds, setLoadedFolderIds] = useState<Set<number>>(new Set());
+  const [loadingFolderIds, setLoadingFolderIds] = useState<Set<number>>(new Set());
+  const inFlightFolderLoads = useRef<Set<number | null>>(new Set());
+  const apiCallCount = useRef(0);
+  const initialLoadStartedAt = useRef(performance.now());
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
   const [selectedFile, setSelectedFile] = useState<TreeFile | null>(null);
@@ -556,21 +619,80 @@ export default function OmManualsLibrary() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadLabel, setDownloadLabel] = useState("");
 
-  // ── Fetch tree ──
-  const { data: treeData, isLoading, error: treeError } = trpc.documents.getTree.useQuery(undefined, {
-    staleTime: 0,
-    gcTime: 30_000,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+  const utils = trpc.useUtils();
+
+  // ── Fetch only the root folder level on initial page load. Counts and AI context load independently. ──
+  const { data: rootContents, isLoading, error: treeError } = trpc.documents.getFolderContents.useQuery({ parentId: null }, {
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
   });
-  const tree = useMemo(() => treeData?.tree || [], [treeData?.tree]);
+  const { data: stats } = trpc.documents.getStats.useQuery(undefined, {
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const { data: fullTreeData, isFetching: isSearchTreeLoading } = trpc.documents.getTree.useQuery(undefined, {
+    enabled: debouncedSearch.length > 2 || modal?.type === "moveFolder" || modal?.type === "moveFile",
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
   const { data: aiContext } = trpc.documents.getAiContext.useQuery({ includeSample: true }, {
     staleTime: 60_000,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,
   });
-  const utils = trpc.useUtils();
+
+
+  useEffect(() => {
+    if (!rootContents) return;
+    setTree((prev) => mergeFolderSummaries(rootContents.folders, prev));
+    setLoadedFolderIds((prev) => new Set(prev).add(-1));
+    logTiming("[OM perf] Initial root folder load", {
+      durationMs: Math.round(performance.now() - initialLoadStartedAt.current),
+      rootFolders: rootContents.folders.length,
+      apiCalls: apiCallCount.current + 1,
+    });
+  }, [rootContents]);
+
+  const loadFolderContents = useCallback(async (parentId: number | null, force = false) => {
+    const cacheKey = parentId ?? -1;
+    if (!force && loadedFolderIds.has(cacheKey)) return null;
+    if (inFlightFolderLoads.current.has(parentId)) return null;
+
+    const startedAt = performance.now();
+    inFlightFolderLoads.current.add(parentId);
+    if (parentId !== null) {
+      setLoadingFolderIds((prev) => new Set(prev).add(parentId));
+    }
+
+    try {
+      apiCallCount.current += 1;
+      const contents = await utils.documents.getFolderContents.fetch({ parentId });
+      setTree((prev) => updateFolderContents(prev, parentId, contents.folders, contents.files));
+      setLoadedFolderIds((prev) => new Set(prev).add(cacheKey));
+      logTiming("[OM perf] Folder contents loaded", {
+        parentId,
+        durationMs: Math.round(performance.now() - startedAt),
+        folders: contents.folders.length,
+        files: contents.files.length,
+        apiCalls: apiCallCount.current,
+      });
+      return contents;
+    } finally {
+      inFlightFolderLoads.current.delete(parentId);
+      if (parentId !== null) {
+        setLoadingFolderIds((prev) => {
+          const next = new Set(prev);
+          next.delete(parentId);
+          return next;
+        });
+      }
+    }
+  }, [loadedFolderIds, utils]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => setDebouncedSearch(search.trim()), 180);
@@ -611,32 +733,46 @@ export default function OmManualsLibrary() {
 
   // ── Refresh helper ──
   const refreshTree = useCallback(async (action: string) => {
-    console.log(`[OM] Refreshing tree after: ${action}`);
     try {
-      await utils.documents.getTree.invalidate();
-      await utils.documents.getAiContext.invalidate();
-      const fresh = await utils.documents.getTree.fetch();
-      console.log(`[OM] Tree refreshed. Folders: ${fresh?.tree?.length ?? 0}, total items: ${fresh?.count ?? 0}`);
-      return fresh;
+      await Promise.all([
+        utils.documents.getFolderContents.invalidate(),
+        utils.documents.getStats.invalidate(),
+        utils.documents.getTree.invalidate(),
+        utils.documents.getAiContext.invalidate(),
+      ]);
+
+      const loadedIds = [...loadedFolderIds].filter((id) => id !== -1);
+      const [freshRoot] = await Promise.all([
+        utils.documents.getFolderContents.fetch({ parentId: null }),
+        utils.documents.getStats.fetch(),
+      ]);
+      setTree((prev) => mergeFolderSummaries(freshRoot.folders, prev));
+
+      await Promise.all(loadedIds.map(async (id) => {
+        const contents = await utils.documents.getFolderContents.fetch({ parentId: id });
+        setTree((prev) => updateFolderContents(prev, id, contents.folders, contents.files));
+      }));
+
+      logTiming("[OM perf] Library refreshed", { action, refreshedFolders: loadedIds.length + 1 });
+      return freshRoot;
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Unknown error";
       setBanner({ type: "error", message: `Failed to refresh library tree. ${message}` });
       throw e;
     }
-  }, [utils]);
+  }, [loadedFolderIds, utils]);
 
   // ── Mutations ──
   const createFolder = trpc.documents.createFolder.useMutation({
-    onMutate: (vars) => { console.log(`[OM] Creating folder: name="${vars.name}", parentId=${vars.parentId ?? "null (root)"}`); },
+    onMutate: (vars) => { logTiming("[OM perf] Creating folder", { name: vars.name, parentId: vars.parentId ?? null }); },
     onSuccess: async (data) => {
-      console.log(`[OM] Folder created: id=${data.id}, name="${data.name}", parentId=${data.parentId ?? "null"}`);
       await refreshTree("createFolder");
       setModal(null);
       setModalInput("");
       setExpandedIds(prev => { const n = new Set(prev); n.add(data.id); return n; });
       setBanner({ type: "success", message: `Folder "${data.name}" created` });
     },
-    onError: (e) => { console.error("[OM] Create folder failed:", e.message); setBanner({ type: "error", message: `Unable to create folder. ${e.message}` }); },
+    onError: (e) => { setBanner({ type: "error", message: `Unable to create folder. ${e.message}` }); },
   });
   const renameFolder = trpc.documents.renameFolder.useMutation({
     onSuccess: async () => { await refreshTree("renameFolder"); setModal(null); setModalInput(""); setBanner({ type: "success", message: "Folder renamed" }); },
@@ -678,32 +814,46 @@ export default function OmManualsLibrary() {
   });
 
   useEffect(() => {
-    if (!treeData?.tree) return;
     const handle = window.setTimeout(() => {
-      if (selectedFolderId !== null && !folderExists(treeData.tree, selectedFolderId)) {
+      if (selectedFolderId !== null && !folderExists(tree, selectedFolderId)) {
         setSelectedFolderId(null);
         setBanner((prev) => prev ?? { type: "info", message: "Selected folder no longer exists and was cleared." });
       }
-      if (selectedFileId !== null && !fileExists(treeData.tree, selectedFileId)) {
+      if (selectedFileId !== null && !fileExists(tree, selectedFileId)) {
         setSelectedFileId(null);
         setSelectedFile(null);
         setBanner((prev) => prev ?? { type: "info", message: "Selected file no longer exists and was cleared." });
       }
     }, 0);
     return () => window.clearTimeout(handle);
-  }, [treeData, selectedFolderId, selectedFileId]);
+  }, [tree, selectedFolderId, selectedFileId]);
 
   // ── Search ──
-  const matchedIds = useMemo(() => debouncedSearch.length > 2 ? getMatchingIds(tree, debouncedSearch) : new Set<number>(), [tree, debouncedSearch]);
-  const displayTree = useMemo(() => debouncedSearch.length > 2 ? filterTree(tree, debouncedSearch) : tree, [tree, debouncedSearch]);
-  const counts = useMemo(() => countItems(tree), [tree]);
+  const searchTree = useMemo(() => fullTreeData?.tree ? markFullTreeLoaded(fullTreeData.tree) : tree, [fullTreeData?.tree, tree]);
+  const destinationTree = searchTree;
+  const treeForDisplay = debouncedSearch.length > 2 ? searchTree : tree;
+  const matchedIds = useMemo(() => debouncedSearch.length > 2 ? getMatchingIds(treeForDisplay, debouncedSearch) : new Set<number>(), [treeForDisplay, debouncedSearch]);
+  const displayTree = useMemo(() => debouncedSearch.length > 2 ? filterTree(treeForDisplay, debouncedSearch) : treeForDisplay, [treeForDisplay, debouncedSearch]);
+  const counts = useMemo(() => ({ folders: stats?.folders ?? 0, files: stats?.files ?? 0 }), [stats]);
 
   // ── Toggle expand ──
   const toggle = useCallback((id: number) => {
+    const willExpand = !expandedIds.has(id);
     setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  }, []);
+    if (willExpand) {
+      void loadFolderContents(id);
+    }
+  }, [expandedIds, loadFolderContents]);
 
-  const expandAll = useCallback(() => { setExpandedIds(new Set(collectIds(tree))); }, [tree]);
+  const expandAll = useCallback(async () => {
+    const startedAt = performance.now();
+    const fullTree = await utils.documents.getTree.fetch();
+    const loadedTree = markFullTreeLoaded(fullTree.tree);
+    setTree(loadedTree);
+    setLoadedFolderIds(new Set([-1, ...collectIds(loadedTree)]));
+    setExpandedIds(new Set(collectIds(loadedTree)));
+    logTiming("[OM perf] Expand all loaded full tree", { durationMs: Math.round(performance.now() - startedAt), folders: fullTree.stats?.folders ?? collectIds(loadedTree).length });
+  }, [utils]);
   const collapseAll = useCallback(() => { setExpandedIds(new Set()); }, []);
 
   const onSelectFile = useCallback((file: TreeFile) => {
@@ -908,8 +1058,11 @@ export default function OmManualsLibrary() {
 
           {/* Tree */}
           <div className="flex-1 overflow-y-auto py-1">
+            {isSearchTreeLoading && debouncedSearch.length > 2 && (
+              <div className="px-3 py-1 text-[0.65rem] text-blue-600 bg-blue-50 border-b border-blue-100">Searching full library...</div>
+            )}
             {isLoading ? (
-              <div className="flex items-center justify-center py-16 text-gray-400 text-sm">Loading document library...</div>
+              <div className="flex items-center justify-center py-16 text-gray-400 text-sm">Loading root folders...</div>
             ) : treeError ? (
               <div className="flex items-center justify-center py-16 text-red-600 text-sm">Failed to load library: {treeError.message}</div>
             ) : displayTree.length === 0 ? (
@@ -938,6 +1091,7 @@ export default function OmManualsLibrary() {
                   searchQuery={search}
                   matchedIds={matchedIds}
                   expandedIds={expandedIds}
+                  loadingFolderIds={loadingFolderIds}
                 />
               ))
             )}
@@ -989,7 +1143,7 @@ export default function OmManualsLibrary() {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
             <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { console.log(`[OM] Create button: name="${modalInput.trim()}"`); createFolder.mutate({ name: modalInput.trim() }); }}
+            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { createFolder.mutate({ name: modalInput.trim() }); }}
               className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
           </div>
         </Modal>
@@ -1002,7 +1156,7 @@ export default function OmManualsLibrary() {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
             <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { console.log(`[OM] Create subfolder: name="${modalInput.trim()}", parentId=${modal.folderId}`); createFolder.mutate({ name: modalInput.trim(), parentId: modal.folderId }); }}
+            <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { createFolder.mutate({ name: modalInput.trim(), parentId: modal.folderId }); }}
               className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
           </div>
         </Modal>
@@ -1062,8 +1216,8 @@ export default function OmManualsLibrary() {
           <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
             <button type="button" onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: null }); setModal(null); }}
               className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100">📁 Root (top level)</button>
-            {collectIds(tree).filter(id => id !== modal.folderId).map(id => {
-              const path = getFolderPath(tree, id);
+            {collectIds(destinationTree).filter(id => id !== modal.folderId).map(id => {
+              const path = getFolderPath(destinationTree, id);
               const name = path.map(p => p.name).join(" / ");
               return (
                 <button type="button" key={id} onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: id }); setModal(null); }}
@@ -1078,8 +1232,8 @@ export default function OmManualsLibrary() {
         <Modal title="Move File" onClose={() => setModal(null)}>
           <p className="text-xs text-gray-500 mb-2">Select a destination folder:</p>
           <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
-            {collectIds(tree).map(id => {
-              const path = getFolderPath(tree, id);
+            {collectIds(destinationTree).map(id => {
+              const path = getFolderPath(destinationTree, id);
               const name = path.map(p => p.name).join(" / ");
               return (
                 <button type="button" key={id} onClick={() => { moveFile.mutate({ id: modal.fileId!, folderId: id }); setModal(null); }}
