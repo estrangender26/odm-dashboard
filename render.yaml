@@ -24,3 +24,5 @@ services:
         value: https://open.kimi.com
       - key: OWNER_UNION_ID
         sync: false
+      - key: ENABLE_GANTT_DEBUG
+        value: "true"
