@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, eq, desc, sql, isNull } from "drizzle-orm";
+import { and, eq, desc, sql, isNull, or } from "drizzle-orm";
 import * as cookie from "cookie";
 import { db, getConnectionFingerprint, getNormalizedDatabaseUrl } from "./queries/connection";
 import { ganttProjects } from "@db/schema";
@@ -21,12 +21,16 @@ function getOrCreateAnonSession(req: Request, resHeaders: Headers) {
 }
 
 function buildVisibilityFilter(userId: number | undefined, sessionId: string) {
-  // Authenticated users own projects by user_id; session_id is only for anonymous isolation.
-  // Requiring both user_id and session_id hides historical projects whenever the browser
-  // receives a new anonymous-session cookie.
-  if (userId) return eq(ganttProjects.userId, userId);
-  return and(eq(ganttProjects.sessionId, sessionId), isNull(ganttProjects.userId));
+  const anonymousSessionFilter = and(eq(ganttProjects.sessionId, sessionId), isNull(ganttProjects.userId));
+
+  // Authenticated users may have projects saved before login under the same anonymous
+  // browser session. Keep user-owned projects visible while also allowing those
+  // session-owned anonymous projects to be opened/adopted safely.
+  if (userId) return or(eq(ganttProjects.userId, userId), anonymousSessionFilter);
+  return anonymousSessionFilter;
 }
+
+type GanttProjectRow = typeof ganttProjects.$inferSelect;
 
 function getDbFingerprint() {
   try {
@@ -34,6 +38,10 @@ function getDbFingerprint() {
   } catch {
     return "invalid DATABASE_URL";
   }
+}
+
+function shouldAdoptAnonymousProject(row: GanttProjectRow, userId: number | undefined, sessionId: string) {
+  return Boolean(userId && row.userId == null && row.sessionId === sessionId);
 }
 
 
@@ -95,7 +103,24 @@ export const ganttProjectsRouter = {
       const userId = ctx.user?.id;
       const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
       const visibilityFilter = buildVisibilityFilter(userId, sessionId);
-      const dbInfo = await db.execute(sql.raw(`SELECT current_schema() AS schema, current_database() AS database`));
+      const [dbInfo, diagnostics] = await Promise.all([
+        db.execute(sql.raw(`SELECT current_schema() AS schema, current_database() AS database`)),
+        db.execute(sql`
+          SELECT
+            COUNT(*)::int AS "totalRows",
+            COUNT(*) FILTER (WHERE user_id IS NOT NULL)::int AS "rowsWithUserId",
+            COUNT(*) FILTER (WHERE session_id IS NOT NULL)::int AS "rowsWithSessionId",
+            COUNT(*) FILTER (WHERE user_id IS NULL AND session_id IS NULL)::int AS "rowsWithNeitherOwner",
+            COUNT(*) FILTER (WHERE ${userId ?? null}::int IS NOT NULL AND user_id = ${userId ?? null})::int AS "rowsMatchingUserId",
+            COUNT(*) FILTER (WHERE session_id = ${sessionId})::int AS "rowsMatchingSessionId",
+            COUNT(*) FILTER (WHERE user_id IS NULL AND session_id = ${sessionId})::int AS "anonymousRowsMatchingSessionId"
+          FROM gantt_projects
+        `),
+      ]);
+      const dbInfoResult = dbInfo as { rows?: Record<string, unknown>[] } & Record<string, unknown>[];
+      const diagnosticsResult = diagnostics as { rows?: Record<string, unknown>[] } & Record<string, unknown>[];
+      const dbContextRow = (dbInfoResult.rows ?? dbInfoResult)[0] ?? {};
+      const diagnosticRow = (diagnosticsResult.rows ?? diagnosticsResult)[0] ?? {};
       console.log("[ganttProjects.list] identity", { userId: userId ?? null, sessionId });
       const rows = await db
         .select({
@@ -109,14 +134,21 @@ export const ganttProjectsRouter = {
         .from(ganttProjects)
         .where(visibilityFilter)
         .orderBy(desc(ganttProjects.updatedAt));
-      console.log("[ganttProjects.list] filters", {
+      console.log("[ganttProjects.list] diagnostics", {
         databaseUrlFingerprint: getDbFingerprint(),
-        currentSchema: dbInfo.rows?.[0]?.schema ?? null,
-        currentDatabase: dbInfo.rows?.[0]?.database ?? null,
+        currentSchema: dbContextRow.schema ?? null,
+        currentDatabase: dbContextRow.database ?? null,
         userId: userId ?? null,
         sessionId,
-        rowsFound: rows.length,
-        projectIds: rows.map((r) => r.id),
+        totalRows: diagnosticRow.totalRows ?? 0,
+        rowsWithUserId: diagnosticRow.rowsWithUserId ?? 0,
+        rowsWithSessionId: diagnosticRow.rowsWithSessionId ?? 0,
+        rowsWithNeitherOwner: diagnosticRow.rowsWithNeitherOwner ?? 0,
+        rowsMatchingUserId: diagnosticRow.rowsMatchingUserId ?? 0,
+        rowsMatchingSessionId: diagnosticRow.rowsMatchingSessionId ?? 0,
+        anonymousRowsMatchingSessionId: diagnosticRow.anonymousRowsMatchingSessionId ?? 0,
+        rowsReturnedToModal: rows.length,
+        projectIdsReturnedToModal: rows.map((r) => r.id),
       });
       return { projects: rows, count: rows.length };
     } catch (err: any) {
@@ -162,13 +194,29 @@ export const ganttProjectsRouter = {
           throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
         }
 
-        const row = rows[0];
+        let row = rows[0];
+        let adoptedAnonymousProject = false;
+        if (userId && shouldAdoptAnonymousProject(row, userId, sessionId)) {
+          const adopted = await db
+            .update(ganttProjects)
+            .set({ userId, ownerId: userId, updatedAt: new Date() })
+            .where(and(eq(ganttProjects.id, row.id), eq(ganttProjects.sessionId, sessionId), isNull(ganttProjects.userId)))
+            .returning();
+
+          if (adopted.length > 0) {
+            row = adopted[0];
+            adoptedAnonymousProject = true;
+          }
+        }
         const safeTasksData = row.tasksData && row.tasksData.trim().length > 0 ? row.tasksData : "[]";
         const safeLinksData = row.linksData && row.linksData.trim().length > 0 ? row.linksData : "[]";
 
         console.log("[ganttProjects.get] success", {
           projectId: row.id,
           projectName: row.name,
+          adoptedAnonymousProject,
+          userId: userId ?? null,
+          sessionId,
           tasksDataWasNullish: !row.tasksData,
           linksDataWasNullish: !row.linksData,
         });

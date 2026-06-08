@@ -2013,6 +2013,15 @@ export default function GanttPlanner() {
 
   /* ═══════ SECTION 4: ALL useEffect hooks (FOURTH) ═══════ */
 
+  useEffect(() => {
+    if (!loadModal) return;
+    console.info("[GanttPlanner.openSavedProjectModal] list result", {
+      queryCount: projectsListData?.count ?? null,
+      rowsReceived: projectsList.length,
+      projectIdsReceived: projectsList.map((project) => getProjectId(project)),
+    });
+  }, [getProjectId, loadModal, projectsList, projectsListData?.count]);
+
   /* Restore current project from localStorage */
   useEffect(() => {
     const saved = localStorage.getItem("gantt_current_project");
