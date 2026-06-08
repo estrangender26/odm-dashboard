@@ -21,7 +21,10 @@ function getOrCreateAnonSession(req: Request, resHeaders: Headers) {
 }
 
 function buildVisibilityFilter(userId: number | undefined, sessionId: string) {
-  if (userId) return and(eq(ganttProjects.userId, userId), eq(ganttProjects.sessionId, sessionId));
+  // Authenticated users own projects by user_id; session_id is only for anonymous isolation.
+  // Requiring both user_id and session_id hides historical projects whenever the browser
+  // receives a new anonymous-session cookie.
+  if (userId) return eq(ganttProjects.userId, userId);
   return and(eq(ganttProjects.sessionId, sessionId), isNull(ganttProjects.userId));
 }
 
