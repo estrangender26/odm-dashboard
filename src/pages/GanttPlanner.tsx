@@ -4,7 +4,7 @@
    No function definitions before hook declarations.
    ═══════════════════════════════════════════════════════════════════ */
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
@@ -68,6 +68,65 @@ function formatReorderTask(task: any) {
 function getRuntimeGanttInstance(): any | null {
   if (typeof window === "undefined") return null;
   return (window as any).gantt || null;
+}
+
+type GanttPerfPhase =
+  | "initial-render"
+  | "expand-collapse"
+  | "zoom"
+  | "drag-task"
+  | "edit-task"
+  | "filter-tasks"
+  | "search-tasks"
+  | "tasks-api"
+  | "links-api";
+
+interface GanttPerfPayload {
+  phase: GanttPerfPhase;
+  totalTasksLoaded?: number;
+  totalRowsRendered?: number;
+  totalTimelineColumnsRendered?: number;
+  totalDomNodesGenerated?: number;
+  timelineCellEstimate?: number;
+  dependencyCount?: number;
+  zoomLevel?: ZoomLevel;
+  chartWidth?: number;
+  chartHeight?: number;
+  elapsedMs?: number;
+  timeToFirstVisibleMs?: number;
+  timeToInteractiveMs?: number;
+  note?: string;
+}
+
+declare global {
+  interface Window {
+    __ODM_GANTT_PERF__?: {
+      events: Array<GanttPerfPayload & { at: string }>;
+      markFilterTasks: () => void;
+      markSearchTasks: () => void;
+    };
+  }
+}
+
+function getPerfNow(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function countDomNodes(root: HTMLElement | null): number {
+  if (!root) return 0;
+  return root.querySelectorAll("*").length + 1;
+}
+
+function emitGanttPerf(payload: GanttPerfPayload) {
+  if (typeof window === "undefined") return;
+  const event = { ...payload, at: new Date().toISOString() };
+  window.__ODM_GANTT_PERF__ ||= {
+    events: [],
+    markFilterTasks: () => emitGanttPerf({ phase: "filter-tasks", note: "Manual marker; no dedicated Gantt filter UI is currently mounted." }),
+    markSearchTasks: () => emitGanttPerf({ phase: "search-tasks", note: "Manual marker; no dedicated Gantt search UI is currently mounted." }),
+  };
+  window.__ODM_GANTT_PERF__.events.push(event);
+  console.info("[ODM Gantt Perf]", event);
 }
 
 function getRenderedTreeOrderSnapshot(tasks: any[]) {
@@ -915,8 +974,13 @@ function _flattenVisible(nodes: _TaskNode[]): { task: GanttTask; level: number; 
 }
 
 function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, toggleSelect, links: _links, onEditTask, onInsertAbove, onInsertBelow, onInsertChild }: NativeGanttChartProps) {
+  const renderStartedAtRef = useRef(getPerfNow());
+  renderStartedAtRef.current = getPerfNow();
+  const chartRootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const firstVisibleReportedRef = useRef(false);
+  const pendingInteractionRef = useRef<{ phase: GanttPerfPhase; startedAt: number } | null>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
@@ -937,8 +1001,32 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
     tooltipTimerRef.current = setTimeout(() => setTooltip(prev => ({ ...prev, visible: false })), 150);
   }, []);
 
+  const markInteraction = useCallback((phase: GanttPerfPhase) => {
+    pendingInteractionRef.current = { phase, startedAt: getPerfNow() };
+  }, []);
+
   const toggleExpand = useCallback((id: number) => {
+    markInteraction("expand-collapse");
     setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, [markInteraction]);
+
+  const setMeasuredZoomLevel = useCallback((nextZoomLevel: ZoomLevel) => {
+    if (nextZoomLevel !== zoomLevel) markInteraction("zoom");
+    setZoomLevel(nextZoomLevel);
+  }, [markInteraction, zoomLevel]);
+
+  const handleEditTask = useCallback((task: GanttTask) => {
+    markInteraction("edit-task");
+    onEditTask(task);
+  }, [markInteraction, onEditTask]);
+
+  const handleTaskPointerDown = useCallback(() => {
+    const startedAt = getPerfNow();
+    const onPointerUp = () => {
+      emitGanttPerf({ phase: "drag-task", elapsedMs: Math.round((getPerfNow() - startedAt) * 10) / 10, note: "Pointer drag/click candidate on native Gantt row; dedicated drag-and-drop is not implemented in this chart." });
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+    window.addEventListener("pointerup", onPointerUp, { once: true });
   }, []);
 
   const taskTree = useMemo(() => _buildTaskTree(tasks), [tasks]);
@@ -1066,6 +1154,60 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
   const headerHeight = zoomLevel === "day" ? 36 : 28;
   const chartHeight = Math.max(260, rows.length * rowHeight + headerHeight + 8);
 
+  useLayoutEffect(() => {
+    if (!tasks.length) return;
+    const renderStartedAt = renderStartedAtRef.current;
+    const raf = requestAnimationFrame(() => {
+      const domNodes = countDomNodes(chartRootRef.current);
+      const basePayload = {
+        totalTasksLoaded: tasks.length,
+        totalRowsRendered: rows.length,
+        totalTimelineColumnsRendered: headerColumns.length,
+        totalDomNodesGenerated: domNodes,
+        timelineCellEstimate: rows.length * headerColumns.length,
+        dependencyCount: _links?.length || 0,
+        zoomLevel,
+        chartWidth: Math.round(chartWidth),
+        chartHeight: Math.round(chartHeight),
+      };
+
+      const pendingInteraction = pendingInteractionRef.current;
+      if (pendingInteraction) {
+        emitGanttPerf({
+          phase: pendingInteraction.phase,
+          elapsedMs: Math.round((getPerfNow() - pendingInteraction.startedAt) * 10) / 10,
+          ...basePayload,
+        });
+        pendingInteractionRef.current = null;
+        return;
+      }
+
+      emitGanttPerf({
+        phase: "initial-render",
+        elapsedMs: Math.round((getPerfNow() - renderStartedAt) * 10) / 10,
+        ...basePayload,
+      });
+
+      if (!firstVisibleReportedRef.current) {
+        firstVisibleReportedRef.current = true;
+        const timeToFirstVisibleMs = Math.round(getPerfNow() * 10) / 10;
+        const reportInteractive = () => emitGanttPerf({
+          phase: "initial-render",
+          timeToFirstVisibleMs,
+          timeToInteractiveMs: Math.round(getPerfNow() * 10) / 10,
+          note: "TTI approximated with requestIdleCallback/requestAnimationFrame after first visible Gantt chart.",
+          ...basePayload,
+        });
+        if ("requestIdleCallback" in window) {
+          (window as any).requestIdleCallback(reportInteractive, { timeout: 2000 });
+        } else {
+          requestAnimationFrame(reportInteractive);
+        }
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [tasks.length, rows.length, headerColumns.length, _links, zoomLevel, chartWidth, chartHeight]);
+
   if (!tasks.length) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", minHeight: 300, textAlign: "center" }}>
@@ -1077,15 +1219,15 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
   }
 
   return (
-    <div>
+    <div ref={chartRootRef} data-gantt-perf-root="native-gantt">
       <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "#FAFBFC", borderBottom: "1px solid #E2E8F0", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 2, background: "#E2E8F0", borderRadius: 6, padding: 2 }}>
-          <button onClick={() => { const order: ZoomLevel[] = ["year","quarter","month","week","day"]; if (zoomLevel === "autofit") { setZoomLevel("month"); return; } const idx = order.indexOf(zoomLevel); if (idx > 0) setZoomLevel(order[idx - 1]); }} title="Zoom out" style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, background: "#fff", border: "none", borderRadius: 4, cursor: "pointer", color: "#475569", lineHeight: 1 }}>−</button>
+          <button onClick={() => { const order: ZoomLevel[] = ["year","quarter","month","week","day"]; if (zoomLevel === "autofit") { setMeasuredZoomLevel("month"); return; } const idx = order.indexOf(zoomLevel); if (idx > 0) setMeasuredZoomLevel(order[idx - 1]); }} title="Zoom out" style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, background: "#fff", border: "none", borderRadius: 4, cursor: "pointer", color: "#475569", lineHeight: 1 }}>−</button>
           <span style={{ fontSize: 10, fontWeight: 700, color: "#475569", padding: "0 4px", whiteSpace: "nowrap", minWidth: 44, textAlign: "center" }}>{ZOOM_LABELS[zoomLevel]}</span>
-          <button onClick={() => { const order: ZoomLevel[] = ["year","quarter","month","week","day"]; if (zoomLevel === "autofit") { setZoomLevel("month"); return; } const idx = order.indexOf(zoomLevel); if (idx < order.length - 1) setZoomLevel(order[idx + 1]); }} title="Zoom in" style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, background: "#fff", border: "none", borderRadius: 4, cursor: "pointer", color: "#475569", lineHeight: 1 }}>+</button>
+          <button onClick={() => { const order: ZoomLevel[] = ["year","quarter","month","week","day"]; if (zoomLevel === "autofit") { setMeasuredZoomLevel("month"); return; } const idx = order.indexOf(zoomLevel); if (idx < order.length - 1) setMeasuredZoomLevel(order[idx + 1]); }} title="Zoom in" style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, background: "#fff", border: "none", borderRadius: 4, cursor: "pointer", color: "#475569", lineHeight: 1 }}>+</button>
         </div>
         {(["autofit","year","quarter","month","week","day"] as ZoomLevel[]).map((zl) => (
-          <button key={zl} onClick={() => setZoomLevel(zl)} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, fontFamily: "Inter, sans-serif", background: zoomLevel === zl ? "#005BAC" : "#fff", color: zoomLevel === zl ? "#fff" : "#5A6B7D", border: `1px solid ${zoomLevel === zl ? "#005BAC" : "#D6DFE8"}`, borderRadius: 5, cursor: "pointer", transition: "all .15s", whiteSpace: "nowrap" }}>{ZOOM_LABELS[zl]}</button>
+          <button key={zl} onClick={() => setMeasuredZoomLevel(zl)} style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, fontFamily: "Inter, sans-serif", background: zoomLevel === zl ? "#005BAC" : "#fff", color: zoomLevel === zl ? "#fff" : "#5A6B7D", border: `1px solid ${zoomLevel === zl ? "#005BAC" : "#D6DFE8"}`, borderRadius: 5, cursor: "pointer", transition: "all .15s", whiteSpace: "nowrap" }}>{ZOOM_LABELS[zl]}</button>
         ))}
         <span className="gantt-zoom-info" style={{ marginLeft: "auto", fontSize: 10, color: "#8BA3B8", whiteSpace: "nowrap" }}>{rows.length} tasks · {Math.round(dayWidth * 10) / 10}px/day · {Math.round(chartWidth)}px wide</span>
       </div>
@@ -1104,7 +1246,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
             const isSelected = selectedTaskId === task.id || selectedIds.has(task.id);
             const rowBg = isSelected ? "#DBEAFE" : hasChildren ? "#E2E8F0" : level > 0 ? "#F8FAFC" : "transparent";
             return (
-              <div key={task.id} onClick={(e) => { if ((e.target as HTMLElement).tagName !== "BUTTON") toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey); }} onDoubleClick={() => onEditTask(task)}
+              <div key={task.id} onClick={(e) => { if ((e.target as HTMLElement).tagName !== "BUTTON") toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey); }} onDoubleClick={() => handleEditTask(task)}
                 style={{ height: rowHeight, borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "flex-start", padding: "3px 6px", paddingLeft: `${8 + level * 36}px`, overflow: "hidden", background: rowBg, cursor: "pointer", transition: "background .1s", borderLeft: isSelected ? "3px solid #005BAC" : "3px solid transparent" }}>
                 <span className="flex items-start gap-0.5 min-w-0 flex-1" style={{ overflow: "hidden", lineHeight: 1.35 }}>
                   {hasChildren && <button type="button" onClick={() => toggleExpand(task.id)} className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded" style={{ fontSize: 9, lineHeight: 1, padding: 0, marginTop: 1 }}>{expandedIds.has(task.id) ? "▸" : "▾"}</button>}
@@ -1151,7 +1293,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
               const top = headerHeight + idx * rowHeight;
               const isSelected = selectedTaskId === task.id || selectedIds.has(task.id);
               return (
-                <div key={task.id} onClick={(e) => toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)} onDoubleClick={() => onEditTask(task)}
+                <div key={task.id} onClick={(e) => toggleSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)} onDoubleClick={() => handleEditTask(task)} onPointerDown={handleTaskPointerDown}
                   style={{ position: "absolute", left: 0, top, width: "100%", height: rowHeight, background: isSelected ? "rgba(219,234,254,0.5)" : "transparent", cursor: "pointer", zIndex: 0 }}>
                   {isMilestone ? (
                     <div
@@ -1615,6 +1757,9 @@ export default function GanttPlanner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   /* exportMenuRef removed — handled by GanttToolbar */
   const lastSelectedRef = useRef<number | null>(null);
+  const tasksApiStartedAtRef = useRef<number | null>(null);
+  const linksApiStartedAtRef = useRef<number | null>(null);
+  const filterSearchNoticeRef = useRef(false);
 
   /* ═══════ SECTION 3: ALL tRPC hooks (THIRD) ═══════ */
   const utils = trpc.useUtils();
@@ -1629,6 +1774,45 @@ export default function GanttPlanner() {
       setBanner({ type: "error", message: `Failed to load Gantt data: ${err.message}` });
     }
   }, [tasksQuery.error, linksQuery.error]);
+
+  useEffect(() => {
+    if (tasksQuery.isFetching) {
+      tasksApiStartedAtRef.current = getPerfNow();
+      return;
+    }
+    if (tasksApiStartedAtRef.current !== null) {
+      emitGanttPerf({
+        phase: "tasks-api",
+        elapsedMs: Math.round((getPerfNow() - tasksApiStartedAtRef.current) * 10) / 10,
+        totalTasksLoaded: tasksQuery.data?.length || 0,
+        note: "Measured client-observed React Query fetch latency for trpc.gantt.tasks.",
+      });
+      tasksApiStartedAtRef.current = null;
+    }
+  }, [tasksQuery.isFetching, tasksQuery.data]);
+
+  useEffect(() => {
+    if (linksQuery.isFetching) {
+      linksApiStartedAtRef.current = getPerfNow();
+      return;
+    }
+    if (linksApiStartedAtRef.current !== null) {
+      emitGanttPerf({
+        phase: "links-api",
+        elapsedMs: Math.round((getPerfNow() - linksApiStartedAtRef.current) * 10) / 10,
+        dependencyCount: linksQuery.data?.length || 0,
+        note: "Measured client-observed React Query fetch latency for trpc.gantt.links.",
+      });
+      linksApiStartedAtRef.current = null;
+    }
+  }, [linksQuery.isFetching, linksQuery.data]);
+
+  useEffect(() => {
+    if (filterSearchNoticeRef.current) return;
+    filterSearchNoticeRef.current = true;
+    emitGanttPerf({ phase: "filter-tasks", note: "No dedicated Gantt filter UI is mounted; marker exposed at window.__ODM_GANTT_PERF__.markFilterTasks()." });
+    emitGanttPerf({ phase: "search-tasks", note: "No dedicated Gantt search UI is mounted; marker exposed at window.__ODM_GANTT_PERF__.markSearchTasks()." });
+  }, []);
 
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
     onSuccess: () => {
