@@ -8,6 +8,7 @@ import {
   buildManualHierarchyOrder,
   sortTasksForHierarchyDisplay,
 } from "@/modules/gantt/engine/taskReorderEngine";
+import { parseImportRow } from "@/modules/gantt/engine/persistenceEngine";
 
 function applyTaskPatch(
   tasks: any[],
@@ -80,6 +81,23 @@ function baseTasks() {
 }
 
 describe("Gantt Planner audit-stabilization validation", () => {
+
+  it("imports one-day duration rows without extending finish dates by an extra day", () => {
+    const { payload, error } = parseImportRow(
+      { "Task Name": "One day task", Start: "2026-02-10", Duration: 1 },
+      0
+    );
+
+    expect(error).toBeNull();
+    expect(payload).toMatchObject({
+      actual_start: "2026-02-10",
+      actual_finish: "2026-02-10",
+      planned_start: "2026-02-10",
+      planned_finish: "2026-02-10",
+      planned_duration: 1,
+    });
+  });
+
   it("keeps dependency setup, relationship None, and lag changes isolated from row order and hierarchy", () => {
     let tasks = baseTasks();
     expect(taskNames(tasks)).toEqual(["A", "B", "C"]);
