@@ -124,4 +124,19 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(afterDelete.portfolioMonthlyAverages[2].pmCompliance).toBeNull();
   });
 
+
+  it("prefers current AMD-EZ records over legacy ez alias records for the same year and month", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "ez", reporting_year: 2026, reporting_month: 5, pm_compliance: 10 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 5, pm_compliance: 100 },
+      ],
+      2026
+    );
+
+    expect(result.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBe(100);
+    expect(result.byBusinessUnitMap["AMD-EZ"].recordCount).toBe(1);
+    expect(result.portfolioMonthlyAverages[5].pmCompliance).toBe(100);
+  });
+
 });

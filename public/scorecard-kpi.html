@@ -1489,6 +1489,16 @@ function normalizePersistedBusinessUnit(value){
   return fuzzy?fuzzy.id:'';
 }
 
+function isCurrentBusinessUnitApiValue(row,buId){return String(row.business_unit||'').trim()===getBUApiValue(buId);}
+function shouldPreferPersistedKpiRow(nextRow,currentRecord,buId){
+  if(!currentRecord)return true;
+  var nextIsCurrent = isCurrentBusinessUnitApiValue(nextRow,buId);
+  var currentIsCurrent = String(currentRecord.business_unit||'').trim()===getBUApiValue(buId);
+  if(nextIsCurrent && !currentIsCurrent)return true;
+  if(!nextIsCurrent && currentIsCurrent)return false;
+  return true;
+}
+
 function applyPersistedMonthlyKpiRecords(records,options){
   options = options || {};
   if(options.reset){
@@ -1504,6 +1514,8 @@ function applyPersistedMonthlyKpiRecords(records,options){
     var year = parseInt(row.reporting_year,10);
     var month = parseInt(row.reporting_month,10);
     if(!year || !month)return;
+    var existingRecord = MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]?MonthlyScoreData[buId][year][month]:null;
+    if(!shouldPreferPersistedKpiRow(row,existingRecord,buId))return;
     var record = ensureMonthlyRecord(buId,year,month);
     record.id = row.id;
     record.business_unit = row.business_unit;
@@ -1548,8 +1560,11 @@ async function fetchMonthlyKpiAggregates(){
 async function fetchSavedMonthlyKpiRecords(buId){
   setFetchingSavedRecords(true);
   try{
-    var url = '/api/monthly-kpi/records';
-    if(buId)url += '?business_unit='+encodeURIComponent(getBUApiValue(buId));
+    var params = new URLSearchParams();
+    params.set('reporting_year',String(getSelectedYear()));
+    params.set('reporting_month',String(getSelectedMonth()));
+    if(buId)params.set('business_unit',getBUApiValue(buId));
+    var url = '/api/monthly-kpi/records?'+params.toString();
     var res = await fetch(url,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Unable to load saved Monthly KPI records.');
