@@ -830,17 +830,83 @@ function aggregateKeyForUiKey(key){
   return key;
 }
 
+function snakeAggregateKeyForUiKey(key){
+  if(key==='pmCompliance')return 'pm_compliance';
+  if(key==='scheduleCompliance')return 'schedule_compliance';
+  if(key==='budgetSpend')return 'budget_spend';
+  if(key==='pmcmWORatio')return 'pm_cm_work_order_ratio';
+  if(key==='pmcmCostRatio')return 'pm_cm_cost_ratio';
+  if(key==='mtbf')return 'mtbf_days';
+  if(key==='mttr')return 'mttr_days';
+  if(key==='facilityUptime')return 'facility_uptime';
+  return key;
+}
+
+function normalizeAggregateKpiFields(source){
+  if(!source || typeof source!=='object')return source;
+  KPIs.forEach(function(kpi){
+    var uiKey = kpi.key;
+    var aggregateKey = aggregateKeyForUiKey(uiKey);
+    var snakeKey = snakeAggregateKeyForUiKey(uiKey);
+    var value = source[aggregateKey];
+    if(value===undefined)value = source[uiKey];
+    if(value===undefined)value = source[snakeKey];
+    if(value!==undefined){
+      source[aggregateKey] = value;
+      source[uiKey] = value;
+      source[snakeKey] = value;
+    }
+  });
+  return source;
+}
+
+function addBusinessUnitAggregateMapAliases(map,aggregate){
+  if(!map || !aggregate)return;
+  var businessUnit = aggregate.businessUnit || aggregate.business_unit || aggregate.businessUnitId || aggregate.business_unit_id;
+  if(businessUnit)map[businessUnit] = aggregate;
+  BUs.forEach(function(bu){
+    if(businessUnit===bu.label || businessUnit===bu.apiValue || businessUnit===bu.name || businessUnit===bu.id){
+      map[bu.apiValue] = aggregate;
+      map[bu.label] = aggregate;
+      map[bu.name] = aggregate;
+      map[bu.id] = aggregate;
+    }
+  });
+}
+
+function normalizeKpiAggregates(aggregates){
+  if(!aggregates || typeof aggregates!=='object')return null;
+  if(Array.isArray(aggregates.byBusinessUnit)){
+    aggregates.byBusinessUnit.forEach(function(aggregate){normalizeAggregateKpiFields(aggregate);});
+  }
+  normalizeAggregateKpiFields(aggregates.portfolioYearAverage);
+  Object.keys(aggregates.portfolioMonthlyAverages || {}).forEach(function(month){
+    normalizeAggregateKpiFields(aggregates.portfolioMonthlyAverages[month]);
+  });
+  var map = aggregates.byBusinessUnitMap && typeof aggregates.byBusinessUnitMap==='object' ? aggregates.byBusinessUnitMap : {};
+  Object.keys(map).forEach(function(key){
+    normalizeAggregateKpiFields(map[key]);
+    addBusinessUnitAggregateMapAliases(map,map[key]);
+  });
+  (aggregates.byBusinessUnit || []).forEach(function(aggregate){addBusinessUnitAggregateMapAliases(map,aggregate);});
+  aggregates.byBusinessUnitMap = map;
+  return aggregates;
+}
+
 function aggregateValueForUiKey(source,key){
   if(!source)return null;
   var aggregateKey = aggregateKeyForUiKey(key);
-  return source[aggregateKey]===undefined ? null : source[aggregateKey];
+  var snakeKey = snakeAggregateKeyForUiKey(key);
+  if(source[aggregateKey]!==undefined)return source[aggregateKey];
+  if(source[key]!==undefined)return source[key];
+  return source[snakeKey]===undefined ? null : source[snakeKey];
 }
 
 function getAggregateForBusinessUnit(buId,year){
   if(!KpiAggregates || Number(KpiAggregates.reportingYear)!==Number(year))return null;
   var bu = getBUById(buId);
   var map = KpiAggregates.byBusinessUnitMap || {};
-  return map[bu.label] || map[bu.apiValue] || map[bu.name] || null;
+  return map[bu.id] || map[bu.apiValue] || map[bu.label] || map[bu.name] || null;
 }
 
 function getBusinessUnitYearAverage(buId,year,key){
@@ -1554,7 +1620,7 @@ async function fetchMonthlyKpiAggregates(){
   var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year),{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
   var payload = await res.json().catch(function(){return {};});
   if(!res.ok)throw new Error(payload.error || 'Unable to load Monthly KPI aggregates.');
-  KpiAggregates = payload;
+  KpiAggregates = normalizeKpiAggregates(payload);
 }
 
 async function fetchSavedMonthlyKpiRecords(buId){
@@ -2191,7 +2257,7 @@ async function clearData(){
     Object.keys(Charts).forEach(function(key){if(key.indexOf(bu.id+'-')===0 || key.indexOf('summary-')===0){Charts[key].destroy();delete Charts[key];}});
     if(Array.isArray(payload.records)){
       applyPersistedMonthlyKpiRecords(payload.records,{reset:true});
-      KpiAggregates = payload.aggregates || null;
+      KpiAggregates = normalizeKpiAggregates(payload.aggregates);
       if(!KpiAggregates)await fetchMonthlyKpiAggregates();
     }else{
       await fetchSavedMonthlyKpiRecords();

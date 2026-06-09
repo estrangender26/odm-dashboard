@@ -1,13 +1,65 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 
 const scorecardHtml = readFileSync(resolve(process.cwd(), "public/scorecard-kpi.html"), "utf8");
+
+type AggregateValue = number | string | null | undefined;
+type NormalizedAggregateRow = Record<string, AggregateValue>;
+type NormalizedAggregateResponse = {
+  byBusinessUnitMap: Record<string, NormalizedAggregateRow>;
+  portfolioYearAverage: NormalizedAggregateRow;
+};
 
 function extractScriptArray(name: string) {
   const match = scorecardHtml.match(new RegExp(`var ${name} = \\[(.*?)\\];`, "s"));
   if (!match) throw new Error(`${name} array not found`);
   return Array.from(match[1].matchAll(/'([^']+)'/g)).map((entry) => entry[1]);
+}
+
+function createScorecardContext() {
+  const scriptStart = scorecardHtml.indexOf("<script>") + "<script>".length;
+  const scriptEnd = scorecardHtml.indexOf("</body>", scriptStart);
+  const scorecardScript = scorecardHtml.slice(scriptStart, scriptEnd);
+  const element = {
+    addEventListener() {},
+    appendChild() {},
+    remove() {},
+    classList: { add() {}, remove() {}, toggle() {} },
+    style: {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    set innerHTML(_value: string) {},
+    get innerHTML() { return ""; },
+    value: "",
+  };
+  const context = {
+    console,
+    setTimeout,
+    clearTimeout,
+    URLSearchParams,
+    document: {
+      body: element,
+      addEventListener() {},
+      createElement() { return element; },
+      getElementById() { return element; },
+      querySelector() { return element; },
+      querySelectorAll() { return []; },
+    },
+    localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    window: {},
+    fetch() {},
+  };
+  vm.createContext(context);
+  vm.runInContext(scorecardScript, context);
+  return context as typeof context & {
+    KpiAggregates: NormalizedAggregateResponse;
+    normalizeKpiAggregates: (aggregates: unknown) => NormalizedAggregateResponse;
+    getBusinessUnitYearAverages: (buId: string, year: number) => Record<string, number | null>;
+    getPortfolioCurrentData: () => Record<string, number | null>;
+    getSelectedYear: () => number;
+  };
 }
 
 describe("Monthly KPI dashboard presentation", () => {
@@ -100,6 +152,143 @@ describe("Monthly KPI dashboard presentation", () => {
   it("keeps current API-value rows from being overwritten by legacy alias rows in the UI", () => {
     expect(scorecardHtml).toContain("function shouldPreferPersistedKpiRow(nextRow,currentRecord,buId)");
     expect(scorecardHtml).toContain("if(!nextIsCurrent && currentIsCurrent)return false");
+  });
+
+  it("normalizes actual camelCase aggregate API responses for Summary Matrix rows and Portfolio KPI cards", () => {
+    const context = createScorecardContext();
+    const aggregateApiResponse = {
+      reportingYear: 2026,
+      byBusinessUnit: [
+        {
+          businessUnit: "AMD-EZ",
+          reportingYear: 2026,
+          recordCount: 2,
+          pmCompliance: 99.33,
+          scheduleCompliance: 96,
+          budgetSpend: 101,
+          pmCmWorkOrderRatio: 88,
+          pmCmCostRatio: 62,
+          mtbfDays: null,
+          mttrDays: null,
+          facilityUptime: 99.98,
+        },
+        {
+          businessUnit: "Laguna Water",
+          reportingYear: 2026,
+          recordCount: 1,
+          pmCompliance: 97,
+          scheduleCompliance: 95,
+          budgetSpend: 100,
+          pmCmWorkOrderRatio: 86,
+          pmCmCostRatio: 60,
+          mtbfDays: null,
+          mttrDays: null,
+          facilityUptime: 99.97,
+        },
+      ],
+      byBusinessUnitMap: {
+        "AMD-EZ": {
+          businessUnit: "AMD-EZ",
+          reportingYear: 2026,
+          recordCount: 2,
+          pmCompliance: 99.33,
+          scheduleCompliance: 96,
+          budgetSpend: 101,
+          pmCmWorkOrderRatio: 88,
+          pmCmCostRatio: 62,
+          mtbfDays: null,
+          mttrDays: null,
+          facilityUptime: 99.98,
+        },
+        "Laguna Water": {
+          businessUnit: "Laguna Water",
+          reportingYear: 2026,
+          recordCount: 1,
+          pmCompliance: 97,
+          scheduleCompliance: 95,
+          budgetSpend: 100,
+          pmCmWorkOrderRatio: 86,
+          pmCmCostRatio: 60,
+          mtbfDays: null,
+          mttrDays: null,
+          facilityUptime: 99.97,
+        },
+      },
+      portfolioYearAverage: {
+        pmCompliance: 98.17,
+        scheduleCompliance: 95.5,
+        budgetSpend: 100.5,
+        pmCmWorkOrderRatio: 87,
+        pmCmCostRatio: 61,
+        mtbfDays: null,
+        mttrDays: null,
+        facilityUptime: 99.975,
+      },
+      portfolioMonthlyAverages: {
+        1: {
+          pmCompliance: 98.17,
+          scheduleCompliance: 95.5,
+          budgetSpend: 100.5,
+          pmCmWorkOrderRatio: 87,
+          pmCmCostRatio: 61,
+          mtbfDays: null,
+          mttrDays: null,
+          facilityUptime: 99.975,
+        },
+      },
+    };
+
+    context.KpiAggregates = context.normalizeKpiAggregates(aggregateApiResponse);
+    context.getSelectedYear = () => 2026;
+
+    expect(context.KpiAggregates.byBusinessUnitMap["AMD-EZ"]).toBe(context.KpiAggregates.byBusinessUnitMap.ez);
+    expect(context.KpiAggregates.byBusinessUnitMap["Laguna Water"]).toBe(context.KpiAggregates.byBusinessUnitMap.laguna);
+    expect(context.KpiAggregates.byBusinessUnitMap.ez.pmCmWorkOrderRatio).toBe(88);
+    expect(context.KpiAggregates.byBusinessUnitMap.ez.pm_cm_work_order_ratio).toBe(88);
+    expect(context.KpiAggregates.byBusinessUnitMap.ez.pmcmWORatio).toBe(88);
+    expect(context.getBusinessUnitYearAverages("ez", 2026).pmcmWORatio).toBe(88);
+    expect(context.getBusinessUnitYearAverages("laguna", 2026).facilityUptime).toBe(99.97);
+    expect(context.KpiAggregates.portfolioYearAverage.pmCmCostRatio).toBe(61);
+    expect(context.KpiAggregates.portfolioYearAverage.pm_cm_cost_ratio).toBe(61);
+    expect(context.KpiAggregates.portfolioYearAverage.pmcmCostRatio).toBe(61);
+    expect(context.getPortfolioCurrentData().pmcmCostRatio).toBe(61);
+  });
+
+  it("adds all required business-unit aliases to aggregate maps", () => {
+    const context = createScorecardContext();
+    const aggregate = (businessUnit: string) => ({
+      businessUnit,
+      reportingYear: 2026,
+      recordCount: 1,
+      pmCompliance: 95,
+      scheduleCompliance: null,
+      budgetSpend: null,
+      pmCmWorkOrderRatio: null,
+      pmCmCostRatio: null,
+      mtbfDays: null,
+      mttrDays: null,
+      facilityUptime: null,
+    });
+
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [
+        aggregate("AMD-EZ"),
+        aggregate("Laguna Water"),
+        aggregate("Clark Water"),
+        aggregate("Tagum Water"),
+        aggregate("Estate Water"),
+      ],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: aggregate("Portfolio"),
+      portfolioMonthlyAverages: {},
+    });
+
+    expect(context.KpiAggregates.byBusinessUnitMap["AMD-EZ"]).toBe(context.KpiAggregates.byBusinessUnitMap.ez);
+    expect(context.KpiAggregates.byBusinessUnitMap["Laguna Water"]).toBe(context.KpiAggregates.byBusinessUnitMap.laguna);
+    expect(context.KpiAggregates.byBusinessUnitMap["Clark Water"]).toBe(context.KpiAggregates.byBusinessUnitMap.clark);
+    expect(context.KpiAggregates.byBusinessUnitMap["Tagum Water"]).toBe(context.KpiAggregates.byBusinessUnitMap.tagum);
+    expect(context.KpiAggregates.byBusinessUnitMap["Estate Water"]).toBe(context.KpiAggregates.byBusinessUnitMap.estate);
   });
 
 });
