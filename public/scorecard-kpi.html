@@ -1664,8 +1664,11 @@ async function fetchSavedMonthlyKpiRecords(buId){
   try{
     var params = new URLSearchParams();
     params.set('reporting_year',String(getSelectedYear()));
-    params.set('reporting_month',String(getSelectedMonth()));
-    if(buId)params.set('business_unit',getBUApiValue(buId));
+    if(buId){
+      params.set('business_unit',getBUApiValue(buId));
+    }else{
+      params.set('reporting_month',String(getSelectedMonth()));
+    }
     var url = '/api/monthly-kpi/records?'+params.toString();
     var res = await fetch(url,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});

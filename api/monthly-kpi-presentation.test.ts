@@ -69,7 +69,7 @@ function createMonthlyKpiTabContext(search: string) {
         return panels[id as keyof typeof panels] ?? genericElement;
       },
       querySelector(selector: string) {
-        const tabMatch = selector.match(/^\.tab\[data-tab="([^\"]+)"\]$/);
+        const tabMatch = selector.match(/^\.tab\[data-tab="([^"]+)"\]$/);
         if (tabMatch) return buttons.find((button) => button.tab === tabMatch[1]) ?? null;
         if (selector === ".tc.active") return Object.values(panels).find((panel) => panel.classList.contains("active")) ?? null;
         return null;
@@ -132,7 +132,8 @@ function createScorecardContext() {
     },
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     window: {},
-    fetch() {},
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    loadData() {},
   };
   vm.createContext(context);
   vm.runInContext(scorecardScript, context);
@@ -142,6 +143,14 @@ function createScorecardContext() {
     getBusinessUnitYearAverages: (buId: string, year: number) => Record<string, number | null>;
     getPortfolioCurrentData: () => Record<string, number | null>;
     getSelectedYear: () => number;
+    getSelectedMonth: () => number;
+    fetch: (url: string, init?: unknown) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
+    fetchMonthlyKpiAggregates: () => Promise<void>;
+    loadData: () => void;
+    fetchSavedMonthlyKpiRecords: (buId?: string) => Promise<void>;
+    applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { businessUnitId?: string; reset?: boolean }) => void;
+    renderMonthlyRecords: (buId: string) => void;
+    MonthlyScoreData: Record<string, Record<number, Record<number, unknown>>>;
   };
 }
 
@@ -228,16 +237,50 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(scorecardHtml).toContain("pm_planned: record.pmPlanned ?? null");
   });
 
-  it("loads saved May 2026 records through the UI fetch path with selected period filters", () => {
-    const fetchSavedRecords = scorecardHtml.slice(
-      scorecardHtml.indexOf("async function fetchSavedMonthlyKpiRecords(buId)"),
-      scorecardHtml.indexOf("async function saveImportedMonthlyKpiRecords")
-    );
+  it("loads BU monthly tables by selected business unit and year without a selected-month records filter", async () => {
+    const requests: string[] = [];
+    const context = createScorecardContext();
+    context.getSelectedYear = () => 2026;
+    context.getSelectedMonth = () => 5;
+    context.fetchMonthlyKpiAggregates = async () => {};
+    context.loadData = () => {};
+    context.fetch = async (url: string) => {
+      requests.push(url);
+      return {
+        ok: true,
+        json: async () => ({ records: [] }),
+      };
+    };
 
-    expect(fetchSavedRecords).toContain("params.set('reporting_year',String(getSelectedYear()))");
-    expect(fetchSavedRecords).toContain("params.set('reporting_month',String(getSelectedMonth()))");
-    expect(fetchSavedRecords).toContain("if(buId)params.set('business_unit',getBUApiValue(buId))");
-    expect(fetchSavedRecords).toContain("'/api/monthly-kpi/records?'+params.toString()");
+    await context.fetchSavedMonthlyKpiRecords("ez");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain("reporting_year=2026");
+    expect(requests[0]).toContain("business_unit=AMD-EZ");
+    expect(requests[0]).not.toContain("reporting_month=5");
+  });
+
+  it("keeps Summary Matrix saved-record loads scoped to the selected reporting month", async () => {
+    const requests: string[] = [];
+    const context = createScorecardContext();
+    context.getSelectedYear = () => 2026;
+    context.getSelectedMonth = () => 5;
+    context.fetchMonthlyKpiAggregates = async () => {};
+    context.loadData = () => {};
+    context.fetch = async (url: string) => {
+      requests.push(url);
+      return {
+        ok: true,
+        json: async () => ({ records: [] }),
+      };
+    };
+
+    await context.fetchSavedMonthlyKpiRecords();
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain("reporting_year=2026");
+    expect(requests[0]).toContain("reporting_month=5");
+    expect(requests[0]).not.toContain("business_unit=AMD-EZ");
   });
 
   it("keeps current API-value rows from being overwritten by legacy alias rows in the UI", () => {
@@ -380,6 +423,81 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(context.KpiAggregates.byBusinessUnitMap["Clark Water"]).toBe(context.KpiAggregates.byBusinessUnitMap.clark);
     expect(context.KpiAggregates.byBusinessUnitMap["Tagum Water"]).toBe(context.KpiAggregates.byBusinessUnitMap.tagum);
     expect(context.KpiAggregates.byBusinessUnitMap["Estate Water"]).toBe(context.KpiAggregates.byBusinessUnitMap.estate);
+  });
+
+
+  it("renders AMD-EZ January-May 2026 records in the BU monthly table", () => {
+    const scorecardScript = extractScorecardScript();
+    const elements: Record<string, { value: string; innerHTML: string; addEventListener: () => void; appendChild: () => void; remove: () => void; classList: ReturnType<typeof createClassList>; style: Record<string, string>; querySelector: () => null; querySelectorAll: () => never[] }> = {};
+    const getElement = (id: string) => {
+      if (!elements[id]) {
+        elements[id] = {
+          value: id === "yearSel" ? "2026" : id === "monthSel" ? "5" : "",
+          innerHTML: "",
+          addEventListener() {},
+          appendChild() {},
+          remove() {},
+          classList: createClassList(),
+          style: {},
+          querySelector() { return null; },
+          querySelectorAll() { return []; },
+        };
+      }
+      return elements[id];
+    };
+    const context = {
+      console,
+      setTimeout,
+      clearTimeout,
+      URLSearchParams,
+      document: {
+        body: getElement("body"),
+        addEventListener() {},
+        createElement() { return getElement("created"); },
+        getElementById: getElement,
+        querySelector() { return getElement("query"); },
+        querySelectorAll() { return []; },
+      },
+      localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+      window: {},
+      fetch() {},
+    };
+    vm.createContext(context);
+    vm.runInContext(scorecardScript, context);
+    const runnableContext = context as typeof context & {
+      applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { businessUnitId?: string }) => void;
+      renderMonthlyRecords: (buId: string) => void;
+    };
+
+    runnableContext.applyPersistedMonthlyKpiRecords(
+      [1, 2, 3, 4, 5].map((month) => ({
+        id: month,
+        business_unit: "AMD-EZ",
+        reporting_year: 2026,
+        reporting_month: month,
+        pm_compliance: 90 + month,
+        schedule_compliance: 91 + month,
+        budget_spend: 100,
+        pm_cm_work_order_ratio: 86,
+        pm_cm_cost_ratio: 60,
+        facility_uptime: 99.97,
+      })),
+      { businessUnitId: "ez" },
+    );
+    runnableContext.renderMonthlyRecords("ez");
+
+    const html = elements["ez-monthly-records"].innerHTML;
+    expect(html).toContain("2026 Imported Monthly KPI Records");
+    expect(html).toContain("January");
+    expect(html).toContain("February");
+    expect(html).toContain("March");
+    expect(html).toContain("April");
+    expect(html).toContain("May");
+    expect(html).toContain("91.00");
+    expect(html).toContain("92.00");
+    expect(html).toContain("93.00");
+    expect(html).toContain("94.00");
+    expect(html).toContain("95.00");
   });
 
 });
