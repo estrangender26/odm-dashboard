@@ -19,8 +19,12 @@ function extractScriptArray(name: string) {
 }
 
 function extractScorecardScript() {
-  const scriptStart = scorecardHtml.indexOf("<script>") + "<script>".length;
-  const scriptEnd = scorecardHtml.indexOf("</body>", scriptStart);
+  const scriptOpen = "<script>";
+  const scriptStartIndex = scorecardHtml.indexOf(scriptOpen);
+  if (scriptStartIndex === -1) throw new Error("Inline scorecard script not found");
+  const scriptStart = scriptStartIndex + scriptOpen.length;
+  const scriptEnd = scorecardHtml.indexOf("</script>", scriptStart);
+  if (scriptEnd === -1) throw new Error("Inline scorecard script closing tag not found");
   return scorecardHtml.slice(scriptStart, scriptEnd);
 }
 
