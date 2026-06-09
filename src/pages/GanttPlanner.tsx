@@ -64,6 +64,10 @@ function formatReorderTask(task: any) {
   };
 }
 
+function buildProjectSnapshot(tasks: any[] = [], links: any[] = []) {
+  return JSON.stringify({ tasks, links });
+}
+
 
 function getRuntimeGanttInstance(): any | null {
   if (typeof window === "undefined") return null;
@@ -572,7 +576,7 @@ function GanttTooltip({ data }: { data: TooltipData }) {
 interface ToolbarProps {
   currentProjectId: number | null; currentProjectName: string;
   hasUnsavedChanges: boolean;
-  onSave: () => void; onSaveAs: () => void; onOpen: () => void; onClose: () => void;
+  onSave: () => void | Promise<void | boolean>; onSaveAs: () => void; onOpen: () => void | Promise<void>; onClose: () => void;
   onImport: () => void;
   onExportExcel: () => void; onExportCSV: () => void; onExportTemplate: () => void;
   onMigrate: () => void; onReset: () => void; onLoadDemo: () => void;
@@ -777,7 +781,7 @@ interface QuickActionProps {
   onMulti: () => void; multiSelectMode: boolean;
   onClear: () => void; selectionSize: number;
   onLink: () => void;
-  onSave: () => void;
+  onSave: () => void | Promise<void | boolean>;
   selectedTaskId: number | null;
   selectedTaskName?: string;
 }
@@ -1817,9 +1821,6 @@ export default function GanttPlanner() {
   const saveTaskMut = trpc.gantt.saveTask.useMutation({
     onSuccess: () => {
       utils.gantt.tasks.invalidate();
-      /* BUG B FIX: Mark that we just saved. The useEffect below will clear
-         the unsaved indicator when fresh data arrives after refetch. */
-      lastSavedJsonRef.current = "__JUST_SAVED__";
     },
     onError: (e) => setBanner({ type: "error", message: "Save task failed: " + e.message }),
   });
@@ -1970,6 +1971,10 @@ export default function GanttPlanner() {
           }
           await utils.gantt.tasks.invalidate();
           await utils.gantt.links.invalidate();
+          const [freshTasksAfterLoad, freshLinksAfterLoad] = await Promise.all([
+            refetchTasks(),
+            refetchLinks(),
+          ]);
           setSelectedTaskId(null);
           setSelectedIds(new Set());
           setEditingId(null);
@@ -1980,7 +1985,7 @@ export default function GanttPlanner() {
           setCurrentProjectName(data.name);
           setHasUnsavedChanges(false);
           setImportSourceName("");
-          lastSavedJsonRef.current = JSON.stringify(parsed);
+          lastSavedJsonRef.current = buildProjectSnapshot(freshTasksAfterLoad.data || [], freshLinksAfterLoad.data || []);
         } else {
           setBanner({ type: "info", message: "Project is empty — no tasks to load." });
           setCurrentProjectId(data.id);
@@ -2005,10 +2010,29 @@ export default function GanttPlanner() {
     },
   });
   const deleteProjectMut = trpc.ganttProjects.delete.useMutation({
-    onSuccess: () => utils.ganttProjects.list.invalidate(),
+    onSuccess: async (data) => {
+      await utils.ganttProjects.list.invalidate();
+      const deletedId = data?.project?.id;
+      if (deletedId && deletedId === currentProjectId) {
+        setCurrentProjectId(null);
+        setCurrentProjectName("");
+        setHasUnsavedChanges(false);
+        lastSavedJsonRef.current = "";
+        localStorage.removeItem("gantt_current_project");
+      }
+      setBanner({ type: "success", message: `Deleted "${data?.project?.name || "project"}".` });
+    },
+    onError: (e) => setBanner({ type: "error", message: "Delete failed: " + e.message }),
   });
   const renameProjectMut = trpc.ganttProjects.rename.useMutation({
-    onSuccess: () => utils.ganttProjects.list.invalidate(),
+    onSuccess: async (data) => {
+      await utils.ganttProjects.list.invalidate();
+      if (data?.project?.id === currentProjectId) setCurrentProjectName(data.project.name);
+      setRenamingId(null);
+      setRenameValue("");
+      setBanner({ type: "success", message: `Renamed project to "${data?.project?.name || "Untitled"}".` });
+    },
+    onError: (e) => setBanner({ type: "error", message: "Rename failed: " + e.message }),
   });
 
   /* ═══════ SECTION 4: ALL useEffect hooks (FOURTH) ═══════ */
@@ -2065,17 +2089,12 @@ export default function GanttPlanner() {
   /* Detect unsaved changes */
   useEffect(() => {
     if (!tasksQuery.data) return;
-    /* BUG B FIX: If we just saved, accept the fresh data as the new baseline */
-    if (lastSavedJsonRef.current === "__JUST_SAVED__") {
-      lastSavedJsonRef.current = JSON.stringify(tasksQuery.data);
-      setHasUnsavedChanges(false);
-      return;
-    }
-    const currentJson = JSON.stringify(tasksQuery.data);
+    const currentJson = buildProjectSnapshot(tasksQuery.data, linksQuery.data || []);
+    const hasVisibleSessionData = tasksQuery.data.length > 0 || (linksQuery.data || []).length > 0;
     if (lastSavedJsonRef.current && lastSavedJsonRef.current !== currentJson) { setHasUnsavedChanges(true); }
-    else if (!lastSavedJsonRef.current && tasksQuery.data.length > 0) { setHasUnsavedChanges(true); }
+    else if (!lastSavedJsonRef.current && hasVisibleSessionData) { setHasUnsavedChanges(true); }
     else { setHasUnsavedChanges(false); }
-  }, [tasksQuery.data]);
+  }, [tasksQuery.data, linksQuery.data]);
 
   /* KPI update + taskList sync */
   useEffect(() => {
@@ -2106,11 +2125,11 @@ export default function GanttPlanner() {
     if (!tasksQuery.data || tasksQuery.isFetching) return;
     /* After a successful save mutation, the DB data comes back clean.
        If the current data matches what we last saved, clear the unsaved flag. */
-    const currentJson = JSON.stringify(tasksQuery.data);
+    const currentJson = buildProjectSnapshot(tasksQuery.data, linksQuery.data || []);
     if (lastSavedJsonRef.current && lastSavedJsonRef.current === currentJson) {
       setHasUnsavedChanges(false);
     }
-  }, [tasksQuery.isFetching]);
+  }, [tasksQuery.isFetching, tasksQuery.data, linksQuery.data]);
 
   /* Export menu click-outside removed — handled by GanttToolbar */
 
@@ -2331,8 +2350,12 @@ export default function GanttPlanner() {
   /* Save project (update existing) */
   const handleSave = useCallback(async () => {
     const currentTasks = tasksQuery.data || [];
-    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
-    if (currentProjectId == null) { setSaveMode("new"); setProjectName(importSourceName); setSaveModal(true); return; }
+    if (saveProjectMut.isPending) {
+      setBanner({ type: "info", message: "Save already in progress." });
+      return false;
+    }
+    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return false; }
+    if (currentProjectId == null) { setSaveMode("new"); setProjectName(importSourceName); setSaveModal(true); return false; }
     const tasksJson = JSON.stringify(currentTasks);
     const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
     try {
@@ -2343,10 +2366,12 @@ export default function GanttPlanner() {
       setCurrentProjectId(saved.id);
       setCurrentProjectName(saved.name);
       setHasUnsavedChanges(false);
-      lastSavedJsonRef.current = tasksJson;
+      lastSavedJsonRef.current = buildProjectSnapshot(currentTasks, linksQuery.data || []);
       setBanner({ type: "success", message: `"${saved.name}" saved.` });
+      return true;
     } catch (e: any) {
       setBanner({ type: "error", message: "Save failed: " + (e?.message || "Unknown error") });
+      return false;
     }
   }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut, importSourceName]);
 
@@ -2362,6 +2387,7 @@ export default function GanttPlanner() {
     const name = projectName.trim();
     if (!name) return;
     const currentTasks = tasksQuery.data || [];
+    if (saveProjectMut.isPending) { setBanner({ type: "info", message: "Save already in progress." }); return; }
     if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
     if (saveMode === "as") {
       const existing = projectsList.find((p: any) => p.name === name);
@@ -2379,7 +2405,7 @@ export default function GanttPlanner() {
             setCurrentProjectName(saved.name);
             setHasUnsavedChanges(false);
             setImportSourceName("");
-            lastSavedJsonRef.current = tasksJson;
+            lastSavedJsonRef.current = buildProjectSnapshot(currentTasks, linksQuery.data || []);
             setBanner({ type: "success", message: `"${saved.name}" replaced.` });
             return;
           } catch (e: any) {
@@ -2400,7 +2426,7 @@ export default function GanttPlanner() {
       setCurrentProjectName(data.name);
       setHasUnsavedChanges(false);
       setImportSourceName("");
-      lastSavedJsonRef.current = tasksJson;
+      lastSavedJsonRef.current = buildProjectSnapshot(currentTasks, linksQuery.data || []);
       setBanner({ type: "success", message: `"${data.name}" saved.` });
     } catch (e: any) {
       setBanner({ type: "error", message: "Save failed: " + (e?.message || "Unknown error") });
@@ -2460,11 +2486,16 @@ export default function GanttPlanner() {
   }, [currentProjectId, currentProjectName, hasUnsavedChanges, importSourceName, linksQuery.data, resetMut, tasksQuery.data, utils]);
 
   /* Open project with unsaved guard */
-  const handleOpenClick = useCallback(() => {
+  const handleOpenClick = useCallback(async () => {
     const currentTasks = tasksQuery.data || [];
     if (hasUnsavedChanges && currentTasks.length > 0) {
       const choice = window.confirm("You have unsaved changes.\n\nOK = Save, then open\nCancel = Discard changes and open");
-      if (choice) { handleSave(); setTimeout(() => setLoadModal(true), 500); return; }
+      if (choice) {
+        const saved = await handleSave();
+        if (saved) setLoadModal(true);
+        else setBanner({ type: "info", message: "Finish saving the current project before opening another one." });
+        return;
+      }
     }
     setLoadModal(true);
   }, [hasUnsavedChanges, tasksQuery.data, handleSave]);
@@ -3405,7 +3436,7 @@ export default function GanttPlanner() {
                       <div style={{ fontSize: 20, flexShrink: 0 }}>📁</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         {renamingId === p.id ? (
-                          <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && renameValue.trim()) { renameProjectMut.mutate({ id: p.id, name: renameValue.trim() }); setRenamingId(null); } if (e.key === "Escape") setRenamingId(null); }} style={{ width: "100%", padding: "5px 8px", fontSize: 12, border: "1px solid #005BAC", borderRadius: 4, fontFamily: "Inter, sans-serif", boxSizing: "border-box" }} />
+                          <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && renameValue.trim() && !renameProjectMut.isPending) renameProjectMut.mutate({ id: p.id, name: renameValue.trim() }); if (e.key === "Escape" && !renameProjectMut.isPending) setRenamingId(null); }} style={{ width: "100%", padding: "5px 8px", fontSize: 12, border: "1px solid #005BAC", borderRadius: 4, fontFamily: "Inter, sans-serif", boxSizing: "border-box" }} />
                         ) : (
                           <>
                             <div style={{ fontSize: 13, fontWeight: 600, color: "#2D3748", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
@@ -3416,8 +3447,8 @@ export default function GanttPlanner() {
                       <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                         {renamingId === p.id ? (
                           <>
-                            <button onClick={() => { if (renameValue.trim()) { renameProjectMut.mutate({ id: p.id, name: renameValue.trim() }); setRenamingId(null); } }} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "#1F9D55", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}>Save</button>
-                            <button onClick={() => setRenamingId(null)} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 4, cursor: "pointer" }}>Cancel</button>
+                            <button onClick={() => { if (renameValue.trim() && !renameProjectMut.isPending) renameProjectMut.mutate({ id: p.id, name: renameValue.trim() }); }} disabled={renameProjectMut.isPending} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: renameProjectMut.isPending ? "#94A3B8" : "#1F9D55", color: "#fff", border: "none", borderRadius: 4, cursor: renameProjectMut.isPending ? "not-allowed" : "pointer" }}>{renameProjectMut.isPending ? "Saving..." : "Save"}</button>
+                            <button onClick={() => { if (!renameProjectMut.isPending) setRenamingId(null); }} disabled={renameProjectMut.isPending} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "#F1F5F9", color: "#475569", border: "1px solid #D6DFE8", borderRadius: 4, cursor: renameProjectMut.isPending ? "not-allowed" : "pointer" }}>Cancel</button>
                           </>
                         ) : (
                           <>
@@ -3432,8 +3463,8 @@ export default function GanttPlanner() {
                             }} disabled={loadProjectMut.isPending} title="Load" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 12px", fontSize: 11, fontWeight: 600, background: loadingProjectId === p.id ? "#93C5FD" : "#005BAC", color: "#fff", border: "none", borderRadius: 4, cursor: loadProjectMut.isPending ? "not-allowed" : "pointer", transition: "all .2s", minWidth: 52, justifyContent: "center" }}>
                               {loadingProjectId === p.id ? <><SpinnerInline color="#fff" /><span>Loading</span></> : "Open"}
                             </button>
-                            <button onClick={() => { setRenamingId(p.id); setRenameValue(p.name); }} title="Rename" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 4, cursor: "pointer" }}>✎</button>
-                            <button onClick={() => { if (confirm(`Delete "${p.name}"?`)) deleteProjectMut.mutate({ id: p.id }); }} title="Delete" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 4, cursor: "pointer" }}>🗑</button>
+                            <button onClick={() => { if (!renameProjectMut.isPending && !deleteProjectMut.isPending) { setRenamingId(p.id); setRenameValue(p.name); } }} disabled={renameProjectMut.isPending || deleteProjectMut.isPending} title="Rename" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 4, cursor: renameProjectMut.isPending || deleteProjectMut.isPending ? "not-allowed" : "pointer" }}>✎</button>
+                            <button onClick={() => { if (!deleteProjectMut.isPending && confirm(`Delete "${p.name}"?`)) deleteProjectMut.mutate({ id: p.id }); }} disabled={deleteProjectMut.isPending} title="Delete" style={{ padding: "5px 8px", fontSize: 11, fontWeight: 600, background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 4, cursor: deleteProjectMut.isPending ? "not-allowed" : "pointer" }}>{deleteProjectMut.isPending ? "…" : "🗑"}</button>
                           </>
                         )}
                       </div>
