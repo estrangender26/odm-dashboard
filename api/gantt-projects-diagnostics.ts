@@ -28,7 +28,6 @@ SELECT
   tasks_data AS "__tasksData"
 FROM public.gantt_projects
 ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
-LIMIT 50;
 `.trim();
 
 export const GANTT_PROJECTS_TASKS_COUNT_FAILURE_SQL = `
@@ -47,7 +46,6 @@ SELECT
   END AS "tasksCount"
 FROM public.gantt_projects
 ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
-LIMIT 50;
 `.trim();
 
 type LatestProjectRow = {

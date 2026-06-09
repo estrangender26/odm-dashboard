@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, eq, desc, sql, isNull, or } from "drizzle-orm";
+import { and, eq, desc, sql, isNull, or, inArray } from "drizzle-orm";
 import * as cookie from "cookie";
 import {
   db,
@@ -70,7 +70,7 @@ function shouldAdoptAnonymousProject(
 }
 
 export const ganttProjectsRouter = {
-  debug: publicQuery.query(async () => {
+  debug: publicQuery.query(async ({ ctx }) => {
     if (process.env.ENABLE_GANTT_DEBUG !== "true") {
       throw new TRPCError({
         code: "FORBIDDEN",
@@ -78,8 +78,72 @@ export const ganttProjectsRouter = {
       });
     }
 
-    return fetchGanttProjectsDiagnostics(db);
+    const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
+    return {
+      ...(await fetchGanttProjectsDiagnostics(db)),
+      currentSessionId: sessionId,
+    };
   }),
+
+  adoptToCurrentSession: publicQuery
+    .input(
+      z.object({ ids: z.array(z.number().int().positive()).min(1).max(100) })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (process.env.ENABLE_GANTT_DEBUG !== "true") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Debug endpoint disabled",
+        });
+      }
+
+      const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
+      const selectedIds = Array.from(new Set(input.ids));
+
+      try {
+        const selectedRows = await db
+          .select({ id: ganttProjects.id })
+          .from(ganttProjects)
+          .where(inArray(ganttProjects.id, selectedIds));
+
+        if (selectedRows.length !== selectedIds.length) {
+          const foundIds = new Set(selectedRows.map(row => row.id));
+          const missingIds = selectedIds.filter(id => !foundIds.has(id));
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `Some selected projects no longer exist: ${missingIds.join(", ")}`,
+          });
+        }
+
+        const adoptedRows = await db
+          .update(ganttProjects)
+          .set({ sessionId, updatedAt: new Date() })
+          .where(inArray(ganttProjects.id, selectedIds))
+          .returning({
+            id: ganttProjects.id,
+            name: ganttProjects.name,
+            userId: ganttProjects.userId,
+            sessionId: ganttProjects.sessionId,
+            updatedAt: ganttProjects.updatedAt,
+          });
+
+        return {
+          success: true,
+          currentSessionId: sessionId,
+          requestedCount: selectedIds.length,
+          adoptedCount: adoptedRows.length,
+          adoptedProjects: adoptedRows,
+        };
+      } catch (err: unknown) {
+        if (err instanceof TRPCError) throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[ganttProjects.adoptToCurrentSession] error:", message);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to adopt selected projects",
+        });
+      }
+    }),
 
   // ── List all projects (name + id + dates only, no tasks_data) ──
   list: publicQuery.query(async ({ ctx }) => {
