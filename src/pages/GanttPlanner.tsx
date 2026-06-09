@@ -2915,6 +2915,7 @@ export default function GanttPlanner() {
       const { rows } = result;
       let imported = 0; let skipped = 0; const errors: string[] = [];
       const idMap = new Map<number, number>();
+      const importedRows: Array<{ savedId: number; originalId: number | null; originalParentId: number; payload: any }> = [];
       const pendingDeps: Array<{ source: number; target: number; type: string; lag: number; projectId?: number }> = [];
       const depTypeMap: Record<string, string> = { FS: "0", SS: "1", FF: "2", SF: "3", "0": "0", "1": "1", "2": "2", "3": "3" };
 
@@ -2927,16 +2928,41 @@ export default function GanttPlanner() {
         imported++;
 
         const rowTaskId = parseInt(String(row["Task ID"] || row["task_id"] || row["id"] || ""), 10);
-        if (!Number.isNaN(rowTaskId) && rowTaskId > 0) idMap.set(rowTaskId, saved.id);
+        const parentRaw = row["Parent Task"] ?? row["parent"] ?? row["parentId"] ?? row["parent_task"] ?? "0";
+        const parentId = parseInt(String(parentRaw), 10) || 0;
+        const originalId = !Number.isNaN(rowTaskId) && rowTaskId > 0 ? rowTaskId : null;
+        if (originalId) idMap.set(originalId, saved.id);
+        importedRows.push({ savedId: saved.id, originalId, originalParentId: parentId, payload });
 
         const depRaw = row["Dependency"] || row["dependency"] || row["predecessorId"] || row["predecessor"] || row["Predecessor"] || "";
         const depId = parseInt(String(depRaw), 10);
-        if (!Number.isNaN(depId) && depId > 0 && !Number.isNaN(rowTaskId) && rowTaskId > 0) {
+        if (!Number.isNaN(depId) && depId > 0 && originalId) {
           const rawType = String(row["Dependency Type"] || row["dependency_type"] || row["dependencyType"] || row["linkType"] || row["link_type"] || "FS").toUpperCase();
           const depType = depTypeMap[rawType] || "0";
           const lagRaw = row["Lag (days)"] || row["lag"] || row["lagDays"] || row["lag_days"] || 0;
           const lag = parseInt(String(lagRaw), 10) || 0;
-          pendingDeps.push({ source: depId, target: rowTaskId, type: depType, lag, projectId: currentProjectId ?? undefined });
+          pendingDeps.push({ source: depId, target: originalId, type: depType, lag, projectId: currentProjectId ?? undefined });
+        }
+      }
+
+      if (importedRows.length > 0) {
+        const importedHierarchy = importedRows.map((item, index) => {
+          const parent = item.originalParentId > 0 ? (idMap.get(item.originalParentId) || 0) : 0;
+          return {
+            id: item.savedId,
+            parent,
+            parentTaskId: parent,
+            sortorder: item.payload.sort_order ?? item.payload.sortOrder ?? index,
+          };
+        });
+        for (const item of importedRows) {
+          const parent = item.originalParentId > 0 ? (idMap.get(item.originalParentId) || 0) : 0;
+          await saveTaskMut.mutateAsync({
+            id: item.savedId,
+            parent,
+            parent_task_id: parent,
+            wbs_level: computeWbsLevel(item.savedId, importedHierarchy, parent),
+          });
         }
       }
 

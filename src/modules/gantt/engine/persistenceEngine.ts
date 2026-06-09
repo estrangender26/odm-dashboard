@@ -239,14 +239,14 @@ export function parseImportRow(row: any, idx: number): { payload: any | null; er
   if (start && !finish && dur) {
     const s = parseDate(start);
     if (s) {
-      const e = new Date(s.getTime() + (parseInt(String(dur)) || 1) * 86400000);
+      const e = new Date(s.getTime() + (Math.max(1, parseInt(String(dur)) || 1) - 1) * 86400000);
       finish = `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}`;
     }
   }
   if (plannedStart && !plannedEnd && dur) {
     const s = parseDate(plannedStart);
     if (s) {
-      const e = new Date(s.getTime() + (parseInt(String(dur)) || 1) * 86400000);
+      const e = new Date(s.getTime() + (Math.max(1, parseInt(String(dur)) || 1) - 1) * 86400000);
       plannedEnd = `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}`;
     }
   }

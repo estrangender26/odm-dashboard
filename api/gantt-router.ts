@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { ganttTasks, ganttDependencies, ganttProjects } from "@db/schema";
-import { eq, sql, and, asc } from "drizzle-orm";
+import { eq, sql, asc, inArray, or } from "drizzle-orm";
 
 
 const DEP_TYPE_MAP: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
@@ -58,6 +58,28 @@ async function wouldCreateDependencyCycle(source: number, target: number) {
     stack.push(...(successors.get(current) || []));
   }
   return false;
+}
+
+function collectTaskAndDescendantIds(
+  rootId: number,
+  tasks: Array<{ id: number; parentTaskId: number | null }>
+) {
+  const childIdsByParent = new Map<number, number[]>();
+  for (const task of tasks) {
+    const parentId = task.parentTaskId || 0;
+    if (!childIdsByParent.has(parentId)) childIdsByParent.set(parentId, []);
+    childIdsByParent.get(parentId)!.push(task.id);
+  }
+
+  const ids = new Set<number>();
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (ids.has(id)) continue;
+    ids.add(id);
+    stack.push(...(childIdsByParent.get(id) || []));
+  }
+  return Array.from(ids);
 }
 
 /* ═══════════════════════════════════════════
@@ -241,23 +263,7 @@ export const ganttRouter = createRouter({
         setData.isParent = (v.is_parent ?? v.isParent ?? 0) ? 1 : 0;
       }
 
-      /* ── If predecessor/dependency fields are present, sync the dependency row without touching hierarchy ── */
-      if (has("predecessor_task_id") || has("predecessorId") || has("dependency_type") || has("dependencyType")) {
-        try {
-          await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, input.id));
-          const depType = normalizeDependencyType(setData.dependencyType ?? (setData.predecessorTaskId ? "FS" : "NONE"));
-          if (setData.predecessorTaskId && depType !== "NONE") {
-            if (await wouldCreateDependencyCycle(setData.predecessorTaskId, input.id)) throw new Error("Dependency cycle detected");
-            await db.insert(ganttDependencies).values({
-              predecessorTaskId: setData.predecessorTaskId,
-              successorTaskId: input.id,
-              dependencyType: depType,
-              lagDays: setData.lagDays || 0,
-              projectId: setData.projectId ?? null,
-            });
-          }
-        } catch (depErr) { throw depErr; }
-      }
+      const shouldSyncDependency = has("predecessor_task_id") || has("predecessorId") || has("dependency_type") || has("dependencyType");
 
       setData.updatedAt = now;
 
@@ -287,10 +293,31 @@ export const ganttRouter = createRouter({
           if (insertData.isMilestone === undefined) insertData.isMilestone = 0;
           if (insertData.isParent === undefined) insertData.isParent = 0;
           insertData.createdAt = now;
-          result = await db.insert(ganttTasks).values(insertData).returning({ id: ganttTasks.id });
+          result = await db.insert(ganttTasks).values(insertData as typeof ganttTasks.$inferInsert).returning({ id: ganttTasks.id });
         }
+        const savedTaskId = result[0]?.id ?? input.id;
+
+        /* Keep task-row predecessor fields and dependency rows in sync after the
+           task ID is known. This is especially important for newly added tasks:
+           syncing before INSERT used to try to create a dependency with an
+           undefined successor ID. */
+        if (shouldSyncDependency && savedTaskId) {
+          await db.delete(ganttDependencies).where(eq(ganttDependencies.successorTaskId, savedTaskId));
+          const depType = normalizeDependencyType(setData.dependencyType ?? (setData.predecessorTaskId ? "FS" : "NONE"));
+          if (setData.predecessorTaskId && depType !== "NONE") {
+            if (await wouldCreateDependencyCycle(setData.predecessorTaskId, savedTaskId)) throw new Error("Dependency cycle detected");
+            await db.insert(ganttDependencies).values({
+              predecessorTaskId: setData.predecessorTaskId,
+              successorTaskId: savedTaskId,
+              dependencyType: depType,
+              lagDays: setData.lagDays || 0,
+              projectId: setData.projectId ?? null,
+            });
+          }
+        }
+
         return {
-          id: result[0]?.id ?? input.id,
+          id: savedTaskId,
           action: isUpdate ? "updated" : "created",
         };
       } catch (e: any) {
@@ -299,15 +326,24 @@ export const ganttRouter = createRouter({
     }),
 
 
-  /* ── 5. DELETE TASK (+ cleanup dependencies) ── */
+  /* ── 5. DELETE TASK (+ descendants and dependency cleanup) ── */
   deleteTask: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      const taskRows = await db
+        .select({ id: ganttTasks.id, parentTaskId: ganttTasks.parentTaskId })
+        .from(ganttTasks);
+      const idsToDelete = collectTaskAndDescendantIds(input.id, taskRows);
+      if (idsToDelete.length === 0) return { success: true, deleted: 0 };
+
       await db.delete(ganttDependencies).where(
-        sql`${ganttDependencies.predecessorTaskId} = ${input.id} OR ${ganttDependencies.successorTaskId} = ${input.id}`
+        or(
+          inArray(ganttDependencies.predecessorTaskId, idsToDelete),
+          inArray(ganttDependencies.successorTaskId, idsToDelete)
+        )
       );
-      await db.delete(ganttTasks).where(eq(ganttTasks.id, input.id));
-      return { success: true };
+      await db.delete(ganttTasks).where(inArray(ganttTasks.id, idsToDelete));
+      return { success: true, deleted: idsToDelete.length };
     }),
 
   /* ── 6. SAVE DEPENDENCY (by DB IDs — validates first) ── */
