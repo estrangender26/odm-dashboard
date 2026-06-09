@@ -40,6 +40,10 @@ import {
   buildManualHierarchyOrder, getSiblingOrderDebug, getSiblingOrderState, getTaskParentId, sortTasksForHierarchyDisplay,
   type TaskReorderUpdate,
 } from "@/modules/gantt/engine/taskReorderEngine";
+import {
+  buildStatusDatePreview, formatVarianceDays,
+  type StatusDatePreview,
+} from "@/modules/gantt/engine/updateProjectEngine";
 
 /* LOCAL statusBg — workaround for Vite tree-shaking bug that removes imported function */
 const statusBg = (status: string): string => {
@@ -471,6 +475,10 @@ const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 
 function depTypeName(type: string): string { return DEP_TYPE_MAP[type] || type; }
 
+function statusDateBadge(label: string, active: boolean, color: string) {
+  return <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 28, padding: "2px 7px", borderRadius: 999, fontSize: 10, fontWeight: 800, background: active ? `${color}18` : "#F1F5F9", color: active ? color : "#94A3B8", border: `1px solid ${active ? `${color}40` : "#E2E8F0"}` }}>{label}</span>;
+}
+
 
 function statusBadge(status: string) {
   const s = statusBadgeStyle(status);
@@ -528,6 +536,79 @@ function KpiCard({ label, value, icon, color }: { label: string; value: string |
   );
 }
 
+function StatusDatePreviewModal({ preview, onClose, onApply }: { preview: StatusDatePreview; onClose: () => void; onApply: () => void }) {
+  const { summary, rows, statusDate } = preview;
+  const worstRows = rows
+    .filter((row) => row.overdue || row.behindSchedule)
+    .sort((a, b) => a.varianceDays - b.varianceDays)
+    .slice(0, 80);
+  const visibleRows = worstRows.length ? worstRows : rows.slice(0, 80);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 260, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.48)", padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="gantt-modal" style={{ width: "100%", maxWidth: 980, maxHeight: "86vh", background: "#fff", borderRadius: 14, boxShadow: "0 24px 70px rgba(0,0,0,.28)", overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: "Inter, sans-serif" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "18px 22px", borderBottom: "1px solid #E2E8F0", background: "linear-gradient(135deg,#F8FAFC,#EFF6FF)" }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 17, lineHeight: 1.2, fontWeight: 800, color: "#16324F" }}>Status Date Preview</h3>
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "#64748B" }}>Local Phase 1 analysis for <strong>{statusDate}</strong>. This does not reschedule incomplete work, propagate dependencies, or shift successor dates.</p>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: "#94A3B8", cursor: "pointer", lineHeight: 1 }}>&times;</button>
+        </div>
+
+        <div style={{ padding: "14px 22px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, borderBottom: "1px solid #E2E8F0" }}>
+          <KpiCard label="Expected Progress" value={`${summary.avgExpectedProgress}%`} icon="📈" color="#005BAC" />
+          <KpiCard label="Actual Progress" value={`${summary.avgActualProgress}%`} icon="📊" color="#7C3AED" />
+          <KpiCard label="Overdue" value={summary.overdue} icon="⚠️" color="#DC2626" />
+          <KpiCard label="Behind Schedule" value={summary.behindSchedule} icon="🐢" color="#D97706" />
+          <KpiCard label="Remaining Duration" value={`${summary.totalRemainingDuration}d`} icon="⏳" color="#0EA5E9" />
+          <KpiCard label="Avg Variance" value={formatVarianceDays(summary.avgVarianceDays)} icon="↔️" color={summary.avgVarianceDays < 0 ? "#DC2626" : "#1F9D55"} />
+        </div>
+
+        <div style={{ padding: "10px 22px", background: "#FFFBEB", color: "#92400E", fontSize: 12, borderBottom: "1px solid #FDE68A" }}>
+          Preview only: Apply stores the status date and metrics in local UI state and marks the project dirty. Use Save Project separately if you want to save the project snapshot.
+        </div>
+
+        <div style={{ overflow: "auto", padding: "0 22px 14px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead style={{ position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+              <tr style={{ borderBottom: "2px solid #CBD5E1", color: "#475569" }}>
+                <th style={{ textAlign: "left", padding: "9px 6px" }}>Task</th>
+                <th style={{ textAlign: "left", padding: "9px 6px" }}>Owner</th>
+                <th style={{ textAlign: "center", padding: "9px 6px" }}>Expected</th>
+                <th style={{ textAlign: "center", padding: "9px 6px" }}>Actual</th>
+                <th style={{ textAlign: "center", padding: "9px 6px" }}>Remaining</th>
+                <th style={{ textAlign: "center", padding: "9px 6px" }}>Variance</th>
+                <th style={{ textAlign: "center", padding: "9px 6px" }}>Overdue</th>
+                <th style={{ textAlign: "center", padding: "9px 6px" }}>Behind</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.map((row) => (
+                <tr key={row.id} style={{ borderBottom: "1px solid #F1F5F9", background: row.overdue ? "#FEF2F2" : row.behindSchedule ? "#FFFBEB" : "transparent" }}>
+                  <td style={{ padding: "8px 6px", color: "#1E293B", fontWeight: 700, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.text}>{row.text}</td>
+                  <td style={{ padding: "8px 6px", color: "#64748B" }}>{row.owner}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "center", color: "#005BAC", fontWeight: 800 }}>{row.expectedProgress}%</td>
+                  <td style={{ padding: "8px 6px", textAlign: "center", color: row.actualProgress < row.expectedProgress ? "#D97706" : "#1F9D55", fontWeight: 800 }}>{row.actualProgress}%</td>
+                  <td style={{ padding: "8px 6px", textAlign: "center" }}>{row.remainingDuration}d</td>
+                  <td style={{ padding: "8px 6px", textAlign: "center", color: row.varianceDays < 0 ? "#DC2626" : "#1F9D55", fontWeight: 800 }}>{formatVarianceDays(row.varianceDays)}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "center" }}>{statusDateBadge("Overdue", row.overdue, "#DC2626")}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "center" }}>{statusDateBadge("Behind", row.behindSchedule, "#D97706")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length > visibleRows.length && <div style={{ padding: "10px 0", fontSize: 11, color: "#64748B" }}>Showing {visibleRows.length} of {rows.length} task rows.</div>}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "14px 22px", borderTop: "1px solid #E2E8F0", background: "#F8FAFC" }}>
+          <button onClick={onClose} style={{ padding: "8px 16px", fontSize: 12, border: "1px solid #D6DFE8", borderRadius: 8, background: "#fff", color: "#475569", fontWeight: 700, cursor: "pointer" }}>Close</button>
+          <button onClick={onApply} style={{ padding: "8px 16px", fontSize: 12, border: "none", borderRadius: 8, background: "#005BAC", color: "#fff", fontWeight: 800, cursor: "pointer" }}>Apply Locally + Mark Dirty</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Tooltip Data + Component ─── */
 interface TooltipData { task: GanttTask; x: number; y: number; visible: boolean; }
 
@@ -577,7 +658,7 @@ interface ToolbarProps {
   currentProjectId: number | null; currentProjectName: string;
   hasUnsavedChanges: boolean;
   onSave: () => void | Promise<void | boolean>; onSaveAs: () => void; onOpen: () => void | Promise<void>; onClose: () => void;
-  onImport: () => void;
+  onImport: () => void; onStatusDate: () => void;
   onExportExcel: () => void; onExportCSV: () => void; onExportTemplate: () => void;
   onMigrate: () => void; onReset: () => void; onLoadDemo: () => void;
   onIndent?: () => void; onOutdent?: () => void;
@@ -593,7 +674,7 @@ interface ToolbarProps {
 
 function GanttToolbar({
   currentProjectId, currentProjectName, hasUnsavedChanges,
-  onSave, onSaveAs, onOpen, onClose, onImport,
+  onSave, onSaveAs, onOpen, onClose, onImport, onStatusDate,
   onExportExcel, onExportCSV, onExportTemplate,
   onMigrate, onReset, onLoadDemo,
   onIndent, onOutdent, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, onInsertAbove, onInsertBelow, onInsertChild,
@@ -675,6 +756,7 @@ function GanttToolbar({
         {/* FILE MENU */}
         <MenuBtn label="File" icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} menuKey="file">
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>} label="Save" onClick={onSave} />
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>} label="Status Date Preview" onClick={onStatusDate} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#005BAC" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>} label="Import Excel" onClick={onImport} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>} label="Export Excel" onClick={onExportExcel} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>} label="Export CSV" onClick={onExportCSV} />
@@ -738,6 +820,7 @@ function GanttToolbar({
       {mobileMenuOpen && (
         <div ref={mobileRef} style={{ background: "#0F2440", borderTop: "1px solid rgba(255,255,255,0.1)", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
           <Mmi label="Save" onClick={() => { onSave(); setMobileMenuOpen(false); }} />
+          <Mmi label="Status Date Preview" onClick={() => { onStatusDate(); setMobileMenuOpen(false); }} />
           <Mmi label="Import Excel" onClick={() => { onImport(); setMobileMenuOpen(false); }} />
           <Mmi label="Export Excel" onClick={() => { onExportExcel(); setMobileMenuOpen(false); }} />
           <Mmi label="Open Project" onClick={() => { onOpen(); setMobileMenuOpen(false); }} />
@@ -781,6 +864,7 @@ interface QuickActionProps {
   onMulti: () => void; multiSelectMode: boolean;
   onClear: () => void; selectionSize: number;
   onLink: () => void;
+  onStatusDate?: () => void;
   onSave: () => void | Promise<void | boolean>;
   selectedTaskId: number | null;
   selectedTaskName?: string;
@@ -789,7 +873,7 @@ interface QuickActionProps {
 function QuickActionBar({
   onAdd, onInsertAbove, onInsertBelow, onInsertChild,
   onIndent, onOutdent, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, onDelete,
-  onMulti, multiSelectMode, onClear, selectionSize, onLink, onSave,
+  onMulti, multiSelectMode, onClear, selectionSize, onLink, onStatusDate, onSave,
   selectedTaskId, selectedTaskName,
 }: QuickActionProps) {
   /* ═── Rich Color Palette ──══════════════════════════════════ */
@@ -880,6 +964,9 @@ function QuickActionBar({
       {/* ── LINK + SAVE ── */}
       <button onClick={onLink} disabled={selectionSize < 2} title="Link Selected Tasks (2+ required)" style={{ ...applyColors(selectionSize >= 2 ? COLORS.blue : COLORS.disabled), ...disabledPill(selectionSize >= 2) }} onMouseEnter={selectionSize >= 2 ? e => setHover(e, COLORS.blue) : undefined} onMouseLeave={selectionSize >= 2 ? e => setLeave(e, COLORS.blue) : undefined}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Link
+      </button>
+      <button onClick={onStatusDate} title="Preview status date metrics without rescheduling" style={applyColors(COLORS.blue)} onMouseEnter={e => setHover(e, COLORS.blue)} onMouseLeave={e => setLeave(e, COLORS.blue)}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Status Date
       </button>
       <button onClick={onSave} title="Save Project" style={applyColors(COLORS.green)} onMouseEnter={e => setHover(e, COLORS.green)} onMouseLeave={e => setLeave(e, COLORS.green)}>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Save
@@ -1755,6 +1842,9 @@ export default function GanttPlanner() {
   const [depEditorTask, setDepEditorTask] = useState<number | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
+  const [statusDateInput, setStatusDateInput] = useState<string>(toIsoDate(TODAY));
+  const [statusDatePreview, setStatusDatePreview] = useState<StatusDatePreview | null>(null);
+  const [appliedStatusDatePreview, setAppliedStatusDatePreview] = useState<StatusDatePreview | null>(null);
 
   /* ═══════ SECTION 2: ALL useRef hooks (SECOND) ═══════ */
   const lastSavedJsonRef = useRef<string>("");
@@ -2151,6 +2241,25 @@ export default function GanttPlanner() {
 
   const canMoveUp = !!selectedForMove && !moveDisabledReason && moveOrderState.index > 0;
   const canMoveDown = !!selectedForMove && !moveDisabledReason && moveOrderState.index >= 0 && moveOrderState.index < moveOrderState.count - 1;
+
+  const handleStatusDatePreview = useCallback(() => {
+    const sourceTasks = taskList.length ? taskList : (tasksQuery.data || []);
+    if (sourceTasks.length === 0) {
+      setBanner({ type: "error", message: "No tasks available for status date preview." });
+      return;
+    }
+    const date = statusDateInput || toIsoDate(TODAY);
+    setStatusDateInput(date);
+    setStatusDatePreview(buildStatusDatePreview(sourceTasks, date));
+  }, [taskList, tasksQuery.data, statusDateInput]);
+
+  const applyStatusDatePreview = useCallback(() => {
+    if (!statusDatePreview) return;
+    setAppliedStatusDatePreview(statusDatePreview);
+    setStatusDatePreview(null);
+    setHasUnsavedChanges(true);
+    setBanner({ type: "info", message: `Status date ${statusDatePreview.statusDate} applied locally. No dates were moved; Save Project remains separate.` });
+  }, [statusDatePreview]);
 
   /* ═══════ SECTION 5: ALL useCallback definitions (FIFTH) ═══════
      Every callback that references hooks must be defined AFTER those hooks. */
@@ -3033,6 +3142,7 @@ export default function GanttPlanner() {
         hasUnsavedChanges={hasUnsavedChanges}
         onSave={handleSave} onSaveAs={handleSaveAs} onOpen={handleOpenClick} onClose={handleClose}
         onImport={() => fileInputRef.current?.click()}
+        onStatusDate={handleStatusDatePreview}
         onExportExcel={() => exportExcel(tasksQuery.data || [])}
         onExportCSV={() => exportCSV(tasksQuery.data || [])}
         onExportTemplate={exportTemplate}
@@ -3068,6 +3178,7 @@ export default function GanttPlanner() {
           onMulti={() => setMultiSelectMode(!multiSelectMode)} multiSelectMode={multiSelectMode}
           onClear={clearSelection} selectionSize={selectedIds.size}
           onLink={() => setLinkModalOpen(true)}
+          onStatusDate={handleStatusDatePreview}
           onSave={handleSave}
           selectedTaskId={selectedTaskId}
           selectedTaskName={selectedTaskId ? taskList.find((t: any) => t.id === selectedTaskId)?.text?.slice(0, 22) || undefined : undefined}
@@ -3088,6 +3199,22 @@ export default function GanttPlanner() {
           <KpiCard label="Overdue" value={kpi.overdue} icon="⚠️" color="#DC2626" />
           <KpiCard label="Completion" value={`${kpi.completionRate}%`} icon="📊" color="#7C3AED" />
           <KpiCard label="Avg Duration" value={`${kpi.avgDuration}d`} icon="⏱️" color="#0EA5E9" />
+        </div>
+        <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #D6DFE8", borderRadius: 10, padding: "10px 12px", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#475569", fontWeight: 700 }}>
+            Status Date
+            <input type="date" value={statusDateInput} onChange={(e) => setStatusDateInput(e.target.value)} style={{ padding: "6px 9px", border: "1px solid #CBD5E1", borderRadius: 7, fontSize: 12, fontFamily: "Inter" }} />
+          </label>
+          <button onClick={handleStatusDatePreview} style={{ padding: "7px 12px", border: "none", borderRadius: 7, background: "#005BAC", color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "Inter" }}>Preview</button>
+          {appliedStatusDatePreview && (
+            <span style={{ fontSize: 11, color: "#475569", display: "inline-flex", alignItems: "center", gap: 8 }}>
+              Applied locally: <strong>{appliedStatusDatePreview.statusDate}</strong>
+              <span style={{ color: "#DC2626", fontWeight: 800 }}>{appliedStatusDatePreview.summary.overdue} overdue</span>
+              <span style={{ color: "#D97706", fontWeight: 800 }}>{appliedStatusDatePreview.summary.behindSchedule} behind</span>
+              <span style={{ color: "#0EA5E9", fontWeight: 800 }}>{appliedStatusDatePreview.summary.totalRemainingDuration}d remaining</span>
+              <span style={{ color: appliedStatusDatePreview.summary.avgVarianceDays < 0 ? "#DC2626" : "#1F9D55", fontWeight: 800 }}>{formatVarianceDays(appliedStatusDatePreview.summary.avgVarianceDays)} avg variance</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -3113,6 +3240,14 @@ export default function GanttPlanner() {
         )}
         {activeTab === "tasks" && <TaskListTab tasks={taskList} allTasks={tasksQuery.data || []} saveTask={saveTaskMut} deleteTask={deleteTaskMut} setBanner={setBanner} onEditTask={startEdit} onAddTask={startAdd} onMoveUp={() => moveSelectedTask("up")} onMoveDown={() => moveSelectedTask("down")} moveUpDisabled={!canMoveUp} moveDownDisabled={!canMoveDown} moveDisabledReason={moveDisabledReason} selectedTaskId={selectedForMove} onSelectTask={(id) => { setSelectedTaskId(id); setSelectedIds(new Set([id])); lastSelectedRef.current = id; }} setTaskList={setTaskList} links={linksQuery.data || []} />}
         {activeTab === "resources" && <ResourcesTab tasks={tasksQuery.data || []} />}
+
+        {statusDatePreview && (
+          <StatusDatePreviewModal
+            preview={statusDatePreview}
+            onClose={() => setStatusDatePreview(null)}
+            onApply={applyStatusDatePreview}
+          />
+        )}
 
         {/* Task Edit/Add Modal */}
         {(showAdd || editingId) && (
