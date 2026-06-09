@@ -449,14 +449,31 @@ export const ganttProjectsRouter = {
   // ── Rename ──
   rename: publicQuery
     .input(z.object({ id: z.number(), name: z.string().min(1).max(255) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        await db
+        const userId = ctx.user?.id;
+        const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
+        const renamed = await db
           .update(ganttProjects)
           .set({ name: input.name, updatedAt: new Date() })
-          .where(eq(ganttProjects.id, input.id));
-        return { success: true };
+          .where(
+            and(
+              eq(ganttProjects.id, input.id),
+              buildVisibilityFilter(userId, sessionId)
+            )
+          )
+          .returning({ id: ganttProjects.id, name: ganttProjects.name });
+
+        if (renamed.length !== 1) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Project not found",
+          });
+        }
+
+        return { success: true, project: renamed[0] };
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[ganttProjects.rename] error:", err.message);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -468,11 +485,30 @@ export const ganttProjectsRouter = {
   // ── Delete ──
   delete: publicQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        await db.delete(ganttProjects).where(eq(ganttProjects.id, input.id));
-        return { success: true };
+        const userId = ctx.user?.id;
+        const sessionId = getOrCreateAnonSession(ctx.req, ctx.resHeaders);
+        const deleted = await db
+          .delete(ganttProjects)
+          .where(
+            and(
+              eq(ganttProjects.id, input.id),
+              buildVisibilityFilter(userId, sessionId)
+            )
+          )
+          .returning({ id: ganttProjects.id, name: ganttProjects.name });
+
+        if (deleted.length !== 1) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Project not found",
+          });
+        }
+
+        return { success: true, project: deleted[0] };
       } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
         console.error("[ganttProjects.delete] error:", err.message);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
