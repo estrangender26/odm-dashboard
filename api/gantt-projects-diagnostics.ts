@@ -25,6 +25,20 @@ SELECT
   updated_at AS "updatedAt",
   user_id AS "userId",
   session_id AS "sessionId",
+  tasks_data AS "__tasksData"
+FROM public.gantt_projects
+ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+LIMIT 50;
+`.trim();
+
+export const GANTT_PROJECTS_TASKS_COUNT_FAILURE_SQL = `
+SELECT
+  id,
+  name,
+  created_at AS "createdAt",
+  updated_at AS "updatedAt",
+  user_id AS "userId",
+  session_id AS "sessionId",
   CASE
     WHEN tasks_data IS NULL OR tasks_data = '' THEN 0
     WHEN left(trim(tasks_data), 1) = '[' THEN json_array_length(tasks_data::json)
@@ -35,6 +49,53 @@ FROM public.gantt_projects
 ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
 LIMIT 50;
 `.trim();
+
+type LatestProjectRow = {
+  id?: unknown;
+  name?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  userId?: unknown;
+  sessionId?: unknown;
+  __tasksData?: unknown;
+};
+
+function getSafeTasksDiagnostics(tasksData: unknown): {
+  tasksCount: number | null;
+  tasksDataFormat: string;
+} {
+  if (typeof tasksData !== "string") {
+    return { tasksCount: 0, tasksDataFormat: "missing" };
+  }
+
+  if (tasksData.trim() === "") {
+    return { tasksCount: 0, tasksDataFormat: "blank" };
+  }
+
+  try {
+    const parsed = JSON.parse(tasksData);
+    if (Array.isArray(parsed)) {
+      return { tasksCount: parsed.length, tasksDataFormat: "array" };
+    }
+    if (parsed && typeof parsed === "object") {
+      return {
+        tasksCount: Object.keys(parsed).length,
+        tasksDataFormat: "object",
+      };
+    }
+    return { tasksCount: null, tasksDataFormat: typeof parsed };
+  } catch {
+    return { tasksCount: null, tasksDataFormat: "malformed-json" };
+  }
+}
+
+function withSafeTasksCount(row: LatestProjectRow) {
+  const { __tasksData, ...publicRow } = row;
+  return {
+    ...publicRow,
+    ...getSafeTasksDiagnostics(__tasksData),
+  };
+}
 
 export async function fetchGanttProjectsDiagnostics(db: {
   execute: (query: any) => Promise<unknown>;
@@ -92,10 +153,11 @@ export async function fetchGanttProjectsDiagnostics(db: {
     databaseFingerprint: getDbFingerprint(),
     databaseContext: queryRows(dbContext)[0] ?? {},
     rowCount: queryRows(countResult)[0]?.count ?? 0,
-    latest: queryRows(latestRows),
+    latest: queryRows<LatestProjectRow>(latestRows).map(withSafeTasksCount),
     userIdValues: queryRows(userIdValues),
     sessionIdValues: queryRows(sessionIdValues),
     ownershipSummary: queryRows(ownershipSummary)[0] ?? {},
     sql: GANTT_PROJECTS_DIAGNOSTIC_SQL,
+    failingTasksCountSql: GANTT_PROJECTS_TASKS_COUNT_FAILURE_SQL,
   };
 }
