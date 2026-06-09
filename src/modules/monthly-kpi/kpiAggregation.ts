@@ -12,6 +12,7 @@ export const monthlyKpiKeys = [
 export type MonthlyKpiKey = (typeof monthlyKpiKeys)[number];
 
 export type PersistedMonthlyKpiRecord = {
+  id?: number | string;
   business_unit: string;
   reporting_month: number;
   reporting_year: number;
@@ -73,9 +74,32 @@ const businessUnitLabels: Record<string, string> = {
   estate: "Estate Water",
 };
 
+const currentBusinessUnitLabels = new Set(["AMD-EZ", "Laguna Water", "Clark Water", "Tagum Water", "Estate Water"]);
+
 export function normalizeBusinessUnitLabel(value: string) {
   const normalized = String(value || "").toLowerCase().trim();
   return businessUnitLabels[normalized] || String(value || "").trim();
+}
+
+function businessUnitAliasPriority(value: string) {
+  const label = normalizeBusinessUnitLabel(value);
+  const trimmed = String(value || "").trim();
+  return currentBusinessUnitLabels.has(trimmed) && trimmed === label ? 0 : 1;
+}
+
+export function preferCurrentBusinessUnitAliasRecords(records: PersistedMonthlyKpiRecord[]) {
+  const preferred = new Map<string, { record: PersistedMonthlyKpiRecord; priority: number; sequence: number }>();
+  records.forEach((record, sequence) => {
+    const label = normalizeBusinessUnitLabel(record.business_unit);
+    if (!label) return;
+    const key = `${label}|${Number(record.reporting_year)}|${Number(record.reporting_month)}`;
+    const priority = businessUnitAliasPriority(record.business_unit);
+    const existing = preferred.get(key);
+    if (!existing || priority < existing.priority || (priority === existing.priority && sequence > existing.sequence)) {
+      preferred.set(key, { record, priority, sequence });
+    }
+  });
+  return Array.from(preferred.values()).map((entry) => entry.record);
 }
 
 export function normalizeKpiNumber(value: number | string | null | undefined) {
@@ -177,7 +201,9 @@ export function aggregateMonthlyKpiRecords(
   records: PersistedMonthlyKpiRecord[],
   reportingYear: number
 ): MonthlyKpiAggregateResult {
-  const yearlyRecords = records.filter((record) => Number(record.reporting_year) === reportingYear);
+  const yearlyRecords = preferCurrentBusinessUnitAliasRecords(
+    records.filter((record) => Number(record.reporting_year) === reportingYear)
+  );
   const byBusinessUnitRecords = new Map<string, PersistedMonthlyKpiRecord[]>();
 
   yearlyRecords.forEach((record) => {

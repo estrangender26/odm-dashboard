@@ -14,7 +14,7 @@ import { Paths } from "@contracts/constants";
 import fs from "fs";
 import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
-import { aggregateMonthlyKpiRecords } from "../src/modules/monthly-kpi/kpiAggregation";
+import { aggregateMonthlyKpiRecords, normalizeBusinessUnitLabel } from "../src/modules/monthly-kpi/kpiAggregation";
 import type { PersistedMonthlyKpiRecord } from "../src/modules/monthly-kpi/kpiAggregation";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
@@ -330,6 +330,35 @@ app.get("/mw-dashboard", async (c) => {
 });
 
 
+
+const monthlyKpiCanonicalBusinessUnitSql = sql`
+  CASE lower(trim(business_unit))
+    WHEN 'ez' THEN 'AMD-EZ'
+    WHEN 'amd-ez' THEN 'AMD-EZ'
+    WHEN 'laguna' THEN 'Laguna Water'
+    WHEN 'laguna water' THEN 'Laguna Water'
+    WHEN 'clark' THEN 'Clark Water'
+    WHEN 'clark water' THEN 'Clark Water'
+    WHEN 'tagum' THEN 'Tagum Water'
+    WHEN 'tagum water' THEN 'Tagum Water'
+    WHEN 'estate' THEN 'Estate Water'
+    WHEN 'estate water' THEN 'Estate Water'
+    ELSE trim(business_unit)
+  END
+`;
+
+const monthlyKpiAliasPrioritySql = sql`
+  CASE
+    WHEN trim(business_unit) IN ('AMD-EZ', 'Laguna Water', 'Clark Water', 'Tagum Water', 'Estate Water') THEN 0
+    ELSE 1
+  END
+`;
+
+function normalizeMonthlyKpiBusinessUnitFilter(value: string | null | undefined) {
+  const normalized = normalizeBusinessUnitLabel(String(value || "").trim());
+  return normalized || null;
+}
+
 function asNullableKpiNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -386,7 +415,7 @@ function rowsFromDb<T>(result: unknown): T[] {
 }
 
 async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: string | null; reportingYear?: number | null; reportingMonth?: number | null } = {}) {
-  const businessUnitParam = filters.businessUnit?.trim() || null;
+  const businessUnitParam = normalizeMonthlyKpiBusinessUnitFilter(filters.businessUnit);
   const reportingYear = Number.isInteger(filters.reportingYear) ? filters.reportingYear : null;
   const reportingMonth = Number.isInteger(filters.reportingMonth) ? filters.reportingMonth : null;
   const rows = await getDb().execute(sql`
@@ -407,11 +436,21 @@ async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: strin
       mttr_days,
       facility_uptime,
       raw_imported_values
-    FROM monthly_kpi_records
-    WHERE (${businessUnitParam}::text IS NULL OR business_unit = ${businessUnitParam})
+    FROM (
+      SELECT
+        monthly_kpi_records.*,
+        ${monthlyKpiCanonicalBusinessUnitSql} AS canonical_business_unit,
+        ROW_NUMBER() OVER (
+          PARTITION BY ${monthlyKpiCanonicalBusinessUnitSql}, reporting_year, reporting_month
+          ORDER BY ${monthlyKpiAliasPrioritySql} ASC, imported_at DESC NULLS LAST, id DESC
+        ) AS alias_rank
+      FROM monthly_kpi_records
+    ) ranked_monthly_kpi_records
+    WHERE alias_rank = 1
+      AND (${businessUnitParam}::text IS NULL OR canonical_business_unit = ${businessUnitParam})
       AND (${reportingYear}::int IS NULL OR reporting_year = ${reportingYear})
       AND (${reportingMonth}::int IS NULL OR reporting_month = ${reportingMonth})
-    ORDER BY reporting_year DESC, reporting_month DESC, business_unit ASC
+    ORDER BY reporting_year DESC, reporting_month DESC, canonical_business_unit ASC
   `);
   return rowsFromDb<Record<string, unknown>>(rows);
 }
@@ -567,13 +606,17 @@ app.delete("/api/monthly-kpi/records", async (c) => {
     if (!businessUnit || !businessUnit.trim()) {
       return c.json({ error: "business_unit query parameter is required" }, 400);
     }
+    if (!Number.isInteger(reportingYear)) {
+      return c.json({ error: "reporting_year query parameter is required" }, 400);
+    }
     const result = await getDb().execute(sql`
       DELETE FROM monthly_kpi_records
       WHERE business_unit = ${businessUnit.trim()}
+        AND reporting_year = ${reportingYear}
       RETURNING id
     `);
     const rows = rowsFromDb<{ id: number }>(result);
-    const records = await fetchMonthlyKpiRecordsForResponse();
+    const records = await fetchMonthlyKpiRecordsForResponse({ reportingYear });
     const aggregates = Number.isInteger(reportingYear)
       ? await fetchMonthlyKpiAggregateForResponse(reportingYear)
       : null;

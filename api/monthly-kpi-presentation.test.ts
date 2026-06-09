@@ -84,4 +84,22 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(scorecardHtml).toContain("record.pmPlanned = row.pm_planned");
     expect(scorecardHtml).toContain("pm_planned: record.pmPlanned ?? null");
   });
+
+  it("loads saved May 2026 records through the UI fetch path with selected period filters", () => {
+    const fetchSavedRecords = scorecardHtml.slice(
+      scorecardHtml.indexOf("async function fetchSavedMonthlyKpiRecords(buId)"),
+      scorecardHtml.indexOf("async function saveImportedMonthlyKpiRecords")
+    );
+
+    expect(fetchSavedRecords).toContain("params.set('reporting_year',String(getSelectedYear()))");
+    expect(fetchSavedRecords).toContain("params.set('reporting_month',String(getSelectedMonth()))");
+    expect(fetchSavedRecords).toContain("if(buId)params.set('business_unit',getBUApiValue(buId))");
+    expect(fetchSavedRecords).toContain("'/api/monthly-kpi/records?'+params.toString()");
+  });
+
+  it("keeps current API-value rows from being overwritten by legacy alias rows in the UI", () => {
+    expect(scorecardHtml).toContain("function shouldPreferPersistedKpiRow(nextRow,currentRecord,buId)");
+    expect(scorecardHtml).toContain("if(!nextIsCurrent && currentIsCurrent)return false");
+  });
+
 });
