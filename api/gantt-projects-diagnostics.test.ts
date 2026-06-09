@@ -88,5 +88,6 @@ describe("fetchGanttProjectsDiagnostics", () => {
     expect(diagnostics.latest[0]).not.toHaveProperty("__tasksData");
     expect(diagnostics.failingTasksCountSql).toContain("tasks_data::json");
     expect(diagnostics.sql).not.toContain("tasks_data::json");
+    expect(diagnostics.sql).not.toContain("LIMIT 50");
   });
 });

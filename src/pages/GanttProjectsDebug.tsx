@@ -1,6 +1,31 @@
+import { useMemo, useState } from "react";
 import { trpc } from "@/providers/trpc";
 
 type Column = { key: string; label: string };
+type TableRow = Record<string, unknown>;
+
+type ProjectDebugRow = {
+  id: number;
+  name: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  userId?: number | null;
+  sessionId?: string | null;
+  tasksCount?: number | null;
+  tasksDataFormat?: string | null;
+};
+
+type GanttDebugData = {
+  rowCount?: number;
+  databaseFingerprint?: string;
+  databaseContext?: TableRow;
+  ownershipSummary?: TableRow;
+  latest?: ProjectDebugRow[];
+  userIdValues?: TableRow[];
+  sessionIdValues?: TableRow[];
+  currentSessionId?: string;
+  sql?: string;
+};
 
 function valueText(value: unknown) {
   if (value === null || value === undefined || value === "") return "—";
@@ -11,7 +36,7 @@ function DataTable({
   rows,
   columns,
 }: {
-  rows: any[] | undefined;
+  rows: TableRow[] | undefined;
   columns: Column[];
 }) {
   if (!rows || rows.length === 0) {
@@ -70,6 +95,118 @@ function DataTable({
   );
 }
 
+function ProjectAdoptionTable({
+  rows,
+  selectedIds,
+  setSelectedIds,
+}: {
+  rows: ProjectDebugRow[];
+  selectedIds: Set<number>;
+  setSelectedIds: React.Dispatch<React.SetStateAction<Set<number>>>;
+}) {
+  if (rows.length === 0) {
+    return <p style={{ color: "#64748b" }}>No projects returned.</p>;
+  }
+
+  const allSelected = rows.every(row => selectedIds.has(row.id));
+  const toggleAll = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) rows.forEach(row => next.delete(row.id));
+      else rows.forEach(row => next.add(row.id));
+      return next;
+    });
+  };
+  const toggleOne = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table
+        style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
+      >
+        <thead>
+          <tr>
+            <th style={thStyle}>
+              <input
+                aria-label="Select all projects"
+                checked={allSelected}
+                onChange={toggleAll}
+                type="checkbox"
+              />
+            </th>
+            <th style={thStyle}>id</th>
+            <th style={thStyle}>Project name</th>
+            <th style={thStyle}>createdAt</th>
+            <th style={thStyle}>updatedAt</th>
+            <th style={thStyle}>userId</th>
+            <th style={thStyle}>sessionId</th>
+            <th style={thStyle}>task count</th>
+            <th style={thStyle}>tasks format</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => {
+            const selected = selectedIds.has(row.id);
+            return (
+              <tr
+                key={row.id}
+                style={{ background: selected ? "#ECFDF5" : "#FFFFFF" }}
+              >
+                <td style={tdStyle}>
+                  <input
+                    aria-label={`Select project ${row.name}`}
+                    checked={selected}
+                    onChange={() => toggleOne(row.id)}
+                    type="checkbox"
+                  />
+                </td>
+                <td style={tdStyle}>{row.id}</td>
+                <td style={tdStyle}>{valueText(row.name)}</td>
+                <td style={tdStyle}>{valueText(row.createdAt)}</td>
+                <td style={tdStyle}>{valueText(row.updatedAt)}</td>
+                <td style={tdStyle}>{valueText(row.userId)}</td>
+                <td
+                  style={{
+                    ...tdStyle,
+                    whiteSpace: "normal",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {valueText(row.sessionId)}
+                </td>
+                <td style={tdStyle}>{valueText(row.tasksCount)}</td>
+                <td style={tdStyle}>{valueText(row.tasksDataFormat)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const thStyle: React.CSSProperties = {
+  background: "#F1F5F9",
+  borderBottom: "1px solid #CBD5E1",
+  color: "#334155",
+  padding: 8,
+  textAlign: "left",
+};
+
+const tdStyle: React.CSSProperties = {
+  borderBottom: "1px solid #E2E8F0",
+  padding: 8,
+  verticalAlign: "top",
+  whiteSpace: "nowrap",
+};
+
 function Card({
   title,
   children,
@@ -95,11 +232,45 @@ function Card({
 }
 
 export default function GanttProjectsDebug() {
+  const utils = trpc.useUtils();
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const diagnostics = trpc.ganttProjects.debug.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const data = diagnostics.data as any;
+  const adoptMutation = trpc.ganttProjects.adoptToCurrentSession.useMutation({
+    onSuccess: async () => {
+      setSelectedIds(new Set());
+      await Promise.all([
+        diagnostics.refetch(),
+        utils.ganttProjects.list.invalidate(),
+      ]);
+    },
+  });
+  const data = diagnostics.data as GanttDebugData | undefined;
+  const projects = useMemo<ProjectDebugRow[]>(
+    () => data?.latest ?? [],
+    [data?.latest]
+  );
+  const selectedProjects = projects.filter(project =>
+    selectedIds.has(project.id)
+  );
+  const currentSessionId = data?.currentSessionId;
+
+  const adoptSelected = () => {
+    if (selectedProjects.length === 0 || adoptMutation.isPending) return;
+    const projectNames = selectedProjects
+      .map(project => `• ${project.name}`)
+      .join("\n");
+    const confirmed = window.confirm(
+      `Adopt ${selectedProjects.length} selected project(s) to the current session?\n\n` +
+        `Current session_id:\n${currentSessionId || "—"}\n\n` +
+        `Projects:\n${projectNames}\n\n` +
+        "This updates only session_id and updated_at. It will not delete, duplicate, rename, or overwrite tasks_data."
+    );
+    if (!confirmed) return;
+    adoptMutation.mutate({ ids: selectedProjects.map(project => project.id) });
+  };
 
   return (
     <main
@@ -116,24 +287,59 @@ export default function GanttProjectsDebug() {
         Gantt Projects Production Debug
       </h1>
       <p style={{ color: "#475569", marginTop: 0 }}>
-        Read-only inspection of <code>public.gantt_projects</code>. This page
-        does not save, delete, migrate, adopt, overwrite, or reset data.
+        Admin/debug-only inspection and recovery for{" "}
+        <code>public.gantt_projects</code>. Adoption is guarded by{" "}
+        <code>ENABLE_GANTT_DEBUG=true</code> and updates only selected rows to
+        the current anonymous <code>session_id</code>.
       </p>
-      <button
-        disabled={diagnostics.isFetching}
-        onClick={() => diagnostics.refetch()}
-        style={{
-          background: diagnostics.isFetching ? "#94A3B8" : "#0F766E",
-          border: 0,
-          borderRadius: 6,
-          color: "#FFFFFF",
-          cursor: diagnostics.isFetching ? "wait" : "pointer",
-          fontWeight: 700,
-          padding: "10px 14px",
-        }}
-      >
-        {diagnostics.isFetching ? "Loading…" : "Refresh production records"}
-      </button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button
+          disabled={diagnostics.isFetching}
+          onClick={() => diagnostics.refetch()}
+          style={{
+            background: diagnostics.isFetching ? "#94A3B8" : "#0F766E",
+            border: 0,
+            borderRadius: 6,
+            color: "#FFFFFF",
+            cursor: diagnostics.isFetching ? "wait" : "pointer",
+            fontWeight: 700,
+            padding: "10px 14px",
+          }}
+        >
+          {diagnostics.isFetching ? "Loading…" : "Refresh production records"}
+        </button>
+        <button
+          disabled={
+            selectedProjects.length === 0 ||
+            adoptMutation.isPending ||
+            !currentSessionId
+          }
+          onClick={adoptSelected}
+          style={{
+            background:
+              selectedProjects.length === 0 ||
+              adoptMutation.isPending ||
+              !currentSessionId
+                ? "#94A3B8"
+                : "#005BAC",
+            border: 0,
+            borderRadius: 6,
+            color: "#FFFFFF",
+            cursor:
+              selectedProjects.length === 0 ||
+              adoptMutation.isPending ||
+              !currentSessionId
+                ? "not-allowed"
+                : "pointer",
+            fontWeight: 700,
+            padding: "10px 14px",
+          }}
+        >
+          {adoptMutation.isPending
+            ? "Adopting…"
+            : `Adopt selected projects to current session (${selectedProjects.length})`}
+        </button>
+      </div>
 
       {diagnostics.error ? (
         <Card title="Debug route error">
@@ -147,9 +353,36 @@ export default function GanttProjectsDebug() {
         </Card>
       ) : null}
 
+      {adoptMutation.error ? (
+        <Card title="Adoption error">
+          <p style={{ color: "#B91C1C", fontWeight: 700 }}>
+            {adoptMutation.error.message}
+          </p>
+        </Card>
+      ) : null}
+
+      {adoptMutation.data ? (
+        <Card title="Last adoption result">
+          <p>
+            Adopted <strong>{adoptMutation.data.adoptedCount}</strong> of{" "}
+            <strong>{adoptMutation.data.requestedCount}</strong> selected
+            project(s) to session{" "}
+            <code>{adoptMutation.data.currentSessionId}</code>.
+          </p>
+          <p style={{ color: "#475569" }}>
+            The diagnostics table was refreshed, and the normal Open Saved
+            Project list cache was invalidated.
+          </p>
+        </Card>
+      ) : null}
+
       <Card title="Summary">
         <p>
           <strong>Total rows:</strong> {valueText(data?.rowCount)}
+        </p>
+        <p>
+          <strong>Current session_id:</strong>{" "}
+          <code>{valueText(currentSessionId)}</code>
         </p>
         <p>
           <strong>Database fingerprint:</strong>{" "}
@@ -171,18 +404,16 @@ export default function GanttProjectsDebug() {
         </p>
       </Card>
 
-      <Card title="Latest 50 projects">
-        <DataTable
-          rows={data?.latest}
-          columns={[
-            { key: "id", label: "id" },
-            { key: "name", label: "Project name" },
-            { key: "createdAt", label: "createdAt" },
-            { key: "updatedAt", label: "updatedAt" },
-            { key: "userId", label: "userId" },
-            { key: "sessionId", label: "sessionId" },
-            { key: "tasksCount", label: "task count" },
-          ]}
+      <Card title="All projects">
+        <p style={{ color: "#475569", marginTop: 0 }}>
+          Select only the legacy anonymous projects you want to make visible in
+          the current browser session. Adoption never deletes, duplicates,
+          renames, or overwrites <code>tasks_data</code>.
+        </p>
+        <ProjectAdoptionTable
+          rows={projects}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
         />
       </Card>
 
