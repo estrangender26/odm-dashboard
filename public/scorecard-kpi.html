@@ -365,12 +365,12 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <!-- TABS -->
   <div class="tabs">
-    <button class="tab active" onclick="showTab('summary',this)">Summary Matrix</button>
-    <button class="tab" onclick="showTab('ez',this)">AMD-EZ</button>
-    <button class="tab" onclick="showTab('laguna',this)">Laguna Water</button>
-    <button class="tab" onclick="showTab('clark',this)">Clark Water</button>
-    <button class="tab" onclick="showTab('tagum',this)">Tagum Water</button>
-    <button class="tab" onclick="showTab('estate',this)">Estate Water</button>
+    <button class="tab active" data-tab="summary">Summary Matrix</button>
+    <button class="tab" data-tab="ez">AMD-EZ</button>
+    <button class="tab" data-tab="laguna">Laguna Water</button>
+    <button class="tab" data-tab="clark">Clark Water</button>
+    <button class="tab" data-tab="tagum">Tagum Water</button>
+    <button class="tab" data-tab="estate">Estate Water</button>
   </div>
 
   <!-- SUMMARY TAB -->
@@ -573,15 +573,53 @@ document.addEventListener('DOMContentLoaded',function(){
   initManualSelectors();
   initImportSelectors();
   initForm();
+  initMonthlyKpiTabListeners();
   updateClearButtonState();
   updateExportButtonState();
-  fetchSavedMonthlyKpiRecords();
+  if(!applyMonthlyKpiUrlTabFallback())fetchSavedMonthlyKpiRecords();
 });
 
 // ===== TAB SWITCH =====
+function getMonthlyKpiTabIds(){
+  return ['summary'].concat(BUs.map(function(bu){return bu.id;}));
+}
+
+function isValidMonthlyKpiTab(id){
+  return getMonthlyKpiTabIds().indexOf(id)>-1;
+}
+
+function getMonthlyKpiTabButton(id){
+  return document.querySelector('.tab[data-tab="'+id+'"]') || Array.prototype.find.call(document.querySelectorAll('.tab'),function(btn){
+    return btn.getAttribute('onclick') && btn.getAttribute('onclick').indexOf("'"+id+"'")>-1;
+  }) || null;
+}
+
+function getMonthlyKpiUrlTab(){
+  var search = window && window.location ? window.location.search : '';
+  var tab = new URLSearchParams(search).get('tab');
+  return isValidMonthlyKpiTab(tab) ? tab : null;
+}
+
+function applyMonthlyKpiUrlTabFallback(){
+  var tab = getMonthlyKpiUrlTab();
+  if(!tab)return false;
+  showTab(tab);
+  return true;
+}
+
+function initMonthlyKpiTabListeners(){
+  document.querySelectorAll('.tab[data-tab]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      showTab(btn.getAttribute('data-tab'),btn);
+    });
+  });
+}
+
 function showTab(id,btn,skipFetch){
+  if(!isValidMonthlyKpiTab(id))return;
   var panel = document.getElementById('t-'+id);
   if(!panel)return;
+  btn = btn || getMonthlyKpiTabButton(id);
   document.querySelectorAll('.tc').forEach(function(t){t.classList.remove('active')});
   panel.classList.add('active');
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
@@ -639,8 +677,7 @@ function handleBusinessUnitChange(){
   persistDeckContext();
   updateClearButtonState(selectedBusinessUnitId);
   updateExportButtonState(selectedBusinessUnitId);
-  var tabBtn = Array.prototype.find.call(document.querySelectorAll('.tab'),function(btn){return btn.getAttribute('onclick') && btn.getAttribute('onclick').indexOf("'"+selectedBusinessUnitId+"'")>-1;});
-  showTab(selectedBusinessUnitId,tabBtn);
+  showTab(selectedBusinessUnitId);
   loadData();
 }
 function countImportedMonths(buId,year){
@@ -1348,8 +1385,7 @@ function validateImportContext(ctx){
 async function switchToImportedBusinessUnit(buId){
   selectedBusinessUnitId = buId;
   setSelectValue('businessUnitSel',buId);
-  var tabBtn = Array.prototype.find.call(document.querySelectorAll('.tab'),function(btn){return btn.getAttribute('onclick') && btn.getAttribute('onclick').indexOf("'"+buId+"'")>-1;});
-  showTab(buId,tabBtn,true);
+  showTab(buId,null,true);
   loadData();
 }
 

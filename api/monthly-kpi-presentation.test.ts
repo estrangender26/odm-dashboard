@@ -18,10 +18,89 @@ function extractScriptArray(name: string) {
   return Array.from(match[1].matchAll(/'([^']+)'/g)).map((entry) => entry[1]);
 }
 
-function createScorecardContext() {
+function extractScorecardScript() {
   const scriptStart = scorecardHtml.indexOf("<script>") + "<script>".length;
   const scriptEnd = scorecardHtml.indexOf("</body>", scriptStart);
-  const scorecardScript = scorecardHtml.slice(scriptStart, scriptEnd);
+  return scorecardHtml.slice(scriptStart, scriptEnd);
+}
+
+function createClassList(initialClasses = "") {
+  const classes = new Set(initialClasses.split(/\s+/).filter(Boolean));
+  return {
+    add(className: string) { classes.add(className); },
+    remove(className: string) { classes.delete(className); },
+    toggle(className: string) {
+      if (classes.has(className)) {
+        classes.delete(className);
+        return false;
+      }
+      classes.add(className);
+      return true;
+    },
+    contains(className: string) { return classes.has(className); },
+  };
+}
+
+function createMonthlyKpiTabContext(search: string) {
+  const scorecardScript = extractScorecardScript();
+  const panels = {
+    "t-summary": { id: "t-summary", classList: createClassList("tc active") },
+    "t-ez": { id: "t-ez", classList: createClassList("tc") },
+  };
+  const businessUnitSelect = { id: "businessUnitSel", value: "" };
+  const genericElement = { addEventListener() {}, classList: createClassList(), style: {}, appendChild() {}, remove() {} };
+  const buttons = [
+    { tab: "summary", classList: createClassList("tab active"), getAttribute(name: string) { return name === "data-tab" ? "summary" : null; }, addEventListener() {} },
+    { tab: "ez", classList: createClassList("tab"), getAttribute(name: string) { return name === "data-tab" ? "ez" : null; }, addEventListener() {} },
+  ];
+  const context = {
+    console,
+    setTimeout,
+    clearTimeout,
+    URLSearchParams,
+    document: {
+      addEventListener() {},
+      getElementById(id: string) {
+        if (id === "businessUnitSel") return businessUnitSelect;
+        return panels[id as keyof typeof panels] ?? genericElement;
+      },
+      querySelector(selector: string) {
+        const tabMatch = selector.match(/^\.tab\[data-tab="([^\"]+)"\]$/);
+        if (tabMatch) return buttons.find((button) => button.tab === tabMatch[1]) ?? null;
+        if (selector === ".tc.active") return Object.values(panels).find((panel) => panel.classList.contains("active")) ?? null;
+        return null;
+      },
+      querySelectorAll(selector: string) {
+        if (selector === ".tc") return Object.values(panels);
+        if (selector === ".tab" || selector === ".tab[data-tab]") return buttons;
+        return [];
+      },
+      createElement() { return { classList: createClassList(), style: {}, appendChild() {} }; },
+    },
+    localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    window: { location: { search } },
+    fetch() {},
+  };
+  vm.createContext(context);
+  vm.runInContext(scorecardScript, context);
+  const runnableContext = context as typeof context & {
+    applyMonthlyKpiUrlTabFallback: () => boolean;
+    persistDeckContext: () => void;
+    updateClearButtonState: () => void;
+    updateExportButtonState: () => void;
+    renderBUCharts: () => void;
+    fetchSavedMonthlyKpiRecords: () => void;
+  };
+  runnableContext.persistDeckContext = () => {};
+  runnableContext.updateClearButtonState = () => {};
+  runnableContext.updateExportButtonState = () => {};
+  runnableContext.renderBUCharts = () => {};
+  runnableContext.fetchSavedMonthlyKpiRecords = () => {};
+  return { context: runnableContext, panels };
+}
+
+function createScorecardContext() {
+  const scorecardScript = extractScorecardScript();
   const element = {
     addEventListener() {},
     appendChild() {},
@@ -92,6 +171,14 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(summaryTable).toContain("PM:CM Ratio (Cost)");
     expect(summaryTable).toContain("Facility Uptime (%)");
     expect(summaryTable).not.toContain("PM Planned");
+  });
+
+  it("activates the AMD-EZ panel and hides Summary Matrix when the URL has ?tab=ez", () => {
+    const { context, panels } = createMonthlyKpiTabContext("?tab=ez");
+
+    expect(context.applyMonthlyKpiUrlTabFallback()).toBe(true);
+    expect(panels["t-ez"].classList.contains("active")).toBe(true);
+    expect(panels["t-summary"].classList.contains("active")).toBe(false);
   });
 
 
