@@ -68,6 +68,84 @@
     );
   }
 
+  function getCriticalContributorName(row) {
+    return getCategoryName(row) || getAssetName(row);
+  }
+
+  function buildParetoTopContributors(rows) {
+    const negativeRows = rows.filter(r => hasNegativeFindings(r));
+    const groups = new Map();
+
+    negativeRows.forEach(r => {
+      const name = getCriticalContributorName(r);
+      if (!groups.has(name)) {
+        groups.set(name, { name, facility: r.Plant || r.Site || r.Facility || '(Unknown facility)', count: 0 });
+      }
+      const group = groups.get(name);
+      group.count++;
+      if (r.Plant || r.Site || r.Facility) group.facility = r.Plant || r.Site || r.Facility;
+    });
+
+    const sorted = Array.from(groups.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const take = Math.max(1, Math.ceil(sorted.length * 0.2));
+    const total = negativeRows.length || 1;
+    let cumulative = 0;
+
+    return sorted.slice(0, take).map(group => {
+      cumulative += group.count;
+      return {
+        name: group.name,
+        facility: group.facility,
+        findingCount: group.count,
+        share: Math.round((group.count / total) * 100),
+        cumulative: Math.round((cumulative / total) * 100)
+      };
+    });
+  }
+
+  function normalizeInsightText(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function getInsightDrilldownType(insight) {
+    return insight && insight.drilldown && insight.drilldown.type ? insight.drilldown.type : '';
+  }
+
+  function getInsightConcentrationCategory(insight) {
+    if (!insight || !insight.drilldown) return '';
+    return normalizeInsightText(insight.drilldown.category || insight.drilldown.dominantCategory || '');
+  }
+
+  function getCriticalContributorSet(insight) {
+    if (!insight || !insight.drilldown || !Array.isArray(insight.drilldown.contributors)) return new Set();
+    return new Set(insight.drilldown.contributors.map(item => normalizeInsightText(item && item.name)).filter(Boolean));
+  }
+
+  function removeOverlappingManagementInsights(insights) {
+    const criticalInsight = insights.find(insight => getInsightDrilldownType(insight) === 'critical-issues-immediate-action');
+    const criticalContributors = getCriticalContributorSet(criticalInsight);
+
+    return insights.filter(insight => {
+      if (!criticalInsight) return true;
+
+      const drilldownType = getInsightDrilldownType(insight);
+      const title = normalizeInsightText(insight && insight.title);
+
+      if (drilldownType === 'pareto-concentration') return false;
+
+      if (
+        drilldownType === 'dominant-equipment-type-negative-findings' ||
+        drilldownType === 'centrifugal-pump-negative-findings' ||
+        title.includes('systems dominate negative findings')
+      ) {
+        const category = getInsightConcentrationCategory(insight);
+        return !category || !criticalContributors.has(category);
+      }
+
+      return true;
+    });
+  }
+
   function todayISO() {
     return new Date().toISOString().slice(0, 10);
   }
@@ -164,7 +242,13 @@
           title: 'Sudden Spike in Negative Findings',
           description: `A spike was detected on ${formatDate(dates[dates.length - 1])}: ${lastVal} distinct affected assets vs ${Math.round(rollAvg)} recent average.`,
           metric: `${lastVal} (avg ${Math.round(rollAvg)})`,
-          recommendation: 'Immediately investigate the cause. Check for equipment failure batch or inspection scope change.'
+          recommendation: 'Immediately investigate the cause. Check for equipment failure batch or inspection scope change.',
+          drilldown: {
+            type: 'sudden-spike-negative-findings',
+            spikeDate: dates[dates.length - 1],
+            lastVal,
+            rollingAverage: Math.round(rollAvg)
+          }
         });
       }
     }
@@ -179,7 +263,15 @@
         title: 'Inspection Activity Declining',
         description: `Total inspection entries decreased ${Math.abs(totalChange)}% in the recent period.`,
         metric: `${recentTotal} vs ${prevTotal}`,
-        recommendation: 'Verify inspection schedules are being followed. Check for resource constraints.'
+        recommendation: 'Verify inspection schedules are being followed. Check for resource constraints.',
+        drilldown: {
+          type: 'inspection-activity-declining',
+          change: totalChange,
+          recentTotal,
+          prevTotal,
+          periodSize: half,
+          totalDays: dates.length
+        }
       });
     }
 
@@ -320,10 +412,22 @@
 
     if (byInspector.size < 2) return insights;
 
+    // Inactive inspectors are a current availability concern. Keep them out of
+    // the low-activity population so the same person does not appear in both cards.
+    const today = todayISO();
+    const inactive = Array.from(byInspector.entries())
+      .filter(([, d]) => {
+        if (!d.dates.length) return true;
+        const lastDate = d.dates.sort()[d.dates.length - 1];
+        return daysBetween(lastDate, today) > config.inactivityDays;
+      })
+      .map(([name, d]) => ({ name, lastDate: d.dates.sort()[d.dates.length - 1] || 'unknown' }));
+    const inactiveNames = new Set(inactive.map(item => item.name));
+
     // Low-activity inspectors
     const avgInspections = avg(Array.from(byInspector.values()).map(d => d.count));
     const lowActivity = Array.from(byInspector.entries())
-      .filter(([, d]) => d.count < Math.max(config.inspectorMinInspections, avgInspections * 0.3))
+      .filter(([name, d]) => !inactiveNames.has(name) && d.count < Math.max(config.inspectorMinInspections, avgInspections * 0.3))
       .map(([name]) => name);
 
     if (lowActivity.length >= 2) {
@@ -342,16 +446,6 @@
       });
  }
 
-    // Inactive inspectors (no recent inspections)
-    const today = todayISO();
-    const inactive = Array.from(byInspector.entries())
-      .filter(([, d]) => {
-        if (!d.dates.length) return true;
-        const lastDate = d.dates.sort()[d.dates.length - 1];
-        return daysBetween(lastDate, today) > config.inactivityDays;
-      })
-      .map(([name, d]) => ({ name, lastDate: d.dates.sort()[d.dates.length - 1] || 'unknown' }));
-
     if (inactive.length >= 1) {
       insights.push({
         type: TYPE.INSPECTOR, severity: SEVERITY.LOW,
@@ -360,23 +454,6 @@
         metric: `${inactive.length} inspectors • ${inactive.reduce((sum, item) => sum + (byInspector.get(item.name) ? byInspector.get(item.name).count : 0), 0)} records`,
         recommendation: 'Confirm inspector availability and reassign coverage if needed.',
         drilldown: { type: 'inspectors-inactive', inactivityDays: config.inactivityDays, inspectors: inactive.map(item => item.name) }
-      });
-    }
-
-    // Data quality across inspectors
-    const dqScores = Array.from(byInspector.values()).map(d => ({
-      total: d.count,
-      negative: d.negative,
-      quality: d.count > 0 ? 100 - (d.negative / d.count * 100) : 100
-    }));
-    const avgQuality = avg(dqScores.map(s => s.quality));
-    if (avgQuality >= config.dataQualityThreshold) {
-      insights.push({
-        type: TYPE.INSPECTOR, severity: SEVERITY.INFO,
-        title: 'High Data Quality Across Inspectors',
-        description: `Average data quality remains above ${config.dataQualityThreshold}% across all ${byInspector.size} inspectors.`,
-        metric: `${Math.round(avgQuality)}% avg quality`,
-        recommendation: 'Maintain current inspection standards and data capture procedures.'
       });
     }
 
@@ -401,37 +478,26 @@
     const uncovered = Array.from(assetDates.entries())
       .filter(([, lastDate]) => daysBetween(lastDate, today) > config.coverageGapDays)
       .map(([asset]) => asset);
+    const uncoveredSet = new Set(uncovered);
+    const negAssets = new Set();
+    rows.forEach(r => { if (hasNegativeFindings(r)) negAssets.add(getAssetName(r)); });
+    const staleNeg = Array.from(negAssets).filter(asset => uncoveredSet.has(asset));
 
     if (uncovered.length >= 3) {
       insights.push({
         type: TYPE.COVERAGE, severity: SEVERITY.MEDIUM,
         title: 'Inspection Coverage Gaps Detected',
-        description: `${uncovered.length} assets have not been inspected within the last ${config.coverageGapDays} days.`,
-        metric: `${uncovered.length} assets overdue`,
+        description: `${uncovered.length} assets have not been inspected within the last ${config.coverageGapDays} days${staleNeg.length ? `, including ${staleNeg.length} with prior negative findings` : ''}.`,
+        metric: `${uncovered.length} assets overdue${staleNeg.length ? ` • ${staleNeg.length} priority` : ''}`,
         recommendation: 'Schedule overdue inspections. Prioritize assets with historical negative findings.',
         drilldown: {
           type: 'inspection-coverage-gaps',
-          gapDays: config.coverageGapDays
+          gapDays: config.coverageGapDays,
+          overdueAssets: uncovered,
+          priorityNegativeAssets: staleNeg,
+          distinctAssets: uncovered.length,
+          priorityCount: staleNeg.length
         }
-      });
-    }
-
-    // Assets with negative findings that haven't been re-inspected
-    const negAssets = new Set();
-    rows.forEach(r => { if (hasNegativeFindings(r)) negAssets.add(getAssetName(r)); });
-    const staleNeg = Array.from(negAssets).filter(a => {
-      const lastDate = assetDates.get(a);
-      if (!lastDate) return true;
-      return daysBetween(lastDate, today) > config.coverageGapDays;
-    });
-
-    if (staleNeg.length >= 2) {
-      insights.push({
-        type: TYPE.COVERAGE, severity: SEVERITY.HIGH,
-        title: 'Unresolved Negative Findings Need Follow-up',
-        description: `${staleNeg.length} assets with prior negative findings have not been re-inspected recently.`,
-        metric: `${staleNeg.length} assets`,
-        recommendation: 'Prioritize follow-up inspections on assets with open negative findings to verify resolution status.'
       });
     }
 
@@ -466,20 +532,39 @@
       });
     }
 
-    // If critical insights exist, add summary recommendation
-    const criticalRows = rows.filter(r => hasNegativeFindings(r) && isCriticalPriority(r));
-    const criticalAssets = new Set(criticalRows.map(r => getAssetName(r)));
-    if (criticalRows.length > 0) {
+    // Critical issues are the top 20% Pareto contributors to negative findings.
+    const criticalContributors = buildParetoTopContributors(rows);
+    const criticalFindingCount = criticalContributors.reduce((sum, item) => sum + item.findingCount, 0);
+    if (criticalContributors.length > 0 && criticalFindingCount > 0) {
       recs.push({
         type: TYPE.RECOMMENDATION, severity: SEVERITY.CRITICAL,
         title: 'Critical Issues Require Immediate Action',
-        description: `${criticalAssets.size} critical operational asset${criticalAssets.size !== 1 ? 's' : ''} detected across ${criticalRows.length} high-priority finding${criticalRows.length !== 1 ? 's' : ''}.`,
-        metric: `${criticalAssets.size} assets • ${criticalRows.length} findings`,
-        recommendation: 'Escalate to maintenance management. Review critical findings and assign corrective actions with deadlines.',
+        description: `${criticalContributors.length} Pareto top-20% contributor${criticalContributors.length !== 1 ? 's' : ''} account for ${criticalFindingCount} negative finding${criticalFindingCount !== 1 ? 's' : ''}.`,
+        metric: `${criticalContributors.length} contributors • ${criticalFindingCount} findings`,
+        recommendation: 'Escalate Pareto top contributors to maintenance management. Assign corrective actions against the highest-impact assets or categories.',
         drilldown: {
           type: 'critical-issues-immediate-action',
-          distinctAssets: criticalAssets.size,
-          recordCount: criticalRows.length
+          basis: 'pareto-top-20-negative-findings',
+          contributors: criticalContributors,
+          distinctAssets: criticalContributors.length,
+          recordCount: criticalFindingCount
+        }
+      });
+    }
+
+    const explicitCriticalRows = rows.filter(r => hasNegativeFindings(r) && isCriticalPriority(r));
+    const explicitCriticalAssets = new Set(explicitCriticalRows.map(r => getAssetName(r)));
+    if (explicitCriticalRows.length > 0) {
+      recs.push({
+        type: TYPE.RECOMMENDATION, severity: SEVERITY.HIGH,
+        title: 'Explicit Critical Findings Detected',
+        description: `${explicitCriticalAssets.size} asset${explicitCriticalAssets.size !== 1 ? 's' : ''} include explicit critical/high-priority wording across ${explicitCriticalRows.length} finding${explicitCriticalRows.length !== 1 ? 's' : ''}.`,
+        metric: `${explicitCriticalAssets.size} assets • ${explicitCriticalRows.length} findings`,
+        recommendation: 'Review explicitly critical wording alongside Pareto-driven priorities.',
+        drilldown: {
+          type: 'explicit-critical-findings',
+          distinctAssets: explicitCriticalAssets.size,
+          recordCount: explicitCriticalRows.length
         }
       });
     }
@@ -509,11 +594,13 @@
     allInsights.push(...generateCoverageInsights(rows, cfg));
     allInsights.push(...generateRecommendations(allInsights, rows));
 
+    const finalInsights = removeOverlappingManagementInsights(allInsights);
+
     // Sort by severity weight (critical first)
     const severityWeight = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
-    allInsights.sort((a, b) => severityWeight[b.severity] - severityWeight[a.severity]);
+    finalInsights.sort((a, b) => severityWeight[b.severity] - severityWeight[a.severity]);
 
-    return allInsights;
+    return finalInsights;
   }
 
   /* ---------- EXPORT ---------- */

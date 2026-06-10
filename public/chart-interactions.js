@@ -353,12 +353,18 @@
   }
 
   function getSummaryKind(type) {
+    if (type === 'critical-issues-immediate-action') return 'critical-pareto';
     if (type === 'inspectors-low-activity' || type === 'inspectors-inactive') return 'inspector';
     if (type === 'dominant-equipment-type-negative-findings' || type === 'pareto-concentration') return 'category';
     if (type === 'negative-findings-declining' || type === 'negative-findings-trend-increased' ||
+      type === 'sudden-spike-negative-findings' ||
       type === 'negative-finding-rate-normal' || type === 'negative-finding-rate-high' ||
       type === 'inspection-activity-declining') return 'trend';
     return 'asset';
+  }
+
+  function getCriticalContributorName(row) {
+    return getCategoryName(row) || getAssetName(row);
   }
 
   function getRowSeverity(row, fallback) {
@@ -518,6 +524,7 @@
     var title = normalizeText(insight && insight.title || '');
     if (title.indexOf('centrifugal pump') !== -1) return 'centrifugal-pump-negative-findings';
     if (title.indexOf('critical issues require immediate action') !== -1) return 'critical-issues-immediate-action';
+    if (title.indexOf('explicit critical findings') !== -1) return 'explicit-critical-findings';
     if (title.indexOf('recurring issues on same assets') !== -1) return 'recurring-issues-same-assets';
     if (title.indexOf('pareto concentration') !== -1) return 'pareto-concentration';
     if (title.indexOf('systems dominate negative findings') !== -1) return 'dominant-equipment-type-negative-findings';
@@ -525,6 +532,9 @@
     if (title.indexOf('low activity') !== -1) return 'inspectors-low-activity';
     if (title.indexOf('inactive inspector') !== -1) return 'inspectors-inactive';
     if (title.indexOf('negative findings declining') !== -1) return 'negative-findings-declining';
+    if (title.indexOf('negative findings trend increased') !== -1) return 'negative-findings-trend-increased';
+    if (title.indexOf('sudden spike in negative findings') !== -1) return 'sudden-spike-negative-findings';
+    if (title.indexOf('inspection activity declining') !== -1) return 'inspection-activity-declining';
     if (title.indexOf('negative finding rate within normal range') !== -1) return 'negative-finding-rate-normal';
     if (title.indexOf('high negative finding rate') !== -1) return 'negative-finding-rate-high';
     return 'generic';
@@ -553,9 +563,22 @@
     }
 
     if (type === 'critical-issues-immediate-action') {
-      payload.criteria = 'Rows that are negative findings with critical/high-priority wording.';
+      var contributors = insight.drilldown && insight.drilldown.contributors ? insight.drilldown.contributors : [];
+      var contributorNames = contributors.map(function(item) { return item.name; });
+      payload.criteria = 'Pareto top 20% contributors by negative finding count.';
+      payload.paretoContributors = contributors;
+      payload.rows = rows.filter(function(row) {
+        return hasNegativeKeyword(row) && contributorNames.indexOf(getCriticalContributorName(row)) !== -1;
+      });
+      payload.summary.push(contributors.length + ' Pareto top-20% contributors');
+      if (!payload.rows.length) payload.notes = 'No Pareto top-20% contributor rows found for the current filters.';
+      return payload;
+    }
+
+    if (type === 'explicit-critical-findings') {
+      payload.criteria = 'Rows that are negative findings with explicit critical/high-priority wording.';
       payload.rows = rows.filter(function(row) { return hasNegativeKeyword(row) && isCriticalPriority(row); });
-      if (!payload.rows.length) payload.notes = 'No critical/high-priority negative findings found for the current filters.';
+      if (!payload.rows.length) payload.notes = 'No explicit critical/high-priority negative findings found for the current filters.';
       return payload;
     }
 
@@ -594,22 +617,25 @@
       });
       payload.criteria = 'Assets whose last inspection is older than configured gap days (' + gapDays + ').';
       payload.rows = [];
+      var priorityNegativeAssets = new Set(insight.drilldown && insight.drilldown.priorityNegativeAssets ? insight.drilldown.priorityNegativeAssets : []);
       Object.keys(latest).forEach(function(asset) {
         var rec = latest[asset];
         var gap = daysBetween(rec.date, today);
         if (gap > gapDays) {
+          var isPriority = priorityNegativeAssets.has(asset);
           payload.rows.push({
             _synthetic: true,
             AssetTag: asset,
             Plant: getFacilityName(rec.row),
             Inspector: getInspectorName(rec.row),
             InspectionDate: rec.date,
-            Status: 'Overdue (' + gap + ' days)',
+            Status: isPriority ? 'Priority overdue (' + gap + ' days)' : 'Overdue (' + gap + ' days)',
             EntryNotes: getRemark(rec.row)
           });
         }
       });
       payload.summary.push(payload.rows.length + ' assets overdue');
+      if (priorityNegativeAssets.size) payload.summary.push(priorityNegativeAssets.size + ' priority assets with prior negative findings');
       if (!payload.rows.length) payload.notes = 'No assets were overdue in current filters.';
       return payload;
     }
@@ -674,7 +700,25 @@
       return payload;
     }
 
-    if (type === 'negative-findings-declining') {
+    if (type === 'sudden-spike-negative-findings') {
+      var spikeDate = insight.drilldown && insight.drilldown.spikeDate ? insight.drilldown.spikeDate : '';
+      payload.criteria = spikeDate
+        ? 'Negative findings on the spike date (' + spikeDate + ').'
+        : 'Negative findings on the latest inspection date.';
+      payload.rows = rows.filter(function(row) {
+        if (!hasNegativeKeyword(row)) return false;
+        var date = formatDateCell(row.InspectionDate);
+        return spikeDate ? date === spikeDate : Boolean(date);
+      });
+      payload.summary.push('Spike date: ' + (spikeDate || 'latest available date'));
+      if (insight.drilldown && insight.drilldown.rollingAverage !== undefined) {
+        payload.summary.push('Rolling average: ' + insight.drilldown.rollingAverage);
+      }
+      if (!payload.rows.length) payload.notes = 'No negative findings found for the spike date in current filters.';
+      return payload;
+    }
+
+    if (type === 'negative-findings-declining' || type === 'negative-findings-trend-increased') {
       var dateBuckets = {};
       rows.forEach(function(row) {
         var date = formatDateCell(row.InspectionDate);
@@ -705,6 +749,39 @@
         return recent.indexOf(date) !== -1 || previous.indexOf(date) !== -1;
       });
       if (!payload.rows.length) payload.notes = 'No negative findings available in the compared periods.';
+      return payload;
+    }
+
+    if (type === 'inspection-activity-declining') {
+      var activityBuckets = {};
+      rows.forEach(function(row) {
+        var date = formatDateCell(row.InspectionDate);
+        if (!date) return;
+        if (!activityBuckets[date]) activityBuckets[date] = { total: 0 };
+        activityBuckets[date].total += 1;
+      });
+      var activityDates = Object.keys(activityBuckets).sort();
+      if (activityDates.length < 4) {
+        payload.criteria = 'Need at least 4 date buckets to compare inspection activity.';
+        payload.rows = rows.slice();
+        payload.notes = payload.rows.length
+          ? 'Using all visible inspection rows because activity comparison requires more date buckets.'
+          : 'No inspection rows available for activity comparison.';
+        return payload;
+      }
+      var activityHalf = Math.floor(activityDates.length / 2);
+      var activityRecent = activityDates.slice(activityHalf);
+      var activityPrevious = activityDates.slice(0, activityHalf);
+      var activityRecentTotal = activityRecent.reduce(function(sum, date) { return sum + activityBuckets[date].total; }, 0);
+      var activityPreviousTotal = activityPrevious.reduce(function(sum, date) { return sum + activityBuckets[date].total; }, 0);
+      payload.criteria = 'Total inspection volume in recent period vs previous period.';
+      payload.summary.push('Recent inspections: ' + activityRecentTotal);
+      payload.summary.push('Previous inspections: ' + activityPreviousTotal);
+      payload.rows = rows.filter(function(row) {
+        var date = formatDateCell(row.InspectionDate);
+        return activityRecent.indexOf(date) !== -1 || activityPrevious.indexOf(date) !== -1;
+      });
+      if (!payload.rows.length) payload.notes = 'No inspection rows available in the compared periods.';
       return payload;
     }
 
@@ -754,6 +831,28 @@
   function renderAiInsightSummaryTable(kind, groups) {
     if (!groups.length) {
       return '<div id="aiInsightEmptyState"><strong>No Summary Groups</strong>Records tab may contain raw rows if source grouping fields are incomplete.</div>';
+    }
+
+    if (kind === 'critical-pareto') {
+      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+        '<th>Asset / Equipment or Category</th>' +
+        '<th>Facility / Site</th>' +
+        '<th>Finding Count</th>' +
+        '<th>Share %</th>' +
+        '<th>Cumulative %</th>' +
+        '<th>Severity</th>' +
+        '</tr></thead><tbody>' +
+        groups.map(function(group) {
+          return '<tr>' +
+            '<td>' + escHtml(group.name) + '</td>' +
+            '<td>' + escHtml(group.facility || '-') + '</td>' +
+            '<td>' + group.findingCount + '</td>' +
+            '<td>' + group.share + '%</td>' +
+            '<td>' + group.cumulative + '%</td>' +
+            '<td>' + renderAiInsightSeverityBadge('critical') + '</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div>';
     }
 
     if (kind === 'inspector') {
@@ -879,6 +978,13 @@
       var negative = groups.reduce(function(sum, group) { return sum + (group.negativeFindings || 0); }, 0);
       return { entityCount: groups.length, recordCount: negative, totalCount: contextRows.length };
     }
+    if (kind === 'critical-pareto') {
+      return {
+        entityCount: groups.length,
+        recordCount: groups.reduce(function(sum, group) { return sum + (group.findingCount || 0); }, 0),
+        totalCount: rows.length
+      };
+    }
     return { entityCount: groups.length, recordCount: rows.length, totalCount: rows.length };
   }
 
@@ -897,8 +1003,10 @@
     });
 
     if (type === 'critical-issues-immediate-action') {
-      enriched.description = counts.entityCount + ' critical operational asset' + (counts.entityCount === 1 ? '' : 's') + ' detected across ' + counts.recordCount + ' high-priority finding' + (counts.recordCount === 1 ? '' : 's') + '.';
-      enriched.metric = counts.entityCount + ' assets • ' + counts.recordCount + ' findings';
+      enriched.description = counts.entityCount + ' Pareto top-20% contributor' + (counts.entityCount === 1 ? '' : 's') + ' account for ' + counts.recordCount + ' negative finding' + (counts.recordCount === 1 ? '' : 's') + '.';
+      enriched.metric = counts.entityCount + ' contributors • ' + counts.recordCount + ' findings';
+    } else if (kind === 'critical-pareto') {
+      enriched.metric = counts.entityCount + ' contributors • ' + counts.recordCount + ' findings';
     } else if (kind === 'asset') {
       enriched.metric = counts.entityCount + ' assets • ' + counts.recordCount + ' findings';
     } else if (kind === 'inspector') {
@@ -929,6 +1037,7 @@
 
 
   function buildSummaryGroups(kind, payload, rows, insightType, fallbackSeverity) {
+    if (kind === 'critical-pareto') return (payload.paretoContributors || []).slice().sort(function(a, b) { return (b.findingCount || 0) - (a.findingCount || 0); });
     if (kind === 'inspector') return groupRowsByInspector(rows, insightType);
     if (kind === 'category') return groupRowsByCategory(rows);
     if (kind === 'trend') return groupRowsByPeriod(payload.contextRows && payload.contextRows.length ? payload.contextRows : rows);
@@ -938,6 +1047,7 @@
 
   function getSummaryCountLabel(kind, groups, rows, payload, counts) {
     var resolved = counts || getReconciledCounts(kind, groups, rows, payload);
+    if (kind === 'critical-pareto') return resolved.entityCount + ' Pareto top-20% contributors • ' + resolved.recordCount + ' findings';
     if (kind === 'inspector') return resolved.entityCount + ' distinct inspectors • ' + resolved.recordCount + ' matching records';
     if (kind === 'category') return resolved.entityCount + ' distinct categories • ' + resolved.recordCount + ' findings';
     if (kind === 'trend') return resolved.entityCount + ' period/status groups • ' + resolved.recordCount + ' negative findings • ' + resolved.totalCount + ' total inspections';
@@ -946,6 +1056,7 @@
   }
 
   function getSummaryViewLabel(kind, groups) {
+    if (kind === 'critical-pareto') return groups.length + ' Pareto top-20% contributors sorted by finding count descending.';
     if (kind === 'inspector') return groups.length + ' distinct inspectors. Low-activity inspectors are sorted by inspection count ascending.';
     if (kind === 'category') return groups.length + ' distinct categories sorted by finding count descending.';
     if (kind === 'trend') return groups.length + ' period/status groups with total inspections, negative findings, and rate.';
