@@ -109,81 +109,307 @@
 
   /* ---------- CLICK HANDLERS ---------- */
 
-  function onDailyChartClick(elements, labels, distinctArr, totalArr, allRows) {
-    if (!elements || !elements.length) return;
-    const idx = elements[0].index;
-    const dateStr = labels[idx];
-    if (!dateStr) return;
+  function incrementCount(map, key, amount) {
+    if (!key) key = '(Unknown)';
+    map[key] = (map[key] || 0) + (amount || 1);
+  }
 
-    // Filter rows for this date
-    const filteredRows = allRows.filter(r => {
-      if (!r.InspectionDate) return false;
-      const d = r.InspectionDate.toISOString ? r.InspectionDate.toISOString().slice(0, 10) : String(r.InspectionDate).slice(0, 10);
-      return d === dateStr && hasNegativeKeyword(r);
+  function getTopMapKey(map) {
+    var entries = Object.keys(map || {}).map(function(key) { return [key, map[key]]; });
+    entries.sort(function(a, b) { return b[1] - a[1] || a[0].localeCompare(b[0]); });
+    return entries.length ? entries[0][0] : '-';
+  }
+
+  function getSelectedIndices(elements) {
+    var seen = {};
+    (elements || []).forEach(function(element) {
+      if (element && typeof element.index === 'number') seen[element.index] = true;
+    });
+    return Object.keys(seen).map(function(key) { return Number(key); }).sort(function(a, b) { return a - b; });
+  }
+
+  function getChartFinding(row) {
+    return getRemark(row) || row.EntryNotes || row.Capture1Response || row.Findings || row.Status || '-';
+  }
+
+  function renderChartSummaryGrid(items) {
+    return '<div class="panel-grid">' + items.map(function(item) {
+      var value = item.value === null || item.value === undefined ? '-' : String(item.value);
+      return '<div class="panel-cell"><div class="panel-label">' + escHtml(item.label) + '</div><div class="panel-value">' + escHtml(value) + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function renderDailyChartRecords(rows) {
+    if (!rows.length) return '<div id="aiInsightEmptyState"><strong>No Matching Records</strong>No negative findings matched the selected date.</div>';
+    return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+      '<th>Date</th>' +
+      '<th>Asset Tag</th>' +
+      '<th>Facility</th>' +
+      '<th>Equipment Type</th>' +
+      '<th>Finding</th>' +
+    '</tr></thead><tbody>' +
+      rows.slice().sort(function(a, b) {
+        return (formatDateCell(b.InspectionDate) || '').localeCompare(formatDateCell(a.InspectionDate) || '') ||
+          getAssetName(a).localeCompare(getAssetName(b));
+      }).map(function(row) {
+        return '<tr>' +
+          '<td>' + escHtml(formatDateCell(row.InspectionDate) || '-') + '</td>' +
+          '<td>' + escHtml(getAssetName(row)) + '</td>' +
+          '<td>' + escHtml(getFacilityName(row)) + '</td>' +
+          '<td>' + escHtml(getCategoryName(row)) + '</td>' +
+          '<td style="max-width:280px;white-space:normal;word-break:break-word">' + escHtml(getChartFinding(row)) + '</td>' +
+        '</tr>';
+      }).join('') +
+    '</tbody></table></div>';
+  }
+
+  function buildParetoAssetRows(rows, categoryTotal) {
+    var groups = {};
+    rows.forEach(function(row) {
+      var asset = getAssetName(row);
+      if (!groups[asset]) {
+        groups[asset] = {
+          asset: asset,
+          facility: getFacilityName(row),
+          findingCount: 0,
+          share: 0
+        };
+      }
+      groups[asset].findingCount += 1;
+      if (getFacilityName(row) !== '(Unknown facility)') groups[asset].facility = getFacilityName(row);
     });
 
-    // Find top inspector
-    const inspCounts = {};
-    filteredRows.forEach(r => { const n = r.Inspector || 'Unknown'; inspCounts[n] = (inspCounts[n] || 0) + 1; });
-    const topInsp = Object.entries(inspCounts).sort((a, b) => b[1] - a[1])[0];
+    return Object.keys(groups).map(function(key) {
+      var group = groups[key];
+      group.share = Math.round((group.findingCount / (categoryTotal || 1)) * 100);
+      return group;
+    }).sort(function(a, b) {
+      return b.findingCount - a.findingCount || a.asset.localeCompare(b.asset);
+    });
+  }
 
-    const d = new Date(dateStr);
-    const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  function renderParetoAssetTable(groups) {
+    if (!groups.length) return '<div id="aiInsightEmptyState"><strong>No Asset Contributors</strong>No asset-level contributors matched the selected equipment type.</div>';
+    return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+      '<th>Asset Tag</th>' +
+      '<th>Facility</th>' +
+      '<th>Finding Count</th>' +
+      '<th>Share %</th>' +
+    '</tr></thead><tbody>' +
+      groups.map(function(group) {
+        return '<tr>' +
+          '<td>' + escHtml(group.asset) + '</td>' +
+          '<td>' + escHtml(group.facility || '-') + '</td>' +
+          '<td>' + group.findingCount + '</td>' +
+          '<td>' + group.share + '%</td>' +
+        '</tr>';
+      }).join('') +
+    '</tbody></table></div>';
+  }
+
+  function buildParetoCategoryRows(categories, labels, distinctArr, totalArr, cumPct) {
+    var totalFindings = totalArr.reduce(function(sum, count) { return sum + count; }, 0) || 1;
+    return categories.map(function(category, index) {
+      var labelIndex = labels.indexOf(category);
+      return {
+        category: category,
+        distinctAssets: labelIndex >= 0 ? distinctArr[labelIndex] : 0,
+        totalFindings: labelIndex >= 0 ? totalArr[labelIndex] : 0,
+        share: labelIndex >= 0 ? Math.round((totalArr[labelIndex] / totalFindings) * 100) : 0,
+        cumulative: labelIndex >= 0 ? cumPct[labelIndex] : 0
+      };
+    });
+  }
+
+  function renderParetoCategoryTable(groups) {
+    if (!groups.length) return '<div id="aiInsightEmptyState"><strong>No Contributors</strong>No equipment-type contributors were available.</div>';
+    return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+      '<th>Equipment Type</th>' +
+      '<th>Distinct Assets</th>' +
+      '<th>Total Findings</th>' +
+      '<th>Share %</th>' +
+      '<th>Cumulative %</th>' +
+    '</tr></thead><tbody>' +
+      groups.map(function(group) {
+        return '<tr>' +
+          '<td>' + escHtml(group.category) + '</td>' +
+          '<td>' + group.distinctAssets + '</td>' +
+          '<td>' + group.totalFindings + '</td>' +
+          '<td>' + group.share + '%</td>' +
+          '<td>' + group.cumulative + '%</td>' +
+        '</tr>';
+      }).join('') +
+    '</tbody></table></div>';
+  }
+
+  function openChartDrilldownDrawer(config) {
+    var drawer = ensureAiInsightDrawer();
+    if (!drawer) return;
+
+    var titleEl = document.getElementById('aiInsightDrillDownTitle');
+    var severityEl = document.getElementById('aiInsightDrillDownSeverity');
+    var countEl = document.getElementById('aiInsightDrillDownCount');
+    var bodyEl = document.getElementById('aiInsightDrilldownBody');
+    if (!titleEl || !bodyEl) return;
+
+    var hasExport = !!findAiInsightExportFn();
+    var rows = config.rows || [];
+    var details = [
+      renderChartSummaryGrid(config.summary || []),
+      '<div class="panel-cell"><div class="panel-label">Filter Criteria</div><div class="panel-value">' + escHtml(config.criteria || '-') + '</div></div>'
+    ];
+
+    if (hasExport && rows.length) {
+      details.push('<div style="display:flex;justify-content:flex-end;"><button id="aiInsightExportRowsButton" type="button" style="margin-top:6px;background:var(--info);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer;">Export visible rows</button></div>');
+    }
+
+    details.push(config.tableHtml || renderAiInsightRowsTable(rows));
+
+    titleEl.textContent = config.title || 'Chart Drill-Down';
+    if (severityEl) severityEl.innerHTML = renderAiInsightSeverityBadge(config.severity || 'info');
+    if (countEl) countEl.textContent = config.countLabel || (rows.length + ' visible rows');
+    bodyEl.innerHTML = details.join('');
+
+    if (hasExport && rows.length) {
+      var exportBtn = document.getElementById('aiInsightExportRowsButton');
+      if (exportBtn) {
+        exportBtn.onclick = function() {
+          exportAiInsightRows({ title: config.title || 'Chart Drill-Down' }, rows);
+        };
+      }
+    }
+
+    drawer.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function onDailyChartClick(elements, labels, distinctArr, totalArr, allRows) {
+    var indices = getSelectedIndices(elements);
+    if (!indices.length) return;
+    var selectedDates = indices.map(function(idx) { return labels[idx]; }).filter(Boolean);
+    if (!selectedDates.length) return;
+    var selectedDateSet = new Set(selectedDates);
+
+    var filteredRows = allRows.filter(r => {
+      if (!r.InspectionDate) return false;
+      const d = r.InspectionDate.toISOString ? r.InspectionDate.toISOString().slice(0, 10) : String(r.InspectionDate).slice(0, 10);
+      return selectedDateSet.has(d) && hasNegativeKeyword(r);
+    });
+
+    var assets = new Set();
+    var facilityCounts = {};
+    var equipmentCounts = {};
+    filteredRows.forEach(function(row) {
+      assets.add(getAssetName(row));
+      incrementCount(facilityCounts, getFacilityName(row));
+      incrementCount(equipmentCounts, getCategoryName(row));
+    });
+
+    var dateLabel = selectedDates.length === 1
+      ? new Date(selectedDates[0]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+      : selectedDates.length + ' selected dates';
 
     activeFilter = {
       sourceChart: 'dailyDistinctNegativeFindings',
       filterType: 'date',
-      value: dateStr,
-      label: label
+      value: selectedDates.join(','),
+      label: dateLabel
     };
 
     renderFilterChip('filterChipContainer');
-    renderDrillDown('drillDownContainer', {
-      title: 'Negative Findings for ' + label,
-      subtitle: dateStr,
-      distinctCount: distinctArr[idx],
-      totalCount: totalArr[idx],
-      topInspector: topInsp ? topInsp[0] : null,
-      rows: filteredRows
+    openChartDrilldownDrawer({
+      title: 'Daily Negative Findings Drill-Down',
+      severity: 'high',
+      countLabel: assets.size + ' distinct affected assets • ' + filteredRows.length + ' negative findings',
+      criteria: 'Negative findings for selected date' + (selectedDates.length === 1 ? ': ' + selectedDates[0] : 's: ' + selectedDates.join(', ')),
+      summary: [
+        { label: selectedDates.length === 1 ? 'Selected Date' : 'Selected Dates', value: selectedDates.join(', ') },
+        { label: 'Distinct Affected Assets', value: assets.size },
+        { label: 'Total Negative Findings', value: filteredRows.length },
+        { label: 'Top Facility', value: getTopMapKey(facilityCounts) },
+        { label: 'Top Equipment Type', value: getTopMapKey(equipmentCounts) }
+      ],
+      rows: filteredRows,
+      tableHtml: renderDailyChartRecords(filteredRows)
     });
-
-    // Scroll to drill-down
-    const dd = document.getElementById('drillDownContainer');
-    if (dd) dd.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   function onParetoChartClick(elements, labels, distinctArr, totalArr, cumPct, allRows) {
-    if (!elements || !elements.length) return;
-    const idx = elements[0].index;
-    const category = labels[idx];
-    if (!category) return;
+    var indices = getSelectedIndices(elements);
+    if (!indices.length) return;
+    var first = elements[0] || {};
+    var clickedDataset = typeof first.datasetIndex === 'number' ? first.datasetIndex : 2;
+    var isLineClick = clickedDataset !== 2;
 
-    // Filter rows for this equipment category
-    const filteredRows = allRows.filter(r => {
+    if (isLineClick) {
+      var cutoffIndex = cumPct.findIndex(function(value) { return value >= 80; });
+      if (cutoffIndex === -1) cutoffIndex = labels.length - 1;
+      var contributorCategories = labels.slice(0, cutoffIndex + 1);
+      var contributorRows = allRows.filter(function(row) {
+        return hasNegativeKeyword(row) && contributorCategories.indexOf(getCategoryName(row)) !== -1;
+      });
+      var contributorGroups = buildParetoCategoryRows(contributorCategories, labels, distinctArr, totalArr, cumPct);
+
+      activeFilter = {
+        sourceChart: 'paretoAnalysis',
+        filterType: 'pareto80',
+        value: contributorCategories.join(','),
+        label: 'Pareto 80% contributors'
+      };
+
+      renderFilterChip('filterChipContainer');
+      openChartDrilldownDrawer({
+        title: 'Pareto 80% Contributors',
+        severity: 'medium',
+        countLabel: contributorCategories.length + ' equipment types • ' + contributorRows.length + ' findings',
+        criteria: 'Equipment types responsible for cumulative 80% of repetitive negative findings.',
+        summary: [
+          { label: 'Equipment Type Contributors', value: contributorCategories.length },
+          { label: 'Distinct Assets', value: contributorGroups.reduce(function(sum, group) { return sum + group.distinctAssets; }, 0) },
+          { label: 'Total Findings', value: contributorRows.length },
+          { label: 'Cumulative %', value: contributorGroups.length ? contributorGroups[contributorGroups.length - 1].cumulative + '%' : '0%' }
+        ],
+        rows: contributorRows,
+        tableHtml: renderParetoCategoryTable(contributorGroups)
+      });
+      return;
+    }
+
+    var selectedCategories = indices.map(function(idx) { return labels[idx]; }).filter(Boolean);
+    var selectedCategorySet = new Set(selectedCategories);
+    if (!selectedCategories.length) return;
+
+    var filteredRows = allRows.filter(r => {
       if (!hasNegativeKeyword(r)) return false;
-      const cat = r.EquipmentType || 'Unknown';
-      return cat === category;
+      return selectedCategorySet.has(getCategoryName(r));
     });
+    var assetGroups = buildParetoAssetRows(filteredRows, filteredRows.length);
+    var primaryIndex = indices[0];
+    var primaryCategory = labels[primaryIndex];
 
     activeFilter = {
       sourceChart: 'paretoAnalysis',
       filterType: 'category',
-      value: category,
-      label: category
+      value: selectedCategories.join(','),
+      label: selectedCategories.join(', ')
     };
 
     renderFilterChip('filterChipContainer');
-    renderDrillDown('drillDownContainer', {
-      title: category + ' — Negative Findings',
-      subtitle: 'Pareto Analysis Drill-Down',
-      distinctCount: distinctArr[idx],
-      totalCount: totalArr[idx],
-      cumulativePct: cumPct ? cumPct[idx] : null,
-      rows: filteredRows
+    openChartDrilldownDrawer({
+      title: (selectedCategories.length === 1 ? primaryCategory : selectedCategories.length + ' Equipment Types') + ' Drill-Down',
+      severity: 'medium',
+      countLabel: assetGroups.length + ' distinct assets • ' + filteredRows.length + ' findings',
+      criteria: 'Negative findings for selected Pareto equipment type' + (selectedCategories.length === 1 ? ': ' + primaryCategory : 's: ' + selectedCategories.join(', ')),
+      summary: [
+        { label: 'Equipment Type', value: selectedCategories.join(', ') },
+        { label: 'Distinct Assets', value: assetGroups.length },
+        { label: 'Total Findings', value: filteredRows.length },
+        { label: 'Share %', value: Math.round((filteredRows.length / (totalArr.reduce(function(sum, count) { return sum + count; }, 0) || 1)) * 100) + '%' },
+        { label: 'Cumulative %', value: selectedCategories.length === 1 && cumPct ? cumPct[primaryIndex] + '%' : '-' }
+      ],
+      rows: filteredRows,
+      tableHtml: renderParetoAssetTable(assetGroups)
     });
-
-    const dd = document.getElementById('drillDownContainer');
-    if (dd) dd.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   /* ---------- AI INSIGHT DRILL-DOWN (right-side drawer, mobile bottom sheet) ---------- */
@@ -1324,6 +1550,7 @@
     activeFilter = null;
     renderFilterChip('filterChipContainer');
     renderDrillDown('drillDownContainer', null);
+    closeAiInsightDrilldown();
   }
 
   /* ---------- CHART CURSOR HELPERS ---------- */
