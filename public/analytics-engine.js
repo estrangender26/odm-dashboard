@@ -68,6 +68,41 @@
     );
   }
 
+  function getCriticalContributorName(row) {
+    return getCategoryName(row) || getAssetName(row);
+  }
+
+  function buildParetoTopContributors(rows) {
+    const negativeRows = rows.filter(r => hasNegativeFindings(r));
+    const groups = new Map();
+
+    negativeRows.forEach(r => {
+      const name = getCriticalContributorName(r);
+      if (!groups.has(name)) {
+        groups.set(name, { name, facility: r.Plant || r.Site || r.Facility || '(Unknown facility)', count: 0 });
+      }
+      const group = groups.get(name);
+      group.count++;
+      if (r.Plant || r.Site || r.Facility) group.facility = r.Plant || r.Site || r.Facility;
+    });
+
+    const sorted = Array.from(groups.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const take = Math.max(1, Math.ceil(sorted.length * 0.2));
+    const total = negativeRows.length || 1;
+    let cumulative = 0;
+
+    return sorted.slice(0, take).map(group => {
+      cumulative += group.count;
+      return {
+        name: group.name,
+        facility: group.facility,
+        findingCount: group.count,
+        share: Math.round((group.count / total) * 100),
+        cumulative: Math.round((cumulative / total) * 100)
+      };
+    });
+  }
+
   function todayISO() {
     return new Date().toISOString().slice(0, 10);
   }
@@ -466,20 +501,39 @@
       });
     }
 
-    // If critical insights exist, add summary recommendation
-    const criticalRows = rows.filter(r => hasNegativeFindings(r) && isCriticalPriority(r));
-    const criticalAssets = new Set(criticalRows.map(r => getAssetName(r)));
-    if (criticalRows.length > 0) {
+    // Critical issues are the top 20% Pareto contributors to negative findings.
+    const criticalContributors = buildParetoTopContributors(rows);
+    const criticalFindingCount = criticalContributors.reduce((sum, item) => sum + item.findingCount, 0);
+    if (criticalContributors.length > 0 && criticalFindingCount > 0) {
       recs.push({
         type: TYPE.RECOMMENDATION, severity: SEVERITY.CRITICAL,
         title: 'Critical Issues Require Immediate Action',
-        description: `${criticalAssets.size} critical operational asset${criticalAssets.size !== 1 ? 's' : ''} detected across ${criticalRows.length} high-priority finding${criticalRows.length !== 1 ? 's' : ''}.`,
-        metric: `${criticalAssets.size} assets • ${criticalRows.length} findings`,
-        recommendation: 'Escalate to maintenance management. Review critical findings and assign corrective actions with deadlines.',
+        description: `${criticalContributors.length} Pareto top-20% contributor${criticalContributors.length !== 1 ? 's' : ''} account for ${criticalFindingCount} negative finding${criticalFindingCount !== 1 ? 's' : ''}.`,
+        metric: `${criticalContributors.length} contributors • ${criticalFindingCount} findings`,
+        recommendation: 'Escalate Pareto top contributors to maintenance management. Assign corrective actions against the highest-impact assets or categories.',
         drilldown: {
           type: 'critical-issues-immediate-action',
-          distinctAssets: criticalAssets.size,
-          recordCount: criticalRows.length
+          basis: 'pareto-top-20-negative-findings',
+          contributors: criticalContributors,
+          distinctAssets: criticalContributors.length,
+          recordCount: criticalFindingCount
+        }
+      });
+    }
+
+    const explicitCriticalRows = rows.filter(r => hasNegativeFindings(r) && isCriticalPriority(r));
+    const explicitCriticalAssets = new Set(explicitCriticalRows.map(r => getAssetName(r)));
+    if (explicitCriticalRows.length > 0) {
+      recs.push({
+        type: TYPE.RECOMMENDATION, severity: SEVERITY.HIGH,
+        title: 'Explicit Critical Findings Detected',
+        description: `${explicitCriticalAssets.size} asset${explicitCriticalAssets.size !== 1 ? 's' : ''} include explicit critical/high-priority wording across ${explicitCriticalRows.length} finding${explicitCriticalRows.length !== 1 ? 's' : ''}.`,
+        metric: `${explicitCriticalAssets.size} assets • ${explicitCriticalRows.length} findings`,
+        recommendation: 'Review explicitly critical wording alongside Pareto-driven priorities.',
+        drilldown: {
+          type: 'explicit-critical-findings',
+          distinctAssets: explicitCriticalAssets.size,
+          recordCount: explicitCriticalRows.length
         }
       });
     }

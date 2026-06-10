@@ -353,12 +353,17 @@
   }
 
   function getSummaryKind(type) {
+    if (type === 'critical-issues-immediate-action') return 'critical-pareto';
     if (type === 'inspectors-low-activity' || type === 'inspectors-inactive') return 'inspector';
     if (type === 'dominant-equipment-type-negative-findings' || type === 'pareto-concentration') return 'category';
     if (type === 'negative-findings-declining' || type === 'negative-findings-trend-increased' ||
       type === 'negative-finding-rate-normal' || type === 'negative-finding-rate-high' ||
       type === 'inspection-activity-declining') return 'trend';
     return 'asset';
+  }
+
+  function getCriticalContributorName(row) {
+    return getCategoryName(row) || getAssetName(row);
   }
 
   function getRowSeverity(row, fallback) {
@@ -518,6 +523,7 @@
     var title = normalizeText(insight && insight.title || '');
     if (title.indexOf('centrifugal pump') !== -1) return 'centrifugal-pump-negative-findings';
     if (title.indexOf('critical issues require immediate action') !== -1) return 'critical-issues-immediate-action';
+    if (title.indexOf('explicit critical findings') !== -1) return 'explicit-critical-findings';
     if (title.indexOf('recurring issues on same assets') !== -1) return 'recurring-issues-same-assets';
     if (title.indexOf('pareto concentration') !== -1) return 'pareto-concentration';
     if (title.indexOf('systems dominate negative findings') !== -1) return 'dominant-equipment-type-negative-findings';
@@ -553,9 +559,22 @@
     }
 
     if (type === 'critical-issues-immediate-action') {
-      payload.criteria = 'Rows that are negative findings with critical/high-priority wording.';
+      var contributors = insight.drilldown && insight.drilldown.contributors ? insight.drilldown.contributors : [];
+      var contributorNames = contributors.map(function(item) { return item.name; });
+      payload.criteria = 'Pareto top 20% contributors by negative finding count.';
+      payload.paretoContributors = contributors;
+      payload.rows = rows.filter(function(row) {
+        return hasNegativeKeyword(row) && contributorNames.indexOf(getCriticalContributorName(row)) !== -1;
+      });
+      payload.summary.push(contributors.length + ' Pareto top-20% contributors');
+      if (!payload.rows.length) payload.notes = 'No Pareto top-20% contributor rows found for the current filters.';
+      return payload;
+    }
+
+    if (type === 'explicit-critical-findings') {
+      payload.criteria = 'Rows that are negative findings with explicit critical/high-priority wording.';
       payload.rows = rows.filter(function(row) { return hasNegativeKeyword(row) && isCriticalPriority(row); });
-      if (!payload.rows.length) payload.notes = 'No critical/high-priority negative findings found for the current filters.';
+      if (!payload.rows.length) payload.notes = 'No explicit critical/high-priority negative findings found for the current filters.';
       return payload;
     }
 
@@ -756,6 +775,28 @@
       return '<div id="aiInsightEmptyState"><strong>No Summary Groups</strong>Records tab may contain raw rows if source grouping fields are incomplete.</div>';
     }
 
+    if (kind === 'critical-pareto') {
+      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+        '<th>Asset / Equipment or Category</th>' +
+        '<th>Facility / Site</th>' +
+        '<th>Finding Count</th>' +
+        '<th>Share %</th>' +
+        '<th>Cumulative %</th>' +
+        '<th>Severity</th>' +
+        '</tr></thead><tbody>' +
+        groups.map(function(group) {
+          return '<tr>' +
+            '<td>' + escHtml(group.name) + '</td>' +
+            '<td>' + escHtml(group.facility || '-') + '</td>' +
+            '<td>' + group.findingCount + '</td>' +
+            '<td>' + group.share + '%</td>' +
+            '<td>' + group.cumulative + '%</td>' +
+            '<td>' + renderAiInsightSeverityBadge('critical') + '</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+
     if (kind === 'inspector') {
       return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
         '<th>Inspector</th>' +
@@ -879,6 +920,13 @@
       var negative = groups.reduce(function(sum, group) { return sum + (group.negativeFindings || 0); }, 0);
       return { entityCount: groups.length, recordCount: negative, totalCount: contextRows.length };
     }
+    if (kind === 'critical-pareto') {
+      return {
+        entityCount: groups.length,
+        recordCount: groups.reduce(function(sum, group) { return sum + (group.findingCount || 0); }, 0),
+        totalCount: rows.length
+      };
+    }
     return { entityCount: groups.length, recordCount: rows.length, totalCount: rows.length };
   }
 
@@ -897,8 +945,10 @@
     });
 
     if (type === 'critical-issues-immediate-action') {
-      enriched.description = counts.entityCount + ' critical operational asset' + (counts.entityCount === 1 ? '' : 's') + ' detected across ' + counts.recordCount + ' high-priority finding' + (counts.recordCount === 1 ? '' : 's') + '.';
-      enriched.metric = counts.entityCount + ' assets • ' + counts.recordCount + ' findings';
+      enriched.description = counts.entityCount + ' Pareto top-20% contributor' + (counts.entityCount === 1 ? '' : 's') + ' account for ' + counts.recordCount + ' negative finding' + (counts.recordCount === 1 ? '' : 's') + '.';
+      enriched.metric = counts.entityCount + ' contributors • ' + counts.recordCount + ' findings';
+    } else if (kind === 'critical-pareto') {
+      enriched.metric = counts.entityCount + ' contributors • ' + counts.recordCount + ' findings';
     } else if (kind === 'asset') {
       enriched.metric = counts.entityCount + ' assets • ' + counts.recordCount + ' findings';
     } else if (kind === 'inspector') {
@@ -929,6 +979,7 @@
 
 
   function buildSummaryGroups(kind, payload, rows, insightType, fallbackSeverity) {
+    if (kind === 'critical-pareto') return (payload.paretoContributors || []).slice().sort(function(a, b) { return (b.findingCount || 0) - (a.findingCount || 0); });
     if (kind === 'inspector') return groupRowsByInspector(rows, insightType);
     if (kind === 'category') return groupRowsByCategory(rows);
     if (kind === 'trend') return groupRowsByPeriod(payload.contextRows && payload.contextRows.length ? payload.contextRows : rows);
@@ -938,6 +989,7 @@
 
   function getSummaryCountLabel(kind, groups, rows, payload, counts) {
     var resolved = counts || getReconciledCounts(kind, groups, rows, payload);
+    if (kind === 'critical-pareto') return resolved.entityCount + ' Pareto top-20% contributors • ' + resolved.recordCount + ' findings';
     if (kind === 'inspector') return resolved.entityCount + ' distinct inspectors • ' + resolved.recordCount + ' matching records';
     if (kind === 'category') return resolved.entityCount + ' distinct categories • ' + resolved.recordCount + ' findings';
     if (kind === 'trend') return resolved.entityCount + ' period/status groups • ' + resolved.recordCount + ' negative findings • ' + resolved.totalCount + ' total inspections';
@@ -946,6 +998,7 @@
   }
 
   function getSummaryViewLabel(kind, groups) {
+    if (kind === 'critical-pareto') return groups.length + ' Pareto top-20% contributors sorted by finding count descending.';
     if (kind === 'inspector') return groups.length + ' distinct inspectors. Low-activity inspectors are sorted by inspection count ascending.';
     if (kind === 'category') return groups.length + ' distinct categories sorted by finding count descending.';
     if (kind === 'trend') return groups.length + ' period/status groups with total inspections, negative findings, and rate.';
