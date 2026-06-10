@@ -357,6 +357,7 @@
     if (type === 'inspectors-low-activity' || type === 'inspectors-inactive') return 'inspector';
     if (type === 'dominant-equipment-type-negative-findings' || type === 'pareto-concentration') return 'category';
     if (type === 'negative-findings-declining' || type === 'negative-findings-trend-increased' ||
+      type === 'sudden-spike-negative-findings' ||
       type === 'negative-finding-rate-normal' || type === 'negative-finding-rate-high' ||
       type === 'inspection-activity-declining') return 'trend';
     return 'asset';
@@ -531,6 +532,9 @@
     if (title.indexOf('low activity') !== -1) return 'inspectors-low-activity';
     if (title.indexOf('inactive inspector') !== -1) return 'inspectors-inactive';
     if (title.indexOf('negative findings declining') !== -1) return 'negative-findings-declining';
+    if (title.indexOf('negative findings trend increased') !== -1) return 'negative-findings-trend-increased';
+    if (title.indexOf('sudden spike in negative findings') !== -1) return 'sudden-spike-negative-findings';
+    if (title.indexOf('inspection activity declining') !== -1) return 'inspection-activity-declining';
     if (title.indexOf('negative finding rate within normal range') !== -1) return 'negative-finding-rate-normal';
     if (title.indexOf('high negative finding rate') !== -1) return 'negative-finding-rate-high';
     return 'generic';
@@ -613,22 +617,25 @@
       });
       payload.criteria = 'Assets whose last inspection is older than configured gap days (' + gapDays + ').';
       payload.rows = [];
+      var priorityNegativeAssets = new Set(insight.drilldown && insight.drilldown.priorityNegativeAssets ? insight.drilldown.priorityNegativeAssets : []);
       Object.keys(latest).forEach(function(asset) {
         var rec = latest[asset];
         var gap = daysBetween(rec.date, today);
         if (gap > gapDays) {
+          var isPriority = priorityNegativeAssets.has(asset);
           payload.rows.push({
             _synthetic: true,
             AssetTag: asset,
             Plant: getFacilityName(rec.row),
             Inspector: getInspectorName(rec.row),
             InspectionDate: rec.date,
-            Status: 'Overdue (' + gap + ' days)',
+            Status: isPriority ? 'Priority overdue (' + gap + ' days)' : 'Overdue (' + gap + ' days)',
             EntryNotes: getRemark(rec.row)
           });
         }
       });
       payload.summary.push(payload.rows.length + ' assets overdue');
+      if (priorityNegativeAssets.size) payload.summary.push(priorityNegativeAssets.size + ' priority assets with prior negative findings');
       if (!payload.rows.length) payload.notes = 'No assets were overdue in current filters.';
       return payload;
     }
@@ -693,7 +700,25 @@
       return payload;
     }
 
-    if (type === 'negative-findings-declining') {
+    if (type === 'sudden-spike-negative-findings') {
+      var spikeDate = insight.drilldown && insight.drilldown.spikeDate ? insight.drilldown.spikeDate : '';
+      payload.criteria = spikeDate
+        ? 'Negative findings on the spike date (' + spikeDate + ').'
+        : 'Negative findings on the latest inspection date.';
+      payload.rows = rows.filter(function(row) {
+        if (!hasNegativeKeyword(row)) return false;
+        var date = formatDateCell(row.InspectionDate);
+        return spikeDate ? date === spikeDate : Boolean(date);
+      });
+      payload.summary.push('Spike date: ' + (spikeDate || 'latest available date'));
+      if (insight.drilldown && insight.drilldown.rollingAverage !== undefined) {
+        payload.summary.push('Rolling average: ' + insight.drilldown.rollingAverage);
+      }
+      if (!payload.rows.length) payload.notes = 'No negative findings found for the spike date in current filters.';
+      return payload;
+    }
+
+    if (type === 'negative-findings-declining' || type === 'negative-findings-trend-increased') {
       var dateBuckets = {};
       rows.forEach(function(row) {
         var date = formatDateCell(row.InspectionDate);
@@ -724,6 +749,39 @@
         return recent.indexOf(date) !== -1 || previous.indexOf(date) !== -1;
       });
       if (!payload.rows.length) payload.notes = 'No negative findings available in the compared periods.';
+      return payload;
+    }
+
+    if (type === 'inspection-activity-declining') {
+      var activityBuckets = {};
+      rows.forEach(function(row) {
+        var date = formatDateCell(row.InspectionDate);
+        if (!date) return;
+        if (!activityBuckets[date]) activityBuckets[date] = { total: 0 };
+        activityBuckets[date].total += 1;
+      });
+      var activityDates = Object.keys(activityBuckets).sort();
+      if (activityDates.length < 4) {
+        payload.criteria = 'Need at least 4 date buckets to compare inspection activity.';
+        payload.rows = rows.slice();
+        payload.notes = payload.rows.length
+          ? 'Using all visible inspection rows because activity comparison requires more date buckets.'
+          : 'No inspection rows available for activity comparison.';
+        return payload;
+      }
+      var activityHalf = Math.floor(activityDates.length / 2);
+      var activityRecent = activityDates.slice(activityHalf);
+      var activityPrevious = activityDates.slice(0, activityHalf);
+      var activityRecentTotal = activityRecent.reduce(function(sum, date) { return sum + activityBuckets[date].total; }, 0);
+      var activityPreviousTotal = activityPrevious.reduce(function(sum, date) { return sum + activityBuckets[date].total; }, 0);
+      payload.criteria = 'Total inspection volume in recent period vs previous period.';
+      payload.summary.push('Recent inspections: ' + activityRecentTotal);
+      payload.summary.push('Previous inspections: ' + activityPreviousTotal);
+      payload.rows = rows.filter(function(row) {
+        var date = formatDateCell(row.InspectionDate);
+        return activityRecent.indexOf(date) !== -1 || activityPrevious.indexOf(date) !== -1;
+      });
+      if (!payload.rows.length) payload.notes = 'No inspection rows available in the compared periods.';
       return payload;
     }
 
