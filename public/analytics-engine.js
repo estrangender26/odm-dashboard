@@ -50,6 +50,24 @@
     return Math.round((new Date(b) - new Date(a)) / 86400000);
   }
 
+  function getAssetName(row) {
+    return row.AssetTag || row.AssetName || row.EquipmentName || row.EquipmentType || 'Unknown';
+  }
+
+  function getCategoryName(row) {
+    return row.EquipmentType || row.Category || row.Task || 'Unknown';
+  }
+
+  function getInspectorName(row) {
+    return row.Inspector || '(Unknown)';
+  }
+
+  function isCriticalPriority(row) {
+    return /(critical|urgent|high priority|high-priority|emergency|shutdown|immediate|major)/.test(
+      String([row.EntryNotes, row.Capture1Response, row.Findings, row.Status, row.EscalationTrigger].join(' ')).toLowerCase()
+    );
+  }
+
   function todayISO() {
     return new Date().toISOString().slice(0, 10);
   }
@@ -87,7 +105,7 @@
       const key = r.InspectionDate.toISOString ? r.InspectionDate.toISOString().slice(0, 10) : String(r.InspectionDate).slice(0, 10);
       if (!dailyMap.has(key)) dailyMap.set(key, { assets: new Set(), total: 0 });
       if (hasNegativeFindings(r)) {
-        const assetId = r.AssetTag || r.AssetName || r.EquipmentType || 'Unknown';
+        const assetId = getAssetName(r);
         dailyMap.get(key).assets.add(assetId);
       }
       dailyMap.get(key).total++;
@@ -175,8 +193,8 @@
 
     rows.forEach(r => {
       if (!hasNegativeFindings(r)) return;
-      const cat = r.EquipmentType || 'Unknown';
-      const assetId = r.AssetTag || r.AssetName || 'Unknown';
+      const cat = getCategoryName(r);
+      const assetId = getAssetName(r);
       if (!catData.has(cat)) catData.set(cat, { assets: new Set(), total: 0 });
       catData.get(cat).assets.add(assetId);
       catData.get(cat).total++;
@@ -207,8 +225,8 @@
             title: isPumpDominant
               ? 'Centrifugal Pump Systems Dominate Negative Findings'
               : `${dominantCategory} Systems Dominate Negative Findings`,
-            description: `${sorted[0].category} accounts for ${topPct}% of distinct equipment with negative findings (${sorted[0].distinct} of ${totalDistinct} assets, ${sorted[0].total} records).`,
-            metric: `${topPct}% of ${totalDistinct} assets`,
+            description: `${sorted[0].category} accounts for ${sorted[0].distinct} distinct assets with ${sorted[0].total} negative findings (${topPct}% of ${totalDistinct} affected assets).`,
+            metric: `${sorted[0].distinct} assets • ${sorted[0].total} findings`,
             recommendation: `Prioritize preventive maintenance planning for ${sorted[0].category.toLowerCase()} systems. Review recurring failure patterns.`,
             drilldown: {
               type: isPumpDominant ? 'centrifugal-pump-negative-findings' : 'dominant-equipment-type-negative-findings',
@@ -229,12 +247,23 @@
           if ((cum / totalDistinct) * 100 >= config.paretoThreshold) break;
         }
         if (paretoCount < sorted.length && sorted.length >= 3) {
+          const paretoCategories = sorted.slice(0, paretoCount);
+          const paretoAssets = paretoCategories.reduce((sum, item) => sum + item.distinct, 0);
+          const paretoRecords = paretoCategories.reduce((sum, item) => sum + item.total, 0);
           insights.push({
             type: TYPE.RISK, severity: SEVERITY.MEDIUM,
             title: 'Pareto Concentration Detected',
-            description: `${paretoCount} of ${sorted.length} equipment categories account for 80% of distinct negative findings.`,
-            metric: `${paretoCount}/${sorted.length} categories`,
-            recommendation: 'Focus corrective efforts on the top equipment categories for maximum impact.'
+            description: `${paretoCount} equipment categories account for ${paretoAssets} distinct assets and ${paretoRecords} negative findings.`,
+            metric: `${paretoCount} categories • ${paretoRecords} findings`,
+            recommendation: 'Focus corrective efforts on the top equipment categories for maximum impact.',
+            drilldown: {
+              type: 'pareto-concentration',
+              categories: paretoCategories.map(item => item.category),
+              distinctCategories: paretoCount,
+              distinctAssets: paretoAssets,
+              recordCount: paretoRecords,
+              totalCategories: sorted.length
+            }
           });
         }
       }
@@ -244,7 +273,7 @@
     const assetCounts = new Map();
     rows.forEach(r => {
       if (!hasNegativeFindings(r)) return;
-      const key = r.AssetTag || r.AssetName || 'Unknown';
+      const key = getAssetName(r);
       assetCounts.set(key, (assetCounts.get(key) || 0) + 1);
     });
     const recurring = Array.from(assetCounts.entries())
@@ -256,8 +285,8 @@
       insights.push({
         type: TYPE.RISK, severity: SEVERITY.HIGH,
         title: 'Recurring Issues on Same Assets',
-        description: `${recurring.length} assets show repeated negative findings. Top: ${recurring[0][0]} (${recurring[0][1]} occurrences).`,
-        metric: `${recurring.length} recurring assets`,
+        description: `${recurring.length} assets show repeated negative findings across ${recurring.reduce((sum, item) => sum + item[1], 0)} records. Top: ${recurring[0][0]} (${recurring[0][1]} occurrences).`,
+        metric: `${recurring.length} assets • ${recurring.reduce((sum, item) => sum + item[1], 0)} findings`,
         recommendation: 'Schedule dedicated maintenance review for assets with 3+ repeated findings. Consider replacement assessment.',
         drilldown: {
           type: 'recurring-issues-same-assets',
@@ -276,7 +305,7 @@
     const byInspector = new Map();
 
     rows.forEach(r => {
-      const name = r.Inspector || '(Unknown)';
+      const name = getInspectorName(r);
       if (!byInspector.has(name)) {
         byInspector.set(name, { count: 0, negative: 0, dates: [] });
       }
@@ -302,12 +331,13 @@
         type: TYPE.INSPECTOR, severity: SEVERITY.MEDIUM,
         title: `${lowActivity.length} Inspectors with Low Activity`,
         description: `${lowActivity.slice(0, 3).join(', ')}${lowActivity.length > 3 ? ' and others' : ''} have significantly fewer inspection entries than average (${Math.round(avgInspections)}).`,
-        metric: `${lowActivity.length} of ${byInspector.size} inspectors`,
+        metric: `${lowActivity.length} inspectors • ${lowActivity.reduce((sum, name) => sum + (byInspector.get(name) ? byInspector.get(name).count : 0), 0)} records`,
         recommendation: 'Verify inspector assignments and workload distribution. Check for scheduling gaps or resource issues.',
         drilldown: {
           type: 'inspectors-low-activity',
           avgInspections: Math.round(avgInspections),
-          threshold: Math.max(config.inspectorMinInspections, avgInspections * 0.3)
+          threshold: Math.max(config.inspectorMinInspections, avgInspections * 0.3),
+          inspectors: lowActivity
         }
       });
  }
@@ -327,9 +357,9 @@
         type: TYPE.INSPECTOR, severity: SEVERITY.LOW,
         title: `${inactive.length} Inactive Inspector${inactive.length > 1 ? 's' : ''}`,
         description: `${inactive.slice(0, 3).map(i => i.name).join(', ')}${inactive.length > 3 ? ' and others' : ''} have no inspection activity in the last ${config.inactivityDays} days.`,
-        metric: `${inactive.length} inactive`,
+        metric: `${inactive.length} inspectors • ${inactive.reduce((sum, item) => sum + (byInspector.get(item.name) ? byInspector.get(item.name).count : 0), 0)} records`,
         recommendation: 'Confirm inspector availability and reassign coverage if needed.',
-        drilldown: { type: 'inspectors-inactive', inactivityDays: config.inactivityDays }
+        drilldown: { type: 'inspectors-inactive', inactivityDays: config.inactivityDays, inspectors: inactive.map(item => item.name) }
       });
     }
 
@@ -359,7 +389,7 @@
     const assetDates = new Map();
 
     rows.forEach(r => {
-      const asset = r.AssetTag || r.AssetName || 'Unknown';
+      const asset = getAssetName(r);
       const date = r.InspectionDate ? (r.InspectionDate.toISOString ? r.InspectionDate.toISOString().slice(0, 10) : String(r.InspectionDate).slice(0, 10)) : null;
       if (!date) return;
       if (!assetDates.has(asset) || date > assetDates.get(asset)) {
@@ -388,7 +418,7 @@
 
     // Assets with negative findings that haven't been re-inspected
     const negAssets = new Set();
-    rows.forEach(r => { if (hasNegativeFindings(r)) negAssets.add(r.AssetTag || r.AssetName || 'Unknown'); });
+    rows.forEach(r => { if (hasNegativeFindings(r)) negAssets.add(getAssetName(r)); });
     const staleNeg = Array.from(negAssets).filter(a => {
       const lastDate = assetDates.get(a);
       if (!lastDate) return true;
@@ -437,15 +467,20 @@
     }
 
     // If critical insights exist, add summary recommendation
-    const criticalCount = insights.filter(i => i.severity === SEVERITY.CRITICAL).length;
-    if (criticalCount > 0) {
+    const criticalRows = rows.filter(r => hasNegativeFindings(r) && isCriticalPriority(r));
+    const criticalAssets = new Set(criticalRows.map(r => getAssetName(r)));
+    if (criticalRows.length > 0) {
       recs.push({
         type: TYPE.RECOMMENDATION, severity: SEVERITY.CRITICAL,
         title: 'Critical Issues Require Immediate Action',
-        description: `${criticalCount} critical operational insight${criticalCount > 1 ? 's' : ''} detected. Review all high-priority items.`,
-        metric: `${criticalCount} critical`,
+        description: `${criticalAssets.size} critical operational asset${criticalAssets.size !== 1 ? 's' : ''} detected across ${criticalRows.length} high-priority finding${criticalRows.length !== 1 ? 's' : ''}.`,
+        metric: `${criticalAssets.size} assets • ${criticalRows.length} findings`,
         recommendation: 'Escalate to maintenance management. Review critical findings and assign corrective actions with deadlines.',
-        drilldown: { type: 'critical-issues-immediate-action' }
+        drilldown: {
+          type: 'critical-issues-immediate-action',
+          distinctAssets: criticalAssets.size,
+          recordCount: criticalRows.length
+        }
       });
     }
 
