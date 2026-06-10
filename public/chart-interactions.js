@@ -221,6 +221,11 @@
       '#aiInsightDrilldownTableWrap th,#aiInsightDrilldownTableWrap td{text-align:left;padding:8px 10px;vertical-align:top;font-size:11px;border-bottom:1px solid var(--border-light)}\n' +
       '#aiInsightDrilldownTableWrap th{background:#F8FAFC;position:sticky;top:0;z-index:1}\n' +
       '#aiInsightDrilldownTableWrap tbody tr:hover{background:#F8FBFF}\n' +
+      '#aiInsightTabs{display:flex;gap:6px;border-bottom:1px solid var(--border-light);padding-top:2px}\n' +
+      '#aiInsightTabs button{background:transparent;border:1px solid transparent;border-bottom:none;border-radius:8px 8px 0 0;color:var(--text-secondary);cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;padding:8px 12px}\n' +
+      '#aiInsightTabs button.active{background:#fff;border-color:var(--border-light);color:var(--info)}\n' +
+      '.ai-insight-tab-panel{display:none}\n' +
+      '.ai-insight-tab-panel.active{display:block}\n' +
       '#aiInsightEmptyState{border:1px dashed var(--border-medium);border-radius:10px;background:var(--bg-secondary);color:var(--text-secondary);text-align:center;padding:16px}\n' +
       '#aiInsightEmptyState strong{color:var(--text-primary);display:block;margin-bottom:4px}\n' +
       '@media (max-width:768px){\n' +
@@ -228,6 +233,7 @@
       '#aiInsightDrilldownDrawer.open #aiInsightDrilldownPanel{transform:translateY(0)}\n' +
       '#aiInsightDrilldownBody{padding:12px;gap:10px}\n' +
       '#aiInsightDrilldownBody .panel-grid{grid-template-columns:1fr}\n' +
+      '#aiInsightTabs button{flex:1;text-align:center}\n' +
       '#aiInsightDrilldownTableWrap th,#aiInsightDrilldownTableWrap td{padding:5px 3px}\n' +
       '}';
     document.head.appendChild(style);
@@ -341,6 +347,57 @@
 
   function getRemark(row) {
     return row.Findings || row.EntryNotes || row.Capture1Response || '-';
+  }
+
+  function isAssetSummaryInsight(type) {
+    return type === 'centrifugal-pump-negative-findings' ||
+      type === 'critical-issues-immediate-action' ||
+      type === 'recurring-issues-same-assets';
+  }
+
+  function getRowSeverity(row, fallback) {
+    var text = normalizeText([row.Status, row.EscalationTrigger, row.Task, row.Category, row.EntryNotes, row.Capture1Response, row.Findings].join(' '));
+    if (/(critical|urgent|emergency|shutdown|immediate)/.test(text)) return 'critical';
+    if (/(high priority|high-priority|major|alarm|fault|fail)/.test(text)) return 'high';
+    if (/(repair|replace|damage|leak|vibration|overheat)/.test(text)) return 'medium';
+    return fallback || 'info';
+  }
+
+  function maxSeverity(current, next) {
+    var weight = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+    return (weight[next] || 0) > (weight[current] || 0) ? next : current;
+  }
+
+  function groupRowsByAsset(rows, fallbackSeverity) {
+    var groups = {};
+    rows.forEach(function(row) {
+      var asset = getAssetName(row);
+      var key = asset;
+      if (!groups[key]) {
+        groups[key] = {
+          asset: asset,
+          facility: getFacilityName(row),
+          findingCount: 0,
+          latestDate: '',
+          severity: fallbackSeverity || 'info',
+          rows: []
+        };
+      }
+
+      var date = formatDateCell(row.InspectionDate);
+      groups[key].findingCount += 1;
+      groups[key].rows.push(row);
+      if (date && (!groups[key].latestDate || date > groups[key].latestDate)) {
+        groups[key].latestDate = date;
+        groups[key].facility = getFacilityName(row);
+      }
+      groups[key].severity = maxSeverity(groups[key].severity, getRowSeverity(row, fallbackSeverity));
+    });
+
+    return Object.keys(groups).map(function(key) { return groups[key]; }).sort(function(a, b) {
+      if (b.findingCount !== a.findingCount) return b.findingCount - a.findingCount;
+      return (b.latestDate || '').localeCompare(a.latestDate || '');
+    });
   }
 
   function isPumpNegative(row) {
@@ -543,7 +600,7 @@
       '<th>Date Inspected</th>' +
       '<th>Finding / Status</th>' +
       '<th>Remarks / Negative Finding Text</th>' +
-      '</tr></thead><tbody>' +
+    '</tr></thead><tbody>' +
       rows.map(function(row) {
         return '<tr>' +
           '<td>' + escHtml(getAssetName(row)) + '</td>' +
@@ -557,6 +614,38 @@
       '</tbody></table></div>';
   }
 
+  function renderAiInsightAssetSummaryTable(groups) {
+    if (!groups.length) {
+      return '<div id="aiInsightEmptyState"><strong>No Matching Assets</strong>Records tab may contain raw rows if source asset fields are incomplete.</div>';
+    }
+    return '<div id="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+      '<th>Asset / Equipment</th>' +
+      '<th>Facility / Site</th>' +
+      '<th>Finding Count</th>' +
+      '<th>Latest Inspection Date</th>' +
+      '<th>Severity</th>' +
+      '</tr></thead><tbody>' +
+      groups.map(function(group) {
+        return '<tr>' +
+          '<td>' + escHtml(group.asset) + '</td>' +
+          '<td>' + escHtml(group.facility) + '</td>' +
+          '<td>' + group.findingCount + '</td>' +
+          '<td>' + (group.latestDate || '-') + '</td>' +
+          '<td>' + renderAiInsightSeverityBadge(group.severity) + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div>';
+  }
+
+  function renderAiInsightTabbedTables(groups, rows) {
+    return '<div id="aiInsightTabs" role="tablist" aria-label="Insight drill-down views">' +
+        '<button type="button" class="active" data-ai-insight-tab="summary" role="tab" aria-selected="true">Summary</button>' +
+        '<button type="button" data-ai-insight-tab="records" role="tab" aria-selected="false">Records</button>' +
+      '</div>' +
+      '<div id="aiInsightSummaryPanel" class="ai-insight-tab-panel active" role="tabpanel">' + renderAiInsightAssetSummaryTable(groups) + '</div>' +
+      '<div id="aiInsightRecordsPanel" class="ai-insight-tab-panel" role="tabpanel">' + renderAiInsightRowsTable(rows) + '</div>';
+  }
+
   function renderAiInsightSeverityBadge(level) {
     var value = normalizeText(level);
     var color = '#64748B';
@@ -565,6 +654,26 @@
     if (value === 'medium') color = '#0369A1';
     if (value === 'low') color = '#0F766E';
     return '<span style="display:inline-flex;align-items:center;justify-content:center;padding:2px 8px;border:1px solid ' + color + ';border-radius:999px;color:' + color + ';font-size:10px;font-weight:700;line-height:1.2;text-transform:uppercase">' + escHtml(toTitleCase(value || 'info')) + '</span>';
+  }
+
+  function attachAiInsightTabHandlers() {
+    var tabs = document.querySelectorAll('#aiInsightTabs [data-ai-insight-tab]');
+    var summaryPanel = document.getElementById('aiInsightSummaryPanel');
+    var recordsPanel = document.getElementById('aiInsightRecordsPanel');
+    if (!tabs.length || !summaryPanel || !recordsPanel) return;
+
+    tabs.forEach(function(tab) {
+      tab.onclick = function() {
+        var target = tab.getAttribute('data-ai-insight-tab');
+        tabs.forEach(function(item) {
+          var active = item === tab;
+          item.classList.toggle('active', active);
+          item.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        summaryPanel.classList.toggle('active', target === 'summary');
+        recordsPanel.classList.toggle('active', target === 'records');
+      };
+    });
   }
 
   function openAiInsightDrawer(index) {
@@ -582,6 +691,12 @@
     if (!titleEl || !metaEl || !bodyEl) return;
 
     var rows = payload.rows || [];
+    var type = getInsightType(insight);
+    var useAssetSummary = isAssetSummaryInsight(type);
+    var groupedAssets = useAssetSummary ? groupRowsByAsset(rows, insight.severity || 'info') : [];
+    var recordLabel = useAssetSummary
+      ? groupedAssets.length + ' distinct assets • ' + rows.length + ' findings'
+      : rows.length + ' matching records';
     var hasExport = !!findAiInsightExportFn();
     var details = [
       '<div class="panel-grid">' +
@@ -591,8 +706,12 @@
         '<div class="panel-cell"><div class="panel-label">Recommendation</div><div class="panel-value">' + escHtml(insight.recommendation || '-') + '</div></div>' +
       '</div>' +
       '<div class="panel-cell"><div class="panel-label">Filter Criteria</div><div class="panel-value">' + escHtml(payload.criteria) + '</div></div>' +
-      '<div class="panel-cell"><div class="panel-label">Matching Records</div><div class="panel-value">' + rows.length + '</div></div>'
+      '<div class="panel-cell"><div class="panel-label">Matching Records</div><div class="panel-value">' + escHtml(recordLabel) + '</div></div>'
     ];
+
+    if (useAssetSummary) {
+      details.push('<div class="panel-cell"><div class="panel-label">Summary View</div><div class="panel-value">' + groupedAssets.length + ' distinct assets sorted by finding count descending.</div></div>');
+    }
 
     if (payload.summary.length) {
       details.push('<div class="panel-cell"><div class="panel-label">Drill-down Metrics</div><div class="panel-value">' + escHtml(payload.summary.join(' • ')) + '</div></div>');
@@ -615,16 +734,17 @@
       details.push('<div id="aiInsightEmptyState"><strong>Computed from partial data</strong>Some required fields are missing: ' + escHtml(missing.join(', ')) + '</div>');
     }
 
-    details.push(renderAiInsightRowsTable(rows));
+    details.push(useAssetSummary ? renderAiInsightTabbedTables(groupedAssets, rows) : renderAiInsightRowsTable(rows));
 
     titleEl.textContent = insight.title || 'Insight Detail';
     if (severityEl) {
       severityEl.innerHTML = renderAiInsightSeverityBadge(insight.severity || 'info');
     }
     if (countEl) {
-      countEl.textContent = rows.length + ' records';
+      countEl.textContent = useAssetSummary ? groupedAssets.length + ' assets • ' + rows.length + ' findings' : rows.length + ' records';
     }
     bodyEl.innerHTML = details.join('');
+    attachAiInsightTabHandlers();
 
     if (hasExport) {
       var exportBtn = document.getElementById('aiInsightExportRowsButton');
