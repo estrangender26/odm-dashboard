@@ -547,12 +547,12 @@
       recs.push({
         type: TYPE.RECOMMENDATION, severity: SEVERITY.CRITICAL,
         title: 'Critical Issues Require Immediate Action',
-        description: `${criticalContributors.length} Pareto top-20% asset${criticalContributors.length !== 1 ? 's' : ''} account for ${criticalFindingCount} negative finding${criticalFindingCount !== 1 ? 's' : ''}.`,
-        metric: `${criticalContributors.length} assets • ${criticalFindingCount} findings`,
-        recommendation: 'Escalate Pareto top asset contributors to maintenance management. Assign corrective actions against the highest-impact equipment.',
+        description: `${criticalContributors.length} Pareto top-20% equipment asset${criticalContributors.length !== 1 ? 's' : ''} should be raised to S/4, accounting for ${criticalFindingCount} negative finding${criticalFindingCount !== 1 ? 's' : ''}.`,
+        metric: `${criticalContributors.length} S/4 equipment • ${criticalFindingCount} findings`,
+        recommendation: 'Raise S/4 maintenance notifications or work orders for these specific equipment assets first. Assign corrective actions against the highest-impact equipment.',
         drilldown: {
           type: 'critical-issues-immediate-action',
-          basis: 'asset-pareto-top-20-negative-findings',
+          basis: 's4-equipment-asset-pareto-top-20-negative-findings',
           contributors: criticalContributors,
           distinctAssets: criticalContributors.length,
           recordCount: criticalFindingCount
