@@ -590,7 +590,7 @@
   }
 
   function getCriticalContributorName(row) {
-    return row.AssetTag || row.EquipmentID || row.EquipmentId || row.EquipmentName || row.AssetName || row.Asset || '';
+    return row.AssetTag || row.EquipmentID || row.EquipmentId || row.EquipmentTag || row.EquipmentCode || row.AssetID || row.AssetId || '';
   }
 
   function getRowSeverity(row, fallback) {

@@ -69,7 +69,7 @@
   }
 
   function getCriticalContributorName(row) {
-    return row.AssetTag || row.EquipmentID || row.EquipmentId || row.EquipmentName || row.AssetName || row.Asset || '';
+    return row.AssetTag || row.EquipmentID || row.EquipmentId || row.EquipmentTag || row.EquipmentCode || row.AssetID || row.AssetId || '';
   }
 
   function buildParetoTopContributors(rows) {
@@ -95,7 +95,7 @@
 
     const sorted = Array.from(groups.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     const take = sorted.length ? Math.max(1, Math.ceil(sorted.length * 0.2)) : 0;
-    const total = negativeRows.length || 1;
+    const total = sorted.reduce((sum, group) => sum + group.count, 0) || 1;
     let cumulative = 0;
 
     return sorted.slice(0, take).map(group => {
