@@ -216,11 +216,11 @@
       '#aiInsightDrilldownBody .panel-cell{border:1px solid var(--border-light);border-radius:8px;padding:8px;background:#fff;font-size:12px}\n' +
       '#aiInsightDrilldownBody .panel-label{color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}\n' +
       '#aiInsightDrilldownBody .panel-value{color:var(--text-primary);font-size:12px;line-height:1.45;word-break:break-word}\n' +
-      '#aiInsightDrilldownTableWrap{border:1px solid var(--border-light);background:#fff;border-radius:8px;overflow:auto}\n' +
-      '#aiInsightDrilldownTableWrap table{width:100%;border-collapse:collapse}\n' +
-      '#aiInsightDrilldownTableWrap th,#aiInsightDrilldownTableWrap td{text-align:left;padding:8px 10px;vertical-align:top;font-size:11px;border-bottom:1px solid var(--border-light)}\n' +
-      '#aiInsightDrilldownTableWrap th{background:#F8FAFC;position:sticky;top:0;z-index:1}\n' +
-      '#aiInsightDrilldownTableWrap tbody tr:hover{background:#F8FBFF}\n' +
+      '.aiInsightDrilldownTableWrap{border:1px solid var(--border-light);background:#fff;border-radius:8px;overflow:auto}\n' +
+      '.aiInsightDrilldownTableWrap table{width:100%;border-collapse:collapse}\n' +
+      '.aiInsightDrilldownTableWrap th,.aiInsightDrilldownTableWrap td{text-align:left;padding:8px 10px;vertical-align:top;font-size:11px;border-bottom:1px solid var(--border-light)}\n' +
+      '.aiInsightDrilldownTableWrap th{background:#F8FAFC;position:sticky;top:0;z-index:1}\n' +
+      '.aiInsightDrilldownTableWrap tbody tr:hover{background:#F8FBFF}\n' +
       '#aiInsightTabs{display:flex;gap:6px;border-bottom:1px solid var(--border-light);padding-top:2px}\n' +
       '#aiInsightTabs button{background:transparent;border:1px solid transparent;border-bottom:none;border-radius:8px 8px 0 0;color:var(--text-secondary);cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;padding:8px 12px}\n' +
       '#aiInsightTabs button.active{background:#fff;border-color:var(--border-light);color:var(--info)}\n' +
@@ -234,7 +234,7 @@
       '#aiInsightDrilldownBody{padding:12px;gap:10px}\n' +
       '#aiInsightDrilldownBody .panel-grid{grid-template-columns:1fr}\n' +
       '#aiInsightTabs button{flex:1;text-align:center}\n' +
-      '#aiInsightDrilldownTableWrap th,#aiInsightDrilldownTableWrap td{padding:5px 3px}\n' +
+      '.aiInsightDrilldownTableWrap th,.aiInsightDrilldownTableWrap td{padding:5px 3px}\n' +
       '}';
     document.head.appendChild(style);
   }
@@ -349,10 +349,13 @@
     return row.Findings || row.EntryNotes || row.Capture1Response || '-';
   }
 
-  function isAssetSummaryInsight(type) {
-    return type === 'centrifugal-pump-negative-findings' ||
-      type === 'critical-issues-immediate-action' ||
-      type === 'recurring-issues-same-assets';
+  function getSummaryKind(type) {
+    if (type === 'inspectors-low-activity' || type === 'inspectors-inactive') return 'inspector';
+    if (type === 'dominant-equipment-type-negative-findings' || type === 'pareto-concentration') return 'category';
+    if (type === 'negative-findings-declining' || type === 'negative-findings-trend-increased' ||
+      type === 'negative-finding-rate-normal' || type === 'negative-finding-rate-high' ||
+      type === 'inspection-activity-declining') return 'trend';
+    return 'asset';
   }
 
   function getRowSeverity(row, fallback) {
@@ -400,6 +403,103 @@
     });
   }
 
+  function groupRowsByInspector(rows, type) {
+    var groups = {};
+    rows.forEach(function(row) {
+      var inspector = getInspectorName(row);
+      if (!groups[inspector]) {
+        groups[inspector] = {
+          inspector: inspector,
+          inspectionCount: 0,
+          lastDate: '',
+          assets: {},
+          status: type === 'inspectors-inactive' ? 'Inactive' : 'Low activity'
+        };
+      }
+
+      var date = formatDateCell(row.InspectionDate);
+      var asset = getAssetName(row);
+      groups[inspector].inspectionCount += 1;
+      groups[inspector].assets[asset] = true;
+      if (date && (!groups[inspector].lastDate || date > groups[inspector].lastDate)) {
+        groups[inspector].lastDate = date;
+      }
+    });
+
+    return Object.keys(groups).map(function(key) {
+      var group = groups[key];
+      group.affectedAssets = Object.keys(group.assets).length;
+      return group;
+    }).sort(function(a, b) {
+      if (type === 'inspectors-low-activity' && a.inspectionCount !== b.inspectionCount) {
+        return a.inspectionCount - b.inspectionCount;
+      }
+      if (b.inspectionCount !== a.inspectionCount) return b.inspectionCount - a.inspectionCount;
+      return (b.lastDate || '').localeCompare(a.lastDate || '');
+    });
+  }
+
+  function getCategoryName(row) {
+    return row.EquipmentType || row.Category || row.Task || '(Unknown category)';
+  }
+
+  function groupRowsByCategory(rows) {
+    var groups = {};
+    var totalFindings = rows.length || 1;
+    rows.forEach(function(row) {
+      var category = getCategoryName(row);
+      if (!groups[category]) {
+        groups[category] = {
+          category: category,
+          assets: {},
+          findingCount: 0,
+          share: 0
+        };
+      }
+      groups[category].assets[getAssetName(row)] = true;
+      groups[category].findingCount += 1;
+    });
+
+    return Object.keys(groups).map(function(key) {
+      var group = groups[key];
+      group.distinctAssets = Object.keys(group.assets).length;
+      group.share = Math.round((group.findingCount / totalFindings) * 100);
+      return group;
+    }).sort(function(a, b) {
+      if (b.findingCount !== a.findingCount) return b.findingCount - a.findingCount;
+      return b.distinctAssets - a.distinctAssets;
+    });
+  }
+
+  function groupRowsByPeriod(rows) {
+    var groups = {};
+    rows.forEach(function(row) {
+      var period = formatDateCell(row.InspectionDate) || '(No date)';
+      var status = hasNegativeKeyword(row) ? 'Negative' : 'Normal';
+      var key = period + '|' + status;
+      if (!groups[key]) {
+        groups[key] = {
+          period: period,
+          status: status,
+          totalInspections: 0,
+          negativeFindings: 0,
+          rate: 0
+        };
+      }
+      groups[key].totalInspections += 1;
+      if (hasNegativeKeyword(row)) groups[key].negativeFindings += 1;
+    });
+
+    return Object.keys(groups).map(function(key) {
+      var group = groups[key];
+      group.rate = Math.round(group.totalInspections ? (group.negativeFindings / group.totalInspections) * 100 : 0);
+      return group;
+    }).sort(function(a, b) {
+      if ((b.period || '').localeCompare(a.period || '') !== 0) return (b.period || '').localeCompare(a.period || '');
+      return b.negativeFindings - a.negativeFindings;
+    });
+  }
+
   function isPumpNegative(row) {
     return hasNegativeKeyword(row) && /(centrifugal|pump system|pump-system|pump)/.test(normalizeText([row.AssetTag, row.AssetName, row.EquipmentType, row.Task, row.Capture1Response, row.EntryNotes, row.Findings].join(' ')));
   }
@@ -416,6 +516,8 @@
     if (title.indexOf('centrifugal pump') !== -1) return 'centrifugal-pump-negative-findings';
     if (title.indexOf('critical issues require immediate action') !== -1) return 'critical-issues-immediate-action';
     if (title.indexOf('recurring issues on same assets') !== -1) return 'recurring-issues-same-assets';
+    if (title.indexOf('pareto concentration') !== -1) return 'pareto-concentration';
+    if (title.indexOf('systems dominate negative findings') !== -1) return 'dominant-equipment-type-negative-findings';
     if (title.indexOf('inspection coverage gaps detected') !== -1) return 'inspection-coverage-gaps';
     if (title.indexOf('low activity') !== -1) return 'inspectors-low-activity';
     if (title.indexOf('inactive inspector') !== -1) return 'inspectors-inactive';
@@ -427,7 +529,7 @@
 
   function buildAiInsightPayload(insight, rows) {
     var type = getInsightType(insight);
-    var payload = { criteria: '-', rows: [], summary: [], notes: '' };
+    var payload = { criteria: '-', rows: [], contextRows: rows || [], summary: [], notes: '' };
 
     if (!rows.length) {
       payload.notes = 'No rows available from the current dashboard filter.';
@@ -593,7 +695,10 @@
     if (!rows.length) {
       return '<div id="aiInsightEmptyState"><strong>No Matching Records</strong>Adjust dashboard filters or verify field availability.</div>';
     }
-    return '<div id="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+    var sortedRows = rows.slice().sort(function(a, b) {
+      return (formatDateCell(b.InspectionDate) || '').localeCompare(formatDateCell(a.InspectionDate) || '');
+    });
+    return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
       '<th>Asset / Equipment</th>' +
       '<th>Facility / Site</th>' +
       '<th>Inspector</th>' +
@@ -601,7 +706,7 @@
       '<th>Finding / Status</th>' +
       '<th>Remarks / Negative Finding Text</th>' +
     '</tr></thead><tbody>' +
-      rows.map(function(row) {
+      sortedRows.map(function(row) {
         return '<tr>' +
           '<td>' + escHtml(getAssetName(row)) + '</td>' +
           '<td>' + escHtml(getFacilityName(row)) + '</td>' +
@@ -614,16 +719,75 @@
       '</tbody></table></div>';
   }
 
-  function renderAiInsightAssetSummaryTable(groups) {
+  function renderAiInsightSummaryTable(kind, groups) {
     if (!groups.length) {
-      return '<div id="aiInsightEmptyState"><strong>No Matching Assets</strong>Records tab may contain raw rows if source asset fields are incomplete.</div>';
+      return '<div id="aiInsightEmptyState"><strong>No Summary Groups</strong>Records tab may contain raw rows if source grouping fields are incomplete.</div>';
     }
-    return '<div id="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+
+    if (kind === 'inspector') {
+      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+        '<th>Inspector</th>' +
+        '<th>Inspection Count</th>' +
+        '<th>Last Inspection Date</th>' +
+        '<th>Affected Assets</th>' +
+        '<th>Status</th>' +
+        '</tr></thead><tbody>' +
+        groups.map(function(group) {
+          return '<tr>' +
+            '<td>' + escHtml(group.inspector) + '</td>' +
+            '<td>' + group.inspectionCount + '</td>' +
+            '<td>' + (group.lastDate || '-') + '</td>' +
+            '<td>' + group.affectedAssets + '</td>' +
+            '<td>' + escHtml(group.status || '-') + '</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+
+    if (kind === 'category') {
+      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+        '<th>Category / Equipment Type</th>' +
+        '<th>Distinct Assets</th>' +
+        '<th>Finding Count</th>' +
+        '<th>Share %</th>' +
+        '</tr></thead><tbody>' +
+        groups.map(function(group) {
+          return '<tr>' +
+            '<td>' + escHtml(group.category) + '</td>' +
+            '<td>' + group.distinctAssets + '</td>' +
+            '<td>' + group.findingCount + '</td>' +
+            '<td>' + group.share + '%</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+
+    if (kind === 'trend') {
+      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+        '<th>Period</th>' +
+        '<th>Status</th>' +
+        '<th>Total Inspections</th>' +
+        '<th>Negative Findings</th>' +
+        '<th>Negative Finding Rate</th>' +
+        '</tr></thead><tbody>' +
+        groups.map(function(group) {
+          return '<tr>' +
+            '<td>' + escHtml(group.period) + '</td>' +
+            '<td>' + escHtml(group.status) + '</td>' +
+            '<td>' + group.totalInspections + '</td>' +
+            '<td>' + group.negativeFindings + '</td>' +
+            '<td>' + group.rate + '%</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+
+    return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
       '<th>Asset / Equipment</th>' +
       '<th>Facility / Site</th>' +
       '<th>Finding Count</th>' +
       '<th>Latest Inspection Date</th>' +
-      '<th>Severity</th>' +
+      '<th>Severity / Status</th>' +
       '</tr></thead><tbody>' +
       groups.map(function(group) {
         return '<tr>' +
@@ -637,12 +801,12 @@
       '</tbody></table></div>';
   }
 
-  function renderAiInsightTabbedTables(groups, rows) {
+  function renderAiInsightTabbedTables(kind, groups, rows) {
     return '<div id="aiInsightTabs" role="tablist" aria-label="Insight drill-down views">' +
         '<button type="button" class="active" data-ai-insight-tab="summary" role="tab" aria-selected="true">Summary</button>' +
         '<button type="button" data-ai-insight-tab="records" role="tab" aria-selected="false">Records</button>' +
       '</div>' +
-      '<div id="aiInsightSummaryPanel" class="ai-insight-tab-panel active" role="tabpanel">' + renderAiInsightAssetSummaryTable(groups) + '</div>' +
+      '<div id="aiInsightSummaryPanel" class="ai-insight-tab-panel active" role="tabpanel">' + renderAiInsightSummaryTable(kind, groups) + '</div>' +
       '<div id="aiInsightRecordsPanel" class="ai-insight-tab-panel" role="tabpanel">' + renderAiInsightRowsTable(rows) + '</div>';
   }
 
@@ -676,6 +840,28 @@
     });
   }
 
+  function buildSummaryGroups(kind, payload, rows, insightType, fallbackSeverity) {
+    if (kind === 'inspector') return groupRowsByInspector(rows, insightType);
+    if (kind === 'category') return groupRowsByCategory(rows);
+    if (kind === 'trend') return groupRowsByPeriod(payload.contextRows && payload.contextRows.length ? payload.contextRows : rows);
+    return groupRowsByAsset(rows, fallbackSeverity);
+  }
+
+  function getSummaryCountLabel(kind, groups, rows, payload) {
+    var contextRows = payload && payload.contextRows && payload.contextRows.length ? payload.contextRows : rows;
+    if (kind === 'inspector') return groups.length + ' distinct inspectors • ' + rows.length + ' matching records';
+    if (kind === 'category') return groups.length + ' distinct categories • ' + rows.length + ' findings';
+    if (kind === 'trend') return groups.length + ' period/status groups • ' + contextRows.length + ' total inspections';
+    return groups.length + ' distinct assets • ' + rows.length + ' findings';
+  }
+
+  function getSummaryViewLabel(kind, groups) {
+    if (kind === 'inspector') return groups.length + ' distinct inspectors. Low-activity inspectors are sorted by inspection count ascending.';
+    if (kind === 'category') return groups.length + ' distinct categories sorted by finding count descending.';
+    if (kind === 'trend') return groups.length + ' period/status groups with total inspections, negative findings, and rate.';
+    return groups.length + ' distinct assets sorted by finding count descending.';
+  }
+
   function openAiInsightDrawer(index) {
     var insight = insightDrawerState.insights[Number(index)] || null;
     if (!insight) return;
@@ -692,11 +878,9 @@
 
     var rows = payload.rows || [];
     var type = getInsightType(insight);
-    var useAssetSummary = isAssetSummaryInsight(type);
-    var groupedAssets = useAssetSummary ? groupRowsByAsset(rows, insight.severity || 'info') : [];
-    var recordLabel = useAssetSummary
-      ? groupedAssets.length + ' distinct assets • ' + rows.length + ' findings'
-      : rows.length + ' matching records';
+    var summaryKind = getSummaryKind(type);
+    var summaryGroups = buildSummaryGroups(summaryKind, payload, rows, type, insight.severity || 'info');
+    var recordLabel = getSummaryCountLabel(summaryKind, summaryGroups, rows, payload);
     var hasExport = !!findAiInsightExportFn();
     var details = [
       '<div class="panel-grid">' +
@@ -709,9 +893,7 @@
       '<div class="panel-cell"><div class="panel-label">Matching Records</div><div class="panel-value">' + escHtml(recordLabel) + '</div></div>'
     ];
 
-    if (useAssetSummary) {
-      details.push('<div class="panel-cell"><div class="panel-label">Summary View</div><div class="panel-value">' + groupedAssets.length + ' distinct assets sorted by finding count descending.</div></div>');
-    }
+    details.push('<div class="panel-cell"><div class="panel-label">Summary View</div><div class="panel-value">' + escHtml(getSummaryViewLabel(summaryKind, summaryGroups)) + '</div></div>');
 
     if (payload.summary.length) {
       details.push('<div class="panel-cell"><div class="panel-label">Drill-down Metrics</div><div class="panel-value">' + escHtml(payload.summary.join(' • ')) + '</div></div>');
@@ -734,14 +916,14 @@
       details.push('<div id="aiInsightEmptyState"><strong>Computed from partial data</strong>Some required fields are missing: ' + escHtml(missing.join(', ')) + '</div>');
     }
 
-    details.push(useAssetSummary ? renderAiInsightTabbedTables(groupedAssets, rows) : renderAiInsightRowsTable(rows));
+    details.push(renderAiInsightTabbedTables(summaryKind, summaryGroups, rows));
 
     titleEl.textContent = insight.title || 'Insight Detail';
     if (severityEl) {
       severityEl.innerHTML = renderAiInsightSeverityBadge(insight.severity || 'info');
     }
     if (countEl) {
-      countEl.textContent = useAssetSummary ? groupedAssets.length + ' assets • ' + rows.length + ' findings' : rows.length + ' records';
+      countEl.textContent = getSummaryCountLabel(summaryKind, summaryGroups, rows, payload);
     }
     bodyEl.innerHTML = details.join('');
     attachAiInsightTabHandlers();
