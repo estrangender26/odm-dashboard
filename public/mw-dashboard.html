@@ -1168,6 +1168,133 @@
     .insight-metric { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--text-primary); background: var(--bg-secondary); padding: 3px 10px; border-radius: 6px; margin-bottom: 8px; }
     .insight-rec { font-size: 11px; color: var(--text-muted); line-height: 1.4; padding: 8px 10px; background: rgba(0,91,172,0.03); border-radius: 6px; border-left: 2px solid rgba(0,91,172,0.15); }
     .insight-rec strong { color: var(--text-primary); font-weight: 600; }
+    .insight-card--clickable { cursor: pointer; }
+    .insight-card--clickable:hover { transform: translateY(-1px); border-color: var(--border-medium); box-shadow: 0 8px 24px rgba(11, 29, 68, 0.10); }
+    .insight-detail-title { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+    .insight-empty-state {
+      border: 1px dashed var(--border-medium);
+      border-radius: 10px;
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      text-align: center;
+      padding: 16px;
+    }
+    .insight-empty-state strong { color: var(--text-primary); display:block; margin-bottom: 4px; }
+
+    /* ---------- Right-side drawer ---------- */
+    #drillDownContainer {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: none;
+    }
+    #drillDownBackdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(13, 24, 38, 0.35);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    #insightDrillDownPanel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(680px, 86vw);
+      height: 100%;
+      max-height: 100vh;
+      background: #fff;
+      box-shadow: -18px 0 35px rgba(11, 29, 68, 0.2);
+      transform: translateX(110%);
+      transition: transform 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border-light);
+      overflow: hidden;
+    }
+    #drillDownContainer.open {
+      display: block;
+    }
+    #drillDownContainer.open #drillDownBackdrop {
+      opacity: 1;
+    }
+    #drillDownContainer.open #insightDrillDownPanel {
+      transform: translateX(0);
+    }
+    #insightDrillDownHeader {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-light);
+      background: linear-gradient(135deg, #16324F, #005BAC);
+      color: #fff;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    #insightDrillDownBody {
+      padding: 14px 16px;
+      overflow: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: #FBFDFF;
+    }
+    #insightDrillDownBody .panel-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    #insightDrillDownBody .panel-cell {
+      border: 1px solid var(--border-light);
+      border-radius: 8px;
+      padding: 8px;
+      background: #fff;
+      font-size: 12px;
+    }
+    #insightDrillDownBody .panel-label {
+      color: var(--text-muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      margin-bottom: 4px;
+    }
+    #insightDrillDownBody .panel-value { color: var(--text-primary); font-size: 12px; line-height: 1.45; word-break: break-word; }
+    #insightDrillDownBody .panel-badge {
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--bg-secondary);
+      font-weight: 700;
+      font-size: 10px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 8px;
+      white-space: nowrap;
+    }
+    #insightDrillDownTableWrap { border: 1px solid var(--border-light); background: #fff; border-radius: 8px; overflow: auto; }
+    #insightDrillDownTableWrap table { width: 100%; border-collapse: collapse; }
+    #insightDrillDownTableWrap th,
+    #insightDrillDownTableWrap td {
+      border-bottom: 1px solid var(--border-light);
+      text-align: left;
+      padding: 8px 10px;
+      vertical-align: top;
+      font-size: 11px;
+    }
+    #insightDrillDownTableWrap th {
+      background: #F8FAFC;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #insightDrillDownTableWrap tbody tr:hover { background: #F8FBFF; }
+    #insightDrillDownTableWrap .text-mono { font-family: monospace; color: var(--text-secondary); }
 
     @media (max-width: 768px) {
       .insights-grid { grid-template-columns: 1fr; gap: 10px; }
@@ -1176,8 +1303,20 @@
       .insight-desc { font-size: 11px; }
       #filterChipContainer { flex-wrap: wrap; }
       #drillDownContainer table { font-size: 10px; }
-      #drillDownContainer table th,
-      #drillDownContainer table td { padding: 3px 2px; }
+      #insightDrillDownPanel {
+        width: 100%;
+        border-left: none;
+        border-top: 1px solid var(--border-light);
+        transform: translateY(110%);
+        top: auto;
+        bottom: 0;
+        box-shadow: 0 -12px 30px rgba(11,29,68,.18);
+      }
+      #drillDownContainer.open #insightDrillDownPanel { transform: translateY(0); }
+      #insightDrillDownBody .panel-grid { grid-template-columns: 1fr; }
+      #insightDrillDownBody { padding: 12px; gap: 10px; }
+      #insightDrillDownTableWrap th,
+      #insightDrillDownTableWrap td { padding: 5px 3px; }
     }
 
     /* Filter chip */
@@ -1188,19 +1327,6 @@
       margin-bottom: 10px;
       padding: 0 2px;
       animation: fadeIn .2s ease;
-    }
-
-    /* Drill-down panel */
-    #drillDownContainer {
-      display: none;
-      animation: fadeIn .25s ease;
-    }
-    #drillDownContainer table th,
-    #drillDownContainer table td {
-      padding: 5px 4px;
-    }
-    #drillDownContainer table tbody tr:hover {
-      background: #FAFBFC;
     }
 
     @keyframes fadeIn {
@@ -1565,7 +1691,33 @@
     <div id="filterChipContainer" style="display:none;align-items:center;margin-bottom:10px;padding:0 2px"></div>
 
     <!-- Drill-Down Detail Panel -->
-    <div id="drillDownContainer" style="display:none"></div>
+    <div id="drillDownContainer">
+      <div id="drillDownBackdrop" onclick="closeInsightDrillDown()"></div>
+      <aside id="insightDrillDownPanel" aria-live="polite" aria-label="Insight drill-down drawer">
+        <div id="insightDrillDownHeader">
+          <div style="display:flex;align-items:flex-start;gap:10px;min-width:0">
+            <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><polyline points="12 12 16 12 14 10"/>
+              </svg>
+            </div>
+            <div style="min-width:0">
+              <h2 id="insightDrillDownTitle" class="insight-detail-title" style="color:#fff;font-size:16px;margin:0 0 4px 0;line-height:1.3">Insight Detail</h2>
+              <div id="insightDrillDownMeta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,.8)">
+                <span id="insightDrillDownSeverity">-</span>
+                <span style="opacity:.8">•</span>
+                <span id="insightDrillDownCount">0 matching rows</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+            <button id="insightDrillDownClose" onclick="closeInsightDrillDown()" style="background:rgba(255,255,255,.14);border:none;color:#fff;cursor:pointer;padding:6px 12px;border-radius:8px;font-size:12px;font-family:inherit;font-weight:600">Close</button>
+            <button onclick="closeInsightDrillDown()" style="background:none;border:none;color:rgba(255,255,255,.75);cursor:pointer;padding:2px 8px;font-size:20px;line-height:1;border-radius:8px">&times;</button>
+          </div>
+        </div>
+        <div id="insightDrillDownBody"></div>
+      </aside>
+    </div>
 
     <!-- Tabs Panel -->
     <div class="tabs-panel" id="tablesPanel">
@@ -2930,6 +3082,351 @@ const INSIGHT_ICONS = {
   coverage: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
   recommendation: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/></svg>'
 };
+var activeInsights = [];
+var activeInsightRows = [];
+
+function getInsightByIndex(index) {
+  return activeInsights[Number(index)] || null;
+}
+
+function normalizeText(value) {
+  return value ? String(value).trim().toLowerCase() : '';
+}
+
+function toDateObject(value) {
+  if (!value) return null;
+  return value instanceof Date ? value : new Date(value);
+}
+
+function formatDateCell(value) {
+  var d = toDateObject(value);
+  if (!d || Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+function getAssetName(row) {
+  return row.AssetTag || row.AssetName || row.EquipmentName || row.EquipmentType || '-';
+}
+
+function getFacilityName(row) {
+  return row.Plant || 'Unassigned';
+}
+
+function getInspectorName(row) {
+  return row.Inspector || '(Unknown)';
+}
+
+function getFindingStatus(row) {
+  return row.Status || row.EscalationTrigger || row.Category || row.Task || '-';
+}
+
+function getNegativeRemark(row) {
+  if (normalizeText(row.Findings) && hasNegativeFindings(row)) return row.Findings;
+  if (normalizeText(row.EntryNotes) && hasNegativeFindings({ EntryNotes: row.EntryNotes })) return row.EntryNotes;
+  if (normalizeText(row.Capture1Response) && hasNegativeFindings({ Capture1Response: row.Capture1Response })) return row.Capture1Response;
+  return row.Findings || row.EntryNotes || row.Capture1Response || '-';
+}
+
+function isPumpNegativeFinding(row) {
+  var combined = [
+    row.AssetType, row.EquipmentType, row.Category, row.Task, row.AssetTag, row.AssetName,
+    row.Capture1Response, row.EntryNotes, row.Findings
+  ].map(normalizeText).join(' ');
+  return hasNegativeFindings(row) && /centrifugal|pump system|pump-system|pump/.test(combined);
+}
+
+function isCriticalPriorityFinding(row) {
+  var combined = [
+    row.EntryNotes,
+    row.Capture1Response,
+    row.Findings,
+    row.Status,
+    row.EscalationTrigger
+  ].map(normalizeText).join(' ');
+  return /critical|urgent|high priority|high-priority|emergency|shutdown|immediate|major/.test(combined);
+}
+
+function getInsightDrilldownType(insight) {
+  if (insight && insight.drilldown && insight.drilldown.type) return insight.drilldown.type;
+  var title = normalizeText(insight && insight.title || '');
+  if (title.indexOf('centrifugal pump') !== -1) return 'centrifugal-pump-negative-findings';
+  if (title.indexOf('critical issues require immediate action') !== -1) return 'critical-issues-immediate-action';
+  if (title.indexOf('recurring issues') !== -1) return 'recurring-issues-same-assets';
+  if (title.indexOf('inspection coverage gaps detected') !== -1) return 'inspection-coverage-gaps';
+  if (title.indexOf('inspectors with low activity') !== -1) return 'inspectors-low-activity';
+  if (title.indexOf('inactive inspector') !== -1) return 'inspectors-inactive';
+  if (title.indexOf('negative findings declining') !== -1) return 'negative-findings-declining';
+  if (title.indexOf('negative finding rate within normal range') !== -1) return 'negative-finding-rate-normal';
+  if (title.indexOf('negative finding rate') !== -1) return 'negative-finding-rate-high';
+  return 'generic';
+}
+
+function getRecurringAssets(rows, threshold) {
+  var counts = {};
+  rows.forEach(function(row) {
+    if (!hasNegativeFindings(row)) return;
+    var key = getAssetName(row);
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return Object.keys(counts).filter(function(asset) {
+    return counts[asset] >= threshold;
+  });
+}
+
+function buildInsightDrilldownPayload(insight, rows) {
+  var type = getInsightDrilldownType(insight);
+  var payload = { criteria: '-', rows: [], summary: [], notes: '' };
+
+  if (type === 'centrifugal-pump-negative-findings') {
+    payload.rows = rows.filter(isPumpNegativeFinding);
+    payload.criteria = 'Negative findings where facility records include centrifugal/pump system equipment wording.';
+    if (!payload.rows.length) {
+      payload.notes = 'No pump-system negative findings found in current filters.';
+    }
+    return payload;
+  }
+
+  if (type === 'critical-issues-immediate-action') {
+    payload.rows = rows.filter(function(row) {
+      return hasNegativeFindings(row) && isCriticalPriorityFinding(row);
+    });
+    payload.criteria = 'Rows where negative finding text also contains critical/high-priority intent.';
+    if (!payload.rows.length) {
+      payload.notes = 'No critical/high-priority negative findings found in active columns.';
+    }
+    return payload;
+  }
+
+  if (type === 'recurring-issues-same-assets') {
+    var threshold = 3;
+    if (insight.drilldown && insight.drilldown.threshold) threshold = insight.drilldown.threshold;
+    var repeated = getRecurringAssets(rows, threshold);
+    payload.criteria = 'Assets with repeated negative findings count >= ' + threshold + ' in current filters.';
+    payload.rows = rows.filter(function(row) {
+      return repeated.indexOf(getAssetName(row)) !== -1;
+    });
+    if (!payload.rows.length) {
+      payload.notes = 'No assets met the recurring threshold from current filters.';
+    } else {
+      payload.summary.push(repeated.length + ' repeated assets');
+      payload.summary.push('Threshold: ' + threshold + ' negative findings');
+    }
+    return payload;
+  }
+
+  if (type === 'inspection-coverage-gaps') {
+    var gapDays = insight.drilldown && insight.drilldown.gapDays ? insight.drilldown.gapDays : 14;
+    var assetLatest = {};
+    rows.forEach(function(row) {
+      var date = toDateObject(row.InspectionDate);
+      var name = getAssetName(row);
+      if (!date || !name) return;
+      if (!assetLatest[name] || +date > +assetLatest[name].date) {
+        assetLatest[name] = { date: date, row: row };
+      }
+    });
+    payload.criteria = 'Assets with last inspection date older than configured gap days (' + gapDays + ') under current filters.';
+    var today = new Date();
+    var overdueRows = [];
+    Object.keys(assetLatest).forEach(function(asset) {
+      var rec = assetLatest[asset];
+      var gap = daysBetween(formatDateCell(rec.date), today.toISOString().slice(0, 10));
+      if (gap > gapDays) {
+        overdueRows.push({
+          _synthetic: true,
+          AssetTag: asset,
+          Plant: getFacilityName(rec.row),
+          Inspector: getInspectorName(rec.row),
+          InspectionDate: rec.date,
+          Status: 'Overdue (' + gap + ' days)',
+          EntryNotes: getNegativeRemark(rec.row),
+          Capture1Response: rec.row.Capture1Response,
+          Findings: rec.row.Findings
+        });
+      }
+    });
+    payload.rows = overdueRows;
+    if (!payload.rows.length) {
+      payload.notes = 'No assets currently exceed the coverage gap period.';
+    } else {
+      payload.summary.push(payload.rows.length + ' assets overdue');
+    }
+    return payload;
+  }
+
+  if (type === 'inspectors-low-activity') {
+    var byInspector = {};
+    rows.forEach(function(row) {
+      var name = getInspectorName(row);
+      if (!byInspector[name]) byInspector[name] = [];
+      byInspector[name].push(row);
+    });
+    var counts = Object.keys(byInspector).map(function(name) { return { name: name, count: byInspector[name].length }; });
+    var avg = counts.length ? counts.reduce(function(sum, row) { return sum + row.count; }, 0) / counts.length : 0;
+    var lowThreshold = insight.drilldown && insight.drilldown.threshold ? insight.drilldown.threshold : Math.max(5, avg * 0.3);
+    var low = counts.filter(function(item) { return item.count < lowThreshold; }).map(function(item) { return item.name; });
+    payload.criteria = 'Inspectors with records lower than average activity threshold.';
+    payload.rows = rows.filter(function(row) { return low.indexOf(getInspectorName(row)) !== -1; });
+    payload.summary.push('Average inspections: ' + Math.round(avg));
+    payload.summary.push('Threshold: ' + Math.round(lowThreshold));
+    if (!payload.rows.length) payload.notes = 'No low-activity inspectors found for current filters.';
+    return payload;
+  }
+
+  if (type === 'inspectors-inactive') {
+    var limit = insight.drilldown && insight.drilldown.inactivityDays ? insight.drilldown.inactivityDays : 7;
+    var lastDateByInspector = {};
+    rows.forEach(function(row) {
+      var name = getInspectorName(row);
+      var d = toDateObject(row.InspectionDate);
+      if (!d) return;
+      if (!lastDateByInspector[name] || +d > +lastDateByInspector[name]) lastDateByInspector[name] = d;
+    });
+    var inactive = Object.keys(lastDateByInspector).filter(function(name) {
+      return daysBetween(formatDateCell(lastDateByInspector[name]), new Date().toISOString().slice(0, 10)) > limit;
+    });
+    payload.criteria = 'Inspectors with no inspection activity in the last ' + limit + ' days.';
+    payload.rows = rows.filter(function(row) { return inactive.indexOf(getInspectorName(row)) !== -1; });
+    if (!payload.rows.length) payload.notes = 'No inactive inspectors in current filters.';
+    payload.summary.push(inactive.length + ' inactive inspector(s)');
+    return payload;
+  }
+
+  if (type === 'negative-findings-declining') {
+    var dates = {};
+    rows.forEach(function(row) {
+      if (!row.InspectionDate) return;
+      var d = formatDateCell(row.InspectionDate);
+      if (!dates[d]) dates[d] = { negative: 0 };
+      if (hasNegativeFindings(row)) dates[d].negative++;
+    });
+    var sorted = Object.keys(dates).sort();
+    if (sorted.length < 4) {
+      payload.notes = 'Need at least 4 inspection-date buckets to compute a period decline.';
+      payload.rows = rows.filter(function(row) { return hasNegativeFindings(row); });
+      return payload;
+    }
+    var split = Math.floor(sorted.length / 2);
+    var recent = sorted.slice(split);
+    var previous = sorted.slice(0, split);
+    var recentTotal = recent.reduce(function(sum, day) { return sum + dates[day].negative; }, 0);
+    var previousTotal = previous.reduce(function(sum, day) { return sum + dates[day].negative; }, 0);
+    payload.criteria = 'Negative finding volume in recent period vs previous period.';
+    payload.summary.push('Recent period: ' + recentTotal);
+    payload.summary.push('Previous period: ' + previousTotal);
+    payload.rows = rows.filter(function(row) {
+      if (!hasNegativeFindings(row) || !row.InspectionDate) return false;
+      var key = formatDateCell(row.InspectionDate);
+      return recent.indexOf(key) !== -1 || previous.indexOf(key) !== -1;
+    });
+    return payload;
+  }
+
+  if (type === 'negative-finding-rate-normal' || type === 'negative-finding-rate-high') {
+    var negativeRows = rows.filter(function(row) { return hasNegativeFindings(row); });
+    payload.criteria = 'Negative finding count and total inspections from the current filtered dataset.';
+    payload.rows = negativeRows;
+    if (rows.length) {
+      payload.summary.push('Negative findings: ' + negativeRows.length + ' / ' + rows.length);
+      payload.summary.push('Rate: ' + Math.round((negativeRows.length / rows.length) * 100) + '%');
+    }
+    return payload;
+  }
+
+  payload.criteria = 'No custom drill-down logic configured for this insight.';
+  payload.rows = rows.filter(function(row) { return hasNegativeFindings(row); });
+  return payload;
+}
+
+function renderInsightDrillDownRows(rows) {
+  if (!rows.length) {
+    return '<div class="insight-empty-state"><strong>No Matching Records</strong><span>Adjust your filters or check that source fields exist.</span></div>';
+  }
+  return '<div id="insightDrillDownTableWrap"><table><thead><tr>' +
+    '<th>Asset / Equipment</th>' +
+    '<th>Facility / Site</th>' +
+    '<th>Inspector</th>' +
+    '<th>Date Inspected</th>' +
+    '<th>Finding / Status</th>' +
+    '<th>Remarks / Negative Text</th>' +
+  '</tr></thead><tbody>' +
+    rows.map(function(row) {
+      return '<tr>' +
+        '<td>' + escHtml(getAssetName(row)) + '</td>' +
+        '<td>' + escHtml(getFacilityName(row)) + '</td>' +
+        '<td>' + escHtml(getInspectorName(row)) + '</td>' +
+        '<td>' + (formatDateCell(row.InspectionDate) || '-') + '</td>' +
+        '<td>' + escHtml(getFindingStatus(row)) + '</td>' +
+        '<td style="max-width:260px;white-space:normal;word-break:break-word">' + escHtml(getNegativeRemark(row)) + '</td>' +
+      '</tr>';
+    }).join('') +
+  '</tbody></table></div>';
+}
+
+function openInsightDrillDown(index) {
+  var insight = getInsightByIndex(index);
+  if (!insight) return;
+  var payload = buildInsightDrilldownPayload(insight, activeInsightRows);
+
+  var title = document.getElementById('insightDrillDownTitle');
+  var severity = document.getElementById('insightDrillDownSeverity');
+  var countLabel = document.getElementById('insightDrillDownCount');
+  var body = document.getElementById('insightDrillDownBody');
+  var drawer = document.getElementById('drillDownContainer');
+  if (!title || !severity || !countLabel || !body || !drawer) return;
+
+  var rowsToShow = payload.rows || [];
+  var requiredForView = ['AssetTag', 'Plant', 'Inspector', 'InspectionDate'];
+  var missingFields = requiredForView.filter(function(field) {
+    return !rowsToShow.some(function(row) { return normalizeText(row[field]); });
+  });
+  if (missingFields.length && !payload.notes) {
+    payload.notes = 'Missing required data: ' + missingFields.join(', ') + '.';
+  } else if (missingFields.length) {
+    payload.notes += ' Missing required data: ' + missingFields.join(', ') + '.';
+  }
+
+  title.textContent = insight.title || 'Insight Detail';
+  severity.textContent = 'Severity: ' + (insight.severity || 'info');
+  countLabel.textContent = rowsToShow.length + ' matching record' + (rowsToShow.length === 1 ? '' : 's');
+
+  var details = [
+    '<div class="panel-grid">' +
+      '<div class="panel-cell"><div class="panel-label">Insight Title</div><div class="panel-value">' + escHtml(insight.title || '-') + '</div></div>' +
+      '<div class="panel-cell"><div class="panel-label">Severity</div><div class="panel-value">' + escHtml(insight.severity || '-') + '</div></div>' +
+      '<div class="panel-cell"><div class="panel-label">Filter Criteria</div><div class="panel-value">' + escHtml(payload.criteria) + '</div></div>' +
+      '<div class="panel-cell"><div class="panel-label">Matching Records</div><div class="panel-value">' + rowsToShow.length + '</div></div>' +
+    '</div>' +
+    '<div class="panel-cell"><div class="panel-label">Summary</div><div class="panel-value">' + escHtml(insight.description || '-') + '</div></div>' +
+    '<div class="panel-cell"><div class="panel-label">Recommendation</div><div class="panel-value">' + escHtml(insight.recommendation || '-') + '</div></div>'
+  ];
+  if (payload.summary.length) {
+    details.push('<div class="panel-cell"><div class="panel-label">Drill-down Metrics</div><div class="panel-value">' + escHtml(payload.summary.join(' • ')) + '</div></div>');
+  }
+  if (payload.notes) {
+    details.push('<div class="insight-empty-state" style="text-align:left"><strong>Note</strong>' + escHtml(payload.notes) + '</div>');
+  }
+  if (missingFields.length) {
+    details.push('<div class="insight-empty-state" style="text-align:left"><strong>Computed From Partial Data</strong>Some required columns were unavailable for all matched rows.</div>');
+  }
+  details.push(renderInsightDrillDownRows(rowsToShow));
+
+  body.innerHTML = details.join('');
+
+  drawer.style.display = 'block';
+  setTimeout(function() { drawer.classList.add('open'); }, 10);
+  document.body.style.overflow = 'hidden';
+}
+
+function closeInsightDrillDown() {
+  var drawer = document.getElementById('drillDownContainer');
+  if (!drawer) return;
+  drawer.classList.remove('open');
+  document.body.style.overflow = '';
+  setTimeout(function() {
+    drawer.style.display = 'none';
+  }, 280);
+}
 
 function renderInsights(rows) {
   const section = document.getElementById('insightsSection');
@@ -2937,7 +3434,9 @@ function renderInsights(rows) {
   const badge = document.getElementById('insightsBadge');
   if (!section || !container) return;
 
+  activeInsightRows = rows;
   const insights = AnalyticsEngine.generateInsights({ rows });
+  activeInsights = insights;
   if (!insights.length) {
     section.style.display = 'none';
     return;
@@ -2956,9 +3455,9 @@ function renderInsights(rows) {
     }
   }
 
-  container.innerHTML = insights.map(insight => {
+  container.innerHTML = insights.map(function(insight, index) {
     const icon = INSIGHT_ICONS[insight.type] || INSIGHT_ICONS.recommendation;
-    return '<div class="insight-card ' + insight.severity + '">' +
+    return '<div class="insight-card insight-card--clickable ' + insight.severity + '" tabindex="0" role="button" data-insight-index="' + index + '">' +
       '<div class="insight-header">' +
         '<div class="insight-icon">' + icon + '</div>' +
         '<div class="insight-title">' + escHtml(insight.title) + '</div>' +
@@ -2967,11 +3466,27 @@ function renderInsights(rows) {
       '<div class="insight-desc">' + escHtml(insight.description) + '</div>' +
       '<div class="insight-metric">' + escHtml(insight.metric) + '</div>' +
       '<div class="insight-rec"><strong>Recommendation:</strong> ' + escHtml(insight.recommendation) + '</div>' +
+      '<div style="margin-top:10px;font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px">View drill-down</div>' +
     '</div>';
   }).join('');
 
+  Array.from(container.querySelectorAll('[data-insight-index]')).forEach(function(card) {
+    var idx = card.getAttribute('data-insight-index');
+    card.onclick = function() { openInsightDrillDown(idx); };
+    card.onkeydown = function(event) {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openInsightDrillDown(idx);
+      }
+    };
+  });
+
   section.style.display = 'block';
 }
+
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'Escape') closeInsightDrillDown();
+});
 
 /* ---------- AI Assistant Init ---------- */
 if (typeof AIAssistant !== 'undefined') {
