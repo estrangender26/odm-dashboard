@@ -69,7 +69,7 @@
   }
 
   function getCriticalContributorName(row) {
-    return getCategoryName(row) || getAssetName(row);
+    return row.AssetTag || row.EquipmentID || row.EquipmentId || row.EquipmentName || row.AssetName || row.Asset || '';
   }
 
   function buildParetoTopContributors(rows) {
@@ -78,16 +78,23 @@
 
     negativeRows.forEach(r => {
       const name = getCriticalContributorName(r);
+      if (!name) return;
       if (!groups.has(name)) {
-        groups.set(name, { name, facility: r.Plant || r.Site || r.Facility || '(Unknown facility)', count: 0 });
+        groups.set(name, {
+          name,
+          equipmentType: getCategoryName(r),
+          facility: r.Plant || r.Site || r.Facility || '(Unknown facility)',
+          count: 0
+        });
       }
       const group = groups.get(name);
       group.count++;
+      if (r.EquipmentType || r.Category || r.Task) group.equipmentType = getCategoryName(r);
       if (r.Plant || r.Site || r.Facility) group.facility = r.Plant || r.Site || r.Facility;
     });
 
     const sorted = Array.from(groups.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    const take = Math.max(1, Math.ceil(sorted.length * 0.2));
+    const take = sorted.length ? Math.max(1, Math.ceil(sorted.length * 0.2)) : 0;
     const total = negativeRows.length || 1;
     let cumulative = 0;
 
@@ -95,6 +102,7 @@
       cumulative += group.count;
       return {
         name: group.name,
+        equipmentType: group.equipmentType,
         facility: group.facility,
         findingCount: group.count,
         share: Math.round((group.count / total) * 100),
@@ -539,12 +547,12 @@
       recs.push({
         type: TYPE.RECOMMENDATION, severity: SEVERITY.CRITICAL,
         title: 'Critical Issues Require Immediate Action',
-        description: `${criticalContributors.length} Pareto top-20% contributor${criticalContributors.length !== 1 ? 's' : ''} account for ${criticalFindingCount} negative finding${criticalFindingCount !== 1 ? 's' : ''}.`,
-        metric: `${criticalContributors.length} contributors • ${criticalFindingCount} findings`,
-        recommendation: 'Escalate Pareto top contributors to maintenance management. Assign corrective actions against the highest-impact assets or categories.',
+        description: `${criticalContributors.length} Pareto top-20% asset${criticalContributors.length !== 1 ? 's' : ''} account for ${criticalFindingCount} negative finding${criticalFindingCount !== 1 ? 's' : ''}.`,
+        metric: `${criticalContributors.length} assets • ${criticalFindingCount} findings`,
+        recommendation: 'Escalate Pareto top asset contributors to maintenance management. Assign corrective actions against the highest-impact equipment.',
         drilldown: {
           type: 'critical-issues-immediate-action',
-          basis: 'pareto-top-20-negative-findings',
+          basis: 'asset-pareto-top-20-negative-findings',
           contributors: criticalContributors,
           distinctAssets: criticalContributors.length,
           recordCount: criticalFindingCount
