@@ -194,7 +194,9 @@
   var drawerReady = false;
   var drawerRoot = null;
   var insightExportHandler = undefined;
+
   var originalGenerateInsightsForDrilldown = null;
+
 
   function injectAiInsightDrawerStyles() {
     if (document.getElementById('aiInsightDrilldownStyles')) return;
@@ -538,12 +540,14 @@
     }
 
     if (type === 'centrifugal-pump-negative-findings') {
+
       payload.criteria = 'Negative findings for the dominant centrifugal/pump equipment category.';
       if (insight.drilldown && insight.drilldown.category) {
         payload.rows = rows.filter(function(row) { return hasNegativeKeyword(row) && getCategoryName(row) === insight.drilldown.category; });
       } else {
         payload.rows = rows.filter(isPumpNegative);
       }
+
       if (!payload.rows.length) payload.notes = 'No centrifugal/pump-system negative findings found for the current filters.';
       return payload;
     }
@@ -563,9 +567,11 @@
         var key = getAssetName(row);
         assetCount[key] = (assetCount[key] || 0) + 1;
       });
+
       var repeated = insight.drilldown && insight.drilldown.recurring
         ? insight.drilldown.recurring.map(function(item) { return Array.isArray(item) ? item[0] : item; })
         : Object.keys(assetCount).filter(function(asset) { return assetCount[asset] >= threshold; });
+
       payload.criteria = 'Assets with repeated negative findings (count >= ' + threshold + ').';
       payload.rows = rows.filter(function(row) { return repeated.indexOf(getAssetName(row)) !== -1; });
       payload.summary.push(repeated.length + ' repeated assets');
@@ -608,6 +614,7 @@
       return payload;
     }
 
+
     if (type === 'pareto-concentration') {
       var categories = insight.drilldown && insight.drilldown.categories ? insight.drilldown.categories : [];
       payload.criteria = categories.length ? 'Negative findings in the Pareto top equipment categories.' : 'Negative findings grouped by equipment category.';
@@ -616,6 +623,7 @@
       if (!payload.rows.length) payload.notes = 'No Pareto category negative findings found for the current filters.';
       return payload;
     }
+
 
     if (type === 'inspectors-low-activity') {
       var counts = {};
@@ -629,9 +637,11 @@
       Object.keys(counts).forEach(function(key) { avg += counts[key]; n += 1; });
       avg = n ? avg / n : 0;
       var threshold = insight.drilldown && insight.drilldown.threshold ? insight.drilldown.threshold : Math.max(5, avg * 0.3);
+
       var low = insight.drilldown && insight.drilldown.inspectors
         ? insight.drilldown.inspectors
         : Object.keys(counts).filter(function(name) { return counts[name] < threshold; });
+
       payload.criteria = 'Inspectors with activity lower than the computed threshold (' + Math.round(threshold) + ' inspections).';
       payload.rows = rows.filter(function(row) { return low.indexOf(getInspectorName(row)) !== -1; });
       payload.summary.push('Average inspections: ' + Math.round(avg));
@@ -650,11 +660,13 @@
         if (!latestByInspector[name] || date > latestByInspector[name]) latestByInspector[name] = date;
       });
       var todayDate = new Date().toISOString().slice(0, 10);
+
       var inactiveInspectors = insight.drilldown && insight.drilldown.inspectors
         ? insight.drilldown.inspectors
         : Object.keys(latestByInspector).filter(function(name) {
           return daysBetween(latestByInspector[name], todayDate) > inactivity;
         });
+
       payload.criteria = 'Inspectors without inspections in last ' + inactivity + ' days.';
       payload.rows = rows.filter(function(row) { return inactiveInspectors.indexOf(getInspectorName(row)) !== -1; });
       payload.summary.push(inactiveInspectors.length + ' inactive inspector(s)');
@@ -860,6 +872,7 @@
     });
   }
 
+
   function getReconciledCounts(kind, groups, rows, payload) {
     var contextRows = payload && payload.contextRows && payload.contextRows.length ? payload.contextRows : rows;
     if (kind === 'trend') {
@@ -914,6 +927,7 @@
     return enriched;
   }
 
+
   function buildSummaryGroups(kind, payload, rows, insightType, fallbackSeverity) {
     if (kind === 'inspector') return groupRowsByInspector(rows, insightType);
     if (kind === 'category') return groupRowsByCategory(rows);
@@ -921,12 +935,14 @@
     return groupRowsByAsset(rows, fallbackSeverity);
   }
 
+
   function getSummaryCountLabel(kind, groups, rows, payload, counts) {
     var resolved = counts || getReconciledCounts(kind, groups, rows, payload);
     if (kind === 'inspector') return resolved.entityCount + ' distinct inspectors • ' + resolved.recordCount + ' matching records';
     if (kind === 'category') return resolved.entityCount + ' distinct categories • ' + resolved.recordCount + ' findings';
     if (kind === 'trend') return resolved.entityCount + ' period/status groups • ' + resolved.recordCount + ' negative findings • ' + resolved.totalCount + ' total inspections';
     return resolved.entityCount + ' distinct assets • ' + resolved.recordCount + ' findings';
+
   }
 
   function getSummaryViewLabel(kind, groups) {
@@ -939,7 +955,9 @@
   function openAiInsightDrawer(index) {
     var insight = insightDrawerState.insights[Number(index)] || null;
     if (!insight) return;
+
     var payload = insight.drilldownPayload || buildAiInsightPayload(insight, insightDrawerState.rows);
+
     var drawer = ensureAiInsightDrawer();
     if (!drawer) return;
 
@@ -952,10 +970,12 @@
 
     var rows = payload.rows || [];
     var type = getInsightType(insight);
+
     var summaryKind = insight.drilldownSummaryKind || getSummaryKind(type);
     var summaryGroups = insight.drilldownSummaryGroups || buildSummaryGroups(summaryKind, payload, rows, type, insight.severity || 'info');
     var reconciledCounts = insight.drilldownCounts || getReconciledCounts(summaryKind, summaryGroups, rows, payload);
     var recordLabel = getSummaryCountLabel(summaryKind, summaryGroups, rows, payload, reconciledCounts);
+
     var hasExport = !!findAiInsightExportFn();
     var details = [
       '<div class="panel-grid">' +
@@ -998,7 +1018,9 @@
       severityEl.innerHTML = renderAiInsightSeverityBadge(insight.severity || 'info');
     }
     if (countEl) {
+
       countEl.textContent = getSummaryCountLabel(summaryKind, summaryGroups, rows, payload, reconciledCounts);
+
     }
     bodyEl.innerHTML = details.join('');
     attachAiInsightTabHandlers();
@@ -1078,6 +1100,7 @@
     });
   }
 
+
   function patchAnalyticsEngineForReconciledInsights() {
     if (typeof AnalyticsEngine === 'undefined' || typeof AnalyticsEngine.generateInsights !== 'function') return false;
     if (window.__aiInsightGeneratePatched) return true;
@@ -1103,6 +1126,7 @@
   function patchRenderInsightsForAiCards() {
     if (typeof window.renderInsights !== 'function' || window.__aiInsightRenderPatched) return false;
     if (!patchAnalyticsEngineForReconciledInsights()) return false;
+
 
     var originalRenderInsights = window.renderInsights;
     window.renderInsights = function(rows) {
