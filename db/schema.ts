@@ -50,6 +50,7 @@ export const monthlyKpiRecords = pgTable("monthly_kpi_records", {
   mtbfDays: doublePrecision("mtbf_days"),
   mttrDays: doublePrecision("mttr_days"),
   facilityUptime: doublePrecision("facility_uptime"),
+  notes: text("notes"),
   rawImportedValues: jsonb("raw_imported_values"),
 }, (table) => [
   unique("monthly_kpi_records_bu_year_month_unique").on(table.businessUnit, table.reportingYear, table.reportingMonth),
