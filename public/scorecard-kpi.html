@@ -685,6 +685,7 @@ function isValidBusinessUnitId(buId){
   });
 }
 function getBusinessUnitSelectorId(buId){
+  if(buId==='summary')return 'summary';
   if(isValidBusinessUnitId(buId) && document.getElementById(buId+'-context'))return buId;
   return 'business-unit';
 }
@@ -1863,6 +1864,7 @@ function importSummaryWorkbook(workbook,fileName,buId){
 function normalizePersistedBusinessUnit(value){
   var normalized = normalizeBusinessUnitAlias(value);
   if(!normalized)return '';
+  if(normalized===ALL_BUSINESS_UNITS_VALUE || normalized==='all business units')return '';
   var exact = BUs.find(function(bu){return normalized===normalizeBusinessUnitAlias(bu.id) || normalized===normalizeBusinessUnitAlias(bu.apiValue) || normalized===normalizeBusinessUnitAlias(bu.name) || normalized===normalizeBusinessUnitAlias(bu.label);});
   if(exact)return exact.id;
   var fuzzy = BUs.find(function(bu){
