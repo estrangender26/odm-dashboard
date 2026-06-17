@@ -570,23 +570,21 @@ var selectedBusinessUnitId = (function(){
   try{return normalizePersistedBusinessUnit(localStorage.getItem('monthlyKpiSelectedBusinessUnit')) || 'ez';}
   catch(err){return 'ez';}
 })();
+// Governance-aligned KPI benchmark metadata used by status, cards, and definitions.
+// Default behavior:
+// - Numeric benchmarks: green at/beyond benchmark, yellow at 80-99.9% of benchmark, red below warning band.
+// - Budget Spend uses an inclusive green band of 95%-105%.
+// - MTBF is expected to trend increasing; MTTR is expected to trend decreasing.
+// - Schedule Compliance benchmark updated to 90% (from 95%).
 var KPIs = [
-  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'PM Compliance',formula:'Completed PMs / Planned PMs × 100',target:'95%',interpretation:'Higher is better.'}},
-  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'Schedule Compliance',formula:'Work Orders Completed On Time / Scheduled Work Orders × 100',target:'95%',interpretation:'Higher is better.'}},
-  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%',tooltip:{name:'Budget Spend',formula:'Actual Maintenance Spend / Budgeted Maintenance Spend × 100',target:'95% – 105%',interpretation:'Values within range are preferred.'}},
-  {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86%',tooltip:{name:'PM:CM Ratio (Work Orders)',formula:'PM Work Orders / (PM Work Orders + CM Work Orders)',target:'≥86% (Approximately 6:1)',displayedAs:'Percentage + Equivalent Ratio (example: 90% = 9:1)',interpretation:'Higher PM proportion is generally preferred.'}},
-  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60%',tooltip:{name:'PM:CM Ratio (Cost)',formula:'PM Maintenance Cost / (PM Cost + CM Cost)',target:'≥60% (Approximately 1.5:1)',displayedAs:'Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)',interpretation:'Higher PM investment generally reduces reactive maintenance.'}},
-  {key:'mtbf',name:'MTBF',unit:'days',benchmark:0,trend:'increasing'},
-  {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing'},
-  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%',tooltip:{name:'Facility Uptime',formula:'Available Operating Time / Total Required Operating Time × 100',target:'99.97%',interpretation:'Higher is better.'}}
-];
-var KPI_DEFINITION_ROWS = [
-  {key:'pmCompliance',name:'PM Compliance (%)',formula:'Completed PM Work Orders ÷ Scheduled PM Work Orders × 100',benchmark:'≥95%',definition:'Measures completion of planned preventive maintenance work orders.'},
-  {key:'scheduleCompliance',name:'Schedule Compliance (%)',formula:'PM Work Orders Completed On Schedule ÷ PM Work Orders Due × 100',benchmark:'≥95%',definition:'Measures whether planned maintenance activities were completed within the required schedule.'},
-  {key:'budgetSpend',name:'Budget Spend (%)',formula:'Actual Maintenance Spend ÷ Approved Maintenance Budget × 100',benchmark:'95%–105%',definition:'Measures whether maintenance spending remains within the approved budget range.'},
-  {key:'pmcmWORatio',name:'PM:CM Ratio (Work Order)',formula:'Preventive Maintenance Work Orders ÷ Corrective Maintenance Work Orders',benchmark:'≥86% or 6:1',definition:'Measures the balance between proactive and reactive maintenance based on work order count.'},
-  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',formula:'PM Maintenance Cost ÷ Corrective Maintenance Cost',benchmark:'≥60% or 1.5:1',definition:'Measures the balance between proactive and reactive maintenance based on maintenance expenditure.'},
-  {key:'facilityUptime',name:'Facility Uptime (%)',formula:'Actual Available Operating Time ÷ Required Operating Time × 100',benchmark:'≥99.97%',definition:'Measures facility availability and service continuity.'}
+  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'PM Compliance',formula:'PM Orders Completed On Time ÷ Total PM Orders × 100',target:'95%',interpretation:'Higher is better.'},definitionName:'PM Compliance (%)',definitionFormula:'PM Orders Completed On Time ÷ Total PM Orders × 100',definitionBenchmark:'≥95%',definitionText:'Measures the percentage of PM tasks that were completed on time.'},
+  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:90,benchmarkLabel:'≥90%',tooltip:{name:'Schedule Compliance',formula:'Orders Completed On Time ÷ Total Scheduled Orders × 100',target:'≥90%',interpretation:'Higher is better.'},definitionName:'Schedule Compliance (%)',definitionFormula:'Orders Completed On Time ÷ Total Scheduled Orders × 100',definitionBenchmark:'≥90%',definitionText:'Measures the percentage of scheduled tasks that were completed on time.'},
+  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%',tooltip:{name:'Budget Spend',formula:'Monthly Actual Spend ÷ Monthly Budget × 100',target:'95% - 105%',interpretation:'Values within range are preferred.'},definitionName:'Maintenance Budget Spend (%)',definitionFormula:'Monthly Actual Spend ÷ Monthly Budget × 100',definitionBenchmark:'95%–105%',definitionText:'Measures utilization of the R&M Budget.'},
+  {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86% (6:1)',tooltip:{name:'PM:CM Ratio (Work Orders)',formula:'PM Work Orders ÷ (PM + CM Work Orders) × 100',target:'≥86% (approximately 6:1)',displayedAs:'Percentage + Equivalent Ratio (example: 90% = 9:1)',interpretation:'Higher PM proportion is generally preferred.'},definitionName:'PM:CM Ratio (Work Orders)',definitionFormula:'PM Work Orders ÷ (PM + CM Work Orders) × 100',definitionBenchmark:'≥86% or 6:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
+  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60% (1.5:1)',tooltip:{name:'PM:CM Ratio (Cost)',formula:'PM Cost ÷ (PM + CM Cost) × 100',target:'≥60% (approximately 1.5:1)',displayedAs:'Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)',interpretation:'Higher PM investment generally reduces reactive maintenance.'},definitionName:'PM:CM Ratio (Cost)',definitionFormula:'PM Cost ÷ (PM + CM Cost) × 100',definitionBenchmark:'≥60% or 1.5:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
+  {key:'mtbf',name:'MTBF',unit:'days',benchmark:0,trend:'increasing',benchmarkLabel:'Increasing Trend',definitionName:'Mean Time Between Failures (MTBF, days)',definitionFormula:'Total Operating Time ÷ Number of Failures',definitionBenchmark:'Increasing Trend',definitionText:'Indicates the average time between failures of an equipment or system.'},
+  {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing',benchmarkLabel:'Decreasing Trend',definitionName:'Mean Time To Repair (MTTR, days)',definitionFormula:'Total Downtime ÷ Number of Repairs',definitionBenchmark:'Decreasing Trend',definitionText:'Indicates the average time it takes to recover from an equipment or system failure.'},
+  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%',tooltip:{name:'Facility Uptime',formula:'(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100',target:'99.97%',interpretation:'Higher is better.'},definitionName:'Uptime of Key Facilities (%)',definitionFormula:'(Total Operating Time − Total Downtime) ÷ Total Operating Time × 100',definitionBenchmark:'99.97%',definitionText:'Indicates the total amount of time, or its percentage equivalent, that facilities are fully operational.'}
 ];
 var KPI_DEFINITION_FAQ = [
   {q:'Why is a KPI yellow if data exists?',a:'Yellow means warning or marginal performance based on KPI-specific threshold logic. It does not mean missing data.'},
@@ -848,8 +846,32 @@ function formatDisplayKpiValue(key,val,opts){
 function formatBenchmark(kpi){
   if(!kpi)return '';
   if(kpi.range)return formatKPIValue(kpi.range[0])+'% - '+formatKPIValue(kpi.range[1])+'%';
-  if(kpi.benchmark || kpi.benchmark===0)return (kpi.benchmarkLabel||formatKPIValue(kpi.benchmark)+(kpi.unit==='%'?'%':''));
+  if(kpi.benchmarkLabel)return kpi.benchmarkLabel;
+  if(kpi.benchmark || kpi.benchmark===0)return formatKPIValue(kpi.benchmark)+(kpi.unit==='%'?'%':'');
   return '';
+}
+
+function getKpiBenchmarkLabel(key){
+  var kpi = KPIs.find(function(item){
+    return item.key===key;
+  });
+  return kpi ? formatBenchmark(kpi) : '';
+}
+
+function getKpiDefinitionRows(){
+  return KPIs
+    .filter(function(kpi){
+      return !!kpi.definitionName;
+    })
+    .map(function(kpi){
+      return {
+        key:kpi.key,
+        name:kpi.definitionName,
+        formula:kpi.definitionFormula,
+        benchmark:getKpiBenchmarkLabel(kpi.key),
+        definition:kpi.definitionText
+      };
+    });
 }
 
 function escapeHtml(value){
@@ -1240,11 +1262,11 @@ function buildCsvExportRows(records){
 function buildSummaryMatrixExportRows(aggregates,scope){
   var rows = [{
     'Business Unit':'BENCHMARK',
-    'PM Compliance (%)':'95%',
-    'PM:CM Ratio (Work Order)':'≥86% (6:1)',
-    'Budget Spend (%)':'95% - 105%',
-    'PM:CM Ratio (Cost)':'≥60% (1.5:1)',
-    'Facility Uptime (%)':'99.97%'
+    'PM Compliance (%)':getKpiBenchmarkLabel('pmCompliance'),
+    'PM:CM Ratio (Work Order)':getKpiBenchmarkLabel('pmcmWORatio'),
+    'Budget Spend (%)':getKpiBenchmarkLabel('budgetSpend'),
+    'PM:CM Ratio (Cost)':getKpiBenchmarkLabel('pmcmCostRatio'),
+    'Facility Uptime (%)':getKpiBenchmarkLabel('facilityUptime')
   }];
   var allowedBu = scope==='current' ? getBUApiValue(selectedBusinessUnitId) : null;
   BUs.forEach(function(bu){
@@ -1265,8 +1287,15 @@ function buildSummaryMatrixExportRows(aggregates,scope){
 function buildPortfolioAverageRows(aggregates){
   var rows = [{
     'Scope':'Current Benchmark Values','Reporting Year':getSelectedYear(),'Reporting Month':'All Months',
-    'PM Compliance':'95%','PM Planned':'','Schedule Compliance':'95%','Budget Spend':'95% - 105%',
-    'PM:CM Ratio (WO)':'≥86%','PM:CM Ratio (Cost)':'≥60%','MTBF':'Available','MTTR':'Available','Facility Uptime':'99.97%'
+    'PM Compliance':getKpiBenchmarkLabel('pmCompliance'),
+    'PM Planned':'',
+    'Schedule Compliance':getKpiBenchmarkLabel('scheduleCompliance'),
+    'Budget Spend':getKpiBenchmarkLabel('budgetSpend'),
+    'PM:CM Ratio (WO)':getKpiBenchmarkLabel('pmcmWORatio'),
+    'PM:CM Ratio (Cost)':getKpiBenchmarkLabel('pmcmCostRatio'),
+    'MTBF':getKpiBenchmarkLabel('mtbf'),
+    'MTTR':getKpiBenchmarkLabel('mttr'),
+    'Facility Uptime':getKpiBenchmarkLabel('facilityUptime')
   }];
   rows.push({
     'Scope':'Portfolio Year Average','Reporting Year':getSelectedYear(),'Reporting Month':'All Months',
@@ -1828,12 +1857,12 @@ function renderSummary(){
   // Benchmark row
   html += '<tr class="benchmark-row">';
   html += '<td>BENCHMARK</td>';
-  html += '<td>95%</td>';
-  html += '<td>95%</td>';
-  html += '<td>95% - 105%</td>';
-  html += '<td>&ge;86% (6:1)</td>';
-  html += '<td>&ge;60% (1.5:1)</td>';
-  html += '<td>99.97%</td>';
+  html += '<td>'+getKpiBenchmarkLabel('pmCompliance')+'</td>';
+  html += '<td>'+getKpiBenchmarkLabel('scheduleCompliance')+'</td>';
+  html += '<td>'+getKpiBenchmarkLabel('budgetSpend')+'</td>';
+  html += '<td>'+getKpiBenchmarkLabel('pmcmWORatio')+'</td>';
+  html += '<td>'+getKpiBenchmarkLabel('pmcmCostRatio')+'</td>';
+  html += '<td>'+getKpiBenchmarkLabel('facilityUptime')+'</td>';
   html += '</tr>';
   BUs.forEach(function(bu){
     var kpis = getSummaryKPIs(bu);
@@ -2100,7 +2129,7 @@ function renderDefinitionsPanel(){
   html += '<div style="overflow-x:auto"><table class="matrix-table kpi-definitions-table"><thead><tr>';
   html += '<th>KPI</th><th>Formula</th><th>Benchmark</th><th>Definition</th>';
   html += '</tr></thead><tbody>';
-  KPI_DEFINITION_ROWS.forEach(function(row){
+  getKpiDefinitionRows().forEach(function(row){
     html += '<tr><td><strong>'+row.name+'</strong></td>';
     html += '<td><code>'+row.formula+'</code></td>';
     html += '<td>'+row.benchmark+'</td>';
