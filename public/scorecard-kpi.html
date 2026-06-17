@@ -125,7 +125,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .faq-list{display:grid;gap:10px}
 .faq-item{background:#F8FAFC;border:1px solid var(--border);border-radius:var(--r);padding:10px 12px}
 .faq-question{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:5px}
-.faq-answer{font-size:12px;color:var(--text);line-height:1.45}
+.faq-answer{font-size:12px;color:var(--text);line-height:1.45;white-space:pre-line}
 
 /* GAUGE CARDS */
 .gauge-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
@@ -375,10 +375,10 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <!-- LEGEND -->
   <div class="legend">
-    <div class="legend-item"><div class="legend-dot green"></div> KPI Passed / Meets Benchmark</div>
+    <div class="legend-item"><div class="legend-dot green"></div> KPI Passed / Meets or Exceeds Benchmark</div>
     <div class="legend-item"><div class="legend-dot yellow"></div> Warning / Marginal Performance</div>
     <div class="legend-item"><div class="legend-dot red"></div> KPI Below Benchmark</div>
-    <div class="legend-item"><div class="legend-dot gray"></div> No Data</div>
+    <div class="legend-item"><div class="legend-dot gray"></div> No Data Available</div>
   </div>
 
   <!-- TABS -->
@@ -580,20 +580,25 @@ var KPIs = [
   {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%',tooltip:{name:'Facility Uptime',formula:'Available Operating Time / Total Required Operating Time × 100',target:'99.97%',interpretation:'Higher is better.'}}
 ];
 var KPI_DEFINITION_ROWS = [
-  {key:'pmCompliance',name:'PM Compliance (%)',formula:'Completed PM Work Orders / Scheduled PM Work Orders × 100',benchmark:'≥95%',definition:'Measures completion of planned preventive maintenance work orders.'},
-  {key:'scheduleCompliance',name:'Schedule Compliance (%)',formula:'PM Work Orders Completed On Schedule / PM Work Orders Due × 100',benchmark:'≥95%',definition:'Measures whether planned maintenance was completed within the required schedule.'},
-  {key:'budgetSpend',name:'Budget Spend (%)',formula:'Actual Maintenance Spend / Approved Maintenance Budget × 100',benchmark:'95%–105%',definition:'Measures whether maintenance spending is within approved budget range.'},
-  {key:'pmcmWORatio',name:'PM:CM Ratio (Work Order)',formula:'PM Work Orders / Corrective Work Orders',benchmark:'≥86% or 6:1',definition:'Measures balance between proactive and reactive maintenance by work order count.'},
-  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',formula:'PM Maintenance Cost / Corrective Maintenance Cost',benchmark:'≥60% or 1.5:1',definition:'Measures balance between proactive and reactive maintenance by cost.'},
-  {key:'facilityUptime',name:'Facility Uptime (%)',formula:'Actual Available Operating Time / Required Operating Time × 100',benchmark:'≥99.97%',definition:'Measures facility availability and service continuity.'}
+  {key:'pmCompliance',name:'PM Compliance (%)',formula:'Completed PM Work Orders ÷ Scheduled PM Work Orders × 100',benchmark:'≥95%',definition:'Measures completion of planned preventive maintenance work orders.'},
+  {key:'scheduleCompliance',name:'Schedule Compliance (%)',formula:'PM Work Orders Completed On Schedule ÷ PM Work Orders Due × 100',benchmark:'≥95%',definition:'Measures whether planned maintenance activities were completed within the required schedule.'},
+  {key:'budgetSpend',name:'Budget Spend (%)',formula:'Actual Maintenance Spend ÷ Approved Maintenance Budget × 100',benchmark:'95%–105%',definition:'Measures whether maintenance spending remains within the approved budget range.'},
+  {key:'pmcmWORatio',name:'PM:CM Ratio (Work Order)',formula:'Preventive Maintenance Work Orders ÷ Corrective Maintenance Work Orders',benchmark:'≥86% or 6:1',definition:'Measures the balance between proactive and reactive maintenance based on work order count.'},
+  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',formula:'PM Maintenance Cost ÷ Corrective Maintenance Cost',benchmark:'≥60% or 1.5:1',definition:'Measures the balance between proactive and reactive maintenance based on maintenance expenditure.'},
+  {key:'facilityUptime',name:'Facility Uptime (%)',formula:'Actual Available Operating Time ÷ Required Operating Time × 100',benchmark:'≥99.97%',definition:'Measures facility availability and service continuity.'}
 ];
 var KPI_DEFINITION_FAQ = [
-  {q:'Why is a KPI yellow if data exists?',a:'Yellow means warning or marginal performance based on existing KPI-specific threshold logic. It does not mean missing data.'},
-  {q:'What does No Data mean?',a:'No Data means the KPI value was not submitted, not available, or cannot be calculated from the uploaded/input dataset.'},
-  {q:'Why is Budget Spend green only within a range?',a:'Budget Spend is best when actual spend is within the approved budget range. Both underspending and overspending may indicate planning or execution issues.'},
-  {q:'Why are PM:CM ratios shown in both percentage and ratio format?',a:'The percentage shows the proportion of proactive work. The ratio format makes it easier to understand the balance between preventive and corrective maintenance.'},
-  {q:'Why can Facility Uptime be yellow even if it looks high?',a:'Facility uptime has a very high benchmark. Small deviations below 99.97% may still be operationally significant.'},
-  {q:'Are portfolio KPI cards simple averages?',a:'Yes. Portfolio KPI cards are calculated as a simple (unweighted) average of each KPI across business units for the selected year.'}
+  {q:'Why is a KPI yellow if data exists?',a:'Yellow means warning or marginal performance based on KPI-specific threshold logic. It does not mean missing data.'},
+  {q:'What does No Data mean?',a:'No Data means the KPI value was not submitted, not available, or cannot be calculated from the available dataset.'},
+  {q:'Why is Budget Spend green only within a range?',a:'Budget Spend is best when actual spending remains within the approved budget range. Both underspending and overspending may indicate planning or execution issues.'},
+  {q:'Why are PM:CM ratios shown in both percentage and ratio format?',a:'Percentage provides a quick KPI score while the ratio format provides a clearer representation of proactive versus reactive maintenance balance.'},
+  {q:'Why can Facility Uptime be yellow even if it appears very high?',a:'Facility Uptime has a very high benchmark (99.97%). Small deviations below the benchmark may still be operationally significant.'},
+  {q:'Are Portfolio KPI Cards simple averages?',a:'Portfolio KPI cards are calculated in the API as a simple (unweighted) average across business units for each KPI for the selected reporting year. For each KPI, each non-null value is added and divided by the count of non-null values.'},
+  {q:'What if the facility is still running but not at its desired output? Is it considered a hit on Facility Uptime?',a:'Not necessarily.\n\nFacility Uptime measures whether the facility is available and capable of performing its intended function.\n\nReduced production output, reduced treatment capacity, derated operation, or partial equipment availability should not automatically be considered downtime unless the reduction causes the facility to fail its defined operational service requirements.\n\nExample:\n• A treatment plant operating at 90% of design capacity due to one unavailable standby pump may still be considered available if service requirements are met.\n• A pumping station unable to deliver required flow because of equipment failure may be considered a Facility Uptime loss.\n• A facility operating under contingency mode but still meeting operational requirements is generally considered available.\n\nFinal determination should follow the approved Facility Uptime methodology and operational service criteria.'},
+  {q:'If a Deep Well Facility or any facility is down, but another facility can provide the required output to the service area, will it still count as Facility Downtime? Will it affect Facility Uptime?',a:'Yes.\n\nFacility Uptime measures the availability of the individual facility, not the availability of the overall service area.\n\nScenario 1 – Deep Well Down, Service Maintained\n• Deep Well A is unavailable due to equipment failure.\n• Deep Well B supplies the service area.\n• Customers experience no interruption.\n\nResult:\n• Deep Well A = Facility Downtime\n• Facility Uptime = Impacted\n• Service Continuity = Maintained\n\nScenario 2 – Deep Well Down, No Backup Available\n• Deep Well A fails.\n• No alternate source exists.\n• Customers experience service interruption.\n\nResult:\n• Deep Well A = Facility Downtime\n• Facility Uptime = Impacted\n• Service Continuity = Impacted\n\nKey Principle:\nFacility Uptime measures the availability of the individual facility.\n\nService Continuity measures the ability of the overall system to continue serving customers.\n\nA facility can be down while customer service remains fully maintained through redundancy, interconnections, or alternate facilities.'},
+  {q:'If a PM work order was executed through the Emergency Work process, is it counted as Preventive Maintenance or Corrective Maintenance?',a:'Classification should follow the nature and intent of the work, not the administrative workflow used.\n\n• Planned PM executed using emergency procurement or emergency approval processes remains Preventive Maintenance.\n• Work initiated in response to an actual failure, breakdown, defect, abnormal condition, or loss of function is Corrective Maintenance.\n\nKey Principle:\nWork Order Type is determined by maintenance intent, not by the approval process used.'},
+  {q:'If a PM activity identifies and corrects a defect during execution, should it be counted as PM or CM?',a:'Preventive Maintenance.\n\nProvided the primary objective of the work order was preventive maintenance and the corrective action was incidental to the planned PM activity, the work order remains classified as Preventive Maintenance.\n\nThis prevents inflation of corrective maintenance counts and aligns with Reliability-Centered Maintenance principles.'},
+  {q:'If PM costs and PM work order counts are very low because most preventive maintenance activities are performed in-house, how should PM:CM Ratio be computed?',a:'PM:CM Ratio should reflect actual maintenance effort regardless of whether work is outsourced or performed internally.\n\nPM:CM Ratio (Work Order)\nFormula: PM Work Orders ÷ CM Work Orders\n\nAll completed PM work orders should be counted regardless of:\n• Internal execution\n• Contractor execution\n• Whether external costs were incurred\n\nThe purpose is to measure proactive versus reactive maintenance behavior.\n\nPM:CM Ratio (Cost)\nFormula: PM Cost ÷ CM Cost\n\nPM costs should include:\n• Contractor costs\n• Spare parts and materials\n• Internal labor costs (where available)\n• Equipment rental and support services attributable to PM work\n\nIf labor costs are unavailable, PM costs may appear artificially low despite significant preventive maintenance effort.\n\nRecommended Practice:\n• Where labor costing is unavailable, PM:CM Ratio (Work Order) should be treated as the primary KPI.\n• PM:CM Ratio (Cost) should be treated as a supplementary KPI.\n• Reports should disclose whether labor costs are excluded.\n\nExample:\nPM Work Orders = 90\nCM Work Orders = 10\n\nPM:CM Ratio (Work Order)\n= 90 ÷ 10\n= 9:1\n\nPM Cost = ₱50,000\nCM Cost = ₱300,000\n\nPM:CM Ratio (Cost)\n= ₱50,000 ÷ ₱300,000\n= 0.17:1\n\nIn this case, the Work Order Ratio correctly reflects proactive maintenance behavior, while the Cost Ratio is distorted because labor costs are not captured.\n\nKey Principle:\nA low PM cost does not automatically indicate poor preventive maintenance performance. When labor costs are not fully captured, PM:CM Ratio (Work Order) should be the primary indicator of maintenance behavior.'}
 ];
 var GaugeKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','facilityUptime','pmcmWORatio','pmcmCostRatio'];
 var SummaryMatrixKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','facilityUptime'];
@@ -2074,10 +2079,10 @@ function renderDefinitionsPanel(){
 
   html += '<div class="matrix-title" style="margin-top:14px">Color Legend</div>';
   html += '<div class="legend">';
-  html += '<div class="legend-item"><div class="legend-dot green"></div> Green: KPI Passed / Meets Benchmark</div>';
+  html += '<div class="legend-item"><div class="legend-dot green"></div> Green: KPI Passed / Meets or Exceeds Benchmark</div>';
   html += '<div class="legend-item"><div class="legend-dot yellow"></div> Yellow: Warning / Marginal Performance</div>';
   html += '<div class="legend-item"><div class="legend-dot red"></div> Red: KPI Below Benchmark</div>';
-  html += '<div class="legend-item"><div class="legend-dot gray"></div> Gray: No Data</div>';
+  html += '<div class="legend-item"><div class="legend-dot gray"></div> Gray: No Data Available</div>';
   html += '</div>';
 
   html += '<div class="matrix-title" style="margin-top:14px">Frequently Asked Questions</div>';
