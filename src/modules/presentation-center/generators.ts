@@ -45,13 +45,12 @@ function kpiRows(records = currentMonthlyKpiScorecard) {
     ...records.map(record => [
       record.businessUnit,
       formatDeckValue(record.pmCompliance),
-      formatDeckValue(record.scheduleCompliance),
       formatDeckValue(record.budgetSpend),
       formatDeckPmCmRatio(record.pmCmWorkOrderRatio),
       formatDeckPmCmRatio(record.pmCmCostRatio),
-      formatDeckValue(record.mtbfDays, 2).replace("%", " days"),
       formatDeckValue(record.mttrDays, 2).replace("%", " days"),
       formatDeckValue(record.facilityUptime),
+      record.notes || "",
     ]),
   ];
 }
@@ -237,10 +236,10 @@ async function generateMonthlyKpiDeck(
         },
         {
           type: "bars",
-          title: "Schedule Compliance by Business Unit",
+          title: "Facility Uptime by Business Unit",
           labels: scorecardRecords.map(record => record.businessUnit),
           values: scorecardRecords.map(
-            record => record.scheduleCompliance ?? 0
+            record => record.facilityUptime ?? 0
           ),
           x: 7.0,
           y: 1.05,

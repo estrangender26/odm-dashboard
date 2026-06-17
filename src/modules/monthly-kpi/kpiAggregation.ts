@@ -1,10 +1,8 @@
 export const monthlyKpiKeys = [
   "pmCompliance",
-  "scheduleCompliance",
   "budgetSpend",
   "pmCmWorkOrderRatio",
   "pmCmCostRatio",
-  "mtbfDays",
   "mttrDays",
   "facilityUptime",
 ] as const;
@@ -19,13 +17,14 @@ export type PersistedMonthlyKpiRecord = {
   source_file_name?: string | null;
   imported_at?: string | Date | null;
   pm_compliance: number | string | null;
-  schedule_compliance: number | string | null;
+  schedule_compliance?: number | string | null;
   budget_spend: number | string | null;
   pm_cm_work_order_ratio: number | string | null;
   pm_cm_cost_ratio: number | string | null;
-  mtbf_days: number | string | null;
+  mtbf_days?: number | string | null;
   mttr_days: number | string | null;
   facility_uptime: number | string | null;
+  notes?: string | null;
   raw_imported_values?: unknown;
 };
 
@@ -52,11 +51,9 @@ type PersistedKpiValueField = Exclude<
 
 const sourceFieldByKpiKey: Record<MonthlyKpiKey, PersistedKpiValueField> = {
   pmCompliance: "pm_compliance",
-  scheduleCompliance: "schedule_compliance",
   budgetSpend: "budget_spend",
   pmCmWorkOrderRatio: "pm_cm_work_order_ratio",
   pmCmCostRatio: "pm_cm_cost_ratio",
-  mtbfDays: "mtbf_days",
   mttrDays: "mttr_days",
   facilityUptime: "facility_uptime",
 };
@@ -135,7 +132,6 @@ function rawValueForKpi(record: PersistedMonthlyKpiRecord, key: MonthlyKpiKey) {
   const legacyKeys: Partial<Record<MonthlyKpiKey, string[]>> = {
     pmCmWorkOrderRatio: ["pmcmWORatio", "pm_cm_work_order_ratio"],
     pmCmCostRatio: ["pmcmCostRatio", "pm_cm_cost_ratio"],
-    mtbfDays: ["mtbf", "mtbf_days"],
     mttrDays: ["mttr", "mttr_days"],
   };
   const candidates = [sourceField, key, ...(legacyKeys[key] || [])];

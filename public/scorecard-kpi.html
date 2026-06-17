@@ -93,6 +93,9 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .matrix-table tr:hover td{background:#FAFBFC}
 .matrix-table .benchmark-row td{background:var(--navy2);color:#fff;font-size:11px;font-weight:700;border-bottom:none}
 .matrix-table .benchmark-row td:first-child{border-right:2px solid rgba(255,255,255,.2)}
+.matrix-table .notes-col{min-width:240px;width:28%;text-align:left;white-space:pre-wrap;line-height:1.35}
+.matrix-table th.notes-col{text-align:left}
+.matrix-table td.notes-col{font-weight:600;color:var(--text)}
 
 /* KPI STATUS COLORS */
 .kpi-green{background:var(--green-light);color:var(--green)}
@@ -194,8 +197,9 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .form-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
 .form-table th{padding:10px 8px;text-align:left;background:#F1F5F9;color:var(--muted);font-weight:700;font-size:11px;text-transform:uppercase;border-bottom:2px solid var(--border)}
 .form-table td{padding:8px;border-bottom:1px solid #EDF1F4}
-.form-table input{width:100%;padding:8px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:var(--r);outline:none}
-.form-table input:focus{border-color:var(--blue)}
+.form-table input,.form-table textarea{width:100%;padding:8px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:var(--r);outline:none}
+.form-table textarea{min-width:240px;min-height:72px;resize:vertical;line-height:1.35}
+.form-table input:focus,.form-table textarea:focus{border-color:var(--blue)}
 .form-table input::placeholder{color:#C5D1DB}
 .form-bu{font-weight:700;color:var(--navy)}
 
@@ -397,11 +401,12 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
             <tr>
               <th>Business Unit</th>
               <th>PM Compliance (%)</th>
-              <th>Schedule Compliance (%)</th>
               <th>Budget Spend (%)</th>
               <th>PM:CM Ratio (Work Order)</th>
               <th>PM:CM Ratio (Cost)</th>
+              <th>MTTR (Days)</th>
               <th>Facility Uptime (%)</th>
+              <th class="notes-col">Notes</th>
             </tr>
           </thead>
           <tbody id="summaryBody"></tbody>
@@ -459,13 +464,12 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
       <thead>
         <tr>
           <th>PM Compliance (%)</th>
-          <th>Schedule Compliance (%)</th>
           <th>Budget Spend (%)</th>
           <th>PM:CM Ratio WO (%)</th>
           <th>PM:CM Ratio Cost (%)</th>
-          <th>MTBF (days)</th>
-          <th>MTTR (days)</th>
+          <th>MTTR (Days)</th>
           <th>Facility Uptime (%)</th>
+          <th class="notes-col">Notes</th>
         </tr>
       </thead>
       <tbody id="formBody"></tbody>
@@ -548,16 +552,13 @@ var selectedBusinessUnitId = (function(){
 // Default behavior:
 // - Numeric benchmarks: green at/beyond benchmark, yellow at 80-99.9% of benchmark, red below warning band.
 // - Budget Spend uses an inclusive green band of 95%-105%.
-// - MTBF is expected to trend increasing; MTTR is expected to trend decreasing.
-// - Schedule Compliance benchmark updated to 90% (from 95%).
+// - MTTR is expected to trend decreasing.
 var KPIs = [
   {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'PM Compliance',formula:'PM Orders Completed On Time ÷ Total PM Orders × 100',target:'95%',interpretation:'Higher is better.'},definitionName:'PM Compliance (%)',definitionFormula:'PM Orders Completed On Time ÷ Total PM Orders × 100',definitionBenchmark:'≥95%',definitionText:'Measures the percentage of PM tasks that were completed on time.'},
-  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:90,benchmarkLabel:'≥90%',tooltip:{name:'Schedule Compliance',formula:'Orders Completed On Time ÷ Total Scheduled Orders × 100',target:'≥90%',interpretation:'Higher is better.'},definitionName:'Schedule Compliance (%)',definitionFormula:'Orders Completed On Time ÷ Total Scheduled Orders × 100',definitionBenchmark:'≥90%',definitionText:'Measures the percentage of scheduled tasks that were completed on time.'},
   {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%',tooltip:{name:'Budget Spend',formula:'Monthly Actual Spend ÷ Monthly Budget × 100',target:'95% - 105%',interpretation:'Values within range are preferred.'},definitionName:'Maintenance Budget Spend (%)',definitionFormula:'Monthly Actual Spend ÷ Monthly Budget × 100',definitionBenchmark:'95%–105%',definitionText:'Measures utilization of the R&M Budget.'},
   {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86% (6:1)',tooltip:{name:'PM:CM Ratio (Work Orders)',formula:'PM Work Orders ÷ (PM + CM Work Orders) × 100',target:'≥86% (approximately 6:1)',displayedAs:'Percentage + Equivalent Ratio (example: 90% = 9:1)',interpretation:'Higher PM proportion is generally preferred.'},definitionName:'PM:CM Ratio (Work Orders)',definitionFormula:'PM Work Orders ÷ (PM + CM Work Orders) × 100',definitionBenchmark:'≥86% or 6:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
   {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60% (1.5:1)',tooltip:{name:'PM:CM Ratio (Cost)',formula:'PM Cost ÷ (PM + CM Cost) × 100',target:'≥60% (approximately 1.5:1)',displayedAs:'Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)',interpretation:'Higher PM investment generally reduces reactive maintenance.'},definitionName:'PM:CM Ratio (Cost)',definitionFormula:'PM Cost ÷ (PM + CM Cost) × 100',definitionBenchmark:'≥60% or 1.5:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
-  {key:'mtbf',name:'MTBF',unit:'days',benchmark:0,trend:'increasing',benchmarkLabel:'Increasing Trend',definitionName:'Mean Time Between Failures (MTBF, days)',definitionFormula:'Total Operating Time ÷ Number of Failures',definitionBenchmark:'Increasing Trend',definitionText:'Indicates the average time between failures of an equipment or system.'},
-  {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing',benchmarkLabel:'Decreasing Trend',definitionName:'Mean Time To Repair (MTTR, days)',definitionFormula:'Total Downtime ÷ Number of Repairs',definitionBenchmark:'Decreasing Trend',definitionText:'Indicates the average time it takes to recover from an equipment or system failure.'},
+  {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing',benchmarkLabel:'Decreasing Trend',tooltip:{name:'Mean Time To Repair (MTTR)',formula:'Total Downtime ÷ Number of Repairs',target:'Decreasing Trend',interpretation:'Lower recovery time is preferred.'},definitionName:'Mean Time To Repair (MTTR, days)',definitionFormula:'Total Downtime ÷ Number of Repairs',definitionBenchmark:'Decreasing Trend',definitionText:'Indicates the average time it takes to recover from an equipment or system failure.'},
   {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%',tooltip:{name:'Facility Uptime',formula:'(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100',target:'99.97%',interpretation:'Higher is better.'},definitionName:'Uptime of Key Facilities (%)',definitionFormula:'(Total Operating Time − Total Downtime) ÷ Total Operating Time × 100',definitionBenchmark:'99.97%',definitionText:'Indicates the total amount of time, or its percentage equivalent, that facilities are fully operational.'}
 ];
 var KPI_DEFINITION_FAQ = [
@@ -573,8 +574,8 @@ var KPI_DEFINITION_FAQ = [
   {q:'If a PM activity identifies and corrects a defect during execution, should it be counted as PM or CM?',a:'Preventive Maintenance.\n\nProvided the primary objective of the work order was preventive maintenance and the corrective action was incidental to the planned PM activity, the work order remains classified as Preventive Maintenance.\n\nThis prevents inflation of corrective maintenance counts and aligns with Reliability-Centered Maintenance principles.'},
   {q:'If PM costs and PM work order counts are very low because most preventive maintenance activities are performed in-house, how should PM:CM Ratio be computed?',a:'PM:CM Ratio should reflect actual maintenance effort regardless of whether work is outsourced or performed internally.\n\nPM:CM Ratio (Work Order)\nFormula: PM Work Orders ÷ CM Work Orders\n\nAll completed PM work orders should be counted regardless of:\n• Internal execution\n• Contractor execution\n• Whether external costs were incurred\n\nThe purpose is to measure proactive versus reactive maintenance behavior.\n\nPM:CM Ratio (Cost)\nFormula: PM Cost ÷ CM Cost\n\nPM costs should include:\n• Contractor costs\n• Spare parts and materials\n• Internal labor costs (where available)\n• Equipment rental and support services attributable to PM work\n\nIf labor costs are unavailable, PM costs may appear artificially low despite significant preventive maintenance effort.\n\nRecommended Practice:\n• Where labor costing is unavailable, PM:CM Ratio (Work Order) should be treated as the primary KPI.\n• PM:CM Ratio (Cost) should be treated as a supplementary KPI.\n• Reports should disclose whether labor costs are excluded.\n\nExample:\nPM Work Orders = 90\nCM Work Orders = 10\n\nPM:CM Ratio (Work Order)\n= 90 ÷ 10\n= 9:1\n\nPM Cost = ₱50,000\nCM Cost = ₱300,000\n\nPM:CM Ratio (Cost)\n= ₱50,000 ÷ ₱300,000\n= 0.17:1\n\nIn this case, the Work Order Ratio correctly reflects proactive maintenance behavior, while the Cost Ratio is distorted because labor costs are not captured.\n\nKey Principle:\nA low PM cost does not automatically indicate poor preventive maintenance performance. When labor costs are not fully captured, PM:CM Ratio (Work Order) should be the primary indicator of maintenance behavior.'}
 ];
-var GaugeKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','facilityUptime','pmcmWORatio','pmcmCostRatio'];
-var SummaryMatrixKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','facilityUptime'];
+var GaugeKPIs = ['pmCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mttr','facilityUptime'];
+var SummaryMatrixKPIs = ['pmCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mttr','facilityUptime'];
 
 // ===== STATE =====
 var ScoreData = {};
@@ -845,13 +846,12 @@ var SummaryWorkbookColumns = {
   month:'reporting_month',
   pmCompliance:'pm_compliance',
   pmPlanned:'pm_planned',
-  scheduleCompliance:'schedule_compliance',
   budgetSpend:'budget_spend',
   pmcmWORatio:'pm_cm_work_order_ratio',
   pmcmCostRatio:'pm_cm_cost_ratio',
-  mtbf:'mtbf_days',
   mttr:'mttr_days',
-  facilityUptime:'facility_uptime'
+  facilityUptime:'facility_uptime',
+  notes:'notes'
 };
 
 
@@ -936,6 +936,25 @@ function escapeHtml(value){
   return String(value == null ? '' : value).replace(/[&<>"']/g,function(char){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char];
   });
+}
+
+function normalizeNotesValue(value){
+  if(value===null||value===undefined)return '';
+  return String(value).replace(/\r\n/g,'\n').replace(/\r/g,'\n').trim();
+}
+
+function getRecordNotes(record){
+  if(!record)return '';
+  return normalizeNotesValue(record.notes || record.Notes || '');
+}
+
+function renderNotesValue(value){
+  var notes = normalizeNotesValue(value);
+  return notes ? escapeHtml(notes) : '--';
+}
+
+function getSummaryNotesForBusinessUnit(buId){
+  return getRecordNotes(getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth()) || ScoreData[buId]);
 }
 
 function renderKpiTooltip(kpi,tooltipId){
@@ -1028,18 +1047,15 @@ function getKpiRecordsForYear(buId,year){
 function aggregateKeyForUiKey(key){
   if(key==='pmcmWORatio')return 'pmCmWorkOrderRatio';
   if(key==='pmcmCostRatio')return 'pmCmCostRatio';
-  if(key==='mtbf')return 'mtbfDays';
   if(key==='mttr')return 'mttrDays';
   return key;
 }
 
 function snakeAggregateKeyForUiKey(key){
   if(key==='pmCompliance')return 'pm_compliance';
-  if(key==='scheduleCompliance')return 'schedule_compliance';
   if(key==='budgetSpend')return 'budget_spend';
   if(key==='pmcmWORatio')return 'pm_cm_work_order_ratio';
   if(key==='pmcmCostRatio')return 'pm_cm_cost_ratio';
-  if(key==='mtbf')return 'mtbf_days';
   if(key==='mttr')return 'mttr_days';
   if(key==='facilityUptime')return 'facility_uptime';
   return key;
@@ -1176,7 +1192,7 @@ function isKpiLoading(){return isImporting || isFetchingSavedRecords || isCleari
 // - Missing / empty values are shown as gray.
 // - budgetSpend uses an inclusive green range (95% - 105%); everything else is off-target/red.
 // - Other benchmark-based KPIs are green at/beyond benchmark, yellow in the warning band (80%-99.99%), red below warning band.
-// - Ratio trend KPIs (MTBF increasing, MTTR decreasing in this dashboard config) stay available only when a positive value exists; otherwise no-data.
+// - MTTR decreasing trend stays available only when a positive value exists; otherwise no-data.
 
 function setImporting(flag){
   isImporting = flag;
@@ -1285,14 +1301,12 @@ function buildKpiRecordExportRows(records){
       'Reporting Month': monthNameForNumber(row.reporting_month),
       'Business Unit': exportRecordValue(row,'business_unit'),
       'PM Compliance': exportRecordValue(row,'pm_compliance'),
-      'PM Planned': exportRecordValue(row,'pm_planned'),
-      'Schedule Compliance': exportRecordValue(row,'schedule_compliance'),
       'Budget Spend': exportRecordValue(row,'budget_spend'),
       'PM:CM Ratio (WO)': formatPmCmRatioText(exportRecordValue(row,'pm_cm_work_order_ratio')),
       'PM:CM Ratio (Cost)': formatPmCmRatioText(exportRecordValue(row,'pm_cm_cost_ratio')),
-      'MTBF': exportRecordValue(row,'mtbf_days'),
       'MTTR': exportRecordValue(row,'mttr_days'),
       'Facility Uptime': exportRecordValue(row,'facility_uptime'),
+      'Notes': exportRecordValue(row,'notes'),
       'Imported Date': formatExportDate(row.imported_at)
     };
   });
@@ -1305,14 +1319,12 @@ function buildCsvExportRows(records){
       'Reporting Year': exportRecordValue(row,'reporting_year'),
       'Reporting Month': monthNameForNumber(row.reporting_month),
       'PM Compliance': exportRecordValue(row,'pm_compliance'),
-      'PM Planned': exportRecordValue(row,'pm_planned'),
-      'Schedule Compliance': exportRecordValue(row,'schedule_compliance'),
       'Budget Spend': exportRecordValue(row,'budget_spend'),
       'PM:CM Ratio (WO)': formatPmCmRatioText(exportRecordValue(row,'pm_cm_work_order_ratio')),
       'PM:CM Ratio (Cost)': formatPmCmRatioText(exportRecordValue(row,'pm_cm_cost_ratio')),
-      'MTBF': exportRecordValue(row,'mtbf_days'),
       'MTTR': exportRecordValue(row,'mttr_days'),
-      'Facility Uptime': exportRecordValue(row,'facility_uptime')
+      'Facility Uptime': exportRecordValue(row,'facility_uptime'),
+      'Notes': exportRecordValue(row,'notes')
     };
   });
 }
@@ -1321,10 +1333,12 @@ function buildSummaryMatrixExportRows(aggregates,scope){
   var rows = [{
     'Business Unit':'BENCHMARK',
     'PM Compliance (%)':getKpiBenchmarkLabel('pmCompliance'),
-    'PM:CM Ratio (Work Order)':getKpiBenchmarkLabel('pmcmWORatio'),
     'Budget Spend (%)':getKpiBenchmarkLabel('budgetSpend'),
+    'PM:CM Ratio (Work Order)':getKpiBenchmarkLabel('pmcmWORatio'),
     'PM:CM Ratio (Cost)':getKpiBenchmarkLabel('pmcmCostRatio'),
-    'Facility Uptime (%)':getKpiBenchmarkLabel('facilityUptime')
+    'MTTR (Days)':getKpiBenchmarkLabel('mttr'),
+    'Facility Uptime (%)':getKpiBenchmarkLabel('facilityUptime'),
+    'Notes':''
   }];
   var allowedBu = scope==='current' ? getBUApiValue(selectedBusinessUnitId) : null;
   BUs.forEach(function(bu){
@@ -1333,10 +1347,12 @@ function buildSummaryMatrixExportRows(aggregates,scope){
     rows.push({
       'Business Unit': bu.label,
       'PM Compliance (%)': aggregateValueForUiKey(aggregate,'pmCompliance'),
-      'PM:CM Ratio (Work Order)': formatPmCmRatioText(aggregateValueForUiKey(aggregate,'pmcmWORatio')),
       'Budget Spend (%)': aggregateValueForUiKey(aggregate,'budgetSpend'),
+      'PM:CM Ratio (Work Order)': formatPmCmRatioText(aggregateValueForUiKey(aggregate,'pmcmWORatio')),
       'PM:CM Ratio (Cost)': formatPmCmRatioText(aggregateValueForUiKey(aggregate,'pmcmCostRatio')),
-      'Facility Uptime (%)': aggregateValueForUiKey(aggregate,'facilityUptime')
+      'MTTR (Days)': aggregateValueForUiKey(aggregate,'mttr'),
+      'Facility Uptime (%)': aggregateValueForUiKey(aggregate,'facilityUptime'),
+      'Notes': getSummaryNotesForBusinessUnit(bu.id)
     });
   });
   return rows;
@@ -1346,24 +1362,18 @@ function buildPortfolioAverageRows(aggregates){
   var rows = [{
     'Scope':'Current Benchmark Values','Reporting Year':getSelectedYear(),'Reporting Month':'All Months',
     'PM Compliance':getKpiBenchmarkLabel('pmCompliance'),
-    'PM Planned':'',
-    'Schedule Compliance':getKpiBenchmarkLabel('scheduleCompliance'),
     'Budget Spend':getKpiBenchmarkLabel('budgetSpend'),
     'PM:CM Ratio (WO)':getKpiBenchmarkLabel('pmcmWORatio'),
     'PM:CM Ratio (Cost)':getKpiBenchmarkLabel('pmcmCostRatio'),
-    'MTBF':getKpiBenchmarkLabel('mtbf'),
     'MTTR':getKpiBenchmarkLabel('mttr'),
     'Facility Uptime':getKpiBenchmarkLabel('facilityUptime')
   }];
   rows.push({
     'Scope':'Portfolio Year Average','Reporting Year':getSelectedYear(),'Reporting Month':'All Months',
     'PM Compliance':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmCompliance'),
-    'PM Planned':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmPlanned'),
-    'Schedule Compliance':aggregateValueForUiKey(aggregates.portfolioYearAverage,'scheduleCompliance'),
     'Budget Spend':aggregateValueForUiKey(aggregates.portfolioYearAverage,'budgetSpend'),
     'PM:CM Ratio (WO)':formatPmCmRatioText(aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmWORatio')),
     'PM:CM Ratio (Cost)':formatPmCmRatioText(aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmCostRatio')),
-    'MTBF':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mtbf'),
     'MTTR':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mttr'),
     'Facility Uptime':aggregateValueForUiKey(aggregates.portfolioYearAverage,'facilityUptime')
   });
@@ -1372,12 +1382,9 @@ function buildPortfolioAverageRows(aggregates){
     rows.push({
       'Scope':'Portfolio Monthly Average','Reporting Year':getSelectedYear(),'Reporting Month':monthNameForNumber(month),
       'PM Compliance':aggregateValueForUiKey(avg,'pmCompliance'),
-      'PM Planned':aggregateValueForUiKey(avg,'pmPlanned'),
-      'Schedule Compliance':aggregateValueForUiKey(avg,'scheduleCompliance'),
       'Budget Spend':aggregateValueForUiKey(avg,'budgetSpend'),
       'PM:CM Ratio (WO)':formatPmCmRatioText(aggregateValueForUiKey(avg,'pmcmWORatio')),
       'PM:CM Ratio (Cost)':formatPmCmRatioText(aggregateValueForUiKey(avg,'pmcmCostRatio')),
-      'MTBF':aggregateValueForUiKey(avg,'mtbf'),
       'MTTR':aggregateValueForUiKey(avg,'mttr'),
       'Facility Uptime':aggregateValueForUiKey(avg,'facilityUptime')
     });
@@ -1390,7 +1397,8 @@ function fitWorksheetColumns(ws,rows){
   ws['!cols'] = headers.map(function(header){
     var max = String(header).length;
     rows.forEach(function(row){max = Math.max(max,String(row[header]===undefined||row[header]===null?'':row[header]).length);});
-    return {wch:Math.min(Math.max(max+2,12),34)};
+    var upper = header==='Notes' ? 64 : 34;
+    return {wch:Math.min(Math.max(max+2,12),upper)};
   });
   ws['!freeze'] = {xSplit:0,ySplit:1};
 }
@@ -1778,13 +1786,12 @@ function mapSummaryHeader(header){
   if(h==='month'||h==='reportingmonth')return 'month';
   if(h==='pmcompliance'||h==='pmcompliancepercent')return 'pmCompliance';
   if(h==='pmplanned')return 'pmPlanned';
-  if(h==='schedulecompliance'||h==='schedulecompliancepercent')return 'scheduleCompliance';
   if(h==='budgetspend'||h==='budgetspendpercent')return 'budgetSpend';
   if(h==='pmvscmratioworkorders'||h==='pmcmratioworkorders'||h==='pmcmratiowo'||h==='pmcmworkorderratio')return 'pmcmWORatio';
   if(h==='pmvscmratiocost'||h==='pmcmratiocost'||h==='pmcmcostratio')return 'pmcmCostRatio';
-  if(h==='mtbfdays'||h==='mtbf')return 'mtbf';
   if(h==='mttrdays'||h==='mttr')return 'mttr';
   if(h==='facilityuptime'||h==='facilityuptimepercent')return 'facilityUptime';
+  if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';
   return null;
 }
 
@@ -1797,8 +1804,8 @@ function importSummaryWorkbook(workbook,fileName,buId){
   var sheetName = workbook.SheetNames.find(function(name){return name.toLowerCase().trim()==='summary'});
   if(!sheetName)throw new Error('Summary sheet not found.');
   var sheet = workbook.Sheets[sheetName];
-  var rows = XLSX.utils.sheet_to_json(sheet,{header:1,range:'A1:J13',defval:null,raw:true});
-  if(rows.length<2)throw new Error('No rows found in Summary!A1:J13.');
+  var rows = XLSX.utils.sheet_to_json(sheet,{header:1,range:'A1:K13',defval:null,raw:true});
+  if(rows.length<2)throw new Error('No rows found in Summary!A1:K13.');
   var headerMap = {};
   rows[0].forEach(function(header,index){
     var key = mapSummaryHeader(header);
@@ -1832,6 +1839,12 @@ function importSummaryWorkbook(workbook,fileName,buId){
         record[SummaryWorkbookColumns[key]] = null;
         return;
       }
+      if(key==='notes'){
+        var noteValue = normalizeNotesValue(rawValue);
+        record.notes = noteValue;
+        record[SummaryWorkbookColumns[key]] = noteValue;
+        return;
+      }
       var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
       record[key] = parsed;
       record[SummaryWorkbookColumns[key]] = parsed;
@@ -1844,13 +1857,12 @@ function importSummaryWorkbook(workbook,fileName,buId){
       source_file_name: fileName || null,
       pm_compliance: record.pm_compliance,
       pm_planned: record.pm_planned,
-      schedule_compliance: record.schedule_compliance,
       budget_spend: record.budget_spend,
       pm_cm_work_order_ratio: record.pm_cm_work_order_ratio,
       pm_cm_cost_ratio: record.pm_cm_cost_ratio,
-      mtbf_days: record.mtbf_days,
       mttr_days: record.mttr_days,
       facility_uptime: record.facility_uptime,
+      notes: record.notes || null,
       raw_imported_values: rawImportedValues
     });
     importedMonths.push({year:monthInfo.year,month:monthInfo.month});
@@ -1917,20 +1929,17 @@ function applyPersistedMonthlyKpiRecords(records,options){
     record.pm_compliance = row.pm_compliance;
     record.pmPlanned = row.pm_planned;
     record.pm_planned = row.pm_planned;
-    record.scheduleCompliance = row.schedule_compliance;
-    record.schedule_compliance = row.schedule_compliance;
     record.budgetSpend = row.budget_spend;
     record.budget_spend = row.budget_spend;
     record.pmcmWORatio = row.pm_cm_work_order_ratio;
     record.pm_cm_work_order_ratio = row.pm_cm_work_order_ratio;
     record.pmcmCostRatio = row.pm_cm_cost_ratio;
     record.pm_cm_cost_ratio = row.pm_cm_cost_ratio;
-    record.mtbf = row.mtbf_days;
-    record.mtbf_days = row.mtbf_days;
     record.mttr = row.mttr_days;
     record.mttr_days = row.mttr_days;
     record.facilityUptime = row.facility_uptime;
     record.facility_uptime = row.facility_uptime;
+    record.notes = row.notes || null;
     record.raw_imported_values = row.raw_imported_values || null;
     if(year===getSelectedYear() && month===getSelectedMonth())ScoreData[buId] = record;
   });
@@ -2017,24 +2026,22 @@ function getSummaryKPIs(bu){
 // ===== RENDER SUMMARY =====
 function renderSummary(){
   var tbody = document.getElementById('summaryBody');
-  if(isKpiLoading()){tbody.innerHTML = '<tr><td colspan="7">'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...')+'</td></tr>';return;}
-  if(!hasImportedData(null,getSelectedYear())){tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">No KPI data imported yet.</div></td></tr>';return;}
+  var columnCount = SummaryMatrixKPIs.length + 2;
+  if(isKpiLoading()){tbody.innerHTML = '<tr><td colspan="'+columnCount+'">'+renderLoadingPanel(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...')+'</td></tr>';return;}
+  if(!hasImportedData(null,getSelectedYear())){tbody.innerHTML = '<tr><td colspan="'+columnCount+'"><div class="empty-state">No KPI data imported yet.</div></td></tr>';return;}
   var html = '';
   // Benchmark row
   html += '<tr class="benchmark-row">';
   html += '<td>BENCHMARK</td>';
-  html += '<td>'+getKpiBenchmarkLabel('pmCompliance')+'</td>';
-  html += '<td>'+getKpiBenchmarkLabel('scheduleCompliance')+'</td>';
-  html += '<td>'+getKpiBenchmarkLabel('budgetSpend')+'</td>';
-  html += '<td>'+getKpiBenchmarkLabel('pmcmWORatio')+'</td>';
-  html += '<td>'+getKpiBenchmarkLabel('pmcmCostRatio')+'</td>';
-  html += '<td>'+getKpiBenchmarkLabel('facilityUptime')+'</td>';
+  SummaryMatrixKPIs.forEach(function(key){html += '<td>'+getKpiBenchmarkLabel(key)+'</td>';});
+  html += '<td class="notes-col"></td>';
   html += '</tr>';
   BUs.forEach(function(bu){
     var kpis = getSummaryKPIs(bu);
     html += '<tr>';
     html += '<td>'+bu.label+'</td>';
     kpis.forEach(function(k){html += '<td class="'+k.cls+'">'+k.display+'</td>';});
+    html += '<td class="notes-col">'+renderNotesValue(getSummaryNotesForBusinessUnit(bu.id))+'</td>';
     html += '</tr>';
   });
   tbody.innerHTML = html;
@@ -2088,17 +2095,19 @@ function renderMonthlyRecords(buId){
     return;
   }
   var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div><div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
-  ['Month','PM Compliance (%)','Schedule Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
+  ['Month','PM Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
+  html += '<th class="notes-col">Notes</th>';
   html += '</tr></thead><tbody>';
   for(var month=1;month<=12;month++){
     var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
-    ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','facilityUptime'].forEach(function(key){
+    SummaryMatrixKPIs.forEach(function(key){
       var val = hasImportedKpiValue(r,key)?r[key]:null;
       var display = isPmCmRatioKey(key) ? formatDisplayKpiValue(key,val) : formatKPIValue(val,{blank:''});
       var cls = getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+(display===''?'No Data':display)+'</td>';
     });
+    html += '<td class="notes-col">'+renderNotesValue(getRecordNotes(r))+'</td>';
     html += '</tr>';
   }
   html += '</tbody></table></div>';
@@ -2218,13 +2227,11 @@ function makeChartOptions(kpiKey,yTitle){
 
 var TrendKpiConfig = [
   {key:'pmCompliance',title:'PM Compliance Trend',axis:'PM Compliance %',color:'#0066A6'},
-  {key:'scheduleCompliance',title:'Schedule Compliance Trend',axis:'Schedule Compliance %',color:'#0A9B6E'},
   {key:'budgetSpend',title:'Budget Spend Trend',axis:'Budget Spend %',color:'#00A8D2'},
   {key:'pmcmWORatio',title:'PM:CM Ratio (Work Orders) Trend',axis:'PM:CM WO %',color:'#7C3AED'},
   {key:'pmcmCostRatio',title:'PM:CM Ratio (Cost) Trend',axis:'PM:CM Cost %',color:'#D97706'},
-  {key:'facilityUptime',title:'Facility Uptime Trend',axis:'Facility Uptime %',color:'#0F766E'},
-  {key:'mtbf',title:'MTBF Trend',axis:'MTBF days',color:'#2563EB'},
-  {key:'mttr',title:'MTTR Trend',axis:'MTTR days',color:'#DC2626'}
+  {key:'mttr',title:'MTTR Trend',axis:'MTTR days',color:'#DC2626'},
+  {key:'facilityUptime',title:'Facility Uptime Trend',axis:'Facility Uptime %',color:'#0F766E'}
 ];
 
 function buildTrendSection(buId){
@@ -2345,6 +2352,7 @@ function initForm(){
   KPIs.forEach(function(kpi){
     html += '<td><input type="number" step="0.01" id="form-manual-'+kpi.key+'" placeholder="--" aria-label="'+kpi.name+'"></td>';
   });
+  html += '<td class="notes-col"><textarea id="form-manual-notes" placeholder="Management notes, exclusions, outages, or assumptions" aria-label="Notes"></textarea></td>';
   html += '</tr>';
   tbody.innerHTML = html;
 }
@@ -2410,6 +2418,8 @@ function preloadManualFormValues(ctx){
     var inp = document.getElementById('form-manual-'+kpi.key);
     if(inp)inp.value = record && record[kpi.key]!==undefined && record[kpi.key]!==null ? record[kpi.key] : '';
   });
+  var notes = document.getElementById('form-manual-notes');
+  if(notes)notes.value = record ? getRecordNotes(record) : '';
 }
 
 function validateManualContext(ctx){
@@ -2444,11 +2454,9 @@ function manualPayloadFromForm(ctx){
   };
   var columns = {
     pmCompliance:'pm_compliance',
-    scheduleCompliance:'schedule_compliance',
     budgetSpend:'budget_spend',
     pmcmWORatio:'pm_cm_work_order_ratio',
     pmcmCostRatio:'pm_cm_cost_ratio',
-    mtbf:'mtbf_days',
     mttr:'mttr_days',
     facilityUptime:'facility_uptime'
   };
@@ -2458,6 +2466,9 @@ function manualPayloadFromForm(ctx){
     payload[columns[kpi.key]] = isNaN(parsed) ? null : parsed;
     payload.raw_imported_values.values[columns[kpi.key]] = inp ? inp.value : null;
   });
+  var notes = document.getElementById('form-manual-notes');
+  payload.notes = notes ? normalizeNotesValue(notes.value) : null;
+  payload.raw_imported_values.values.notes = payload.notes;
   return payload;
 }
 
@@ -2560,13 +2571,12 @@ function importExcel(){
         headers.forEach(function(h,i){
           if(h.includes('business')||h.includes('unit'))headerMap.bu=i;
           if(h.includes('pmcompliance'))headerMap.pmCompliance=i;
-          if(h.includes('schedule'))headerMap.scheduleCompliance=i;
           if(h.includes('budget'))headerMap.budgetSpend=i;
           if(h.includes('pmcm')&&h.includes('wo'))headerMap.pmcmWORatio=i;
           if(h.includes('pmcm')&&h.includes('cost'))headerMap.pmcmCostRatio=i;
-          if(h.includes('mtbf'))headerMap.mtbf=i;
           if(h.includes('mttr'))headerMap.mttr=i;
           if(h.includes('uptime')||h.includes('facility'))headerMap.facilityUptime=i;
+          if(h.includes('notes')||h.includes('remarks')||h.includes('comment'))headerMap.notes=i;
         });
         var year = getSelectedYear();
         var month = getSelectedMonth();
@@ -2584,8 +2594,12 @@ function importExcel(){
           Object.keys(headerMap).forEach(function(key){
             if(key==='bu')return;
             var cell = getSheetCell(firstSheet,i,headerMap[key]);
-            var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
             rawImportedValues.values[key] = rawImportedCellValue(row[headerMap[key]],cell);
+            if(key==='notes'){
+              record.notes = normalizeNotesValue(row[headerMap[key]]);
+              return;
+            }
+            var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
             record[key]=parsed;
           });
           ScoreData[importBuId] = record;
@@ -2596,13 +2610,12 @@ function importExcel(){
             source_file_name: file.name,
             pm_compliance: record.pmCompliance ?? null,
             pm_planned: record.pmPlanned ?? null,
-            schedule_compliance: record.scheduleCompliance ?? null,
             budget_spend: record.budgetSpend ?? null,
             pm_cm_work_order_ratio: record.pmcmWORatio ?? null,
             pm_cm_cost_ratio: record.pmcmCostRatio ?? null,
-            mtbf_days: record.mtbf ?? null,
             mttr_days: record.mttr ?? null,
             facility_uptime: record.facilityUptime ?? null,
+            notes: record.notes || null,
             raw_imported_values: rawImportedValues
           });
           importedLegacy++;

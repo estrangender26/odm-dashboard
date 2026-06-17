@@ -366,6 +366,12 @@ function asNullableKpiNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function asNullableText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
 function asRequiredInteger(value: unknown, fieldName: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) throw new Error(`${fieldName} must be an integer`);
@@ -394,6 +400,7 @@ function normalizeMonthlyKpiRecord(input: any, fallbackSourceFileName?: string |
     mtbfDays: asNullableKpiNumber(input?.mtbf_days ?? input?.mtbfDays ?? input?.mtbf),
     mttrDays: asNullableKpiNumber(input?.mttr_days ?? input?.mttrDays ?? input?.mttr),
     facilityUptime: asNullableKpiNumber(input?.facility_uptime ?? input?.facilityUptime),
+    notes: asNullableText(input?.notes ?? input?.Notes),
     rawImportedValues: input?.raw_imported_values ?? input?.rawImportedValues ?? null,
   };
 }
@@ -435,6 +442,7 @@ async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: strin
       mtbf_days,
       mttr_days,
       facility_uptime,
+      notes,
       raw_imported_values
     FROM (
       SELECT
@@ -469,6 +477,7 @@ async function fetchMonthlyKpiAggregateForResponse(reportingYear: number) {
       mtbf_days,
       mttr_days,
       facility_uptime,
+      notes,
       raw_imported_values
     FROM monthly_kpi_records
     WHERE reporting_year = ${reportingYear}
@@ -536,6 +545,7 @@ app.post("/api/monthly-kpi/import", async (c) => {
           mtbf_days,
           mttr_days,
           facility_uptime,
+          notes,
           raw_imported_values
         ) VALUES (
           ${record.businessUnit},
@@ -552,6 +562,7 @@ app.post("/api/monthly-kpi/import", async (c) => {
           ${record.mtbfDays},
           ${record.mttrDays},
           ${record.facilityUptime},
+          ${record.notes},
           ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb
         )
         ON CONFLICT (business_unit, reporting_year, reporting_month)
@@ -567,6 +578,7 @@ app.post("/api/monthly-kpi/import", async (c) => {
           mtbf_days = EXCLUDED.mtbf_days,
           mttr_days = EXCLUDED.mttr_days,
           facility_uptime = EXCLUDED.facility_uptime,
+          notes = EXCLUDED.notes,
           raw_imported_values = EXCLUDED.raw_imported_values
         RETURNING
           id,
@@ -584,6 +596,7 @@ app.post("/api/monthly-kpi/import", async (c) => {
           mtbf_days,
           mttr_days,
           facility_uptime,
+          notes,
           raw_imported_values
       `);
       const row = ((result as any).rows ?? result)[0];
@@ -659,6 +672,7 @@ app.patch("/api/monthly-kpi/records/:id", async (c) => {
         mtbf_days = ${record.mtbfDays},
         mttr_days = ${record.mttrDays},
         facility_uptime = ${record.facilityUptime},
+        notes = ${record.notes},
         raw_imported_values = ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb
       WHERE id = ${id}
       RETURNING *

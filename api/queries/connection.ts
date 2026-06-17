@@ -38,6 +38,10 @@ async function ensureTasksProcedureFamiliarityColumn(db: ReturnType<typeof drizz
   }
 }
 
+async function ensureMonthlyKpiNotesColumn(db: ReturnType<typeof drizzle<typeof schema>>): Promise<void> {
+  await db.execute(sql`ALTER TABLE IF EXISTS "monthly_kpi_records" ADD COLUMN IF NOT EXISTS "notes" text`);
+}
+
 async function logConnectionTest(client: postgres.Sql<{}>, databaseUrl: string): Promise<void> {
   try {
     const result = await client`SELECT current_database() AS current_database, current_schema() AS current_schema`;
@@ -108,6 +112,7 @@ export function getDb() {
       console.log("[db] migration start", { migrationsPath });
       await migrate(_db!, { migrationsFolder: migrationsPath });
       await ensureTasksProcedureFamiliarityColumn(_db!);
+      await ensureMonthlyKpiNotesColumn(_db!);
       await _db!.execute(sql`SELECT 1`);
       console.log("[db] migration finish; verified tasks.procedure_familiarity");
     })().catch((err: any) => {
@@ -124,8 +129,9 @@ export function getDb() {
 }
 
 export async function ensureDbReady(): Promise<void> {
-  getDb();
+  const db = getDb();
   if (_dbReady) await _dbReady;
+  await ensureMonthlyKpiNotesColumn(db);
 }
 
 export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {

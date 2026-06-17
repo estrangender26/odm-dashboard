@@ -9,13 +9,12 @@ export type KpiRecord = {
   reportingMonth?: number;
   reportingYear?: number;
   pmCompliance: number | null;
-  scheduleCompliance: number | null;
   budgetSpend: number | null;
   pmCmWorkOrderRatio: number | null;
   pmCmCostRatio: number | null;
-  mtbfDays: number | null;
   mttrDays: number | null;
   facilityUptime: number | null;
+  notes?: string | null;
   majorWins: string[];
   majorRisks: string[];
   actionItems: string[];
@@ -23,26 +22,24 @@ export type KpiRecord = {
 
 export const scorecardBenchmarks = [
   { key: "pmCompliance", label: "PM Compliance", benchmark: "95%" },
-  { key: "scheduleCompliance", label: "Schedule Compliance", benchmark: "95%" },
-  { key: "budgetSpend", label: "Budget Spend", benchmark: "95% - 105%" },
+  { key: "budgetSpend", label: "Maintenance Budget Spend", benchmark: "95% - 105%" },
   { key: "pmCmWorkOrderRatio", label: "PM:CM Ratio (WO)", benchmark: "≥86% (6:1)" },
   { key: "pmCmCostRatio", label: "PM:CM Ratio (Cost)", benchmark: "≥60% (1.5:1)" },
-  { key: "mtbfDays", label: "MTBF", benchmark: "Tracked" },
-  { key: "mttrDays", label: "MTTR", benchmark: "Tracked" },
+  { key: "mttrDays", label: "MTTR", benchmark: "Decreasing Trend" },
   { key: "facilityUptime", label: "Facility Uptime", benchmark: "99.97%" },
+  { key: "notes", label: "Notes", benchmark: "Commentary" },
 ] as const;
 
 export const currentMonthlyKpiScorecard: KpiRecord[] = [
   {
     businessUnit: "AMD-EZ",
     pmCompliance: 96.4,
-    scheduleCompliance: 95.8,
     budgetSpend: 101.3,
     pmCmWorkOrderRatio: 88.2,
     pmCmCostRatio: 63.8,
-    mtbfDays: 42.5,
     mttrDays: 3.2,
     facilityUptime: 99.98,
+    notes: "Transformer overhaul completed this month.",
     majorWins: ["PM compliance exceeded the 95% benchmark.", "Facility uptime remained above target."],
     majorRisks: ["Budget spend is trending near the upper control band."],
     actionItems: ["Review cost drivers for high-spend work orders.", "Keep weekly follow-up on PM closure quality."],
@@ -63,13 +60,6 @@ function evaluateAggregatedRecord(record: KpiRecord): KpiRecord {
   } else if (isPresentNumber(record.pmCompliance)) {
     risks.push("PM compliance is below the 95% benchmark.");
     actions.push("Review overdue PM backlog and closure constraints.");
-  }
-
-  if (isPresentNumber(record.scheduleCompliance) && record.scheduleCompliance >= 95) {
-    wins.push("Schedule compliance met or exceeded the 95% benchmark.");
-  } else if (isPresentNumber(record.scheduleCompliance)) {
-    risks.push("Schedule compliance is below the 95% benchmark.");
-    actions.push("Review schedule blockers and missed planned work.");
   }
 
   if (isPresentNumber(record.facilityUptime) && record.facilityUptime >= 99.97) {
@@ -101,14 +91,12 @@ export function getReportingMonthLabel(date = new Date()) {
 export function getScorecardSummary(records = currentMonthlyKpiScorecard) {
   const total = records.length;
   const pmPassed = records.filter((record) => isPresentNumber(record.pmCompliance) && record.pmCompliance >= 95).length;
-  const schedulePassed = records.filter((record) => isPresentNumber(record.scheduleCompliance) && record.scheduleCompliance >= 95).length;
   const uptimePassed = records.filter((record) => isPresentNumber(record.facilityUptime) && record.facilityUptime >= 99.97).length;
   const risks = records.flatMap((record) => record.majorRisks);
   const wins = records.flatMap((record) => record.majorWins);
   return {
     highlights: [
       `${pmPassed} of ${total} business units are meeting PM compliance target.`,
-      `${schedulePassed} of ${total} business units are meeting schedule compliance target.`,
       `${uptimePassed} of ${total} business units are meeting facility uptime target.`,
     ],
     wins: wins.slice(0, 5),
@@ -129,13 +117,12 @@ function toKpiRecord(aggregate: ReturnType<typeof aggregateMonthlyKpiRecords>["b
     businessUnit: aggregate.businessUnit,
     reportingYear: aggregate.reportingYear,
     pmCompliance: aggregate.pmCompliance,
-    scheduleCompliance: aggregate.scheduleCompliance,
     budgetSpend: aggregate.budgetSpend,
     pmCmWorkOrderRatio: aggregate.pmCmWorkOrderRatio,
     pmCmCostRatio: aggregate.pmCmCostRatio,
-    mtbfDays: aggregate.mtbfDays,
     mttrDays: aggregate.mttrDays,
     facilityUptime: aggregate.facilityUptime,
+    notes: null,
     majorWins: [],
     majorRisks: [],
     actionItems: [],
