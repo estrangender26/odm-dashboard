@@ -565,6 +565,7 @@ var BUs = [
   {id:'tagum',apiValue:'Tagum Water',name:'Tagum Water',label:'Tagum Water'},
   {id:'estate',apiValue:'Estate Water',name:'Estate Water',label:'Estate Water'}
 ];
+var ALL_BUSINESS_UNITS_VALUE = 'all-business-units';
 var selectedBusinessUnitId = (function(){
   try{return normalizePersistedBusinessUnit(localStorage.getItem('monthlyKpiSelectedBusinessUnit')) || 'ez';}
   catch(err){return 'ez';}
@@ -623,7 +624,10 @@ document.addEventListener('DOMContentLoaded',function(){
   initMonthlyKpiTabListeners();
   updateClearButtonState();
   updateExportButtonState();
-  if(!applyMonthlyKpiUrlTabFallback())fetchSavedMonthlyKpiRecords();
+  if(!applyMonthlyKpiUrlTabFallback()){
+    syncBusinessUnitDropdownForTab('summary');
+    fetchSavedMonthlyKpiRecords();
+  }
 });
 
 // ===== TAB SWITCH =====
@@ -639,6 +643,24 @@ function getMonthlyKpiTabButton(id){
   return document.querySelector('.tab[data-tab="'+id+'"]') || Array.prototype.find.call(document.querySelectorAll('.tab'),function(btn){
     return btn.getAttribute('onclick') && btn.getAttribute('onclick').indexOf("'"+id+"'")>-1;
   }) || null;
+}
+
+function isValidBusinessUnitId(buId){
+  return BUs.some(function(bu){
+    return bu.id === buId;
+  });
+}
+
+function syncBusinessUnitDropdownForTab(id){
+  var sel = document.getElementById('businessUnitSel');
+  if(!sel)return;
+  if(id==='summary'){
+    sel.value = ALL_BUSINESS_UNITS_VALUE;
+    return;
+  }
+  if(isValidBusinessUnitId(id)){
+    sel.value = id;
+  }
 }
 
 function getMonthlyKpiUrlTab(){
@@ -664,6 +686,7 @@ function initMonthlyKpiTabListeners(){
 
 function showTab(id,btn,skipFetch){
   if(!isValidMonthlyKpiTab(id))return;
+  syncBusinessUnitDropdownForTab(id);
   var panel = document.getElementById('t-'+id);
   if(!panel)return;
   btn = btn || getMonthlyKpiTabButton(id);
@@ -700,7 +723,7 @@ function getBUApiValue(buId){var bu=getBUById(buId);return bu.apiValue || bu.lab
 function initBusinessUnitSelector(){
   var sel = document.getElementById('businessUnitSel');
   if(!sel)return;
-  sel.innerHTML = BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
+  sel.innerHTML = '<option value="'+ALL_BUSINESS_UNITS_VALUE+'">All Business Units</option>' + BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
   sel.value = selectedBusinessUnitId;
 }
 function initImportSelectors(){
@@ -728,7 +751,15 @@ function handleReportingContextChange(){
 
 function handleBusinessUnitChange(){
   var sel = document.getElementById('businessUnitSel');
-  selectedBusinessUnitId = sel && sel.value ? sel.value : 'ez';
+  var selectedValue = sel && sel.value ? sel.value : ALL_BUSINESS_UNITS_VALUE;
+  if(selectedValue === ALL_BUSINESS_UNITS_VALUE){
+    updateClearButtonState('summary');
+    updateExportButtonState('summary');
+    showTab('summary');
+    loadData();
+    return;
+  }
+  selectedBusinessUnitId = isValidBusinessUnitId(selectedValue) ? selectedValue : 'ez';
   persistDeckContext();
   updateClearButtonState(selectedBusinessUnitId);
   updateExportButtonState(selectedBusinessUnitId);
