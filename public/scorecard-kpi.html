@@ -705,13 +705,8 @@ function syncBusinessUnitDropdownForTab(id){
     sel.value = ALL_BUSINESS_UNITS_VALUE;
     return;
   }
-  if(id==='business-unit'){
-    sel.value = selectedBusinessUnitId || '';
-    return;
-  }
   if(isValidBusinessUnitId(id)){
     sel.value = id;
-    return;
   }
 }
 
@@ -743,6 +738,7 @@ function showTab(id,btn,skipFetch){
     id = 'business-unit';
   }
   syncBusinessUnitDropdownForTab(targetBusinessUnitId);
+  syncBusinessUnitDropdownForTab(id);
   var panel = document.getElementById('t-'+id);
   if(!panel)return;
   btn = btn || getMonthlyKpiTabButton(id);
