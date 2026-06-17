@@ -96,6 +96,10 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .matrix-table .notes-col{min-width:240px;width:28%;text-align:left;white-space:pre-wrap;line-height:1.35}
 .matrix-table th.notes-col{text-align:left}
 .matrix-table td.notes-col{font-weight:600;color:var(--text)}
+.summary-aggregate-row td{background:#F8FAFC}
+.notes-rollup-btn{border:0;background:none;color:var(--blue);font:inherit;font-weight:800;text-align:left;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.notes-rollup-btn:hover,.notes-rollup-btn:focus{color:#004F86;outline:none}
+.commentary-modal-table td{vertical-align:top}
 
 /* KPI STATUS COLORS */
 .kpi-green{background:var(--green-light);color:var(--green)}
@@ -522,6 +526,27 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button id="clearCancelBtn" class="ctrl-btn ctrl-gray" onclick="resolveClearConfirmation(false)">Cancel</button>
       <button id="clearConfirmBtn" class="ctrl-btn ctrl-red" onclick="resolveClearConfirmation(true)">Clear Records</button>
+    </div>
+  </div>
+</div>
+
+<!-- BUSINESS UNIT COMMENTARY MODAL -->
+<div class="modal-overlay" id="commentaryModal" role="dialog" aria-modal="true" aria-labelledby="commentaryModalTitle">
+  <div class="modal" style="max-width:860px">
+    <div class="modal-header">
+      <div class="modal-title" id="commentaryModalTitle">Business Unit Commentary</div>
+      <button class="modal-close" onclick="closeBusinessUnitCommentaryModal()" aria-label="Close business unit commentary">&times;</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="matrix-table commentary-modal-table">
+        <thead>
+          <tr>
+            <th>Business Unit</th>
+            <th class="notes-col">Notes</th>
+          </tr>
+        </thead>
+        <tbody id="commentaryTableBody"></tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -957,6 +982,39 @@ function getSummaryNotesForBusinessUnit(buId){
   return getRecordNotes(getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth()) || ScoreData[buId]);
 }
 
+function getBusinessUnitCommentaryRows(){
+  return BUs.map(function(bu){
+    return {businessUnit:bu.label,notes:getSummaryNotesForBusinessUnit(bu.id)};
+  }).filter(function(row){return !!row.notes;});
+}
+
+function formatCommentaryRollupLabel(count){
+  return count+' '+(count===1?'facility':'facilities')+' with commentary';
+}
+
+function renderAggregateNotesRollup(){
+  var rows = getBusinessUnitCommentaryRows();
+  if(rows.length===0)return '--';
+  return '<button type="button" class="notes-rollup-btn" onclick="openBusinessUnitCommentaryModal()">'+formatCommentaryRollupLabel(rows.length)+'</button>';
+}
+
+function openBusinessUnitCommentaryModal(){
+  var rows = getBusinessUnitCommentaryRows();
+  if(rows.length===0)return;
+  var body = document.getElementById('commentaryTableBody');
+  var modal = document.getElementById('commentaryModal');
+  if(!body || !modal)return;
+  body.innerHTML = rows.map(function(row){
+    return '<tr><td>'+escapeHtml(row.businessUnit)+'</td><td class="notes-col">'+renderNotesValue(row.notes)+'</td></tr>';
+  }).join('');
+  modal.classList.add('active');
+}
+
+function closeBusinessUnitCommentaryModal(){
+  var modal = document.getElementById('commentaryModal');
+  if(modal)modal.classList.remove('active');
+}
+
 function renderKpiTooltip(kpi,tooltipId){
   if(!kpi || !kpi.tooltip)return '';
   var rows = [
@@ -1330,6 +1388,7 @@ function buildCsvExportRows(records){
 }
 
 function buildSummaryMatrixExportRows(aggregates,scope){
+  var commentaryRows = getBusinessUnitCommentaryRows();
   var rows = [{
     'Business Unit':'BENCHMARK',
     'PM Compliance (%)':getKpiBenchmarkLabel('pmCompliance'),
@@ -1340,6 +1399,18 @@ function buildSummaryMatrixExportRows(aggregates,scope){
     'Facility Uptime (%)':getKpiBenchmarkLabel('facilityUptime'),
     'Notes':''
   }];
+  if(scope!=='current'){
+    rows.push({
+      'Business Unit':'All Business Units',
+      'PM Compliance (%)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmCompliance'),
+      'Budget Spend (%)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'budgetSpend'),
+      'PM:CM Ratio (Work Order)':formatPmCmRatioText(aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmWORatio')),
+      'PM:CM Ratio (Cost)':formatPmCmRatioText(aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmCostRatio')),
+      'MTTR (Days)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mttr'),
+      'Facility Uptime (%)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'facilityUptime'),
+      'Notes':commentaryRows.length ? formatCommentaryRollupLabel(commentaryRows.length) : ''
+    });
+  }
   var allowedBu = scope==='current' ? getBUApiValue(selectedBusinessUnitId) : null;
   BUs.forEach(function(bu){
     if(allowedBu && getBUApiValue(bu.id)!==allowedBu)return;
@@ -2023,6 +2094,20 @@ function getSummaryKPIs(bu){
   });
 }
 
+function getPortfolioSummaryKPIs(){
+  var d = getPortfolioCurrentData();
+  var summaryKPIs = SummaryMatrixKPIs.map(function(key){return KPIs.find(function(kpi){return kpi.key===key;});}).filter(Boolean);
+  return summaryKPIs.map(function(sk){
+    var val = d[sk.key];
+    var status = getKPIStatus(sk.key,val);
+    var display = isPmCmRatioKey(sk.key) ? '--' : 'No Data';
+    if(val!==undefined&&val!==null&&val!==''){
+      display = formatDisplayKpiValue(sk.key,val);
+    }
+    return {val:val,display:display,cls:status.cls};
+  });
+}
+
 // ===== RENDER SUMMARY =====
 function renderSummary(){
   var tbody = document.getElementById('summaryBody');
@@ -2035,6 +2120,11 @@ function renderSummary(){
   html += '<td>BENCHMARK</td>';
   SummaryMatrixKPIs.forEach(function(key){html += '<td>'+getKpiBenchmarkLabel(key)+'</td>';});
   html += '<td class="notes-col"></td>';
+  html += '</tr>';
+  html += '<tr class="summary-aggregate-row">';
+  html += '<td>All Business Units</td>';
+  getPortfolioSummaryKPIs().forEach(function(k){html += '<td class="'+k.cls+'">'+k.display+'</td>';});
+  html += '<td class="notes-col">'+renderAggregateNotesRollup()+'</td>';
   html += '</tr>';
   BUs.forEach(function(bu){
     var kpis = getSummaryKPIs(bu);
@@ -2706,6 +2796,7 @@ async function clearData(){
 document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
 document.getElementById('importModal').addEventListener('click',function(e){if(e.target===this)closeImportModal();});
 document.getElementById('clearConfirmModal').addEventListener('click',function(e){if(e.target===this)resolveClearConfirmation(false);});
+document.getElementById('commentaryModal').addEventListener('click',function(e){if(e.target===this)closeBusinessUnitCommentaryModal();});
 
 /* ============================================================
    Embedded AI widget removed
