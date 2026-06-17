@@ -182,7 +182,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .manual-controls{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px;margin-bottom:14px;background:#F8FAFC;border:1px solid var(--border);border-radius:var(--r);padding:14px}
 .manual-field{display:flex;flex-direction:column;gap:6px}
 .manual-field label{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);letter-spacing:.3px}
-.manual-field select,.manual-field input[type="file"]{width:100%;padding:8px 10px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:var(--r);background:#fff;color:var(--text);outline:none}
+.manual-field select,.manual-field input[type="file"],.manual-field input[type="text"]{width:100%;padding:8px 10px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:var(--r);background:#fff;color:var(--text);outline:none}
 .manual-field select:focus,.manual-field input[type="file"]:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(0,102,166,.12)}
 .import-controls{grid-template-columns:1fr;max-width:520px}
 .import-actions{display:flex;gap:10px;justify-content:flex-end}
@@ -378,18 +378,13 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <div class="legend-item"><div class="legend-dot green"></div> KPI Passed / Meets or Exceeds Benchmark</div>
     <div class="legend-item"><div class="legend-dot yellow"></div> Warning / Marginal Performance</div>
     <div class="legend-item"><div class="legend-dot red"></div> KPI Below Benchmark</div>
-    <div class="legend-item"><div class="legend-dot gray"></div> No Data Available</div>
+  <div class="legend-item"><div class="legend-dot gray"></div> No Data</div>
   </div>
 
   <!-- TABS -->
   <div class="tabs">
-    <button class="tab active" data-tab="summary">Summary Matrix</button>
-    <button class="tab" data-tab="ez">AMD-EZ</button>
-    <button class="tab" data-tab="laguna">Laguna Water</button>
-    <button class="tab" data-tab="clark">Clark Water</button>
-    <button class="tab" data-tab="tagum">Tagum Water</button>
-    <button class="tab" data-tab="estate">Estate Water</button>
-    <button class="tab" data-tab="definitions">Definitions / FAQ</button>
+  <button class="tab active" data-tab="summary">Summary Matrix</button>
+  <button class="tab" data-tab="definitions">Definitions / FAQ</button>
   </div>
 
   <!-- SUMMARY TAB -->
@@ -420,41 +415,12 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <div id="summary-trend-section"></div>
   </div>
 
-  <!-- BU TABS -->
-  <div id="t-ez" class="tc">
-    <div id="ez-context" class="bu-context"></div>
-    <div id="ez-gauges" class="gauge-grid"></div>
-    <div id="ez-monthly-records" class="matrix-card"></div>
-    <div id="ez-trend-section"></div>
-  </div>
-
-
-  <div id="t-laguna" class="tc">
-    <div id="laguna-context" class="bu-context"></div>
-    <div id="laguna-gauges" class="gauge-grid"></div>
-    <div id="laguna-monthly-records" class="matrix-card"></div>
-    <div id="laguna-trend-section"></div>
-  </div>
-
-  <div id="t-clark" class="tc">
-    <div id="clark-context" class="bu-context"></div>
-    <div id="clark-gauges" class="gauge-grid"></div>
-    <div id="clark-monthly-records" class="matrix-card"></div>
-    <div id="clark-trend-section"></div>
-  </div>
-
-  <div id="t-tagum" class="tc">
-    <div id="tagum-context" class="bu-context"></div>
-    <div id="tagum-gauges" class="gauge-grid"></div>
-    <div id="tagum-monthly-records" class="matrix-card"></div>
-    <div id="tagum-trend-section"></div>
-  </div>
-
-  <div id="t-estate" class="tc">
-    <div id="estate-context" class="bu-context"></div>
-    <div id="estate-gauges" class="gauge-grid"></div>
-    <div id="estate-monthly-records" class="matrix-card"></div>
-    <div id="estate-trend-section"></div>
+  <!-- BUSINESS UNIT VIEW -->
+  <div id="t-business-unit" class="tc">
+    <div id="business-unit-context" class="bu-context"></div>
+    <div id="business-unit-gauges" class="gauge-grid"></div>
+    <div id="business-unit-monthly-records" class="matrix-card"></div>
+    <div id="business-unit-trend-section"></div>
   </div>
 
   <div id="t-definitions" class="tc">
@@ -523,7 +489,11 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <div class="manual-controls import-controls">
       <div class="manual-field">
         <label for="importBusinessUnitSel">Business Unit</label>
-        <select id="importBusinessUnitSel" onchange="updateImportButtonState()" aria-label="Import Business Unit"></select>
+        <select id="importBusinessUnitSel" onchange="handleImportBusinessUnitSelection()" aria-label="Import Business Unit"></select>
+      </div>
+      <div class="manual-field" id="importNewBusinessUnitField" style="display:none">
+        <label for="importNewBusinessUnitInput">New Business Unit / Facility Name</label>
+        <input id="importNewBusinessUnitInput" type="text" placeholder="Enter business unit or facility name" autocomplete="off" oninput="handleImportBusinessUnitSelection()" aria-label="New Business Unit or Facility Name">
       </div>
       <div class="manual-field">
         <label for="excelInput">Workbook</label>
@@ -558,17 +528,21 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
 <script>
 // ===== CONFIG =====
-var BUs = [
+var DEFAULT_BUSINESS_UNITS = [
   {id:'ez',apiValue:'AMD-EZ',name:'AMD-EZ',label:'AMD-EZ'},
   {id:'laguna',apiValue:'Laguna Water',name:'Laguna Water',label:'Laguna Water'},
   {id:'clark',apiValue:'Clark Water',name:'Clark Water',label:'Clark Water'},
   {id:'tagum',apiValue:'Tagum Water',name:'Tagum Water',label:'Tagum Water'},
   {id:'estate',apiValue:'Estate Water',name:'Estate Water',label:'Estate Water'}
 ];
+var BUs = DEFAULT_BUSINESS_UNITS.slice(0);
+var BASE_BUSINESS_UNIT_IDS = DEFAULT_BUSINESS_UNITS.map(function(bu){return bu.id;});
 var ALL_BUSINESS_UNITS_VALUE = 'all-business-units';
+var ADD_NEW_BUSINESS_UNIT_VALUE = '__add_new_business_unit__';
+var BUSINESS_UNIT_STORAGE_KEY = 'monthlyKpiCustomBusinessUnits';
 var selectedBusinessUnitId = (function(){
-  try{return normalizePersistedBusinessUnit(localStorage.getItem('monthlyKpiSelectedBusinessUnit')) || 'ez';}
-  catch(err){return 'ez';}
+  try{loadBusinessUnitsFromStorage();return normalizePersistedBusinessUnit(localStorage.getItem('monthlyKpiSelectedBusinessUnit')) || 'ez';}
+  catch(err){loadBusinessUnitsFromStorage();return 'ez';}
 })();
 // Governance-aligned KPI benchmark metadata used by status, cards, and definitions.
 // Default behavior:
@@ -630,7 +604,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
 // ===== TAB SWITCH =====
 function getMonthlyKpiTabIds(){
-  return ['summary','definitions'].concat(BUs.map(function(bu){return bu.id;}));
+  return ['summary','definitions','business-unit'].concat(BUs.map(function(bu){return bu.id;}));
 }
 
 function isValidMonthlyKpiTab(id){
@@ -643,10 +617,85 @@ function getMonthlyKpiTabButton(id){
   }) || null;
 }
 
+function normalizeBusinessUnitName(value){
+  if(value===undefined || value===null)return '';
+  return String(value).replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
+}
+function normalizeBusinessUnitAlias(value){
+  return normalizeBusinessUnitName(value).toLowerCase();
+}
+function makeBusinessUnitIdFromName(value){
+  var base = normalizeBusinessUnitAlias(value).replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  if(!base)base='business-unit';
+  var candidate = base;
+  var suffix = 2;
+  while(BUs.some(function(bu){return bu.id===candidate;})){
+    candidate = base+'-'+suffix;
+    suffix++;
+  }
+  return candidate;
+}
+function getBusinessUnitByName(value){
+  var normalized = normalizeBusinessUnitAlias(value);
+  if(!normalized)return null;
+  var direct = BUs.find(function(bu){
+    return normalizeBusinessUnitAlias(bu.id)===normalized || normalizeBusinessUnitAlias(bu.apiValue)===normalized || normalizeBusinessUnitAlias(bu.name)===normalized || normalizeBusinessUnitAlias(bu.label)===normalized;
+  });
+  if(direct)return direct;
+  return null;
+}
+function getOrCreateBusinessUnitByName(value,options){
+  options = options || {};
+  var existing = getBusinessUnitByName(value);
+  if(existing)return {bu:existing,created:false};
+  var normalized = normalizeBusinessUnitName(value);
+  if(!normalized)return {bu:null,created:false};
+  var newBu = {id:makeBusinessUnitIdFromName(normalized),apiValue:normalized,name:normalized,label:normalized};
+  BUs.push(newBu);
+  if(options.persist !== false)persistBusinessUnits();
+  return {bu:newBu,created:true};
+}
+function removeBusinessUnitById(buId,options){
+  options = options || {};
+  if(!buId || BASE_BUSINESS_UNIT_IDS.indexOf(buId)!==-1)return false;
+  var before = BUs.length;
+  BUs = BUs.filter(function(bu){return bu.id!==buId;});
+  if(BUs.length!==before && options.persist!==false)persistBusinessUnits();
+  return BUs.length!==before;
+}
+function getPersistentBusinessUnitNames(){
+  return BUs.filter(function(bu){return BASE_BUSINESS_UNIT_IDS.indexOf(bu.id)===-1;}).map(function(bu){return bu.label;});
+}
+function persistBusinessUnits(){
+  try{localStorage.setItem(BUSINESS_UNIT_STORAGE_KEY,JSON.stringify(getPersistentBusinessUnitNames()));}catch(err){}
+}
+function loadBusinessUnitsFromStorage(){
+  try{
+    var raw = localStorage.getItem(BUSINESS_UNIT_STORAGE_KEY);
+    if(!raw)return;
+    var parsed = JSON.parse(raw);
+    if(!Array.isArray(parsed))return;
+    parsed.forEach(function(name){if(name)getOrCreateBusinessUnitByName(name,{persist:false});});
+  }catch(err){}
+}
+
 function isValidBusinessUnitId(buId){
   return BUs.some(function(bu){
     return bu.id === buId;
   });
+}
+function getBusinessUnitSelectorId(buId){
+  if(isValidBusinessUnitId(buId) && document.getElementById(buId+'-context'))return buId;
+  return 'business-unit';
+}
+function getBusinessUnitPanelIdBySection(buId,section){
+  return getBusinessUnitSelectorId(buId)+'-'+section;
+}
+function getBusinessUnitChartKey(buId,key){
+  return getBusinessUnitSelectorId(buId)+'-'+key;
+}
+function getBusinessUnitTrendSectionId(buId){
+  return getBusinessUnitPanelIdBySection(buId,'trend-section');
 }
 
 function syncBusinessUnitDropdownForTab(id){
@@ -684,6 +733,11 @@ function initMonthlyKpiTabListeners(){
 
 function showTab(id,btn,skipFetch){
   if(!isValidMonthlyKpiTab(id))return;
+  var targetBusinessUnitId = id;
+  if(id!=='summary' && id!=='definitions' && isValidBusinessUnitId(id)){
+    id = 'business-unit';
+  }
+  syncBusinessUnitDropdownForTab(targetBusinessUnitId);
   syncBusinessUnitDropdownForTab(id);
   var panel = document.getElementById('t-'+id);
   if(!panel)return;
@@ -703,14 +757,15 @@ function showTab(id,btn,skipFetch){
     updateExportButtonState();
     return;
   }
-  selectedBusinessUnitId = id;
-  var sel = document.getElementById('businessUnitSel');
-  if(sel)sel.value = id;
-  persistDeckContext();
-  updateClearButtonState(id);
-  updateExportButtonState(id);
-  renderBUCharts(id);
-  if(!skipFetch)fetchSavedMonthlyKpiRecords(id);
+  if(id==='business-unit'){
+    if(isValidBusinessUnitId(targetBusinessUnitId))selectedBusinessUnitId = targetBusinessUnitId;
+    persistDeckContext();
+    updateClearButtonState(selectedBusinessUnitId);
+    updateExportButtonState(selectedBusinessUnitId);
+    renderBUCharts(selectedBusinessUnitId);
+    if(!skipFetch)fetchSavedMonthlyKpiRecords(selectedBusinessUnitId);
+    return;
+  }
 }
 
 function getBUById(buId){return BUs.find(function(bu){return bu.id===buId;}) || BUs[0];}
@@ -726,7 +781,9 @@ function initBusinessUnitSelector(){
 }
 function initImportSelectors(){
   var buSel = document.getElementById('importBusinessUnitSel');
-  if(buSel)buSel.innerHTML = '<option value="">Select business unit</option>'+BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
+  if(!buSel)return;
+  buSel.innerHTML = '<option value="">Select business unit</option>'+BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('')+'<option value="'+ADD_NEW_BUSINESS_UNIT_VALUE+'">+ Add New Business Unit / Facility</option>';
+  handleImportBusinessUnitSelection();
 }
 
 function initManualSelectors(){
@@ -761,7 +818,7 @@ function handleBusinessUnitChange(){
   persistDeckContext();
   updateClearButtonState(selectedBusinessUnitId);
   updateExportButtonState(selectedBusinessUnitId);
-  showTab(selectedBusinessUnitId);
+  showTab('business-unit');
   loadData();
 }
 function countImportedMonths(buId,year){
@@ -772,7 +829,7 @@ function countImportedMonths(buId,year){
   }).length;
 }
 function renderBUContext(buId){
-  var container = document.getElementById(buId+'-context');
+  var container = document.getElementById(getBusinessUnitPanelIdBySection(buId,'context'));
   if(!container)return;
   var bu = getBUById(buId);
   var count = countImportedMonths(buId,getSelectedYear());
@@ -1460,6 +1517,7 @@ function triggerExcelImport(){
   setSelectValue('importBusinessUnitSel','');
   var fileInput = document.getElementById('excelInput');
   if(fileInput)fileInput.value = '';
+  handleImportBusinessUnitSelection();
   updateImportButtonState();
   document.getElementById('importModal').classList.add('active');
 }
@@ -1478,22 +1536,55 @@ function setImportValidation(message){
 }
 
 function getImportContext(){
-  var buId = (document.getElementById('importBusinessUnitSel')||{}).value || '';
+  var buSelection = (document.getElementById('importBusinessUnitSel')||{}).value || '';
+  var newBusinessUnitInput = (document.getElementById('importNewBusinessUnitInput')||{}).value || '';
   var fileInput = document.getElementById('excelInput');
-  return {buId:buId,bu:buId?getBUById(buId):null,file:fileInput&&fileInput.files?fileInput.files[0]:null};
+  return {
+    buSelection:buSelection,
+    buId:buSelection && buSelection!==ADD_NEW_BUSINESS_UNIT_VALUE ? buSelection : '',
+    bu:buSelection && buSelection!==ADD_NEW_BUSINESS_UNIT_VALUE ? getBUById(buSelection) : null,
+    file:fileInput&&fileInput.files?fileInput.files[0]:null,
+    isNewBusinessUnit:buSelection===ADD_NEW_BUSINESS_UNIT_VALUE,
+    newBusinessUnitName:normalizeBusinessUnitName(newBusinessUnitInput)
+  };
 }
 
 function updateImportButtonState(){
   var ctx = getImportContext();
   var btn = document.getElementById('importSubmitBtn');
-  if(btn)btn.disabled = isImporting || !ctx.buId || !ctx.file;
+  var canSubmit = !isImporting && !!ctx.file && (ctx.buId || (ctx.isNewBusinessUnit && !!ctx.newBusinessUnitName));
+  if(btn)btn.disabled = !canSubmit;
   if(ctx.buId && ctx.file)setImportValidation('');
+}
+
+function handleImportBusinessUnitSelection(){
+  var selection = getImportContext();
+  var customInput = document.getElementById('importNewBusinessUnitField');
+  var customName = document.getElementById('importNewBusinessUnitInput');
+  if(customInput && customName){
+    var isNew = selection.isNewBusinessUnit;
+    customInput.style.display = isNew ? 'flex' : 'none';
+    if(!isNew)customName.value = '';
+  }
+  var submitInfo = getImportContext();
+  if(submitInfo.isNewBusinessUnit && submitInfo.newBusinessUnitName){
+    var existingBu = getBusinessUnitByName(submitInfo.newBusinessUnitName);
+    if(existingBu){
+      setImportValidation('Using existing business unit: '+existingBu.label+'.');
+    }else{
+      setImportValidation('');
+    }
+  }else{
+    setImportValidation('');
+  }
+  updateImportButtonState();
 }
 
 function validateImportContext(ctx){
   var missing = [];
-  if(!ctx.buId)missing.push('Business Unit');
+  if(!ctx.buSelection)missing.push('Business Unit');
   if(!ctx.file)missing.push('Workbook File');
+  if(ctx.isNewBusinessUnit && !ctx.newBusinessUnitName)missing.push('New Business Unit / Facility Name');
   if(missing.length){
     setImportValidation('Please select '+missing.join(' and ')+' before importing.');
     updateImportButtonState();
@@ -1506,7 +1597,7 @@ function validateImportContext(ctx){
 async function switchToImportedBusinessUnit(buId){
   selectedBusinessUnitId = buId;
   setSelectValue('businessUnitSel',buId);
-  showTab(buId,null,true);
+  showTab('business-unit',null,true);
   loadData();
 }
 
@@ -1602,6 +1693,69 @@ function excelDateToReportingMonth(val){
 function persistDeckContext(){try{var bu=getSelectedBU();localStorage.setItem('monthlyKpiSelectedBusinessUnit',getBUApiValue(bu.id));localStorage.setItem('monthlyKpiSelectedBusinessUnitLabel',bu.label);localStorage.setItem('monthlyKpiSelectedYear',String(getSelectedYear()));localStorage.setItem('monthlyKpiSelectedMonth',String(getSelectedMonth()));}catch(err){}}
 function getSelectedYear(){return parseInt(document.getElementById('yearSel').value,10);}
 function getSelectedMonth(){return parseInt(document.getElementById('monthSel').value,10);}
+function refreshBusinessUnitSelectors(){
+  initBusinessUnitSelector();
+  initManualSelectors();
+  initImportSelectors();
+  syncBusinessUnitDropdownForTab(isSummaryTabActive() ? 'summary' : (isDefinitionsTabActive() ? 'definitions' : selectedBusinessUnitId));
+}
+function resolveImportBusinessUnit(ctx){
+  if(!ctx)return {buId:'',created:false,reason:'missing'};
+  if(!ctx.isNewBusinessUnit){
+    if(ctx.bu && isValidBusinessUnitId(ctx.bu.id))return {buId:ctx.bu.id,bu:ctx.bu,created:false};
+    return {buId:ctx.buId,created:false};
+  }
+  var existing = getBusinessUnitByName(ctx.newBusinessUnitName);
+  if(existing)return {buId:existing.id,bu:existing,created:false};
+  if(!ctx.newBusinessUnitName)return {buId:'',created:false,reason:'invalid'};
+  return {buId:'',created:true,newName:ctx.newBusinessUnitName};
+}
+function getImportYearMonthPairs(records){
+  var pairs = {};
+  (records||[]).forEach(function(row){
+    var year = parseInt(row.reporting_year,10);
+    var month = parseInt(row.reporting_month,10);
+    if(!year || !month || year<1000)return;
+    if(!pairs[year])pairs[year] = {};
+    pairs[year][month] = true;
+  });
+  return pairs;
+}
+function formatImportConflictMessage(conflicts,buLabel){
+  var parts = conflicts.map(function(item){return item.year+' Month '+item.month;});
+  return 'Existing data already exists for '+buLabel+' in '+parts.join(', ')+'.';
+}
+async function fetchImportYearRecords(buApiValue,year){
+  var params = new URLSearchParams();
+  params.set('business_unit',buApiValue);
+  params.set('reporting_year',String(year));
+  var res = await fetch('/api/monthly-kpi/records?'+params.toString(),{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
+  var payload = await res.json().catch(function(){return {};});
+  if(!res.ok)throw new Error(payload.error || 'Unable to load existing KPI records for this business unit.');
+  return Array.isArray(payload.records)?payload.records:[];
+}
+function confirmImportReplacement(conflictMessage){
+  return window.confirm(conflictMessage+' Replace existing data for the selected month(s)?');
+}
+async function checkImportConflicts(importBuId,records){
+  var apiValue = getBUApiValue(importBuId);
+  var yearMonthPairs = getImportYearMonthPairs(records);
+  var conflicts = [];
+  var yearKeys = Object.keys(yearMonthPairs).map(function(year){return parseInt(year,10);}).sort();
+  for(var i=0;i<yearKeys.length;i++){
+    var year = yearKeys[i];
+    var existingRows = await fetchImportYearRecords(apiValue,year);
+    var existingMonthSet = {};
+    (existingRows||[]).forEach(function(row){
+      var month = parseInt(row.reporting_month,10);
+      if(month>=1&&month<=12)existingMonthSet[month]=true;
+    });
+    Object.keys(yearMonthPairs[year]).forEach(function(month){
+      if(existingMonthSet[parseInt(month,10)])conflicts.push({year:year,month:parseInt(month,10)});
+    });
+  }
+  return conflicts;
+}
 
 function ensureMonthlyRecord(buId,year,month){
   if(!MonthlyScoreData[buId])MonthlyScoreData[buId]={};
@@ -1653,6 +1807,7 @@ function importSummaryWorkbook(workbook,fileName,buId){
   var imported = 0;
   buId = buId || selectedBusinessUnitId;
   var records = [];
+  var importedMonths = [];
   for(var i=1;i<rows.length;i++){
     var row = rows[i]||[];
     var monthInfo = excelDateToReportingMonth(row[headerMap.month]);
@@ -1697,19 +1852,25 @@ function importSummaryWorkbook(workbook,fileName,buId){
       facility_uptime: record.facility_uptime,
       raw_imported_values: rawImportedValues
     });
+    importedMonths.push({year:monthInfo.year,month:monthInfo.month});
     imported++;
   }
   var selectedMonthRecord = getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth());
   if(selectedMonthRecord)ScoreData[buId] = selectedMonthRecord;
-  return {imported:imported,records:records};
+  return {imported:imported,records:records,importedMonths:importedMonths};
 }
 
 function normalizePersistedBusinessUnit(value){
-  var text = String(value||'').toLowerCase().trim();
-  var exact = BUs.find(function(bu){return text===bu.id.toLowerCase() || text===String(bu.apiValue||'').toLowerCase() || text===bu.name.toLowerCase() || text===bu.label.toLowerCase();});
+  var normalized = normalizeBusinessUnitAlias(value);
+  if(!normalized)return '';
+  var exact = BUs.find(function(bu){return normalized===normalizeBusinessUnitAlias(bu.id) || normalized===normalizeBusinessUnitAlias(bu.apiValue) || normalized===normalizeBusinessUnitAlias(bu.name) || normalized===normalizeBusinessUnitAlias(bu.label);});
   if(exact)return exact.id;
-  var fuzzy = BUs.find(function(bu){return text.includes(bu.id.toLowerCase()) || text.includes(String(bu.apiValue||'').toLowerCase()) || text.includes(bu.name.toLowerCase()) || text.includes(bu.label.toLowerCase());});
-  return fuzzy?fuzzy.id:'';
+  var fuzzy = BUs.find(function(bu){
+    return normalized.indexOf(normalizeBusinessUnitAlias(bu.id))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(bu.apiValue))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(bu.name))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(bu.label))>-1;
+  });
+  if(fuzzy)return fuzzy.id;
+  var created = getOrCreateBusinessUnitByName(value,{persist:false});
+  return created.bu ? created.bu.id : '';
 }
 
 function isCurrentBusinessUnitApiValue(row,buId){return String(row.business_unit||'').trim()===getBUApiValue(buId);}
@@ -1724,6 +1885,7 @@ function shouldPreferPersistedKpiRow(nextRow,currentRecord,buId){
 
 function applyPersistedMonthlyKpiRecords(records,options){
   options = options || {};
+  var initialCount = BUs.length;
   if(options.reset){
     MonthlyScoreData = {};
     ScoreData = {};
@@ -1770,6 +1932,8 @@ function applyPersistedMonthlyKpiRecords(records,options){
     record.raw_imported_values = row.raw_imported_values || null;
     if(year===getSelectedYear() && month===getSelectedMonth())ScoreData[buId] = record;
   });
+  if(BUs.length!==initialCount)persistBusinessUnits();
+  if(BUs.length!==initialCount)refreshBusinessUnitSelectors();
 }
 
 async function fetchMonthlyKpiAggregates(){
@@ -1876,7 +2040,7 @@ function renderSummary(){
 
 // ===== RENDER GAUGES =====
 function renderGauges(buId){
-  var container = document.getElementById(buId+'-gauges');
+  var container = document.getElementById(getBusinessUnitPanelIdBySection(buId,'gauges'));
   if(!container)return;
   if(isKpiLoading()){container.innerHTML = renderLoadingPanel(isClearingKpiRecords?'Clearing KPI records...':(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI cards...'));return;}
   var isSummary = buId==='summary';
@@ -1898,7 +2062,7 @@ function renderGauges(buId){
         if(kpi.benchmark>0)pct = Math.min((v/kpi.benchmark)*100,100);
       }
     }
-    var tooltipId = 'kpi-tooltip-'+buId+'-'+key;
+    var tooltipId = 'kpi-tooltip-'+getBusinessUnitChartKey(buId,key);
     html += '<div class="gauge-card" tabindex="0" aria-describedby="'+tooltipId+'">';
     html += '<div class="gauge-title">'+kpi.name+' <span class="gauge-info-icon" aria-hidden="true">ⓘ</span></div>';
     html += renderKpiTooltip(kpi,tooltipId);
@@ -1912,7 +2076,7 @@ function renderGauges(buId){
 
 
 function renderMonthlyRecords(buId){
-  var container = document.getElementById(buId+'-monthly-records');
+  var container = document.getElementById(getBusinessUnitPanelIdBySection(buId,'monthly-records'));
   if(!container)return;
   if(isKpiLoading()){container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div>'+renderLoadingPanel(isClearingKpiRecords?'Clearing KPI records...':(isFetchingSavedRecords?'Loading saved KPI records...':'Loading KPI table...'));return;}
   var year = getSelectedYear();
@@ -2062,13 +2226,14 @@ var TrendKpiConfig = [
 ];
 
 function buildTrendSection(buId){
-  var section = document.getElementById(buId+'-trend-section');
+  var section = document.getElementById(getBusinessUnitTrendSectionId(buId));
   if(!section)return;
   var html = '<div class="matrix-title" style="margin:18px 0 12px">KPI Trends</div>';
   for(var i=0;i<TrendKpiConfig.length;i+=2){
     html += '<div class="chart-row">';
     TrendKpiConfig.slice(i,i+2).forEach(function(cfg){
-      html += '<div class="chart-card"><div class="chart-title-row"><div class="chart-title">'+cfg.title+'</div><button class="chart-export" onclick="exportChartImage(\''+buId+'-'+cfg.key+'\')">Export Image</button></div><div class="chart-wrap"><canvas id="'+buId+'-'+cfg.key+'-chart"></canvas></div></div>';
+      var chartKey = getBusinessUnitChartKey(buId,cfg.key);
+      html += '<div class="chart-card"><div class="chart-title-row"><div class="chart-title">'+cfg.title+'</div><button class="chart-export" onclick="exportChartImage(\''+chartKey+'\')">Export Image</button></div><div class="chart-wrap"><canvas id="'+chartKey+'-chart"></canvas></div></div>';
     });
     html += '</div>';
   }
@@ -2113,7 +2278,7 @@ function renderBUCharts(buId){
   var year = getSelectedYear();
   var months = ShortMonthNames.slice();
   TrendKpiConfig.forEach(function(cfg){
-    var chartKey = buId+'-'+cfg.key;
+    var chartKey = getBusinessUnitChartKey(buId,cfg.key);
     if(Charts[chartKey])Charts[chartKey].destroy();
     var ctx = document.getElementById(chartKey+'-chart');
     if(!ctx)return;
@@ -2142,7 +2307,7 @@ function renderDefinitionsPanel(){
   html += '<div class="legend-item"><div class="legend-dot green"></div> Green: KPI Passed / Meets or Exceeds Benchmark</div>';
   html += '<div class="legend-item"><div class="legend-dot yellow"></div> Yellow: Warning / Marginal Performance</div>';
   html += '<div class="legend-item"><div class="legend-dot red"></div> Red: KPI Below Benchmark</div>';
-  html += '<div class="legend-item"><div class="legend-dot gray"></div> Gray: No Data Available</div>';
+  html += '<div class="legend-item"><div class="legend-dot gray"></div> Gray: No Data</div>';
   html += '</div>';
 
   html += '<div class="matrix-title" style="margin-top:14px">Frequently Asked Questions</div>';
@@ -2325,9 +2490,28 @@ async function saveManualData(){
 function importExcel(){
   var ctx = getImportContext();
   if(isImporting || !validateImportContext(ctx))return;
+  var resolvedImportBu = resolveImportBusinessUnit(ctx);
+  if(!resolvedImportBu.buId && !resolvedImportBu.created){
+    showToast('error','Unable to resolve import destination business unit.');
+    return;
+  }
+  if(!resolvedImportBu.buId && resolvedImportBu.created && !resolvedImportBu.newName){
+    showToast('error','Please provide a business unit name.');
+    return;
+  }
+  var importBuId = resolvedImportBu.buId;
+  var importBu = resolvedImportBu.bu;
+  var createdBusinessUnit = null;
+  if(resolvedImportBu.created){
+    createdBusinessUnit = getOrCreateBusinessUnitByName(resolvedImportBu.newName,{persist:false});
+    if(!createdBusinessUnit.bu){
+      showToast('error','Unable to prepare new business unit.');
+      return;
+    }
+    importBuId = createdBusinessUnit.bu.id;
+    importBu = createdBusinessUnit.bu;
+  }
   var file = ctx.file;
-  var importBuId = ctx.buId;
-  var importBu = ctx.bu;
   setImporting(true);
   updateImportButtonState();
   var reader = new FileReader();
@@ -2337,8 +2521,22 @@ function importExcel(){
         var data = new Uint8Array(e.target.result);
         var workbook = XLSX.read(data,{type:'array',cellDates:false});
         var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
+        if(!importBu)importBu = getBUById(importBuId);
+        if(!importBu)throw new Error('Unable to resolve import business unit.');
         if(hasSummary){
           var summaryImport = importSummaryWorkbook(workbook,file.name,importBuId);
+          var conflicts = await checkImportConflicts(importBuId,summaryImport.records);
+          if(conflicts.length){
+            var confirmReplace = confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
+            if(!confirmReplace){
+              if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
+              return;
+            }
+          }
+          if(createdBusinessUnit){
+            persistBusinessUnits();
+            refreshBusinessUnitSelectors();
+          }
           await saveImportedMonthlyKpiRecords(file.name,summaryImport.records,importBuId);
           await fetchSavedMonthlyKpiRecords(importBuId);
           await switchToImportedBusinessUnit(importBuId);
@@ -2352,6 +2550,8 @@ function importExcel(){
         var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         var rows = XLSX.utils.sheet_to_json(firstSheet,{header:1,defval:null,raw:true});
         if(rows.length<2){showToast('error','No data found in Excel');return;}
+        if(!importBu)importBu = getBUById(importBuId);
+        if(!importBu)throw new Error('Unable to resolve import business unit.');
         // Legacy BU-based import for older scorecard workbooks.
         var headerMap = {};
         var headers = rows[0].map(function(h){return normalizeHeader(h)});
@@ -2406,6 +2606,18 @@ function importExcel(){
           importedLegacy++;
         }
         if(legacyRecords.length===0)throw new Error('No KPI rows matched the selected business unit.');
+        var conflicts = await checkImportConflicts(importBuId,legacyRecords);
+        if(conflicts.length){
+          var confirmReplace = confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
+          if(!confirmReplace){
+            if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
+            return;
+          }
+        }
+        if(createdBusinessUnit){
+          persistBusinessUnits();
+          refreshBusinessUnitSelectors();
+        }
         await saveImportedMonthlyKpiRecords(file.name,legacyRecords,importBuId);
         await fetchSavedMonthlyKpiRecords(importBuId);
         await switchToImportedBusinessUnit(importBuId);
@@ -2414,10 +2626,12 @@ function importExcel(){
       }catch(err){
         console.error('Import error:',err);
         showToast('error','Error importing Excel: '+err.message);
+        if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
       }finally{
         setImporting(false);
         var fileInput = document.getElementById('excelInput');
         if(fileInput)fileInput.value='';
+        if(createdBusinessUnit && !isValidBusinessUnitId(createdBusinessUnit.bu.id))refreshBusinessUnitSelectors();
         updateImportButtonState();
       }
     },120);
@@ -2450,7 +2664,10 @@ async function clearData(){
     var res = await fetch(deleteUrl,{method:'DELETE',cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Failed to clear KPI records.');
-    Object.keys(Charts).forEach(function(key){if(key.indexOf(bu.id+'-')===0 || key.indexOf('summary-')===0){Charts[key].destroy();delete Charts[key];}});
+    var panelPrefix = getBusinessUnitSelectorId(bu.id);
+    Object.keys(Charts).forEach(function(key){
+      if(key.indexOf(panelPrefix+'-')===0 || key.indexOf('summary-')===0){Charts[key].destroy();delete Charts[key];}
+    });
     if(Array.isArray(payload.records)){
       applyPersistedMonthlyKpiRecords(payload.records,{reset:true});
       KpiAggregates = normalizeKpiAggregates(payload.aggregates);
