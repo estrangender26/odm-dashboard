@@ -89,7 +89,7 @@ const DASHBOARDS = [
     steps: [
       "Select Year and Month, then click Load.",
       "Input data manually or import from Excel.",
-      "Color codes: Green = passed, Yellow = missing, Red = below benchmark.",
+      "Color codes: Green = meets/exceeds benchmark, Yellow = warning/marginal performance, Red = below benchmark, Gray = no data.",
       "View summary matrix with all BUs and KPIs.",
       "Drill down into individual BU performance.",
       "Ask AI: identify underperforming BUs, benchmark gaps, and recommended actions.",

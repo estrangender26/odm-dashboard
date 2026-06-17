@@ -98,6 +98,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .kpi-green{background:var(--green-light);color:var(--green)}
 .kpi-yellow{background:var(--yellow-light);color:var(--yellow)}
 .kpi-red{background:var(--red-light);color:var(--red)}
+.kpi-gray,
 .kpi-missing{background:#F3F4F6;color:#9CA3AF;font-style:italic}
 
 /* LEGEND */
@@ -357,9 +358,9 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <!-- LEGEND -->
   <div class="legend">
-    <div class="legend-item"><div class="legend-dot green"></div> KPI Passed</div>
-    <div class="legend-item"><div class="legend-dot yellow"></div> KPI Missing</div>
-    <div class="legend-item"><div class="legend-dot red"></div> KPI Below Benchmark</div>
+    <div class="legend-item"><div class="legend-dot green"></div> Meets or exceeds benchmark</div>
+    <div class="legend-item"><div class="legend-dot yellow"></div> Warning / Marginal performance</div>
+    <div class="legend-item"><div class="legend-dot red"></div> Below benchmark</div>
     <div class="legend-item"><div class="legend-dot gray"></div> No Data</div>
   </div>
 
@@ -1698,19 +1699,25 @@ async function saveImportedMonthlyKpiRecords(fileName,records,buId){
 
 // ===== COLOR LOGIC =====
 function getKPIStatus(key,val){
-  if(val===null||val===undefined||val===''||isNaN(val))return {cls:'kpi-missing',barCls:'',label:'Missing'};
+  // KPI grading is shared by summary matrix, BU monthly tables, and portfolio KPI cards.
+  // Green: value >= benchmark (meets/exceeds target)
+  // Yellow: value within warning tolerance below benchmark (marginal performance)
+  // Red: value below warning tolerance (below benchmark)
+  // Gray: missing/no data
+  var kpiWarningTolerance = 0.2; // 20% tolerance below benchmark
+  if(val===null||val===undefined||val===''||isNaN(val))return {cls:'kpi-gray',barCls:'',label:'No Data'};
   var kpi = KPIs.find(function(k){return k.key===key});
   if(!kpi)return {cls:'',barCls:'',label:''};
   var v = parseFloat(val);
   if(kpi.range){
-    if(v>=kpi.range[0]&&v<=kpi.range[1])return {cls:'kpi-green',barCls:'gauge-fill green',label:'On Target'};
-    return {cls:'kpi-red',barCls:'gauge-fill red',label:'Off Target'};
+    if(v>=kpi.range[0]&&v<=kpi.range[1])return {cls:'kpi-green',barCls:'gauge-fill green',label:'Meets Benchmark'};
+    return {cls:'kpi-red',barCls:'gauge-fill red',label:'Below Benchmark'};
   }
-  if(kpi.trend==='increasing')return v>0?{cls:'kpi-green',barCls:'gauge-fill green',label:'Available'}:{cls:'kpi-missing',barCls:'',label:'Missing'};
-  if(kpi.trend==='decreasing')return v>0?{cls:'kpi-green',barCls:'gauge-fill green',label:'Available'}:{cls:'kpi-missing',barCls:'',label:'Missing'};
-  if(v>=kpi.benchmark)return {cls:'kpi-green',barCls:'gauge-fill green',label:'Passed'};
-  if(v>=kpi.benchmark*0.8)return {cls:'kpi-yellow',barCls:'gauge-fill yellow',label:'Near Target'};
-  return {cls:'kpi-red',barCls:'gauge-fill red',label:'Below Target'};
+  if(kpi.trend==='increasing')return v>0?{cls:'kpi-green',barCls:'gauge-fill green',label:'Available'}:{cls:'kpi-gray',barCls:'',label:'No Data'};
+  if(kpi.trend==='decreasing')return v>0?{cls:'kpi-green',barCls:'gauge-fill green',label:'Available'}:{cls:'kpi-gray',barCls:'',label:'No Data'};
+  if(v>=kpi.benchmark)return {cls:'kpi-green',barCls:'gauge-fill green',label:'Meets Benchmark'};
+  if(v>=kpi.benchmark*(1-kpiWarningTolerance))return {cls:'kpi-yellow',barCls:'gauge-fill yellow',label:'Warning'};
+  return {cls:'kpi-red',barCls:'gauge-fill red',label:'Below Benchmark'};
 }
 
 function getSummaryKPIs(bu){
