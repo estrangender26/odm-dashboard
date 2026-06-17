@@ -251,10 +251,109 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(scorecardHtml).toContain("notes:'notes'");
     expect(scorecardHtml).toContain("function renderNotesValue(value)");
     expect(scorecardHtml).toContain("getSummaryNotesForBusinessUnit");
+    expect(scorecardHtml).toContain("function renderAggregateNotesRollup()");
+    expect(scorecardHtml).toContain("function openBusinessUnitCommentaryModal()");
+    expect(scorecardHtml).toContain("Business Unit Commentary");
     expect(scorecardHtml).toContain("'Notes': exportRecordValue(row,'notes')");
     expect(scorecardHtml).toContain("payload.raw_imported_values.values.notes = payload.notes");
     expect(scorecardHtml).toContain("if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';");
     expect(scorecardHtml).toContain("textarea id=\"form-manual-notes\"");
+  });
+
+  it("rolls up All Business Units notes into a clickable commentary count", () => {
+    const scorecardScript = extractScorecardScript();
+    type TestElement = {
+      id: string;
+      value: string;
+      innerHTML: string;
+      addEventListener: () => void;
+      appendChild: () => void;
+      remove: () => void;
+      classList: ReturnType<typeof createClassList>;
+      style: Record<string, string>;
+      querySelector: () => null;
+      querySelectorAll: () => never[];
+    };
+    const elements: Record<string, TestElement> = {};
+    const getElement = (id: string): TestElement => {
+      if (!elements[id]) {
+        elements[id] = {
+          id,
+          value: id === "yearSel" ? "2026" : id === "monthSel" ? "5" : "",
+          innerHTML: "",
+          addEventListener() {},
+          appendChild() {},
+          remove() {},
+          classList: createClassList(id === "t-summary" ? "tc active" : ""),
+          style: {},
+          querySelector() { return null; },
+          querySelectorAll() { return []; },
+        };
+      }
+      return elements[id];
+    };
+    const context = {
+      console,
+      setTimeout,
+      clearTimeout,
+      URLSearchParams,
+      document: {
+        body: getElement("body"),
+        addEventListener() {},
+        createElement() { return getElement("created"); },
+        getElementById: getElement,
+        querySelector(selector: string) {
+          if (selector === ".tc.active") return getElement("t-summary");
+          return getElement("query");
+        },
+        querySelectorAll() { return []; },
+      },
+      localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+      window: {},
+      fetch() {},
+    };
+    vm.createContext(context);
+    vm.runInContext(scorecardScript, context);
+    const runnableContext = context as typeof context & {
+      KpiAggregates: NormalizedAggregateResponse;
+      normalizeKpiAggregates: (aggregates: unknown) => NormalizedAggregateResponse;
+      applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { reset?: boolean }) => void;
+      renderSummary: () => void;
+      openBusinessUnitCommentaryModal: () => void;
+    };
+
+    runnableContext.KpiAggregates = runnableContext.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [
+        { businessUnit: "AMD-EZ", reportingYear: 2026, recordCount: 1, pmCompliance: 98, budgetSpend: 100, pmCmWorkOrderRatio: 90, pmCmCostRatio: 70, mttrDays: 3, facilityUptime: 100 },
+        { businessUnit: "Clark Water", reportingYear: 2026, recordCount: 1, pmCompliance: 97, budgetSpend: 99, pmCmWorkOrderRatio: 88, pmCmCostRatio: 65, mttrDays: 2, facilityUptime: 99.98 },
+      ],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: { pmCompliance: 97.5, budgetSpend: 99.5, pmCmWorkOrderRatio: 89, pmCmCostRatio: 67.5, mttrDays: 2.5, facilityUptime: 99.99 },
+      portfolioMonthlyAverages: {},
+    });
+    runnableContext.applyPersistedMonthlyKpiRecords([
+      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 5, pm_compliance: 98, notes: "Transformer overhaul completed." },
+      { business_unit: "Laguna Water", reporting_year: 2026, reporting_month: 5, pm_compliance: 96, notes: "" },
+      { business_unit: "Clark Water", reporting_year: 2026, reporting_month: 5, pm_compliance: 97, notes: "MTTR improved after spare parts availability." },
+    ], { reset: true });
+
+    runnableContext.renderSummary();
+
+    const summaryHtml = elements.summaryBody.innerHTML;
+    const aggregateRow = summaryHtml.match(/<tr class="summary-aggregate-row">[\s\S]*?<\/tr>/)?.[0] ?? "";
+    expect(aggregateRow).toContain("All Business Units");
+    expect(aggregateRow).toContain("2 facilities with commentary");
+    expect(aggregateRow).not.toContain("Transformer overhaul completed.");
+    expect(summaryHtml).toContain("Transformer overhaul completed.");
+    expect(summaryHtml).toContain("MTTR improved after spare parts availability.");
+
+    runnableContext.openBusinessUnitCommentaryModal();
+    const commentaryHtml = elements.commentaryTableBody.innerHTML;
+    expect(commentaryHtml.match(/<tr>/g)).toHaveLength(2);
+    expect(commentaryHtml).toContain("AMD-EZ");
+    expect(commentaryHtml).toContain("Clark Water");
+    expect(commentaryHtml).not.toContain("Laguna Water");
   });
 
   it("loads BU monthly tables by selected business unit and year without a selected-month records filter", async () => {
