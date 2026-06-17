@@ -109,6 +109,24 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .legend-dot.red{background:var(--red)}
 .legend-dot.gray{background:#E2E8F0}
 
+/* DEFINITIONS / FAQ */
+.definitions-content{display:grid;gap:10px}
+.kpi-definitions-table th,
+.kpi-definitions-table td{vertical-align:top;text-align:left}
+.kpi-definitions-table th:nth-child(1),
+.kpi-definitions-table td:nth-child(1){width:20%}
+.kpi-definitions-table th:nth-child(2),
+.kpi-definitions-table td:nth-child(2){width:32%}
+.kpi-definitions-table th:nth-child(3),
+.kpi-definitions-table td:nth-child(3){width:16%}
+.kpi-definitions-table th:nth-child(4),
+.kpi-definitions-table td:nth-child(4){width:32%}
+.kpi-definitions-table code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
+.faq-list{display:grid;gap:10px}
+.faq-item{background:#F8FAFC;border:1px solid var(--border);border-radius:var(--r);padding:10px 12px}
+.faq-question{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:5px}
+.faq-answer{font-size:12px;color:var(--text);line-height:1.45}
+
 /* GAUGE CARDS */
 .gauge-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
 .gauge-card{position:relative;background:var(--card);border-radius:var(--r);padding:10px 12px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center;transition:var(--transition);overflow:visible;cursor:help}
@@ -357,8 +375,8 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
   <!-- LEGEND -->
   <div class="legend">
-    <div class="legend-item"><div class="legend-dot green"></div> KPI Passed</div>
-    <div class="legend-item"><div class="legend-dot yellow"></div> KPI Missing</div>
+    <div class="legend-item"><div class="legend-dot green"></div> KPI Passed / Meets Benchmark</div>
+    <div class="legend-item"><div class="legend-dot yellow"></div> Warning / Marginal Performance</div>
     <div class="legend-item"><div class="legend-dot red"></div> KPI Below Benchmark</div>
     <div class="legend-item"><div class="legend-dot gray"></div> No Data</div>
   </div>
@@ -371,6 +389,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <button class="tab" data-tab="clark">Clark Water</button>
     <button class="tab" data-tab="tagum">Tagum Water</button>
     <button class="tab" data-tab="estate">Estate Water</button>
+    <button class="tab" data-tab="definitions">Definitions / FAQ</button>
   </div>
 
   <!-- SUMMARY TAB -->
@@ -436,6 +455,13 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <div id="estate-gauges" class="gauge-grid"></div>
     <div id="estate-monthly-records" class="matrix-card"></div>
     <div id="estate-trend-section"></div>
+  </div>
+
+  <div id="t-definitions" class="tc">
+    <div id="definitions-content" class="matrix-card">
+      <div class="matrix-title">KPI Definitions &amp; FAQ</div>
+      <div class="definitions-content"></div>
+    </div>
   </div>
 
 </div>
@@ -553,6 +579,22 @@ var KPIs = [
   {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing'},
   {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%',tooltip:{name:'Facility Uptime',formula:'Available Operating Time / Total Required Operating Time × 100',target:'99.97%',interpretation:'Higher is better.'}}
 ];
+var KPI_DEFINITION_ROWS = [
+  {key:'pmCompliance',name:'PM Compliance (%)',formula:'Completed PM Work Orders / Scheduled PM Work Orders × 100',benchmark:'≥95%',definition:'Measures completion of planned preventive maintenance work orders.'},
+  {key:'scheduleCompliance',name:'Schedule Compliance (%)',formula:'PM Work Orders Completed On Schedule / PM Work Orders Due × 100',benchmark:'≥95%',definition:'Measures whether planned maintenance was completed within the required schedule.'},
+  {key:'budgetSpend',name:'Budget Spend (%)',formula:'Actual Maintenance Spend / Approved Maintenance Budget × 100',benchmark:'95%–105%',definition:'Measures whether maintenance spending is within approved budget range.'},
+  {key:'pmcmWORatio',name:'PM:CM Ratio (Work Order)',formula:'PM Work Orders / Corrective Work Orders',benchmark:'≥86% or 6:1',definition:'Measures balance between proactive and reactive maintenance by work order count.'},
+  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',formula:'PM Maintenance Cost / Corrective Maintenance Cost',benchmark:'≥60% or 1.5:1',definition:'Measures balance between proactive and reactive maintenance by cost.'},
+  {key:'facilityUptime',name:'Facility Uptime (%)',formula:'Actual Available Operating Time / Required Operating Time × 100',benchmark:'≥99.97%',definition:'Measures facility availability and service continuity.'}
+];
+var KPI_DEFINITION_FAQ = [
+  {q:'Why is a KPI yellow if data exists?',a:'Yellow means warning or marginal performance based on existing KPI-specific threshold logic. It does not mean missing data.'},
+  {q:'What does No Data mean?',a:'No Data means the KPI value was not submitted, not available, or cannot be calculated from the uploaded/input dataset.'},
+  {q:'Why is Budget Spend green only within a range?',a:'Budget Spend is best when actual spend is within the approved budget range. Both underspending and overspending may indicate planning or execution issues.'},
+  {q:'Why are PM:CM ratios shown in both percentage and ratio format?',a:'The percentage shows the proportion of proactive work. The ratio format makes it easier to understand the balance between preventive and corrective maintenance.'},
+  {q:'Why can Facility Uptime be yellow even if it looks high?',a:'Facility uptime has a very high benchmark. Small deviations below 99.97% may still be operationally significant.'},
+  {q:'Are portfolio KPI cards simple averages?',a:'Yes. Portfolio KPI cards are calculated as a simple (unweighted) average of each KPI across business units for the selected year.'}
+];
 var GaugeKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','facilityUptime','pmcmWORatio','pmcmCostRatio'];
 var SummaryMatrixKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','facilityUptime'];
 
@@ -581,7 +623,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
 // ===== TAB SWITCH =====
 function getMonthlyKpiTabIds(){
-  return ['summary'].concat(BUs.map(function(bu){return bu.id;}));
+  return ['summary','definitions'].concat(BUs.map(function(bu){return bu.id;}));
 }
 
 function isValidMonthlyKpiTab(id){
@@ -629,6 +671,12 @@ function showTab(id,btn,skipFetch){
     if(!skipFetch)fetchSavedMonthlyKpiRecords();
     return;
   }
+  if(id==='definitions'){
+    renderDefinitionsPanel();
+    updateClearButtonState('definitions');
+    updateExportButtonState();
+    return;
+  }
   selectedBusinessUnitId = id;
   var sel = document.getElementById('businessUnitSel');
   if(sel)sel.value = id;
@@ -642,6 +690,7 @@ function showTab(id,btn,skipFetch){
 function getBUById(buId){return BUs.find(function(bu){return bu.id===buId;}) || BUs[0];}
 function getSelectedBU(){return getBUById(selectedBusinessUnitId);}
 function isSummaryTabActive(){var activePanel=document.querySelector('.tc.active');return !activePanel || activePanel.id==='t-summary';}
+function isDefinitionsTabActive(){var activePanel=document.querySelector('.tc.active');return activePanel && activePanel.id==='t-definitions';}
 function getBUApiValue(buId){var bu=getBUById(buId);return bu.apiValue || bu.label || bu.id;}
 function initBusinessUnitSelector(){
   var sel = document.getElementById('businessUnitSel');
@@ -668,6 +717,7 @@ function initManualSelectors(){
 }
 function handleReportingContextChange(){
   persistDeckContext();
+  if(isDefinitionsTabActive())return;
   fetchSavedMonthlyKpiRecords(isSummaryTabActive()?null:selectedBusinessUnitId);
 }
 
@@ -1006,6 +1056,12 @@ function getChartValue(record,key){
 
 function isKpiLoading(){return isImporting || isFetchingSavedRecords || isClearingKpiRecords;}
 
+// ===== KPI THRESHOLD BEHAVIOR (KEPT IN ALIGNMENT WITH EXISTING LOGIC) =====
+// - Missing / empty values are shown as gray.
+// - budgetSpend uses an inclusive green range (95% - 105%); everything else is off-target/red.
+// - Other benchmark-based KPIs are green at/beyond benchmark, yellow in the warning band (80%-99.99%), red below warning band.
+// - Ratio trend KPIs (MTBF increasing, MTTR decreasing in this dashboard config) stay available only when a positive value exists; otherwise no-data.
+
 function setImporting(flag){
   isImporting = flag;
   var btn = document.getElementById('importBtn');
@@ -1047,7 +1103,7 @@ function setClearingKpiRecords(flag){
 function updateClearButtonState(activeTabId){
   var btn = document.getElementById('clearKpiBtn');
   if(!btn)return;
-  var summarySelected = activeTabId ? activeTabId==='summary' : isSummaryTabActive();
+  var summarySelected = activeTabId ? (activeTabId==='summary' || activeTabId==='definitions') : (isSummaryTabActive() || isDefinitionsTabActive());
   btn.disabled = isClearingKpiRecords || summarySelected;
   btn.title = summarySelected ? 'Select a Business Unit before clearing KPI records.' : (isClearingKpiRecords ? 'Clearing KPI records...' : 'Clear KPI records for '+getSelectedBU().label+'.');
   btn.innerHTML = isClearingKpiRecords ? '<span class="spinner"></span> Clearing...' : 'Clear';
@@ -1079,7 +1135,7 @@ document.addEventListener('click',function(event){
 function updateExportButtonState(){
   var btn = document.getElementById('exportDataBtn');
   var label = document.getElementById('exportBtnLabel');
-  if(btn)btn.disabled = isExportingKpiRecords || isKpiLoading();
+  if(btn)btn.disabled = isExportingKpiRecords || isKpiLoading() || isDefinitionsTabActive();
   if(label)label.innerHTML = isExportingKpiRecords ? '<span class="spinner"></span> Exporting...' : 'Export Data';
 }
 
@@ -2001,6 +2057,38 @@ function renderBUCharts(buId){
   });
 }
 
+function renderDefinitionsPanel(){
+  var container = document.getElementById('definitions-content');
+  if(!container)return;
+  var html = '<div class="matrix-title">KPI Definitions &amp; Formulas</div>';
+  html += '<div style="overflow-x:auto"><table class="matrix-table kpi-definitions-table"><thead><tr>';
+  html += '<th>KPI</th><th>Formula</th><th>Benchmark</th><th>Definition</th>';
+  html += '</tr></thead><tbody>';
+  KPI_DEFINITION_ROWS.forEach(function(row){
+    html += '<tr><td><strong>'+row.name+'</strong></td>';
+    html += '<td><code>'+row.formula+'</code></td>';
+    html += '<td>'+row.benchmark+'</td>';
+    html += '<td>'+row.definition+'</td></tr>';
+  });
+  html += '</tbody></table></div>';
+
+  html += '<div class="matrix-title" style="margin-top:14px">Color Legend</div>';
+  html += '<div class="legend">';
+  html += '<div class="legend-item"><div class="legend-dot green"></div> Green: KPI Passed / Meets Benchmark</div>';
+  html += '<div class="legend-item"><div class="legend-dot yellow"></div> Yellow: Warning / Marginal Performance</div>';
+  html += '<div class="legend-item"><div class="legend-dot red"></div> Red: KPI Below Benchmark</div>';
+  html += '<div class="legend-item"><div class="legend-dot gray"></div> Gray: No Data</div>';
+  html += '</div>';
+
+  html += '<div class="matrix-title" style="margin-top:14px">Frequently Asked Questions</div>';
+  html += '<div class="faq-list">';
+  KPI_DEFINITION_FAQ.forEach(function(item){
+    html += '<div class="faq-item"><div class="faq-question">'+item.q+'</div><div class="faq-answer">'+item.a+'</div></div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
 
 // ===== LOAD / INIT DATA =====
 function loadData(){
@@ -2008,6 +2096,10 @@ function loadData(){
   var activePanel = document.querySelector('.tc.active');
   if(!activePanel || activePanel.id==='t-summary'){
     renderSummaryDashboard();
+    return;
+  }
+  if(activePanel.id==='t-definitions'){
+    renderDefinitionsPanel();
     return;
   }
   renderSummary();
