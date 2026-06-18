@@ -141,6 +141,13 @@ function makeDeck() {
   ]);
 }
 
+function xmlParts(entries: Map<string, string>) {
+  return Array.from(entries.entries())
+    .filter(([path]) => path.endsWith(".xml") || path.endsWith(".rels"))
+    .map(([, content]) => content)
+    .join("\n");
+}
+
 describe("Presentation Center PPTX builder", () => {
   it("creates a PowerPoint package with required presentation relationships", async () => {
     const entries = await readZipEntries(makeDeck());
@@ -177,6 +184,60 @@ describe("Presentation Center PPTX builder", () => {
       if (!path.endsWith(".xml") && !path.endsWith(".rels")) return;
       expect(XMLValidator.validate(content), path).toBe(true);
     });
+  });
+
+  it("does not emit empty DrawingML text nodes", async () => {
+    const entries = await readZipEntries(makeDeck());
+    const xml = xmlParts(entries);
+
+    expect(xml).not.toContain("<a:t/>");
+    expect(xml).not.toContain("<a:t></a:t>");
+    expect(xml).not.toMatch(/<a:t\b[^>]*\/>/);
+    expect(xml).not.toMatch(/<a:t\b[^>]*><\/a:t>/);
+  });
+
+  it("uses safe preserved spaces for blank table cells and spacer paragraphs", async () => {
+    const entries = await readZipEntries(
+      createPresentation([
+        {
+          elements: [
+            {
+              type: "table",
+              rows: [
+                ["Business Unit", "Notes"],
+                ["AMD-EZ", ""],
+              ],
+              x: 0.5,
+              y: 0.5,
+              w: 6,
+              h: 1,
+            },
+            {
+              type: "text",
+              text: "Recorded Notes\n\nLaguna Water",
+              x: 0.5,
+              y: 2,
+              w: 6,
+              h: 1.5,
+            },
+            {
+              type: "text",
+              text: " leading and trailing ",
+              x: 0.5,
+              y: 4,
+              w: 6,
+              h: 0.5,
+            },
+          ],
+        },
+      ])
+    );
+    const slide = entries.get("ppt/slides/slide1.xml") ?? "";
+
+    expect(slide.match(/<a:t xml:space="preserve"> <\/a:t>/g)).toHaveLength(2);
+    expect(slide).toContain(
+      '<a:t xml:space="preserve"> leading and trailing </a:t>'
+    );
   });
 
   it("assigns unique non-visual shape ids within each slide", async () => {
