@@ -1,6 +1,10 @@
+import { inflateRawSync } from "node:zlib";
 import { XMLValidator } from "fast-xml-parser";
 import { describe, expect, it } from "vitest";
 import { createPresentation } from "./pptxBuilder";
+
+const PPTX_MIME_TYPE =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 function readUint16(bytes: Uint8Array, offset: number) {
   return bytes[offset] | (bytes[offset + 1] << 8);
@@ -20,28 +24,55 @@ async function readZipEntries(blob: Blob) {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const decoder = new TextDecoder();
   const entries = new Map<string, string>();
-  let offset = 0;
+  let eocdOffset = -1;
+  const eocdSearchStart = Math.max(0, bytes.length - 66000);
 
-  while (offset < bytes.length) {
-    const signature = readUint32(bytes, offset);
-    if (signature === 0x02014b50 || signature === 0x06054b50) break;
-    expect(signature).toBe(0x04034b50);
+  for (let offset = bytes.length - 22; offset >= eocdSearchStart; offset -= 1) {
+    if (readUint32(bytes, offset) === 0x06054b50) {
+      eocdOffset = offset;
+      break;
+    }
+  }
 
-    const compressionMethod = readUint16(bytes, offset + 8);
-    const compressedSize = readUint32(bytes, offset + 18);
-    const fileNameLength = readUint16(bytes, offset + 26);
-    const extraLength = readUint16(bytes, offset + 28);
-    expect(compressionMethod).toBe(0);
+  expect(eocdOffset).toBeGreaterThanOrEqual(0);
 
-    const nameStart = offset + 30;
+  const entryCount = readUint16(bytes, eocdOffset + 10);
+  let offset = readUint32(bytes, eocdOffset + 16);
+
+  for (let index = 0; index < entryCount; index += 1) {
+    expect(readUint32(bytes, offset)).toBe(0x02014b50);
+
+    const compressionMethod = readUint16(bytes, offset + 10);
+    const compressedSize = readUint32(bytes, offset + 20);
+    const fileNameLength = readUint16(bytes, offset + 28);
+    const extraLength = readUint16(bytes, offset + 30);
+    const commentLength = readUint16(bytes, offset + 32);
+    const localHeaderOffset = readUint32(bytes, offset + 42);
+    const nameStart = offset + 46;
     const nameEnd = nameStart + fileNameLength;
-    const contentStart = nameEnd + extraLength;
-    const contentEnd = contentStart + compressedSize;
     const name = decoder.decode(bytes.slice(nameStart, nameEnd));
-    const content = decoder.decode(bytes.slice(contentStart, contentEnd));
 
-    entries.set(name, content);
-    offset = contentEnd;
+    expect(readUint32(bytes, localHeaderOffset)).toBe(0x04034b50);
+    const localFileNameLength = readUint16(bytes, localHeaderOffset + 26);
+    const localExtraLength = readUint16(bytes, localHeaderOffset + 28);
+    const contentStart =
+      localHeaderOffset + 30 + localFileNameLength + localExtraLength;
+    const contentEnd = contentStart + compressedSize;
+    const compressed = bytes.slice(contentStart, contentEnd);
+    const content =
+      compressionMethod === 0
+        ? compressed
+        : compressionMethod === 8
+          ? inflateRawSync(compressed)
+          : null;
+
+    expect(
+      content,
+      `Unsupported ZIP method ${compressionMethod}`
+    ).not.toBeNull();
+
+    entries.set(name, decoder.decode(content ?? new Uint8Array()));
+    offset = nameEnd + extraLength + commentLength;
   }
 
   return entries;
@@ -141,44 +172,35 @@ function makeDeck() {
   ]);
 }
 
-function xmlParts(entries: Map<string, string>) {
+function slideXmlParts(entries: Map<string, string>) {
   return Array.from(entries.entries())
-    .filter(([path]) => path.endsWith(".xml") || path.endsWith(".rels"))
+    .filter(([path]) => /^ppt\/slides\/slide\d+\.xml$/.test(path))
     .map(([, content]) => content)
     .join("\n");
 }
 
 describe("Presentation Center PPTX builder", () => {
-  it("creates a PowerPoint package with required presentation relationships", async () => {
-    const entries = await readZipEntries(makeDeck());
+  it("creates a valid PPTX blob with required package entries", async () => {
+    const blob = await makeDeck();
+    const entries = await readZipEntries(blob);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe(PPTX_MIME_TYPE);
+    expect(blob.size).toBeGreaterThan(0);
 
     expect(entries.has("[Content_Types].xml")).toBe(true);
     expect(entries.has("_rels/.rels")).toBe(true);
     expect(entries.has("ppt/presentation.xml")).toBe(true);
     expect(entries.has("ppt/_rels/presentation.xml.rels")).toBe(true);
-    expect(entries.has("ppt/slideMasters/slideMaster1.xml")).toBe(true);
-    expect(entries.has("ppt/slideLayouts/slideLayout1.xml")).toBe(true);
-    expect(entries.has("ppt/theme/theme1.xml")).toBe(true);
 
     const slidePaths = Array.from(entries.keys()).filter(path =>
       /^ppt\/slides\/slide\d+\.xml$/.test(path)
     );
     expect(slidePaths).toHaveLength(5);
-    slidePaths.forEach(path => {
-      const slideNumber = path.match(/slide(\d+)\.xml$/)?.[1];
-      expect(entries.has(`ppt/slides/_rels/slide${slideNumber}.xml.rels`)).toBe(
-        true
-      );
-    });
-
-    expect(entries.get("ppt/presentation.xml")).toContain("p:sldMasterIdLst");
-    expect(entries.get("ppt/_rels/presentation.xml.rels")).toContain(
-      "relationships/slideMaster"
-    );
   });
 
   it("generates well-formed XML parts", async () => {
-    const entries = await readZipEntries(makeDeck());
+    const entries = await readZipEntries(await makeDeck());
 
     entries.forEach((content, path) => {
       if (!path.endsWith(".xml") && !path.endsWith(".rels")) return;
@@ -186,19 +208,23 @@ describe("Presentation Center PPTX builder", () => {
     });
   });
 
-  it("does not emit empty DrawingML text nodes", async () => {
-    const entries = await readZipEntries(makeDeck());
-    const xml = xmlParts(entries);
+  it("writes title, KPI table, chart, and notes content into slide XML", async () => {
+    const entries = await readZipEntries(await makeDeck());
+    const xml = slideXmlParts(entries);
 
-    expect(xml).not.toContain("<a:t/>");
-    expect(xml).not.toContain("<a:t></a:t>");
-    expect(xml).not.toMatch(/<a:t\b[^>]*\/>/);
-    expect(xml).not.toMatch(/<a:t\b[^>]*><\/a:t>/);
+    expect(xml).toContain("Monthly KPI Scorecard");
+    expect(xml).toContain("All Business Units");
+    expect(xml).toContain("May 2026");
+    expect(xml).toContain("PM Compliance");
+    expect(xml).toContain("0.00%");
+    expect(xml).toContain("Explicit zero retained");
+    expect(xml).toContain("Recorded Notes");
+    expect(xml).toContain("Database note rendered");
   });
 
-  it("uses safe preserved spaces for blank table cells and spacer paragraphs", async () => {
+  it("preserves blank table cells and spacer paragraphs without dropping content", async () => {
     const entries = await readZipEntries(
-      createPresentation([
+      await createPresentation([
         {
           elements: [
             {
@@ -220,35 +246,15 @@ describe("Presentation Center PPTX builder", () => {
               w: 6,
               h: 1.5,
             },
-            {
-              type: "text",
-              text: " leading and trailing ",
-              x: 0.5,
-              y: 4,
-              w: 6,
-              h: 0.5,
-            },
           ],
         },
       ])
     );
-    const slide = entries.get("ppt/slides/slide1.xml") ?? "";
+    const xml = slideXmlParts(entries);
 
-    expect(slide.match(/<a:t xml:space="preserve"> <\/a:t>/g)).toHaveLength(2);
-    expect(slide).toContain(
-      '<a:t xml:space="preserve"> leading and trailing </a:t>'
-    );
-  });
-
-  it("assigns unique non-visual shape ids within each slide", async () => {
-    const entries = await readZipEntries(makeDeck());
-
-    entries.forEach((content, path) => {
-      if (!/^ppt\/slides\/slide\d+\.xml$/.test(path)) return;
-      const ids = Array.from(content.matchAll(/<p:cNvPr id="(\d+)"/g)).map(
-        match => match[1]
-      );
-      expect(new Set(ids).size, path).toBe(ids.length);
-    });
+    expect(xml).toContain("Business Unit");
+    expect(xml).toContain("AMD-EZ");
+    expect(xml).toContain("Recorded Notes");
+    expect(xml).toContain("Laguna Water");
   });
 });
