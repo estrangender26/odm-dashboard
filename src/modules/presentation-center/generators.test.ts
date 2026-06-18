@@ -197,12 +197,18 @@ describe("Monthly KPI presentation generator", () => {
   it("uses the Monthly Scorecard dashboard title as the visible deck source", () => {
     const slides = buildMonthlyKpiSlides(makeDataset([makeRecord()]));
     const expectedFooter = `May 2026 | ${ALL_BUSINESS_UNITS_LABEL} | ${MONTHLY_KPI_DECK_SOURCE_LABEL}`;
+    const coverText = slideText(slides[0]);
     const deckText = slides.map(slideText).join("\n");
 
     for (const slide of slides) {
       expect(slideText(slide)).toContain(expectedFooter);
     }
 
+    expect(coverText).not.toContain("Engineering Reliability Performance");
+    expect(coverText).toContain(MONTHLY_KPI_DECK_SOURCE_LABEL);
+    expect(coverText).toContain("Monthly KPI Scorecard");
+    expect(coverText).toContain("Reporting Period");
+    expect(coverText).toContain("Business Unit Scope");
     expect(deckText).toContain(
       `Generated from ${MONTHLY_KPI_DECK_SOURCE_LABEL}`
     );
