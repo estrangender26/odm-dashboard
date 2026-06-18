@@ -11,6 +11,23 @@ function routeBlock(method: string, path: string) {
   return bootSource.slice(start, nextRoute > start ? nextRoute : undefined);
 }
 
+function sourceBlock(startToken: string, endToken: string) {
+  const start = bootSource.indexOf(startToken);
+  if (start < 0) throw new Error(`${startToken} block not found`);
+  const end = bootSource.indexOf(endToken, start + startToken.length);
+  if (end < 0) throw new Error(`${endToken} boundary not found`);
+  return bootSource.slice(start, end);
+}
+
+function expectInOrder(source: string, tokens: string[]) {
+  let offset = 0;
+  for (const token of tokens) {
+    const found = source.indexOf(token, offset);
+    expect(found, `Expected token after offset ${offset}: ${token}`).toBeGreaterThanOrEqual(0);
+    offset = found + token.length;
+  }
+}
+
 describe("Monthly KPI records API", () => {
   it("supports business-unit aliases when filtering Monthly KPI records", () => {
     expect(bootSource).toContain("WHEN 'ez' THEN 'AMD-EZ'");
@@ -35,5 +52,76 @@ describe("Monthly KPI records API", () => {
     expect(deleteRoute).toContain("WHERE business_unit = ${businessUnit.trim()}");
     expect(deleteRoute).toContain("AND reporting_year = ${reportingYear}");
     expect(deleteRoute).toContain("fetchMonthlyKpiRecordsForResponse({ reportingYear })");
+  });
+
+  it("returns notes from the Monthly KPI records list query", () => {
+    const listQuery = sourceBlock(
+      "async function fetchMonthlyKpiRecordsForResponse",
+      "async function fetchMonthlyKpiAggregateForResponse",
+    );
+    const getRoute = routeBlock("get", "/api/monthly-kpi/records");
+
+    expectInOrder(listQuery, [
+      "SELECT",
+      "facility_uptime,",
+      "notes,",
+      "raw_imported_values",
+      "FROM monthly_kpi_records",
+    ]);
+    expect(getRoute).toContain("const records = await fetchMonthlyKpiRecordsForResponse");
+    expect(getRoute).toContain("return c.json({ records })");
+  });
+
+  it("preserves notes through Monthly KPI import upserts", () => {
+    const normalizer = sourceBlock(
+      "function normalizeMonthlyKpiRecord",
+      "logBootStage(\"registering monthly KPI scorecard routes\")",
+    );
+    const importRoute = routeBlock("post", "/api/monthly-kpi/import");
+
+    expect(normalizer).toContain("notes: asNullableText(input?.notes ?? input?.Notes)");
+    expectInOrder(importRoute, [
+      "INSERT INTO monthly_kpi_records",
+      "facility_uptime,",
+      "notes,",
+      "raw_imported_values",
+      "${record.facilityUptime},",
+      "${record.notes},",
+      "ON CONFLICT (business_unit, reporting_year, reporting_month)",
+      "notes = EXCLUDED.notes,",
+      "RETURNING",
+      "facility_uptime,",
+      "notes,",
+      "raw_imported_values",
+    ]);
+  });
+
+  it("updates notes in the Monthly KPI PATCH route", () => {
+    const patchRoute = routeBlock("patch", "/api/monthly-kpi/records/:id");
+
+    expect(patchRoute).toContain("const record = normalizeMonthlyKpiRecord({ ...existing, ...body }, existing.source_file_name)");
+    expectInOrder(patchRoute, [
+      "UPDATE monthly_kpi_records SET",
+      "facility_uptime = ${record.facilityUptime},",
+      "notes = ${record.notes},",
+      "raw_imported_values = ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb",
+      "RETURNING *",
+    ]);
+  });
+
+  it("normalizes null and empty notes safely before writes", () => {
+    const nullableText = sourceBlock(
+      "function asNullableText",
+      "function asRequiredInteger",
+    );
+    const normalizer = sourceBlock(
+      "function normalizeMonthlyKpiRecord",
+      "logBootStage(\"registering monthly KPI scorecard routes\")",
+    );
+
+    expect(nullableText).toContain("if (value === null || value === undefined) return null");
+    expect(nullableText).toContain("const text = String(value).trim()");
+    expect(nullableText).toContain("return text || null");
+    expect(normalizer).toContain("notes: asNullableText(input?.notes ?? input?.Notes)");
   });
 });
