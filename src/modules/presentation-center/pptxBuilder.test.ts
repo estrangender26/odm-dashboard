@@ -222,6 +222,18 @@ describe("Presentation Center PPTX builder", () => {
     expect(xml).toContain("Database note rendered");
   });
 
+  it("does not emit explicit text below 14pt or shrink autofit", async () => {
+    const entries = await readZipEntries(await makeDeck());
+    const xml = slideXmlParts(entries);
+    const sizes = Array.from(xml.matchAll(/\bsz="(\d+)"/g)).map(match =>
+      Number(match[1])
+    );
+
+    expect(sizes.length).toBeGreaterThan(0);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(1400);
+    expect(xml).not.toContain("<a:normAutofit/>");
+  });
+
   it("preserves blank table cells and spacer paragraphs without dropping content", async () => {
     const entries = await readZipEntries(
       await createPresentation([

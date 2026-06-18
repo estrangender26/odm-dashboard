@@ -6,19 +6,86 @@ import type {
 } from "./types";
 import { createPresentation } from "./pptxBuilder";
 import {
+  ALL_BUSINESS_UNITS_LABEL,
   EXECUTIVE_SCORECARD_TEMPLATE,
   getPersistedMonthlyKpiScorecard,
   getScorecardSummary,
-  scorecardBenchmarks,
+  MONTH_NAMES,
   type KpiRecord,
   type MonthlyKpiScorecardDataset,
 } from "./scorecardData";
 
 type PresentationSlide = Parameters<typeof createPresentation>[0][number];
 type PresentationElement = PresentationSlide["elements"][number];
+type ShapeElement = Extract<PresentationElement, { type: "shape" }>;
+type TableElement = Extract<PresentationElement, { type: "table" }>;
 
 export const MONTHLY_KPI_NOTES_FALLBACK =
   "No commentary was recorded for the selected reporting period.";
+
+const COLORS = {
+  navy: "0B1D44",
+  headerNavy: "16324F",
+  accentBlue: "005BAC",
+  success: "0A9B6E",
+  warning: "D97706",
+  danger: "DC2626",
+  noData: "E5E7EB",
+  noDataText: "64748B",
+  text: "1F2937",
+  lightGray: "F8FAFC",
+  lightBlue: "EEF6FF",
+  lightGreen: "ECFDF5",
+  lightRed: "FEF2F2",
+  white: "FFFFFF",
+};
+
+const MIN_DECK_FONT_SIZE = 14;
+
+type KpiMetric =
+  | "pmCompliance"
+  | "budgetSpend"
+  | "pmCmWorkOrderRatio"
+  | "pmCmCostRatio"
+  | "mttrDays"
+  | "facilityUptime";
+
+type KpiStatus = "success" | "warning" | "danger" | "no-data";
+
+const kpiColumns: Array<{
+  key: KpiMetric;
+  label: string;
+  benchmark: string;
+}> = [
+  { key: "pmCompliance", label: "PM Compliance", benchmark: "95%" },
+  {
+    key: "budgetSpend",
+    label: "Budget Spend",
+    benchmark: "95.00% – 105.00%",
+  },
+  {
+    key: "pmCmWorkOrderRatio",
+    label: "PM:CM Ratio (WO)",
+    benchmark: "≥86% (6:1)",
+  },
+  {
+    key: "pmCmCostRatio",
+    label: "PM:CM Ratio (Cost)",
+    benchmark: "≥60% (1.5:1)",
+  },
+  { key: "mttrDays", label: "MTTR", benchmark: "Decreasing Trend" },
+  { key: "facilityUptime", label: "Facility Uptime", benchmark: "99.97%" },
+];
+
+const matrixBusinessUnitOrder = [
+  ALL_BUSINESS_UNITS_LABEL,
+  "AMD-EZ",
+  "Laguna Water",
+  "Clark Water",
+  "Tagum Water",
+  "Estate Water",
+  "LARC",
+];
 
 function slug(value: string) {
   return value
@@ -27,39 +94,8 @@ function slug(value: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-function formatDeckValue(value: number | null | undefined, digits = 2) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `${value.toFixed(digits)}%`
-    : "--";
-}
-
-function formatPmCmEquivalentRatio(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  if (value >= 100) return "No CM";
-  const cmShare = 100 - value;
-  if (cmShare <= 0) return "No CM";
-  return `${(value / cmShare).toFixed(1)}:1`;
-}
-
-function formatDeckPmCmRatio(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  return `${formatDeckValue(value)}\n(${formatPmCmEquivalentRatio(value)})`;
-}
-
-export function buildMonthlyKpiTableRows(records: KpiRecord[]) {
-  return [
-    ["Business Unit", ...scorecardBenchmarks.map(benchmark => benchmark.label)],
-    ...records.map(record => [
-      record.businessUnit,
-      formatDeckValue(record.pmCompliance),
-      formatDeckValue(record.budgetSpend),
-      formatDeckPmCmRatio(record.pmCmWorkOrderRatio),
-      formatDeckPmCmRatio(record.pmCmCostRatio),
-      formatDeckValue(record.mttrDays, 2).replace("%", " days"),
-      formatDeckValue(record.facilityUptime),
-      record.notes || "",
-    ]),
-  ];
+function isPresentNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function requireMonthlyKpiContext(context: DeckGenerationContext) {
@@ -78,27 +114,507 @@ function requireMonthlyKpiContext(context: DeckGenerationContext) {
   };
 }
 
+function formatPercent(value: number | null | undefined, digits = 2) {
+  return isPresentNumber(value) ? `${value.toFixed(digits)}%` : "No Data";
+}
+
+function formatPmCmEquivalentRatio(value: number | null | undefined) {
+  if (!isPresentNumber(value)) return "No Data";
+  if (value >= 100) return "No CM";
+  const cmShare = 100 - value;
+  if (cmShare <= 0) return "No CM";
+  return `${(value / cmShare).toFixed(1)}:1`;
+}
+
+function formatMetricValue(
+  metric: KpiMetric,
+  value: number | null | undefined
+) {
+  if (!isPresentNumber(value)) return "No Data";
+  if (metric === "mttrDays") return `${value.toFixed(2)} days`;
+  if (metric === "pmCmWorkOrderRatio" || metric === "pmCmCostRatio") {
+    return `${formatPercent(value)} (${formatPmCmEquivalentRatio(value)})`;
+  }
+  return formatPercent(value);
+}
+
+function formatCardValue(metric: KpiMetric, value: number | null | undefined) {
+  if (!isPresentNumber(value)) return "No Data";
+  if (metric === "mttrDays") return value.toFixed(2);
+  return `${value.toFixed(2)}%`;
+}
+
+function getKpiStatus(
+  metric: KpiMetric,
+  value: number | null | undefined
+): KpiStatus {
+  if (!isPresentNumber(value)) return "no-data";
+  if (metric === "pmCompliance") {
+    if (value >= 95) return "success";
+    if (value >= 90) return "warning";
+    return "danger";
+  }
+  if (metric === "budgetSpend") {
+    if (value >= 95 && value <= 105) return "success";
+    if ((value >= 90 && value < 95) || (value > 105 && value <= 110)) {
+      return "warning";
+    }
+    return "danger";
+  }
+  if (metric === "pmCmWorkOrderRatio") {
+    if (value >= 86) return "success";
+    if (value >= 75) return "warning";
+    return "danger";
+  }
+  if (metric === "pmCmCostRatio") {
+    if (value >= 60) return "success";
+    if (value >= 50) return "warning";
+    return "danger";
+  }
+  if (metric === "facilityUptime") {
+    if (value >= 99.97) return "success";
+    if (value >= 99) return "warning";
+    return "danger";
+  }
+  return "success";
+}
+
+function statusFill(status: KpiStatus) {
+  if (status === "success") return COLORS.success;
+  if (status === "warning") return COLORS.warning;
+  if (status === "danger") return COLORS.danger;
+  return COLORS.noData;
+}
+
+function statusTextColor(status: KpiStatus) {
+  return status === "warning" || status === "no-data"
+    ? COLORS.text
+    : COLORS.white;
+}
+
+function averageMetric(records: KpiRecord[], metric: KpiMetric) {
+  const values = records
+    .map(record => record[metric])
+    .filter((value): value is number => isPresentNumber(value));
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function aggregateRecords(
+  records: KpiRecord[],
+  businessUnit = ALL_BUSINESS_UNITS_LABEL
+): KpiRecord {
+  return {
+    businessUnit,
+    reportingMonth: records[0]?.reportingMonth,
+    reportingYear: records[0]?.reportingYear,
+    pmCompliance: averageMetric(records, "pmCompliance"),
+    budgetSpend: averageMetric(records, "budgetSpend"),
+    pmCmWorkOrderRatio: averageMetric(records, "pmCmWorkOrderRatio"),
+    pmCmCostRatio: averageMetric(records, "pmCmCostRatio"),
+    mttrDays: averageMetric(records, "mttrDays"),
+    facilityUptime: averageMetric(records, "facilityUptime"),
+    notes: null,
+    majorWins: records.flatMap(record => record.majorWins),
+    majorRisks: records.flatMap(record => record.majorRisks),
+    actionItems: records.flatMap(record => record.actionItems),
+  };
+}
+
+function emptyRecord(
+  businessUnit: string,
+  reportingMonth: number,
+  reportingYear: number
+): KpiRecord {
+  return {
+    businessUnit,
+    reportingMonth,
+    reportingYear,
+    pmCompliance: null,
+    budgetSpend: null,
+    pmCmWorkOrderRatio: null,
+    pmCmCostRatio: null,
+    mttrDays: null,
+    facilityUptime: null,
+    notes: null,
+    majorWins: [],
+    majorRisks: [],
+    actionItems: [],
+  };
+}
+
+function recordsForMonth(records: KpiRecord[], month: number) {
+  return records.filter(record => Number(record.reportingMonth) === month);
+}
+
+function monthName(month: number) {
+  return MONTH_NAMES[month - 1] || `Month ${month}`;
+}
+
+function footer(dataset: MonthlyKpiScorecardDataset): PresentationElement[] {
+  return [
+    {
+      type: "text",
+      text: `${dataset.reportingMonthLabel} | ${dataset.businessUnit} | ODM Dashboard`,
+      x: 0.55,
+      y: 6.92,
+      w: 12.25,
+      h: 0.32,
+      fontSize: MIN_DECK_FONT_SIZE,
+      color: COLORS.noDataText,
+      align: "r",
+    },
+  ];
+}
+
+function slideTitle(title: string, subtitle?: string): PresentationElement[] {
+  return [
+    {
+      type: "text",
+      text: title,
+      x: 0.55,
+      y: 0.32,
+      w: 8.4,
+      h: 0.48,
+      fontSize: 28,
+      bold: true,
+      color: COLORS.navy,
+    },
+    ...(subtitle
+      ? [
+          {
+            type: "text" as const,
+            text: subtitle,
+            x: 0.55,
+            y: 0.82,
+            w: 9.3,
+            h: 0.36,
+            fontSize: 18,
+            color: COLORS.noDataText,
+          },
+        ]
+      : []),
+  ];
+}
+
+function limitBullets(items: string[], fallback: string) {
+  const filtered = items.filter(Boolean);
+  const displayItems = filtered.length ? filtered : [fallback];
+  if (displayItems.length <= 4) return displayItems;
+  return [...displayItems.slice(0, 3), `+${displayItems.length - 3} more`];
+}
+
+function bulletText(items: string[]) {
+  return items.map(item => `• ${item}`).join("\n");
+}
+
+function cardShape(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fill: string
+): ShapeElement {
+  return { type: "shape", x, y, w, h, fill, line: "E5E7EB" };
+}
+
+function summaryCard(
+  title: string,
+  bullets: string[],
+  fill: string,
+  x: number
+): PresentationElement[] {
+  return [
+    cardShape(x, 1.35, 3.85, 4.75, fill),
+    {
+      type: "text",
+      text: title,
+      x: x + 0.2,
+      y: 1.55,
+      w: 3.45,
+      h: 0.38,
+      fontSize: 18,
+      bold: true,
+      color: COLORS.navy,
+    },
+    {
+      type: "text",
+      text: bulletText(bullets),
+      x: x + 0.2,
+      y: 2.05,
+      w: 3.45,
+      h: 3.55,
+      fontSize: 14,
+      color: COLORS.text,
+    },
+  ];
+}
+
+function metricValues(record: KpiRecord) {
+  return kpiColumns.map(column =>
+    formatMetricValue(column.key, record[column.key])
+  );
+}
+
+export function buildMonthlyKpiTableRows(records: KpiRecord[]) {
+  return [
+    ["Business Unit", ...kpiColumns.map(column => column.label)],
+    ...records.map(record => [record.businessUnit, ...metricValues(record)]),
+  ];
+}
+
+function styledMetricTable(
+  rows: string[][],
+  records: KpiRecord[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  firstColumnLabel = true
+): TableElement {
+  const cellFills = rows.map((row, rowIndex) =>
+    row.map((_, colIndex) => {
+      if (rowIndex === 0) return COLORS.headerNavy;
+      if (colIndex === 0) return COLORS.lightGray;
+      const metric = kpiColumns[colIndex - 1]?.key;
+      if (!metric) return COLORS.white;
+      return statusFill(getKpiStatus(metric, records[rowIndex - 1]?.[metric]));
+    })
+  );
+  const cellColors = rows.map((row, rowIndex) =>
+    row.map((_, colIndex) => {
+      if (rowIndex === 0) return COLORS.white;
+      if (colIndex === 0) return COLORS.text;
+      const metric = kpiColumns[colIndex - 1]?.key;
+      if (!metric) return COLORS.text;
+      return statusTextColor(
+        getKpiStatus(metric, records[rowIndex - 1]?.[metric])
+      );
+    })
+  );
+  const cellBold = rows.map((row, rowIndex) =>
+    row.map(
+      (_, colIndex) => rowIndex === 0 || (firstColumnLabel && colIndex === 0)
+    )
+  );
+  return {
+    type: "table",
+    rows,
+    cellFills,
+    cellColors,
+    cellBold,
+    x,
+    y,
+    w,
+    h,
+    fontSize: 14,
+  };
+}
+
+export function buildYtdScorecardRows(
+  dataset: MonthlyKpiScorecardDataset,
+  months = Array.from(
+    { length: dataset.reportingMonth },
+    (_, index) => index + 1
+  )
+) {
+  const ytdRecords = dataset.ytdRecords?.length
+    ? dataset.ytdRecords
+    : dataset.records;
+  const records = months.map(month => {
+    const monthRecords = recordsForMonth(ytdRecords, month);
+    return monthRecords.length
+      ? aggregateRecords(monthRecords, monthName(month))
+      : emptyRecord(monthName(month), month, dataset.reportingYear);
+  });
+  return {
+    records,
+    rows: [
+      ["Month", ...kpiColumns.map(column => column.label)],
+      ...records.map(record => [record.businessUnit, ...metricValues(record)]),
+    ],
+  };
+}
+
+function buildYtdScorecardSlides(dataset: MonthlyKpiScorecardDataset) {
+  const monthNumbers = Array.from(
+    { length: dataset.reportingMonth },
+    (_, index) => index + 1
+  );
+  const chunks =
+    monthNumbers.length > 6
+      ? [monthNumbers.slice(0, 6), monthNumbers.slice(6)]
+      : [monthNumbers];
+  return chunks.map(months => {
+    const first = monthName(months[0]);
+    const last = monthName(months[months.length - 1]);
+    const { rows, records } = buildYtdScorecardRows(dataset, months);
+    return {
+      elements: [
+        ...slideTitle(
+          "Year-to-Date Scorecard",
+          `${first} to ${last} ${dataset.reportingYear}`
+        ),
+        {
+          ...styledMetricTable(rows, records, 0.45, 1.35, 12.45, 4.95),
+          colWidths: [1.55, 1.75, 1.7, 1.95, 1.95, 1.65, 1.9],
+        },
+        ...footer(dataset),
+      ],
+    };
+  });
+}
+
+function groupCurrentMonthRecords(records: KpiRecord[]) {
+  const grouped = new Map<string, KpiRecord[]>();
+  records.forEach(record => {
+    grouped.set(record.businessUnit, [
+      ...(grouped.get(record.businessUnit) || []),
+      record,
+    ]);
+  });
+  return grouped;
+}
+
+export function buildCurrentMonthMatrixRows(
+  records: KpiRecord[],
+  businessUnitScope = ALL_BUSINESS_UNITS_LABEL
+) {
+  const grouped = groupCurrentMonthRecords(records);
+  const matrixRecords: KpiRecord[] = [];
+  if (businessUnitScope === ALL_BUSINESS_UNITS_LABEL && records.length) {
+    matrixRecords.push(aggregateRecords(records, ALL_BUSINESS_UNITS_LABEL));
+  }
+  matrixBusinessUnitOrder.slice(1).forEach(businessUnit => {
+    const unitRecords = grouped.get(businessUnit);
+    if (unitRecords?.length)
+      matrixRecords.push(aggregateRecords(unitRecords, businessUnit));
+  });
+  Array.from(grouped.keys())
+    .filter(
+      businessUnit =>
+        !matrixBusinessUnitOrder.includes(businessUnit) &&
+        businessUnit !== ALL_BUSINESS_UNITS_LABEL
+    )
+    .sort((a, b) => a.localeCompare(b))
+    .forEach(businessUnit => {
+      const unitRecords = grouped.get(businessUnit);
+      if (unitRecords?.length)
+        matrixRecords.push(aggregateRecords(unitRecords, businessUnit));
+    });
+  return {
+    records: matrixRecords,
+    rows: buildMonthlyKpiTableRows(matrixRecords),
+  };
+}
+
+export function buildPortfolioKpiCards(records: KpiRecord[]) {
+  const portfolio = aggregateRecords(records, ALL_BUSINESS_UNITS_LABEL);
+  return kpiColumns.map(column => ({
+    ...column,
+    value: portfolio[column.key],
+    displayValue: formatCardValue(column.key, portfolio[column.key]),
+    ratioSubtitle:
+      column.key === "pmCmWorkOrderRatio" || column.key === "pmCmCostRatio"
+        ? formatPmCmEquivalentRatio(portfolio[column.key])
+        : column.key === "mttrDays" && isPresentNumber(portfolio.mttrDays)
+          ? "Days"
+          : "",
+    status: getKpiStatus(column.key, portfolio[column.key]),
+  }));
+}
+
+function buildPortfolioCardElements(
+  records: KpiRecord[]
+): PresentationElement[] {
+  const cards = buildPortfolioKpiCards(records);
+  return cards.flatMap((card, index) => {
+    const col = index % 3;
+    const row = Math.floor(index / 3);
+    const x = 0.6 + col * 4.18;
+    const y = 1.35 + row * 2.55;
+    const w = 3.82;
+    const h = 2.15;
+    const fill = statusFill(card.status);
+    return [
+      cardShape(x, y, w, h, COLORS.white),
+      {
+        type: "shape",
+        x,
+        y: y + h - 0.16,
+        w,
+        h: 0.16,
+        fill,
+        line: fill,
+      } as ShapeElement,
+      {
+        type: "text",
+        text: card.label,
+        x: x + 0.2,
+        y: y + 0.18,
+        w: w - 0.4,
+        h: 0.34,
+        fontSize: 16,
+        bold: true,
+        color: COLORS.navy,
+      },
+      {
+        type: "text",
+        text: card.displayValue,
+        x: x + 0.2,
+        y: y + 0.62,
+        w: w - 0.4,
+        h: 0.5,
+        fontSize: 26,
+        bold: true,
+        color: fill,
+      },
+      {
+        type: "text",
+        text: `Benchmark: ${card.benchmark}`,
+        x: x + 0.2,
+        y: y + 1.2,
+        w: w - 0.4,
+        h: 0.34,
+        fontSize: 14,
+        color: COLORS.text,
+      },
+      ...(card.ratioSubtitle
+        ? [
+            {
+              type: "text" as const,
+              text: card.ratioSubtitle,
+              x: x + 0.2,
+              y: y + 1.58,
+              w: w - 0.4,
+              h: 0.32,
+              fontSize: 14,
+              color: COLORS.noDataText,
+            },
+          ]
+        : []),
+    ];
+  });
+}
+
 function chartElementForMetric(
   records: KpiRecord[],
   metric: "pmCompliance" | "facilityUptime",
   title: string,
   x: number
 ): PresentationElement {
-  const rows = records.filter(
-    record =>
-      typeof record[metric] === "number" && Number.isFinite(record[metric])
-  );
+  const rows = records.filter(record => isPresentNumber(record[metric]));
   if (!rows.length) {
     return {
       type: "text",
       text: `${title}\nNo chartable values were recorded for this metric.`,
       x,
-      y: 1.05,
-      w: 5.85,
-      h: 4.9,
+      y: 1.45,
+      w: 5.9,
+      h: 4.6,
       fontSize: 14,
-      color: "334155",
-      fill: "F8FAFC",
+      color: COLORS.noDataText,
+      fill: COLORS.lightGray,
     };
   }
   return {
@@ -106,9 +622,12 @@ function chartElementForMetric(
     title,
     labels: rows.map(record => record.businessUnit),
     values: rows.map(record => record[metric] as number),
+    colors: rows.map(record =>
+      statusFill(getKpiStatus(metric, record[metric]))
+    ),
     x,
-    y: 1.05,
-    w: 5.85,
+    y: 1.35,
+    w: 5.9,
     h: 4.9,
     max: 100,
   };
@@ -118,13 +637,142 @@ export function buildMonthlyKpiNotesText(records: KpiRecord[]) {
   const notes = records
     .map(record => ({
       businessUnit: record.businessUnit,
-      note: record.notes?.trim() || "",
+      note: record.notes ?? "",
     }))
-    .filter(record => record.note);
+    .filter(record => record.note.trim());
   if (!notes.length) return MONTHLY_KPI_NOTES_FALLBACK;
   return notes
     .map(record => `${record.businessUnit}\n${record.note}`)
     .join("\n\n");
+}
+
+function buildNotesElements(records: KpiRecord[]): PresentationElement[] {
+  const notes = records
+    .map(record => ({
+      businessUnit: record.businessUnit,
+      note: record.notes ?? "",
+    }))
+    .filter(record => record.note.trim());
+  if (!notes.length) {
+    return [
+      cardShape(0.75, 1.55, 11.75, 1.2, COLORS.lightGray),
+      {
+        type: "text",
+        text: MONTHLY_KPI_NOTES_FALLBACK,
+        x: 0.95,
+        y: 1.9,
+        w: 11.35,
+        h: 0.4,
+        fontSize: 16,
+        color: COLORS.noDataText,
+      },
+    ];
+  }
+  const visible = notes.slice(0, 3);
+  const elements = visible.flatMap((note, index) => {
+    const y = 1.35 + index * 1.55;
+    return [
+      cardShape(0.75, y, 11.75, 1.32, COLORS.lightGray),
+      {
+        type: "text",
+        text: note.businessUnit,
+        x: 0.98,
+        y: y + 0.16,
+        w: 2.8,
+        h: 0.32,
+        fontSize: 16,
+        bold: true,
+        color: COLORS.navy,
+      },
+      {
+        type: "text",
+        text: note.note,
+        x: 3.75,
+        y: y + 0.16,
+        w: 8.45,
+        h: 0.94,
+        fontSize: 14,
+        color: COLORS.text,
+      },
+    ] as PresentationElement[];
+  });
+  if (notes.length > visible.length) {
+    elements.push({
+      type: "text",
+      text: `+${notes.length - visible.length} more notes not shown`,
+      x: 0.95,
+      y: 6.05,
+      w: 6,
+      h: 0.34,
+      fontSize: 14,
+      bold: true,
+      color: COLORS.noDataText,
+    });
+  }
+  return elements;
+}
+
+function buildCoverSlide(
+  dataset: MonthlyKpiScorecardDataset,
+  generatedAt: Date
+): PresentationSlide {
+  return {
+    elements: [
+      {
+        type: "text",
+        text: "Monthly KPI Scorecard",
+        x: 0.75,
+        y: 1.45,
+        w: 8.8,
+        h: 0.72,
+        fontSize: 34,
+        bold: true,
+        color: COLORS.navy,
+      },
+      {
+        type: "text",
+        text: dataset.businessUnit,
+        x: 0.78,
+        y: 2.35,
+        w: 8.6,
+        h: 0.46,
+        fontSize: 22,
+        color: COLORS.accentBlue,
+      },
+      {
+        type: "text",
+        text: dataset.reportingMonthLabel,
+        x: 0.78,
+        y: 3.05,
+        w: 8.6,
+        h: 0.46,
+        fontSize: 22,
+        color: COLORS.text,
+      },
+      {
+        type: "text",
+        text: "Generated from ODM Dashboard",
+        x: 0.78,
+        y: 5.65,
+        w: 5.9,
+        h: 0.35,
+        fontSize: 14,
+        color: COLORS.noDataText,
+      },
+      {
+        type: "text",
+        text: generatedAt.toLocaleString(),
+        x: 7.1,
+        y: 5.65,
+        w: 5.2,
+        h: 0.35,
+        fontSize: 14,
+        color: COLORS.noDataText,
+        align: "r",
+      },
+      ...footer(dataset),
+    ],
+  };
 }
 
 export function buildMonthlyKpiSlides(
@@ -132,228 +780,102 @@ export function buildMonthlyKpiSlides(
   generatedAt = new Date()
 ): PresentationSlide[] {
   const scorecardRecords = dataset.records;
-  const reportingMonth = dataset.reportingMonthLabel;
-  const businessUnit = dataset.businessUnit;
   const summary = getScorecardSummary(scorecardRecords);
-  const titleScope = `${businessUnit} | ${reportingMonth}`;
+  const ytdSlides = buildYtdScorecardSlides(dataset);
+  const matrix = buildCurrentMonthMatrixRows(
+    scorecardRecords,
+    dataset.businessUnit
+  );
 
   return [
+    buildCoverSlide(dataset, generatedAt),
     {
       elements: [
+        ...slideTitle("Executive Summary", dataset.reportingMonthLabel),
+        ...summaryCard(
+          "Key KPI Highlights",
+          limitBullets(
+            summary.highlights,
+            "Persisted KPI records are available for review."
+          ),
+          COLORS.lightBlue,
+          0.65
+        ),
+        ...summaryCard(
+          "Major Wins",
+          limitBullets(
+            summary.wins,
+            "No major wins were recorded from the selected KPI data."
+          ),
+          COLORS.lightGreen,
+          4.75
+        ),
+        ...summaryCard(
+          "Major Risks",
+          limitBullets(
+            summary.risks,
+            "No major risks were recorded from the selected KPI data."
+          ),
+          COLORS.lightRed,
+          8.85
+        ),
+        ...footer(dataset),
+      ],
+    },
+    ...ytdSlides,
+    {
+      elements: [
+        ...slideTitle("Current-Month KPI Matrix", dataset.reportingMonthLabel),
         {
-          type: "text",
-          text: "ODM Dashboard",
-          x: 0.65,
-          y: 0.35,
-          w: 3.4,
-          h: 0.35,
-          fontSize: 14,
-          bold: true,
-          color: "005BAC",
+          ...styledMetricTable(
+            matrix.rows,
+            matrix.records,
+            0.45,
+            1.35,
+            12.45,
+            4.85
+          ),
+          colWidths: [2.3, 1.58, 1.55, 1.9, 1.9, 1.42, 1.8],
         },
-        {
-          type: "text",
-          text: `Monthly KPI Scorecard\n${businessUnit}\n${reportingMonth}`,
-          x: 0.65,
-          y: 1.25,
-          w: 8.2,
-          h: 2.2,
-          fontSize: 30,
-          bold: true,
-          color: "0B1D44",
-        },
-        {
-          type: "text",
-          text: `Reporting Period: ${reportingMonth}\nBusiness Unit: ${businessUnit}`,
-          x: 0.7,
-          y: 3.8,
-          w: 6.2,
-          h: 0.8,
-          fontSize: 18,
-          color: "334155",
-        },
-        {
-          type: "text",
-          text: "Generated directly from persisted Monthly KPI records",
-          x: 0.7,
-          y: 5.95,
-          w: 6.2,
-          h: 0.4,
-          fontSize: 13,
-          color: "64748B",
-        },
-        {
-          type: "text",
-          text: generatedAt.toLocaleString(),
-          x: 8.4,
-          y: 6.4,
-          w: 3.7,
-          h: 0.3,
-          fontSize: 10,
-          color: "64748B",
-          align: "r",
-        },
+        ...footer(dataset),
       ],
     },
     {
       elements: [
-        {
-          type: "text",
-          text: `Executive Summary\n${titleScope}`,
-          x: 0.55,
-          y: 0.35,
-          w: 8.5,
-          h: 0.75,
-          fontSize: 24,
-          bold: true,
-          color: "0B1D44",
-        },
-        {
-          type: "text",
-          text: `Key KPI Highlights\n• ${summary.highlights.join("\n• ")}`,
-          x: 0.65,
-          y: 1.25,
-          w: 3.85,
-          h: 4.8,
-          fontSize: 14,
-          color: "1F2937",
-          fill: "EEF6FF",
-        },
-        {
-          type: "text",
-          text: `Major Wins\n• ${summary.wins.join("\n• ")}`,
-          x: 4.75,
-          y: 1.25,
-          w: 3.85,
-          h: 4.8,
-          fontSize: 14,
-          color: "1F2937",
-          fill: "ECFDF5",
-        },
-        {
-          type: "text",
-          text: `Major Risks\n• ${summary.risks.join("\n• ")}`,
-          x: 8.85,
-          y: 1.25,
-          w: 3.85,
-          h: 4.8,
-          fontSize: 14,
-          color: "1F2937",
-          fill: "FEF2F2",
-        },
+        ...slideTitle(
+          "Portfolio Average KPI Cards",
+          dataset.reportingMonthLabel
+        ),
+        ...buildPortfolioCardElements(scorecardRecords),
+        ...footer(dataset),
       ],
     },
     {
       elements: [
-        {
-          type: "text",
-          text: `KPI Scorecard Table\n${titleScope}`,
-          x: 0.55,
-          y: 0.35,
-          w: 8.5,
-          h: 0.75,
-          fontSize: 24,
-          bold: true,
-          color: "0B1D44",
-        },
-        {
-          type: "table",
-          rows: buildMonthlyKpiTableRows(scorecardRecords),
-          x: 0.45,
-          y: 1.2,
-          w: 12.45,
-          h: 4.2,
-          fontSize: 8,
-        },
-        {
-          type: "table",
-          rows: [
-            ["KPI", "Benchmark"],
-            ...scorecardBenchmarks.map(benchmark => [
-              benchmark.label,
-              benchmark.benchmark,
-            ]),
-          ],
-          x: 0.45,
-          y: 5.7,
-          w: 5.4,
-          h: 1.1,
-          fontSize: 8,
-        },
-      ],
-    },
-    {
-      elements: [
-        {
-          type: "text",
-          text: `KPI Charts Summary\n${titleScope}`,
-          x: 0.55,
-          y: 0.35,
-          w: 8.5,
-          h: 0.75,
-          fontSize: 24,
-          bold: true,
-          color: "0B1D44",
-        },
+        ...slideTitle("Business Unit Breakdown", dataset.reportingMonthLabel),
         chartElementForMetric(
           scorecardRecords,
           "pmCompliance",
           "PM Compliance by Business Unit",
-          0.75
+          0.6
         ),
         chartElementForMetric(
           scorecardRecords,
           "facilityUptime",
           "Facility Uptime by Business Unit",
-          7.0
+          6.9
         ),
-        {
-          type: "text",
-          text: "Charts include only persisted numeric values; explicit zero values remain zero.",
-          x: 0.75,
-          y: 6.25,
-          w: 10.5,
-          h: 0.3,
-          fontSize: 11,
-          color: "64748B",
-        },
+        ...footer(dataset),
       ],
     },
     {
       elements: [
-        {
-          type: "text",
-          text: `Issues and Action Items\n${titleScope}`,
-          x: 0.55,
-          y: 0.35,
-          w: 9.2,
-          h: 0.75,
-          fontSize: 24,
-          bold: true,
-          color: "0B1D44",
-        },
-        {
-          type: "text",
-          text: "Recorded Notes",
-          x: 0.75,
-          y: 1.15,
-          w: 4.2,
-          h: 0.35,
-          fontSize: 16,
-          bold: true,
-          color: "0B1D44",
-        },
-        {
-          type: "text",
-          text: buildMonthlyKpiNotesText(scorecardRecords),
-          x: 0.75,
-          y: 1.6,
-          w: 11.7,
-          h: 4.9,
-          fontSize: 14,
-          color: "1F2937",
-          fill: "F8FAFC",
-        },
+        ...slideTitle(
+          "Notes, Issues, and Follow-up Actions",
+          dataset.reportingMonthLabel
+        ),
+        ...buildNotesElements(scorecardRecords),
+        ...footer(dataset),
       ],
     },
   ];
