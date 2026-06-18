@@ -23,6 +23,9 @@ type TableElement = Extract<PresentationElement, { type: "table" }>;
 export const MONTHLY_KPI_NOTES_FALLBACK =
   "No commentary was recorded for the selected reporting period.";
 
+export const MONTHLY_KPI_DECK_SOURCE_LABEL =
+  "Monthly Scorecard: Maintenance KPIs";
+
 const COLORS = {
   navy: "0B1D44",
   headerNavy: "16324F",
@@ -255,7 +258,7 @@ function footer(dataset: MonthlyKpiScorecardDataset): PresentationElement[] {
   return [
     {
       type: "text",
-      text: `${dataset.reportingMonthLabel} | ${dataset.businessUnit} | ODM Dashboard`,
+      text: `${dataset.reportingMonthLabel} | ${dataset.businessUnit} | ${MONTHLY_KPI_DECK_SOURCE_LABEL}`,
       x: 0.55,
       y: 6.92,
       w: 12.25,
@@ -751,7 +754,7 @@ function buildCoverSlide(
       },
       {
         type: "text",
-        text: "Generated from ODM Dashboard",
+        text: `Generated from ${MONTHLY_KPI_DECK_SOURCE_LABEL}`,
         x: 0.78,
         y: 5.65,
         w: 5.9,
