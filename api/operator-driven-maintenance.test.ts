@@ -29,6 +29,19 @@ function expectInOrder(source: string, tokens: string[]) {
 }
 
 describe("Operator-Driven Maintenance records API", () => {
+  it("redirects retired React ODM dashboard routes to the retained mw-dashboard", () => {
+    const appSource = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
+
+    expect(bootSource).toContain(
+      'app.get("/operator-maintenance", (c) => c.redirect("/mw-dashboard", 302))'
+    );
+    expect(bootSource).toContain(
+      'app.get("/operator-driven-maintenance", (c) => c.redirect("/mw-dashboard", 302))'
+    );
+    expect(appSource).not.toContain("OperatorDrivenMaintenance");
+    expect(appSource).not.toContain('path="/operator-maintenance"');
+  });
+
   it("keeps the read-only inspections route over existing mw_inspections rows", () => {
     const getRoute = routeBlock("get", "/api/operator-driven-maintenance/inspections");
     const query = sourceBlock(

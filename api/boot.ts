@@ -334,6 +334,9 @@ app.get("/mw-dashboard", async (c) => {
   return c.json({ error: "MW dashboard not found", path: mwPath }, 404);
 });
 
+app.get("/operator-maintenance", (c) => c.redirect("/mw-dashboard", 302));
+app.get("/operator-driven-maintenance", (c) => c.redirect("/mw-dashboard", 302));
+
 
 
 const monthlyKpiCanonicalBusinessUnitSql = sql`

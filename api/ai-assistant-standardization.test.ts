@@ -15,7 +15,6 @@ const auditedAssistantPages = [
   "src/pages/ExistingFacilitiesMaintenance.tsx",
   "src/pages/SmpDashboard.tsx",
   "src/pages/Help.tsx",
-  "src/pages/OperatorDrivenMaintenance.tsx",
 ];
 
 const assistantSource = () => repoFile("src/components/AIAssistant.tsx");
