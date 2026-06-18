@@ -9,6 +9,7 @@ type SlideElement =
       w: number;
       h: number;
       fontSize?: number;
+      fontFace?: string;
       bold?: boolean;
       color?: string;
       fill?: string;
@@ -36,6 +37,7 @@ type SlideElement =
       w: number;
       h: number;
       fontSize?: number;
+      fontFace?: string;
     }
   | {
       type: "bars";
@@ -97,7 +99,7 @@ function addText(
     y: element.y,
     w: element.w,
     h: element.h,
-    fontFace: DEFAULT_FONT_FACE,
+    fontFace: element.fontFace || DEFAULT_FONT_FACE,
     fontSize: safeFontSize(element.fontSize, 16),
     bold: element.bold,
     color: element.color || DEFAULT_TEXT_COLOR,
@@ -152,7 +154,7 @@ function addTable(
           bold: Boolean(element.cellBold?.[rowIndex]?.[colIndex] ?? isHeader),
           color,
           fill: { color: fill },
-          fontFace: DEFAULT_FONT_FACE,
+          fontFace: element.fontFace || DEFAULT_FONT_FACE,
           fontSize: safeFontSize(element.fontSize, 14),
           margin: TABLE_MARGIN,
           valign: "middle" as const,
@@ -174,7 +176,7 @@ function addTable(
       element.rowHeights ||
       Array.from({ length: rowCount }, () => element.h / rowCount),
     border: TABLE_BORDER,
-    fontFace: DEFAULT_FONT_FACE,
+    fontFace: element.fontFace || DEFAULT_FONT_FACE,
     fontSize: safeFontSize(element.fontSize, 14),
     color: DEFAULT_TEXT_COLOR,
     margin: TABLE_MARGIN,

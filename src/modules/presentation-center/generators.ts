@@ -6,6 +6,10 @@ import type {
 } from "./types";
 import { createPresentation } from "./pptxBuilder";
 import {
+  MONTHLY_KPI_DECK_DESIGN,
+  MONTHLY_KPI_DECK_SOURCE_LABEL,
+} from "./monthlyKpiDeckDesign";
+import {
   ALL_BUSINESS_UNITS_LABEL,
   EXECUTIVE_SCORECARD_TEMPLATE,
   getPersistedMonthlyKpiScorecard,
@@ -23,27 +27,11 @@ type TableElement = Extract<PresentationElement, { type: "table" }>;
 export const MONTHLY_KPI_NOTES_FALLBACK =
   "No commentary was recorded for the selected reporting period.";
 
-export const MONTHLY_KPI_DECK_SOURCE_LABEL =
-  "Monthly Scorecard: Maintenance KPIs";
+export { MONTHLY_KPI_DECK_DESIGN, MONTHLY_KPI_DECK_SOURCE_LABEL };
 
-const COLORS = {
-  navy: "0B1D44",
-  headerNavy: "16324F",
-  accentBlue: "005BAC",
-  success: "0A9B6E",
-  warning: "D97706",
-  danger: "DC2626",
-  noData: "E5E7EB",
-  noDataText: "64748B",
-  text: "1F2937",
-  lightGray: "F8FAFC",
-  lightBlue: "EEF6FF",
-  lightGreen: "ECFDF5",
-  lightRed: "FEF2F2",
-  white: "FFFFFF",
-};
-
-const MIN_DECK_FONT_SIZE = 14;
+const DESIGN = MONTHLY_KPI_DECK_DESIGN;
+const COLORS = DESIGN.colors;
+const MIN_DECK_FONT_SIZE = DESIGN.typography.min;
 
 type KpiMetric =
   | "pmCompliance"
@@ -255,16 +243,27 @@ function monthName(month: number) {
 }
 
 function footer(dataset: MonthlyKpiScorecardDataset): PresentationElement[] {
+  const text = `${dataset.reportingMonthLabel} | ${dataset.businessUnit} | ${MONTHLY_KPI_DECK_SOURCE_LABEL}`;
   return [
     {
+      type: "shape",
+      x: 0,
+      y: DESIGN.margins.footerTop,
+      w: DESIGN.slide.width,
+      h: DESIGN.margins.footerHeight,
+      fill: DESIGN.footer.fill,
+      line: DESIGN.footer.fill,
+    },
+    {
       type: "text",
-      text: `${dataset.reportingMonthLabel} | ${dataset.businessUnit} | ${MONTHLY_KPI_DECK_SOURCE_LABEL}`,
-      x: 0.55,
-      y: 6.92,
+      text,
+      x: DESIGN.margins.x,
+      y: DESIGN.margins.footerTop + 0.07,
       w: 12.25,
-      h: 0.32,
-      fontSize: MIN_DECK_FONT_SIZE,
-      color: COLORS.noDataText,
+      h: 0.28,
+      fontSize: DESIGN.typography.footer,
+      fontFace: DESIGN.fonts.body,
+      color: DESIGN.footer.color,
       align: "r",
     },
   ];
@@ -273,27 +272,47 @@ function footer(dataset: MonthlyKpiScorecardDataset): PresentationElement[] {
 function slideTitle(title: string, subtitle?: string): PresentationElement[] {
   return [
     {
+      type: "shape",
+      x: 0,
+      y: 0,
+      w: DESIGN.slide.width,
+      h: 0.16,
+      fill: COLORS.navy,
+      line: COLORS.navy,
+    },
+    {
+      type: "shape",
+      x: 0,
+      y: 0.16,
+      w: DESIGN.slide.width,
+      h: 0.05,
+      fill: COLORS.accentBlue,
+      line: COLORS.accentBlue,
+    },
+    {
       type: "text",
       text: title,
-      x: 0.55,
-      y: 0.32,
-      w: 8.4,
-      h: 0.48,
-      fontSize: 28,
+      x: DESIGN.margins.x,
+      y: 0.34,
+      w: 8.8,
+      h: 0.46,
+      fontSize: DESIGN.typography.slideTitle,
+      fontFace: DESIGN.fonts.title,
       bold: true,
-      color: COLORS.navy,
+      color: COLORS.accentBlue,
     },
     ...(subtitle
       ? [
           {
             type: "text" as const,
             text: subtitle,
-            x: 0.55,
-            y: 0.82,
+            x: DESIGN.margins.x,
+            y: 0.86,
             w: 9.3,
             h: 0.36,
-            fontSize: 18,
-            color: COLORS.noDataText,
+            fontSize: DESIGN.typography.subtitle,
+            fontFace: DESIGN.fonts.body,
+            color: COLORS.mutedText,
           },
         ]
       : []),
@@ -316,9 +335,10 @@ function cardShape(
   y: number,
   w: number,
   h: number,
-  fill: string
+  fill: string,
+  line = DESIGN.cards.border
 ): ShapeElement {
-  return { type: "shape", x, y, w, h, fill, line: "E5E7EB" };
+  return { type: "shape", x, y, w, h, fill, line };
 }
 
 function summaryCard(
@@ -328,26 +348,37 @@ function summaryCard(
   x: number
 ): PresentationElement[] {
   return [
-    cardShape(x, 1.35, 3.85, 4.75, fill),
+    cardShape(x, 1.35, 3.85, 4.75, DESIGN.cards.fill),
+    {
+      type: "shape",
+      x,
+      y: 1.35,
+      w: 3.85,
+      h: 0.56,
+      fill,
+      line: fill,
+    },
     {
       type: "text",
       text: title,
       x: x + 0.2,
-      y: 1.55,
+      y: 1.48,
       w: 3.45,
       h: 0.38,
-      fontSize: 18,
+      fontSize: DESIGN.typography.sectionHeading,
+      fontFace: DESIGN.fonts.heading,
       bold: true,
-      color: COLORS.navy,
+      color: COLORS.white,
     },
     {
       type: "text",
       text: bulletText(bullets),
       x: x + 0.2,
-      y: 2.05,
+      y: 2.08,
       w: 3.45,
       h: 3.55,
-      fontSize: 14,
+      fontSize: DESIGN.typography.body,
+      fontFace: DESIGN.fonts.body,
       color: COLORS.text,
     },
   ];
@@ -377,8 +408,8 @@ function styledMetricTable(
 ): TableElement {
   const cellFills = rows.map((row, rowIndex) =>
     row.map((_, colIndex) => {
-      if (rowIndex === 0) return COLORS.headerNavy;
-      if (colIndex === 0) return COLORS.lightGray;
+      if (rowIndex === 0) return DESIGN.table.headerFill;
+      if (colIndex === 0) return DESIGN.table.firstColumnFill;
       const metric = kpiColumns[colIndex - 1]?.key;
       if (!metric) return COLORS.white;
       return statusFill(getKpiStatus(metric, records[rowIndex - 1]?.[metric]));
@@ -400,6 +431,11 @@ function styledMetricTable(
       (_, colIndex) => rowIndex === 0 || (firstColumnLabel && colIndex === 0)
     )
   );
+  const headerHeight = 0.44;
+  const bodyRowHeight =
+    rows.length > 1
+      ? Math.max(0.52, (h - headerHeight) / (rows.length - 1))
+      : h;
   return {
     type: "table",
     rows,
@@ -410,7 +446,15 @@ function styledMetricTable(
     y,
     w,
     h,
-    fontSize: 14,
+    fontSize: DESIGN.typography.body,
+    fontFace: DESIGN.fonts.body,
+    rowHeights:
+      rows.length > 1
+        ? [
+            headerHeight,
+            ...Array.from({ length: rows.length - 1 }, () => bodyRowHeight),
+          ]
+        : [h],
   };
 }
 
@@ -534,52 +578,64 @@ function buildPortfolioCardElements(
   return cards.flatMap((card, index) => {
     const col = index % 3;
     const row = Math.floor(index / 3);
-    const x = 0.6 + col * 4.18;
-    const y = 1.35 + row * 2.55;
-    const w = 3.82;
-    const h = 2.15;
+    const x = 0.58 + col * 4.22;
+    const y = 1.36 + row * 2.54;
+    const w = 3.9;
+    const h = 2.14;
     const fill = statusFill(card.status);
     return [
-      cardShape(x, y, w, h, COLORS.white),
+      cardShape(x, y, w, h, DESIGN.cards.fill),
       {
         type: "shape",
         x,
-        y: y + h - 0.16,
-        w,
-        h: 0.16,
+        y,
+        w: 0.12,
+        h,
         fill,
         line: fill,
       } as ShapeElement,
       {
+        type: "shape",
+        x: x + 0.12,
+        y,
+        w: w - 0.12,
+        h: 0.44,
+        fill: COLORS.navy,
+        line: COLORS.navy,
+      } as ShapeElement,
+      {
         type: "text",
         text: card.label,
-        x: x + 0.2,
-        y: y + 0.18,
-        w: w - 0.4,
+        x: x + 0.28,
+        y: y + 0.1,
+        w: w - 0.48,
         h: 0.34,
-        fontSize: 16,
+        fontSize: DESIGN.typography.cardTitle,
+        fontFace: DESIGN.fonts.heading,
         bold: true,
-        color: COLORS.navy,
+        color: COLORS.white,
       },
       {
         type: "text",
         text: card.displayValue,
-        x: x + 0.2,
-        y: y + 0.62,
-        w: w - 0.4,
+        x: x + 0.28,
+        y: y + 0.66,
+        w: w - 0.5,
         h: 0.5,
-        fontSize: 26,
+        fontSize: DESIGN.typography.kpiValue,
+        fontFace: DESIGN.fonts.numeric,
         bold: true,
         color: fill,
       },
       {
         type: "text",
         text: `Benchmark: ${card.benchmark}`,
-        x: x + 0.2,
+        x: x + 0.28,
         y: y + 1.2,
-        w: w - 0.4,
+        w: w - 0.5,
         h: 0.34,
-        fontSize: 14,
+        fontSize: DESIGN.typography.body,
+        fontFace: DESIGN.fonts.body,
         color: COLORS.text,
       },
       ...(card.ratioSubtitle
@@ -587,12 +643,13 @@ function buildPortfolioCardElements(
             {
               type: "text" as const,
               text: card.ratioSubtitle,
-              x: x + 0.2,
+              x: x + 0.28,
               y: y + 1.58,
-              w: w - 0.4,
+              w: w - 0.5,
               h: 0.32,
-              fontSize: 14,
-              color: COLORS.noDataText,
+              fontSize: DESIGN.typography.body,
+              fontFace: DESIGN.fonts.body,
+              color: COLORS.mutedText,
             },
           ]
         : []),
@@ -615,9 +672,10 @@ function chartElementForMetric(
       y: 1.45,
       w: 5.9,
       h: 4.6,
-      fontSize: 14,
+      fontSize: DESIGN.typography.body,
+      fontFace: DESIGN.fonts.body,
       color: COLORS.noDataText,
-      fill: COLORS.lightGray,
+      fill: DESIGN.cards.alternateFill,
     };
   }
   return {
@@ -658,7 +716,7 @@ function buildNotesElements(records: KpiRecord[]): PresentationElement[] {
     .filter(record => record.note.trim());
   if (!notes.length) {
     return [
-      cardShape(0.75, 1.55, 11.75, 1.2, COLORS.lightGray),
+      cardShape(0.75, 1.55, 11.75, 1.2, DESIGN.cards.alternateFill),
       {
         type: "text",
         text: MONTHLY_KPI_NOTES_FALLBACK,
@@ -666,7 +724,8 @@ function buildNotesElements(records: KpiRecord[]): PresentationElement[] {
         y: 1.9,
         w: 11.35,
         h: 0.4,
-        fontSize: 16,
+        fontSize: DESIGN.typography.subtitle,
+        fontFace: DESIGN.fonts.body,
         color: COLORS.noDataText,
       },
     ];
@@ -675,7 +734,16 @@ function buildNotesElements(records: KpiRecord[]): PresentationElement[] {
   const elements = visible.flatMap((note, index) => {
     const y = 1.35 + index * 1.55;
     return [
-      cardShape(0.75, y, 11.75, 1.32, COLORS.lightGray),
+      cardShape(0.75, y, 11.75, 1.32, DESIGN.cards.fill),
+      {
+        type: "shape",
+        x: 0.75,
+        y,
+        w: 0.13,
+        h: 1.32,
+        fill: COLORS.accentBlue,
+        line: COLORS.accentBlue,
+      },
       {
         type: "text",
         text: note.businessUnit,
@@ -683,9 +751,10 @@ function buildNotesElements(records: KpiRecord[]): PresentationElement[] {
         y: y + 0.16,
         w: 2.8,
         h: 0.32,
-        fontSize: 16,
+        fontSize: DESIGN.typography.cardTitle,
+        fontFace: DESIGN.fonts.heading,
         bold: true,
-        color: COLORS.navy,
+        color: COLORS.accentBlue,
       },
       {
         type: "text",
@@ -694,7 +763,8 @@ function buildNotesElements(records: KpiRecord[]): PresentationElement[] {
         y: y + 0.16,
         w: 8.45,
         h: 0.94,
-        fontSize: 14,
+        fontSize: DESIGN.typography.body,
+        fontFace: DESIGN.fonts.body,
         color: COLORS.text,
       },
     ] as PresentationElement[];
@@ -707,9 +777,10 @@ function buildNotesElements(records: KpiRecord[]): PresentationElement[] {
       y: 6.05,
       w: 6,
       h: 0.34,
-      fontSize: 14,
+      fontSize: DESIGN.typography.body,
+      fontFace: DESIGN.fonts.body,
       bold: true,
-      color: COLORS.noDataText,
+      color: COLORS.mutedText,
     });
   }
   return elements;
@@ -722,55 +793,183 @@ function buildCoverSlide(
   return {
     elements: [
       {
-        type: "text",
-        text: "Monthly KPI Scorecard",
+        type: "shape",
+        x: 0,
+        y: 0,
+        w: DESIGN.slide.width,
+        h: 0.24,
+        fill: COLORS.navy,
+        line: COLORS.navy,
+      },
+      {
+        type: "shape",
+        x: 0,
+        y: 0.24,
+        w: DESIGN.slide.width,
+        h: 0.08,
+        fill: COLORS.accentBlue,
+        line: COLORS.accentBlue,
+      },
+      {
+        type: "shape",
         x: 0.75,
-        y: 1.45,
-        w: 8.8,
-        h: 0.72,
-        fontSize: 34,
+        y: 1.12,
+        w: 0.1,
+        h: 3.65,
+        fill: COLORS.accentBlue,
+        line: COLORS.accentBlue,
+      },
+      {
+        type: "text",
+        text: "Engineering Reliability Performance",
+        x: 0.98,
+        y: 1.04,
+        w: 7.4,
+        h: 0.34,
+        fontSize: DESIGN.typography.subtitle,
+        fontFace: DESIGN.fonts.heading,
+        bold: true,
+        color: COLORS.accentBlue,
+      },
+      {
+        type: "text",
+        text: MONTHLY_KPI_DECK_SOURCE_LABEL,
+        x: 0.98,
+        y: 1.48,
+        w: 7.65,
+        h: 1.12,
+        fontSize: DESIGN.typography.coverTitle,
+        fontFace: DESIGN.fonts.title,
         bold: true,
         color: COLORS.navy,
       },
       {
         type: "text",
-        text: dataset.businessUnit,
-        x: 0.78,
-        y: 2.35,
-        w: 8.6,
-        h: 0.46,
-        fontSize: 22,
-        color: COLORS.accentBlue,
+        text: "Monthly KPI Scorecard",
+        x: 1,
+        y: 2.62,
+        w: 7.3,
+        h: 0.38,
+        fontSize: DESIGN.typography.sectionHeading,
+        fontFace: DESIGN.fonts.body,
+        color: COLORS.mutedText,
+      },
+      cardShape(0.98, 3.35, 2.8, 1.02, DESIGN.cards.alternateFill),
+      {
+        type: "text",
+        text: "Reporting Period",
+        x: 1.18,
+        y: 3.5,
+        w: 2.35,
+        h: 0.26,
+        fontSize: MIN_DECK_FONT_SIZE,
+        fontFace: DESIGN.fonts.body,
+        bold: true,
+        color: COLORS.mutedText,
       },
       {
         type: "text",
         text: dataset.reportingMonthLabel,
-        x: 0.78,
-        y: 3.05,
-        w: 8.6,
-        h: 0.46,
-        fontSize: 22,
-        color: COLORS.text,
+        x: 1.18,
+        y: 3.82,
+        w: 2.35,
+        h: 0.34,
+        fontSize: 20,
+        fontFace: DESIGN.fonts.heading,
+        bold: true,
+        color: COLORS.navy,
+      },
+      cardShape(4.05, 3.35, 3.35, 1.02, DESIGN.cards.alternateFill),
+      {
+        type: "text",
+        text: "Business Unit Scope",
+        x: 4.25,
+        y: 3.5,
+        w: 2.9,
+        h: 0.26,
+        fontSize: MIN_DECK_FONT_SIZE,
+        fontFace: DESIGN.fonts.body,
+        bold: true,
+        color: COLORS.mutedText,
+      },
+      {
+        type: "text",
+        text: dataset.businessUnit,
+        x: 4.25,
+        y: 3.82,
+        w: 2.9,
+        h: 0.34,
+        fontSize: 20,
+        fontFace: DESIGN.fonts.heading,
+        bold: true,
+        color: COLORS.navy,
+      },
+      {
+        type: "shape",
+        x: 8.95,
+        y: 1.22,
+        w: 3.35,
+        h: 3.55,
+        fill: COLORS.paleBlue,
+        line: COLORS.border,
+      },
+      {
+        type: "shape",
+        x: 9.3,
+        y: 1.72,
+        w: 2.45,
+        h: 0.24,
+        fill: COLORS.navy,
+        line: COLORS.navy,
+      },
+      {
+        type: "shape",
+        x: 9.3,
+        y: 2.44,
+        w: 2.05,
+        h: 0.24,
+        fill: COLORS.accentBlue,
+        line: COLORS.accentBlue,
+      },
+      {
+        type: "shape",
+        x: 9.3,
+        y: 3.16,
+        w: 2.75,
+        h: 0.24,
+        fill: COLORS.success,
+        line: COLORS.success,
+      },
+      {
+        type: "shape",
+        x: 9.3,
+        y: 3.88,
+        w: 1.75,
+        h: 0.24,
+        fill: COLORS.warning,
+        line: COLORS.warning,
       },
       {
         type: "text",
         text: `Generated from ${MONTHLY_KPI_DECK_SOURCE_LABEL}`,
         x: 0.78,
-        y: 5.65,
+        y: 5.72,
         w: 5.9,
         h: 0.35,
-        fontSize: 14,
-        color: COLORS.noDataText,
+        fontSize: MIN_DECK_FONT_SIZE,
+        fontFace: DESIGN.fonts.body,
+        color: COLORS.mutedText,
       },
       {
         type: "text",
         text: generatedAt.toLocaleString(),
         x: 7.1,
-        y: 5.65,
+        y: 5.72,
         w: 5.2,
         h: 0.35,
-        fontSize: 14,
-        color: COLORS.noDataText,
+        fontSize: MIN_DECK_FONT_SIZE,
+        fontFace: DESIGN.fonts.body,
+        color: COLORS.mutedText,
         align: "r",
       },
       ...footer(dataset),
@@ -801,7 +1000,7 @@ export function buildMonthlyKpiSlides(
             summary.highlights,
             "Persisted KPI records are available for review."
           ),
-          COLORS.lightBlue,
+          COLORS.accentBlue,
           0.65
         ),
         ...summaryCard(
@@ -810,7 +1009,7 @@ export function buildMonthlyKpiSlides(
             summary.wins,
             "No major wins were recorded from the selected KPI data."
           ),
-          COLORS.lightGreen,
+          COLORS.success,
           4.75
         ),
         ...summaryCard(
@@ -819,7 +1018,7 @@ export function buildMonthlyKpiSlides(
             summary.risks,
             "No major risks were recorded from the selected KPI data."
           ),
-          COLORS.lightRed,
+          COLORS.danger,
           8.85
         ),
         ...footer(dataset),
@@ -856,6 +1055,8 @@ export function buildMonthlyKpiSlides(
     {
       elements: [
         ...slideTitle("Business Unit Breakdown", dataset.reportingMonthLabel),
+        cardShape(0.48, 1.28, 6.05, 5.06, DESIGN.cards.fill),
+        cardShape(6.78, 1.28, 6.05, 5.06, DESIGN.cards.fill),
         chartElementForMetric(
           scorecardRecords,
           "pmCompliance",
