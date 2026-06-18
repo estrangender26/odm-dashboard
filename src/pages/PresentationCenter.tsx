@@ -24,6 +24,13 @@ import {
   type MonthlyKpiAvailableOptions,
 } from "@/modules/presentation-center/scorecardData";
 import {
+  ALL_FACILITIES_LABEL,
+  getAvailableOdmScorecardOptions,
+  ODM_EXECUTIVE_SUMMARY_TEMPLATE,
+  ODM_TEMPLATE_OPTIONS,
+  type OdmAvailableOptions,
+} from "@/modules/presentation-center/odmScorecardData";
+import {
   blobToDataUrl,
   downloadDataUrl,
   getGeneratedPresentations,
@@ -35,6 +42,7 @@ import type {
   DeckGenerationContext,
   GeneratedPresentation,
   MonthlyKpiTemplate,
+  OdmTemplate,
   PresentationCategory,
   UploadedPresentation,
 } from "@/modules/presentation-center/types";
@@ -56,11 +64,18 @@ const categoryOptions: PresentationCategory[] = [
 type SortKey = "newest" | "oldest" | "name" | "size" | "category";
 
 const monthlyKpiGeneratorId = "monthly-kpi-scorecard";
+const operatorDrivenMaintenanceGeneratorId = "operator-driven-maintenance";
 
 const emptyMonthlyKpiOptions: MonthlyKpiAvailableOptions = {
   years: [],
   months: [],
   businessUnits: [],
+};
+
+const emptyOdmOptions: OdmAvailableOptions = {
+  years: [],
+  months: [],
+  facilities: [],
 };
 
 type MonthlyKpiSelection = {
@@ -75,6 +90,20 @@ const defaultMonthlyKpiSelection: MonthlyKpiSelection = {
   reportingMonth: "",
   businessUnit: ALL_BUSINESS_UNITS_LABEL,
   template: EXECUTIVE_SCORECARD_TEMPLATE,
+};
+
+type OdmSelection = {
+  reportingYear: string;
+  reportingMonth: string;
+  facility: string;
+  template: OdmTemplate;
+};
+
+const defaultOdmSelection: OdmSelection = {
+  reportingYear: "",
+  reportingMonth: "",
+  facility: ALL_FACILITIES_LABEL,
+  template: ODM_EXECUTIVE_SUMMARY_TEMPLATE,
 };
 
 function formatBytes(bytes: number) {
@@ -125,6 +154,15 @@ export default function PresentationCenter() {
   const [monthlyKpiOptionsError, setMonthlyKpiOptionsError] = useState<
     string | null
   >(null);
+  const [odmDialogOpen, setOdmDialogOpen] = useState(false);
+  const [odmDialogGeneratorId, setOdmDialogGeneratorId] =
+    useState<string | null>(null);
+  const [odmSelection, setOdmSelection] =
+    useState<OdmSelection>(defaultOdmSelection);
+  const [odmOptions, setOdmOptions] =
+    useState<OdmAvailableOptions>(emptyOdmOptions);
+  const [odmOptionsLoading, setOdmOptionsLoading] = useState(false);
+  const [odmOptionsError, setOdmOptionsError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const monthlyKpiBusinessUnitOptions = [
@@ -144,6 +182,21 @@ export default function PresentationCenter() {
     !monthlyKpiOptionsError &&
     monthlyKpiOptions.years.length > 0 &&
     monthlyKpiOptions.months.length > 0;
+  const odmFacilityOptions = [
+    ALL_FACILITIES_LABEL,
+    ...(odmOptions.facilities.length ? odmOptions.facilities : []),
+  ];
+  const odmCanGenerate =
+    Boolean(
+      odmSelection.reportingYear &&
+      odmSelection.reportingMonth &&
+      odmSelection.facility &&
+      odmSelection.template
+    ) &&
+    !odmOptionsLoading &&
+    !odmOptionsError &&
+    odmOptions.years.length > 0 &&
+    odmOptions.months.length > 0;
 
   const filteredUploaded = useMemo(() => {
     const normalizedQuery = query.toLowerCase().trim();
@@ -258,6 +311,57 @@ export default function PresentationCenter() {
     }
   }
 
+  async function openOdmDialog(generatorId: string) {
+    setOdmDialogGeneratorId(generatorId);
+    setOdmDialogOpen(true);
+    setOdmOptionsLoading(true);
+    setOdmOptionsError(null);
+    try {
+      const options = await getAvailableOdmScorecardOptions();
+      setOdmOptions(options);
+      if (options.years.length === 0 || options.months.length === 0) {
+        setOdmSelection(defaultOdmSelection);
+        setOdmOptionsError(
+          "No persisted Operator-Driven Maintenance records are available for presentation generation."
+        );
+        return;
+      }
+      setOdmSelection(previous => {
+        const previousYear = Number(previous.reportingYear);
+        const previousMonth = Number(previous.reportingMonth);
+        const facility =
+          previous.facility !== ALL_FACILITIES_LABEL &&
+          options.facilities.includes(previous.facility)
+            ? previous.facility
+            : ALL_FACILITIES_LABEL;
+        return {
+          reportingYear: String(
+            options.years.includes(previousYear)
+              ? previousYear
+              : options.years[0]
+          ),
+          reportingMonth: String(
+            options.months.includes(previousMonth)
+              ? previousMonth
+              : options.months[0]
+          ),
+          facility,
+          template: ODM_EXECUTIVE_SUMMARY_TEMPLATE,
+        };
+      });
+    } catch (error) {
+      console.error("[PresentationCenter] ODM options failed", error);
+      setOdmOptions(emptyOdmOptions);
+      setOdmSelection(defaultOdmSelection);
+      setOdmOptionsError(
+        "Unable to load persisted Operator-Driven Maintenance records. Please try again."
+      );
+      toast.error("Unable to load Operator-Driven Maintenance generation options.");
+    } finally {
+      setOdmOptionsLoading(false);
+    }
+  }
+
   async function runGenerator(
     generatorId: string,
     generationContext: Omit<Partial<DeckGenerationContext>, "generatedBy"> = {}
@@ -316,6 +420,26 @@ export default function PresentationCenter() {
     if (generatedDeck) {
       setMonthlyKpiDialogOpen(false);
       setMonthlyKpiDialogGeneratorId(null);
+    }
+  }
+
+  async function handleOdmGenerate() {
+    if (!odmDialogGeneratorId) return;
+    const reportingYear = Number(odmSelection.reportingYear);
+    const reportingMonth = Number(odmSelection.reportingMonth);
+    if (!Number.isInteger(reportingYear) || !Number.isInteger(reportingMonth)) {
+      toast.error("Select a valid reporting year and month.");
+      return;
+    }
+    const generatedDeck = await runGenerator(odmDialogGeneratorId, {
+      reportingYear,
+      reportingMonth,
+      facility: odmSelection.facility,
+      template: odmSelection.template,
+    });
+    if (generatedDeck) {
+      setOdmDialogOpen(false);
+      setOdmDialogGeneratorId(null);
     }
   }
 
@@ -567,11 +691,14 @@ export default function PresentationCenter() {
                       {generator.status === "active" ? "ACTIVE" : "Coming Soon"}
                     </span>
                     <button
-                      onClick={() =>
-                        generator.id === monthlyKpiGeneratorId
-                          ? void openMonthlyKpiDialog(generator.id)
-                          : void runGenerator(generator.id)
-                      }
+	                      onClick={() =>
+	                        generator.id === monthlyKpiGeneratorId
+	                          ? void openMonthlyKpiDialog(generator.id)
+	                          : generator.id ===
+	                              operatorDrivenMaintenanceGeneratorId
+	                            ? void openOdmDialog(generator.id)
+	                          : void runGenerator(generator.id)
+	                      }
                       disabled={isActive}
                       className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold transition disabled:opacity-60 ${generator.enabled ? "bg-[#005BAC] text-white hover:bg-[#004A8F]" : "border border-[#D6DFE8] bg-white text-[#005BAC] hover:bg-[#EEF6FF]"}`}
                     >
@@ -620,7 +747,10 @@ export default function PresentationCenter() {
                             deck.reportingMonth,
                             deck.reportingYear
                           )}{" "}
-                          • {deck.businessUnit || ALL_BUSINESS_UNITS_LABEL}
+	                          •{" "}
+	                          {deck.businessUnit ||
+	                            deck.facility ||
+	                            ALL_BUSINESS_UNITS_LABEL}
                         </div>
                       )}
                       {deck.template && (
@@ -834,6 +964,184 @@ export default function PresentationCenter() {
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F] disabled:opacity-60"
               >
                 {activeGeneratorId === monthlyKpiDialogGeneratorId && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                Generate PPTX
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {odmDialogOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="odm-pptx-title"
+            className="w-full max-w-2xl rounded-xl bg-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[#E2E8F0] px-5 py-4">
+              <div>
+                <h2
+                  id="odm-pptx-title"
+                  className="text-lg font-bold text-[#0B1D44]"
+                >
+                  Generate Operator-Driven Maintenance PPTX
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Select persisted inspection records for the Executive Summary
+                  scorecard deck.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => {
+                  setOdmDialogOpen(false);
+                  setOdmDialogGeneratorId(null);
+                }}
+                disabled={activeGeneratorId === odmDialogGeneratorId}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D6DFE8] text-slate-600 hover:bg-[#F8FAFC] disabled:opacity-60"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-5">
+              {odmOptionsLoading && (
+                <div className="flex items-center gap-2 rounded-lg border border-[#D6DFE8] bg-[#F8FBFF] px-3 py-2 text-sm text-slate-600">
+                  <Loader2 className="h-4 w-4 animate-spin text-[#005BAC]" />
+                  Loading persisted Operator-Driven Maintenance records...
+                </div>
+              )}
+
+              {odmOptionsError && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {odmOptionsError}
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Reporting Year
+                  <select
+                    value={odmSelection.reportingYear}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        reportingYear: event.target.value,
+                      }))
+                    }
+                    disabled={
+                      odmOptionsLoading || odmOptions.years.length === 0
+                    }
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {odmOptions.years.length ? (
+                      odmOptions.years.map(year => (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">No years available</option>
+                    )}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Reporting Month
+                  <select
+                    value={odmSelection.reportingMonth}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        reportingMonth: event.target.value,
+                      }))
+                    }
+                    disabled={
+                      odmOptionsLoading || odmOptions.months.length === 0
+                    }
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {odmOptions.months.length ? (
+                      odmOptions.months.map(month => (
+                        <option key={month} value={month}>
+                          {MONTH_NAMES[month - 1] || `Month ${month}`}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">No months available</option>
+                    )}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Facility / Site
+                  <select
+                    value={odmSelection.facility}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        facility: event.target.value,
+                      }))
+                    }
+                    disabled={odmOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {odmFacilityOptions.map(facility => (
+                      <option key={facility} value={facility}>
+                        {facility}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Template
+                  <select
+                    value={odmSelection.template}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        template: event.target.value as OdmTemplate,
+                      }))
+                    }
+                    disabled={odmOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {ODM_TEMPLATE_OPTIONS.map(template => (
+                      <option key={template} value={template}>
+                        {template}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#E2E8F0] px-5 py-4 sm:flex-row sm:items-center sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setOdmDialogOpen(false);
+                  setOdmDialogGeneratorId(null);
+                }}
+                disabled={activeGeneratorId === odmDialogGeneratorId}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF] disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleOdmGenerate()}
+                disabled={
+                  !odmCanGenerate || activeGeneratorId === odmDialogGeneratorId
+                }
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F] disabled:opacity-60"
+              >
+                {activeGeneratorId === odmDialogGeneratorId && (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 )}
                 Generate PPTX
