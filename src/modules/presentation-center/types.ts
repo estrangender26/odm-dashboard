@@ -35,6 +35,11 @@ export type GeneratedPresentation = {
   reportingMonth?: number;
   businessUnit?: string;
   facility?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  equipmentType?: string;
+  category?: string;
+  inspector?: string;
   template?: string;
   filename?: string;
   generatedAt?: string;
@@ -50,6 +55,11 @@ export type DeckGenerationContext = {
   reportingMonth?: number;
   businessUnit?: string;
   facility?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  equipmentType?: string;
+  category?: string;
+  inspector?: string;
   template?: PresentationTemplate;
 };
 

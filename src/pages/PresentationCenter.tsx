@@ -26,6 +26,7 @@ import {
 import {
   ALL_FACILITIES_LABEL,
   getAvailableOdmScorecardOptions,
+  getOdmMonthDateRange,
   ODM_EXECUTIVE_SUMMARY_TEMPLATE,
   ODM_TEMPLATE_OPTIONS,
   type OdmAvailableOptions,
@@ -76,6 +77,9 @@ const emptyOdmOptions: OdmAvailableOptions = {
   years: [],
   months: [],
   facilities: [],
+  equipmentTypes: [],
+  categories: [],
+  inspectors: [],
 };
 
 type MonthlyKpiSelection = {
@@ -95,14 +99,24 @@ const defaultMonthlyKpiSelection: MonthlyKpiSelection = {
 type OdmSelection = {
   reportingYear: string;
   reportingMonth: string;
+  dateFrom: string;
+  dateTo: string;
   facility: string;
+  equipmentType: string;
+  category: string;
+  inspector: string;
   template: OdmTemplate;
 };
 
 const defaultOdmSelection: OdmSelection = {
   reportingYear: "",
   reportingMonth: "",
+  dateFrom: "",
+  dateTo: "",
   facility: ALL_FACILITIES_LABEL,
+  equipmentType: "",
+  category: "",
+  inspector: "",
   template: ODM_EXECUTIVE_SUMMARY_TEMPLATE,
 };
 
@@ -125,6 +139,15 @@ function formatDate(value: string) {
 function formatReportingPeriod(month?: number, year?: number) {
   if (!month || !year) return "";
   return getReportingPeriodLabel(month, year);
+}
+
+function getOdmSelectionDateRange(yearValue: string, monthValue: string) {
+  const reportingYear = Number(yearValue);
+  const reportingMonth = Number(monthValue);
+  if (!Number.isInteger(reportingYear) || !Number.isInteger(reportingMonth)) {
+    return { dateFrom: "", dateTo: "" };
+  }
+  return getOdmMonthDateRange(reportingYear, reportingMonth);
 }
 
 export default function PresentationCenter() {
@@ -186,10 +209,15 @@ export default function PresentationCenter() {
     ALL_FACILITIES_LABEL,
     ...(odmOptions.facilities.length ? odmOptions.facilities : []),
   ];
+  const odmEquipmentTypeOptions = ["", ...odmOptions.equipmentTypes];
+  const odmCategoryOptions = ["", ...odmOptions.categories];
+  const odmInspectorOptions = ["", ...odmOptions.inspectors];
   const odmCanGenerate =
     Boolean(
       odmSelection.reportingYear &&
       odmSelection.reportingMonth &&
+      odmSelection.dateFrom &&
+      odmSelection.dateTo &&
       odmSelection.facility &&
       odmSelection.template
     ) &&
@@ -329,23 +357,33 @@ export default function PresentationCenter() {
       setOdmSelection(previous => {
         const previousYear = Number(previous.reportingYear);
         const previousMonth = Number(previous.reportingMonth);
+        const selectedYear = options.years.includes(previousYear)
+          ? previousYear
+          : options.years[0];
+        const selectedMonth = options.months.includes(previousMonth)
+          ? previousMonth
+          : options.months[0];
+        const dateRange = getOdmMonthDateRange(selectedYear, selectedMonth);
         const facility =
           previous.facility !== ALL_FACILITIES_LABEL &&
           options.facilities.includes(previous.facility)
             ? previous.facility
             : ALL_FACILITIES_LABEL;
         return {
-          reportingYear: String(
-            options.years.includes(previousYear)
-              ? previousYear
-              : options.years[0]
-          ),
-          reportingMonth: String(
-            options.months.includes(previousMonth)
-              ? previousMonth
-              : options.months[0]
-          ),
+          reportingYear: String(selectedYear),
+          reportingMonth: String(selectedMonth),
+          dateFrom: previous.dateFrom || dateRange.dateFrom,
+          dateTo: previous.dateTo || dateRange.dateTo,
           facility,
+          equipmentType: options.equipmentTypes.includes(previous.equipmentType)
+            ? previous.equipmentType
+            : "",
+          category: options.categories.includes(previous.category)
+            ? previous.category
+            : "",
+          inspector: options.inspectors.includes(previous.inspector)
+            ? previous.inspector
+            : "",
           template: ODM_EXECUTIVE_SUMMARY_TEMPLATE,
         };
       });
@@ -434,7 +472,12 @@ export default function PresentationCenter() {
     const generatedDeck = await runGenerator(odmDialogGeneratorId, {
       reportingYear,
       reportingMonth,
+      dateFrom: odmSelection.dateFrom,
+      dateTo: odmSelection.dateTo,
       facility: odmSelection.facility,
+      equipmentType: odmSelection.equipmentType,
+      category: odmSelection.category,
+      inspector: odmSelection.inspector,
       template: odmSelection.template,
     });
     if (generatedDeck) {
@@ -753,6 +796,18 @@ export default function PresentationCenter() {
 	                            ALL_BUSINESS_UNITS_LABEL}
                         </div>
                       )}
+                      {deck.dateFrom && deck.dateTo && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          {deck.dateFrom} to {deck.dateTo}
+                        </div>
+                      )}
+                      {(deck.equipmentType || deck.category || deck.inspector) && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          {[deck.equipmentType, deck.category, deck.inspector]
+                            .filter(Boolean)
+                            .join(" • ")}
+                        </div>
+                      )}
                       {deck.template && (
                         <div className="mt-1 text-xs text-slate-500">
                           Template: {deck.template}
@@ -1027,12 +1082,17 @@ export default function PresentationCenter() {
                   Reporting Year
                   <select
                     value={odmSelection.reportingYear}
-                    onChange={event =>
+                    onChange={event => {
+                      const reportingYear = event.target.value;
                       setOdmSelection(previous => ({
                         ...previous,
-                        reportingYear: event.target.value,
-                      }))
-                    }
+                        reportingYear,
+                        ...getOdmSelectionDateRange(
+                          reportingYear,
+                          previous.reportingMonth
+                        ),
+                      }));
+                    }}
                     disabled={
                       odmOptionsLoading || odmOptions.years.length === 0
                     }
@@ -1054,12 +1114,17 @@ export default function PresentationCenter() {
                   Reporting Month
                   <select
                     value={odmSelection.reportingMonth}
-                    onChange={event =>
+                    onChange={event => {
+                      const reportingMonth = event.target.value;
                       setOdmSelection(previous => ({
                         ...previous,
-                        reportingMonth: event.target.value,
-                      }))
-                    }
+                        reportingMonth,
+                        ...getOdmSelectionDateRange(
+                          previous.reportingYear,
+                          reportingMonth
+                        ),
+                      }));
+                    }}
                     disabled={
                       odmOptionsLoading || odmOptions.months.length === 0
                     }
@@ -1078,7 +1143,39 @@ export default function PresentationCenter() {
                 </label>
 
                 <label className="text-sm font-semibold text-[#0B1D44]">
-                  Facility / Site
+                  Date From
+                  <input
+                    type="date"
+                    value={odmSelection.dateFrom}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        dateFrom: event.target.value,
+                      }))
+                    }
+                    disabled={odmOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  />
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Date To
+                  <input
+                    type="date"
+                    value={odmSelection.dateTo}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        dateTo: event.target.value,
+                      }))
+                    }
+                    disabled={odmOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  />
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Plant / Facility
                   <select
                     value={odmSelection.facility}
                     onChange={event =>
@@ -1093,6 +1190,69 @@ export default function PresentationCenter() {
                     {odmFacilityOptions.map(facility => (
                       <option key={facility} value={facility}>
                         {facility}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Equipment Type
+                  <select
+                    value={odmSelection.equipmentType}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        equipmentType: event.target.value,
+                      }))
+                    }
+                    disabled={odmOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {odmEquipmentTypeOptions.map(equipmentType => (
+                      <option key={equipmentType || "all"} value={equipmentType}>
+                        {equipmentType || "All Equipment Types"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Category
+                  <select
+                    value={odmSelection.category}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        category: event.target.value,
+                      }))
+                    }
+                    disabled={odmOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {odmCategoryOptions.map(category => (
+                      <option key={category || "all"} value={category}>
+                        {category || "All Categories"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Inspector
+                  <select
+                    value={odmSelection.inspector}
+                    onChange={event =>
+                      setOdmSelection(previous => ({
+                        ...previous,
+                        inspector: event.target.value,
+                      }))
+                    }
+                    disabled={odmOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {odmInspectorOptions.map(inspector => (
+                      <option key={inspector || "all"} value={inspector}>
+                        {inspector || "All Inspectors"}
                       </option>
                     ))}
                   </select>

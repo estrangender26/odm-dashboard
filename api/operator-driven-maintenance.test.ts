@@ -29,11 +29,11 @@ function expectInOrder(source: string, tokens: string[]) {
 }
 
 describe("Operator-Driven Maintenance records API", () => {
-  it("registers a read-only inspections route over existing mw_inspections rows", () => {
+  it("keeps the read-only inspections route over existing mw_inspections rows", () => {
     const getRoute = routeBlock("get", "/api/operator-driven-maintenance/inspections");
     const query = sourceBlock(
       "async function fetchOdmInspectionsForResponse",
-      "app.get(\"/api/operator-driven-maintenance/inspections\""
+      "function isOdmDateParam"
     );
 
     expect(query).toContain("FROM mw_inspections");
@@ -44,9 +44,25 @@ describe("Operator-Driven Maintenance records API", () => {
     expect(getRoute).toContain("return c.json({ records })");
   });
 
-  it("returns the fields required by the ODM presentation generator", () => {
+  it("registers a read-only dashboard summary route using shared ODM dashboard aggregation", () => {
+    const summaryRoute = routeBlock("get", "/api/operator-driven-maintenance/summary");
     const query = sourceBlock(
-      "async function fetchOdmInspectionsForResponse",
+      "async function fetchOdmDashboardSummaryForResponse",
+      "app.get(\"/api/operator-driven-maintenance/inspections\""
+    );
+
+    expect(query).toContain("FROM mw_inspections");
+    expect(query).toContain("mapInspectionToDashboardRow");
+    expect(query).toContain("buildOdmDashboardScorecard");
+    expect(query).not.toContain("INSERT INTO");
+    expect(query).not.toContain("DELETE FROM");
+    expect(query).not.toContain("UPDATE mw_inspections");
+    expect(summaryRoute).toContain("return c.json({ ...scorecard, records: scorecard.rows })");
+  });
+
+  it("returns the fields required by the dashboard summary and ODM presentation generator", () => {
+    const query = sourceBlock(
+      "async function fetchOdmDashboardSummaryForResponse",
       "app.get(\"/api/operator-driven-maintenance/inspections\""
     );
 
@@ -59,6 +75,8 @@ describe("Operator-Driven Maintenance records API", () => {
       "equipment_type,",
       "category,",
       "task,",
+      "capture1_label,",
+      "capture1_response,",
       "escalation_trigger,",
       "entry_notes,",
       "status,",
@@ -70,18 +88,18 @@ describe("Operator-Driven Maintenance records API", () => {
     ]);
   });
 
-  it("supports reporting period and facility filters without destructive database changes", () => {
-    const getRoute = routeBlock("get", "/api/operator-driven-maintenance/inspections");
-    const filterBlock = sourceBlock(
-      "return rowsFromDb<Record<string, unknown>>(rows).filter(record => {",
-      "app.get(\"/api/operator-driven-maintenance/inspections\""
-    );
+  it("supports dashboard date range and plant/equipment/category/inspector filters", () => {
+    const summaryRoute = routeBlock("get", "/api/operator-driven-maintenance/summary");
 
-    expect(getRoute).toContain("c.req.query(\"reporting_year\")");
-    expect(getRoute).toContain("c.req.query(\"reporting_month\")");
-    expect(getRoute).toContain("c.req.query(\"facility_id\")");
-    expect(getRoute).toContain("reporting_month query parameter must be between 1 and 12");
-    expect(filterBlock).toContain("parts.year !== reportingYear");
-    expect(filterBlock).toContain("parts.month !== reportingMonth");
+    expect(summaryRoute).toContain("c.req.query(\"date_from\")");
+    expect(summaryRoute).toContain("c.req.query(\"date_to\")");
+    expect(summaryRoute).toContain("c.req.query(\"facility_id\")");
+    expect(summaryRoute).toContain("c.req.query(\"plant\")");
+    expect(summaryRoute).toContain("c.req.query(\"equipment_type\")");
+    expect(summaryRoute).toContain("c.req.query(\"category\")");
+    expect(summaryRoute).toContain("c.req.query(\"inspector\")");
+    expect(summaryRoute).toContain("date_from query parameter must be YYYY-MM-DD");
+    expect(summaryRoute).toContain("date_to query parameter must be YYYY-MM-DD");
+    expect(summaryRoute).not.toContain("reporting_month");
   });
 });
