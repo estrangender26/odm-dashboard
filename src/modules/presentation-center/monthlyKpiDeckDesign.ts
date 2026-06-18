@@ -1,0 +1,70 @@
+export const MONTHLY_KPI_DECK_SOURCE_LABEL =
+  "Monthly Scorecard: Maintenance KPIs";
+
+export const MONTHLY_KPI_DECK_DESIGN = {
+  slide: {
+    layout: "LAYOUT_WIDE",
+    width: 13.333,
+    height: 7.5,
+  },
+  margins: {
+    x: 0.55,
+    top: 0.32,
+    contentTop: 1.34,
+    footerTop: 6.92,
+    footerHeight: 0.44,
+  },
+  fonts: {
+    title: "Aptos Display",
+    heading: "Aptos",
+    body: "Aptos",
+    numeric: "Aptos",
+  },
+  typography: {
+    min: 14,
+    coverTitle: 34,
+    slideTitle: 30,
+    sectionHeading: 18,
+    body: 14,
+    subtitle: 16,
+    cardTitle: 16,
+    kpiValue: 28,
+    footer: 14,
+  },
+  colors: {
+    white: "FFFFFF",
+    text: "0C0C0C",
+    mutedText: "595959",
+    navy: "002060",
+    headerNavy: "003B6F",
+    accentBlue: "0070C0",
+    accentBlueDark: "215E99",
+    paleBlue: "E7F0FA",
+    paleNavy: "E7EAED",
+    paleGreen: "EAF5E2",
+    paleYellow: "FFF2CC",
+    paleRed: "FCE4D6",
+    border: "CCD2D8",
+    cardFill: "FFFFFF",
+    cardAltFill: "F7F9FC",
+    noData: "E7EAED",
+    noDataText: "595959",
+    success: "00B050",
+    warning: "FFC000",
+    danger: "C00000",
+  },
+  table: {
+    headerFill: "0070C0",
+    firstColumnFill: "E7EAED",
+    border: "CCD2D8",
+  },
+  footer: {
+    fill: "002060",
+    color: "FFFFFF",
+  },
+  cards: {
+    fill: "FFFFFF",
+    alternateFill: "F7F9FC",
+    border: "CCD2D8",
+  },
+} as const;

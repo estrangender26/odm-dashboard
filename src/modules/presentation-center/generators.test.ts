@@ -7,6 +7,7 @@ import {
   buildPortfolioKpiCards,
   buildYtdScorecardRows,
   generateMonthlyKpiDeck,
+  MONTHLY_KPI_DECK_DESIGN,
   MONTHLY_KPI_DECK_SOURCE_LABEL,
   MONTHLY_KPI_NOTES_FALLBACK,
 } from "./generators";
@@ -163,6 +164,10 @@ describe("Monthly KPI presentation generator", () => {
     const [titleSlide] = buildMonthlyKpiSlides(makeDataset([makeRecord()]));
     const title = textElement(
       titleSlide,
+      text => text === MONTHLY_KPI_DECK_SOURCE_LABEL
+    );
+    const scorecardContext = textElement(
+      titleSlide,
       text => text === "Monthly KPI Scorecard"
     );
     const scope = textElement(
@@ -179,9 +184,13 @@ describe("Monthly KPI presentation generator", () => {
     );
 
     if (!timestamp) throw new Error("Expected timestamp text element");
-    expect(title.y + title.h).toBeLessThanOrEqual(scope.y);
-    expect(scope.y + scope.h).toBeLessThanOrEqual(period.y);
+    expect(title.y + title.h).toBeLessThanOrEqual(scorecardContext.y);
+    expect(scorecardContext.y + scorecardContext.h).toBeLessThanOrEqual(
+      Math.min(scope.y, period.y)
+    );
+    expect(period.x + period.w).toBeLessThanOrEqual(scope.x);
     expect(period.y + period.h).toBeLessThanOrEqual(source.y);
+    expect(scope.y + scope.h).toBeLessThanOrEqual(source.y);
     expect(source.x + source.w).toBeLessThanOrEqual(timestamp.x);
   });
 
@@ -201,6 +210,43 @@ describe("Monthly KPI presentation generator", () => {
       `May 2026 | ${ALL_BUSINESS_UNITS_LABEL} | ODM Dashboard`
     );
     expect(deckText).not.toContain("Generated from ODM Dashboard");
+  });
+
+  it("uses reusable Engineering roadmap design tokens", () => {
+    const [coverSlide, summarySlide] = buildMonthlyKpiSlides(
+      makeDataset([makeRecord()])
+    );
+
+    expect(MONTHLY_KPI_DECK_DESIGN.slide).toMatchObject({
+      layout: "LAYOUT_WIDE",
+      width: 13.333,
+      height: 7.5,
+    });
+    expect(MONTHLY_KPI_DECK_DESIGN.fonts).toMatchObject({
+      title: "Aptos Display",
+      body: "Aptos",
+    });
+    expect(MONTHLY_KPI_DECK_DESIGN.colors).toMatchObject({
+      navy: "002060",
+      accentBlue: "0070C0",
+      success: "00B050",
+      warning: "FFC000",
+      danger: "C00000",
+    });
+    expect(
+      coverSlide.elements.some(
+        element =>
+          element.type === "shape" &&
+          element.fill === MONTHLY_KPI_DECK_DESIGN.colors.navy
+      )
+    ).toBe(true);
+    expect(
+      summarySlide.elements.some(
+        element =>
+          element.type === "shape" &&
+          element.fill === MONTHLY_KPI_DECK_DESIGN.footer.fill
+      )
+    ).toBe(true);
   });
 
   it("builds the expected polished slide titles with no font below 14pt", () => {
@@ -277,9 +323,22 @@ describe("Monthly KPI presentation generator", () => {
     expect(rows[1][1]).toBe("0.00%");
     expect(rows[2][1]).toBe("No Data");
     expect(records[0].pmCompliance).toBe(0);
-    expect(ytdTable.cellFills?.[1][1]).toBe("DC2626");
-    expect(ytdTable.cellFills?.[2][1]).toBe("E5E7EB");
-    expect(ytdTable.cellFills?.[5][1]).toBe("0A9B6E");
+    expect(ytdTable.fontSize).toBeGreaterThanOrEqual(14);
+    expect(Math.min(...(ytdTable.rowHeights || []))).toBeGreaterThanOrEqual(
+      0.44
+    );
+    expect(ytdTable.cellFills?.[0][0]).toBe(
+      MONTHLY_KPI_DECK_DESIGN.table.headerFill
+    );
+    expect(ytdTable.cellFills?.[1][1]).toBe(
+      MONTHLY_KPI_DECK_DESIGN.colors.danger
+    );
+    expect(ytdTable.cellFills?.[2][1]).toBe(
+      MONTHLY_KPI_DECK_DESIGN.colors.noData
+    );
+    expect(ytdTable.cellFills?.[5][1]).toBe(
+      MONTHLY_KPI_DECK_DESIGN.colors.success
+    );
   });
 
   it("builds the current-month matrix in dashboard business-unit order", () => {
@@ -311,8 +370,16 @@ describe("Monthly KPI presentation generator", () => {
     ]);
     expect(rows[2][1]).toBe("0.00%");
     expect(rows[3][1]).toBe("No Data");
-    expect(matrixTable.cellFills?.[2][1]).toBe("DC2626");
-    expect(matrixTable.cellFills?.[3][1]).toBe("E5E7EB");
+    expect(matrixTable.fontSize).toBeGreaterThanOrEqual(14);
+    expect(Math.min(...(matrixTable.rowHeights || []))).toBeGreaterThanOrEqual(
+      0.44
+    );
+    expect(matrixTable.cellFills?.[2][1]).toBe(
+      MONTHLY_KPI_DECK_DESIGN.colors.danger
+    );
+    expect(matrixTable.cellFills?.[3][1]).toBe(
+      MONTHLY_KPI_DECK_DESIGN.colors.noData
+    );
   });
 
   it("renders the six portfolio KPI cards with exact benchmark labels", () => {
