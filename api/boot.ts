@@ -16,6 +16,11 @@ import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
 import { aggregateMonthlyKpiRecords, normalizeBusinessUnitLabel } from "../src/modules/monthly-kpi/kpiAggregation";
 import type { PersistedMonthlyKpiRecord } from "../src/modules/monthly-kpi/kpiAggregation";
+import {
+  buildOdmDashboardScorecard,
+  mapInspectionToDashboardRow,
+  type OdmDashboardFilters,
+} from "../src/modules/operator-driven-maintenance/dashboardSummary";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -770,6 +775,44 @@ async function fetchOdmInspectionsForResponse(filters: {
   });
 }
 
+function isOdmDateParam(value: string | null | undefined) {
+  return !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+async function fetchOdmDashboardSummaryForResponse(filters: OdmDashboardFilters = {}) {
+  const rows = await getDb().execute(sql`
+    SELECT
+      id,
+      submission_id,
+      facility_id,
+      inspector,
+      inspection_date,
+      asset_tag,
+      asset_name,
+      equipment_type,
+      category,
+      task,
+      capture1_label,
+      capture1_response,
+      escalation_trigger,
+      entry_notes,
+      status,
+      score,
+      findings,
+      date,
+      submitted_at,
+      frequency,
+      updated_by,
+      updated_at
+    FROM mw_inspections
+    ORDER BY date DESC NULLS LAST, submitted_at DESC NULLS LAST, id DESC
+  `);
+  const dashboardRows = rowsFromDb<Record<string, unknown>>(rows).map(
+    mapInspectionToDashboardRow
+  );
+  return buildOdmDashboardScorecard(dashboardRows, filters);
+}
+
 app.get("/api/operator-driven-maintenance/inspections", async (c) => {
   try {
     preventOdmResponseCaching(c);
@@ -781,11 +824,15 @@ app.get("/api/operator-driven-maintenance/inspections", async (c) => {
     if (reportingYearParam && !Number.isInteger(reportingYear)) {
       return c.json({ error: "reporting_year query parameter must be an integer" }, 400);
     }
-    if (
-      reportingMonthParam &&
-      (!Number.isInteger(reportingMonth) || reportingMonth < 1 || reportingMonth > 12)
-    ) {
-      return c.json({ error: "reporting_month query parameter must be between 1 and 12" }, 400);
+    if (reportingMonthParam) {
+      if (
+        reportingMonth === null ||
+        !Number.isInteger(reportingMonth) ||
+        reportingMonth < 1 ||
+        reportingMonth > 12
+      ) {
+        return c.json({ error: "reporting_month query parameter must be between 1 and 12" }, 400);
+      }
     }
     const records = await fetchOdmInspectionsForResponse({
       facilityId: c.req.query("facility_id")?.trim() || null,
@@ -796,6 +843,36 @@ app.get("/api/operator-driven-maintenance/inspections", async (c) => {
   } catch (e: any) {
     console.error("[operator-driven-maintenance] GET inspections failed", e);
     return c.json({ error: e?.message ?? "Unable to fetch Operator-Driven Maintenance inspections" }, 500);
+  }
+});
+
+app.get("/api/operator-driven-maintenance/summary", async (c) => {
+  try {
+    preventOdmResponseCaching(c);
+    await ensureDbReady();
+    const dateFrom = c.req.query("date_from")?.trim() || null;
+    const dateTo = c.req.query("date_to")?.trim() || null;
+    if (!isOdmDateParam(dateFrom)) {
+      return c.json({ error: "date_from query parameter must be YYYY-MM-DD" }, 400);
+    }
+    if (!isOdmDateParam(dateTo)) {
+      return c.json({ error: "date_to query parameter must be YYYY-MM-DD" }, 400);
+    }
+    const scorecard = await fetchOdmDashboardSummaryForResponse({
+      dateFrom,
+      dateTo,
+      plant:
+        c.req.query("facility_id")?.trim() ||
+        c.req.query("plant")?.trim() ||
+        null,
+      equipmentType: c.req.query("equipment_type")?.trim() || null,
+      category: c.req.query("category")?.trim() || null,
+      inspector: c.req.query("inspector")?.trim() || null,
+    });
+    return c.json({ ...scorecard, records: scorecard.rows });
+  } catch (e: any) {
+    console.error("[operator-driven-maintenance] GET summary failed", e);
+    return c.json({ error: e?.message ?? "Unable to fetch Operator-Driven Maintenance dashboard summary" }, 500);
   }
 });
 

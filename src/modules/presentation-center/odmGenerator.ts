@@ -1,11 +1,10 @@
 import { createPresentation } from "./pptxBuilder";
 import { MONTHLY_KPI_DECK_DESIGN } from "./monthlyKpiDeckDesign";
 import {
-  ALL_FACILITIES_LABEL,
+  getOdmMonthDateRange,
   getPersistedOdmScorecard,
   ODM_EXECUTIVE_SUMMARY_TEMPLATE,
   OPERATOR_DRIVEN_MAINTENANCE_SOURCE_LABEL,
-  type OdmInspectionRecord,
   type OdmScorecardDataset,
 } from "./odmScorecardData";
 import { blobToDataUrl } from "./storage";
@@ -14,6 +13,14 @@ import type {
   GeneratedPresentation,
   OdmTemplate,
 } from "./types";
+import {
+  hasNegativeFindings,
+  summarizeDashboardRows,
+  type OdmDashboardInsight,
+  type OdmDashboardRow,
+  type OdmDashboardScorecard,
+  type OdmDashboardSummary,
+} from "../operator-driven-maintenance/dashboardSummary";
 
 type PresentationSlide = Parameters<typeof createPresentation>[0][number];
 type PresentationElement = PresentationSlide["elements"][number];
@@ -23,11 +30,11 @@ const DESIGN = MONTHLY_KPI_DECK_DESIGN;
 const COLORS = DESIGN.colors;
 const MIN_DECK_FONT_SIZE = DESIGN.typography.min;
 const ODM_NO_FINDINGS_FALLBACK =
-  "No inspection findings were recorded for the selected reporting period.";
+  "No inspection findings were recorded for the selected dashboard scope.";
 const ODM_NO_ACTIONS_FALLBACK =
-  "No follow-up actions were recorded for the selected reporting period.";
+  "No follow-up actions were recorded for the selected dashboard scope.";
 const ODM_TREND_FALLBACK =
-  "Insufficient historical data available for trend view.";
+  "No dashboard negative-finding trend was available for the selected scope.";
 
 export { OPERATOR_DRIVEN_MAINTENANCE_SOURCE_LABEL };
 export const ODM_DECK_TITLE = OPERATOR_DRIVEN_MAINTENANCE_SOURCE_LABEL;
@@ -47,163 +54,19 @@ function text(value: unknown) {
 
 function truncate(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
-  return `${value.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
 }
 
-function isPresentNumber(value: number | null | undefined): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+function numberText(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function percent(value: number, digits = 1) {
+  return `${value.toFixed(digits)}%`;
 }
 
 function uniqueTexts(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map(text).filter(Boolean)));
-}
-
-function percent(value: number | null | undefined, digits = 1) {
-  return isPresentNumber(value) ? `${value.toFixed(digits)}%` : "No Data";
-}
-
-function numberValue(value: number | null | undefined) {
-  return isPresentNumber(value) ? String(value) : "No Data";
-}
-
-function average(values: Array<number | null | undefined>) {
-  const present = values.filter(isPresentNumber);
-  if (!present.length) return null;
-  return present.reduce((sum, value) => sum + value, 0) / present.length;
-}
-
-function normalizedStatus(record: OdmInspectionRecord) {
-  return text(record.status).toLowerCase();
-}
-
-function hasKnownStatus(record: OdmInspectionRecord) {
-  return Boolean(normalizedStatus(record));
-}
-
-function isCompletedInspection(record: OdmInspectionRecord) {
-  const status = normalizedStatus(record);
-  if (!status) return false;
-  return ![
-    "pending",
-    "open",
-    "in progress",
-    "not started",
-    "overdue",
-  ].some(value => status.includes(value));
-}
-
-function hasFinding(record: OdmInspectionRecord) {
-  return Boolean(text(record.findings));
-}
-
-function isClosedFinding(record: OdmInspectionRecord) {
-  const status = normalizedStatus(record);
-  return [
-    "closed",
-    "resolved",
-    "complete",
-    "completed",
-    "done",
-    "pass",
-    "passed",
-    "ok",
-  ].some(value => status.includes(value));
-}
-
-function isOpenFinding(record: OdmInspectionRecord) {
-  return hasFinding(record) && !isClosedFinding(record);
-}
-
-function isCriticalFinding(record: OdmInspectionRecord) {
-  const combined = [
-    record.escalationTrigger,
-    record.findings,
-    record.category,
-    record.status,
-  ]
-    .map(text)
-    .join(" ")
-    .toLowerCase();
-  return [
-    "critical",
-    "high",
-    "urgent",
-    "emergency",
-    "shutdown",
-    "danger",
-    "unsafe",
-    "severe",
-  ].some(keyword => combined.includes(keyword));
-}
-
-function isOverdueInspection(record: OdmInspectionRecord) {
-  return [record.status, record.escalationTrigger, record.findings]
-    .map(text)
-    .join(" ")
-    .toLowerCase()
-    .includes("overdue");
-}
-
-function recordDate(record: OdmInspectionRecord) {
-  const raw = text(record.date) || text(record.inspectionDate) || text(record.submittedAt);
-  if (!raw) return null;
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function weekOfMonth(record: OdmInspectionRecord) {
-  const date = recordDate(record);
-  if (!date) return null;
-  return Math.min(5, Math.floor((date.getDate() - 1) / 7) + 1);
-}
-
-function normalizeFindingKey(record: OdmInspectionRecord) {
-  return (text(record.findings) || text(record.category))
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function frequencyMap(values: string[]) {
-  const counts = new Map<string, number>();
-  values.forEach(value => counts.set(value, (counts.get(value) || 0) + 1));
-  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-}
-
-export function summarizeOdmRecords(records: OdmInspectionRecord[]) {
-  const totalRecords = records.length;
-  const statusRecords = records.filter(hasKnownStatus);
-  const completedRecords = statusRecords.filter(isCompletedInspection).length;
-  const completionRate = statusRecords.length
-    ? (completedRecords / statusRecords.length) * 100
-    : null;
-  const equipmentHealthScore = average(records.map(record => record.score));
-  const assetsCovered = uniqueTexts(
-    records.map(record => text(record.assetTag) || text(record.assetName))
-  ).length;
-  const facilitiesCovered = uniqueTexts(records.map(record => record.facilityId))
-    .length;
-  const openFindings = records.filter(isOpenFinding).length;
-  const criticalFindings = records.filter(
-    record => hasFinding(record) && isCriticalFinding(record)
-  ).length;
-  const overdueInspections = records.filter(isOverdueInspection).length;
-  const repeatFindings = frequencyMap(
-    records.map(normalizeFindingKey).filter(Boolean)
-  ).filter(([, count]) => count > 1).length;
-
-  return {
-    totalRecords,
-    statusRecords: statusRecords.length,
-    completionRate,
-    equipmentHealthScore,
-    assetsCovered,
-    facilitiesCovered,
-    openFindings,
-    criticalFindings,
-    overdueInspections,
-    repeatFindings,
-  };
 }
 
 function statusFill(status: KpiStatus) {
@@ -219,77 +82,101 @@ function statusTextColor(status: KpiStatus) {
     : COLORS.white;
 }
 
-function completionStatus(value: number | null): KpiStatus {
-  if (!isPresentNumber(value)) return "no-data";
-  if (value >= 90) return "success";
-  if (value >= 75) return "warning";
+function scoreStatus(value: number): KpiStatus {
+  if (value >= 95) return "success";
+  if (value >= 85) return "warning";
   return "danger";
 }
 
-function healthStatus(value: number | null): KpiStatus {
-  if (!isPresentNumber(value)) return "no-data";
-  if (value >= 85) return "success";
-  if (value >= 70) return "warning";
+function riskStatus(value: OdmDashboardSummary["predictiveRisk"]): KpiStatus {
+  if (value === "Normal") return "success";
+  if (value === "Elevated") return "warning";
   return "danger";
 }
 
-function countStatus(value: number, inverse = false): KpiStatus {
-  if (inverse) {
-    if (value === 0) return "success";
-    if (value <= 3) return "warning";
-    return "danger";
+function summaryAlertStatus(
+  summary: OdmDashboardSummary,
+  insights: OdmDashboardInsight[]
+): KpiStatus {
+  if (!summary.alertCount) return "success";
+  if (insights.some(insight => insight.severity === "critical")) return "danger";
+  if (insights.some(insight => insight.severity === "high")) return "warning";
+  return "success";
+}
+
+export function summarizeOdmRecords(records: OdmDashboardRow[]) {
+  return summarizeDashboardRows(records);
+}
+
+function getScorecard(
+  input: OdmScorecardDataset | OdmDashboardScorecard | OdmDashboardRow[]
+) {
+  if (Array.isArray(input)) {
+    const summary = summarizeDashboardRows(input);
+    return {
+      rows: input,
+      summary,
+      insights: [],
+      facilityBreakdown: [],
+      findingThemes: [],
+      trend: [],
+      notes: input.filter(row => text(row.EntryNotes)),
+    } as Pick<
+      OdmDashboardScorecard,
+      | "rows"
+      | "summary"
+      | "insights"
+      | "facilityBreakdown"
+      | "findingThemes"
+      | "trend"
+      | "notes"
+    >;
   }
-  if (value > 0) return "success";
-  return "no-data";
+  if ("scorecard" in input) return input.scorecard;
+  return input;
 }
 
-export function buildOdmKpiCards(records: OdmInspectionRecord[]) {
-  const summary = summarizeOdmRecords(records);
+export function buildOdmKpiCards(
+  input: OdmScorecardDataset | OdmDashboardScorecard | OdmDashboardRow[]
+) {
+  const scorecard = getScorecard(input);
+  const summary = scorecard.summary;
   return [
     {
-      label: "Inspection Records Generated",
-      value: numberValue(summary.totalRecords),
-      interpretation:
-        summary.totalRecords > 0
-          ? "Persisted inspection records for selected scope"
-          : "No persisted inspections",
-      status: countStatus(summary.totalRecords),
+      label: "Total Inspections",
+      value: numberText(summary.totalInspections),
+      interpretation: "Dashboard-filtered inspection records",
+      status: summary.totalInspections > 0 ? "success" : "no-data",
     },
     {
-      label: "Inspection Completion Rate",
-      value: percent(summary.completionRate),
-      interpretation: summary.statusRecords
-        ? `${summary.statusRecords} records include status values`
-        : "No status values recorded",
-      status: completionStatus(summary.completionRate),
+      label: "Unique Assets",
+      value: numberText(summary.uniqueAssets),
+      interpretation: "Distinct dashboard asset tags",
+      status: summary.uniqueAssets > 0 ? "success" : "no-data",
     },
     {
-      label: "Equipment Health Score",
-      value: isPresentNumber(summary.equipmentHealthScore)
-        ? summary.equipmentHealthScore.toFixed(1)
-        : "No Data",
-      interpretation: isPresentNumber(summary.equipmentHealthScore)
-        ? "Average persisted inspection score"
-        : "No score values recorded",
-      status: healthStatus(summary.equipmentHealthScore),
+      label: "Health Score",
+      value: percent(summary.healthScore),
+      interpretation: "Dashboard abnormality-based health calculation",
+      status: scoreStatus(summary.healthScore),
     },
     {
-      label: "Assets Covered",
-      value: numberValue(summary.assetsCovered),
-      interpretation: "Distinct persisted asset tags/names",
-      status: countStatus(summary.assetsCovered),
+      label: "Data Quality / Completion Rate",
+      value: percent(summary.dataQualityScore),
+      interpretation: "Dashboard required-field completion score",
+      status: scoreStatus(summary.dataQualityScore),
     },
     {
-      label: "Facilities Covered",
-      value: numberValue(summary.facilitiesCovered),
-      interpretation: "Distinct facilities in selected scope",
-      status: countStatus(summary.facilitiesCovered),
+      label: "Predictive Risk",
+      value: summary.predictiveRisk,
+      interpretation: "Dashboard trend and abnormality risk signal",
+      status: riskStatus(summary.predictiveRisk),
     },
     {
-      label: "Open Findings",
-      value: numberValue(summary.openFindings),
-      interpretation: "Findings not marked closed/resolved/pass",
-      status: countStatus(summary.openFindings, true),
+      label: "Alerts / AI Insights",
+      value: summary.alertLabel,
+      interpretation: `${summary.insightCount} dashboard AI insight${summary.insightCount === 1 ? "" : "s"}`,
+      status: summaryAlertStatus(summary, scorecard.insights),
     },
   ] as const;
 }
@@ -320,10 +207,20 @@ function footer(dataset: OdmScorecardDataset): PresentationElement[] {
   ];
 }
 
+function scopeSubtitle(dataset: OdmScorecardDataset) {
+  const filters = [
+    dataset.facility,
+    dataset.equipmentType ? `Equipment: ${dataset.equipmentType}` : "",
+    dataset.category ? `Category: ${dataset.category}` : "",
+    dataset.inspector ? `Inspector: ${dataset.inspector}` : "",
+  ].filter(Boolean);
+  return `${dataset.dateFrom} to ${dataset.dateTo} | ${filters.join(" | ")}`;
+}
+
 function slideChrome(
   title: string,
   dataset: OdmScorecardDataset,
-  subtitle?: string
+  subtitle = scopeSubtitle(dataset)
 ): PresentationElement[] {
   return [
     {
@@ -358,11 +255,11 @@ function slideChrome(
     },
     {
       type: "text",
-      text: subtitle || `${dataset.reportingMonthLabel} | ${dataset.facility}`,
+      text: subtitle,
       x: DESIGN.margins.x,
       y: 0.88,
-      w: 9.3,
-      h: 0.28,
+      w: 11.6,
+      h: 0.3,
       fontFace: DESIGN.fonts.body,
       fontSize: DESIGN.typography.body,
       color: COLORS.mutedText,
@@ -376,7 +273,7 @@ function cardBase(
   y: number,
   w: number,
   h: number,
-  fill = COLORS.cardFill
+  fill: string = COLORS.cardFill
 ): PresentationElement[] {
   return [
     {
@@ -391,242 +288,10 @@ function cardBase(
   ];
 }
 
-function bulletText(items: string[], fallback: string) {
-  const visible = items.length ? items.slice(0, 4) : [fallback];
-  const overflow = items.length > 4 ? `\n+${items.length - 4} more` : "";
-  return `${visible.map(item => `• ${item}`).join("\n")}${overflow}`;
-}
-
-function buildExecutiveBullets(records: OdmInspectionRecord[]) {
-  const summary = summarizeOdmRecords(records);
-  const status = [
-    `${summary.totalRecords} inspection records generated.`,
-    isPresentNumber(summary.completionRate)
-      ? `${percent(summary.completionRate)} inspection completion rate.`
-      : "No status values recorded for completion rate.",
-    `${summary.facilitiesCovered} facilities covered.`,
-    `${summary.openFindings} open findings recorded.`,
-  ];
-  const wins: string[] = [];
-  if (isPresentNumber(summary.completionRate) && summary.completionRate >= 90) {
-    wins.push(`Inspection completion reached ${percent(summary.completionRate)}.`);
-  }
-  if (
-    isPresentNumber(summary.equipmentHealthScore) &&
-    summary.equipmentHealthScore >= 85
-  ) {
-    wins.push(
-      `Average equipment health score was ${summary.equipmentHealthScore.toFixed(1)}.`
-    );
-  }
-  if (summary.criticalFindings === 0 && summary.totalRecords > 0) {
-    wins.push("No critical findings were recorded.");
-  }
-  if (summary.openFindings === 0 && summary.totalRecords > 0) {
-    wins.push("No open findings remained in selected records.");
-  }
-
-  const risks: string[] = [];
-  if (summary.criticalFindings > 0) {
-    risks.push(`${summary.criticalFindings} critical/high-risk findings recorded.`);
-  }
-  if (summary.openFindings > 0) {
-    risks.push(`${summary.openFindings} open findings require review.`);
-  }
-  if (summary.repeatFindings > 0) {
-    risks.push(`${summary.repeatFindings} repeat finding themes detected.`);
-  }
-  if (summary.overdueInspections > 0) {
-    risks.push(`${summary.overdueInspections} records mention overdue status.`);
-  }
-  if (isPresentNumber(summary.completionRate) && summary.completionRate < 75) {
-    risks.push(`Completion rate is below 75% at ${percent(summary.completionRate)}.`);
-  }
-
-  return {
-    status,
-    wins,
-    risks,
-  };
-}
-
-function facilityGroups(records: OdmInspectionRecord[]) {
-  const grouped = new Map<string, OdmInspectionRecord[]>();
-  records.forEach(record => {
-    const facility = text(record.facilityId) || "Unspecified Facility";
-    grouped.set(facility, [...(grouped.get(facility) || []), record]);
-  });
-  return Array.from(grouped.entries())
-    .map(([facility, facilityRecords]) => {
-      const summary = summarizeOdmRecords(facilityRecords);
-      return { facility, records: facilityRecords, summary };
-    })
-    .sort((a, b) => {
-      const riskDelta =
-        b.summary.criticalFindings +
-        b.summary.openFindings -
-        (a.summary.criticalFindings + a.summary.openFindings);
-      return riskDelta || b.summary.totalRecords - a.summary.totalRecords;
-    });
-}
-
-function metricFill(status: KpiStatus) {
-  if (status === "success") return COLORS.paleGreen;
-  if (status === "warning") return COLORS.paleYellow;
-  if (status === "danger") return COLORS.paleRed;
-  return COLORS.noData;
-}
-
-function buildFacilityTable(dataset: OdmScorecardDataset) {
-  const groups = facilityGroups(dataset.records);
-  const visible = groups.slice(0, 8);
-  const rows = [
-    [
-      "Facility",
-      "Inspection Records",
-      "Completion Rate",
-      "Equipment Health Score",
-      "Open Findings",
-      "Critical Findings",
-    ],
-    ...visible.map(group => [
-      group.facility,
-      String(group.summary.totalRecords),
-      percent(group.summary.completionRate),
-      isPresentNumber(group.summary.equipmentHealthScore)
-        ? group.summary.equipmentHealthScore.toFixed(1)
-        : "No Data",
-      String(group.summary.openFindings),
-      String(group.summary.criticalFindings),
-    ]),
-  ];
-  const cellFills = rows.map((row, rowIndex) =>
-    row.map((_, colIndex) => {
-      if (rowIndex === 0) return COLORS.accentBlue;
-      const summary = visible[rowIndex - 1]?.summary;
-      if (!summary) return undefined;
-      if (colIndex === 0) return COLORS.paleNavy;
-      if (colIndex === 2) return metricFill(completionStatus(summary.completionRate));
-      if (colIndex === 3) return metricFill(healthStatus(summary.equipmentHealthScore));
-      if (colIndex === 4) return metricFill(countStatus(summary.openFindings, true));
-      if (colIndex === 5) return metricFill(countStatus(summary.criticalFindings, true));
-      return rowIndex % 2 === 0 ? COLORS.cardAltFill : COLORS.white;
-    })
-  );
-  const cellColors = rows.map((row, rowIndex) =>
-    row.map((_, colIndex) => {
-      if (rowIndex === 0) return COLORS.white;
-      const summary = visible[rowIndex - 1]?.summary;
-      if (!summary) return undefined;
-      if (colIndex === 2) return statusTextColor(completionStatus(summary.completionRate));
-      if (colIndex === 3) return statusTextColor(healthStatus(summary.equipmentHealthScore));
-      if (colIndex === 4) return statusTextColor(countStatus(summary.openFindings, true));
-      if (colIndex === 5) return statusTextColor(countStatus(summary.criticalFindings, true));
-      return COLORS.text;
-    })
-  );
-  return { rows, cellFills, cellColors, hiddenCount: Math.max(0, groups.length - 8) };
-}
-
-function findingRecords(records: OdmInspectionRecord[]) {
-  return records.filter(hasFinding);
-}
-
-function buildFindingsSections(records: OdmInspectionRecord[]) {
-  const findings = findingRecords(records);
-  if (!findings.length) {
-    return {
-      categories: [ODM_NO_FINDINGS_FALLBACK],
-      critical: [ODM_NO_FINDINGS_FALLBACK],
-      repeats: [ODM_NO_FINDINGS_FALLBACK],
-    };
-  }
-  const categories = frequencyMap(
-    findings.map(record => text(record.category) || "Uncategorized")
-  )
-    .slice(0, 5)
-    .map(([category, count]) => `${category}: ${count}`);
-  const critical = findings
-    .filter(isCriticalFinding)
-    .slice(0, 4)
-    .map(
-      record =>
-        `${record.facilityId}: ${truncate(text(record.findings), 95)}`
-    );
-  const repeats = frequencyMap(findings.map(normalizeFindingKey).filter(Boolean))
-    .filter(([, count]) => count > 1)
-    .slice(0, 4)
-    .map(([issue, count]) => `${truncate(issue, 78)}: ${count} records`);
-  return {
-    categories: categories.length ? categories : [ODM_NO_FINDINGS_FALLBACK],
-    critical: critical.length ? critical : ["No critical/high-risk findings recorded."],
-    repeats: repeats.length ? repeats : ["No repeat finding themes detected."],
-  };
-}
-
-function buildTrend(records: OdmInspectionRecord[]) {
-  const buckets = new Map<number, OdmInspectionRecord[]>();
-  records.forEach(record => {
-    const week = weekOfMonth(record);
-    if (!week) return;
-    buckets.set(week, [...(buckets.get(week) || []), record]);
-  });
-  const entries = Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]);
-  const withStatus = entries
-    .map(([week, weekRecords]) => {
-      const summary = summarizeOdmRecords(weekRecords);
-      return { week, summary };
-    })
-    .filter(entry => isPresentNumber(entry.summary.completionRate));
-  if (withStatus.length < 2) return null;
-  return {
-    labels: withStatus.map(entry => `Week ${entry.week}`),
-    values: withStatus.map(entry => entry.summary.completionRate ?? 0),
-    colors: withStatus.map(entry =>
-      statusFill(completionStatus(entry.summary.completionRate))
-    ),
-  };
-}
-
-function buildActionSections(records: OdmInspectionRecord[]) {
-  const notes = records
-    .filter(record => text(record.entryNotes))
-    .map(
-      record =>
-        `${record.facilityId}: ${truncate(text(record.entryNotes), 110)}`
-    );
-  const openOrCritical = records.filter(
-    record => isOpenFinding(record) || (hasFinding(record) && isCriticalFinding(record))
-  );
-  const derivedFollowUp = openOrCritical
-    .slice(0, 5)
-    .map(
-      record =>
-        `Review recorded finding at ${record.facilityId}: ${truncate(
-          text(record.findings),
-          95
-        )}`
-    );
-  const facilities = facilityGroups(openOrCritical)
-    .slice(0, 5)
-    .map(
-      group =>
-        `${group.facility}: ${group.summary.openFindings} open / ${group.summary.criticalFindings} critical findings`
-    );
-  const missingScores = records.filter(record => !isPresentNumber(record.score)).length;
-  const missingAssets = records.filter(
-    record => !text(record.assetTag) && !text(record.assetName)
-  ).length;
-  const dataQuality = [
-    missingScores > 0 ? `${missingScores} records are missing health score.` : "",
-    missingAssets > 0 ? `${missingAssets} records are missing asset identifier.` : "",
-  ].filter(Boolean);
-
-  return {
-    followUp: notes.length ? notes : derivedFollowUp,
-    facilities,
-    dataQuality,
-  };
+function bulletText(items: string[], fallback: string, limit = 4) {
+  const visible = items.length ? items.slice(0, limit) : [fallback];
+  const overflow = items.length > limit ? `\n+${items.length - limit} more` : "";
+  return `${visible.map(item => `- ${item}`).join("\n")}${overflow}`;
 }
 
 function sectionCard(
@@ -636,7 +301,7 @@ function sectionCard(
   y: number,
   w: number,
   h: number,
-  accent = COLORS.accentBlue
+  accent: string = COLORS.accentBlue
 ): PresentationElement[] {
   return [
     ...cardBase(x, y, w, h),
@@ -653,9 +318,9 @@ function sectionCard(
       type: "text",
       text: title,
       x: x + 0.2,
-      y: y + 0.28,
+      y: y + 0.26,
       w: w - 0.4,
-      h: 0.32,
+      h: 0.34,
       fontFace: DESIGN.fonts.heading,
       fontSize: DESIGN.typography.cardTitle,
       bold: true,
@@ -665,14 +330,38 @@ function sectionCard(
       type: "text",
       text: body,
       x: x + 0.2,
-      y: y + 0.76,
+      y: y + 0.72,
       w: w - 0.4,
-      h: h - 0.9,
+      h: h - 0.85,
       fontFace: DESIGN.fonts.body,
       fontSize: MIN_DECK_FONT_SIZE,
       color: COLORS.text,
     },
   ];
+}
+
+function insightLabel(insight: OdmDashboardInsight) {
+  return `${insight.severity.toUpperCase()}: ${insight.title} (${insight.metric})`;
+}
+
+function buildExecutiveBullets(dataset: OdmScorecardDataset) {
+  const { summary, insights } = dataset.scorecard;
+  const status = [
+    `${numberText(summary.totalInspections)} total inspections in dashboard scope.`,
+    `${numberText(summary.uniqueAssets)} unique assets inspected.`,
+    `Health Score: ${percent(summary.healthScore)}.`,
+    `Data Quality / Completion Rate: ${percent(summary.dataQualityScore)}.`,
+    `Predictive Risk: ${summary.predictiveRisk}.`,
+  ];
+  const insightBullets = insights.map(insightLabel);
+  const scope = [
+    `Date Range: ${dataset.dateFrom} to ${dataset.dateTo}.`,
+    `Plant / Facility: ${dataset.facility}.`,
+    dataset.equipmentType ? `Equipment Type: ${dataset.equipmentType}.` : "",
+    dataset.category ? `Category: ${dataset.category}.` : "",
+    dataset.inspector ? `Inspector: ${dataset.inspector}.` : "",
+  ].filter(Boolean);
+  return { status, insightBullets, scope };
 }
 
 function buildCoverSlide(
@@ -702,9 +391,9 @@ function buildCoverSlide(
       {
         type: "shape",
         x: 0.58,
-        y: 1.1,
+        y: 1.08,
         w: 0.08,
-        h: 4.5,
+        h: 4.55,
         fill: COLORS.accentBlue,
         line: COLORS.accentBlue,
       },
@@ -747,10 +436,10 @@ function buildCoverSlide(
       },
       {
         type: "text",
-        text: `Reporting Period\n${dataset.reportingMonthLabel}`,
+        text: `Dashboard Date Range\n${dataset.dateFrom} to ${dataset.dateTo}`,
         x: 0.9,
         y: 3.1,
-        w: 3.2,
+        w: 3.45,
         h: 0.9,
         fontFace: DESIGN.fonts.body,
         fontSize: MIN_DECK_FONT_SIZE,
@@ -759,9 +448,9 @@ function buildCoverSlide(
       {
         type: "text",
         text: `Facility Scope\n${dataset.facility}`,
-        x: 4.35,
+        x: 4.6,
         y: 3.1,
-        w: 3.4,
+        w: 3.15,
         h: 0.9,
         fontFace: DESIGN.fonts.body,
         fontSize: MIN_DECK_FONT_SIZE,
@@ -813,13 +502,13 @@ function buildCoverSlide(
 }
 
 function buildExecutiveSummarySlide(dataset: OdmScorecardDataset): PresentationSlide {
-  const bullets = buildExecutiveBullets(dataset.records);
+  const bullets = buildExecutiveBullets(dataset);
   return {
     elements: [
       ...slideChrome("Executive Summary", dataset),
       ...sectionCard(
-        "Program Status",
-        bulletText(bullets.status, "No Data"),
+        "Dashboard Status",
+        bulletText(bullets.status, "No dashboard data was available.", 5),
         0.65,
         1.55,
         3.85,
@@ -827,32 +516,32 @@ function buildExecutiveSummarySlide(dataset: OdmScorecardDataset): PresentationS
         COLORS.accentBlue
       ),
       ...sectionCard(
-        "Key Wins",
-        bulletText(bullets.wins, "No recorded wins were identified from inspection data."),
+        "AI Operational Insights",
+        bulletText(
+          bullets.insightBullets,
+          "No AI operational insights were generated for this scope."
+        ),
         4.75,
         1.55,
         3.85,
         4.75,
-        COLORS.success
+        COLORS.warning
       ),
       ...sectionCard(
-        "Key Risks / Watchpoints",
-        bulletText(
-          bullets.risks,
-          "No recorded risks or watchpoints were identified."
-        ),
+        "Dashboard Scope",
+        bulletText(bullets.scope, "No dashboard filters were applied."),
         8.85,
         1.55,
         3.85,
         4.75,
-        COLORS.danger
+        COLORS.success
       ),
     ],
   };
 }
 
 function buildKpiCardsSlide(dataset: OdmScorecardDataset): PresentationSlide {
-  const cards = buildOdmKpiCards(dataset.records);
+  const cards = buildOdmKpiCards(dataset);
   const elements: PresentationElement[] = [
     ...slideChrome("ODM KPI Cards", dataset),
   ];
@@ -913,6 +602,65 @@ function buildKpiCardsSlide(dataset: OdmScorecardDataset): PresentationSlide {
   return { elements };
 }
 
+function metricFill(status: KpiStatus) {
+  if (status === "success") return COLORS.paleGreen;
+  if (status === "warning") return COLORS.paleYellow;
+  if (status === "danger") return COLORS.paleRed;
+  return COLORS.noData;
+}
+
+function buildFacilityTable(dataset: OdmScorecardDataset) {
+  const visible = dataset.scorecard.facilityBreakdown.slice(0, 8);
+  const rows = [
+    [
+      "Facility",
+      "Total Inspections",
+      "Unique Assets",
+      "Health Score",
+      "Data Quality",
+      "Negative Findings",
+    ],
+    ...visible.map(group => [
+      group.plant,
+      numberText(group.totalInspections),
+      numberText(group.uniqueAssets),
+      percent(group.healthScore),
+      percent(group.dataQualityScore),
+      numberText(group.negativeFindings),
+    ]),
+  ];
+  const cellFills = rows.map((row, rowIndex) =>
+    row.map((_, colIndex) => {
+      if (rowIndex === 0) return COLORS.accentBlue;
+      const group = visible[rowIndex - 1];
+      if (!group) return undefined;
+      if (colIndex === 0) return COLORS.paleNavy;
+      if (colIndex === 3) return metricFill(scoreStatus(group.healthScore));
+      if (colIndex === 4) return metricFill(scoreStatus(group.dataQualityScore));
+      if (colIndex === 5) {
+        return group.negativeFindings ? COLORS.paleYellow : COLORS.paleGreen;
+      }
+      return rowIndex % 2 === 0 ? COLORS.cardAltFill : COLORS.white;
+    })
+  );
+  const cellColors = rows.map((row, rowIndex) =>
+    row.map((_, colIndex) => {
+      if (rowIndex === 0) return COLORS.white;
+      const group = visible[rowIndex - 1];
+      if (!group) return undefined;
+      if (colIndex === 3) return statusTextColor(scoreStatus(group.healthScore));
+      if (colIndex === 4) return statusTextColor(scoreStatus(group.dataQualityScore));
+      return COLORS.text;
+    })
+  );
+  return {
+    rows: visible.length ? rows : [["Facility", "Status"], [dataset.facility, "No Data"]],
+    cellFills: visible.length ? cellFills : [[COLORS.accentBlue, COLORS.accentBlue]],
+    cellColors: visible.length ? cellColors : [[COLORS.white, COLORS.white]],
+    hiddenCount: Math.max(0, dataset.scorecard.facilityBreakdown.length - 8),
+  };
+}
+
 function buildFacilityBreakdownSlide(dataset: OdmScorecardDataset): PresentationSlide {
   const table = buildFacilityTable(dataset);
   return {
@@ -927,7 +675,10 @@ function buildFacilityBreakdownSlide(dataset: OdmScorecardDataset): Presentation
         y: 1.45,
         w: 12.2,
         h: 4.75,
-        colWidths: [2.75, 1.65, 1.75, 2.1, 1.8, 1.8],
+        colWidths:
+          table.rows[0].length === 6
+            ? [2.75, 1.65, 1.55, 1.75, 1.75, 1.95]
+            : [5.5, 5.5],
         rowHeights: table.rows.map(() => 0.48),
         fontFace: DESIGN.fonts.body,
         fontSize: MIN_DECK_FONT_SIZE,
@@ -951,14 +702,35 @@ function buildFacilityBreakdownSlide(dataset: OdmScorecardDataset): Presentation
   };
 }
 
+function findingThemeBullets(dataset: OdmScorecardDataset) {
+  return dataset.scorecard.findingThemes.slice(0, 5).map(theme => {
+    return `${theme.category}: ${numberText(theme.distinctAssets)} assets, ${numberText(theme.totalInspections)} negative inspections`;
+  });
+}
+
+function highPriorityInsights(dataset: OdmScorecardDataset) {
+  return dataset.scorecard.insights
+    .filter(insight => ["critical", "high", "medium"].includes(insight.severity))
+    .slice(0, 5)
+    .map(insightLabel);
+}
+
 function buildFindingsSlide(dataset: OdmScorecardDataset): PresentationSlide {
-  const sections = buildFindingsSections(dataset.records);
+  const themes = findingThemeBullets(dataset);
+  const insights = highPriorityInsights(dataset);
+  const negativeRows = dataset.records
+    .filter(hasNegativeFindings)
+    .slice(0, 5)
+    .map(row => {
+      const detail = text(row.Findings) || text(row.EntryNotes) || text(row.Capture1Response);
+      return `${row.Plant || "Unspecified Facility"}: ${truncate(detail, 95)}`;
+    });
   return {
     elements: [
       ...slideChrome("Findings and Risk Themes", dataset),
       ...sectionCard(
-        "Top Finding Categories",
-        bulletText(sections.categories, ODM_NO_FINDINGS_FALLBACK),
+        "Dashboard Finding Themes",
+        bulletText(themes, ODM_NO_FINDINGS_FALLBACK),
         0.65,
         1.45,
         3.85,
@@ -966,8 +738,8 @@ function buildFindingsSlide(dataset: OdmScorecardDataset): PresentationSlide {
         COLORS.accentBlue
       ),
       ...sectionCard(
-        "Critical / High-Risk Findings",
-        bulletText(sections.critical, ODM_NO_FINDINGS_FALLBACK),
+        "AI Risk Signals",
+        bulletText(insights, "No medium-or-higher AI risk signals were generated."),
         4.75,
         1.45,
         3.85,
@@ -975,8 +747,8 @@ function buildFindingsSlide(dataset: OdmScorecardDataset): PresentationSlide {
         COLORS.danger
       ),
       ...sectionCard(
-        "Repeat Issues",
-        bulletText(sections.repeats, ODM_NO_FINDINGS_FALLBACK),
+        "Persisted Findings / Notes",
+        bulletText(negativeRows, ODM_NO_FINDINGS_FALLBACK),
         8.85,
         1.45,
         3.85,
@@ -988,57 +760,101 @@ function buildFindingsSlide(dataset: OdmScorecardDataset): PresentationSlide {
 }
 
 function buildTrendSlide(dataset: OdmScorecardDataset): PresentationSlide {
-  const trend = buildTrend(dataset.records);
+  const visible = dataset.scorecard.trend.slice(-8);
+  if (!visible.length) {
+    return {
+      elements: [
+        ...slideChrome(
+          "Adoption and Execution Trend",
+          dataset,
+          "Daily dashboard negative-finding trend from filtered inspections"
+        ),
+        ...cardBase(1.0, 2.3, 11.3, 2.2, COLORS.cardAltFill),
+        {
+          type: "text",
+          text: ODM_TREND_FALLBACK,
+          x: 1.35,
+          y: 3.05,
+          w: 10.6,
+          h: 0.5,
+          fontFace: DESIGN.fonts.body,
+          fontSize: 18,
+          bold: true,
+          color: COLORS.mutedText,
+          align: "ctr",
+        },
+      ],
+    };
+  }
+  const rows = [
+    ["Date", "Distinct Affected Assets", "Negative Inspections"],
+    ...visible.map(point => [
+      point.date,
+      numberText(point.distinctAffectedAssets),
+      numberText(point.totalNegativeInspections),
+    ]),
+  ];
   return {
     elements: [
       ...slideChrome(
         "Adoption and Execution Trend",
         dataset,
-        "Weekly completion rate from persisted inspection records"
+        "Daily dashboard negative-finding trend from filtered inspections"
       ),
-      ...(trend
-        ? [
-            {
-              type: "bars" as const,
-              title: "Inspection Completion Rate by Week",
-              labels: trend.labels,
-              values: trend.values,
-              colors: trend.colors,
-              x: 1.0,
-              y: 1.55,
-              w: 10.9,
-              h: 4.75,
-              max: 100,
-            },
-          ]
-        : [
-            ...cardBase(1.0, 2.3, 11.3, 2.2, COLORS.cardAltFill),
-            {
-              type: "text" as const,
-              text: ODM_TREND_FALLBACK,
-              x: 1.35,
-              y: 3.05,
-              w: 10.6,
-              h: 0.5,
-              fontFace: DESIGN.fonts.body,
-              fontSize: 18,
-              bold: true,
-              color: COLORS.mutedText,
-              align: "ctr" as const,
-            },
-          ]),
+      {
+        type: "table",
+        rows,
+        cellFills: rows.map((row, rowIndex) =>
+          row.map(() => (rowIndex === 0 ? COLORS.accentBlue : undefined))
+        ),
+        cellColors: rows.map((row, rowIndex) =>
+          row.map(() => (rowIndex === 0 ? COLORS.white : COLORS.text))
+        ),
+        x: 1.05,
+        y: 1.55,
+        w: 11.25,
+        h: 4.7,
+        colWidths: [3.2, 4.0, 4.05],
+        rowHeights: rows.map(() => 0.48),
+        fontFace: DESIGN.fonts.body,
+        fontSize: MIN_DECK_FONT_SIZE,
+      },
     ],
   };
 }
 
+function uniqueRecommendations(insights: OdmDashboardInsight[]) {
+  return uniqueTexts(insights.map(insight => insight.recommendation)).map(item =>
+    truncate(item, 120)
+  );
+}
+
+function persistedNotes(dataset: OdmScorecardDataset) {
+  return dataset.scorecard.notes.slice(0, 5).map(row => {
+    return `${row.Plant || "Unspecified Facility"}: ${truncate(text(row.EntryNotes), 110)}`;
+  });
+}
+
+function followUpFindings(dataset: OdmScorecardDataset) {
+  return dataset.records
+    .filter(row => text(row.Findings) || hasNegativeFindings(row))
+    .slice(0, 5)
+    .map(row => {
+      const detail = text(row.Findings) || text(row.EntryNotes) || text(row.Capture1Response);
+      return `${row.Plant || "Unspecified Facility"}: ${truncate(detail, 110)}`;
+    });
+}
+
 function buildActionsSlide(dataset: OdmScorecardDataset): PresentationSlide {
-  const sections = buildActionSections(dataset.records);
+  const recommendations = uniqueRecommendations(dataset.scorecard.insights);
+  const notes = persistedNotes(dataset);
+  const findings = followUpFindings(dataset);
   return {
     elements: [
       ...slideChrome("Action Items and Follow-up", dataset),
       ...sectionCard(
-        "Recommended Follow-up",
-        bulletText(sections.followUp, ODM_NO_ACTIONS_FALLBACK),
+        "Dashboard Insight Recommendations",
+        bulletText(recommendations, ODM_NO_ACTIONS_FALLBACK),
         0.65,
         1.45,
         3.85,
@@ -1046,8 +862,8 @@ function buildActionsSlide(dataset: OdmScorecardDataset): PresentationSlide {
         COLORS.accentBlue
       ),
       ...sectionCard(
-        "Facilities Requiring Attention",
-        bulletText(sections.facilities, ODM_NO_ACTIONS_FALLBACK),
+        "Persisted Operator Notes",
+        bulletText(notes, "No operator notes were recorded for the selected dashboard scope."),
         4.75,
         1.45,
         3.85,
@@ -1055,8 +871,8 @@ function buildActionsSlide(dataset: OdmScorecardDataset): PresentationSlide {
         COLORS.warning
       ),
       ...sectionCard(
-        "Data Quality / Coaching Needs",
-        bulletText(sections.dataQuality, ODM_NO_ACTIONS_FALLBACK),
+        "Findings for Review",
+        bulletText(findings, ODM_NO_FINDINGS_FALLBACK),
         8.85,
         1.45,
         3.85,
@@ -1090,10 +906,16 @@ function requireOdmContext(context: DeckGenerationContext) {
       "Select a valid reporting year and month before generating."
     );
   }
+  const fallbackRange = getOdmMonthDateRange(reportingYear, reportingMonth);
   return {
     reportingYear,
     reportingMonth,
+    dateFrom: text(context.dateFrom) || fallbackRange.dateFrom,
+    dateTo: text(context.dateTo) || fallbackRange.dateTo,
     facility: context.facility,
+    equipmentType: context.equipmentType,
+    category: context.category,
+    inspector: context.inspector,
     template:
       context.template === ODM_EXECUTIVE_SUMMARY_TEMPLATE
         ? context.template
@@ -1109,7 +931,12 @@ export async function generateOperatorDrivenMaintenanceDeck(
     {
       reportingYear: request.reportingYear,
       reportingMonth: request.reportingMonth,
+      dateFrom: request.dateFrom,
+      dateTo: request.dateTo,
       facility: request.facility,
+      equipmentType: request.equipmentType,
+      category: request.category,
+      inspector: request.inspector,
     },
     request.template as OdmTemplate
   );
@@ -1131,7 +958,12 @@ export async function generateOperatorDrivenMaintenanceDeck(
     generatorName: "Operator Driven Maintenance Deck",
     reportingYear: persisted.reportingYear,
     reportingMonth: persisted.reportingMonth,
+    dateFrom: persisted.dateFrom,
+    dateTo: persisted.dateTo,
     facility: persisted.facility,
+    equipmentType: persisted.equipmentType,
+    category: persisted.category,
+    inspector: persisted.inspector,
     template: persisted.template,
     filename: name,
     generatedAt,
