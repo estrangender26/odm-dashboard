@@ -373,7 +373,7 @@ export async function generateMonthlyKpiDeck(
   );
   const now = new Date();
   const title = `Monthly KPI Scorecard - ${persisted.businessUnit} - ${persisted.reportingMonthLabel}`;
-  const blob = createPresentation(buildMonthlyKpiSlides(persisted, now));
+  const blob = await createPresentation(buildMonthlyKpiSlides(persisted, now));
   const dataUrl = await blobToDataUrl(blob);
   return {
     id: crypto.randomUUID(),
