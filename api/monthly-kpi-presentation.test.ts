@@ -49,7 +49,7 @@ function createMonthlyKpiTabContext(search: string) {
   const scorecardScript = extractScorecardScript();
   const panels = {
     "t-summary": { id: "t-summary", classList: createClassList("tc active") },
-    "t-ez": { id: "t-ez", classList: createClassList("tc") },
+    "t-business-unit": { id: "t-business-unit", classList: createClassList("tc") },
   };
   const businessUnitSelect = { id: "businessUnitSel", value: "" };
   const genericElement = { addEventListener() {}, classList: createClassList(), style: {}, appendChild() {}, remove() {} };
@@ -150,6 +150,15 @@ function createScorecardContext() {
     fetchSavedMonthlyKpiRecords: (buId?: string) => Promise<void>;
     applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { businessUnitId?: string; reset?: boolean }) => void;
     renderMonthlyRecords: (buId: string) => void;
+    KPIs: Array<{
+      key: string;
+      tooltip?: {
+        formula?: string;
+        target?: string;
+        displayedAs?: string;
+        interpretation?: string;
+      };
+    }>;
     MonthlyScoreData: Record<string, Record<number, Record<number, unknown>>>;
   };
 }
@@ -196,23 +205,26 @@ describe("Monthly KPI dashboard presentation", () => {
     const { context, panels } = createMonthlyKpiTabContext("?tab=ez");
 
     expect(context.applyMonthlyKpiUrlTabFallback()).toBe(true);
-    expect(panels["t-ez"].classList.contains("active")).toBe(true);
+    expect(panels["t-business-unit"].classList.contains("active")).toBe(true);
     expect(panels["t-summary"].classList.contains("active")).toBe(false);
   });
 
 
   it("includes explanatory tooltips for monthly KPI cards", () => {
+    const context = createScorecardContext();
+    const tooltipByKey = Object.fromEntries(context.KPIs.map((kpi) => [kpi.key, kpi.tooltip]));
+
     expect(scorecardHtml).toContain("gauge-tooltip");
     expect(scorecardHtml).toContain("aria-describedby");
-    expect(scorecardHtml).toContain("Completed PMs / Planned PMs × 100");
-    expect(scorecardHtml).toContain("Actual Maintenance Spend / Budgeted Maintenance Spend × 100");
-    expect(scorecardHtml).toContain("PM Work Orders / (PM Work Orders + CM Work Orders)");
-    expect(scorecardHtml).toContain("Percentage + Equivalent Ratio (example: 90% = 9:1)");
-    expect(scorecardHtml).toContain("PM Maintenance Cost / (PM Cost + CM Cost)");
-    expect(scorecardHtml).toContain("Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)");
-    expect(scorecardHtml).toContain("Total Downtime ÷ Number of Repairs");
-    expect(scorecardHtml).toContain("Available Operating Time / Total Required Operating Time × 100");
-    expect(scorecardHtml).toContain("Higher is better.");
+    expect(tooltipByKey.pmCompliance?.formula).toBe("PM Orders Completed On Time ÷ Total PM Orders × 100");
+    expect(tooltipByKey.budgetSpend?.formula).toBe("Monthly Actual Spend ÷ Monthly Budget × 100");
+    expect(tooltipByKey.pmcmWORatio?.formula).toBe("PM Work Orders ÷ (PM + CM Work Orders) × 100");
+    expect(tooltipByKey.pmcmWORatio?.displayedAs).toBe("Percentage + Equivalent Ratio (example: 90% = 9:1)");
+    expect(tooltipByKey.pmcmCostRatio?.formula).toBe("PM Cost ÷ (PM + CM Cost) × 100");
+    expect(tooltipByKey.pmcmCostRatio?.displayedAs).toBe("Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)");
+    expect(tooltipByKey.mttr?.formula).toBe("Total Downtime ÷ Number of Repairs");
+    expect(tooltipByKey.facilityUptime?.formula).toBe("(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100");
+    expect(tooltipByKey.pmCompliance?.interpretation).toBe("Higher is better.");
     expect(scorecardHtml).not.toContain("Scheduled Work Orders");
   });
 
@@ -602,115 +614,6 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(elements["summary-gauges"].innerHTML).toContain("53.08%");
     expect(elements["summary-gauges"].innerHTML).toContain("MTTR");
     expect(elements["summary-gauges"].innerHTML).toContain("4.25");
-    expect(elements["summary-gauges"].innerHTML).toContain("Facility Uptime");
-    expect(elements["summary-gauges"].innerHTML).toContain("98.55");
-    expect(elements["business-unit-gauges"]?.innerHTML ?? "").toBe("");
-  });
-
-  it("renders portfolio KPI cards into the summary panel for All Business Units", () => {
-    const scorecardScript = extractScorecardScript();
-    type TestElement = {
-      id: string;
-      value: string;
-      innerHTML: string;
-      addEventListener: () => void;
-      appendChild: () => void;
-      remove: () => void;
-      classList: ReturnType<typeof createClassList>;
-      style: Record<string, string>;
-      querySelector: () => null;
-      querySelectorAll: () => never[];
-    };
-    const elements: Record<string, TestElement> = {};
-    const getElement = (id: string): TestElement => {
-      if (!elements[id]) {
-        elements[id] = {
-          id,
-          value: id === "yearSel" ? "2026" : id === "monthSel" ? "5" : "",
-          innerHTML: "",
-          addEventListener() {},
-          appendChild() {},
-          remove() {},
-          classList: createClassList(id === "t-summary" ? "tc active" : ""),
-          style: {},
-          querySelector() { return null; },
-          querySelectorAll() { return []; },
-        };
-      }
-      return elements[id];
-    };
-    const context = {
-      console,
-      setTimeout,
-      clearTimeout,
-      URLSearchParams,
-      document: {
-        body: getElement("body"),
-        addEventListener() {},
-        createElement() { return getElement("created"); },
-        getElementById: getElement,
-        querySelector(selector: string) {
-          if (selector === ".tc.active") return getElement("t-summary");
-          return getElement("query");
-        },
-        querySelectorAll() { return []; },
-      },
-      localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
-      window: {},
-      fetch() {},
-    };
-    vm.createContext(context);
-    vm.runInContext(scorecardScript, context);
-    const runnableContext = context as typeof context & {
-      KpiAggregates: NormalizedAggregateResponse;
-      normalizeKpiAggregates: (aggregates: unknown) => NormalizedAggregateResponse;
-      getBusinessUnitPanelIdBySection: (buId: string, section: string) => string;
-      normalizePersistedBusinessUnit: (value: string) => string;
-      renderGauges: (buId: string) => void;
-    };
-
-    runnableContext.KpiAggregates = runnableContext.normalizeKpiAggregates({
-      reportingYear: 2026,
-      byBusinessUnit: [
-        {
-          businessUnit: "AMD-EZ",
-          reportingYear: 2026,
-          recordCount: 1,
-          pmCompliance: 98.41,
-          scheduleCompliance: 99.33,
-          budgetSpend: 98.48,
-          pmCmWorkOrderRatio: 90.15,
-          pmCmCostRatio: 70.93,
-          facilityUptime: 100,
-        },
-      ],
-      byBusinessUnitMap: {},
-      portfolioYearAverage: {
-        pmCompliance: 78.87,
-        scheduleCompliance: 74.62,
-        budgetSpend: 94.83,
-        pmCmWorkOrderRatio: 86.05,
-        pmCmCostRatio: 53.08,
-        facilityUptime: 98.55,
-      },
-      portfolioMonthlyAverages: {},
-    });
-
-    expect(runnableContext.getBusinessUnitPanelIdBySection("summary", "gauges")).toBe("summary-gauges");
-    expect(runnableContext.normalizePersistedBusinessUnit("All Business Units")).toBe("");
-
-    runnableContext.renderGauges("summary");
-
-    expect(elements["summary-gauges"].innerHTML).toContain("PM Compliance");
-    expect(elements["summary-gauges"].innerHTML).toContain("78.87");
-    expect(elements["summary-gauges"].innerHTML).toContain("Schedule Compliance");
-    expect(elements["summary-gauges"].innerHTML).toContain("74.62");
-    expect(elements["summary-gauges"].innerHTML).toContain("Budget Spend");
-    expect(elements["summary-gauges"].innerHTML).toContain("94.83");
-    expect(elements["summary-gauges"].innerHTML).toContain("PM:CM Ratio (WO)");
-    expect(elements["summary-gauges"].innerHTML).toContain("86.05%");
-    expect(elements["summary-gauges"].innerHTML).toContain("PM:CM Ratio (Cost)");
-    expect(elements["summary-gauges"].innerHTML).toContain("53.08%");
     expect(elements["summary-gauges"].innerHTML).toContain("Facility Uptime");
     expect(elements["summary-gauges"].innerHTML).toContain("98.55");
     expect(elements["business-unit-gauges"]?.innerHTML ?? "").toBe("");
