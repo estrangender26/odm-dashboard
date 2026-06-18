@@ -18,6 +18,10 @@ type BarElement = Extract<
   MonthlyKpiSlide["elements"][number],
   { type: "bars" }
 >;
+type TextElement = Extract<
+  MonthlyKpiSlide["elements"][number],
+  { type: "text" }
+>;
 
 function jsonResponse(payload: unknown, ok = true) {
   return {
@@ -68,6 +72,18 @@ function barElements(slide: MonthlyKpiSlide) {
   );
 }
 
+function textElement(
+  slide: MonthlyKpiSlide,
+  predicate: (text: string) => boolean
+) {
+  const element = slide.elements.find(
+    (entry): entry is TextElement =>
+      entry.type === "text" && predicate(entry.text)
+  );
+  if (!element) throw new Error("Expected text element was not found");
+  return element;
+}
+
 class MockFileReader {
   result: string | ArrayBuffer | null = null;
   onload:
@@ -109,6 +125,28 @@ describe("Monthly KPI presentation generator", () => {
       "AMD-EZ\nPump station breaker replacement completed."
     );
     expect(slideText(slides[4])).not.toContain(MONTHLY_KPI_NOTES_FALLBACK);
+  });
+
+  it("keeps title slide text boxes from overlapping", () => {
+    const [titleSlide] = buildMonthlyKpiSlides(makeDataset([makeRecord()]));
+    const title = textElement(titleSlide, text =>
+      text.startsWith("Monthly KPI Scorecard\n")
+    );
+    const scope = textElement(titleSlide, text =>
+      text.startsWith("Reporting Period:")
+    );
+    const source = textElement(titleSlide, text =>
+      text.startsWith("Generated directly")
+    );
+    const timestamp = titleSlide.elements.find(
+      (element): element is TextElement =>
+        element.type === "text" && element.align === "r"
+    );
+
+    if (!timestamp) throw new Error("Expected timestamp text element");
+    expect(title.y + title.h).toBeLessThanOrEqual(scope.y);
+    expect(scope.y + scope.h).toBeLessThanOrEqual(source.y);
+    expect(source.y + source.h).toBeLessThanOrEqual(timestamp.y);
   });
 
   it("uses the defined fallback when notes are null or empty", () => {
