@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildCurrentMonthMatrixRows,
   buildMonthlyKpiNotesText,
   buildMonthlyKpiSlides,
   buildMonthlyKpiTableRows,
   buildPortfolioKpiCards,
+  buildYtdAverageMatrixRows,
   buildYtdScorecardRows,
   generateMonthlyKpiDeck,
   MONTHLY_KPI_DECK_DESIGN,
@@ -257,7 +257,7 @@ describe("Monthly KPI presentation generator", () => {
     expect(deckText).toContain("Monthly KPI Scorecard");
     expect(deckText).toContain("Executive Summary");
     expect(deckText).toContain("Year-to-Date Scorecard");
-    expect(deckText).toContain("Current-Month KPI Matrix");
+    expect(deckText).toContain("YTD Average KPI Matrix");
     expect(deckText).toContain("Portfolio Average KPI Cards");
     expect(deckText).toContain("Business Unit Breakdown");
     expect(deckText).toContain("Notes, Issues, and Follow-up Actions");
@@ -341,43 +341,136 @@ describe("Monthly KPI presentation generator", () => {
     );
   });
 
-  it("builds the current-month matrix in dashboard business-unit order", () => {
-    const laguna = makeRecord({
-      businessUnit: "Laguna Water",
-      pmCompliance: null,
-      facilityUptime: 99.97,
+  it("builds the YTD average matrix from January through the selected month", () => {
+    const selectedMonthRecords = [
+      makeRecord({
+        businessUnit: "AMD-EZ",
+        reportingMonth: 4,
+        pmCompliance: 100,
+        budgetSpend: 100,
+      }),
+      makeRecord({
+        businessUnit: "Laguna Water",
+        reportingMonth: 4,
+        pmCompliance: 80,
+        budgetSpend: null,
+        facilityUptime: 99,
+      }),
+      makeRecord({
+        businessUnit: "Tagum Water",
+        reportingMonth: 4,
+        pmCompliance: 100,
+        budgetSpend: null,
+        facilityUptime: null,
+      }),
+    ];
+    const dataset = makeDataset(selectedMonthRecords, {
+      reportingMonth: 4,
+      reportingMonthLabel: "April 2026",
+      ytdRecords: [
+        makeRecord({
+          businessUnit: "AMD-EZ",
+          reportingMonth: 1,
+          pmCompliance: 90,
+          budgetSpend: null,
+          pmCmWorkOrderRatio: 86,
+          pmCmCostRatio: 60,
+          mttrDays: 4,
+          facilityUptime: 99.97,
+        }),
+        makeRecord({
+          businessUnit: "AMD-EZ",
+          reportingMonth: 4,
+          pmCompliance: 100,
+          budgetSpend: 100,
+          pmCmWorkOrderRatio: 90,
+          pmCmCostRatio: null,
+          mttrDays: 2,
+          facilityUptime: 99.99,
+        }),
+        makeRecord({
+          businessUnit: "Laguna Water",
+          reportingMonth: 4,
+          pmCompliance: 80,
+          budgetSpend: null,
+          pmCmWorkOrderRatio: 74,
+          pmCmCostRatio: 49,
+          mttrDays: null,
+          facilityUptime: 99,
+        }),
+        makeRecord({
+          businessUnit: "Tagum Water",
+          reportingMonth: 1,
+          pmCompliance: 0,
+          budgetSpend: null,
+          pmCmWorkOrderRatio: null,
+          pmCmCostRatio: null,
+          mttrDays: null,
+          facilityUptime: null,
+        }),
+        makeRecord({
+          businessUnit: "Tagum Water",
+          reportingMonth: 4,
+          pmCompliance: 100,
+          budgetSpend: null,
+          pmCmWorkOrderRatio: null,
+          pmCmCostRatio: null,
+          mttrDays: null,
+          facilityUptime: null,
+        }),
+        makeRecord({
+          businessUnit: "LARC",
+          reportingMonth: 5,
+          pmCompliance: 99,
+          budgetSpend: 100,
+          facilityUptime: 99.99,
+        }),
+      ],
     });
-    const amd = makeRecord({
-      businessUnit: "AMD-EZ",
-      pmCompliance: 0,
-      facilityUptime: 99.5,
-    });
-    const larc = makeRecord({
-      businessUnit: "LARC",
-      pmCompliance: 97,
-      facilityUptime: null,
-    });
-    const { rows } = buildCurrentMonthMatrixRows([laguna, amd, larc]);
-    const slides = buildMonthlyKpiSlides(makeDataset([laguna, amd, larc]));
+    const { rows } = buildYtdAverageMatrixRows(dataset);
+    const slides = buildMonthlyKpiSlides(dataset);
     const matrixTable = tableElement(slides[3]);
 
+    expect(slideText(slides[3])).toContain("YTD Average KPI Matrix");
+    expect(slideText(slides[3])).toContain("January–April 2026");
+    expect(slideText(slides[3])).not.toContain("Current-Month KPI Matrix");
     expect(rows.map(row => row[0])).toEqual([
       "Business Unit",
       ALL_BUSINESS_UNITS_LABEL,
       "AMD-EZ",
       "Laguna Water",
+      "Clark Water",
+      "Tagum Water",
+      "Estate Water",
       "LARC",
     ]);
-    expect(rows[2][1]).toBe("0.00%");
-    expect(rows[3][1]).toBe("No Data");
+    expect(rows.flat()).not.toContain("January");
+    expect(rows.flat()).not.toContain("April");
+    expect(rows[1][1]).toBe("75.00%");
+    expect(rows[1][2]).toBe("100.00%");
+    expect(rows[2][1]).toBe("95.00%");
+    expect(rows[2][1]).not.toBe("100.00%");
+    expect(rows[2][2]).toBe("100.00%");
+    expect(rows[2][3]).toBe("88.00% (7.3:1)");
+    expect(rows[2][4]).toBe("60.00% (1.5:1)");
+    expect(rows[2][5]).toBe("3.00 days");
+    expect(rows[3][2]).toBe("No Data");
+    expect(rows[5][1]).toBe("50.00%");
+    expect(rows[7][1]).toBe("No Data");
     expect(matrixTable.fontSize).toBeGreaterThanOrEqual(14);
     expect(Math.min(...(matrixTable.rowHeights || []))).toBeGreaterThanOrEqual(
       0.44
     );
-    expect(matrixTable.cellFills?.[2][1]).toBe(
+    expect(matrixTable.cellFills?.[1][1]).toBe(
       MONTHLY_KPI_DECK_DESIGN.colors.danger
     );
-    expect(matrixTable.cellFills?.[3][1]).toBe(
+    expect(matrixTable.cellFills?.[2][1]).toBe(
+      MONTHLY_KPI_DECK_DESIGN.colors.success
+    );
+    expect(matrixTable.cellFills?.[3][2]).toBe(
+      MONTHLY_KPI_DECK_DESIGN.colors.noData
+    );
+    expect(matrixTable.cellFills?.[7][1]).toBe(
       MONTHLY_KPI_DECK_DESIGN.colors.noData
     );
   });

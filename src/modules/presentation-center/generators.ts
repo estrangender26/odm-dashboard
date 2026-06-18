@@ -512,43 +512,45 @@ function buildYtdScorecardSlides(dataset: MonthlyKpiScorecardDataset) {
   });
 }
 
-function groupCurrentMonthRecords(records: KpiRecord[]) {
-  const grouped = new Map<string, KpiRecord[]>();
-  records.forEach(record => {
-    grouped.set(record.businessUnit, [
-      ...(grouped.get(record.businessUnit) || []),
-      record,
-    ]);
+function recordsForYtdAverageMatrix(dataset: MonthlyKpiScorecardDataset) {
+  const records = dataset.ytdRecords?.length
+    ? dataset.ytdRecords
+    : dataset.records;
+  return records.filter(record => {
+    const month = Number(record.reportingMonth);
+    return (
+      Number(record.reportingYear) === dataset.reportingYear &&
+      month >= 1 &&
+      month <= dataset.reportingMonth
+    );
   });
-  return grouped;
 }
 
-export function buildCurrentMonthMatrixRows(
+function buildBusinessUnitYtdAverage(
+  businessUnit: string,
   records: KpiRecord[],
-  businessUnitScope = ALL_BUSINESS_UNITS_LABEL
+  dataset: MonthlyKpiScorecardDataset
 ) {
-  const grouped = groupCurrentMonthRecords(records);
-  const matrixRecords: KpiRecord[] = [];
-  if (businessUnitScope === ALL_BUSINESS_UNITS_LABEL && records.length) {
-    matrixRecords.push(aggregateRecords(records, ALL_BUSINESS_UNITS_LABEL));
-  }
-  matrixBusinessUnitOrder.slice(1).forEach(businessUnit => {
-    const unitRecords = grouped.get(businessUnit);
-    if (unitRecords?.length)
-      matrixRecords.push(aggregateRecords(unitRecords, businessUnit));
-  });
-  Array.from(grouped.keys())
-    .filter(
-      businessUnit =>
-        !matrixBusinessUnitOrder.includes(businessUnit) &&
-        businessUnit !== ALL_BUSINESS_UNITS_LABEL
-    )
-    .sort((a, b) => a.localeCompare(b))
-    .forEach(businessUnit => {
-      const unitRecords = grouped.get(businessUnit);
-      if (unitRecords?.length)
-        matrixRecords.push(aggregateRecords(unitRecords, businessUnit));
-    });
+  const unitRecords = records.filter(
+    record => record.businessUnit === businessUnit
+  );
+  return unitRecords.length
+    ? aggregateRecords(unitRecords, businessUnit)
+    : emptyRecord(businessUnit, dataset.reportingMonth, dataset.reportingYear);
+}
+
+export function buildYtdAverageMatrixRows(dataset: MonthlyKpiScorecardDataset) {
+  const ytdRecords = recordsForYtdAverageMatrix(dataset);
+  const businessUnitAverages = matrixBusinessUnitOrder
+    .slice(1)
+    .map(businessUnit =>
+      buildBusinessUnitYtdAverage(businessUnit, ytdRecords, dataset)
+    );
+  const portfolioAverage = aggregateRecords(
+    businessUnitAverages,
+    ALL_BUSINESS_UNITS_LABEL
+  );
+  const matrixRecords = [portfolioAverage, ...businessUnitAverages];
   return {
     records: matrixRecords,
     rows: buildMonthlyKpiTableRows(matrixRecords),
@@ -984,10 +986,7 @@ export function buildMonthlyKpiSlides(
   const scorecardRecords = dataset.records;
   const summary = getScorecardSummary(scorecardRecords);
   const ytdSlides = buildYtdScorecardSlides(dataset);
-  const matrix = buildCurrentMonthMatrixRows(
-    scorecardRecords,
-    dataset.businessUnit
-  );
+  const matrix = buildYtdAverageMatrixRows(dataset);
 
   return [
     buildCoverSlide(dataset, generatedAt),
@@ -1027,7 +1026,10 @@ export function buildMonthlyKpiSlides(
     ...ytdSlides,
     {
       elements: [
-        ...slideTitle("Current-Month KPI Matrix", dataset.reportingMonthLabel),
+        ...slideTitle(
+          "YTD Average KPI Matrix",
+          `January–${monthName(dataset.reportingMonth)} ${dataset.reportingYear}`
+        ),
         {
           ...styledMetricTable(
             matrix.rows,
