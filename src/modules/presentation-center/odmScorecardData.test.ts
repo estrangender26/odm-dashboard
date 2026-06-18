@@ -76,11 +76,11 @@ describe("Operator-Driven Maintenance scorecard data", () => {
     vi.unstubAllGlobals();
   });
 
-  it("builds dashboard summary queries from selected date range and filters", () => {
+  it("builds dashboard summary queries only from explicit dashboard filters", () => {
     expect(
       buildOdmSummaryUrl({
-        reportingYear: 2026,
-        reportingMonth: 6,
+        dateFrom: "2026-06-01",
+        dateTo: "2026-06-30",
         facility: "HTT STP",
         equipmentType: "Pump",
         category: "Mechanical",
@@ -93,11 +93,17 @@ describe("Operator-Driven Maintenance scorecard data", () => {
       buildOdmSummaryUrl({
         reportingYear: 2026,
         reportingMonth: 6,
+        facility: "HTT STP",
+        equipmentType: "Pump",
+      })
+    ).toBe("/api/operator-driven-maintenance/summary?facility_id=HTT+STP&equipment_type=Pump");
+    expect(
+      buildOdmSummaryUrl({
+        reportingYear: 2026,
+        reportingMonth: 6,
         facility: ALL_FACILITIES_LABEL,
       })
-    ).toBe(
-      "/api/operator-driven-maintenance/summary?date_from=2026-06-01&date_to=2026-06-30"
-    );
+    ).toBe("/api/operator-driven-maintenance/summary");
   });
 
   it("maps persisted inspection records while preserving zero scores and null text safely", () => {
@@ -185,6 +191,8 @@ describe("Operator-Driven Maintenance scorecard data", () => {
       getPersistedOdmScorecard({
         reportingYear: 2026,
         reportingMonth: 6,
+        dateFrom: "2026-06-01",
+        dateTo: "2026-06-30",
         facility: "HTT STP",
         equipmentType: "Pump",
         category: "Mechanical",
@@ -210,6 +218,23 @@ describe("Operator-Driven Maintenance scorecard data", () => {
           predictiveRisk: "Normal",
         },
       },
+    });
+  });
+
+  it("keeps the dashboard all-date scope when no explicit dates are selected", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(summaryPayload())));
+
+    await expect(
+      getPersistedOdmScorecard({
+        reportingYear: 2026,
+        reportingMonth: 6,
+        facility: ALL_FACILITIES_LABEL,
+      })
+    ).resolves.toMatchObject({
+      reportingMonthLabel: "All Dates",
+      dateFrom: "",
+      dateTo: "",
+      facility: ALL_FACILITIES_LABEL,
     });
   });
 });

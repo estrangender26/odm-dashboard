@@ -166,13 +166,27 @@ function getOptionalScope(value?: string | null) {
 function getRequestDateRange(filters?: Partial<OdmInspectionsRequest>) {
   const dateFrom = asNullableText(filters?.dateFrom);
   const dateTo = asNullableText(filters?.dateTo);
-  const reportingYear = filters?.reportingYear;
-  const reportingMonth = filters?.reportingMonth;
-  if (dateFrom && dateTo) return { dateFrom, dateTo };
-  if (Number.isInteger(reportingYear) && Number.isInteger(reportingMonth)) {
-    return monthDateRange(reportingYear as number, reportingMonth as number);
-  }
   return { dateFrom: dateFrom ?? "", dateTo: dateTo ?? "" };
+}
+
+function getDashboardPeriodLabel(
+  dateFrom: string,
+  dateTo: string,
+  reportingMonth: number,
+  reportingYear: number
+) {
+  if (dateFrom && dateTo) {
+    if (Number.isInteger(reportingYear) && Number.isInteger(reportingMonth)) {
+      const monthRange = monthDateRange(reportingYear, reportingMonth);
+      if (dateFrom === monthRange.dateFrom && dateTo === monthRange.dateTo) {
+        return getReportingPeriodLabel(reportingMonth, reportingYear);
+      }
+    }
+    return `${dateFrom} to ${dateTo}`;
+  }
+  if (dateFrom) return `From ${dateFrom}`;
+  if (dateTo) return `Through ${dateTo}`;
+  return "All Dates";
 }
 
 export function buildOdmSummaryUrl(filters?: Partial<OdmInspectionsRequest>) {
@@ -358,12 +372,18 @@ export async function getPersistedOdmScorecard(
 
   const reportingYear = Number(request.reportingYear);
   const reportingMonth = Number(request.reportingMonth);
+  const reportingMonthLabel = getDashboardPeriodLabel(
+    dateRange.dateFrom,
+    dateRange.dateTo,
+    reportingMonth,
+    reportingYear
+  );
   return {
     records: scorecard.rows,
     scorecard,
     reportingYear,
     reportingMonth,
-    reportingMonthLabel: getReportingPeriodLabel(reportingMonth, reportingYear),
+    reportingMonthLabel,
     dateFrom: dateRange.dateFrom,
     dateTo: dateRange.dateTo,
     facility: getOdmFacilityScope(request.facility),

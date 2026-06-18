@@ -1,7 +1,6 @@
 import { createPresentation } from "./pptxBuilder";
 import { MONTHLY_KPI_DECK_DESIGN } from "./monthlyKpiDeckDesign";
 import {
-  getOdmMonthDateRange,
   getPersistedOdmScorecard,
   ODM_EXECUTIVE_SUMMARY_TEMPLATE,
   OPERATOR_DRIVEN_MAINTENANCE_SOURCE_LABEL,
@@ -214,7 +213,7 @@ function scopeSubtitle(dataset: OdmScorecardDataset) {
     dataset.category ? `Category: ${dataset.category}` : "",
     dataset.inspector ? `Inspector: ${dataset.inspector}` : "",
   ].filter(Boolean);
-  return `${dataset.dateFrom} to ${dataset.dateTo} | ${filters.join(" | ")}`;
+  return `${dataset.reportingMonthLabel} | ${filters.join(" | ")}`;
 }
 
 function slideChrome(
@@ -355,7 +354,7 @@ function buildExecutiveBullets(dataset: OdmScorecardDataset) {
   ];
   const insightBullets = insights.map(insightLabel);
   const scope = [
-    `Date Range: ${dataset.dateFrom} to ${dataset.dateTo}.`,
+    `Date Range: ${dataset.reportingMonthLabel}.`,
     `Plant / Facility: ${dataset.facility}.`,
     dataset.equipmentType ? `Equipment Type: ${dataset.equipmentType}.` : "",
     dataset.category ? `Category: ${dataset.category}.` : "",
@@ -436,7 +435,7 @@ function buildCoverSlide(
       },
       {
         type: "text",
-        text: `Dashboard Date Range\n${dataset.dateFrom} to ${dataset.dateTo}`,
+        text: `Dashboard Date Range\n${dataset.reportingMonthLabel}`,
         x: 0.9,
         y: 3.1,
         w: 3.45,
@@ -906,12 +905,11 @@ function requireOdmContext(context: DeckGenerationContext) {
       "Select a valid reporting year and month before generating."
     );
   }
-  const fallbackRange = getOdmMonthDateRange(reportingYear, reportingMonth);
   return {
     reportingYear,
     reportingMonth,
-    dateFrom: text(context.dateFrom) || fallbackRange.dateFrom,
-    dateTo: text(context.dateTo) || fallbackRange.dateTo,
+    dateFrom: text(context.dateFrom),
+    dateTo: text(context.dateTo),
     facility: context.facility,
     equipmentType: context.equipmentType,
     category: context.category,
@@ -956,10 +954,14 @@ export async function generateOperatorDrivenMaintenanceDeck(
     dataUrl,
     generatorId: "operator-driven-maintenance",
     generatorName: "Operator Driven Maintenance Deck",
-    reportingYear: persisted.reportingYear,
-    reportingMonth: persisted.reportingMonth,
-    dateFrom: persisted.dateFrom,
-    dateTo: persisted.dateTo,
+    ...(persisted.dateFrom || persisted.dateTo
+      ? {
+          reportingYear: persisted.reportingYear,
+          reportingMonth: persisted.reportingMonth,
+        }
+      : {}),
+    ...(persisted.dateFrom ? { dateFrom: persisted.dateFrom } : {}),
+    ...(persisted.dateTo ? { dateTo: persisted.dateTo } : {}),
     facility: persisted.facility,
     equipmentType: persisted.equipmentType,
     category: persisted.category,

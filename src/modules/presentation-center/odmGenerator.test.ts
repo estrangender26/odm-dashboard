@@ -431,7 +431,7 @@ describe("Operator-Driven Maintenance presentation generator", () => {
     });
   });
 
-  it("falls back to month bounds when context omits explicit dashboard dates", async () => {
+  it("keeps dashboard all-date scope when context omits explicit dashboard dates", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse(
         makeScorecard({
@@ -443,7 +443,7 @@ describe("Operator-Driven Maintenance presentation generator", () => {
     vi.stubGlobal("FileReader", MockFileReader);
     vi.stubGlobal("crypto", { randomUUID: () => "odm-month-bounds-id" });
 
-    await generateOperatorDrivenMaintenanceDeck({
+    const deck = await generateOperatorDrivenMaintenanceDeck({
       generatedBy: "Test User",
       reportingYear: 2026,
       reportingMonth: 6,
@@ -452,7 +452,11 @@ describe("Operator-Driven Maintenance presentation generator", () => {
     });
 
     expect(String(fetchMock.mock.calls[0][0])).toBe(
-      "/api/operator-driven-maintenance/summary?date_from=2026-06-01&date_to=2026-06-30"
+      "/api/operator-driven-maintenance/summary"
     );
+    expect(deck.reportingYear).toBeUndefined();
+    expect(deck.reportingMonth).toBeUndefined();
+    expect(deck.dateFrom).toBeUndefined();
+    expect(deck.dateTo).toBeUndefined();
   });
 });
