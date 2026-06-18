@@ -10,6 +10,10 @@ import {
   MONTHLY_KPI_DECK_SOURCE_LABEL,
 } from "./monthlyKpiDeckDesign";
 import {
+  generateOperatorDrivenMaintenanceDeck,
+  OPERATOR_DRIVEN_MAINTENANCE_SOURCE_LABEL,
+} from "./odmGenerator";
+import {
   ALL_BUSINESS_UNITS_LABEL,
   EXECUTIVE_SCORECARD_TEMPLATE,
   getPersistedMonthlyKpiScorecard,
@@ -101,7 +105,10 @@ function requireMonthlyKpiContext(context: DeckGenerationContext) {
     reportingYear,
     reportingMonth,
     businessUnit: context.businessUnit,
-    template: context.template ?? EXECUTIVE_SCORECARD_TEMPLATE,
+    template:
+      context.template === EXECUTIVE_SCORECARD_TEMPLATE
+        ? context.template
+        : EXECUTIVE_SCORECARD_TEMPLATE,
   };
 }
 
@@ -1204,22 +1211,6 @@ const placeholderGenerators: DeckGenerator[] = [
     enabled: false,
   },
   {
-    id: "operator-driven-maintenance",
-    title: "Operator Driven Maintenance Deck",
-    description:
-      "Reserved generator for operator-driven maintenance adoption, inspection outcomes, finding trends, and site coaching needs.",
-    category: "Operator Driven Maintenance",
-    status: "coming-soon",
-    slideOutline: [
-      "ODM adoption",
-      "Inspection outcomes",
-      "Finding trends",
-      "Coaching needs",
-      "Next-cycle actions",
-    ],
-    enabled: false,
-  },
-  {
     id: "executive-dashboard",
     title: "Executive Dashboard Deck",
     description:
@@ -1255,5 +1246,26 @@ export const deckGeneratorRegistry: DeckGenerator[] = [
     enabled: true,
     generate: generateMonthlyKpiDeck,
   },
+  {
+    id: "operator-driven-maintenance",
+    title: "Operator Driven Maintenance Deck",
+    description:
+      "Create an Operator-Driven Maintenance scorecard deck from persisted inspection records, findings, statuses, scores, assets, and facilities.",
+    category: "Operator Driven Maintenance",
+    status: "active",
+    slideOutline: [
+      "Cover and reporting scope",
+      "Executive summary",
+      "ODM KPI cards",
+      "Facility breakdown",
+      "Findings and risk themes",
+      "Adoption and execution trend",
+      "Action items and follow-up",
+    ],
+    enabled: true,
+    generate: generateOperatorDrivenMaintenanceDeck,
+  },
   ...placeholderGenerators,
 ];
+
+export { OPERATOR_DRIVEN_MAINTENANCE_SOURCE_LABEL };

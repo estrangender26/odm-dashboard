@@ -684,6 +684,121 @@ app.patch("/api/monthly-kpi/records/:id", async (c) => {
   }
 });
 
+logBootStage("registering operator-driven maintenance scorecard routes");
+
+function preventOdmResponseCaching(c: Context) {
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  c.header("Pragma", "no-cache");
+  c.header("Expires", "0");
+}
+
+function asOdmNullableText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function parseOdmInspectionDateParts(record: Record<string, unknown>) {
+  const raw =
+    asOdmNullableText(record.date) ??
+    asOdmNullableText(record.inspection_date) ??
+    asOdmNullableText(record.inspectionDate) ??
+    asOdmNullableText(record.submitted_at) ??
+    asOdmNullableText(record.submittedAt);
+  if (!raw) return null;
+  const text = raw.trim();
+  const isoMatch = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+    if (Number.isInteger(year) && month >= 1 && month <= 12) return { year, month };
+  }
+  const usMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (usMatch) {
+    const month = Number(usMatch[1]);
+    const year = Number(usMatch[3]);
+    if (Number.isInteger(year) && month >= 1 && month <= 12) return { year, month };
+  }
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return { year: parsed.getFullYear(), month: parsed.getMonth() + 1 };
+}
+
+async function fetchOdmInspectionsForResponse(filters: {
+  facilityId?: string | null;
+  reportingYear?: number | null;
+  reportingMonth?: number | null;
+} = {}) {
+  const facilityId = asOdmNullableText(filters.facilityId);
+  const reportingYear = Number.isInteger(filters.reportingYear) ? filters.reportingYear : null;
+  const reportingMonth = Number.isInteger(filters.reportingMonth) ? filters.reportingMonth : null;
+  const rows = await getDb().execute(sql`
+    SELECT
+      id,
+      submission_id,
+      facility_id,
+      inspector,
+      inspection_date,
+      asset_tag,
+      asset_name,
+      equipment_type,
+      category,
+      task,
+      capture1_label,
+      capture1_response,
+      escalation_trigger,
+      entry_notes,
+      status,
+      score,
+      findings,
+      date,
+      submitted_at,
+      frequency,
+      updated_by,
+      updated_at
+    FROM mw_inspections
+    WHERE (${facilityId}::text IS NULL OR facility_id = ${facilityId})
+    ORDER BY date DESC NULLS LAST, submitted_at DESC NULLS LAST, id DESC
+  `);
+  return rowsFromDb<Record<string, unknown>>(rows).filter(record => {
+    if (reportingYear === null && reportingMonth === null) return true;
+    const parts = parseOdmInspectionDateParts(record);
+    if (!parts) return false;
+    if (reportingYear !== null && parts.year !== reportingYear) return false;
+    if (reportingMonth !== null && parts.month !== reportingMonth) return false;
+    return true;
+  });
+}
+
+app.get("/api/operator-driven-maintenance/inspections", async (c) => {
+  try {
+    preventOdmResponseCaching(c);
+    await ensureDbReady();
+    const reportingYearParam = c.req.query("reporting_year");
+    const reportingMonthParam = c.req.query("reporting_month");
+    const reportingYear = reportingYearParam ? Number(reportingYearParam) : null;
+    const reportingMonth = reportingMonthParam ? Number(reportingMonthParam) : null;
+    if (reportingYearParam && !Number.isInteger(reportingYear)) {
+      return c.json({ error: "reporting_year query parameter must be an integer" }, 400);
+    }
+    if (
+      reportingMonthParam &&
+      (!Number.isInteger(reportingMonth) || reportingMonth < 1 || reportingMonth > 12)
+    ) {
+      return c.json({ error: "reporting_month query parameter must be between 1 and 12" }, 400);
+    }
+    const records = await fetchOdmInspectionsForResponse({
+      facilityId: c.req.query("facility_id")?.trim() || null,
+      reportingYear,
+      reportingMonth,
+    });
+    return c.json({ records });
+  } catch (e: any) {
+    console.error("[operator-driven-maintenance] GET inspections failed", e);
+    return c.json({ error: e?.message ?? "Unable to fetch Operator-Driven Maintenance inspections" }, 500);
+  }
+});
+
 logBootStage("registering health check routes");
 
 // Health check — tests database connectivity and shows deployment info

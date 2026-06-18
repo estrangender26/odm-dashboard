@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { deckGeneratorRegistry } from "@/modules/presentation-center/generators";
+import { ODM_TEMPLATE_OPTIONS } from "@/modules/presentation-center/odmScorecardData";
 import { MONTHLY_KPI_TEMPLATE_OPTIONS } from "@/modules/presentation-center/scorecardData";
 
 const presentationCenterSource = readFileSync(
@@ -28,5 +30,54 @@ describe("Presentation Center Monthly KPI generation dialog", () => {
     expect(presentationCenterSource).toContain("Business Unit");
     expect(presentationCenterSource).toContain("Template");
     expect(MONTHLY_KPI_TEMPLATE_OPTIONS).toEqual(["Executive Scorecard"]);
+  });
+});
+
+describe("Presentation Center Operator-Driven Maintenance generation dialog", () => {
+  it("activates only the ODM generator among reserved future generators", () => {
+    const odmGenerator = deckGeneratorRegistry.find(
+      generator => generator.id === "operator-driven-maintenance"
+    );
+    const remainingComingSoon = deckGeneratorRegistry.filter(
+      generator =>
+        generator.id !== "monthly-kpi-scorecard" &&
+        generator.id !== "operator-driven-maintenance"
+    );
+
+    expect(odmGenerator).toMatchObject({
+      status: "active",
+      enabled: true,
+      title: "Operator Driven Maintenance Deck",
+    });
+    expect(typeof odmGenerator?.generate).toBe("function");
+    expect(remainingComingSoon.every(generator => !generator.enabled)).toBe(true);
+    expect(
+      remainingComingSoon.every(generator => generator.status === "coming-soon")
+    ).toBe(true);
+  });
+
+  it("opens the ODM configuration modal from the Generate button", () => {
+    const buttonHandler = presentationCenterSource.slice(
+      presentationCenterSource.indexOf(
+        "generator.id === monthlyKpiGeneratorId"
+      ),
+      presentationCenterSource.indexOf("disabled={isActive}")
+    );
+
+    expect(buttonHandler).toContain("openOdmDialog(generator.id)");
+    expect(buttonHandler).toContain("runGenerator(generator.id)");
+    expect(presentationCenterSource).toContain(
+      "Generate Operator-Driven Maintenance PPTX"
+    );
+  });
+
+  it("renders the ODM period, facility, and Executive Summary template controls", () => {
+    expect(presentationCenterSource).toContain("Reporting Year");
+    expect(presentationCenterSource).toContain("Reporting Month");
+    expect(presentationCenterSource).toContain("Facility / Site");
+    expect(presentationCenterSource).toContain("Template");
+    expect(presentationCenterSource).toContain("getAvailableOdmScorecardOptions");
+    expect(presentationCenterSource).toContain("facility: odmSelection.facility");
+    expect(ODM_TEMPLATE_OPTIONS).toEqual(["Executive Summary"]);
   });
 });
