@@ -39,6 +39,7 @@ type ShapeIdAllocator = () => number;
 const EMU_PER_INCH = 914400;
 const SLIDE_W = 13.333;
 const SLIDE_H = 7.5;
+const TEXT_BOX_INSET = 45720;
 
 function esc(value: string | number) {
   return String(value)
@@ -54,6 +55,13 @@ function emu(inches: number) {
   return Math.round(inches * EMU_PER_INCH);
 }
 
+function drawingText(value: string | number) {
+  const text = esc(value);
+  if (!text) return '<a:t xml:space="preserve"> </a:t>';
+  const preserve = /^\s|\s$/.test(text) ? ' xml:space="preserve"' : "";
+  return `<a:t${preserve}>${text}</a:t>`;
+}
+
 function textShape(
   element: Extract<SlideElement, { type: "text" }>,
   id: number
@@ -66,7 +74,7 @@ function textShape(
   const bold = element.bold ? ' b="1"' : "";
   const align = element.align ? ` algn="${element.align}"` : "";
   const lines = element.text.split("\n");
-  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Text ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${emu(element.x)}" y="${emu(element.y)}"/><a:ext cx="${emu(element.w)}" cy="${emu(element.h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${fill}</p:spPr><p:txBody><a:bodyPr wrap="square" rtlCol="0"/><a:lstStyle/>${lines.map(line => `<a:p><a:pPr${align}/><a:r><a:rPr lang="en-US" sz="${fontSize}"${bold}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:latin typeface="Aptos"/></a:rPr><a:t>${esc(line)}</a:t></a:r></a:p>`).join("")}</p:txBody></p:sp>`;
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Text ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${emu(element.x)}" y="${emu(element.y)}"/><a:ext cx="${emu(element.w)}" cy="${emu(element.h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${fill}</p:spPr><p:txBody><a:bodyPr wrap="square" rtlCol="0" lIns="${TEXT_BOX_INSET}" tIns="${TEXT_BOX_INSET}" rIns="${TEXT_BOX_INSET}" bIns="${TEXT_BOX_INSET}"/><a:lstStyle/>${lines.map(line => `<a:p><a:pPr${align}/><a:r><a:rPr lang="en-US" sz="${fontSize}"${bold}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:latin typeface="Aptos"/></a:rPr>${drawingText(line)}</a:r></a:p>`).join("")}</p:txBody></p:sp>`;
 }
 
 function tableShape(
