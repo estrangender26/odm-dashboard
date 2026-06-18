@@ -216,8 +216,6 @@ export default function PresentationCenter() {
     Boolean(
       odmSelection.reportingYear &&
       odmSelection.reportingMonth &&
-      odmSelection.dateFrom &&
-      odmSelection.dateTo &&
       odmSelection.facility &&
       odmSelection.template
     ) &&
@@ -363,7 +361,6 @@ export default function PresentationCenter() {
         const selectedMonth = options.months.includes(previousMonth)
           ? previousMonth
           : options.months[0];
-        const dateRange = getOdmMonthDateRange(selectedYear, selectedMonth);
         const facility =
           previous.facility !== ALL_FACILITIES_LABEL &&
           options.facilities.includes(previous.facility)
@@ -372,8 +369,8 @@ export default function PresentationCenter() {
         return {
           reportingYear: String(selectedYear),
           reportingMonth: String(selectedMonth),
-          dateFrom: previous.dateFrom || dateRange.dateFrom,
-          dateTo: previous.dateTo || dateRange.dateTo,
+          dateFrom: previous.dateFrom,
+          dateTo: previous.dateTo,
           facility,
           equipmentType: options.equipmentTypes.includes(previous.equipmentType)
             ? previous.equipmentType
@@ -796,9 +793,13 @@ export default function PresentationCenter() {
 	                            ALL_BUSINESS_UNITS_LABEL}
                         </div>
                       )}
-                      {deck.dateFrom && deck.dateTo && (
+                      {(deck.dateFrom || deck.dateTo) && (
                         <div className="mt-1 text-xs text-slate-500">
-                          {deck.dateFrom} to {deck.dateTo}
+                          {deck.dateFrom && deck.dateTo
+                            ? `${deck.dateFrom} to ${deck.dateTo}`
+                            : deck.dateFrom
+                              ? `From ${deck.dateFrom}`
+                              : `Through ${deck.dateTo}`}
                         </div>
                       )}
                       {(deck.equipmentType || deck.category || deck.inspector) && (

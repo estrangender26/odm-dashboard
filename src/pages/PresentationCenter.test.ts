@@ -85,6 +85,8 @@ describe("Presentation Center Operator-Driven Maintenance generation dialog", ()
     expect(presentationCenterSource).toContain("getOdmMonthDateRange");
     expect(presentationCenterSource).toContain("dateFrom: odmSelection.dateFrom");
     expect(presentationCenterSource).toContain("dateTo: odmSelection.dateTo");
+    expect(presentationCenterSource).not.toContain("odmSelection.dateFrom &&");
+    expect(presentationCenterSource).not.toContain("odmSelection.dateTo &&");
     expect(presentationCenterSource).toContain("facility: odmSelection.facility");
     expect(presentationCenterSource).toContain("equipmentType: odmSelection.equipmentType");
     expect(presentationCenterSource).toContain("category: odmSelection.category");
