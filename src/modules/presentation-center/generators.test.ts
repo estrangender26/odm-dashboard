@@ -7,6 +7,7 @@ import {
   buildPortfolioKpiCards,
   buildYtdScorecardRows,
   generateMonthlyKpiDeck,
+  MONTHLY_KPI_DECK_SOURCE_LABEL,
   MONTHLY_KPI_NOTES_FALLBACK,
 } from "./generators";
 import {
@@ -170,7 +171,7 @@ describe("Monthly KPI presentation generator", () => {
     );
     const period = textElement(titleSlide, text => text === "May 2026");
     const source = textElement(titleSlide, text =>
-      text.startsWith("Generated from ODM Dashboard")
+      text.startsWith(`Generated from ${MONTHLY_KPI_DECK_SOURCE_LABEL}`)
     );
     const timestamp = titleSlide.elements.find(
       (element): element is TextElement =>
@@ -182,6 +183,24 @@ describe("Monthly KPI presentation generator", () => {
     expect(scope.y + scope.h).toBeLessThanOrEqual(period.y);
     expect(period.y + period.h).toBeLessThanOrEqual(source.y);
     expect(source.x + source.w).toBeLessThanOrEqual(timestamp.x);
+  });
+
+  it("uses the Monthly Scorecard dashboard title as the visible deck source", () => {
+    const slides = buildMonthlyKpiSlides(makeDataset([makeRecord()]));
+    const expectedFooter = `May 2026 | ${ALL_BUSINESS_UNITS_LABEL} | ${MONTHLY_KPI_DECK_SOURCE_LABEL}`;
+    const deckText = slides.map(slideText).join("\n");
+
+    for (const slide of slides) {
+      expect(slideText(slide)).toContain(expectedFooter);
+    }
+
+    expect(deckText).toContain(
+      `Generated from ${MONTHLY_KPI_DECK_SOURCE_LABEL}`
+    );
+    expect(deckText).not.toContain(
+      `May 2026 | ${ALL_BUSINESS_UNITS_LABEL} | ODM Dashboard`
+    );
+    expect(deckText).not.toContain("Generated from ODM Dashboard");
   });
 
   it("builds the expected polished slide titles with no font below 14pt", () => {
