@@ -8,10 +8,21 @@ import {
   Search,
   Upload,
   WandSparkles,
+  X,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import { deckGeneratorRegistry } from "@/modules/presentation-center/generators";
+import {
+  ALL_BUSINESS_UNITS_LABEL,
+  EXECUTIVE_SCORECARD_TEMPLATE,
+  getAvailableMonthlyKpiOptions,
+  getReportingPeriodLabel,
+  MONTH_NAMES,
+  MONTHLY_KPI_BUSINESS_UNITS,
+  MONTHLY_KPI_TEMPLATE_OPTIONS,
+  type MonthlyKpiAvailableOptions,
+} from "@/modules/presentation-center/scorecardData";
 import {
   blobToDataUrl,
   downloadDataUrl,
@@ -21,7 +32,9 @@ import {
   saveUploadedPresentations,
 } from "@/modules/presentation-center/storage";
 import type {
+  DeckGenerationContext,
   GeneratedPresentation,
+  MonthlyKpiTemplate,
   PresentationCategory,
   UploadedPresentation,
 } from "@/modules/presentation-center/types";
@@ -42,6 +55,28 @@ const categoryOptions: PresentationCategory[] = [
 
 type SortKey = "newest" | "oldest" | "name" | "size" | "category";
 
+const monthlyKpiGeneratorId = "monthly-kpi-scorecard";
+
+const emptyMonthlyKpiOptions: MonthlyKpiAvailableOptions = {
+  years: [],
+  months: [],
+  businessUnits: [],
+};
+
+type MonthlyKpiSelection = {
+  reportingYear: string;
+  reportingMonth: string;
+  businessUnit: string;
+  template: MonthlyKpiTemplate;
+};
+
+const defaultMonthlyKpiSelection: MonthlyKpiSelection = {
+  reportingYear: "",
+  reportingMonth: "",
+  businessUnit: ALL_BUSINESS_UNITS_LABEL,
+  template: EXECUTIVE_SCORECARD_TEMPLATE,
+};
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -56,6 +91,11 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatReportingPeriod(month?: number, year?: number) {
+  if (!month || !year) return "";
+  return getReportingPeriodLabel(month, year);
 }
 
 export default function PresentationCenter() {
@@ -73,7 +113,37 @@ export default function PresentationCenter() {
   const [activeGeneratorId, setActiveGeneratorId] = useState<string | null>(
     null
   );
+  const [monthlyKpiDialogOpen, setMonthlyKpiDialogOpen] = useState(false);
+  const [monthlyKpiDialogGeneratorId, setMonthlyKpiDialogGeneratorId] =
+    useState<string | null>(null);
+  const [monthlyKpiSelection, setMonthlyKpiSelection] =
+    useState<MonthlyKpiSelection>(defaultMonthlyKpiSelection);
+  const [monthlyKpiOptions, setMonthlyKpiOptions] =
+    useState<MonthlyKpiAvailableOptions>(emptyMonthlyKpiOptions);
+  const [monthlyKpiOptionsLoading, setMonthlyKpiOptionsLoading] =
+    useState(false);
+  const [monthlyKpiOptionsError, setMonthlyKpiOptionsError] = useState<
+    string | null
+  >(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const monthlyKpiBusinessUnitOptions = [
+    ALL_BUSINESS_UNITS_LABEL,
+    ...(monthlyKpiOptions.businessUnits.length
+      ? monthlyKpiOptions.businessUnits
+      : MONTHLY_KPI_BUSINESS_UNITS),
+  ];
+  const monthlyKpiCanGenerate =
+    Boolean(
+      monthlyKpiSelection.reportingYear &&
+      monthlyKpiSelection.reportingMonth &&
+      monthlyKpiSelection.businessUnit &&
+      monthlyKpiSelection.template
+    ) &&
+    !monthlyKpiOptionsLoading &&
+    !monthlyKpiOptionsError &&
+    monthlyKpiOptions.years.length > 0 &&
+    monthlyKpiOptions.months.length > 0;
 
   const filteredUploaded = useMemo(() => {
     const normalizedQuery = query.toLowerCase().trim();
@@ -137,19 +207,76 @@ export default function PresentationCenter() {
     }
   }
 
-  async function runGenerator(generatorId: string) {
+  async function openMonthlyKpiDialog(generatorId: string) {
+    setMonthlyKpiDialogGeneratorId(generatorId);
+    setMonthlyKpiDialogOpen(true);
+    setMonthlyKpiOptionsLoading(true);
+    setMonthlyKpiOptionsError(null);
+    try {
+      const options = await getAvailableMonthlyKpiOptions();
+      setMonthlyKpiOptions(options);
+      if (options.years.length === 0 || options.months.length === 0) {
+        setMonthlyKpiSelection(defaultMonthlyKpiSelection);
+        setMonthlyKpiOptionsError(
+          "No persisted Monthly KPI records are available for presentation generation."
+        );
+        return;
+      }
+      setMonthlyKpiSelection(previous => {
+        const previousYear = Number(previous.reportingYear);
+        const previousMonth = Number(previous.reportingMonth);
+        const businessUnit =
+          previous.businessUnit !== ALL_BUSINESS_UNITS_LABEL &&
+          options.businessUnits.includes(previous.businessUnit)
+            ? previous.businessUnit
+            : ALL_BUSINESS_UNITS_LABEL;
+        return {
+          reportingYear: String(
+            options.years.includes(previousYear)
+              ? previousYear
+              : options.years[0]
+          ),
+          reportingMonth: String(
+            options.months.includes(previousMonth)
+              ? previousMonth
+              : options.months[0]
+          ),
+          businessUnit,
+          template: EXECUTIVE_SCORECARD_TEMPLATE,
+        };
+      });
+    } catch (error) {
+      console.error("[PresentationCenter] Monthly KPI options failed", error);
+      setMonthlyKpiOptions(emptyMonthlyKpiOptions);
+      setMonthlyKpiSelection(defaultMonthlyKpiSelection);
+      setMonthlyKpiOptionsError(
+        "Unable to load persisted Monthly KPI records. Please try again."
+      );
+      toast.error("Unable to load Monthly KPI generation options.");
+    } finally {
+      setMonthlyKpiOptionsLoading(false);
+    }
+  }
+
+  async function runGenerator(
+    generatorId: string,
+    generationContext: Omit<Partial<DeckGenerationContext>, "generatedBy"> = {}
+  ) {
     const generator = deckGeneratorRegistry.find(
       item => item.id === generatorId
     );
-    if (!generator) return;
+    if (!generator) return false;
     if (!generator.enabled || !generator.generate) {
       toast.info("Generator not yet implemented. Reserved for future release.");
-      return;
+      return false;
     }
     setActiveGeneratorId(generatorId);
     toast.loading("Generating presentation…", { id: generatorId });
     try {
-      const deck = await generator.generate({ generatedBy: "ODM User" });
+      const deck = await generator.generate({
+        generatedBy: "ODM User",
+        ...generationContext,
+      });
       const next = [deck, ...generated];
       setGenerated(next);
       saveGeneratedPresentations(next);
@@ -157,6 +284,7 @@ export default function PresentationCenter() {
         id: generatorId,
       });
       downloadDataUrl(deck.dataUrl, deck.name);
+      return true;
     } catch (error) {
       console.error("[PresentationCenter] Generation failed", error);
       toast.error(
@@ -165,8 +293,29 @@ export default function PresentationCenter() {
           : "Presentation generation failed.",
         { id: generatorId }
       );
+      return false;
     } finally {
       setActiveGeneratorId(null);
+    }
+  }
+
+  async function handleMonthlyKpiGenerate() {
+    if (!monthlyKpiDialogGeneratorId) return;
+    const reportingYear = Number(monthlyKpiSelection.reportingYear);
+    const reportingMonth = Number(monthlyKpiSelection.reportingMonth);
+    if (!Number.isInteger(reportingYear) || !Number.isInteger(reportingMonth)) {
+      toast.error("Select a valid reporting year and month.");
+      return;
+    }
+    const generatedDeck = await runGenerator(monthlyKpiDialogGeneratorId, {
+      reportingYear,
+      reportingMonth,
+      businessUnit: monthlyKpiSelection.businessUnit,
+      template: monthlyKpiSelection.template,
+    });
+    if (generatedDeck) {
+      setMonthlyKpiDialogOpen(false);
+      setMonthlyKpiDialogGeneratorId(null);
     }
   }
 
@@ -418,7 +567,11 @@ export default function PresentationCenter() {
                       {generator.status === "active" ? "ACTIVE" : "Coming Soon"}
                     </span>
                     <button
-                      onClick={() => void runGenerator(generator.id)}
+                      onClick={() =>
+                        generator.id === monthlyKpiGeneratorId
+                          ? void openMonthlyKpiDialog(generator.id)
+                          : void runGenerator(generator.id)
+                      }
                       disabled={isActive}
                       className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold transition disabled:opacity-60 ${generator.enabled ? "bg-[#005BAC] text-white hover:bg-[#004A8F]" : "border border-[#D6DFE8] bg-white text-[#005BAC] hover:bg-[#EEF6FF]"}`}
                     >
@@ -459,7 +612,23 @@ export default function PresentationCenter() {
                     <td className="px-4 py-3 font-semibold text-[#0B1D44]">
                       {deck.name}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{deck.type}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      <div>{deck.type}</div>
+                      {deck.reportingYear && deck.reportingMonth && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          {formatReportingPeriod(
+                            deck.reportingMonth,
+                            deck.reportingYear
+                          )}{" "}
+                          • {deck.businessUnit || ALL_BUSINESS_UNITS_LABEL}
+                        </div>
+                      )}
+                      {deck.template && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Template: {deck.template}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-slate-600">
                       {formatDate(deck.generatedDate)}
                     </td>
@@ -492,6 +661,187 @@ export default function PresentationCenter() {
           </div>
         </section>
       </main>
+
+      {monthlyKpiDialogOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="monthly-kpi-pptx-title"
+            className="w-full max-w-2xl rounded-xl bg-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[#E2E8F0] px-5 py-4">
+              <div>
+                <h2
+                  id="monthly-kpi-pptx-title"
+                  className="text-lg font-bold text-[#0B1D44]"
+                >
+                  Generate Monthly KPI PPTX
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Select persisted Monthly KPI records for the Executive
+                  Scorecard deck.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => {
+                  setMonthlyKpiDialogOpen(false);
+                  setMonthlyKpiDialogGeneratorId(null);
+                }}
+                disabled={activeGeneratorId === monthlyKpiDialogGeneratorId}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D6DFE8] text-slate-600 hover:bg-[#F8FAFC] disabled:opacity-60"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-5">
+              {monthlyKpiOptionsLoading && (
+                <div className="flex items-center gap-2 rounded-lg border border-[#D6DFE8] bg-[#F8FBFF] px-3 py-2 text-sm text-slate-600">
+                  <Loader2 className="h-4 w-4 animate-spin text-[#005BAC]" />
+                  Loading persisted Monthly KPI records...
+                </div>
+              )}
+
+              {monthlyKpiOptionsError && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {monthlyKpiOptionsError}
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Reporting Year
+                  <select
+                    value={monthlyKpiSelection.reportingYear}
+                    onChange={event =>
+                      setMonthlyKpiSelection(previous => ({
+                        ...previous,
+                        reportingYear: event.target.value,
+                      }))
+                    }
+                    disabled={
+                      monthlyKpiOptionsLoading ||
+                      monthlyKpiOptions.years.length === 0
+                    }
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {monthlyKpiOptions.years.length ? (
+                      monthlyKpiOptions.years.map(year => (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">No years available</option>
+                    )}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Reporting Month
+                  <select
+                    value={monthlyKpiSelection.reportingMonth}
+                    onChange={event =>
+                      setMonthlyKpiSelection(previous => ({
+                        ...previous,
+                        reportingMonth: event.target.value,
+                      }))
+                    }
+                    disabled={
+                      monthlyKpiOptionsLoading ||
+                      monthlyKpiOptions.months.length === 0
+                    }
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {monthlyKpiOptions.months.length ? (
+                      monthlyKpiOptions.months.map(month => (
+                        <option key={month} value={month}>
+                          {MONTH_NAMES[month - 1] || `Month ${month}`}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">No months available</option>
+                    )}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Business Unit
+                  <select
+                    value={monthlyKpiSelection.businessUnit}
+                    onChange={event =>
+                      setMonthlyKpiSelection(previous => ({
+                        ...previous,
+                        businessUnit: event.target.value,
+                      }))
+                    }
+                    disabled={monthlyKpiOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {monthlyKpiBusinessUnitOptions.map(unit => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-[#0B1D44]">
+                  Template
+                  <select
+                    value={monthlyKpiSelection.template}
+                    onChange={event =>
+                      setMonthlyKpiSelection(previous => ({
+                        ...previous,
+                        template: event.target.value as MonthlyKpiTemplate,
+                      }))
+                    }
+                    disabled={monthlyKpiOptionsLoading}
+                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                  >
+                    {MONTHLY_KPI_TEMPLATE_OPTIONS.map(template => (
+                      <option key={template} value={template}>
+                        {template}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#E2E8F0] px-5 py-4 sm:flex-row sm:items-center sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setMonthlyKpiDialogOpen(false);
+                  setMonthlyKpiDialogGeneratorId(null);
+                }}
+                disabled={activeGeneratorId === monthlyKpiDialogGeneratorId}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF] disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleMonthlyKpiGenerate()}
+                disabled={
+                  !monthlyKpiCanGenerate ||
+                  activeGeneratorId === monthlyKpiDialogGeneratorId
+                }
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F] disabled:opacity-60"
+              >
+                {activeGeneratorId === monthlyKpiDialogGeneratorId && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                Generate PPTX
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

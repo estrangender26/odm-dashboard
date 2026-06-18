@@ -1,8 +1,11 @@
 import {
   aggregateMonthlyKpiRecords,
   monthlyKpiKeys,
+  normalizeBusinessUnitLabel,
+  normalizeKpiNumber,
   type PersistedMonthlyKpiRecord,
 } from "../monthly-kpi/kpiAggregation";
+import type { MonthlyKpiTemplate } from "./types";
 
 export type KpiRecord = {
   businessUnit: string;
@@ -20,11 +23,76 @@ export type KpiRecord = {
   actionItems: string[];
 };
 
+export const ALL_BUSINESS_UNITS_LABEL = "All Business Units";
+
+export const EXECUTIVE_SCORECARD_TEMPLATE: MonthlyKpiTemplate =
+  "Executive Scorecard";
+
+export const MONTHLY_KPI_TEMPLATE_OPTIONS = [
+  EXECUTIVE_SCORECARD_TEMPLATE,
+] as const;
+
+export const MONTHLY_KPI_BUSINESS_UNITS = [
+  "AMD-EZ",
+  "Laguna Water",
+  "Clark Water",
+  "Tagum Water",
+  "Estate Water",
+] as const;
+
+export const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
+export type MonthlyKpiRecordsRequest = {
+  reportingYear: number;
+  reportingMonth: number;
+  businessUnit?: string | null;
+};
+
+export type MonthlyKpiAvailableOptions = {
+  years: number[];
+  months: number[];
+  businessUnits: string[];
+};
+
+export type MonthlyKpiScorecardDataset = {
+  records: KpiRecord[];
+  reportingYear: number;
+  reportingMonth: number;
+  reportingMonthLabel: string;
+  businessUnit: string;
+  template: MonthlyKpiTemplate;
+};
+
 export const scorecardBenchmarks = [
   { key: "pmCompliance", label: "PM Compliance", benchmark: "95%" },
-  { key: "budgetSpend", label: "Maintenance Budget Spend", benchmark: "95% - 105%" },
-  { key: "pmCmWorkOrderRatio", label: "PM:CM Ratio (WO)", benchmark: "≥86% (6:1)" },
-  { key: "pmCmCostRatio", label: "PM:CM Ratio (Cost)", benchmark: "≥60% (1.5:1)" },
+  {
+    key: "budgetSpend",
+    label: "Maintenance Budget Spend",
+    benchmark: "95% - 105%",
+  },
+  {
+    key: "pmCmWorkOrderRatio",
+    label: "PM:CM Ratio (WO)",
+    benchmark: "≥86% (6:1)",
+  },
+  {
+    key: "pmCmCostRatio",
+    label: "PM:CM Ratio (Cost)",
+    benchmark: "≥60% (1.5:1)",
+  },
   { key: "mttrDays", label: "MTTR", benchmark: "Decreasing Trend" },
   { key: "facilityUptime", label: "Facility Uptime", benchmark: "99.97%" },
   { key: "notes", label: "Notes", benchmark: "Commentary" },
@@ -40,9 +108,15 @@ export const currentMonthlyKpiScorecard: KpiRecord[] = [
     mttrDays: 3.2,
     facilityUptime: 99.98,
     notes: "Transformer overhaul completed this month.",
-    majorWins: ["PM compliance exceeded the 95% benchmark.", "Facility uptime remained above target."],
+    majorWins: [
+      "PM compliance exceeded the 95% benchmark.",
+      "Facility uptime remained above target.",
+    ],
     majorRisks: ["Budget spend is trending near the upper control band."],
-    actionItems: ["Review cost drivers for high-spend work orders.", "Keep weekly follow-up on PM closure quality."],
+    actionItems: [
+      "Review cost drivers for high-spend work orders.",
+      "Keep weekly follow-up on PM closure quality.",
+    ],
   },
 ];
 
@@ -62,14 +136,20 @@ function evaluateAggregatedRecord(record: KpiRecord): KpiRecord {
     actions.push("Review overdue PM backlog and closure constraints.");
   }
 
-  if (isPresentNumber(record.facilityUptime) && record.facilityUptime >= 99.97) {
+  if (
+    isPresentNumber(record.facilityUptime) &&
+    record.facilityUptime >= 99.97
+  ) {
     wins.push("Facility uptime met or exceeded the 99.97% benchmark.");
   } else if (isPresentNumber(record.facilityUptime)) {
     risks.push("Facility uptime is below the 99.97% benchmark.");
     actions.push("Confirm uptime recovery actions for critical equipment.");
   }
 
-  if (isPresentNumber(record.budgetSpend) && (record.budgetSpend < 95 || record.budgetSpend > 105)) {
+  if (
+    isPresentNumber(record.budgetSpend) &&
+    (record.budgetSpend < 95 || record.budgetSpend > 105)
+  ) {
     risks.push("Budget spend is outside the 95% to 105% control band.");
     actions.push("Validate planned-versus-actual cost drivers.");
   } else if (isPresentNumber(record.budgetSpend)) {
@@ -78,22 +158,45 @@ function evaluateAggregatedRecord(record: KpiRecord): KpiRecord {
 
   return {
     ...record,
-    majorWins: wins.length ? wins : ["Imported KPI data is available for review."],
-    majorRisks: risks.length ? risks : ["No critical KPI risks identified from imported values."],
-    actionItems: actions.length ? actions : ["Continue monthly KPI monitoring and validation."],
+    majorWins: wins.length
+      ? wins
+      : ["Imported KPI data is available for review."],
+    majorRisks: risks.length
+      ? risks
+      : ["No critical KPI risks identified from imported values."],
+    actionItems: actions.length
+      ? actions
+      : ["Continue monthly KPI monitoring and validation."],
   };
 }
 
 export function getReportingMonthLabel(date = new Date()) {
-  return new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("en", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+export function getReportingPeriodLabel(
+  reportingMonth: number,
+  reportingYear: number
+) {
+  const monthName =
+    MONTH_NAMES[reportingMonth - 1] || `Month ${reportingMonth}`;
+  return `${monthName} ${reportingYear}`;
 }
 
 export function getScorecardSummary(records = currentMonthlyKpiScorecard) {
   const total = records.length;
-  const pmPassed = records.filter((record) => isPresentNumber(record.pmCompliance) && record.pmCompliance >= 95).length;
-  const uptimePassed = records.filter((record) => isPresentNumber(record.facilityUptime) && record.facilityUptime >= 99.97).length;
-  const risks = records.flatMap((record) => record.majorRisks);
-  const wins = records.flatMap((record) => record.majorWins);
+  const pmPassed = records.filter(
+    record => isPresentNumber(record.pmCompliance) && record.pmCompliance >= 95
+  ).length;
+  const uptimePassed = records.filter(
+    record =>
+      isPresentNumber(record.facilityUptime) && record.facilityUptime >= 99.97
+  ).length;
+  const risks = records.flatMap(record => record.majorRisks);
+  const wins = records.flatMap(record => record.majorWins);
   return {
     highlights: [
       `${pmPassed} of ${total} business units are meeting PM compliance target.`,
@@ -102,17 +205,15 @@ export function getScorecardSummary(records = currentMonthlyKpiScorecard) {
     wins: wins.slice(0, 5),
     risks: risks.slice(0, 5),
     concerns: risks.slice(0, 4),
-    actions: records.flatMap((record) => record.actionItems).slice(0, 6),
+    actions: records.flatMap(record => record.actionItems).slice(0, 6),
   };
 }
 
-function getSelectedMonthlyKpiContext() {
-  const now = new Date();
-  const reportingYear = Number(window.localStorage.getItem("monthlyKpiSelectedYear")) || now.getFullYear();
-  return { reportingYear };
-}
-
-function toKpiRecord(aggregate: ReturnType<typeof aggregateMonthlyKpiRecords>["byBusinessUnit"][number]): KpiRecord {
+function toKpiRecord(
+  aggregate: ReturnType<
+    typeof aggregateMonthlyKpiRecords
+  >["byBusinessUnit"][number]
+): KpiRecord {
   return evaluateAggregatedRecord({
     businessUnit: aggregate.businessUnit,
     reportingYear: aggregate.reportingYear,
@@ -129,27 +230,160 @@ function toKpiRecord(aggregate: ReturnType<typeof aggregateMonthlyKpiRecords>["b
   });
 }
 
-export async function getPersistedMonthlyKpiScorecard() {
-  const context = getSelectedMonthlyKpiContext();
-  const params = new URLSearchParams({ reporting_year: String(context.reportingYear) });
-  const response = await fetch(`/api/monthly-kpi/aggregates?${params.toString()}`, {
+function asInteger(value: number | string | null | undefined) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function asNullableNote(value: unknown) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+export function getMonthlyKpiBusinessUnitScope(value?: string | null) {
+  if (!value || value === ALL_BUSINESS_UNITS_LABEL)
+    return ALL_BUSINESS_UNITS_LABEL;
+  return normalizeBusinessUnitLabel(value);
+}
+
+export function buildMonthlyKpiRecordsUrl(
+  filters?: Partial<MonthlyKpiRecordsRequest>
+) {
+  const params = new URLSearchParams();
+  const reportingYear = filters?.reportingYear;
+  const reportingMonth = filters?.reportingMonth;
+  if (Number.isInteger(reportingYear)) {
+    params.set("reporting_year", String(reportingYear));
+  }
+  if (Number.isInteger(reportingMonth)) {
+    params.set("reporting_month", String(reportingMonth));
+  }
+  const businessUnit = getMonthlyKpiBusinessUnitScope(filters?.businessUnit);
+  if (businessUnit !== ALL_BUSINESS_UNITS_LABEL) {
+    params.set("business_unit", businessUnit);
+  }
+  const query = params.toString();
+  return query
+    ? `/api/monthly-kpi/records?${query}`
+    : "/api/monthly-kpi/records";
+}
+
+async function fetchMonthlyKpiRecords(url: string) {
+  const response = await fetch(url, {
     headers: { Accept: "application/json" },
   });
-  if (!response.ok) throw new Error("Unable to load persisted Monthly KPI aggregates.");
-  const aggregate = (await response.json()) as ReturnType<typeof aggregateMonthlyKpiRecords>;
-  if (!aggregate.byBusinessUnit?.length) {
-    throw new Error("No KPI data available for selected year.");
+  const payload = (await response.json().catch(() => ({}))) as {
+    records?: PersistedMonthlyKpiRecord[];
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(
+      payload.error
+        ? `Unable to load persisted Monthly KPI records: ${payload.error}`
+        : "Unable to load persisted Monthly KPI records."
+    );
   }
+  return Array.isArray(payload.records) ? payload.records : [];
+}
 
+export function mapPersistedMonthlyKpiRecord(
+  record: PersistedMonthlyKpiRecord
+): KpiRecord {
+  const reportingMonth = asInteger(record.reporting_month) ?? undefined;
+  const reportingYear = asInteger(record.reporting_year) ?? undefined;
+  return evaluateAggregatedRecord({
+    businessUnit: normalizeBusinessUnitLabel(record.business_unit),
+    reportingMonth,
+    reportingYear,
+    pmCompliance: normalizeKpiNumber(record.pm_compliance),
+    budgetSpend: normalizeKpiNumber(record.budget_spend),
+    pmCmWorkOrderRatio: normalizeKpiNumber(record.pm_cm_work_order_ratio),
+    pmCmCostRatio: normalizeKpiNumber(record.pm_cm_cost_ratio),
+    mttrDays: normalizeKpiNumber(record.mttr_days),
+    facilityUptime: normalizeKpiNumber(record.facility_uptime),
+    notes: asNullableNote(record.notes),
+    majorWins: [],
+    majorRisks: [],
+    actionItems: [],
+  });
+}
+
+export async function getAvailableMonthlyKpiOptions(): Promise<MonthlyKpiAvailableOptions> {
+  const records = await fetchMonthlyKpiRecords(buildMonthlyKpiRecordsUrl());
+  const years = Array.from(
+    new Set(
+      records
+        .map(record => asInteger(record.reporting_year))
+        .filter((value): value is number => value !== null)
+    )
+  ).sort((a, b) => b - a);
+  const months = Array.from(
+    new Set(
+      records
+        .map(record => asInteger(record.reporting_month))
+        .filter(
+          (value): value is number =>
+            value !== null && value >= 1 && value <= 12
+        )
+    )
+  ).sort((a, b) => b - a);
+  const persistedBusinessUnits = new Set(
+    records
+      .map(record => normalizeBusinessUnitLabel(record.business_unit))
+      .filter(Boolean)
+  );
+  const knownBusinessUnits = MONTHLY_KPI_BUSINESS_UNITS.filter(unit =>
+    persistedBusinessUnits.has(unit)
+  );
+  const additionalBusinessUnits = Array.from(persistedBusinessUnits)
+    .filter(
+      unit =>
+        !MONTHLY_KPI_BUSINESS_UNITS.includes(
+          unit as (typeof MONTHLY_KPI_BUSINESS_UNITS)[number]
+        )
+    )
+    .sort((a, b) => a.localeCompare(b));
   return {
-    records: aggregate.byBusinessUnit.map(toKpiRecord),
-    reportingMonthLabel: String(context.reportingYear),
-    businessUnit: "All Business Units",
+    years,
+    months,
+    businessUnits: [...knownBusinessUnits, ...additionalBusinessUnits],
   };
 }
 
-export function aggregatePersistedMonthlyKpiScorecard(records: PersistedMonthlyKpiRecord[], reportingYear: number) {
-  return aggregateMonthlyKpiRecords(records, reportingYear).byBusinessUnit.map(toKpiRecord);
+export async function getPersistedMonthlyKpiScorecard(
+  request: MonthlyKpiRecordsRequest,
+  template: MonthlyKpiTemplate = EXECUTIVE_SCORECARD_TEMPLATE
+): Promise<MonthlyKpiScorecardDataset> {
+  const records = await fetchMonthlyKpiRecords(
+    buildMonthlyKpiRecordsUrl(request)
+  );
+  if (!records.length) {
+    throw new Error(
+      "No database records exist for the selected Monthly KPI reporting period and business unit."
+    );
+  }
+  const businessUnit = getMonthlyKpiBusinessUnitScope(request.businessUnit);
+  return {
+    records: records.map(mapPersistedMonthlyKpiRecord),
+    reportingYear: request.reportingYear,
+    reportingMonth: request.reportingMonth,
+    reportingMonthLabel: getReportingPeriodLabel(
+      request.reportingMonth,
+      request.reportingYear
+    ),
+    businessUnit,
+    template,
+  };
+}
+
+export function aggregatePersistedMonthlyKpiScorecard(
+  records: PersistedMonthlyKpiRecord[],
+  reportingYear: number
+) {
+  return aggregateMonthlyKpiRecords(records, reportingYear).byBusinessUnit.map(
+    toKpiRecord
+  );
 }
 
 export { monthlyKpiKeys };

@@ -6,12 +6,19 @@ import type {
 } from "./types";
 import { createPresentation } from "./pptxBuilder";
 import {
-  currentMonthlyKpiScorecard,
+  EXECUTIVE_SCORECARD_TEMPLATE,
   getPersistedMonthlyKpiScorecard,
-  getReportingMonthLabel,
   getScorecardSummary,
   scorecardBenchmarks,
+  type KpiRecord,
+  type MonthlyKpiScorecardDataset,
 } from "./scorecardData";
+
+type PresentationSlide = Parameters<typeof createPresentation>[0][number];
+type PresentationElement = PresentationSlide["elements"][number];
+
+export const MONTHLY_KPI_NOTES_FALLBACK =
+  "No commentary was recorded for the selected reporting period.";
 
 function slug(value: string) {
   return value
@@ -39,7 +46,7 @@ function formatDeckPmCmRatio(value: number | null | undefined) {
   return `${formatDeckValue(value)}\n(${formatPmCmEquivalentRatio(value)})`;
 }
 
-function kpiRows(records = currentMonthlyKpiScorecard) {
+export function buildMonthlyKpiTableRows(records: KpiRecord[]) {
   return [
     ["Business Unit", ...scorecardBenchmarks.map(benchmark => benchmark.label)],
     ...records.map(record => [
@@ -55,17 +62,82 @@ function kpiRows(records = currentMonthlyKpiScorecard) {
   ];
 }
 
-async function generateMonthlyKpiDeck(
-  context: DeckGenerationContext
-): Promise<GeneratedPresentation> {
-  const persisted = await getPersistedMonthlyKpiScorecard();
-  const scorecardRecords = persisted.records;
-  const reportingMonth = context.reportingMonth || persisted.reportingMonthLabel || getReportingMonthLabel();
-  const businessUnit = context.businessUnit || persisted.businessUnit;
+function requireMonthlyKpiContext(context: DeckGenerationContext) {
+  const reportingYear = Number(context.reportingYear);
+  const reportingMonth = Number(context.reportingMonth);
+  if (!Number.isInteger(reportingYear) || !Number.isInteger(reportingMonth)) {
+    throw new Error(
+      "Select a valid reporting year and month before generating."
+    );
+  }
+  return {
+    reportingYear,
+    reportingMonth,
+    businessUnit: context.businessUnit,
+    template: context.template ?? EXECUTIVE_SCORECARD_TEMPLATE,
+  };
+}
+
+function chartElementForMetric(
+  records: KpiRecord[],
+  metric: "pmCompliance" | "facilityUptime",
+  title: string,
+  x: number
+): PresentationElement {
+  const rows = records.filter(
+    record =>
+      typeof record[metric] === "number" && Number.isFinite(record[metric])
+  );
+  if (!rows.length) {
+    return {
+      type: "text",
+      text: `${title}\nNo chartable values were recorded for this metric.`,
+      x,
+      y: 1.05,
+      w: 5.85,
+      h: 4.9,
+      fontSize: 14,
+      color: "334155",
+      fill: "F8FAFC",
+    };
+  }
+  return {
+    type: "bars",
+    title,
+    labels: rows.map(record => record.businessUnit),
+    values: rows.map(record => record[metric] as number),
+    x,
+    y: 1.05,
+    w: 5.85,
+    h: 4.9,
+    max: 100,
+  };
+}
+
+export function buildMonthlyKpiNotesText(records: KpiRecord[]) {
+  const notes = records
+    .map(record => ({
+      businessUnit: record.businessUnit,
+      note: record.notes?.trim() || "",
+    }))
+    .filter(record => record.note);
+  if (!notes.length) return MONTHLY_KPI_NOTES_FALLBACK;
+  return notes
+    .map(record => `${record.businessUnit}\n${record.note}`)
+    .join("\n\n");
+}
+
+export function buildMonthlyKpiSlides(
+  dataset: MonthlyKpiScorecardDataset,
+  generatedAt = new Date()
+): PresentationSlide[] {
+  const scorecardRecords = dataset.records;
+  const reportingMonth = dataset.reportingMonthLabel;
+  const businessUnit = dataset.businessUnit;
   const summary = getScorecardSummary(scorecardRecords);
-  const now = new Date();
-  const title = `Monthly KPI Scorecard - ${businessUnit} - ${reportingMonth}`;
-  const blob = createPresentation([
+  const titleScope = `${businessUnit} | ${reportingMonth}`;
+
+  return [
     {
       elements: [
         {
@@ -92,7 +164,7 @@ async function generateMonthlyKpiDeck(
         },
         {
           type: "text",
-          text: `Reporting Month: ${reportingMonth}\nBusiness Unit: ${businessUnit}`,
+          text: `Reporting Period: ${reportingMonth}\nBusiness Unit: ${businessUnit}`,
           x: 0.7,
           y: 2.45,
           w: 6.2,
@@ -102,7 +174,7 @@ async function generateMonthlyKpiDeck(
         },
         {
           type: "text",
-          text: "Generated directly from dashboard KPI data",
+          text: "Generated directly from persisted Monthly KPI records",
           x: 0.7,
           y: 5.95,
           w: 6.2,
@@ -112,7 +184,7 @@ async function generateMonthlyKpiDeck(
         },
         {
           type: "text",
-          text: now.toLocaleString(),
+          text: generatedAt.toLocaleString(),
           x: 9.0,
           y: 6.25,
           w: 3.1,
@@ -127,12 +199,12 @@ async function generateMonthlyKpiDeck(
       elements: [
         {
           type: "text",
-          text: "Executive Summary",
+          text: `Executive Summary\n${titleScope}`,
           x: 0.55,
           y: 0.35,
-          w: 6,
-          h: 0.45,
-          fontSize: 26,
+          w: 8.5,
+          h: 0.75,
+          fontSize: 24,
           bold: true,
           color: "0B1D44",
         },
@@ -140,7 +212,7 @@ async function generateMonthlyKpiDeck(
           type: "text",
           text: `Key KPI Highlights\n• ${summary.highlights.join("\n• ")}`,
           x: 0.65,
-          y: 1.15,
+          y: 1.25,
           w: 3.85,
           h: 4.8,
           fontSize: 14,
@@ -151,7 +223,7 @@ async function generateMonthlyKpiDeck(
           type: "text",
           text: `Major Wins\n• ${summary.wins.join("\n• ")}`,
           x: 4.75,
-          y: 1.15,
+          y: 1.25,
           w: 3.85,
           h: 4.8,
           fontSize: 14,
@@ -162,7 +234,7 @@ async function generateMonthlyKpiDeck(
           type: "text",
           text: `Major Risks\n• ${summary.risks.join("\n• ")}`,
           x: 8.85,
-          y: 1.15,
+          y: 1.25,
           w: 3.85,
           h: 4.8,
           fontSize: 14,
@@ -175,20 +247,20 @@ async function generateMonthlyKpiDeck(
       elements: [
         {
           type: "text",
-          text: "KPI Scorecard Table",
+          text: `KPI Scorecard Table\n${titleScope}`,
           x: 0.55,
           y: 0.35,
-          w: 7,
-          h: 0.45,
-          fontSize: 26,
+          w: 8.5,
+          h: 0.75,
+          fontSize: 24,
           bold: true,
           color: "0B1D44",
         },
         {
           type: "table",
-          rows: kpiRows(scorecardRecords),
+          rows: buildMonthlyKpiTableRows(scorecardRecords),
           x: 0.45,
-          y: 1.05,
+          y: 1.2,
           w: 12.45,
           h: 4.2,
           fontSize: 8,
@@ -203,7 +275,7 @@ async function generateMonthlyKpiDeck(
             ]),
           ],
           x: 0.45,
-          y: 5.55,
+          y: 5.7,
           w: 5.4,
           h: 1.1,
           fontSize: 8,
@@ -214,42 +286,30 @@ async function generateMonthlyKpiDeck(
       elements: [
         {
           type: "text",
-          text: "KPI Charts Summary",
+          text: `KPI Charts Summary\n${titleScope}`,
           x: 0.55,
           y: 0.35,
-          w: 7,
-          h: 0.45,
-          fontSize: 26,
+          w: 8.5,
+          h: 0.75,
+          fontSize: 24,
           bold: true,
           color: "0B1D44",
         },
-        {
-          type: "bars",
-          title: "PM Compliance by Business Unit",
-          labels: scorecardRecords.map(record => record.businessUnit),
-          values: scorecardRecords.map(record => record.pmCompliance ?? 0),
-          x: 0.75,
-          y: 1.05,
-          w: 5.85,
-          h: 4.9,
-          max: 100,
-        },
-        {
-          type: "bars",
-          title: "Facility Uptime by Business Unit",
-          labels: scorecardRecords.map(record => record.businessUnit),
-          values: scorecardRecords.map(
-            record => record.facilityUptime ?? 0
-          ),
-          x: 7.0,
-          y: 1.05,
-          w: 5.85,
-          h: 4.9,
-          max: 100,
-        },
+        chartElementForMetric(
+          scorecardRecords,
+          "pmCompliance",
+          "PM Compliance by Business Unit",
+          0.75
+        ),
+        chartElementForMetric(
+          scorecardRecords,
+          "facilityUptime",
+          "Facility Uptime by Business Unit",
+          7.0
+        ),
         {
           type: "text",
-          text: "Green bars indicate values at or above the primary scorecard threshold.",
+          text: "Charts include only persisted numeric values; explicit zero values remain zero.",
           x: 0.75,
           y: 6.25,
           w: 10.5,
@@ -263,40 +323,57 @@ async function generateMonthlyKpiDeck(
       elements: [
         {
           type: "text",
-          text: "Issues and Action Items",
+          text: `Issues and Action Items\n${titleScope}`,
           x: 0.55,
           y: 0.35,
-          w: 7,
-          h: 0.45,
-          fontSize: 26,
+          w: 9.2,
+          h: 0.75,
+          fontSize: 24,
           bold: true,
           color: "0B1D44",
         },
         {
           type: "text",
-          text: `Key Concerns\n• ${summary.concerns.join("\n• ")}`,
+          text: "Recorded Notes",
           x: 0.75,
           y: 1.15,
-          w: 5.8,
-          h: 4.9,
-          fontSize: 15,
-          color: "1F2937",
-          fill: "FFF7ED",
+          w: 4.2,
+          h: 0.35,
+          fontSize: 16,
+          bold: true,
+          color: "0B1D44",
         },
         {
           type: "text",
-          text: `Recommended Actions & Follow-up\n• ${summary.actions.join("\n• ")}`,
-          x: 6.85,
-          y: 1.15,
-          w: 5.8,
+          text: buildMonthlyKpiNotesText(scorecardRecords),
+          x: 0.75,
+          y: 1.6,
+          w: 11.7,
           h: 4.9,
-          fontSize: 15,
+          fontSize: 14,
           color: "1F2937",
           fill: "F8FAFC",
         },
       ],
     },
-  ]);
+  ];
+}
+
+export async function generateMonthlyKpiDeck(
+  context: DeckGenerationContext
+): Promise<GeneratedPresentation> {
+  const request = requireMonthlyKpiContext(context);
+  const persisted = await getPersistedMonthlyKpiScorecard(
+    {
+      reportingYear: request.reportingYear,
+      reportingMonth: request.reportingMonth,
+      businessUnit: request.businessUnit,
+    },
+    request.template
+  );
+  const now = new Date();
+  const title = `Monthly KPI Scorecard - ${persisted.businessUnit} - ${persisted.reportingMonthLabel}`;
+  const blob = createPresentation(buildMonthlyKpiSlides(persisted, now));
   const dataUrl = await blobToDataUrl(blob);
   return {
     id: crypto.randomUUID(),
@@ -306,6 +383,10 @@ async function generateMonthlyKpiDeck(
     generatedBy: context.generatedBy,
     size: blob.size,
     dataUrl,
+    reportingYear: persisted.reportingYear,
+    reportingMonth: persisted.reportingMonth,
+    businessUnit: persisted.businessUnit,
+    template: persisted.template,
   };
 }
 
@@ -445,7 +526,7 @@ export const deckGeneratorRegistry: DeckGenerator[] = [
     id: "monthly-kpi-scorecard",
     title: "Monthly KPI Scorecard Deck",
     description:
-      "Create a five-slide PowerPoint deck from the current Monthly KPI Scorecard dataset.",
+      "Create a five-slide PowerPoint deck from persisted Monthly KPI database records.",
     category: "Monthly KPI Scorecard",
     status: "active",
     slideOutline: [

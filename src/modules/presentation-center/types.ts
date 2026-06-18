@@ -29,12 +29,20 @@ export type GeneratedPresentation = {
   generatedBy: string;
   size: number;
   dataUrl: string;
+  reportingYear?: number;
+  reportingMonth?: number;
+  businessUnit?: string;
+  template?: string;
 };
+
+export type MonthlyKpiTemplate = "Executive Scorecard";
 
 export type DeckGenerationContext = {
   generatedBy: string;
-  reportingMonth?: string;
+  reportingYear?: number;
+  reportingMonth?: number;
   businessUnit?: string;
+  template?: MonthlyKpiTemplate;
 };
 
 export type DeckGeneratorStatus = "active" | "coming-soon";
