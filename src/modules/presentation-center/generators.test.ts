@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildCurrentMonthMatrixRows,
   buildMonthlyKpiNotesText,
   buildMonthlyKpiSlides,
   buildMonthlyKpiTableRows,
+  buildPortfolioKpiCards,
+  buildYtdScorecardRows,
   generateMonthlyKpiDeck,
   MONTHLY_KPI_NOTES_FALLBACK,
 } from "./generators";
@@ -21,6 +24,10 @@ type BarElement = Extract<
 type TextElement = Extract<
   MonthlyKpiSlide["elements"][number],
   { type: "text" }
+>;
+type TableElement = Extract<
+  MonthlyKpiSlide["elements"][number],
+  { type: "table" }
 >;
 
 function jsonResponse(payload: unknown, ok = true) {
@@ -49,14 +56,19 @@ function makeRecord(overrides: Partial<KpiRecord> = {}): KpiRecord {
   };
 }
 
-function makeDataset(records: KpiRecord[]): MonthlyKpiScorecardDataset {
+function makeDataset(
+  records: KpiRecord[],
+  overrides: Partial<MonthlyKpiScorecardDataset> = {}
+): MonthlyKpiScorecardDataset {
   return {
     records,
+    ytdRecords: records,
     reportingYear: 2026,
     reportingMonth: 5,
     reportingMonthLabel: "May 2026",
     businessUnit: ALL_BUSINESS_UNITS_LABEL,
     template: EXECUTIVE_SCORECARD_TEMPLATE,
+    ...overrides,
   };
 }
 
@@ -69,6 +81,25 @@ function slideText(slide: MonthlyKpiSlide) {
 function barElements(slide: MonthlyKpiSlide) {
   return slide.elements.filter(
     (element): element is BarElement => element.type === "bars"
+  );
+}
+
+function tableElement(slide: MonthlyKpiSlide) {
+  const element = slide.elements.find(
+    (entry): entry is TableElement => entry.type === "table"
+  );
+  if (!element) throw new Error("Expected table element was not found");
+  return element;
+}
+
+function explicitFontSizes(slides: MonthlyKpiSlide[]) {
+  return slides.flatMap(slide =>
+    slide.elements.flatMap(element => {
+      if (element.type === "text" || element.type === "table") {
+        return element.fontSize === undefined ? [] : [element.fontSize];
+      }
+      return [];
+    })
   );
 }
 
@@ -120,23 +151,26 @@ describe("Monthly KPI presentation generator", () => {
       new Date("2026-06-18T00:00:00Z")
     );
 
-    expect(slides).toHaveLength(5);
-    expect(slideText(slides[4])).toContain(
+    expect(slides).toHaveLength(7);
+    expect(slideText(slides[6])).toContain(
       "AMD-EZ\nPump station breaker replacement completed."
     );
-    expect(slideText(slides[4])).not.toContain(MONTHLY_KPI_NOTES_FALLBACK);
+    expect(slideText(slides[6])).not.toContain(MONTHLY_KPI_NOTES_FALLBACK);
   });
 
   it("keeps title slide text boxes from overlapping", () => {
     const [titleSlide] = buildMonthlyKpiSlides(makeDataset([makeRecord()]));
-    const title = textElement(titleSlide, text =>
-      text.startsWith("Monthly KPI Scorecard\n")
+    const title = textElement(
+      titleSlide,
+      text => text === "Monthly KPI Scorecard"
     );
-    const scope = textElement(titleSlide, text =>
-      text.startsWith("Reporting Period:")
+    const scope = textElement(
+      titleSlide,
+      text => text === ALL_BUSINESS_UNITS_LABEL
     );
+    const period = textElement(titleSlide, text => text === "May 2026");
     const source = textElement(titleSlide, text =>
-      text.startsWith("Generated directly")
+      text.startsWith("Generated from ODM Dashboard")
     );
     const timestamp = titleSlide.elements.find(
       (element): element is TextElement =>
@@ -145,8 +179,24 @@ describe("Monthly KPI presentation generator", () => {
 
     if (!timestamp) throw new Error("Expected timestamp text element");
     expect(title.y + title.h).toBeLessThanOrEqual(scope.y);
-    expect(scope.y + scope.h).toBeLessThanOrEqual(source.y);
-    expect(source.y + source.h).toBeLessThanOrEqual(timestamp.y);
+    expect(scope.y + scope.h).toBeLessThanOrEqual(period.y);
+    expect(period.y + period.h).toBeLessThanOrEqual(source.y);
+    expect(source.x + source.w).toBeLessThanOrEqual(timestamp.x);
+  });
+
+  it("builds the expected polished slide titles with no font below 14pt", () => {
+    const slides = buildMonthlyKpiSlides(makeDataset([makeRecord()]));
+    const deckText = slides.map(slideText).join("\n");
+
+    expect(slides).toHaveLength(7);
+    expect(deckText).toContain("Monthly KPI Scorecard");
+    expect(deckText).toContain("Executive Summary");
+    expect(deckText).toContain("Year-to-Date Scorecard");
+    expect(deckText).toContain("Current-Month KPI Matrix");
+    expect(deckText).toContain("Portfolio Average KPI Cards");
+    expect(deckText).toContain("Business Unit Breakdown");
+    expect(deckText).toContain("Notes, Issues, and Follow-up Actions");
+    expect(Math.min(...explicitFontSizes(slides))).toBeGreaterThanOrEqual(14);
   });
 
   it("uses the defined fallback when notes are null or empty", () => {
@@ -166,12 +216,123 @@ describe("Monthly KPI presentation generator", () => {
     });
     const rows = buildMonthlyKpiTableRows([zeroRecord]);
     const slides = buildMonthlyKpiSlides(makeDataset([zeroRecord]));
-    const charts = barElements(slides[3]);
+    const charts = barElements(slides[5]);
 
     expect(rows[1][1]).toBe("0.00%");
     expect(rows[1][6]).toBe("0.00%");
     expect(charts[0].values).toEqual([0]);
     expect(charts[1].values).toEqual([0]);
+  });
+
+  it("builds the YTD scorecard from January through the selected month only", () => {
+    const dataset = makeDataset([], {
+      ytdRecords: [
+        makeRecord({
+          reportingMonth: 1,
+          pmCompliance: 0,
+          budgetSpend: 100,
+          facilityUptime: 99.98,
+        }),
+        makeRecord({
+          reportingMonth: 5,
+          pmCompliance: 96,
+          budgetSpend: null,
+          pmCmWorkOrderRatio: null,
+          facilityUptime: 98.5,
+        }),
+      ],
+    });
+    const { rows, records } = buildYtdScorecardRows(dataset);
+    const slides = buildMonthlyKpiSlides(dataset);
+    const ytdTable = tableElement(slides[2]);
+
+    expect(rows.map(row => row[0])).toEqual([
+      "Month",
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+    ]);
+    expect(rows.flat()).not.toContain("June");
+    expect(rows[1][1]).toBe("0.00%");
+    expect(rows[2][1]).toBe("No Data");
+    expect(records[0].pmCompliance).toBe(0);
+    expect(ytdTable.cellFills?.[1][1]).toBe("DC2626");
+    expect(ytdTable.cellFills?.[2][1]).toBe("E5E7EB");
+    expect(ytdTable.cellFills?.[5][1]).toBe("0A9B6E");
+  });
+
+  it("builds the current-month matrix in dashboard business-unit order", () => {
+    const laguna = makeRecord({
+      businessUnit: "Laguna Water",
+      pmCompliance: null,
+      facilityUptime: 99.97,
+    });
+    const amd = makeRecord({
+      businessUnit: "AMD-EZ",
+      pmCompliance: 0,
+      facilityUptime: 99.5,
+    });
+    const larc = makeRecord({
+      businessUnit: "LARC",
+      pmCompliance: 97,
+      facilityUptime: null,
+    });
+    const { rows } = buildCurrentMonthMatrixRows([laguna, amd, larc]);
+    const slides = buildMonthlyKpiSlides(makeDataset([laguna, amd, larc]));
+    const matrixTable = tableElement(slides[3]);
+
+    expect(rows.map(row => row[0])).toEqual([
+      "Business Unit",
+      ALL_BUSINESS_UNITS_LABEL,
+      "AMD-EZ",
+      "Laguna Water",
+      "LARC",
+    ]);
+    expect(rows[2][1]).toBe("0.00%");
+    expect(rows[3][1]).toBe("No Data");
+    expect(matrixTable.cellFills?.[2][1]).toBe("DC2626");
+    expect(matrixTable.cellFills?.[3][1]).toBe("E5E7EB");
+  });
+
+  it("renders the six portfolio KPI cards with exact benchmark labels", () => {
+    const cards = buildPortfolioKpiCards([makeRecord()]);
+
+    expect(cards.map(card => card.label)).toEqual([
+      "PM Compliance",
+      "Budget Spend",
+      "PM:CM Ratio (WO)",
+      "PM:CM Ratio (Cost)",
+      "MTTR",
+      "Facility Uptime",
+    ]);
+    expect(cards.map(card => card.benchmark)).toEqual([
+      "95%",
+      "95.00% – 105.00%",
+      "≥86% (6:1)",
+      "≥60% (1.5:1)",
+      "Decreasing Trend",
+      "99.97%",
+    ]);
+  });
+
+  it("uses the notes fallback and caps visible note cards", () => {
+    const fallbackSlides = buildMonthlyKpiSlides(
+      makeDataset([makeRecord({ notes: null })])
+    );
+    expect(slideText(fallbackSlides[6])).toContain(MONTHLY_KPI_NOTES_FALLBACK);
+
+    const slides = buildMonthlyKpiSlides(
+      makeDataset([
+        makeRecord({ businessUnit: "AMD-EZ", notes: "One" }),
+        makeRecord({ businessUnit: "Laguna Water", notes: "Two" }),
+        makeRecord({ businessUnit: "Clark Water", notes: "Three" }),
+        makeRecord({ businessUnit: "Tagum Water", notes: "Four" }),
+      ])
+    );
+    expect(slideText(slides[6])).toContain("+1 more notes not shown");
+    expect(slideText(slides[6])).not.toContain("Four");
   });
 
   it("passes reporting period selections to the records endpoint", async () => {
@@ -205,8 +366,14 @@ describe("Monthly KPI presentation generator", () => {
       template: EXECUTIVE_SCORECARD_TEMPLATE,
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
       "/api/monthly-kpi/records?reporting_year=2026&reporting_month=5",
+      { headers: { Accept: "application/json" } }
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/monthly-kpi/records?reporting_year=2026",
       { headers: { Accept: "application/json" } }
     );
     expect(deck).toMatchObject({

@@ -68,24 +68,44 @@ describe("Monthly KPI presentation scorecard data", () => {
   });
 
   it("maps persisted records while preserving notes, nulls, and explicit zeros", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        records: [
-          {
-            business_unit: "ez",
-            reporting_year: 2026,
-            reporting_month: 5,
-            pm_compliance: 0,
-            budget_spend: null,
-            pm_cm_work_order_ratio: "86.5",
-            pm_cm_cost_ratio: null,
-            mttr_days: "",
-            facility_uptime: "99.97",
-            notes: "Pump station breaker replacement completed.",
-          },
-        ],
-      })
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          records: [
+            {
+              business_unit: "ez",
+              reporting_year: 2026,
+              reporting_month: 5,
+              pm_compliance: 0,
+              budget_spend: null,
+              pm_cm_work_order_ratio: "86.5",
+              pm_cm_cost_ratio: null,
+              mttr_days: "",
+              facility_uptime: "99.97",
+              notes: "Pump station breaker replacement completed.",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          records: [
+            {
+              business_unit: "ez",
+              reporting_year: 2026,
+              reporting_month: 1,
+              pm_compliance: 95,
+              budget_spend: 100,
+              pm_cm_work_order_ratio: 86,
+              pm_cm_cost_ratio: 60,
+              mttr_days: 3,
+              facility_uptime: 99.97,
+              notes: null,
+            },
+          ],
+        })
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const dataset = await getPersistedMonthlyKpiScorecard(
@@ -114,6 +134,19 @@ describe("Monthly KPI presentation scorecard data", () => {
       facilityUptime: 99.97,
       notes: "Pump station breaker replacement completed.",
     });
+    expect(dataset.ytdRecords).toHaveLength(1);
+    expect(dataset.ytdRecords[0]).toMatchObject({
+      reportingMonth: 1,
+      pmCompliance: 95,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/monthly-kpi/records?reporting_year=2026&reporting_month=5&business_unit=AMD-EZ",
+      { headers: { Accept: "application/json" } }
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/monthly-kpi/records?reporting_year=2026&business_unit=AMD-EZ",
+      { headers: { Accept: "application/json" } }
+    );
   });
 
   it("rejects no-data responses instead of falling back to bundled sample data", async () => {

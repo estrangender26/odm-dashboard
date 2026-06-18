@@ -15,8 +15,22 @@ type SlideElement =
       align?: "l" | "ctr" | "r";
     }
   | {
+      type: "shape";
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      fill: string;
+      line?: string;
+    }
+  | {
       type: "table";
       rows: string[][];
+      cellFills?: (string | undefined)[][];
+      cellColors?: (string | undefined)[][];
+      cellBold?: (boolean | undefined)[][];
+      colWidths?: number[];
+      rowHeights?: number[];
       x: number;
       y: number;
       w: number;
@@ -33,6 +47,7 @@ type SlideElement =
       w: number;
       h: number;
       max?: number;
+      colors?: string[];
     };
 
 type Slide = { elements: SlideElement[]; notes?: string };
@@ -43,6 +58,7 @@ const PPTX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const DEFAULT_FONT_FACE = "Aptos";
 const DEFAULT_TEXT_COLOR = "1F2937";
+const MIN_FONT_SIZE = 14;
 const TABLE_BORDER = { type: "solid" as const, color: "E5E7EB", pt: 0.5 };
 const TABLE_MARGIN: [number, number, number, number] = [0.03, 0.04, 0.03, 0.04];
 const TEXT_MARGIN: [number, number, number, number] = [3.5, 5, 3.5, 5];
@@ -62,6 +78,10 @@ function safeText(value: string | number) {
   return text.length ? text : " ";
 }
 
+function safeFontSize(value: number | undefined, fallback = MIN_FONT_SIZE) {
+  return Math.max(MIN_FONT_SIZE, value || fallback);
+}
+
 function align(value?: "l" | "ctr" | "r") {
   if (value === "ctr") return "center";
   if (value === "r") return "right";
@@ -78,17 +98,34 @@ function addText(
     w: element.w,
     h: element.h,
     fontFace: DEFAULT_FONT_FACE,
-    fontSize: element.fontSize || 16,
+    fontSize: safeFontSize(element.fontSize, 16),
     bold: element.bold,
     color: element.color || DEFAULT_TEXT_COLOR,
     align: align(element.align),
     valign: "top",
     margin: TEXT_MARGIN,
-    fit: "shrink",
+    fit: "none",
     breakLine: false,
     fill: element.fill ? { color: element.fill } : TRANSPARENT_FILL,
     line: TRANSPARENT_LINE,
     isTextBox: true,
+  });
+}
+
+function addShape(
+  slide: PptxSlide,
+  pptx: PptxPresentation,
+  element: Extract<SlideElement, { type: "shape" }>
+) {
+  slide.addShape(pptx.ShapeType.rect, {
+    x: element.x,
+    y: element.y,
+    w: element.w,
+    h: element.h,
+    fill: { color: element.fill },
+    line: element.line
+      ? { color: element.line, transparency: 0 }
+      : TRANSPARENT_LINE,
   });
 }
 
@@ -103,16 +140,20 @@ function addTable(
     Array.from({ length: colCount }).map((_, colIndex) => {
       const isHeader = rowIndex === 0;
       const isEvenBodyRow = rowIndex > 0 && rowIndex % 2 === 0;
+      const fill =
+        element.cellFills?.[rowIndex]?.[colIndex] ||
+        (isHeader ? "16324F" : isEvenBodyRow ? "F8FAFC" : "FFFFFF");
+      const color =
+        element.cellColors?.[rowIndex]?.[colIndex] ||
+        (isHeader ? "FFFFFF" : DEFAULT_TEXT_COLOR);
       return {
         text: safeText(row[colIndex] ?? ""),
         options: {
-          bold: isHeader,
-          color: isHeader ? "FFFFFF" : DEFAULT_TEXT_COLOR,
-          fill: {
-            color: isHeader ? "16324F" : isEvenBodyRow ? "F8FAFC" : "FFFFFF",
-          },
+          bold: Boolean(element.cellBold?.[rowIndex]?.[colIndex] ?? isHeader),
+          color,
+          fill: { color: fill },
           fontFace: DEFAULT_FONT_FACE,
-          fontSize: element.fontSize || 9,
+          fontSize: safeFontSize(element.fontSize, 14),
           margin: TABLE_MARGIN,
           valign: "middle" as const,
           border: TABLE_BORDER,
@@ -126,11 +167,15 @@ function addTable(
     y: element.y,
     w: element.w,
     h: element.h,
-    colW: Array.from({ length: colCount }, () => element.w / colCount),
-    rowH: Array.from({ length: rowCount }, () => element.h / rowCount),
+    colW:
+      element.colWidths ||
+      Array.from({ length: colCount }, () => element.w / colCount),
+    rowH:
+      element.rowHeights ||
+      Array.from({ length: rowCount }, () => element.h / rowCount),
     border: TABLE_BORDER,
     fontFace: DEFAULT_FONT_FACE,
-    fontSize: element.fontSize || 9,
+    fontSize: safeFontSize(element.fontSize, 14),
     color: DEFAULT_TEXT_COLOR,
     margin: TABLE_MARGIN,
   });
@@ -154,7 +199,7 @@ function addBars(
     y: element.y,
     w: element.w,
     h: 0.35,
-    fontSize: 14,
+    fontSize: 16,
     bold: true,
     color: "0B1D44",
   });
@@ -164,22 +209,24 @@ function addBars(
   const barH = Math.max(0.12, (element.h - 0.7) / element.values.length - gap);
   element.values.forEach((value, index) => {
     const y = element.y + 0.55 + index * (barH + gap);
-    const barW = Math.max(0.05, ((element.w - 2.4) * value) / max);
-    const fill = value >= 95 ? "059669" : value >= 90 ? "D97706" : "DC2626";
+    const barW = Math.max(0.05, ((element.w - 3.15) * value) / max);
+    const fill =
+      element.colors?.[index] ||
+      (value >= 95 ? "0A9B6E" : value >= 90 ? "D97706" : "DC2626");
 
     addText(slide, {
       type: "text",
       text: element.labels[index] || "",
       x: element.x,
       y,
-      w: 1.5,
+      w: 2.15,
       h: barH,
-      fontSize: 8,
+      fontSize: 14,
       color: "334155",
     });
 
     slide.addShape(pptx.ShapeType.rect, {
-      x: element.x + 1.6,
+      x: element.x + 2.25,
       y,
       w: barW,
       h: barH,
@@ -188,16 +235,16 @@ function addBars(
     });
 
     slide.addText(`${value.toFixed(1)}%`, {
-      x: element.x + 1.67,
+      x: element.x + 2.34,
       y,
-      w: Math.max(0.72, barW - 0.08),
+      w: Math.max(0.92, barW - 0.12),
       h: barH,
       fontFace: DEFAULT_FONT_FACE,
-      fontSize: 8,
+      fontSize: 14,
       bold: true,
       color: barW >= 0.8 ? "FFFFFF" : DEFAULT_TEXT_COLOR,
       margin: 0,
-      fit: "shrink",
+      fit: "none",
       valign: "middle",
       line: TRANSPARENT_LINE,
       fill: TRANSPARENT_FILL,
@@ -223,6 +270,7 @@ export async function createPresentation(slides: Slide[]) {
     slide.background = { color: "FFFFFF" };
     sourceSlide.elements.forEach(element => {
       if (element.type === "text") addText(slide, element);
+      else if (element.type === "shape") addShape(slide, pptx, element);
       else if (element.type === "table") addTable(slide, element);
       else addBars(slide, pptx, element);
     });

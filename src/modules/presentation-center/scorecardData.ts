@@ -38,6 +38,7 @@ export const MONTHLY_KPI_BUSINESS_UNITS = [
   "Clark Water",
   "Tagum Water",
   "Estate Water",
+  "LARC",
 ] as const;
 
 export const MONTH_NAMES = [
@@ -69,6 +70,7 @@ export type MonthlyKpiAvailableOptions = {
 
 export type MonthlyKpiScorecardDataset = {
   records: KpiRecord[];
+  ytdRecords: KpiRecord[];
   reportingYear: number;
   reportingMonth: number;
   reportingMonthLabel: string;
@@ -355,9 +357,15 @@ export async function getPersistedMonthlyKpiScorecard(
   request: MonthlyKpiRecordsRequest,
   template: MonthlyKpiTemplate = EXECUTIVE_SCORECARD_TEMPLATE
 ): Promise<MonthlyKpiScorecardDataset> {
-  const records = await fetchMonthlyKpiRecords(
-    buildMonthlyKpiRecordsUrl(request)
-  );
+  const [records, ytdRecords] = await Promise.all([
+    fetchMonthlyKpiRecords(buildMonthlyKpiRecordsUrl(request)),
+    fetchMonthlyKpiRecords(
+      buildMonthlyKpiRecordsUrl({
+        reportingYear: request.reportingYear,
+        businessUnit: request.businessUnit,
+      })
+    ),
+  ]);
   if (!records.length) {
     throw new Error(
       "No database records exist for the selected Monthly KPI reporting period and business unit."
@@ -366,6 +374,7 @@ export async function getPersistedMonthlyKpiScorecard(
   const businessUnit = getMonthlyKpiBusinessUnitScope(request.businessUnit);
   return {
     records: records.map(mapPersistedMonthlyKpiRecord),
+    ytdRecords: ytdRecords.map(mapPersistedMonthlyKpiRecord),
     reportingYear: request.reportingYear,
     reportingMonth: request.reportingMonth,
     reportingMonthLabel: getReportingPeriodLabel(
