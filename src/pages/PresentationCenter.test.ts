@@ -71,13 +71,26 @@ describe("Presentation Center Operator-Driven Maintenance generation dialog", ()
     );
   });
 
-  it("renders the ODM period, facility, and Executive Summary template controls", () => {
+  it("renders the ODM dashboard filter controls and Executive Summary template", () => {
     expect(presentationCenterSource).toContain("Reporting Year");
     expect(presentationCenterSource).toContain("Reporting Month");
-    expect(presentationCenterSource).toContain("Facility / Site");
+    expect(presentationCenterSource).toContain("Date From");
+    expect(presentationCenterSource).toContain("Date To");
+    expect(presentationCenterSource).toContain("Plant / Facility");
+    expect(presentationCenterSource).toContain("Equipment Type");
+    expect(presentationCenterSource).toContain("Category");
+    expect(presentationCenterSource).toContain("Inspector");
     expect(presentationCenterSource).toContain("Template");
     expect(presentationCenterSource).toContain("getAvailableOdmScorecardOptions");
+    expect(presentationCenterSource).toContain("getOdmMonthDateRange");
+    expect(presentationCenterSource).toContain("dateFrom: odmSelection.dateFrom");
+    expect(presentationCenterSource).toContain("dateTo: odmSelection.dateTo");
+    expect(presentationCenterSource).not.toContain("odmSelection.dateFrom &&");
+    expect(presentationCenterSource).not.toContain("odmSelection.dateTo &&");
     expect(presentationCenterSource).toContain("facility: odmSelection.facility");
+    expect(presentationCenterSource).toContain("equipmentType: odmSelection.equipmentType");
+    expect(presentationCenterSource).toContain("category: odmSelection.category");
+    expect(presentationCenterSource).toContain("inspector: odmSelection.inspector");
     expect(ODM_TEMPLATE_OPTIONS).toEqual(["Executive Summary"]);
   });
 });
