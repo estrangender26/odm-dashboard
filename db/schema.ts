@@ -11,6 +11,9 @@ export const users = pgTable("users", {
   lastSignInAt: timestamp("last_sign_in_at").defaultNow(),
 });
 
+export type User = typeof users.$inferSelect;
+export type InsertUser = typeof users.$inferInsert;
+
 export const equipment = pgTable("equipment", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),

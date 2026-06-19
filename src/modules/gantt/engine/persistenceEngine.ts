@@ -1,5 +1,6 @@
 /* ─── Gantt Persistence Engine — Export / Import / Date Normalization ─── */
-import { GanttTask, parseDate, daysBetween, normProgress, deriveStatus, rowStatus } from "./schedulingEngine";
+import type { GanttTask } from "./schedulingEngine";
+import { parseDate, daysBetween, normProgress, deriveStatus, rowStatus } from "./schedulingEngine";
 import * as XLSX from "xlsx";
 
 /* ─── Normalize Excel date (serial number or string) → YYYY-MM-DD ─── */
@@ -255,8 +256,6 @@ export function parseImportRow(row: any, idx: number): { payload: any | null; er
   let prog = parseInt(String(progRaw).toString().replace("%", "")) || 0;
   prog = Math.min(100, Math.max(0, prog));
 
-  const dependency = row["Dependency"] || row["dependency"] || row["predecessorId"] || row["predecessor"] || row["Predecessor"] || "";
-  const dependencyType = row["Dependency Type"] || row["dependency_type"] || row["dependencyType"] || row["linkType"] || row["link_type"] || "FS";
 
   const milestoneVal = row["Milestone"] || row["milestone"] || row["isMilestone"] || row["is_milestone"] || "";
   const isMilestone = String(milestoneVal).toLowerCase() === "yes" || String(milestoneVal).toLowerCase() === "true" || String(milestoneVal) === "1";

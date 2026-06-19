@@ -105,6 +105,7 @@ export function createOAuthCallbackHandler() {
         unionId: userId,
         name: userProfile.name,
         avatar: userProfile.avatar_url,
+        email: `${userId}@kimi.placeholder.local`,
         lastSignInAt: new Date(),
       });
       if (!upsertedUser) {

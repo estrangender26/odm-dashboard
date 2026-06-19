@@ -15,13 +15,14 @@ const DEFAULT_RESULT_LIMIT = 4;
 const SUPPORTED_PROVIDERS = new Set(["tavily", "serper", "brave"]);
 
 class WebSearchProviderError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-    readonly logMessage = message
-  ) {
+  status?: number;
+  logMessage: string;
+
+  constructor(message: string, status?: number, logMessage = message) {
     super(message);
     this.name = "WebSearchProviderError";
+    this.status = status;
+    this.logMessage = logMessage;
   }
 }
 
