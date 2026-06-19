@@ -3,6 +3,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const bootSource = readFileSync(resolve(process.cwd(), "api/boot.ts"), "utf8");
+const mwDashboardSource = readFileSync(
+  resolve(process.cwd(), "public/mw-dashboard.html"),
+  "utf8"
+);
 
 function routeBlock(method: string, path: string) {
   const start = bootSource.indexOf(`app.${method}("${path}"`);
@@ -114,5 +118,40 @@ describe("Operator-Driven Maintenance records API", () => {
     expect(summaryRoute).toContain("date_from query parameter must be YYYY-MM-DD");
     expect(summaryRoute).toContain("date_to query parameter must be YYYY-MM-DD");
     expect(summaryRoute).not.toContain("reporting_month");
+  });
+
+  it("renders the retained mw-dashboard from the shared dashboard summary contract", () => {
+    expect(mwDashboardSource).toContain("function buildDashboardSummaryUrl()");
+    expect(mwDashboardSource).toContain(
+      "return query ? '/api/operator-driven-maintenance/summary?' + query : '/api/operator-driven-maintenance/summary'"
+    );
+    expectInOrder(mwDashboardSource, [
+      "const dateFrom = dashboardFilterValue('dateFrom')",
+      "const dateTo = dashboardFilterValue('dateTo')",
+      "const plant = dashboardFilterValue('plantFilter')",
+      "const equipmentType = dashboardFilterValue('equipFilter')",
+      "const category = dashboardFilterValue('categoryFilter')",
+      "const inspector = dashboardFilterValue('inspectorFilter')",
+      "if (dateFrom) params.set('date_from', dateFrom)",
+      "if (dateTo) params.set('date_to', dateTo)",
+      "if (plant) params.set('facility_id', plant)",
+      "if (equipmentType) params.set('equipment_type', equipmentType)",
+      "if (category) params.set('category', category)",
+      "if (inspector) params.set('inspector', inspector)",
+    ]);
+    expect(mwDashboardSource).toContain(
+      "xhr.open('GET', buildDashboardSummaryUrl(), true)"
+    );
+    expect(mwDashboardSource).toContain(
+      "? payload.rows.map(normalizeDashboardSummaryRow)"
+    );
+    expect(mwDashboardSource).toContain("updateKPIsFromSummary(payload.summary)");
+    expect(mwDashboardSource).toContain("renderInsights(rows, insights)");
+    expect(mwDashboardSource).toContain("Array.isArray(precomputedInsights)");
+    expect(mwDashboardSource).toContain(
+      "Dashboard summary load failed:"
+    );
+    expect(mwDashboardSource).not.toContain("reporting_year");
+    expect(mwDashboardSource).not.toContain("reporting_month");
   });
 });

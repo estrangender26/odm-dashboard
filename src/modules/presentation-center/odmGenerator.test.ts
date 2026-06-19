@@ -201,6 +201,34 @@ function explicitFontSizes(slides: OdmSlide[]) {
   );
 }
 
+function expectGeneratorDatasetMatchesDashboardSummary(
+  dataset: OdmScorecardDataset,
+  scorecard: OdmDashboardScorecard
+) {
+  expect(dataset.scorecard.summary).toMatchObject(scorecard.summary);
+  expect(buildOdmKpiCards(dataset).map(card => [card.label, card.value])).toEqual([
+    ["Total Inspections", "15,932"],
+    ["Unique Assets", "109"],
+    ["Health Score", "95.3%"],
+    ["Data Quality / Completion Rate", "99.5%"],
+    ["Predictive Risk", "Normal"],
+    ["Alerts / AI Insights", "2 alerts"],
+  ]);
+  expect(
+    dataset.scorecard.insights.map(insight => ({
+      title: insight.title,
+      severity: insight.severity,
+      recommendation: insight.recommendation,
+    }))
+  ).toEqual(
+    scorecard.insights.map(insight => ({
+      title: insight.title,
+      severity: insight.severity,
+      recommendation: insight.recommendation,
+    }))
+  );
+}
+
 function readUint16(bytes: Uint8Array, offset: number) {
   return bytes[offset] | (bytes[offset + 1] << 8);
 }
@@ -325,6 +353,13 @@ describe("Operator-Driven Maintenance presentation generator", () => {
     expect(deckText).toContain("Recurring Issues on Same Assets");
     expect(deckText).toContain("Schedule dedicated maintenance review");
     expect(deckText).toContain("Inspect pump seal next shift.");
+  });
+
+  it("keeps the generator dataset aligned with the mocked dashboard summary response", () => {
+    const scorecard = makeScorecard();
+    const dataset = makeDataset(scorecard);
+
+    expectGeneratorDatasetMatchesDashboardSummary(dataset, scorecard);
   });
 
   it("uses clean fallbacks when insights, notes, findings, or trend data are missing", () => {

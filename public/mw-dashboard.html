@@ -1901,6 +1901,7 @@
    ============================================================ */
 
 let rawRows = [];
+let dashboardSummaryRows = [];
 let chartEsc = null;
 let chartPareto = null;
 
@@ -1928,7 +1929,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     // Lazy render Inspector Performance table when tab is first activated
     if (btn.dataset.tab === 'tabInspector' && !inspectorTabRendered) {
       inspectorTabRendered = true;
-      const rows = getFilteredRows();
+      const rows = getDashboardRowsForCurrentScope();
       if (rows.length) updateInspectorTable(rows);
     }
   });
@@ -1966,6 +1967,7 @@ function loadFromStorage() {
 
 function clearStorageUI() {
   rawRows = [];
+  dashboardSummaryRows = [];
   if (chartEsc) { chartEsc.destroy(); chartEsc = null; }
   if (chartPareto) { chartPareto.destroy(); chartPareto = null; }
   document.getElementById('filters').style.display = 'none';
@@ -2126,6 +2128,13 @@ function normalizeRow(r) {
   };
 }
 
+function normalizeDashboardSummaryRow(r) {
+  const row = normalizeRow(r || {});
+  row.EquipmentName = r && r.EquipmentName ? r.EquipmentName : row.AssetName;
+  row._dbId = r && (r._dbId || r.id) ? (r._dbId || r.id) : null;
+  return row;
+}
+
 function parseExcelDate(v) {
   if (!v) return null;
   if (v instanceof Date) return v;
@@ -2186,9 +2195,84 @@ function getFilteredRows() {
   });
 }
 
-function refreshAll() {
-  const rows = getFilteredRows();
-  updateKPIs(rows);
+function getDashboardRowsForCurrentScope() {
+  return dashboardSummaryRows.length ? dashboardSummaryRows : getFilteredRows();
+}
+
+function dashboardFilterValue(id) {
+  const el = document.getElementById(id);
+  return el && el.value ? el.value : '';
+}
+
+function buildDashboardSummaryUrl() {
+  const params = new URLSearchParams();
+  const dateFrom = dashboardFilterValue('dateFrom');
+  const dateTo = dashboardFilterValue('dateTo');
+  const plant = dashboardFilterValue('plantFilter');
+  const equipmentType = dashboardFilterValue('equipFilter');
+  const category = dashboardFilterValue('categoryFilter');
+  const inspector = dashboardFilterValue('inspectorFilter');
+
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+  if (plant) params.set('facility_id', plant);
+  if (equipmentType) params.set('equipment_type', equipmentType);
+  if (category) params.set('category', category);
+  if (inspector) params.set('inspector', inspector);
+
+  const query = params.toString();
+  return query ? '/api/operator-driven-maintenance/summary?' + query : '/api/operator-driven-maintenance/summary';
+}
+
+function fetchDashboardSummary(callback, errback) {
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', buildDashboardSummaryUrl(), true);
+  xhr.setRequestHeader('Accept', 'application/json');
+  xhr.timeout = 30000;
+  xhr.ontimeout = function() { if (errback) errback(new Error('Dashboard summary timeout')); };
+  xhr.onerror = function() { if (errback) errback(new Error('Dashboard summary network error')); };
+  xhr.onload = function() {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try {
+        const payload = JSON.parse(xhr.responseText);
+        if (callback) callback(payload);
+      } catch (err) {
+        if (errback) errback(err);
+      }
+      return;
+    }
+    let message = 'Dashboard summary HTTP ' + xhr.status;
+    try {
+      const payload = JSON.parse(xhr.responseText);
+      if (payload && payload.error) message += ': ' + payload.error;
+    } catch (err) {}
+    if (errback) errback(new Error(message));
+  };
+  xhr.send();
+}
+
+function formatDashboardNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toLocaleString() : '0';
+}
+
+function formatDashboardPercent(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(1) + '%' : '0.0%';
+}
+
+function updateKPIsFromSummary(summary) {
+  const data = summary || {};
+  const dqScore = Number(data.dataQualityScore);
+  document.getElementById('kpiTotalInspections').textContent = formatDashboardNumber(data.totalInspections);
+  document.getElementById('kpiUniqueAssets').textContent = formatDashboardNumber(data.uniqueAssets);
+  document.getElementById('kpiHealthScore').textContent = formatDashboardPercent(data.healthScore);
+  document.getElementById('kpiDQScore').textContent = formatDashboardPercent(data.dataQualityScore);
+  document.getElementById('alertLowDQ').style.display = Number.isFinite(dqScore) && dqScore < 80 ? 'flex' : 'none';
+  document.getElementById('kpiPredRisk').textContent = data.predictiveRisk || 'Normal';
+}
+
+function refreshDashboardSections(rows, insights) {
   updateEscalationChart(rows);
   updateParetoChart(rows);
   // Inspector table: lazy render only if tab is active, otherwise flag for next activation
@@ -2202,7 +2286,30 @@ function refreshAll() {
   updateDQTable(rows);
   updateEscalatedTable(rows);
   updateNotesTable(rows);
-  if (typeof AnalyticsEngine !== 'undefined') renderInsights(rows);
+  renderInsights(rows, insights);
+}
+
+function refreshAll() {
+  const fallbackRows = getFilteredRows();
+  fetchDashboardSummary(
+    function(payload) {
+      const rows = Array.isArray(payload.rows)
+        ? payload.rows.map(normalizeDashboardSummaryRow)
+        : fallbackRows;
+      dashboardSummaryRows = rows;
+      updateKPIsFromSummary(payload.summary);
+      refreshDashboardSections(
+        rows,
+        Array.isArray(payload.insights) ? payload.insights : null
+      );
+    },
+    function(err) {
+      console.error('Dashboard summary load failed:', err);
+      dashboardSummaryRows = [];
+      updateKPIs(fallbackRows);
+      refreshDashboardSections(fallbackRows);
+    }
+  );
 }
 
 /* ============================================================
@@ -3428,14 +3535,16 @@ function closeInsightDrillDown() {
   }, 280);
 }
 
-function renderInsights(rows) {
+function renderInsights(rows, precomputedInsights) {
   const section = document.getElementById('insightsSection');
   const container = document.getElementById('insightsContainer');
   const badge = document.getElementById('insightsBadge');
   if (!section || !container) return;
 
   activeInsightRows = rows;
-  const insights = AnalyticsEngine.generateInsights({ rows });
+  const insights = Array.isArray(precomputedInsights)
+    ? precomputedInsights
+    : (typeof AnalyticsEngine !== 'undefined' ? AnalyticsEngine.generateInsights({ rows }) : []);
   activeInsights = insights;
   if (!insights.length) {
     section.style.display = 'none';
