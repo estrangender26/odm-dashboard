@@ -1970,8 +1970,10 @@ function applyPersistedMonthlyKpiRecords(records,options){
     MonthlyScoreData = {};
     ScoreData = {};
   }else if(options.businessUnitId){
-    delete MonthlyScoreData[options.businessUnitId];
-    delete ScoreData[options.businessUnitId];
+    if(!options.merge){
+      delete MonthlyScoreData[options.businessUnitId];
+      delete ScoreData[options.businessUnitId];
+    }
   }
   (records||[]).forEach(function(row){
     var buId = normalizePersistedBusinessUnit(row.business_unit);
@@ -2025,7 +2027,8 @@ async function fetchMonthlyKpiAggregates(){
   KpiAggregates = normalizeKpiAggregates(payload);
 }
 
-async function fetchSavedMonthlyKpiRecords(buId){
+async function fetchSavedMonthlyKpiRecords(buId,options){
+  options = options || {};
   setFetchingSavedRecords(true);
   try{
     var params = new URLSearchParams();
@@ -2039,11 +2042,14 @@ async function fetchSavedMonthlyKpiRecords(buId){
     var res = await fetch(url,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Unable to load saved Monthly KPI records.');
-    applyPersistedMonthlyKpiRecords(payload.records || [],buId?{businessUnitId:buId}:{reset:true});
+    applyPersistedMonthlyKpiRecords(payload.records || [],buId?{businessUnitId:buId,merge:!!options.merge}:{reset:true,merge:!!options.merge});
     await fetchMonthlyKpiAggregates();
+    return {ok:true,records:payload.records || []};
   }catch(err){
+    if(options.rethrow)throw err;
     console.error('Saved KPI load error:',err);
     showToast('error','Unable to load saved KPI records: '+err.message);
+    return {ok:false,error:err};
   }finally{
     setFetchingSavedRecords(false);
   }
@@ -2643,7 +2649,7 @@ function importExcel(){
         if(conflicts.length){
           var confirmReplace = confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
           if(!confirmReplace){
-            if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
+            if(createdBusinessUnit && !saveSucceeded)removeBusinessUnitById(createdBusinessUnit.bu.id);
             return;
           }
         }
@@ -2660,10 +2666,10 @@ function importExcel(){
         // Apply only persisted records as the authoritative dashboard state.
         var persistedRecords = (saveResult && Array.isArray(saveResult.records)) ? saveResult.records : [];
         if(persistedRecords.length){
-          applyPersistedMonthlyKpiRecords(persistedRecords,{businessUnitId:importBuId});
+          applyPersistedMonthlyKpiRecords(persistedRecords,{businessUnitId:importBuId,merge:true});
         }else{
           try{
-            await fetchSavedMonthlyKpiRecords(importBuId);
+            await fetchSavedMonthlyKpiRecords(importBuId,{rethrow:true,merge:true});
           }catch(fetchErr){
             console.warn('Post-import record refresh failed:',fetchErr);
             showToast('warning','Import was saved, but the dashboard could not refresh automatically.');
@@ -2684,7 +2690,7 @@ function importExcel(){
       }catch(err){
         console.error('Import error:',err);
         showToast('error','Error importing Excel: '+err.message);
-        if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
+        if(createdBusinessUnit && !saveSucceeded)removeBusinessUnitById(createdBusinessUnit.bu.id);
       }finally{
         setImporting(false);
         if(saveSucceeded){
@@ -2744,8 +2750,8 @@ function importLegacyWorkbook(workbook,fileName,importBuId,importBu){
     });
     legacyRecords.push({
       business_unit: getBUApiValue(importBuId),
-      reporting_month: month,
-      reporting_year: year,
+      reporting_month: parseInt(row[2],10) || month,
+      reporting_year: parseInt(row[1],10) || year,
       source_file_name: fileName,
       pm_compliance: headerMap.pmCompliance!==undefined ? parseImportedKPINumber(row[headerMap.pmCompliance],getSheetCell(firstSheet,i,headerMap.pmCompliance)) : null,
       pm_planned: null,

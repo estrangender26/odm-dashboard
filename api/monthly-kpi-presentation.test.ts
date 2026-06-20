@@ -285,12 +285,20 @@ function createImportExcelContext(workbook: any) {
     if (ctx.saveReject) throw ctx.saveReject;
     return { records: ctx.savedRecords || records };
   };
-  ctx.fetchSavedMonthlyKpiRecords = async (buId?: string) => {
-    ctx.fetchSavedCalls.push({ buId });
-    if (ctx.fetchSavedReject) throw ctx.fetchSavedReject;
-    if (ctx.fetchSavedRecords) {
-      ctx.applyPersistedMonthlyKpiRecords(ctx.fetchSavedRecords, buId ? { businessUnitId: buId } : { reset: true });
+  ctx.fetchSavedMonthlyKpiRecords = async (buId?: string, options?: any) => {
+    ctx.fetchSavedCalls.push({ buId, options });
+    if (ctx.fetchSavedReject) {
+      const err = ctx.fetchSavedReject;
+      if (options && options.rethrow) throw err;
+      return { ok: false, error: err };
     }
+    if (ctx.fetchSavedRecords) {
+      ctx.applyPersistedMonthlyKpiRecords(
+        ctx.fetchSavedRecords,
+        buId ? { businessUnitId: buId, merge: !!(options && options.merge) } : { reset: true, merge: !!(options && options.merge) },
+      );
+    }
+    return { ok: true, records: ctx.fetchSavedRecords || [] };
   };
   ctx.switchToImportedBusinessUnit = async () => {
     ctx.switchCalls.push({});
@@ -1465,6 +1473,114 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(ctx.closeImportModalCalls.length).toBe(0);
     expect(JSON.stringify(ctx.MonthlyScoreData)).toBe(beforeMonthly);
     expect(JSON.stringify(ctx.ScoreData)).toBe(beforeScore);
+  });
+
+
+  it("merges POST-returned imported records without deleting other months in the same business unit", async () => {
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const ctx = createImportExcelContext({
+      SheetNames: ["Summary"],
+      Sheets: {
+        Summary: makeSheet([
+          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
+          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    });
+
+    // Seed an existing record for a different month in the same BU.
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        {
+          id: 10,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 2,
+          pm_compliance: 88.8,
+          budget_spend: 90,
+          pm_cm_work_order_ratio: 82.51,
+          pm_cm_cost_ratio: 72.73,
+          mttr_days: 999,
+          facility_uptime: 95,
+          notes: "feb-existing",
+          raw_imported_values: null,
+        },
+      ],
+      { businessUnitId: "ez" },
+    );
+
+    await runImportExcel(ctx);
+
+    expect(ctx.closeImportModalCalls).toContain(true);
+    // The imported January record is applied.
+    expect(ctx.MonthlyScoreData.ez[2026][1].pm_compliance).toBe(98.9);
+    // The existing February record survives because apply is merge mode.
+    expect(ctx.MonthlyScoreData.ez[2026][2].pm_compliance).toBe(88.8);
+    expect(ctx.MonthlyScoreData.ez[2026][2].pm_cm_work_order_ratio).toBe(82.51);
+    expect(ctx.MonthlyScoreData.ez[2026][2].mttr_days).toBe(999);
+  });
+
+  it("does not delete existing months when a one-month legacy import is applied", async () => {
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const legacyRows = [
+      ["Business Unit", "Year", "Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)", "Notes"],
+      ["AMD-EZ", 2026, 3, 77, 88, 66, 55, 44, 99, "march-legacy"],
+    ];
+    const ctx = createImportExcelContext({
+      SheetNames: ["Legacy"],
+      Sheets: { Legacy: makeSheet(legacyRows) },
+    });
+
+    // Seed an existing January record in the same BU.
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        {
+          id: 11,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 1,
+          pm_compliance: 99,
+          budget_spend: 100,
+          pm_cm_work_order_ratio: 70,
+          pm_cm_cost_ratio: 60,
+          mttr_days: 120,
+          facility_uptime: 98,
+          notes: "jan-existing",
+          raw_imported_values: null,
+        },
+      ],
+      { businessUnitId: "ez" },
+    );
+
+    await runImportExcel(ctx);
+
+    expect(ctx.closeImportModalCalls).toContain(true);
+    // Imported March record is applied.
+    expect(ctx.MonthlyScoreData.ez[2026][3].pm_compliance).toBe(77);
+    expect(ctx.MonthlyScoreData.ez[2026][3].notes).toBe("march-legacy");
+    // Existing January record survives.
+    expect(ctx.MonthlyScoreData.ez[2026][1].pm_compliance).toBe(99);
+    expect(ctx.MonthlyScoreData.ez[2026][1].notes).toBe("jan-existing");
   });
 
   it("imports whitespace-only KPI cells as null, not 0", () => {
