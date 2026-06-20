@@ -14,7 +14,7 @@ import AIAssistant from "@/components/AIAssistant";
 import type { GanttTask } from "@/modules/gantt/engine/schedulingEngine";
 import {
   parseDate, daysBetween, normProgress,
-  DEP_TYPE_MAP, buildTaskTree, flattenVisible, deriveStatus,
+  DEP_TYPE_MAP, deriveStatus,
 } from "@/modules/gantt/engine/schedulingEngine";
 import {
   autoSchedule, buildConnectors, calculateDependencyPlannedDates,
@@ -28,13 +28,13 @@ import {
   exportTemplate, exportCSV, exportExcel, parseImportFile, parseImportRow,
 } from "@/modules/gantt/engine/persistenceEngine";
 import {
-  buildHierarchyPayload, computeWbsLevel, computeWbsLevelMap, calcIndent, calcOutdent, getAncestorIds, validateParentAssignment,
+  computeWbsLevel, computeWbsLevelMap, calcIndent, calcOutdent, getAncestorIds, validateParentAssignment,
 } from "@/modules/gantt/engine/hierarchyEngine";
 import {
-  isParent, isFieldEditable,
+  isParent,
 } from "@/modules/gantt/engine/parentEngine";
 import {
-  calcKpi, statusColor as _statusColor, statusBg as _statusBg, statusBadgeStyle, rowStatus, fmtMonth, fmtShortDate,
+  calcKpi, statusColor as _statusColor, statusBg as _statusBg, rowStatus, fmtMonth, fmtShortDate,
 } from "@/modules/gantt/engine/uiUtilsEngine";
 import {
   buildManualHierarchyOrder, getSiblingOrderDebug, getSiblingOrderState, getTaskParentId, sortTasksForHierarchyDisplay,
@@ -480,11 +480,6 @@ function statusDateBadge(label: string, active: boolean, color: string) {
 }
 
 
-function statusBadge(status: string) {
-  const s = statusBadgeStyle(status);
-  return <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: "nowrap" }}>{status}</span>;
-}
-
 /* ═══════════════════════════════════════════════════════════════════
    SUB-COMPONENTS (module-level, self-contained, no TDZ risk)
    ═══════════════════════════════════════════════════════════════════ */
@@ -660,7 +655,7 @@ interface ToolbarProps {
   onSave: () => void | Promise<void | boolean>; onSaveAs: () => void; onOpen: () => void | Promise<void>; onClose: () => void;
   onImport: () => void; onStatusDate: () => void;
   onExportExcel: () => void; onExportCSV: () => void; onExportTemplate: () => void;
-  onMigrate: () => void; onReset: () => void; onLoadDemo: () => void;
+  onReset: () => void; onLoadDemo: () => void;
   onIndent?: () => void; onOutdent?: () => void;
   onMoveUp?: () => void; onMoveDown?: () => void;
   moveUpDisabled?: boolean; moveDownDisabled?: boolean; moveDisabledReason?: string;
@@ -669,19 +664,17 @@ interface ToolbarProps {
   onLink?: () => void; onClear?: () => void;
   multiSelectMode?: boolean; onToggleMulti?: () => void;
   selectedIdsSize?: number;
-  tasksExist: boolean;
 }
 
 function GanttToolbar({
   currentProjectId, currentProjectName, hasUnsavedChanges,
   onSave, onSaveAs, onOpen, onClose, onImport, onStatusDate,
   onExportExcel, onExportCSV, onExportTemplate,
-  onMigrate, onReset, onLoadDemo,
+  onReset, onLoadDemo,
   onIndent, onOutdent, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, onInsertAbove, onInsertBelow, onInsertChild,
   onDelete,
   onLink, onClear,
   multiSelectMode, onToggleMulti, selectedIdsSize,
-  tasksExist,
 }: ToolbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -803,7 +796,6 @@ function GanttToolbar({
 
         {/* ADMIN MENU */}
         <MenuBtn label="Admin" icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>} menuKey="admin">
-          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><path d="M4 7V4h3M4 17v3h3M20 7V4h-3M20 17v3h-3M9 9h6v6H9z"/></svg>} label="Migrate DB" onClick={onMigrate} />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>} label="Reset Data" onClick={() => { if (confirm("Delete all Gantt data?")) onReset(); }} danger />
           <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#005BAC" strokeWidth="2"><path d="M12 2v4m0 12v4m-7.66-9.34l2.83 2.83m9.66-2.83l2.83-2.83M4 12h4m12 0h-4M6.34 6.34l2.83 2.83m9.66 0l2.83-2.83"/></svg>} label="Load Demo" onClick={onLoadDemo} />
         </MenuBtn>
@@ -829,7 +821,6 @@ function GanttToolbar({
           <Mmi label="Move Up" onClick={() => { moveUpDisabled ? alert(moveDisabledReason || "Select a movable task.") : onMoveUp?.(); setMobileMenuOpen(false); }} />
           <Mmi label="Move Down" onClick={() => { moveDownDisabled ? alert(moveDisabledReason || "Select a movable task.") : onMoveDown?.(); setMobileMenuOpen(false); }} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.1)", margin: "4px 0" }} />
-          <Mmi label="Migrate DB" onClick={() => { onMigrate(); setMobileMenuOpen(false); }} />
           <Mmi label="Reset Data" onClick={() => { if (confirm("Delete all Gantt data?")) { onReset(); setMobileMenuOpen(false); } }} />
           <Mmi label="Load Demo" onClick={() => { onLoadDemo(); setMobileMenuOpen(false); }} />
           <Mmi label="Close Project" onClick={() => { onClose(); setMobileMenuOpen(false); }} />
@@ -839,11 +830,6 @@ function GanttToolbar({
   );
 }
 
-function Tbm({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 14px", fontSize: 11, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#F1F5F9")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>{icon}<span>{label}</span></button>
-  );
-}
 function Mmi({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", padding: "10px 14px", fontSize: 13, fontWeight: 500, fontFamily: "Inter, sans-serif", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "rgba(255,255,255,0.9)", borderRadius: 6, transition: "background .1s", width: "100%" }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")} onMouseLeave={e => (e.currentTarget.style.background = "none")}>{label}</button>
@@ -898,10 +884,10 @@ function QuickActionBar({
     ...pill, background: c.bg, borderColor: c.border, color: c.text, boxShadow: c.shadow,
   });
   const setHover = (e: React.MouseEvent, c: typeof COLORS.slate) => {
-    const t = e.currentTarget; t.style.background = c.hoverBg; t.style.borderColor = c.hoverBorder; t.style.boxShadow = c.shadow.replace(/\d+\.?\d*/g, m => String(parseFloat(m) * 1.5));
+    const t = e.currentTarget as HTMLElement; t.style.background = c.hoverBg; t.style.borderColor = c.hoverBorder; t.style.boxShadow = c.shadow.replace(/\d+\.?\d*/g, m => String(parseFloat(m) * 1.5));
   };
   const setLeave = (e: React.MouseEvent, c: typeof COLORS.slate) => {
-    const t = e.currentTarget; t.style.background = c.bg; t.style.borderColor = c.border; t.style.boxShadow = c.shadow;
+    const t = e.currentTarget as HTMLElement; t.style.background = c.bg; t.style.borderColor = c.border; t.style.boxShadow = c.shadow;
   };
   const disabledPill = (enabled: boolean) => enabled ? {} : { opacity: 0.45, cursor: "not-allowed" as const, ...applyColors(COLORS.disabled) };
 
@@ -982,39 +968,11 @@ interface NativeGanttChartProps {
   selectedIds: Set<number>;
   toggleSelect: (id: number, ctrl: boolean, shift: boolean) => void;
   links: any[];
-  onEditTask: (task: GanttTask) => void;
-  onInsertAbove?: (task: GanttTask) => void;
-  onInsertBelow?: (task: GanttTask) => void;
-  onInsertChild?: (task: GanttTask) => void;
+  expandedIds: Set<number>;
+  setExpandedIds: React.Dispatch<React.SetStateAction<Set<number>>>;
+  onEditTask?: (task: GanttTask) => void;
 }
 
-/* ─── Insert Dropdown Menu Button ─── */
-function InsertMenuButton({ sel, onInsertAbove, onInsertBelow, onInsertChild }: {
-  sel: any; onInsertAbove?: (t: any) => void; onInsertBelow?: (t: any) => void; onInsertChild?: (t: any) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { setOpen(false); }, [sel?.id]);
-  useEffect(() => {
-    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-  return (
-    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
-      <button onClick={() => setOpen(!open)} style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, background: "#EFF6FF", color: "#005BAC", border: "1px solid #BFDBFE", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-        Insert <span style={{ fontSize: 8 }}>{open ? "▲" : "▼"}</span>
-      </button>
-      {open && (
-        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 2, background: "#fff", border: "1px solid #D6DFE8", borderRadius: 6, boxShadow: "0 4px 16px rgba(0,0,0,.12)", zIndex: 50, minWidth: 140, padding: "4px 0" }}>
-          {onInsertAbove && <div onClick={() => { onInsertAbove(sel); setOpen(false); }} style={{ padding: "6px 12px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#EFF6FF")} onMouseLeave={e => (e.currentTarget.style.background = "#fff")}>⬆ <span>Insert Above</span></div>}
-          {onInsertBelow && <div onClick={() => { onInsertBelow(sel); setOpen(false); }} style={{ padding: "6px 12px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#EFF6FF")} onMouseLeave={e => (e.currentTarget.style.background = "#fff")}>⬇ <span>Insert Below</span></div>}
-          {onInsertChild && <div onClick={() => { onInsertChild(sel); setOpen(false); }} style={{ padding: "6px 12px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#1E293B", transition: "background .1s" }} onMouseEnter={e => (e.currentTarget.style.background = "#F0FDF4")} onMouseLeave={e => (e.currentTarget.style.background = "#fff")}>➕ <span>Insert Child</span></div>}
-        </div>
-      )}
-    </div>
-  );
-}
 
 interface _TaskNode {
   task: GanttTask; level: number;
@@ -1029,8 +987,9 @@ function _buildTaskTree(tasks: GanttTask[]): _TaskNode[] {
     taskMap.set(t.id, { task: t, level: 0, children: [], isExpanded: true, hasChildren: false });
   }
   for (const node of taskMap.values()) {
-    if (node.task.parent > 0 && taskMap.has(node.task.parent)) {
-      const parentNode = taskMap.get(node.task.parent)!;
+    const parentId = node.task.parent ?? 0;
+    if (parentId > 0 && taskMap.has(parentId)) {
+      const parentNode = taskMap.get(parentId)!;
       parentNode.children.push(node);
       parentNode.hasChildren = true;
     } else {
@@ -1064,7 +1023,7 @@ function _flattenVisible(nodes: _TaskNode[]): { task: GanttTask; level: number; 
   return result;
 }
 
-function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, toggleSelect, links: _links, onEditTask, onInsertAbove, onInsertBelow, onInsertChild }: NativeGanttChartProps) {
+function NativeGanttChart({ tasks, selectedTaskId, selectedIds, toggleSelect, links: _links, expandedIds, setExpandedIds, onEditTask }: NativeGanttChartProps) {
   const renderStartedAtRef = useRef(getPerfNow());
   renderStartedAtRef.current = getPerfNow();
   const chartRootRef = useRef<HTMLDivElement>(null);
@@ -1074,7 +1033,6 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
   const pendingInteractionRef = useRef<{ phase: GanttPerfPhase; startedAt: number } | null>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("autofit");
   const [containerWidth, setContainerWidth] = useState<number>(800);
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [tooltip, setTooltip] = useState<TooltipData>({ task: {} as GanttTask, x: 0, y: 0, visible: false });
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1108,7 +1066,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
 
   const handleEditTask = useCallback((task: GanttTask) => {
     markInteraction("edit-task");
-    onEditTask(task);
+    onEditTask?.(task);
   }, [markInteraction, onEditTask]);
 
   const handleTaskPointerDown = useCallback(() => {
@@ -1203,7 +1161,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
         const dayStart = new Date(cur); const nextDay = new Date(cur.getTime() + 86400000);
         const dayEnd = nextDay < pe ? nextDay : pe;
         const left = daysBetween(ps, dayStart) * dayWidth; const width = Math.max(1, daysBetween(dayStart, dayEnd) * dayWidth);
-        const dayNum = dayStart.getDate(); const monthShort = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][dayStart.getMonth()];
+        const dayNum = dayStart.getDate();
         cols.push({ label: `${dayNum}`, subLabel: dayStart.getDay() === 0 || dayStart.getDay() === 6 ? "" : ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dayStart.getDay()], left, width });
         cur = nextDay;
       }
@@ -1379,7 +1337,7 @@ function NativeGanttChart({ tasks, selectedTaskId, onSelectTask, selectedIds, to
               return <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 10, overflow: "visible" }}>{conns.map((c, i) => <g key={i}><line x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} stroke="#94A3B8" strokeWidth={1.5} strokeDasharray="4,3" fill="none" /><polygon points={`${c.x2-5},${c.y2-4} ${c.x2+1},${c.y2} ${c.x2-5},${c.y2+4}`} fill="#94A3B8" /></g>)}</svg>;
             })()}
             {rows.map((row, idx) => {
-              const { task, level, hasChildren, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone, isAutoPopulated } = row;
+              const { task, hasChildren, plannedLeft, plannedWidth, actualLeft, actualWidth, isDelayed, isMilestone, isAutoPopulated } = row;
               const _isParent = hasChildren;
               const top = headerHeight + idx * rowHeight;
               const isSelected = selectedTaskId === task.id || selectedIds.has(task.id);
@@ -1530,7 +1488,7 @@ const GRID_COLS = [
 const STATUS_OPTS = ["Not Started", "In Progress", "In Progress (Delayed)", "Completed", "Overdue", "Delayed", "Planned"];
 const CALC_FIELDS = ["plannedStart", "plannedEnd", "actualStart", "actualEnd", "duration", "progress"];
 
-function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onEditTask, onAddTask, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, selectedTaskId, onSelectTask, setTaskList, links = [] }: TaskListTabProps) {
+function TaskListTab({ tasks, allTasks, saveTask, deleteTask, setBanner, onAddTask, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, selectedTaskId, onSelectTask, setTaskList, links = [] }: TaskListTabProps) {
   const displayTasks = useMemo(() => sortTasksForHierarchyDisplay(tasks), [tasks]);
   const [editing, setEditing] = useState<{ rowId: number; colKey: string } | null>(null);
   const [editVal, setEditVal] = useState("");
@@ -1940,10 +1898,6 @@ export default function GanttPlanner() {
   const resetMut = trpc.gantt.resetGantt.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
-  const migrateMut = trpc.gantt.migrate.useMutation({
-    onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); setBanner({ type: "success", message: "DB migrated. Refresh the page." }); },
-    onError: (e: any) => setBanner({ type: "error", message: "Migrate failed: " + e.message }),
-  });
   const seedMut = trpc.gantt.seed.useMutation({
     onSuccess: (data: any) => {
       utils.gantt.tasks.invalidate();
@@ -2016,7 +1970,7 @@ export default function GanttPlanner() {
           }
 
           /* PASS 2: Update parent references using new IDs */
-          const freshTasks = await refetchTasks();
+          await refetchTasks();
           for (const t of parsed) {
             const newId = idMap.get(t.id);
             const oldParent = t.parent || 0;
@@ -2312,7 +2266,7 @@ export default function GanttPlanner() {
     });
   }, [saveTaskMut]);
 
-  const saveHierarchyState = useCallback(async (nextTasks: any[], touchedParentIds: number[]) => {
+  const saveHierarchyState = useCallback(async (nextTasks: any[], _touchedParents?: number[]) => {
     const wbsLevels = computeWbsLevelMap(nextTasks);
     const hierarchyUpdates = nextTasks
       .filter((task: any) => task.__hierarchyDirty || (task.wbs_level ?? task.wbsLevel ?? 0) !== wbsLevels.get(task.id))
@@ -2867,7 +2821,7 @@ export default function GanttPlanner() {
     const _lagDays       = depIsNone ? 0 : form.lagDays;
     const _parent        = form.parent || 0;
     const _text          = form.text.trim();
-    const _owner         = form.owner;
+    void form.owner;
     const normalizedForm = normalizeTaskDateFields(form);
     const _plannedStart  = normalizedForm.plannedStart;
     const _plannedEnd    = normalizedForm.plannedEnd;
@@ -2876,8 +2830,8 @@ export default function GanttPlanner() {
     const _duration      = normalizedForm.duration;
     const _progress      = normalizedForm.progress;
     const _status        = normalizedForm.status;
-    const _remarks       = normalizedForm.remarks;
-    const _type          = normalizedForm.type;
+    void normalizedForm.remarks;
+    void normalizedForm.type;
     const _editingId     = editingId;
     /* UID-based identity — stable across saves */
     const _taskUid       = form.frontendTaskUid || generateUid();
@@ -3146,7 +3100,6 @@ export default function GanttPlanner() {
         onExportExcel={() => exportExcel(tasksQuery.data || [])}
         onExportCSV={() => exportCSV(tasksQuery.data || [])}
         onExportTemplate={exportTemplate}
-        onMigrate={() => migrateMut.mutate()}
         onReset={() => resetMut.mutate()}
         onLoadDemo={() => seedMut.mutate()}
         onIndent={handleIndent} onOutdent={handleOutdent}
@@ -3160,7 +3113,6 @@ export default function GanttPlanner() {
         onClear={clearSelection}
         multiSelectMode={multiSelectMode} onToggleMulti={() => setMultiSelectMode(!multiSelectMode)}
         selectedIdsSize={selectedIds.size}
-        tasksExist={(tasksQuery.data || []).length > 0}
       />
 
       {/* Quick Action Bar — sticky below main toolbar */}
@@ -3234,7 +3186,7 @@ export default function GanttPlanner() {
         {activeTab === "gantt" && (
           <div style={{ marginTop: 8 }}>
             <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04)", border: "1px solid #D6DFE8", overflow: "hidden" }}>
-              <NativeGanttChart tasks={(taskList.length ? taskList : sortTasksForHierarchyDisplay((tasksQuery.data || []) as GanttTask[])) as GanttTask[]} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} onEditTask={startEdit} onInsertAbove={insertTaskAbove} onInsertBelow={insertTaskBelow} onInsertChild={insertTaskChild} />
+              <NativeGanttChart tasks={(taskList.length ? taskList : sortTasksForHierarchyDisplay((tasksQuery.data || []) as GanttTask[])) as GanttTask[]} selectedTaskId={selectedTaskId} onSelectTask={setSelectedTaskId} selectedIds={selectedIds} toggleSelect={toggleSelect} links={linksQuery.data || []} expandedIds={expandedIds} setExpandedIds={setExpandedIds} onEditTask={startEdit} />
             </div>
           </div>
         )}
