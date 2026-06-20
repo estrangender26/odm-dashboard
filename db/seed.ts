@@ -29,8 +29,8 @@ async function seed() {
       const result = await db.insert(equipment).values({
         name: eqName,
         initials: getInitials(eqName),
-      });
-      const id = Number(result[0].insertId);
+      }).returning({ id: equipment.id });
+      const id = Number(result[0].id);
       pmEquipMap.set(eqName, id);
     }
     const equipId = pmEquipMap.get(eqName)!;
@@ -54,8 +54,8 @@ async function seed() {
       const result = await db.insert(equipment).values({
         name: eqName,
         initials: getInitials(eqName),
-      });
-      const id = Number(result[0].insertId);
+      }).returning({ id: equipment.id });
+      const id = Number(result[0].id);
       maintEquipMap.set(eqName, id);
     }
     const equipId = maintEquipMap.get(eqName)!;

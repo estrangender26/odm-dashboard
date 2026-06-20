@@ -135,10 +135,10 @@ export const governanceRouter = createRouter({
         fileName: input.fileName,
         fileUrl: input.fileUrl,
         uploadedBy: user?.name || null,
-      });
+      }).returning({ id: governanceUploads.id });
 
-      console.log("[GOV API] addUpload success, id:", Number(result[0].insertId));
-      return { success: true, id: Number(result[0].insertId) };
+      console.log("[GOV API] addUpload success, id:", Number(result[0].id));
+      return { success: true, id: Number(result[0].id) };
     }),
 
   // Delete upload — ALWAYS clears completion date (even if other files remain)
