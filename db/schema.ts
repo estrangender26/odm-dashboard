@@ -221,9 +221,10 @@ export const existingFacilitiesMaintenance = pgTable("existing_facilities_mainte
 ]);
 
 // Document Management — Folder Tree System
+const docFoldersSelfRef: { id?: any } = {};
 export const docFolders = pgTable("doc_folders", {
   id: serial("id").primaryKey(),
-  parentId: integer("parent_id").references(() => docFolders.id),
+  parentId: integer("parent_id").references(() => docFoldersSelfRef.id as any),
   name: varchar("name", { length: 255 }).notNull(),
   sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
