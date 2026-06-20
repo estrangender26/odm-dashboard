@@ -508,7 +508,14 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
         <input type="file" id="excelInput" accept=".xlsx,.xls" onchange="updateImportButtonState()" aria-label="Excel Workbook File">
       </div>
     </div>
-    <div class="import-actions">
+    <div id="importConflictPanel" style="display:none;border-top:1px solid var(--border);padding-top:14px;margin-top:14px;">
+      <p id="importConflictMessage" style="color:var(--muted);font-size:13px;font-weight:700;line-height:1.6;margin-bottom:14px"></p>
+      <div class="import-actions">
+        <button id="importConflictCancelBtn" class="ctrl-btn ctrl-gray" onclick="resolveImportReplacement(false)">Cancel Import</button>
+        <button id="importConflictReplaceBtn" class="ctrl-btn ctrl-red" onclick="resolveImportReplacement(true)">Replace Existing Records</button>
+      </div>
+    </div>
+    <div class="import-actions" id="importPrimaryActions">
       <button class="ctrl-btn ctrl-gray" onclick="closeImportModal()">Cancel</button>
       <button id="importSubmitBtn" class="ctrl-btn ctrl-green" onclick="importExcel()" disabled>Import</button>
     </div>
@@ -1599,6 +1606,7 @@ function triggerExcelImport(){
   setSelectValue('importBusinessUnitSel','');
   var fileInput = document.getElementById('excelInput');
   if(fileInput)fileInput.value = '';
+  resetImportConflictPanel();
   handleImportBusinessUnitSelection();
   updateImportButtonState();
   document.getElementById('importModal').classList.add('active');
@@ -1607,6 +1615,7 @@ function triggerExcelImport(){
 function closeImportModal(force){
   if(isImporting && !force)return;
   document.getElementById('importModal').classList.remove('active');
+  resetImportConflictPanel();
   setImportValidation('');
 }
 
@@ -1815,8 +1824,36 @@ async function fetchImportYearRecords(buApiValue,year){
   if(!res.ok)throw new Error(payload.error || 'Unable to load existing KPI records for this business unit.');
   return Array.isArray(payload.records)?payload.records:[];
 }
+var importReplacementResolver = null;
+function resetImportConflictPanel(){
+  var panel = document.getElementById('importConflictPanel');
+  var primaryActions = document.getElementById('importPrimaryActions');
+  var message = document.getElementById('importConflictMessage');
+  if(panel)panel.style.display='none';
+  if(primaryActions)primaryActions.style.display='';
+  if(message)message.textContent='';
+  importReplacementResolver = null;
+}
+function showImportConflictPanel(conflictMessage){
+  var panel = document.getElementById('importConflictPanel');
+  var primaryActions = document.getElementById('importPrimaryActions');
+  var message = document.getElementById('importConflictMessage');
+  if(panel)panel.style.display='block';
+  if(primaryActions)primaryActions.style.display='none';
+  if(message)message.textContent = conflictMessage;
+}
+function resolveImportReplacement(shouldReplace){
+  if(importReplacementResolver){
+    importReplacementResolver(shouldReplace);
+    importReplacementResolver = null;
+  }
+  resetImportConflictPanel();
+}
 function confirmImportReplacement(conflictMessage){
-  return window.confirm(conflictMessage+' Replace existing data for the selected month(s)?');
+  return new Promise(function(resolve){
+    importReplacementResolver = resolve;
+    showImportConflictPanel(conflictMessage+' Replace existing data for the selected month(s)?');
+  });
 }
 async function checkImportConflicts(importBuId,records){
   var apiValue = getBUApiValue(importBuId);
@@ -2647,8 +2684,9 @@ function importExcel(){
 
         var conflicts = await checkImportConflicts(importBuId,importRecords);
         if(conflicts.length){
-          var confirmReplace = confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
+          var confirmReplace = await confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
           if(!confirmReplace){
+            resetImportConflictPanel();
             if(createdBusinessUnit && !saveSucceeded)removeBusinessUnitById(createdBusinessUnit.bu.id);
             return;
           }

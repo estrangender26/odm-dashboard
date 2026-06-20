@@ -115,6 +115,8 @@ function createScorecardContext() {
     querySelectorAll() { return []; },
     set innerHTML(_value: string) {},
     get innerHTML() { return ""; },
+    set textContent(_value: string) {},
+    get textContent() { return ""; },
     value: "",
   };
   const context = {
@@ -205,6 +207,7 @@ function createImportContext() {
     value: "2026",
   };
   const yearSelect = { ...element, value: "2026" };
+  const elementCache: Record<string, any> = {};
   const context = {
     console,
     setTimeout,
@@ -217,7 +220,11 @@ function createImportContext() {
       createElement() { return element; },
       getElementById(id: string) {
         if (id === "yearSel") return yearSelect;
-        if (id === "monthSel") return { ...element, value: "1" };
+        if (id === "monthSel") return { ...element, value: "1", style: { ...element.style } };
+        if (id === "importConflictPanel" || id === "importPrimaryActions" || id === "importConflictMessage") {
+          if (!elementCache[id]) elementCache[id] = { ...element, style: { ...element.style } };
+          return elementCache[id];
+        }
         return element;
       },
       querySelector() { return element; },
@@ -244,6 +251,14 @@ function createImportContext() {
     setImporting: (flag: boolean) => void;
     BUs: Array<{ id: string; apiValue: string; name: string; label: string }>;
   };
+}
+
+async function resolveImportConflict(ctx: any, shouldReplace: boolean, timeoutMs = 2000) {
+  const start = Date.now();
+  while (!ctx.conflictResolver && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  ctx.resolveImportReplacement(shouldReplace);
 }
 
 function createImportExcelContext(workbook: any) {
@@ -274,7 +289,23 @@ function createImportExcelContext(workbook: any) {
   });
   ctx.validateImportContext = () => true;
   ctx.resolveImportBusinessUnit = () => ({ buId: "ez", bu: ctx.BUs[0], created: false });
-  ctx.confirmImportReplacement = () => ctx.confirmReplacementResult;
+  ctx.confirmImportReplacement = (message: string) => {
+    ctx.lastConflictMessage = message;
+    ctx.conflictResolver = null;
+    const fullMessage = message + " Replace existing data for the selected month(s)?";
+    if (ctx.showImportConflictPanel) ctx.showImportConflictPanel(fullMessage);
+    return new Promise((resolve) => {
+      ctx.conflictResolver = resolve;
+    });
+  };
+  const originalResolveImportReplacement = ctx.resolveImportReplacement;
+  ctx.resolveImportReplacement = (shouldReplace: boolean) => {
+    if (ctx.conflictResolver) {
+      ctx.conflictResolver(shouldReplace);
+      ctx.conflictResolver = null;
+    }
+    if (originalResolveImportReplacement) originalResolveImportReplacement(shouldReplace);
+  };
   ctx.checkImportConflicts = async () => ctx.importConflicts;
   ctx.persistBusinessUnits = () => {};
   ctx.refreshBusinessUnitSelectors = () => {};
@@ -325,6 +356,8 @@ function createImportExcelContext(workbook: any) {
   // Mutable test controls and spies.
   ctx.confirmReplacementResult = true;
   ctx.importConflicts = [] as Array<{ year: number; month: number }>;
+  ctx.lastConflictMessage = "" as string;
+  ctx.conflictResolver = null as ((value: boolean) => void) | null;
   ctx.saveReject = null as Error | null;
   ctx.savedRecords = null as unknown[] | null;
   ctx.fetchSavedRecords = null as unknown[] | null;
@@ -1286,9 +1319,10 @@ describe("Monthly KPI dashboard presentation", () => {
 
     // Force a conflict and cancel the replacement prompt.
     ctx.importConflicts = [{ year: 2026, month: 1 }];
-    ctx.confirmReplacementResult = false;
 
-    await runImportExcel(ctx);
+    const runPromise = runImportExcel(ctx);
+    await resolveImportConflict(ctx, false);
+    await runPromise;
 
     expect(ctx.saveCalls.length).toBe(0);
     expect(ctx.closeImportModalCalls.length).toBe(0);
@@ -1462,12 +1496,13 @@ describe("Monthly KPI dashboard presentation", () => {
     });
 
     ctx.importConflicts = [{ year: 2026, month: 1 }];
-    ctx.confirmReplacementResult = false;
 
     const beforeMonthly = JSON.stringify(ctx.MonthlyScoreData);
     const beforeScore = JSON.stringify(ctx.ScoreData);
 
-    await runImportExcel(ctx);
+    const runPromise = runImportExcel(ctx);
+    await resolveImportConflict(ctx, false);
+    await runPromise;
 
     expect(ctx.saveCalls.length).toBe(0);
     expect(ctx.closeImportModalCalls.length).toBe(0);
@@ -1583,6 +1618,148 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(ctx.MonthlyScoreData.ez[2026][1].notes).toBe("jan-existing");
   });
 
+
+  it("shows an in-page conflict prompt, then POSTs only after Replace Existing Records is chosen", async () => {
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const ctx = createImportExcelContext({
+      SheetNames: ["Summary"],
+      Sheets: {
+        Summary: makeSheet([
+          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
+          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    });
+
+    // Seed existing saved record to trigger conflict detection.
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        {
+          id: 1,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 1,
+          pm_compliance: 55,
+          budget_spend: 60,
+          pm_cm_work_order_ratio: 61,
+          pm_cm_cost_ratio: 62,
+          mttr_days: 63,
+          facility_uptime: 64,
+          notes: "existing",
+          raw_imported_values: null,
+        },
+      ],
+      { businessUnitId: "ez" },
+    );
+
+    ctx.importConflicts = [{ year: 2026, month: 1 }];
+
+    const beforeMonthly = JSON.stringify(ctx.MonthlyScoreData);
+    const runPromise = runImportExcel(ctx);
+
+    // Wait for FileReader mock and importExcel inner setTimeout to reach conflict prompt.
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Confirm the in-page conflict prompt is visible and the primary actions are hidden.
+    const conflictPanel = ctx.document.getElementById("importConflictPanel") as { style: { display: string } };
+    const primaryActions = ctx.document.getElementById("importPrimaryActions") as { style: { display: string } };
+    const conflictMessage = ctx.document.getElementById("importConflictMessage") as { textContent: string };
+    expect(conflictPanel.style.display).toBe("block");
+    expect(primaryActions.style.display).toBe("none");
+    expect(conflictMessage.textContent).toContain("Replace existing data for the selected month(s)?");
+
+    // Before the user chooses, no POST has happened and state is unchanged.
+    expect(ctx.saveCalls.length).toBe(0);
+    expect(JSON.stringify(ctx.MonthlyScoreData)).toBe(beforeMonthly);
+
+    // Choosing Replace Existing Records triggers the POST and applies persisted records.
+    await resolveImportConflict(ctx, true);
+    await runPromise;
+
+    expect(ctx.saveCalls.length).toBe(1);
+    expect(ctx.closeImportModalCalls).toContain(true);
+    expect(ctx.MonthlyScoreData.ez[2026][1].pm_compliance).toBe(98.9);
+  });
+
+  it("does not POST and keeps existing records when Cancel Import is chosen from the conflict prompt", async () => {
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const fileInput = { value: "test.xlsx" };
+    const ctx = createImportExcelContext({
+      SheetNames: ["Summary"],
+      Sheets: {
+        Summary: makeSheet([
+          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
+          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    });
+
+    const originalGetElementById = ctx.document.getElementById;
+    ctx.document.getElementById = (id: string) => {
+      if (id === "excelInput") return fileInput as any;
+      return originalGetElementById(id);
+    };
+
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        {
+          id: 1,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 1,
+          pm_compliance: 55,
+          budget_spend: 60,
+          pm_cm_work_order_ratio: 61,
+          pm_cm_cost_ratio: 62,
+          mttr_days: 63,
+          facility_uptime: 64,
+          notes: "existing",
+          raw_imported_values: null,
+        },
+      ],
+      { businessUnitId: "ez" },
+    );
+
+    ctx.importConflicts = [{ year: 2026, month: 1 }];
+
+    const beforeMonthly = JSON.stringify(ctx.MonthlyScoreData);
+    const beforeScore = JSON.stringify(ctx.ScoreData);
+    const runPromise = runImportExcel(ctx);
+
+    // Wait for conflict prompt to appear before cancelling.
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Cancel from the in-page conflict prompt.
+    await resolveImportConflict(ctx, false);
+    await runPromise;
+
+    expect(ctx.saveCalls.length).toBe(0);
+    expect(ctx.closeImportModalCalls.length).toBe(0);
+    expect(fileInput.value).toBe("test.xlsx");
+    expect(JSON.stringify(ctx.MonthlyScoreData)).toBe(beforeMonthly);
+    expect(JSON.stringify(ctx.ScoreData)).toBe(beforeScore);
+  });
+
   it("imports whitespace-only KPI cells as null, not 0", () => {
     const ctx = createImportContext();
     ctx.getBUApiValue = () => "amd-ez";
@@ -1696,12 +1873,13 @@ describe("Monthly KPI dashboard presentation", () => {
     };
 
     ctx.importConflicts = [{ year: 2026, month: 1 }];
-    ctx.confirmReplacementResult = false;
 
     const beforeMonthly = JSON.stringify(ctx.MonthlyScoreData);
     const beforeScore = JSON.stringify(ctx.ScoreData);
 
-    await runImportExcel(ctx);
+    const runPromise = runImportExcel(ctx);
+    await resolveImportConflict(ctx, false);
+    await runPromise;
 
     expect(ctx.saveCalls.length).toBe(0);
     expect(ctx.closeImportModalCalls.length).toBe(0);
