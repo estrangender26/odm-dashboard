@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo, useEffect, Fragment } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect, Fragment } from "react";
 import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
@@ -8,14 +8,6 @@ import AIAssistant from "@/components/AIAssistant";
 // ── Types ──
 const VALID_OPS = ["", "Operator", "AMD In-house", "Outsourced SLA"] as const;
 const VALID_FAM = ["", "Fully Familiar", "Partially Familiar", "Requires Guidance", "Not Familiar"] as const;
-
-interface PendingChange {
-  taskId: number;
-  operations?: string;
-  amd?: string;
-  ard?: string;
-  procedureFamiliarity?: string;
-}
 
 interface Banner {
   type: "error" | "success" | "info";
@@ -91,10 +83,6 @@ function getPersBadgeClass(p: string) {
   if (pl.includes("in-house") || pl.includes("in house")) return "bg-blue-50 text-blue-700";
   if (pl.includes("operator")) return "bg-green-100 text-green-700";
   return "bg-gray-100 text-gray-600";
-}
-
-function getInitials(n: string) {
-  return n.split(/[\s\-\(\[\/]+/).filter((w) => w).map((w) => w[0]).join("").substring(0, 3).toUpperCase();
 }
 
 function csvEsc(s: string | null | undefined) {
@@ -354,11 +342,9 @@ export default function Dashboard() {
   const [importDiagnostics, setImportDiagnostics] = useState<ImportDiagnosticState | null>(null);
   const [importSummary, setImportSummary] = useState<ImportResultSummary | null>(null);
   const [lastImportTraceTaskIds, setLastImportTraceTaskIds] = useState<number[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const importProgressTimerRef = useRef<number | null>(null);
 
   const utils = trpc.useUtils();
-  const [lastSync, setLastSync] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // ── tRPC Queries ──
@@ -378,13 +364,15 @@ export default function Dashboard() {
     {
       refetchInterval: 30000,
       staleTime: 0,
-      onSuccess: () => setLastSync(new Date()),
-      onError: (err) => {
-        console.error("[Dashboard] list query error:", err);
-        setBanner({ type: "error", message: friendlyError(err) });
-      },
     }
   );
+
+  useEffect(() => {
+    if (listError) {
+      console.error("[Dashboard] list query error:", listError);
+      setBanner({ type: "error", message: friendlyError(listError) });
+    }
+  }, [listError]);
 
   const { data: filtersData } = trpc.tasks.filters.useQuery(
     { dataset: activeTab },
@@ -547,7 +535,7 @@ export default function Dashboard() {
         ...(v.operations !== undefined ? { operations: v.operations || null } : {}),
         ...(v.amd !== undefined ? { amd: v.amd || null } : {}),
         ...(v.ard !== undefined ? { ard: v.ard || null } : {}),
-        ...(v.procedureFamiliarity !== undefined ? { procedureFamiliarity: v.procedureFamiliarity || null } : {}),
+        ...(v.procedureFamiliarity !== undefined ? { procedureFamiliarity: (v.procedureFamiliarity as typeof VALID_FAM[number]) || null } : {}),
       }));
     if (updates.length > 0) {
       setPending({});
@@ -964,7 +952,7 @@ export default function Dashboard() {
                   <div className="text-[0.5rem] sm:text-[0.65rem] uppercase opacity-70">{activeTab.toUpperCase()}</div>
                 </div>
               </div>
-              <button onClick={() => { setIsRefreshing(true); utils.tasks.list.invalidate().then(() => { utils.tasks.filters.invalidate().then(() => { setIsRefreshing(false); setLastSync(new Date()); }); }); }} className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition" title="Refresh data">
+              <button onClick={() => { setIsRefreshing(true); utils.tasks.list.invalidate().then(() => { utils.tasks.filters.invalidate().then(() => { setIsRefreshing(false); }); }); }} className="px-2 py-1.5 sm:px-4 sm:py-2 bg-white/10 border border-white/20 rounded-lg text-xs sm:text-sm font-medium text-white hover:bg-white/20 transition" title="Refresh data">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={isRefreshing ? "animate-spin" : ""}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
               </button>
             </div>
