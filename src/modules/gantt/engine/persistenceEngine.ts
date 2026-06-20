@@ -2,6 +2,9 @@
 import type { GanttTask } from "./schedulingEngine";
 import { parseDate, daysBetween, normProgress, deriveStatus, rowStatus } from "./schedulingEngine";
 import * as XLSX from "xlsx";
+/* ─── Browser-only document helper (safe in Node build) ─── */
+const getDocument = () => (globalThis as { document?: any }).document;
+
 
 /* ─── Normalize Excel date (serial number or string) → YYYY-MM-DD ─── */
 export function normalizeExcelDate(val: any): string {
@@ -85,13 +88,15 @@ export function exportTemplate() {
     const headers = ["Task ID","Parent Task","WBS Level","Task Name","Owner","Start","Finish","Duration","Progress","Dependency","Dependency Type","Lag (days)","Milestone","Category","Status","Notes"];
     const csv = headers.join(",") + "\n";
     const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
+    const doc = getDocument();
+    if (!doc) return false;
+    const a = doc.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "gantt-template.csv";
     a.style.display = "none";
-    document.body.appendChild(a);
+    doc.body.appendChild(a);
     a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 200);
+    setTimeout(() => { doc.body.removeChild(a); URL.revokeObjectURL(a.href); }, 200);
     return false;
   }
 }
@@ -126,13 +131,16 @@ export function exportCSV(tasks: GanttTask[]) {
   const ws = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{}], { header: COLUMN_ORDER });
   const csv = XLSX.utils.sheet_to_csv(ws);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = tasks.length > 0 ? "Gantt_Tasks.csv" : "Gantt_Task_Template.csv";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(link.href);
+  const doc = getDocument();
+  if (doc) {
+    const link = doc.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = tasks.length > 0 ? "Gantt_Tasks.csv" : "Gantt_Task_Template.csv";
+    doc.body.appendChild(link);
+    link.click();
+    doc.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  }
 }
 
 /* ─── Excel Export — 15-column format with field variant support ─── */
@@ -262,7 +270,7 @@ export function parseImportRow(row: any, idx: number): { payload: any | null; er
 
   let status = row["Status"] || row["status"] || row["state"] || row["State"] || "";
   if (!status) {
-    status = deriveStatus({ startDate: start, endDate: finish, plannedEnd: plannedEnd });
+    status = deriveStatus({ id: 0, text: "imported", startDate: start, endDate: finish, plannedEnd: plannedEnd });
   }
 
   const notes = row["Notes"] || row["notes"] || row["note"] || row["Remarks"] || row["remarks"] || row["Comments"] || row["comments"] || row["Description"] || row["description"] || "";
