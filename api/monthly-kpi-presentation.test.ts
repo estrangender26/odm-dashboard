@@ -167,37 +167,44 @@ describe("Monthly KPI dashboard presentation", () => {
   it("keeps the dashboard KPI cards to the required layout without PM Planned", () => {
     expect(extractScriptArray("GaugeKPIs")).toEqual([
       "pmCompliance",
+      "scheduleCompliance",
       "budgetSpend",
       "pmcmWORatio",
       "pmcmCostRatio",
+      "mtbf",
       "mttr",
       "facilityUptime",
     ]);
     expect(extractScriptArray("GaugeKPIs")).not.toContain("pmPlanned");
-    expect(extractScriptArray("GaugeKPIs")).not.toContain("scheduleCompliance");
-    expect(extractScriptArray("GaugeKPIs")).not.toContain("mtbf");
   });
 
   it("limits the Summary Matrix to the required KPI metrics without PM Planned", () => {
     expect(extractScriptArray("SummaryMatrixKPIs")).toEqual([
       "pmCompliance",
+      "scheduleCompliance",
       "budgetSpend",
       "pmcmWORatio",
       "pmcmCostRatio",
+      "mtbf",
       "mttr",
       "facilityUptime",
     ]);
 
     const summaryTable = scorecardHtml.match(/<table class="matrix-table" id="summaryTable">([\s\S]*?)<\/table>/)?.[1] ?? "";
-    expect(summaryTable).toContain("PM Compliance (%)");
-    expect(summaryTable).toContain("PM:CM Ratio (Work Order)");
-    expect(summaryTable).toContain("Budget Spend (%)");
-    expect(summaryTable).toContain("PM:CM Ratio (Cost)");
-    expect(summaryTable).toContain("MTTR (Days)");
-    expect(summaryTable).toContain("Facility Uptime (%)");
-    expect(summaryTable).toContain("Notes");
-    expect(summaryTable).not.toContain("Schedule Compliance");
-    expect(summaryTable).not.toContain("MTBF");
+    const expectedKpiHeaders = [
+      "PM Compliance (%)",
+      "Schedule Compliance (%)",
+      "Budget Spend (%)",
+      "PM:CM Ratio (Work Order)",
+      "PM:CM Ratio (Cost)",
+      "MTBF (Days)",
+      "MTTR (Days)",
+      "Facility Uptime (%)",
+    ];
+    expectedKpiHeaders.forEach((header) => {
+      expect(summaryTable).toContain(`<th>${header}</th>`);
+    });
+    expect(summaryTable).toContain("<th class=\"notes-col\">Notes</th>");
     expect(summaryTable).not.toContain("PM Planned");
   });
 
@@ -225,7 +232,7 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(tooltipByKey.mttr?.formula).toBe("Total Downtime ÷ Number of Repairs");
     expect(tooltipByKey.facilityUptime?.formula).toBe("(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100");
     expect(tooltipByKey.pmCompliance?.interpretation).toBe("Higher is better.");
-    expect(scorecardHtml).not.toContain("Scheduled Work Orders");
+    expect(tooltipByKey.scheduleCompliance?.formula).toContain("Scheduled Work Orders");
   });
 
   it("renders PM:CM ratios as percentages with equivalent ratios", () => {
@@ -244,13 +251,12 @@ describe("Monthly KPI dashboard presentation", () => {
       scorecardHtml.indexOf("// ===== CHARTS ====="),
     );
 
-    expect(monthlyRecordsRenderer).toContain("'Month','PM Compliance (%)','Budget Spend (%)'");
+    expect(monthlyRecordsRenderer).toContain("'Month','PM Compliance (%)','Schedule Compliance (%)','Budget Spend (%)'");
+    expect(monthlyRecordsRenderer).toContain("'MTBF (Days)'");
     expect(monthlyRecordsRenderer).toContain("'MTTR (Days)'");
     expect(monthlyRecordsRenderer).toContain("Notes");
     expect(monthlyRecordsRenderer).not.toContain("PM Planned");
     expect(monthlyRecordsRenderer).not.toContain("pmPlanned");
-    expect(monthlyRecordsRenderer).not.toContain("Schedule Compliance");
-    expect(monthlyRecordsRenderer).not.toContain("MTBF");
   });
 
   it("keeps PM Planned available internally for imports and saved records", () => {
@@ -506,7 +512,8 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(context.KpiAggregates.portfolioYearAverage.pmcmCostRatio).toBe(61);
     expect(context.getPortfolioCurrentData().pmcmCostRatio).toBe(61);
     expect(context.getPortfolioCurrentData().mttr).toBe(3.5);
-    expect(context.getPortfolioCurrentData().scheduleCompliance).toBeUndefined();
+    expect(context.getPortfolioCurrentData().scheduleCompliance).toBeNull();
+    expect(context.getPortfolioCurrentData().mtbf).toBeNull();
   });
 
   it("renders portfolio KPI cards into the summary panel for All Business Units", () => {
@@ -605,13 +612,14 @@ describe("Monthly KPI dashboard presentation", () => {
 
     expect(elements["summary-gauges"].innerHTML).toContain("PM Compliance");
     expect(elements["summary-gauges"].innerHTML).toContain("78.87");
-    expect(elements["summary-gauges"].innerHTML).not.toContain("Schedule Compliance");
+    expect(elements["summary-gauges"].innerHTML).toContain("Schedule Compliance");
     expect(elements["summary-gauges"].innerHTML).toContain("Budget Spend");
     expect(elements["summary-gauges"].innerHTML).toContain("94.83");
     expect(elements["summary-gauges"].innerHTML).toContain("PM:CM Ratio (WO)");
     expect(elements["summary-gauges"].innerHTML).toContain("86.05%");
     expect(elements["summary-gauges"].innerHTML).toContain("PM:CM Ratio (Cost)");
     expect(elements["summary-gauges"].innerHTML).toContain("53.08%");
+    expect(elements["summary-gauges"].innerHTML).toContain("MTBF");
     expect(elements["summary-gauges"].innerHTML).toContain("MTTR");
     expect(elements["summary-gauges"].innerHTML).toContain("4.25");
     expect(elements["summary-gauges"].innerHTML).toContain("Facility Uptime");
@@ -626,9 +634,11 @@ describe("Monthly KPI dashboard presentation", () => {
       reportingYear: 2026,
       recordCount: 1,
       pmCompliance: 95,
+      scheduleCompliance: null,
       budgetSpend: null,
       pmCmWorkOrderRatio: null,
       pmCmCostRatio: null,
+      mtbfDays: null,
       mttrDays: null,
       facilityUptime: null,
     });
@@ -723,6 +733,7 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(html).toContain("March");
     expect(html).toContain("April");
     expect(html).toContain("May");
+    expect(html).toContain("MTBF (Days)");
     expect(html).toContain("MTTR (Days)");
     expect(html).toContain("Notes");
     expect(html).toContain("91.00");
@@ -731,8 +742,6 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(html).toContain("94.00");
     expect(html).toContain("95.00");
     expect(html).toContain("Planned shutdown completed.");
-    expect(html).not.toContain("Schedule Compliance");
-    expect(html).not.toContain("MTBF");
   });
 
 });
