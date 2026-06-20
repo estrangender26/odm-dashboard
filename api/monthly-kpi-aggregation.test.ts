@@ -11,17 +11,17 @@ const base = {
 };
 
 describe("aggregateMonthlyKpiRecords", () => {
-  it("tracks only the rationalized active KPI set", () => {
+  it("tracks the active KPI set including Schedule Compliance and MTBF", () => {
     expect(monthlyKpiKeys).toEqual([
       "pmCompliance",
+      "scheduleCompliance",
       "budgetSpend",
       "pmCmWorkOrderRatio",
       "pmCmCostRatio",
+      "mtbfDays",
       "mttrDays",
       "facilityUptime",
     ]);
-    expect(monthlyKpiKeys).not.toContain("scheduleCompliance");
-    expect(monthlyKpiKeys).not.toContain("mtbfDays");
   });
 
   it("uses one yearly business-unit aggregate for summary rows and KPI cards", () => {

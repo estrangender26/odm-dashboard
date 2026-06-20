@@ -1,8 +1,10 @@
 export const monthlyKpiKeys = [
   "pmCompliance",
+  "scheduleCompliance",
   "budgetSpend",
   "pmCmWorkOrderRatio",
   "pmCmCostRatio",
+  "mtbfDays",
   "mttrDays",
   "facilityUptime",
 ] as const;
@@ -51,9 +53,11 @@ type PersistedKpiValueField = Exclude<
 
 const sourceFieldByKpiKey: Record<MonthlyKpiKey, PersistedKpiValueField> = {
   pmCompliance: "pm_compliance",
+  scheduleCompliance: "schedule_compliance",
   budgetSpend: "budget_spend",
   pmCmWorkOrderRatio: "pm_cm_work_order_ratio",
   pmCmCostRatio: "pm_cm_cost_ratio",
+  mtbfDays: "mtbf_days",
   mttrDays: "mttr_days",
   facilityUptime: "facility_uptime",
 };
