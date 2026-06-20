@@ -405,11 +405,9 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
             <tr>
               <th>Business Unit</th>
               <th>PM Compliance (%)</th>
-              <th>Schedule Compliance (%)</th>
               <th>Budget Spend (%)</th>
               <th>PM:CM Ratio (Work Order)</th>
               <th>PM:CM Ratio (Cost)</th>
-              <th>MTBF (Days)</th>
               <th>MTTR (Days)</th>
               <th>Facility Uptime (%)</th>
               <th class="notes-col">Notes</th>
@@ -582,11 +580,9 @@ var selectedBusinessUnitId = (function(){
 // - MTTR is expected to trend decreasing.
 var KPIs = [
   {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'PM Compliance',formula:'PM Orders Completed On Time ÷ Total PM Orders × 100',target:'95%',interpretation:'Higher is better.'},definitionName:'PM Compliance (%)',definitionFormula:'PM Orders Completed On Time ÷ Total PM Orders × 100',definitionBenchmark:'≥95%',definitionText:'Measures the percentage of PM tasks that were completed on time.'},
-  {key:'scheduleCompliance',name:'Schedule Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'Schedule Compliance',formula:'Completed Work Orders On Schedule ÷ Total Scheduled Work Orders × 100',target:'95%',interpretation:'Higher is better.'},definitionName:'Schedule Compliance (%)',definitionFormula:'Completed Work Orders On Schedule ÷ Total Scheduled Work Orders × 100',definitionBenchmark:'≥95%',definitionText:'Measures the percentage of scheduled work orders completed on time.'},
   {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%',tooltip:{name:'Budget Spend',formula:'Monthly Actual Spend ÷ Monthly Budget × 100',target:'95% - 105%',interpretation:'Values within range are preferred.'},definitionName:'Maintenance Budget Spend (%)',definitionFormula:'Monthly Actual Spend ÷ Monthly Budget × 100',definitionBenchmark:'95%–105%',definitionText:'Measures utilization of the R&M Budget.'},
   {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86% (6:1)',tooltip:{name:'PM:CM Ratio (Work Orders)',formula:'PM Work Orders ÷ (PM + CM Work Orders) × 100',target:'≥86% (approximately 6:1)',displayedAs:'Percentage + Equivalent Ratio (example: 90% = 9:1)',interpretation:'Higher PM proportion is generally preferred.'},definitionName:'PM:CM Ratio (Work Orders)',definitionFormula:'PM Work Orders ÷ (PM + CM Work Orders) × 100',definitionBenchmark:'≥86% or 6:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
   {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60% (1.5:1)',tooltip:{name:'PM:CM Ratio (Cost)',formula:'PM Cost ÷ (PM + CM Cost) × 100',target:'≥60% (approximately 1.5:1)',displayedAs:'Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)',interpretation:'Higher PM investment generally reduces reactive maintenance.'},definitionName:'PM:CM Ratio (Cost)',definitionFormula:'PM Cost ÷ (PM + CM Cost) × 100',definitionBenchmark:'≥60% or 1.5:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
-  {key:'mtbf',name:'MTBF',unit:'days',benchmark:0,trend:'increasing',benchmarkLabel:'Increasing Trend',tooltip:{name:'Mean Time Between Failures (MTBF)',formula:'Total Operating Time ÷ Number of Failures',target:'Increasing Trend',interpretation:'Higher time between failures is preferred.'},definitionName:'Mean Time Between Failures (MTBF, days)',definitionFormula:'Total Operating Time ÷ Number of Failures',definitionBenchmark:'Increasing Trend',definitionText:'Indicates the average time between equipment or system failures.'},
   {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing',benchmarkLabel:'Decreasing Trend',tooltip:{name:'Mean Time To Repair (MTTR)',formula:'Total Downtime ÷ Number of Repairs',target:'Decreasing Trend',interpretation:'Lower recovery time is preferred.'},definitionName:'Mean Time To Repair (MTTR, days)',definitionFormula:'Total Downtime ÷ Number of Repairs',definitionBenchmark:'Decreasing Trend',definitionText:'Indicates the average time it takes to recover from an equipment or system failure.'},
   {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%',tooltip:{name:'Facility Uptime',formula:'(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100',target:'99.97%',interpretation:'Higher is better.'},definitionName:'Uptime of Key Facilities (%)',definitionFormula:'(Total Operating Time − Total Downtime) ÷ Total Operating Time × 100',definitionBenchmark:'99.97%',definitionText:'Indicates the total amount of time, or its percentage equivalent, that facilities are fully operational.'}
 ];
@@ -603,8 +599,8 @@ var KPI_DEFINITION_FAQ = [
   {q:'If a PM activity identifies and corrects a defect during execution, should it be counted as PM or CM?',a:'Preventive Maintenance.\n\nProvided the primary objective of the work order was preventive maintenance and the corrective action was incidental to the planned PM activity, the work order remains classified as Preventive Maintenance.\n\nThis prevents inflation of corrective maintenance counts and aligns with Reliability-Centered Maintenance principles.'},
   {q:'If PM costs and PM work order counts are very low because most preventive maintenance activities are performed in-house, how should PM:CM Ratio be computed?',a:'PM:CM Ratio should reflect actual maintenance effort regardless of whether work is outsourced or performed internally.\n\nPM:CM Ratio (Work Order)\nFormula: PM Work Orders ÷ CM Work Orders\n\nAll completed PM work orders should be counted regardless of:\n• Internal execution\n• Contractor execution\n• Whether external costs were incurred\n\nThe purpose is to measure proactive versus reactive maintenance behavior.\n\nPM:CM Ratio (Cost)\nFormula: PM Cost ÷ CM Cost\n\nPM costs should include:\n• Contractor costs\n• Spare parts and materials\n• Internal labor costs (where available)\n• Equipment rental and support services attributable to PM work\n\nIf labor costs are unavailable, PM costs may appear artificially low despite significant preventive maintenance effort.\n\nRecommended Practice:\n• Where labor costing is unavailable, PM:CM Ratio (Work Order) should be treated as the primary KPI.\n• PM:CM Ratio (Cost) should be treated as a supplementary KPI.\n• Reports should disclose whether labor costs are excluded.\n\nExample:\nPM Work Orders = 90\nCM Work Orders = 10\n\nPM:CM Ratio (Work Order)\n= 90 ÷ 10\n= 9:1\n\nPM Cost = ₱50,000\nCM Cost = ₱300,000\n\nPM:CM Ratio (Cost)\n= ₱50,000 ÷ ₱300,000\n= 0.17:1\n\nIn this case, the Work Order Ratio correctly reflects proactive maintenance behavior, while the Cost Ratio is distorted because labor costs are not captured.\n\nKey Principle:\nA low PM cost does not automatically indicate poor preventive maintenance performance. When labor costs are not fully captured, PM:CM Ratio (Work Order) should be the primary indicator of maintenance behavior.'}
 ];
-var GaugeKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'];
-var SummaryMatrixKPIs = ['pmCompliance','scheduleCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mtbf','mttr','facilityUptime'];
+var GaugeKPIs = ['pmCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mttr','facilityUptime'];
+var SummaryMatrixKPIs = ['pmCompliance','budgetSpend','pmcmWORatio','pmcmCostRatio','mttr','facilityUptime'];
 
 // ===== STATE =====
 var ScoreData = {};
@@ -875,11 +871,9 @@ var SummaryWorkbookColumns = {
   month:'reporting_month',
   pmCompliance:'pm_compliance',
   pmPlanned:'pm_planned',
-  scheduleCompliance:'schedule_compliance',
   budgetSpend:'budget_spend',
   pmcmWORatio:'pm_cm_work_order_ratio',
   pmcmCostRatio:'pm_cm_cost_ratio',
-  mtbf:'mtbf_days',
   mttr:'mttr_days',
   facilityUptime:'facility_uptime',
   notes:'notes'
@@ -1398,11 +1392,9 @@ function buildSummaryMatrixExportRows(aggregates,scope){
   var rows = [{
     'Business Unit':'BENCHMARK',
     'PM Compliance (%)':getKpiBenchmarkLabel('pmCompliance'),
-    'Schedule Compliance (%)':getKpiBenchmarkLabel('scheduleCompliance'),
     'Budget Spend (%)':getKpiBenchmarkLabel('budgetSpend'),
     'PM:CM Ratio (Work Order)':getKpiBenchmarkLabel('pmcmWORatio'),
     'PM:CM Ratio (Cost)':getKpiBenchmarkLabel('pmcmCostRatio'),
-    'MTBF (Days)':getKpiBenchmarkLabel('mtbf'),
     'MTTR (Days)':getKpiBenchmarkLabel('mttr'),
     'Facility Uptime (%)':getKpiBenchmarkLabel('facilityUptime'),
     'Notes':''
@@ -1411,11 +1403,9 @@ function buildSummaryMatrixExportRows(aggregates,scope){
     rows.push({
       'Business Unit':'All Business Units',
       'PM Compliance (%)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmCompliance'),
-      'Schedule Compliance (%)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'scheduleCompliance'),
       'Budget Spend (%)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'budgetSpend'),
       'PM:CM Ratio (Work Order)':formatPmCmRatioText(aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmWORatio')),
       'PM:CM Ratio (Cost)':formatPmCmRatioText(aggregateValueForUiKey(aggregates.portfolioYearAverage,'pmcmCostRatio')),
-      'MTBF (Days)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mtbf'),
       'MTTR (Days)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'mttr'),
       'Facility Uptime (%)':aggregateValueForUiKey(aggregates.portfolioYearAverage,'facilityUptime'),
       'Notes':commentaryRows.length ? formatCommentaryRollupLabel(commentaryRows.length) : ''
@@ -1428,11 +1418,9 @@ function buildSummaryMatrixExportRows(aggregates,scope){
     rows.push({
       'Business Unit': bu.label,
       'PM Compliance (%)': aggregateValueForUiKey(aggregate,'pmCompliance'),
-      'Schedule Compliance (%)': aggregateValueForUiKey(aggregate,'scheduleCompliance'),
       'Budget Spend (%)': aggregateValueForUiKey(aggregate,'budgetSpend'),
       'PM:CM Ratio (Work Order)': formatPmCmRatioText(aggregateValueForUiKey(aggregate,'pmcmWORatio')),
       'PM:CM Ratio (Cost)': formatPmCmRatioText(aggregateValueForUiKey(aggregate,'pmcmCostRatio')),
-      'MTBF (Days)': aggregateValueForUiKey(aggregate,'mtbf'),
       'MTTR (Days)': aggregateValueForUiKey(aggregate,'mttr'),
       'Facility Uptime (%)': aggregateValueForUiKey(aggregate,'facilityUptime'),
       'Notes': getSummaryNotesForBusinessUnit(bu.id)
@@ -1868,11 +1856,9 @@ function mapSummaryHeader(header){
   if(h==='month'||h==='reportingmonth')return 'month';
   if(h==='pmcompliance'||h==='pmcompliancepercent')return 'pmCompliance';
   if(h==='pmplanned')return 'pmPlanned';
-  if(h==='schedulecompliance'||h==='schedulecompliancepercent')return 'scheduleCompliance';
   if(h==='budgetspend'||h==='budgetspendpercent')return 'budgetSpend';
   if(h==='pmvscmratioworkorders'||h==='pmcmratioworkorders'||h==='pmcmratiowo'||h==='pmcmworkorderratio'||h==='pmvscmworkorders')return 'pmcmWORatio';
   if(h==='pmvscmratiocost'||h==='pmcmratiocost'||h==='pmcmcostratio'||h==='pmvscmcost')return 'pmcmCostRatio';
-  if(h==='mtbfdays'||h==='mtbf')return 'mtbf';
   if(h==='mttrdays'||h==='mttr')return 'mttr';
   if(h==='facilityuptime'||h==='facilityuptimepercent')return 'facilityUptime';
   if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';
@@ -1917,7 +1903,6 @@ function importSummaryWorkbook(workbook,fileName,buId){
       if(key==='month')return;
       var cell = getSheetCell(sheet,i,headerMap[key]);
       var rawValue = getRawSummaryValue(row,headerMap[key]);
-      rawImportedValues.values[SummaryWorkbookColumns[key]] = rawImportedCellValue(rawValue,cell);
       if(headerMap[key]===undefined){
         record[key] = null;
         record[SummaryWorkbookColumns[key]] = null;
@@ -1927,11 +1912,13 @@ function importSummaryWorkbook(workbook,fileName,buId){
         var noteValue = normalizeNotesValue(rawValue);
         record.notes = noteValue;
         record[SummaryWorkbookColumns[key]] = noteValue;
+        rawImportedValues.values[SummaryWorkbookColumns[key]] = rawImportedCellValue(rawValue,cell);
         return;
       }
       var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
       record[key] = parsed;
       record[SummaryWorkbookColumns[key]] = parsed;
+      rawImportedValues.values[SummaryWorkbookColumns[key]] = rawImportedCellValue(rawValue,cell);
     });
     record.raw_imported_values = rawImportedValues;
     records.push({
@@ -2198,7 +2185,7 @@ function renderMonthlyRecords(buId){
     return;
   }
   var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div><div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
-  ['Month','PM Compliance (%)','Schedule Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTBF (Days)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
+  ['Month','PM Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
   html += '<th class="notes-col">Notes</th>';
   html += '</tr></thead><tbody>';
   for(var month=1;month<=12;month++){
@@ -2330,11 +2317,9 @@ function makeChartOptions(kpiKey,yTitle){
 
 var TrendKpiConfig = [
   {key:'pmCompliance',title:'PM Compliance Trend',axis:'PM Compliance %',color:'#0066A6'},
-  {key:'scheduleCompliance',title:'Schedule Compliance Trend',axis:'Schedule Compliance %',color:'#0891B2'},
   {key:'budgetSpend',title:'Budget Spend Trend',axis:'Budget Spend %',color:'#00A8D2'},
   {key:'pmcmWORatio',title:'PM:CM Ratio (Work Orders) Trend',axis:'PM:CM WO %',color:'#7C3AED'},
   {key:'pmcmCostRatio',title:'PM:CM Ratio (Cost) Trend',axis:'PM:CM Cost %',color:'#D97706'},
-  {key:'mtbf',title:'MTBF Trend',axis:'MTBF days',color:'#1F9D55'},
   {key:'mttr',title:'MTTR Trend',axis:'MTTR days',color:'#DC2626'},
   {key:'facilityUptime',title:'Facility Uptime Trend',axis:'Facility Uptime %',color:'#0F766E'}
 ];
