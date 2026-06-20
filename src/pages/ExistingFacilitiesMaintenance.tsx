@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo, useEffect, Fragment } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, Fragment } from "react";
 import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
@@ -324,7 +324,7 @@ export default function ExistingFacilitiesMaintenance() {
         const msg = `Loaded ${data.count} of ${data.total} records` + (data.failed ? ` (${data.failed} failed)` : "");
         setBanner({ type: "success", message: msg });
       } else {
-        setBanner({ type: "info", message: data.reason });
+        setBanner({ type: "info", message: data.reason || "No seed data available." });
       }
     },
     onError: (err) => { setBanner({ type: "error", message: "Seed failed: " + friendlyErr(err) }); console.error("[SEED ERROR]", err); },
@@ -365,7 +365,7 @@ export default function ExistingFacilitiesMaintenance() {
     return {
       total: items.length,
       plants: new Set(items.map((i: any) => i.plant)).size,
-      equipTypes: Object.keys(groupedItems).size,
+      equipTypes: Object.keys(groupedItems).length,
       largestGroup: largestGroup.type,
       largestGroupCount: largestGroup.count,
       avgPerType: Object.keys(groupedItems).length > 0 ? Math.round(items.length / Object.keys(groupedItems).length) : 0,
@@ -545,7 +545,7 @@ export default function ExistingFacilitiesMaintenance() {
             rowMap[normalizedKey] = String(rawRow[ci] || "").trim();
           } else {
             // Try direct column index mapping from original headers
-            const cell = ws[XLSX.utils.encode_cell({ r: headerRow - 1, ci })];
+            const cell = ws[XLSX.utils.encode_cell({ r: headerRow - 1, c: ci })];
             if (cell && cell.v) {
               const nk = normalizeHeader(String(cell.v));
               if (nk) rowMap[nk] = String(rawRow[ci] || "").trim();
@@ -554,7 +554,7 @@ export default function ExistingFacilitiesMaintenance() {
         }
 
         // Also try original key access as fallback
-        const rawRowObj = XLSX.utils.sheet_to_json(ws, { range: headerRow + ri - 1, header: headers })[0] || {};
+        const rawRowObj = (XLSX.utils.sheet_to_json(ws, { range: headerRow + ri - 1, header: headers })[0] || {}) as Record<string, any>;
 
         let plant = rowMap["plant"] || String(rawRowObj["Plant"] || rawRowObj["plant"] || rawRowObj["Facility"] || "").trim();
         let equipmentType = rowMap["equipmentType"] || String(rawRowObj["Equipment Type"] || rawRowObj["Equipment"] || "").trim();
@@ -682,11 +682,11 @@ export default function ExistingFacilitiesMaintenance() {
       equipmentType: editForm.equipmentType,
       task: editForm.task,
       frequency: editForm.frequency,
-      implementor: editForm.implementor || null,
+      implementor: editForm.implementor || undefined,
       status: editForm.status,
-      lastCompleted: editForm.lastCompleted || null,
-      nextDue: editForm.nextDue || null,
-      remarks: editForm.remarks || null,
+      lastCompleted: editForm.lastCompleted || undefined,
+      nextDue: editForm.nextDue || undefined,
+      remarks: editForm.remarks || undefined,
     });
     setEditingRow(null);
     setEditForm({});
@@ -708,11 +708,11 @@ export default function ExistingFacilitiesMaintenance() {
       equipmentType: addForm.equipmentType || inferEquipmentType(addForm.task, addForm.equipmentType || undefined),
       task: addForm.task.trim(),
       frequency: addForm.frequency,
-      implementor: addForm.implementor || null,
+      implementor: addForm.implementor || undefined,
       status: addForm.status || "Active",
-      lastCompleted: addForm.lastCompleted || null,
-      nextDue: addForm.nextDue || null,
-      remarks: addForm.remarks || null,
+      lastCompleted: addForm.lastCompleted || undefined,
+      nextDue: addForm.nextDue || undefined,
+      remarks: addForm.remarks || undefined,
     });
     setShowAddForm(false);
     setAddForm({ plant: "", equipmentType: "", task: "", frequency: "", implementor: "", status: "Active", lastCompleted: "", nextDue: "", remarks: "" });
