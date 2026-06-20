@@ -8,6 +8,7 @@ export type DashboardContext =
   | "maintenance"
   | "governance"
   | "odm"
+  | "finding"
   | "kpi"
   | "scorecard";
 
@@ -941,5 +942,3 @@ export async function askExternalAI(question: string, context: AIContext, option
   }
   return ask(context, question);
 }
-
-export type { AIContext, AIInsight, AIResponse, DashboardContext };

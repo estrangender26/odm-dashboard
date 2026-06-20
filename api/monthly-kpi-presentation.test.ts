@@ -144,7 +144,7 @@ function createScorecardContext() {
     getPortfolioCurrentData: () => Record<string, number | null>;
     getSelectedYear: () => number;
     getSelectedMonth: () => number;
-    fetch: (url: string, init?: unknown) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
+    fetch: (url: string, init?: unknown) => Promise<{ ok: boolean; json: () => Promise<any> }> | any;
     fetchMonthlyKpiAggregates: () => Promise<void>;
     loadData: () => void;
     fetchSavedMonthlyKpiRecords: (buId?: string) => Promise<void>;
@@ -375,13 +375,13 @@ describe("Monthly KPI dashboard presentation", () => {
     context.getSelectedMonth = () => 5;
     context.fetchMonthlyKpiAggregates = async () => {};
     context.loadData = () => {};
-    context.fetch = async (url: string) => {
+    context.fetch = (async (url: string) => {
       requests.push(url);
       return {
         ok: true,
         json: async () => ({ records: [] }),
       };
-    };
+    }) as any;
 
     await context.fetchSavedMonthlyKpiRecords("ez");
 
@@ -398,13 +398,13 @@ describe("Monthly KPI dashboard presentation", () => {
     context.getSelectedMonth = () => 5;
     context.fetchMonthlyKpiAggregates = async () => {};
     context.loadData = () => {};
-    context.fetch = async (url: string) => {
+    context.fetch = (async (url: string) => {
       requests.push(url);
       return {
         ok: true,
         json: async () => ({ records: [] }),
       };
-    };
+    }) as any;
 
     await context.fetchSavedMonthlyKpiRecords();
 

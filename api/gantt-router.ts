@@ -510,7 +510,7 @@ export const ganttRouter = createRouter({
       const cols = await db.execute(sql.raw(`
         SELECT column_name FROM information_schema.columns WHERE table_name = 'gantt_projects'
       `));
-      const colNames = (cols.rows || []).map((r: any) => r.column_name);
+      const colNames = ((cols as unknown as { rows: any[] }).rows || []).map((r: any) => r.column_name);
       if (!colNames.includes("name")) {
         /* Old schema — drop and recreate all Gantt tables */
         try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}

@@ -1055,7 +1055,7 @@ app.get("/api/governance/files/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug}
       ORDER BY id DESC
     `);
-    return c.json({ files: rows.rows || rows });
+    return c.json({ files: (rows as unknown as { rows: any[] }).rows || rows });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
@@ -1279,7 +1279,7 @@ app.get("/api/governance/files/:id/view", async (c) => {
     c.header("Content-Length", String(buffer.length));
     c.header("Cache-Control", "public, max-age=3600");
     console.log("[VIEW] serving", disposition, "type=", mimeType, "size=", buffer.length);
-    return c.body(buffer);
+    return c.body(buffer as any);
   } catch (e: any) {
     console.error("[VIEW] Error:", e.message, e.stack);
     return c.json({ error: e.message }, 500);
@@ -1328,7 +1328,7 @@ app.get("/api/governance/files/:id/download", async (c) => {
     c.header("Content-Type", mimeType);
     c.header("Content-Disposition", `attachment; filename="${fileName}"`);
     c.header("Content-Length", String(buffer.length));
-    return c.body(buffer);
+    return c.body(buffer as any);
   } catch (e: any) {
     console.error("[DL] Error:", e.message, e.stack);
     return c.json({ error: e.message }, 500);
@@ -1552,7 +1552,7 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
       WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
       LIMIT 1
     `);
-    const existingRows = existing.rows || existing;
+    const existingRows = (existing as unknown as { rows: any[] }).rows || existing;
     console.log('[SAVE-BE] existing rows:',existingRows.length);
     if (existingRows.length > 0) {
       console.log('[SAVE-BE] existing row before:',JSON.stringify(existingRows[0]));
@@ -1571,7 +1571,7 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
         SELECT ppp_date, comp_date FROM governance_milestone_state
         WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
       `);
-      const vRows = verify.rows || verify;
+      const vRows = (verify as unknown as { rows: any[] }).rows || verify;
       console.log('[SAVE-BE] row after UPDATE:',JSON.stringify(vRows[0]));
     } else {
       // Insert — use provided values or NULL
@@ -1587,7 +1587,7 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
         SELECT ppp_date, comp_date FROM governance_milestone_state
         WHERE facility_slug = ${facilitySlug} AND milestone_id = ${milestoneId}
       `);
-      const vRows = verify.rows || verify;
+      const vRows = (verify as unknown as { rows: any[] }).rows || verify;
       console.log('[SAVE-BE] row after INSERT:',JSON.stringify(vRows[0]));
     }
     return c.json({ success: true, milestoneId, savedPP: sanitizedPP, savedCD: sanitizedCD });
