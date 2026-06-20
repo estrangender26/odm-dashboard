@@ -235,7 +235,91 @@ function createImportContext() {
     getBUApiValue: (buId: string) => string;
     getSelectedYear: () => number;
     getSelectedMonth: () => number;
+    applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { businessUnitId?: string; reset?: boolean }) => void;
+    MonthlyScoreData: Record<string, Record<number, Record<number, any>>>;
   };
+}
+
+function createImportExcelContext(workbook: any) {
+  const ctx = createImportContext() as any;
+
+  // Mock FileReader so importExcel can run in Node without a browser.
+  (ctx as any).FileReader = class FileReader {
+    result: ArrayBuffer | null = null;
+    onload: ((ev: { target: { result: ArrayBuffer } }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    readAsArrayBuffer(file: { buffer: ArrayBuffer }) {
+      this.result = file.buffer;
+      setTimeout(() => this.onload && this.onload({ target: { result: file.buffer } }), 0);
+    }
+  };
+
+  // Mock XLSX.read so the supplied workbook is parsed without touching SheetJS internals.
+  ctx.XLSX.read = () => workbook;
+
+  // Drive the import flow deterministically without real DOM or backend calls.
+  ctx.getImportContext = () => ({
+    buSelection: "ez",
+    buId: "ez",
+    bu: ctx.BUs[0],
+    isNewBusinessUnit: false,
+    newBusinessUnitName: "",
+    file: { buffer: new ArrayBuffer(0), name: "test.xlsx" },
+  });
+  ctx.validateImportContext = () => true;
+  ctx.resolveImportBusinessUnit = () => ({ buId: "ez", bu: ctx.BUs[0], created: false });
+  ctx.confirmImportReplacement = () => ctx.confirmReplacementResult;
+  ctx.checkImportConflicts = async () => ctx.importConflicts;
+  ctx.persistBusinessUnits = () => {};
+  ctx.refreshBusinessUnitSelectors = () => {};
+  ctx.updateImportButtonState = () => {};
+  ctx.setImporting = (flag: boolean) => { ctx.isImporting = flag; };
+  ctx.saveImportedMonthlyKpiRecords = async (fileName: string, records: unknown[], buId: string) => {
+    ctx.saveCalls.push({ fileName, records, buId });
+    if (ctx.saveReject) throw ctx.saveReject;
+    return { records };
+  };
+  ctx.fetchSavedMonthlyKpiRecords = async (buId?: string) => {
+    ctx.fetchSavedCalls.push({ buId });
+    if (ctx.fetchSavedRecords) {
+      ctx.applyPersistedMonthlyKpiRecords(ctx.fetchSavedRecords, buId ? { businessUnitId: buId } : { reset: true });
+    }
+  };
+  ctx.switchToImportedBusinessUnit = async () => {};
+  ctx.showToast = (type: string, message: string) => {
+    ctx.toastCalls.push({ type, message });
+  };
+
+  ctx.closeImportModalCalls = [] as boolean[];
+  const originalCloseImportModal = ctx.closeImportModal;
+  ctx.closeImportModal = (force?: boolean) => {
+    ctx.closeImportModalCalls.push(force ?? false);
+    return originalCloseImportModal(force);
+  };
+
+  ctx.removeBusinessUnitCalls = [] as string[];
+  const originalRemoveBusinessUnitById = ctx.removeBusinessUnitById;
+  ctx.removeBusinessUnitById = (buId: string) => {
+    ctx.removeBusinessUnitCalls.push(buId);
+    return originalRemoveBusinessUnitById(buId);
+  };
+
+  // Mutable test controls and spies.
+  ctx.confirmReplacementResult = true;
+  ctx.importConflicts = [] as Array<{ year: number; month: number }>;
+  ctx.saveReject = null as Error | null;
+  ctx.fetchSavedRecords = null as unknown[] | null;
+  ctx.saveCalls = [] as any[];
+  ctx.fetchSavedCalls = [] as any[];
+  ctx.toastCalls = [] as any[];
+
+  return ctx;
+}
+
+async function runImportExcel(ctx: any) {
+  ctx.importExcel();
+  // Wait for FileReader mock, the inner 120ms setTimeout, and async saves.
+  await new Promise((r) => setTimeout(r, 250));
 }
 
 describe("Monthly KPI dashboard presentation", () => {
@@ -832,19 +916,22 @@ describe("Monthly KPI dashboard presentation", () => {
     }
 
     const summaryRows = [
-      ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-      [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-      [46054, 99.07, 145.29, 82.51, 72.73, 113, 100],
+      ["Month", "PM Compliance (%)", "PM Planned (%)", "Schedule Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTBF (days)", "MTTR (days)", "Facility Uptime (%)", "Notes"],
+      [46023, 98.9, 80, 75.5, 103.67, 69.52, 74.73, 30, 113, 100, "Jan notes"],
+      [46054, 99.07, 85, 76.5, 145.29, 82.51, 72.73, 31, 113, 100, "Feb notes"],
     ];
 
     const workbook = {
-      SheetNames: ["Summary", "PM Compliance", "Budget Spend", "PM vs CM Ratio - Work Orders", "PM vs CM Ratio - Cost", "MTTR", "Facility Uptime"],
+      SheetNames: ["Summary", "PM Compliance", "PM Planned", "Schedule Compliance", "Budget Spend", "PM vs CM Ratio - Work Orders", "PM vs CM Ratio - Cost", "MTBF", "MTTR", "Facility Uptime"],
       Sheets: {
         Summary: makeSheet(summaryRows),
         "PM Compliance": makeSheet([["Month", "A", "B", "PM Compliance (%)"], [46023, 0, 0, 100], [46054, 0, 0, 99]]),
+        "PM Planned": makeSheet([["Month", "A", "B", "PM Planned (%)"], [46023, 0, 0, 90], [46054, 0, 0, 91]]),
+        "Schedule Compliance": makeSheet([["Month", "A", "B", "Schedule Compliance (%)"], [46023, 0, 0, 80], [46054, 0, 0, 81]]),
         "Budget Spend": makeSheet([["Month", "A", "B", "Budget Spend (%)"], [46023, 0, 0, 83.05], [46054, 0, 0, 145.29]]),
         "PM vs CM Ratio - Work Orders": makeSheet([["Month", "A", "B", "PM vs CM Ratio (Work Orders) (%)"], [46023, 0, 0, 82], [46054, 0, 0, 82.51]]),
         "PM vs CM Ratio - Cost": makeSheet([["Month", "A", "B", "PM vs CM Ratio (Cost) (%)"], [46023, 0, 0, 65.34], [46054, 0, 0, 72.73]]),
+        MTBF: makeSheet([["Month", "A", "B", "MTBF (days)"], [46023, 0, 0, 25], [46054, 0, 0, 26]]),
         MTTR: makeSheet([["Month", "A", "B", "MTTR (days)"], [46023, 0, 0, 24], [46054, 0, 0, 24]]),
         "Facility Uptime": makeSheet([["Month", "A", "B", "Facility Uptime (%)"], [46023, 0, 0, 99.9], [46054, 0, 0, 99.9]]),
       },
@@ -858,20 +945,231 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(jan).toBeDefined();
     expect(feb).toBeDefined();
 
-    // Summary values win over dedicated-sheet values.
+    // Summary values win over dedicated-sheet values and include Schedule Compliance + MTBF.
     expect(jan?.pm_compliance).toBe(98.9);
+    expect(jan?.pm_planned).toBe(80);
+    expect(jan?.schedule_compliance).toBe(75.5);
     expect(jan?.budget_spend).toBe(103.67);
     expect(jan?.pm_cm_work_order_ratio).toBe(69.52);
     expect(jan?.pm_cm_cost_ratio).toBe(74.73);
+    expect(jan?.mtbf_days).toBe(30);
     expect(jan?.mttr_days).toBe(113);
     expect(jan?.facility_uptime).toBe(100);
+    expect(jan?.notes).toBe("Jan notes");
 
     expect(feb?.pm_compliance).toBe(99.07);
+    expect(feb?.pm_planned).toBe(85);
+    expect(feb?.schedule_compliance).toBe(76.5);
     expect(feb?.budget_spend).toBe(145.29);
     expect(feb?.pm_cm_work_order_ratio).toBe(82.51);
     expect(feb?.pm_cm_cost_ratio).toBe(72.73);
+    expect(feb?.mtbf_days).toBe(31);
     expect(feb?.mttr_days).toBe(113);
     expect(feb?.facility_uptime).toBe(100);
+    expect(feb?.notes).toBe("Feb notes");
+  });
+
+  it("round-trips every imported Summary KPI through persisted record mapping", () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => "amd-ez";
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const summaryRows = [
+      ["Month", "PM Compliance (%)", "PM Planned (%)", "Schedule Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTBF (days)", "MTTR (days)", "Facility Uptime (%)", "Notes"],
+      [46023, 98.9, 80, 75.5, 103.67, 69.52, 74.73, 30, 113, 100, "Jan notes"],
+    ];
+
+    const workbook = {
+      SheetNames: ["Summary"],
+      Sheets: {
+        Summary: makeSheet(summaryRows),
+      },
+    };
+
+    const imported = ctx.importSummaryWorkbook(workbook, "test.xlsx", "ez");
+    expect(imported.imported).toBe(1);
+    const payload = imported.records[0];
+    expect(payload).toBeDefined();
+
+    // Simulate the persisted DB row shape returned by the backend.
+    const persisted = {
+      id: 1,
+      business_unit: "AMD-EZ",
+      reporting_year: 2026,
+      reporting_month: 1,
+      source_file_name: "test.xlsx",
+      pm_compliance: payload.pm_compliance,
+      pm_planned: payload.pm_planned,
+      schedule_compliance: payload.schedule_compliance,
+      budget_spend: payload.budget_spend,
+      pm_cm_work_order_ratio: payload.pm_cm_work_order_ratio,
+      pm_cm_cost_ratio: payload.pm_cm_cost_ratio,
+      mtbf_days: payload.mtbf_days,
+      mttr_days: payload.mttr_days,
+      facility_uptime: payload.facility_uptime,
+      notes: payload.notes,
+      raw_imported_values: payload.raw_imported_values,
+    };
+
+    ctx.applyPersistedMonthlyKpiRecords([persisted], { businessUnitId: "ez" });
+    const record = ctx.MonthlyScoreData.ez[2026][1];
+
+    expect(record.pmCompliance).toBe(98.9);
+    expect(record.pmPlanned).toBe(80);
+    expect(record.scheduleCompliance).toBe(75.5);
+    expect(record.budgetSpend).toBe(103.67);
+    expect(record.pmcmWORatio).toBe(69.52);
+    expect(record.pmcmCostRatio).toBe(74.73);
+    expect(record.mtbf).toBe(30);
+    expect(record.mttr).toBe(113);
+    expect(record.facilityUptime).toBe(100);
+    expect(record.notes).toBe("Jan notes");
+
+    // Hidden KPIs are stored but not rendered as gauges or matrix columns.
+    expect(extractScriptArray("GaugeKPIs")).not.toContain("scheduleCompliance");
+    expect(extractScriptArray("SummaryMatrixKPIs")).not.toContain("mtbf");
+  });
+
+  it("closes the import modal after a successful Summary save", async () => {
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const summaryRows = [
+      ["Month", "PM Compliance (%)", "PM Planned (%)", "Schedule Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTBF (days)", "MTTR (days)", "Facility Uptime (%)", "Notes"],
+      [46023, 98.9, 80, 75.5, 103.67, 69.52, 74.73, 30, 113, 100, null],
+    ];
+
+    const workbook = {
+      SheetNames: ["Summary"],
+      Sheets: { Summary: makeSheet(summaryRows) },
+    };
+
+    const ctx = createImportExcelContext(workbook);
+    await runImportExcel(ctx);
+
+    expect(ctx.saveCalls.length).toBe(1);
+    expect(ctx.closeImportModalCalls).toContain(true);
+    expect(ctx.fetchSavedCalls.length).toBe(1);
+    expect(ctx.toastCalls.some((t: any) => t.type === "success")).toBe(true);
+  });
+
+  it("keeps the import modal open when persistence fails", async () => {
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const summaryRows = [
+      ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
+      [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+    ];
+
+    const workbook = {
+      SheetNames: ["Summary"],
+      Sheets: { Summary: makeSheet(summaryRows) },
+    };
+
+    const ctx = createImportExcelContext(workbook);
+    ctx.saveReject = new Error("Database unavailable");
+    await runImportExcel(ctx);
+
+    expect(ctx.saveCalls.length).toBe(1);
+    expect(ctx.closeImportModalCalls.length).toBe(0);
+    expect(ctx.toastCalls.some((t: any) => t.type === "error")).toBe(true);
+  });
+
+  it("discards temporary imported state when replacement is cancelled", async () => {
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const summaryRows = [
+      ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
+      [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+    ];
+
+    const workbook = {
+      SheetNames: ["Summary"],
+      Sheets: { Summary: makeSheet(summaryRows) },
+    };
+
+    const ctx = createImportExcelContext(workbook);
+
+    // Seed a previously saved record for the same month.
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        {
+          id: 1,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 1,
+          pm_compliance: 55,
+          pm_planned: 60,
+          schedule_compliance: 65,
+          budget_spend: 70,
+          pm_cm_work_order_ratio: 75,
+          pm_cm_cost_ratio: 76,
+          mtbf_days: 77,
+          mttr_days: 78,
+          facility_uptime: 79,
+          notes: "existing",
+          raw_imported_values: null,
+        },
+      ],
+      { businessUnitId: "ez" },
+    );
+
+    const existing = ctx.MonthlyScoreData.ez[2026][1];
+    const existingPmCompliance = existing.pm_compliance;
+    const existingPmCmWo = existing.pm_cm_work_order_ratio;
+    const existingMttr = existing.mttr_days;
+
+    // Force a conflict and cancel the replacement prompt.
+    ctx.importConflicts = [{ year: 2026, month: 1 }];
+    ctx.confirmReplacementResult = false;
+
+    await runImportExcel(ctx);
+
+    expect(ctx.saveCalls.length).toBe(0);
+    expect(ctx.closeImportModalCalls.length).toBe(0);
+
+    // Existing saved record must survive the cancelled import.
+    const afterCancel = ctx.MonthlyScoreData.ez[2026][1];
+    expect(afterCancel.pm_compliance).toBe(existingPmCompliance);
+    expect(afterCancel.pm_cm_work_order_ratio).toBe(existingPmCmWo);
+    expect(afterCancel.mttr_days).toBe(existingMttr);
+    expect(afterCancel.notes).toBe("existing");
   });
 
 

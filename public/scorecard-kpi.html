@@ -871,9 +871,11 @@ var SummaryWorkbookColumns = {
   month:'reporting_month',
   pmCompliance:'pm_compliance',
   pmPlanned:'pm_planned',
+  scheduleCompliance:'schedule_compliance',
   budgetSpend:'budget_spend',
   pmcmWORatio:'pm_cm_work_order_ratio',
   pmcmCostRatio:'pm_cm_cost_ratio',
+  mtbf:'mtbf_days',
   mttr:'mttr_days',
   facilityUptime:'facility_uptime',
   notes:'notes'
@@ -1843,6 +1845,11 @@ function ensureMonthlyRecord(buId,year,month){
   return MonthlyScoreData[buId][year][month];
 }
 
+function restoreObjectSnapshot(target,snapshot){
+  Object.keys(target).forEach(function(key){delete target[key];});
+  Object.keys(snapshot).forEach(function(key){target[key]=snapshot[key];});
+}
+
 function getMonthlyRecord(buId,year,month){
   return MonthlyScoreData[buId]&&MonthlyScoreData[buId][year]?MonthlyScoreData[buId][year][month]:null;
 }
@@ -1856,9 +1863,11 @@ function mapSummaryHeader(header){
   if(h==='month'||h==='reportingmonth')return 'month';
   if(h==='pmcompliance'||h==='pmcompliancepercent')return 'pmCompliance';
   if(h==='pmplanned')return 'pmPlanned';
+  if(h==='schedulecompliance'||h==='schedulecompliancepercent')return 'scheduleCompliance';
   if(h==='budgetspend'||h==='budgetspendpercent')return 'budgetSpend';
   if(h==='pmvscmratioworkorders'||h==='pmcmratioworkorders'||h==='pmcmratiowo'||h==='pmcmworkorderratio'||h==='pmvscmworkorders')return 'pmcmWORatio';
   if(h==='pmvscmratiocost'||h==='pmcmratiocost'||h==='pmcmcostratio'||h==='pmvscmcost')return 'pmcmCostRatio';
+  if(h==='mtbfdays'||h==='mtbf')return 'mtbf';
   if(h==='mttrdays'||h==='mttr')return 'mttr';
   if(h==='facilityuptime'||h==='facilityuptimepercent')return 'facilityUptime';
   if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';
@@ -1928,9 +1937,11 @@ function importSummaryWorkbook(workbook,fileName,buId){
       source_file_name: fileName || null,
       pm_compliance: record.pm_compliance,
       pm_planned: record.pm_planned,
+      schedule_compliance: record.schedule_compliance,
       budget_spend: record.budget_spend,
       pm_cm_work_order_ratio: record.pm_cm_work_order_ratio,
       pm_cm_cost_ratio: record.pm_cm_cost_ratio,
+      mtbf_days: record.mtbf_days,
       mttr_days: record.mttr_days,
       facility_uptime: record.facility_uptime,
       notes: record.notes || null,
@@ -2000,12 +2011,16 @@ function applyPersistedMonthlyKpiRecords(records,options){
     record.pm_compliance = row.pm_compliance;
     record.pmPlanned = row.pm_planned;
     record.pm_planned = row.pm_planned;
+    record.scheduleCompliance = row.schedule_compliance;
+    record.schedule_compliance = row.schedule_compliance;
     record.budgetSpend = row.budget_spend;
     record.budget_spend = row.budget_spend;
     record.pmcmWORatio = row.pm_cm_work_order_ratio;
     record.pm_cm_work_order_ratio = row.pm_cm_work_order_ratio;
     record.pmcmCostRatio = row.pm_cm_cost_ratio;
     record.pm_cm_cost_ratio = row.pm_cm_cost_ratio;
+    record.mtbf = row.mtbf_days;
+    record.mtbf_days = row.mtbf_days;
     record.mttr = row.mttr_days;
     record.mttr_days = row.mttr_days;
     record.facilityUptime = row.facility_uptime;
@@ -2624,6 +2639,8 @@ function importExcel(){
         var data = new Uint8Array(e.target.result);
         var workbook = XLSX.read(data,{type:'array',cellDates:false});
         var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
+        var monthlyScoreDataSnapshot = JSON.parse(JSON.stringify(MonthlyScoreData));
+        var scoreDataSnapshot = JSON.parse(JSON.stringify(ScoreData));
         if(!importBu)importBu = getBUById(importBuId);
         if(!importBu)throw new Error('Unable to resolve import business unit.');
         if(hasSummary){
@@ -2633,6 +2650,8 @@ function importExcel(){
             var confirmReplace = confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
             if(!confirmReplace){
               if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
+              restoreObjectSnapshot(MonthlyScoreData,monthlyScoreDataSnapshot);
+              restoreObjectSnapshot(ScoreData,scoreDataSnapshot);
               return;
             }
           }
@@ -2716,6 +2735,8 @@ function importExcel(){
           var confirmReplace = confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
           if(!confirmReplace){
             if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
+            restoreObjectSnapshot(MonthlyScoreData,monthlyScoreDataSnapshot);
+            restoreObjectSnapshot(ScoreData,scoreDataSnapshot);
             return;
           }
         }
