@@ -1,5 +1,6 @@
 /* ─── Gantt UI Utilities Engine — KPI Calculation, Status Badges, Formatting ─── */
-import { GanttTask, parseDate, normProgress, deriveStatus } from "./schedulingEngine";
+import type { GanttTask } from "./schedulingEngine";
+import { parseDate, normProgress, deriveStatus } from "./schedulingEngine";
 
 export interface KpiData {
   totalTasks: number;

@@ -1,5 +1,6 @@
 /* ─── Gantt Rollup Engine — Bottom-up Parent Auto-Calculation ─── */
-import { GanttTask, parseDate, daysBetween, normProgress, deriveStatus } from "./schedulingEngine";
+import type { GanttTask } from "./schedulingEngine";
+import { daysBetween, normProgress, deriveStatus } from "./schedulingEngine";
 
 export interface RollupResult {
   task: GanttTask;
