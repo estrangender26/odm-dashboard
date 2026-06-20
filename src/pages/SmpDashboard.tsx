@@ -10,7 +10,7 @@ interface SmpDoc {
   id: number;
   code: string;
   title: string;
-  revision: string;
+  revision: string | null;
   equipmentType: string | null;
   system: string | null;
   dateIssued: string | null;
@@ -20,14 +20,6 @@ interface SmpDoc {
   fileData: string | null;
   fileType: string | null;
   fileName: string | null;
-}
-
-interface StoredPdf {
-  docId: number;
-  fileName: string;
-  fileType: string;
-  fileData: string;
-  uploadedAt: string;
 }
 
 type ModalMode = "create" | "edit" | "delete" | null;
@@ -124,12 +116,13 @@ function base64ToBlobUrl(b64: string, mime: string): string {
 
 // ── PDF Viewer ──
 function PdfViewer({ fileData, title, fileName, onDownload }: {
-  fileData: string | null; title: string; fileName: string; onDownload?: () => void;
+  fileData: string | null; title: string; fileName?: string; onDownload?: () => void;
 }) {
   const [zoom, setZoom] = useState(1);
   const [loadError, setLoadError] = useState(false);
   const [revokeUrl, setRevokeUrl] = useState<string | null>(null);
 
+  void fileName;
   const src = useMemo(() => {
     if (revokeUrl) { URL.revokeObjectURL(revokeUrl); setRevokeUrl(null); }
     const b64 = fileData?.trim();

@@ -63,7 +63,7 @@ export const githubRouter = createRouter({
   /* ── Get file content ── */
   getFile: publicQuery
     .input(z.object({ path: z.string() }))
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       const owner = process.env.GITHUB_OWNER;
       const repo = process.env.GITHUB_REPO;
       if (!owner || !repo) return { error: "GITHUB_OWNER or GITHUB_REPO not set", content: null };

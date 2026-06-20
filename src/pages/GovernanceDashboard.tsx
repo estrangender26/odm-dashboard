@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
@@ -155,12 +155,12 @@ function SCurve({
 
     // Actual curve (from DB state)
     const actualPts: { x: number; y: number }[] = [];
-    let totalPct = 0;
+    void 0;
     for (let i = 0; i < MSD.length; i++) {
       const st = msState[MSD[i].id];
       const pct = st?.customPct ?? (st?.compDate ? 100 : 0);
       if (i === 0) console.log("[SCURVE] msState keys:", Object.keys(msState), "M1 compDate:", msState["M1"]?.compDate, "→ pct:", pct);
-      totalPct = pct;
+      void pct;
       const x = 60 + ((w - 80) * (i + 1)) / 10;
       const y = h - 40 - ((h - 80) * pct) / 100;
       actualPts.push({ x, y });
@@ -204,7 +204,7 @@ export default function GovernanceDashboard() {
   const utils = trpc.useUtils();
 
   // tRPC queries with aggressive multi-user sync
-  const { data: facilities } = trpc.governance.facilities.useQuery();
+  trpc.governance.facilities.useQuery();
   const { data: milestoneState, error: msError } = trpc.governance.milestoneState.useQuery(
     { facilitySlug: activeFacility },
     { enabled: !!activeFacility, refetchInterval: 15000, refetchIntervalInBackground: true }
@@ -213,7 +213,7 @@ export default function GovernanceDashboard() {
     { facilitySlug: activeFacility },
     { enabled: !!activeFacility, refetchInterval: 15000, refetchIntervalInBackground: true }
   );
-  const { data: uploadCounts } = trpc.governance.uploadCounts.useQuery(
+  trpc.governance.uploadCounts.useQuery(
     { facilitySlug: activeFacility },
     { enabled: !!activeFacility, refetchInterval: 15000, refetchIntervalInBackground: true }
   );
@@ -494,7 +494,7 @@ export default function GovernanceDashboard() {
               status: "success",
               responseStatus: 200,
               responseJson: data,
-              dbUploadId: data?.id || data?.[0]?.id,
+              dbUploadId: data?.id || (Array.isArray(data) ? data[0]?.id : undefined),
             }));
             // Check if milestone is now upload-complete
             utils.governance.uploads.invalidate().then(() => {
@@ -568,8 +568,6 @@ export default function GovernanceDashboard() {
     );
   };
 
-  // Get uploads for a milestone
-  const getUploadsForMs = (mId: string) => uploads?.filter(u => u.milestoneId === mId) || [];
 
   return (
     <div className="min-h-screen bg-gray-50">

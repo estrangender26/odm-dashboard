@@ -69,7 +69,7 @@ function DataTable({
         <tbody>
           {rows.map((row, index) => (
             <tr
-              key={row.id ?? `${row.userId ?? row.sessionId ?? "row"}-${index}`}
+              key={String(row.id ?? `${row.userId ?? row.sessionId ?? "row"}-${index}`)}
             >
               {columns.map(column => (
                 <td

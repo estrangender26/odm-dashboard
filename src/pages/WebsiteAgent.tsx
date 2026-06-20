@@ -57,7 +57,7 @@ export default function WebsiteAgent() {
     { enabled: githubStatus?.configured === true && activeTab === "github" }
   );
   const getFileMut = trpc.github.getFile.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: { content?: string | null; error?: string | null; sha?: string | null; size?: number | null }) => {
       if (data.content) setFileContent(data.content);
     },
   });
