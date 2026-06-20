@@ -10,6 +10,13 @@ import {
 } from "@/modules/gantt/engine/taskReorderEngine";
 import { parseImportRow } from "@/modules/gantt/engine/persistenceEngine";
 
+function scheduleResult(outcome: import("@/modules/gantt/engine/dependencyEngine").DependencyScheduleOutcome) {
+  if ("skipped" in outcome && outcome.skipped) {
+    throw new Error("Unexpected skipped schedule outcome: " + outcome.reason);
+  }
+  return outcome as { plannedStart: string; plannedEnd: string; duration: number; };
+}
+
 function applyTaskPatch(
   tasks: any[],
   taskId: number,
@@ -118,9 +125,9 @@ describe("Gantt Planner audit-stabilization validation", () => {
       predecessorTaskId: 1,
       dependencyType: "FS",
       lagDays: 2,
-      plannedStart: scheduledFsLag2.plannedStart,
-      plannedEnd: scheduledFsLag2.plannedEnd,
-      duration: scheduledFsLag2.duration,
+      plannedStart: scheduleResult(scheduledFsLag2).plannedStart,
+      plannedEnd: scheduleResult(scheduledFsLag2).plannedEnd,
+      duration: scheduleResult(scheduledFsLag2).duration,
     });
 
     expect(taskNames(tasks)).toEqual(["A", "B", "C"]);
@@ -166,9 +173,9 @@ describe("Gantt Planner audit-stabilization validation", () => {
       predecessorTaskId: 1,
       dependencyType: "FS",
       lagDays: 5,
-      plannedStart: scheduledFsLag5.plannedStart,
-      plannedEnd: scheduledFsLag5.plannedEnd,
-      duration: scheduledFsLag5.duration,
+      plannedStart: scheduleResult(scheduledFsLag5).plannedStart,
+      plannedEnd: scheduleResult(scheduledFsLag5).plannedEnd,
+      duration: scheduleResult(scheduledFsLag5).duration,
     });
 
     expect(taskNames(tasks)).toEqual(["A", "B", "C"]);
