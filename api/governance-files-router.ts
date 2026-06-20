@@ -45,15 +45,17 @@ export const governanceFilesRouter = createRouter({
 
         console.log("[GOV API] upload saved successfully, id:", result[0].id);
         return { success: true, id: result[0].id };
-      } catch (err) {
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        const dbError = err as { code?: string; detail?: string };
         console.error("[GOV API] upload FAILED:", {
           fileName: input.fileName,
-          errorType: err.constructor?.name,
-          errorMessage: err.message,
-          errorCode: err.code,
-          detail: err.detail,
+          errorType: error.constructor?.name,
+          errorMessage: error.message,
+          errorCode: dbError.code,
+          detail: dbError.detail,
         });
-        throw new Error("Upload failed: " + (err.message || "Unknown database error"));
+        throw new Error("Upload failed: " + (error.message || "Unknown database error"));
       }
     }),
 

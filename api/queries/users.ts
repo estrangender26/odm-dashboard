@@ -48,5 +48,5 @@ export async function upsertUser(data: InsertUser) {
     RETURNING *
   `);
 
-  return result.rows.at(0);
+  return (result as unknown as { rows: schema.User[] }).rows.at(0);
 }

@@ -49,9 +49,19 @@ export const efmRouter = createRouter({
     }).optional())
     .query(async ({ input }) => {
       await ensureTable();
-      const opts = input || {};
-      const { search, plantFilter, equipFilter, freqFilter, implFilter, statusFilter, page, pageSize } = opts;
-      const offset = ((page || 1) - 1) * (pageSize || 50);
+      const {
+        search,
+        plantFilter,
+        equipFilter,
+        freqFilter,
+        implFilter,
+        statusFilter,
+        page = 1,
+        pageSize = 50,
+      } = input || {};
+      const safePage = Number(page) || 1;
+      const safePageSize = Number(pageSize) || 50;
+      const offset = (safePage - 1) * safePageSize;
 
       const conditions = [];
       if (search) {

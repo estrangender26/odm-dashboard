@@ -11,8 +11,8 @@ export interface RollupResult {
 export function recalculateParentRollups(allTasks: GanttTask[]): GanttTask[] {
   const childMap = new Map<number, GanttTask[]>();
   allTasks.forEach(t => {
-    if (!childMap.has(t.parent)) childMap.set(t.parent, []);
-    childMap.get(t.parent)!.push(t);
+    if (!childMap.has(t.parent ?? -1)) childMap.set(t.parent ?? -1, []);
+    childMap.get(t.parent ?? -1)!.push(t);
   });
 
   function getDescendants(taskId: number): GanttTask[] {

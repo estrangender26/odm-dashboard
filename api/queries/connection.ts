@@ -99,7 +99,7 @@ export function getDb() {
     idle_timeout: 20,
     statement_timeout: 15000,
     onnotice: () => undefined,
-  });
+  } as Parameters<typeof postgres>[1]);
 
   _db = drizzle(client, { schema });
   console.log("[DB] Connected!");

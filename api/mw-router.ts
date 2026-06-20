@@ -61,7 +61,7 @@ export const mwRouter = createRouter({
       }));
 
       // UPSERT: ON CONFLICT DO UPDATE — re-uploading same file updates existing records
-      const result = await db.insert(mwInspections)
+      await db.insert(mwInspections)
         .values(dbRows)
         .onConflictDoUpdate({
           target: [mwInspections.assetTag, mwInspections.task, mwInspections.date, mwInspections.submittedAt],
@@ -87,7 +87,7 @@ export const mwRouter = createRouter({
           }
         });
 
-      // With onConflictDoUpdate, result.length includes both inserted and updated
+      // With onConflictDoUpdate, processed count assumes all rows were inserted or updated
       const processed = input.rows.length;
 
       // Invalidate cache so next read fetches fresh data
