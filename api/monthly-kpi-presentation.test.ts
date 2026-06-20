@@ -163,15 +163,88 @@ function createScorecardContext() {
   };
 }
 
+function createMockXLSX() {
+  return {
+    SSF: {
+      parse_date_code(value: number) {
+        const epoch = new Date(1899, 11, 30);
+        const date = new Date(epoch.getTime() + value * 24 * 60 * 60 * 1000);
+        return { y: date.getFullYear(), m: date.getMonth() + 1, d: date.getDate() };
+      },
+    },
+    utils: {
+      encode_cell({ r, c }: { r: number; c: number }) {
+        return String.fromCharCode(65 + c) + (r + 1);
+      },
+      sheet_to_json(sheet: { _rows?: unknown[][] }, opts: { header?: number; range?: string; defval?: unknown; raw?: boolean }) {
+        if (opts.header === 1 && Array.isArray(sheet._rows)) {
+          const rangeMatch = opts.range?.match(/A1:([A-Z]+)(\d+)/);
+          const maxRow = rangeMatch ? Number(rangeMatch[2]) : sheet._rows.length;
+          return sheet._rows.slice(0, maxRow).map((row) =>
+            Array.isArray(row) ? row.map((cell) => (cell && typeof cell === "object" && "v" in cell ? (cell as { v: unknown }).v : cell)) : []
+          );
+        }
+        return [];
+      },
+    },
+  };
+}
+
+function createImportContext() {
+  const scorecardScript = extractScorecardScript();
+  const element = {
+    addEventListener() {},
+    appendChild() {},
+    remove() {},
+    classList: { add() {}, remove() {}, toggle() {} },
+    style: {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    set innerHTML(_value: string) {},
+    get innerHTML() { return ""; },
+    value: "2026",
+  };
+  const yearSelect = { ...element, value: "2026" };
+  const context = {
+    console,
+    setTimeout,
+    clearTimeout,
+    URLSearchParams,
+    XLSX: createMockXLSX(),
+    document: {
+      body: element,
+      addEventListener() {},
+      createElement() { return element; },
+      getElementById(id: string) {
+        if (id === "yearSel") return yearSelect;
+        if (id === "monthSel") return { ...element, value: "1" };
+        return element;
+      },
+      querySelector() { return element; },
+      querySelectorAll() { return []; },
+    },
+    localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    window: {},
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    loadData() {},
+  };
+  vm.createContext(context);
+  vm.runInContext(scorecardScript, context);
+  return context as typeof context & {
+    importSummaryWorkbook: (workbook: unknown, fileName: string, buId: string) => { imported: number; records: Array<Record<string, unknown>>; importedMonths: Array<{ year: number; month: number }> };
+    getBUApiValue: (buId: string) => string;
+    getSelectedYear: () => number;
+    getSelectedMonth: () => number;
+  };
+}
+
 describe("Monthly KPI dashboard presentation", () => {
   it("keeps the dashboard KPI cards to the required layout without PM Planned", () => {
     expect(extractScriptArray("GaugeKPIs")).toEqual([
       "pmCompliance",
-      "scheduleCompliance",
       "budgetSpend",
       "pmcmWORatio",
       "pmcmCostRatio",
-      "mtbf",
       "mttr",
       "facilityUptime",
     ]);
@@ -181,11 +254,9 @@ describe("Monthly KPI dashboard presentation", () => {
   it("limits the Summary Matrix to the required KPI metrics without PM Planned", () => {
     expect(extractScriptArray("SummaryMatrixKPIs")).toEqual([
       "pmCompliance",
-      "scheduleCompliance",
       "budgetSpend",
       "pmcmWORatio",
       "pmcmCostRatio",
-      "mtbf",
       "mttr",
       "facilityUptime",
     ]);
@@ -193,11 +264,9 @@ describe("Monthly KPI dashboard presentation", () => {
     const summaryTable = scorecardHtml.match(/<table class="matrix-table" id="summaryTable">([\s\S]*?)<\/table>/)?.[1] ?? "";
     const expectedKpiHeaders = [
       "PM Compliance (%)",
-      "Schedule Compliance (%)",
       "Budget Spend (%)",
       "PM:CM Ratio (Work Order)",
       "PM:CM Ratio (Cost)",
-      "MTBF (Days)",
       "MTTR (Days)",
       "Facility Uptime (%)",
     ];
@@ -205,6 +274,8 @@ describe("Monthly KPI dashboard presentation", () => {
       expect(summaryTable).toContain(`<th>${header}</th>`);
     });
     expect(summaryTable).toContain("<th class=\"notes-col\">Notes</th>");
+    expect(summaryTable).not.toContain("Schedule Compliance");
+    expect(summaryTable).not.toContain("MTBF");
     expect(summaryTable).not.toContain("PM Planned");
   });
 
@@ -232,7 +303,7 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(tooltipByKey.mttr?.formula).toBe("Total Downtime ÷ Number of Repairs");
     expect(tooltipByKey.facilityUptime?.formula).toBe("(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100");
     expect(tooltipByKey.pmCompliance?.interpretation).toBe("Higher is better.");
-    expect(tooltipByKey.scheduleCompliance?.formula).toContain("Scheduled Work Orders");
+
   });
 
   it("renders PM:CM ratios as percentages with equivalent ratios", () => {
@@ -251,8 +322,9 @@ describe("Monthly KPI dashboard presentation", () => {
       scorecardHtml.indexOf("// ===== CHARTS ====="),
     );
 
-    expect(monthlyRecordsRenderer).toContain("'Month','PM Compliance (%)','Schedule Compliance (%)','Budget Spend (%)'");
-    expect(monthlyRecordsRenderer).toContain("'MTBF (Days)'");
+    expect(monthlyRecordsRenderer).toContain("'Month','PM Compliance (%)','Budget Spend (%)'");
+    expect(monthlyRecordsRenderer).not.toContain("'Schedule Compliance (%)'");
+    expect(monthlyRecordsRenderer).not.toContain("'MTBF (Days)'");
     expect(monthlyRecordsRenderer).toContain("'MTTR (Days)'");
     expect(monthlyRecordsRenderer).toContain("Notes");
     expect(monthlyRecordsRenderer).not.toContain("PM Planned");
@@ -512,8 +584,8 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(context.KpiAggregates.portfolioYearAverage.pmcmCostRatio).toBe(61);
     expect(context.getPortfolioCurrentData().pmcmCostRatio).toBe(61);
     expect(context.getPortfolioCurrentData().mttr).toBe(3.5);
-    expect(context.getPortfolioCurrentData().scheduleCompliance).toBeNull();
-    expect(context.getPortfolioCurrentData().mtbf).toBeNull();
+    expect(context.getPortfolioCurrentData().scheduleCompliance).toBeUndefined();
+    expect(context.getPortfolioCurrentData().mtbf).toBeUndefined();
   });
 
   it("renders portfolio KPI cards into the summary panel for All Business Units", () => {
@@ -612,18 +684,18 @@ describe("Monthly KPI dashboard presentation", () => {
 
     expect(elements["summary-gauges"].innerHTML).toContain("PM Compliance");
     expect(elements["summary-gauges"].innerHTML).toContain("78.87");
-    expect(elements["summary-gauges"].innerHTML).toContain("Schedule Compliance");
     expect(elements["summary-gauges"].innerHTML).toContain("Budget Spend");
     expect(elements["summary-gauges"].innerHTML).toContain("94.83");
     expect(elements["summary-gauges"].innerHTML).toContain("PM:CM Ratio (WO)");
     expect(elements["summary-gauges"].innerHTML).toContain("86.05%");
     expect(elements["summary-gauges"].innerHTML).toContain("PM:CM Ratio (Cost)");
     expect(elements["summary-gauges"].innerHTML).toContain("53.08%");
-    expect(elements["summary-gauges"].innerHTML).toContain("MTBF");
     expect(elements["summary-gauges"].innerHTML).toContain("MTTR");
     expect(elements["summary-gauges"].innerHTML).toContain("4.25");
     expect(elements["summary-gauges"].innerHTML).toContain("Facility Uptime");
     expect(elements["summary-gauges"].innerHTML).toContain("98.55");
+    expect(elements["summary-gauges"].innerHTML).not.toContain("Schedule Compliance");
+    expect(elements["summary-gauges"].innerHTML).not.toContain("MTBF");
     expect(elements["business-unit-gauges"]?.innerHTML ?? "").toBe("");
   });
 
@@ -733,7 +805,6 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(html).toContain("March");
     expect(html).toContain("April");
     expect(html).toContain("May");
-    expect(html).toContain("MTBF (Days)");
     expect(html).toContain("MTTR (Days)");
     expect(html).toContain("Notes");
     expect(html).toContain("91.00");
@@ -742,6 +813,66 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(html).toContain("94.00");
     expect(html).toContain("95.00");
     expect(html).toContain("Planned shutdown completed.");
+    expect(html).not.toContain("Schedule Compliance");
+    expect(html).not.toContain("MTBF");
   });
+  it("imports visible KPI values from the Summary sheet only, ignoring dedicated sheets", () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => "amd-ez";
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const summaryRows = [
+      ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
+      [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+      [46054, 99.07, 145.29, 82.51, 72.73, 113, 100],
+    ];
+
+    const workbook = {
+      SheetNames: ["Summary", "PM Compliance", "Budget Spend", "PM vs CM Ratio - Work Orders", "PM vs CM Ratio - Cost", "MTTR", "Facility Uptime"],
+      Sheets: {
+        Summary: makeSheet(summaryRows),
+        "PM Compliance": makeSheet([["Month", "A", "B", "PM Compliance (%)"], [46023, 0, 0, 100], [46054, 0, 0, 99]]),
+        "Budget Spend": makeSheet([["Month", "A", "B", "Budget Spend (%)"], [46023, 0, 0, 83.05], [46054, 0, 0, 145.29]]),
+        "PM vs CM Ratio - Work Orders": makeSheet([["Month", "A", "B", "PM vs CM Ratio (Work Orders) (%)"], [46023, 0, 0, 82], [46054, 0, 0, 82.51]]),
+        "PM vs CM Ratio - Cost": makeSheet([["Month", "A", "B", "PM vs CM Ratio (Cost) (%)"], [46023, 0, 0, 65.34], [46054, 0, 0, 72.73]]),
+        MTTR: makeSheet([["Month", "A", "B", "MTTR (days)"], [46023, 0, 0, 24], [46054, 0, 0, 24]]),
+        "Facility Uptime": makeSheet([["Month", "A", "B", "Facility Uptime (%)"], [46023, 0, 0, 99.9], [46054, 0, 0, 99.9]]),
+      },
+    };
+
+    const result = ctx.importSummaryWorkbook(workbook, "test.xlsx", "ez");
+    expect(result.imported).toBe(2);
+
+    const jan = result.records.find((r) => r.reporting_month === 1);
+    const feb = result.records.find((r) => r.reporting_month === 2);
+    expect(jan).toBeDefined();
+    expect(feb).toBeDefined();
+
+    // Summary values win over dedicated-sheet values.
+    expect(jan?.pm_compliance).toBe(98.9);
+    expect(jan?.budget_spend).toBe(103.67);
+    expect(jan?.pm_cm_work_order_ratio).toBe(69.52);
+    expect(jan?.pm_cm_cost_ratio).toBe(74.73);
+    expect(jan?.mttr_days).toBe(113);
+    expect(jan?.facility_uptime).toBe(100);
+
+    expect(feb?.pm_compliance).toBe(99.07);
+    expect(feb?.budget_spend).toBe(145.29);
+    expect(feb?.pm_cm_work_order_ratio).toBe(82.51);
+    expect(feb?.pm_cm_cost_ratio).toBe(72.73);
+    expect(feb?.mttr_days).toBe(113);
+    expect(feb?.facility_uptime).toBe(100);
+  });
+
 
 });
