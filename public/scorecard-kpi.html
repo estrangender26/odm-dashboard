@@ -871,9 +871,11 @@ var SummaryWorkbookColumns = {
   month:'reporting_month',
   pmCompliance:'pm_compliance',
   pmPlanned:'pm_planned',
+  scheduleCompliance:'schedule_compliance',
   budgetSpend:'budget_spend',
   pmcmWORatio:'pm_cm_work_order_ratio',
   pmcmCostRatio:'pm_cm_cost_ratio',
+  mtbf:'mtbf_days',
   mttr:'mttr_days',
   facilityUptime:'facility_uptime',
   notes:'notes'
@@ -1856,9 +1858,11 @@ function mapSummaryHeader(header){
   if(h==='month'||h==='reportingmonth')return 'month';
   if(h==='pmcompliance'||h==='pmcompliancepercent')return 'pmCompliance';
   if(h==='pmplanned')return 'pmPlanned';
+  if(h==='schedulecompliance'||h==='schedulecompliancepercent')return 'scheduleCompliance';
   if(h==='budgetspend'||h==='budgetspendpercent')return 'budgetSpend';
   if(h==='pmvscmratioworkorders'||h==='pmcmratioworkorders'||h==='pmcmratiowo'||h==='pmcmworkorderratio'||h==='pmvscmworkorders')return 'pmcmWORatio';
   if(h==='pmvscmratiocost'||h==='pmcmratiocost'||h==='pmcmcostratio'||h==='pmvscmcost')return 'pmcmCostRatio';
+  if(h==='mtbfdays'||h==='mtbf')return 'mtbf';
   if(h==='mttrdays'||h==='mttr')return 'mttr';
   if(h==='facilityuptime'||h==='facilityuptimepercent')return 'facilityUptime';
   if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';
@@ -1890,57 +1894,48 @@ function importSummaryWorkbook(workbook,fileName,buId){
     var row = rows[i]||[];
     var monthInfo = excelDateToReportingMonth(row[headerMap.month]);
     if(!monthInfo)continue;
-    var record = ensureMonthlyRecord(buId,monthInfo.year,monthInfo.month);
-    record.business_unit = getBUApiValue(buId);
-    record.sourceSheet = 'Summary';
-    record.source_file_name = fileName || null;
-    record.reportingMonth = monthInfo.month;
-    record.reportingYear = monthInfo.year;
-    record[SummaryWorkbookColumns.month] = monthInfo.month;
-    record.reportingLabel = monthInfo.label;
     var rawImportedValues = {sourceSheet:'Summary',rowNumber:i+1,values:{}};
-    Object.keys(SummaryWorkbookColumns).forEach(function(key){
-      if(key==='month')return;
-      var cell = getSheetCell(sheet,i,headerMap[key]);
-      var rawValue = getRawSummaryValue(row,headerMap[key]);
-      if(headerMap[key]===undefined){
-        record[key] = null;
-        record[SummaryWorkbookColumns[key]] = null;
-        return;
-      }
-      if(key==='notes'){
-        var noteValue = normalizeNotesValue(rawValue);
-        record.notes = noteValue;
-        record[SummaryWorkbookColumns[key]] = noteValue;
-        rawImportedValues.values[SummaryWorkbookColumns[key]] = rawImportedCellValue(rawValue,cell);
-        return;
-      }
-      var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
-      record[key] = parsed;
-      record[SummaryWorkbookColumns[key]] = parsed;
-      rawImportedValues.values[SummaryWorkbookColumns[key]] = rawImportedCellValue(rawValue,cell);
-    });
-    record.raw_imported_values = rawImportedValues;
-    records.push({
+    var dbRecord = {
       business_unit: getBUApiValue(buId),
       reporting_month: monthInfo.month,
       reporting_year: monthInfo.year,
       source_file_name: fileName || null,
-      pm_compliance: record.pm_compliance,
-      pm_planned: record.pm_planned,
-      budget_spend: record.budget_spend,
-      pm_cm_work_order_ratio: record.pm_cm_work_order_ratio,
-      pm_cm_cost_ratio: record.pm_cm_cost_ratio,
-      mttr_days: record.mttr_days,
-      facility_uptime: record.facility_uptime,
-      notes: record.notes || null,
+      pm_compliance: null,
+      pm_planned: null,
+      schedule_compliance: null,
+      budget_spend: null,
+      pm_cm_work_order_ratio: null,
+      pm_cm_cost_ratio: null,
+      mtbf_days: null,
+      mttr_days: null,
+      facility_uptime: null,
+      notes: null,
       raw_imported_values: rawImportedValues
+    };
+    Object.keys(SummaryWorkbookColumns).forEach(function(key){
+      if(key==='month')return;
+      var cell = getSheetCell(sheet,i,headerMap[key]);
+      var rawValue = getRawSummaryValue(row,headerMap[key]);
+      var dbKey = SummaryWorkbookColumns[key];
+      if(headerMap[key]===undefined){
+        rawImportedValues.values[dbKey] = null;
+        return;
+      }
+      if(key==='notes'){
+        var noteValue = normalizeNotesValue(rawValue);
+        dbRecord.notes = noteValue;
+        dbRecord[dbKey] = noteValue;
+        rawImportedValues.values[dbKey] = rawImportedCellValue(rawValue,cell);
+        return;
+      }
+      var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
+      dbRecord[dbKey] = parsed;
+      rawImportedValues.values[dbKey] = rawImportedCellValue(rawValue,cell);
     });
+    records.push(dbRecord);
     importedMonths.push({year:monthInfo.year,month:monthInfo.month});
     imported++;
   }
-  var selectedMonthRecord = getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth());
-  if(selectedMonthRecord)ScoreData[buId] = selectedMonthRecord;
   return {imported:imported,records:records,importedMonths:importedMonths};
 }
 
@@ -2000,12 +1995,16 @@ function applyPersistedMonthlyKpiRecords(records,options){
     record.pm_compliance = row.pm_compliance;
     record.pmPlanned = row.pm_planned;
     record.pm_planned = row.pm_planned;
+    record.scheduleCompliance = row.schedule_compliance;
+    record.schedule_compliance = row.schedule_compliance;
     record.budgetSpend = row.budget_spend;
     record.budget_spend = row.budget_spend;
     record.pmcmWORatio = row.pm_cm_work_order_ratio;
     record.pm_cm_work_order_ratio = row.pm_cm_work_order_ratio;
     record.pmcmCostRatio = row.pm_cm_cost_ratio;
     record.pm_cm_cost_ratio = row.pm_cm_cost_ratio;
+    record.mtbf = row.mtbf_days;
+    record.mtbf_days = row.mtbf_days;
     record.mttr = row.mttr_days;
     record.mttr_days = row.mttr_days;
     record.facilityUptime = row.facility_uptime;
@@ -2620,98 +2619,27 @@ function importExcel(){
   var reader = new FileReader();
   reader.onload = function(e){
     setTimeout(async function(){
+      var saveSucceeded = false;
       try{
         var data = new Uint8Array(e.target.result);
         var workbook = XLSX.read(data,{type:'array',cellDates:false});
         var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
         if(!importBu)importBu = getBUById(importBuId);
         if(!importBu)throw new Error('Unable to resolve import business unit.');
+
+        var importRecords = [];
+        var importedCount = 0;
         if(hasSummary){
           var summaryImport = importSummaryWorkbook(workbook,file.name,importBuId);
-          var conflicts = await checkImportConflicts(importBuId,summaryImport.records);
-          if(conflicts.length){
-            var confirmReplace = confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
-            if(!confirmReplace){
-              if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
-              return;
-            }
-          }
-          if(createdBusinessUnit){
-            persistBusinessUnits();
-            refreshBusinessUnitSelectors();
-          }
-          await saveImportedMonthlyKpiRecords(file.name,summaryImport.records,importBuId);
-          await fetchSavedMonthlyKpiRecords(importBuId);
-          await switchToImportedBusinessUnit(importBuId);
-          closeImportModal(true);
-          if(summaryImport.imported!==12){
-            showToast('warning','Imported '+summaryImport.imported+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
-          }
-          showToast('success','KPI records imported for '+importBu.label+'.');
-          return;
+          importRecords = summaryImport.records;
+          importedCount = summaryImport.imported;
+        }else{
+          var legacyImport = importLegacyWorkbook(workbook,file.name,importBuId,importBu);
+          importRecords = legacyImport.records;
+          importedCount = legacyImport.imported;
         }
-        var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        var rows = XLSX.utils.sheet_to_json(firstSheet,{header:1,defval:null,raw:true});
-        if(rows.length<2){showToast('error','No data found in Excel');return;}
-        if(!importBu)importBu = getBUById(importBuId);
-        if(!importBu)throw new Error('Unable to resolve import business unit.');
-        // Legacy BU-based import for older scorecard workbooks.
-        var headerMap = {};
-        var headers = rows[0].map(function(h){return normalizeHeader(h)});
-        headers.forEach(function(h,i){
-          if(h.includes('business')||h.includes('unit'))headerMap.bu=i;
-          if(h.includes('pmcompliance'))headerMap.pmCompliance=i;
-          if(h.includes('budget'))headerMap.budgetSpend=i;
-          if(h.includes('pmcm')&&h.includes('wo'))headerMap.pmcmWORatio=i;
-          if(h.includes('pmcm')&&h.includes('cost'))headerMap.pmcmCostRatio=i;
-          if(h.includes('mttr'))headerMap.mttr=i;
-          if(h.includes('uptime')||h.includes('facility'))headerMap.facilityUptime=i;
-          if(h.includes('notes')||h.includes('remarks')||h.includes('comment'))headerMap.notes=i;
-        });
-        var year = getSelectedYear();
-        var month = getSelectedMonth();
-        var importedLegacy = 0;
-        var legacyRecords = [];
-        for(var i=1;i<rows.length;i++){
-          var row = rows[i];
-          if(headerMap.bu!==undefined && !isEmptyValue(row[headerMap.bu])){
-            var buName = String(cleanCellValue(row[headerMap.bu])).toLowerCase().trim();
-            var isSelectedRow = buName.includes(importBu.id.toLowerCase()) || buName.includes(String(importBu.apiValue||'').toLowerCase()) || buName.includes(importBu.name.toLowerCase()) || buName.includes(importBu.label.toLowerCase());
-            if(!isSelectedRow)continue;
-          }
-          var record = ensureMonthlyRecord(importBuId,year,month);
-          var rawImportedValues = {sourceSheet:workbook.SheetNames[0],rowNumber:i+1,values:{}};
-          Object.keys(headerMap).forEach(function(key){
-            if(key==='bu')return;
-            var cell = getSheetCell(firstSheet,i,headerMap[key]);
-            rawImportedValues.values[key] = rawImportedCellValue(row[headerMap[key]],cell);
-            if(key==='notes'){
-              record.notes = normalizeNotesValue(row[headerMap[key]]);
-              return;
-            }
-            var parsed = parseImportedKPINumber(row[headerMap[key]],cell);
-            record[key]=parsed;
-          });
-          ScoreData[importBuId] = record;
-          legacyRecords.push({
-            business_unit: getBUApiValue(importBuId),
-            reporting_month: month,
-            reporting_year: year,
-            source_file_name: file.name,
-            pm_compliance: record.pmCompliance ?? null,
-            pm_planned: record.pmPlanned ?? null,
-            budget_spend: record.budgetSpend ?? null,
-            pm_cm_work_order_ratio: record.pmcmWORatio ?? null,
-            pm_cm_cost_ratio: record.pmcmCostRatio ?? null,
-            mttr_days: record.mttr ?? null,
-            facility_uptime: record.facilityUptime ?? null,
-            notes: record.notes || null,
-            raw_imported_values: rawImportedValues
-          });
-          importedLegacy++;
-        }
-        if(legacyRecords.length===0)throw new Error('No KPI rows matched the selected business unit.');
-        var conflicts = await checkImportConflicts(importBuId,legacyRecords);
+
+        var conflicts = await checkImportConflicts(importBuId,importRecords);
         if(conflicts.length){
           var confirmReplace = confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
           if(!confirmReplace){
@@ -2719,14 +2647,39 @@ function importExcel(){
             return;
           }
         }
+
         if(createdBusinessUnit){
           persistBusinessUnits();
           refreshBusinessUnitSelectors();
         }
-        await saveImportedMonthlyKpiRecords(file.name,legacyRecords,importBuId);
-        await fetchSavedMonthlyKpiRecords(importBuId);
-        await switchToImportedBusinessUnit(importBuId);
+
+        var saveResult = await saveImportedMonthlyKpiRecords(file.name,importRecords,importBuId);
+        saveSucceeded = true;
         closeImportModal(true);
+
+        // Apply only persisted records as the authoritative dashboard state.
+        var persistedRecords = (saveResult && Array.isArray(saveResult.records)) ? saveResult.records : [];
+        if(persistedRecords.length){
+          applyPersistedMonthlyKpiRecords(persistedRecords,{businessUnitId:importBuId});
+        }else{
+          try{
+            await fetchSavedMonthlyKpiRecords(importBuId);
+          }catch(fetchErr){
+            console.warn('Post-import record refresh failed:',fetchErr);
+            showToast('warning','Import was saved, but the dashboard could not refresh automatically.');
+          }
+        }
+
+        try{
+          await switchToImportedBusinessUnit(importBuId);
+        }catch(switchErr){
+          console.warn('Post-import tab switch failed:',switchErr);
+          showToast('warning','Import was saved, but the dashboard could not refresh automatically.');
+        }
+
+        if(hasSummary && importedCount!==12){
+          showToast('warning','Imported '+importedCount+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
+        }
         showToast('success','KPI records imported for '+importBu.label+'.');
       }catch(err){
         console.error('Import error:',err);
@@ -2734,10 +2687,14 @@ function importExcel(){
         if(createdBusinessUnit)removeBusinessUnitById(createdBusinessUnit.bu.id);
       }finally{
         setImporting(false);
-        var fileInput = document.getElementById('excelInput');
-        if(fileInput)fileInput.value='';
+        if(saveSucceeded){
+          var fileInput = document.getElementById('excelInput');
+          if(fileInput)fileInput.value='';
+        }
         if(createdBusinessUnit && !isValidBusinessUnitId(createdBusinessUnit.bu.id))refreshBusinessUnitSelectors();
         updateImportButtonState();
+        // Modal remains open only if the database save did not succeed.
+        // No explicit action needed; closeImportModal is only called on success.
       }
     },120);
   };
@@ -2749,6 +2706,62 @@ function importExcel(){
     updateImportButtonState();
   };
   reader.readAsArrayBuffer(file);
+}
+
+function importLegacyWorkbook(workbook,fileName,importBuId,importBu){
+  var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  var rows = XLSX.utils.sheet_to_json(firstSheet,{header:1,defval:null,raw:true});
+  if(rows.length<2)throw new Error('No data found in Excel');
+  // Legacy BU-based import for older scorecard workbooks.
+  var headerMap = {};
+  var headers = rows[0].map(function(h){return normalizeHeader(h)});
+  headers.forEach(function(h,i){
+    if(h.includes('business')||h.includes('unit'))headerMap.bu=i;
+    if(h.includes('pmcompliance'))headerMap.pmCompliance=i;
+    if(h.includes('budget'))headerMap.budgetSpend=i;
+    if(h.includes('pmcm')&&h.includes('wo'))headerMap.pmcmWORatio=i;
+    if(h.includes('pmcm')&&h.includes('cost'))headerMap.pmcmCostRatio=i;
+    if(h.includes('mttr'))headerMap.mttr=i;
+    if(h.includes('uptime')||h.includes('facility'))headerMap.facilityUptime=i;
+    if(h.includes('notes')||h.includes('remarks')||h.includes('comment'))headerMap.notes=i;
+  });
+  var year = getSelectedYear();
+  var month = getSelectedMonth();
+  var importedLegacy = 0;
+  var legacyRecords = [];
+  for(var i=1;i<rows.length;i++){
+    var row = rows[i];
+    if(headerMap.bu!==undefined && !isEmptyValue(row[headerMap.bu])){
+      var buName = String(cleanCellValue(row[headerMap.bu])).toLowerCase().trim();
+      var isSelectedRow = buName.includes(importBu.id.toLowerCase()) || buName.includes(String(importBu.apiValue||'').toLowerCase()) || buName.includes(importBu.name.toLowerCase()) || buName.includes(importBu.label.toLowerCase());
+      if(!isSelectedRow)continue;
+    }
+    var rawImportedValues = {sourceSheet:workbook.SheetNames[0],rowNumber:i+1,values:{}};
+    Object.keys(headerMap).forEach(function(key){
+      if(key==='bu')return;
+      var cell = getSheetCell(firstSheet,i,headerMap[key]);
+      rawImportedValues.values[key] = rawImportedCellValue(row[headerMap[key]],cell);
+    });
+    legacyRecords.push({
+      business_unit: getBUApiValue(importBuId),
+      reporting_month: month,
+      reporting_year: year,
+      source_file_name: fileName,
+      pm_compliance: headerMap.pmCompliance!==undefined ? parseImportedKPINumber(row[headerMap.pmCompliance],getSheetCell(firstSheet,i,headerMap.pmCompliance)) : null,
+      pm_planned: null,
+      budget_spend: headerMap.budgetSpend!==undefined ? parseImportedKPINumber(row[headerMap.budgetSpend],getSheetCell(firstSheet,i,headerMap.budgetSpend)) : null,
+      pm_cm_work_order_ratio: headerMap.pmcmWORatio!==undefined ? parseImportedKPINumber(row[headerMap.pmcmWORatio],getSheetCell(firstSheet,i,headerMap.pmcmWORatio)) : null,
+      pm_cm_cost_ratio: headerMap.pmcmCostRatio!==undefined ? parseImportedKPINumber(row[headerMap.pmcmCostRatio],getSheetCell(firstSheet,i,headerMap.pmcmCostRatio)) : null,
+      mtbf_days: null,
+      mttr_days: headerMap.mttr!==undefined ? parseImportedKPINumber(row[headerMap.mttr],getSheetCell(firstSheet,i,headerMap.mttr)) : null,
+      facility_uptime: headerMap.facilityUptime!==undefined ? parseImportedKPINumber(row[headerMap.facilityUptime],getSheetCell(firstSheet,i,headerMap.facilityUptime)) : null,
+      notes: headerMap.notes!==undefined ? normalizeNotesValue(row[headerMap.notes]) : null,
+      raw_imported_values: rawImportedValues
+    });
+    importedLegacy++;
+  }
+  if(legacyRecords.length===0)throw new Error('No KPI rows matched the selected business unit.');
+  return {imported:importedLegacy,records:legacyRecords};
 }
 
 // ===== CLEAR =====
