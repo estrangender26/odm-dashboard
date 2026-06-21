@@ -380,3 +380,97 @@ gh pr view [PASTE PR NUMBER HERE] --json state,mergedAt,baseRefName,headRefName,
 Do not delete branches unless explicitly approved.
 Do not deploy.
 Do not run migrations.
+
+## 12. Briefing-Style Telegram Aliases
+
+These aliases map Gerald's natural Telegram briefing commands to the safe ODM repo agent workflow.
+
+### A. `brief me ODM repo`
+
+Equivalent to:
+
+Follow AGENTS.md. Use docs/agent-prompts.md. Run prompt #1.
+
+Also summarize open PRs and latest 5 commits.
+
+This is a read-only briefing. It must never edit, commit, push, merge, deploy, delete, reset, or run migrations.
+
+Run:
+pwd
+git branch --show-current
+git status --short
+npm run check
+gh pr list --state open --limit 10 || true
+git log --oneline --decorate -5
+
+Report:
+- Repo path
+- Current branch
+- Git status
+- Check result
+- Open PRs (if available)
+- Latest 5 commits
+- Recommended next step
+
+### B. `coding plan ODM: [issue/request]`
+
+Equivalent to:
+
+Follow AGENTS.md. Use docs/agent-prompts.md. Run prompt #7.
+
+Issue / request:
+[PASTE ISSUE OR REQUEST HERE]
+
+No edits.
+
+### C. `approved ODM fix: [issue + approved files]`
+
+Equivalent to:
+
+Follow AGENTS.md. Use docs/agent-prompts.md. Run prompt #8.
+
+Issue:
+[PASTE APPROVED ISSUE HERE]
+
+Edit only:
+[PASTE APPROVED FILE PATHS HERE]
+
+### D. `ODM commit/push: [approved files + commit message]`
+
+Equivalent to:
+
+Follow AGENTS.md. Use docs/agent-prompts.md. Run prompt #9.
+
+Approved files:
+[PASTE APPROVED FILE PATHS HERE]
+
+Commit message:
+[PASTE COMMIT MESSAGE HERE]
+
+### E. `ODM open PR: [title + body]`
+
+Equivalent to:
+
+Follow AGENTS.md. Use docs/agent-prompts.md. Run prompt #10.
+
+PR title:
+[PASTE PR TITLE HERE]
+
+PR body:
+[PASTE PR BODY HERE]
+
+### F. `ODM post-merge sync: [PR number]`
+
+Equivalent to:
+
+Follow AGENTS.md. Use docs/agent-prompts.md. Run prompt #11.
+
+PR number:
+[PASTE PR NUMBER HERE]
+
+### Important rules for aliases
+
+- If required details are missing, ask for the missing details.
+- Do not guess branch names, issue descriptions, approved files, commit messages, PR titles, or PR bodies.
+- `brief me ODM repo` is read-only and must never edit, commit, push, merge, deploy, delete, reset, or run migrations.
+- For editing or GitHub actions, require explicit approval.
