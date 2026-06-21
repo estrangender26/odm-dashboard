@@ -320,7 +320,7 @@ export default function GovernanceDashboard() {
     return msStateMap[mId]?.customPct ?? 0;
   };
 
-  // Checkbox simulation — temporary local override for chart preview only.
+  // Checkbox simulation local override for chart preview only.
   // Stores `false` for milestones that should simulate as incomplete (0%).
   // When a milestone is NOT in this map, the DB value is used.
   // Resets on every page refresh (no localStorage).
@@ -831,25 +831,6 @@ export default function GovernanceDashboard() {
             {/* S-Curve Chart */}
             <div className="bg-white border border-gray-200 rounded-xl p-5">
               <h3 className="text-lg font-bold text-gray-800 mb-4">Project S-Curve — {currentFacility.short}</h3>
-              {/* ─── Checkbox Sim Debug (temporary) ─── */}
-              <div className="mb-3 p-2 bg-gray-100 rounded-lg text-xs font-mono">
-                <div className="font-bold mb-1">Chart Debug:</div>
-                <div className="grid grid-cols-3 gap-x-4 gap-y-1">
-                  {MSD.map(m => {
-                    const dbVal = msStateMap[m.id]?.compDate;
-                    const simVal = checkboxSim[m.id];
-                    const mergedVal = mergedStateMap[m.id]?.compDate;
-                    const chartPct = mergedStateMap[m.id]?.customPct ?? (mergedVal ? 100 : 0);
-                    return (
-                      <div key={m.id} className="flex items-center gap-1">
-                        <span className="font-bold w-6">{m.id}:</span>
-                        <span className={chartPct === 100 ? "text-green-600" : "text-gray-400"}>{chartPct}%</span>
-                        <span className="text-gray-400">(DB:{dbVal ? "✓" : "✗"} Sim:{simVal === false ? "✗" : "—"})</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
               <SCurve msState={mergedStateMap} color={currentFacility.color} />
             </div>
 

@@ -1960,8 +1960,8 @@ export default function GanttPlanner() {
               planned_start: t.plannedStart || t.planned_start || t.plannedStartDate || null,
               planned_finish: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
               duration: t.duration || 1, progress: normProgress(t.progress),
-              wbs_level: 1, /* temporary, will update in pass 2 */
-              parent: 0, /* temporary, will update in pass 2 */
+              wbs_level: 1,
+              parent: 0,
               type: t.type || "task",
               status: t.status || null, remarks: t.remarks || t.notes || null,
               category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? t.sortOrder ?? t.sort_order ?? idx,
