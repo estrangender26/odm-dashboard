@@ -55,6 +55,14 @@ Default validation command:
 
 If checks fail, summarize the actual error and propose the smallest safe fix.
 
+## Product intent and decision log
+
+Before treating UI/data differences as bugs, check:
+
+`docs/agent-decisions.md`
+
+If something appears missing from the UI but exists in the data model, ask whether it is intentionally hidden before recommending changes.
+
 ## Reporting format
 
 After every task, report:
