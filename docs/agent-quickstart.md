@@ -98,6 +98,30 @@ Rules for aliases:
 - For any command that edits files or uses GitHub, the agent must ask for explicit approval.
 - If required details are missing, the agent must ask for them. Do not guess.
 
+## Current active repo short aliases
+
+These short aliases are the preferred daily commands for the current active repo.
+
+Current active repo: `/Users/gcb/Projects/odm-dashboard`
+
+| Command | What it does | Equivalent prompt |
+|---|---|---|
+| `repo` | Read-only repo briefing | #1 + open PRs + latest commits |
+| `plan: [issue/request]` | Analyze without editing | #7 |
+| `fix: [issue + approved files]` | Apply approved fix | #8 |
+| `push: [approved files + commit message]` | Commit and push | #9 |
+| `pr: [title + body]` | Open a PR only | #10 |
+| `sync: [PR number]` | Sync main and clean up | #11 |
+
+Rules for short aliases:
+
+- These aliases use the current active repo.
+- Every response must report the active repo path before taking action.
+- If the user switches to another repo, confirm the new active repo path before using these short aliases.
+- `repo` is read-only. It never edits, commits, pushes, merges, deploys, deletes, resets, or runs migrations.
+- For any command that edits files or uses GitHub, the agent must ask for explicit approval.
+- If required details are missing, the agent must ask for them. Do not guess.
+
 ## Safety rules
 
 The agent must ask for approval before:
