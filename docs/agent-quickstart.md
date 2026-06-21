@@ -79,6 +79,25 @@ PR title:
 PR body:
 [PASTE BODY HERE]
 
+## Briefing-style Telegram aliases
+
+You can use shorter natural commands from Telegram. They map to the numbered prompts above.
+
+| Telegram command | What it does | Equivalent prompt |
+|---|---|---|
+| `brief me ODM repo` | Read-only repo briefing | #1 + open PRs + latest commits |
+| `coding plan ODM: [issue/request]` | Analyze without editing | #7 |
+| `approved ODM fix: [issue + approved files]` | Apply approved fix | #8 |
+| `ODM commit/push: [approved files + commit message]` | Commit and push | #9 |
+| `ODM open PR: [title + body]` | Open a PR only | #10 |
+| `ODM post-merge sync: [PR number]` | Sync main and clean up | #11 |
+
+Rules for aliases:
+
+- `brief me ODM repo` is read-only. It never edits, commits, pushes, merges, deploys, deletes, resets, or runs migrations.
+- For any command that edits files or uses GitHub, the agent must ask for explicit approval.
+- If required details are missing, the agent must ask for them. Do not guess.
+
 ## Safety rules
 
 The agent must ask for approval before:
