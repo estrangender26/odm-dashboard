@@ -457,6 +457,12 @@
       '.ai-insight-tab-panel.active{display:block}\n' +
       '#aiInsightEmptyState{border:1px dashed var(--border-medium);border-radius:10px;background:var(--bg-secondary);color:var(--text-secondary);text-align:center;padding:16px}\n' +
       '#aiInsightEmptyState strong{color:var(--text-primary);display:block;margin-bottom:4px}\n' +
+      '.ai-insight-summary-hint{font-size:11px;color:var(--text-muted);font-style:italic;margin-bottom:8px}\n' +
+      '.ai-insight-summary-row{cursor:pointer;transition:background .15s ease}\n' +
+      '.ai-insight-summary-row:hover,.ai-insight-summary-row:focus-visible{background:#F0F7FF}\n' +
+      '.ai-insight-summary-row:focus-visible{outline:2px solid var(--info);outline-offset:-2px}\n' +
+      '#aiInsightSelectedGroupLabel{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;padding:8px 10px;background:#E3F2FD;border:1px solid #BBDEFB;border-radius:8px;font-size:12px;color:#16324F}\n' +
+      '#aiInsightSelectedGroupLabel button{background:#fff;border:1px solid #BBDEFB;border-radius:6px;color:#005BAC;cursor:pointer;font-family:inherit;font-size:11px;font-weight:600;padding:4px 8px}\n' +
       '@media (max-width:768px){\n' +
       '#aiInsightDrilldownPanel{width:100%;border-left:none;border-top:1px solid var(--border-light);transform:translateY(110%);top:auto;bottom:0;box-shadow:0 -12px 30px rgba(11,29,68,.18)}\n' +
       '#aiInsightDrilldownDrawer.open #aiInsightDrilldownPanel{transform:translateY(0)}\n' +
@@ -1054,13 +1060,157 @@
       '</tbody></table></div>';
   }
 
+
+  var aiInsightDrawerContext = {
+    insight: null,
+    payload: null,
+    kind: '',
+    groups: [],
+    allRows: [],
+    selectedGroup: null,
+    originalCountLabel: ''
+  };
+
+  function summaryRowAttributes(kind, group, index) {
+    return ' class="ai-insight-summary-row" data-summary-kind="' + escHtml(kind) + '" data-summary-key="' + escHtml(getSummaryGroupKey(kind, group)) + '" data-summary-index="' + index + '" tabindex="0" role="button"';
+  }
+
+  function getSummaryGroupKey(kind, group) {
+    if (!group) return '';
+    if (kind === 'critical-pareto') return group.name || '';
+    if (kind === 'inspector') return group.inspector || '';
+    if (kind === 'category') return group.category || '';
+    if (kind === 'trend') return (group.period || '') + '|' + (group.status || '');
+    return group.asset || '';
+  }
+
+  function buildSelectedGroupLabel(kind, group, count) {
+    var key = getSummaryGroupKey(kind, group);
+    var unit = (kind === 'inspector' || kind === 'trend') ? 'record' : 'finding';
+    return 'Records for ' + escHtml(key) + ' — ' + count + ' ' + unit + (count === 1 ? '' : 's');
+  }
+
+  function getRowsForSummaryGroup(kind, group, rows) {
+    if (!group || !Array.isArray(rows)) return [];
+    if (kind === 'critical-pareto') {
+      var name = group.name || '';
+      return rows.filter(function(row) {
+        return getCriticalContributorName(row) === name || getAssetName(row) === name;
+      });
+    }
+    if (kind === 'inspector') {
+      var inspector = group.inspector || '';
+      return rows.filter(function(row) { return getInspectorName(row) === inspector; });
+    }
+    if (kind === 'category') {
+      var category = group.category || '';
+      return rows.filter(function(row) { return getCategoryName(row) === category; });
+    }
+    if (kind === 'trend') {
+      var period = group.period || '';
+      var status = group.status || '';
+      return rows.filter(function(row) {
+        var rowPeriod = formatDateCell(row.InspectionDate) || '(No date)';
+        var rowStatus = hasNegativeKeyword(row) ? 'Negative' : 'Normal';
+        return rowPeriod === period && rowStatus === status;
+      });
+    }
+    if (Array.isArray(group.rows)) return group.rows.slice();
+    var asset = group.asset || '';
+    return rows.filter(function(row) { return getAssetName(row) === asset; });
+  }
+
+  function getAiInsightVisibleRows() {
+    if (!aiInsightDrawerContext.selectedGroup) return aiInsightDrawerContext.allRows || [];
+    return getRowsForSummaryGroup(aiInsightDrawerContext.kind, aiInsightDrawerContext.selectedGroup.group, aiInsightDrawerContext.allRows);
+  }
+
+  function switchAiInsightTab(target) {
+    var tabs = document.querySelectorAll('#aiInsightTabs [data-ai-insight-tab]');
+    var summaryPanel = document.getElementById('aiInsightSummaryPanel');
+    var recordsPanel = document.getElementById('aiInsightRecordsPanel');
+    if (!tabs.length || !summaryPanel || !recordsPanel) return;
+    tabs.forEach(function(tab) {
+      var active = tab.getAttribute('data-ai-insight-tab') === target;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    summaryPanel.classList.toggle('active', target === 'summary');
+    recordsPanel.classList.toggle('active', target === 'records');
+  }
+
+  function renderAiInsightRecordsPanel(rows, selectedLabel) {
+    var panel = document.getElementById('aiInsightRecordsPanel');
+    if (!panel) return;
+    var labelHtml = selectedLabel
+      ? '<div id="aiInsightSelectedGroupLabel"><span>' + selectedLabel + '</span><button type="button" data-ai-insight-back="true">Back to Summary</button></div>'
+      : '';
+    panel.innerHTML = labelHtml + renderAiInsightRowsTable(rows);
+    var backBtn = panel.querySelector('[data-ai-insight-back]');
+    if (backBtn) backBtn.onclick = function() { clearAiInsightSummarySelection(); };
+  }
+
+  function updateAiInsightCountLabel(count) {
+    var countEl = document.getElementById('aiInsightDrillDownCount');
+    if (!countEl) return;
+    if (aiInsightDrawerContext.selectedGroup) {
+      countEl.textContent = count + ' filtered record' + (count === 1 ? '' : 's');
+    } else {
+      countEl.textContent = aiInsightDrawerContext.originalCountLabel;
+    }
+  }
+
+  function bindAiInsightExportButton() {
+    var exportBtn = document.getElementById('aiInsightExportRowsButton');
+    if (!exportBtn) return;
+    exportBtn.onclick = function() { exportAiInsightRows(aiInsightDrawerContext.insight, getAiInsightVisibleRows()); };
+  }
+
+  function selectAiInsightSummaryGroup(index) {
+    var ctx = aiInsightDrawerContext;
+    var group = ctx.groups[index];
+    if (!group) return;
+    ctx.selectedGroup = { index: index, group: group };
+    var filtered = getRowsForSummaryGroup(ctx.kind, group, ctx.allRows);
+    switchAiInsightTab('records');
+    renderAiInsightRecordsPanel(filtered, buildSelectedGroupLabel(ctx.kind, group, filtered.length));
+    updateAiInsightCountLabel(filtered.length);
+    bindAiInsightExportButton();
+  }
+
+  function clearAiInsightSummarySelection() {
+    var ctx = aiInsightDrawerContext;
+    ctx.selectedGroup = null;
+    switchAiInsightTab('summary');
+    renderAiInsightRecordsPanel(ctx.allRows, null);
+    updateAiInsightCountLabel(ctx.allRows.length);
+    bindAiInsightExportButton();
+  }
+
+  function attachAiInsightSummaryRowHandlers() {
+    var rows = document.querySelectorAll('#aiInsightSummaryPanel .ai-insight-summary-row');
+    rows.forEach(function(row) {
+      row.onclick = function() {
+        var index = parseInt(row.getAttribute('data-summary-index'), 10);
+        if (!Number.isNaN(index)) selectAiInsightSummaryGroup(index);
+      };
+      row.onkeydown = function(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          var index = parseInt(row.getAttribute('data-summary-index'), 10);
+          if (!Number.isNaN(index)) selectAiInsightSummaryGroup(index);
+        }
+      };
+    });
+  }
+
   function renderAiInsightSummaryTable(kind, groups) {
     if (!groups.length) {
       return '<div id="aiInsightEmptyState"><strong>No Summary Groups</strong>Records tab may contain raw rows if source grouping fields are incomplete.</div>';
     }
 
     if (kind === 'critical-pareto') {
-      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+      return '<div class="ai-insight-summary-hint">Click a summary row to view its underlying inspection records.</div><div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
         '<th>Asset Tag / Equipment ID</th>' +
         '<th>Equipment Type</th>' +
         '<th>Facility / Site</th>' +
@@ -1069,8 +1219,8 @@
         '<th>Cumulative %</th>' +
         '<th>Severity</th>' +
         '</tr></thead><tbody>' +
-        groups.map(function(group) {
-          return '<tr>' +
+        groups.map(function(group, index) {
+          return '<tr' + summaryRowAttributes(kind, group, index) + '>' +
             '<td>' + escHtml(group.name) + '</td>' +
             '<td>' + escHtml(group.equipmentType || '-') + '</td>' +
             '<td>' + escHtml(group.facility || '-') + '</td>' +
@@ -1084,15 +1234,15 @@
     }
 
     if (kind === 'inspector') {
-      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+      return '<div class="ai-insight-summary-hint">Click a summary row to view its underlying inspection records.</div><div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
         '<th>Inspector</th>' +
         '<th>Inspection Count</th>' +
         '<th>Last Inspection Date</th>' +
         '<th>Affected Assets</th>' +
         '<th>Status</th>' +
         '</tr></thead><tbody>' +
-        groups.map(function(group) {
-          return '<tr>' +
+        groups.map(function(group, index) {
+          return '<tr' + summaryRowAttributes(kind, group, index) + '>' +
             '<td>' + escHtml(group.inspector) + '</td>' +
             '<td>' + group.inspectionCount + '</td>' +
             '<td>' + (group.lastDate || '-') + '</td>' +
@@ -1104,14 +1254,14 @@
     }
 
     if (kind === 'category') {
-      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+      return '<div class="ai-insight-summary-hint">Click a summary row to view its underlying inspection records.</div><div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
         '<th>Category / Equipment Type</th>' +
         '<th>Distinct Assets</th>' +
         '<th>Finding Count</th>' +
         '<th>Share %</th>' +
         '</tr></thead><tbody>' +
-        groups.map(function(group) {
-          return '<tr>' +
+        groups.map(function(group, index) {
+          return '<tr' + summaryRowAttributes(kind, group, index) + '>' +
             '<td>' + escHtml(group.category) + '</td>' +
             '<td>' + group.distinctAssets + '</td>' +
             '<td>' + group.findingCount + '</td>' +
@@ -1122,15 +1272,15 @@
     }
 
     if (kind === 'trend') {
-      return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+      return '<div class="ai-insight-summary-hint">Click a summary row to view its underlying inspection records.</div><div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
         '<th>Period</th>' +
         '<th>Status</th>' +
         '<th>Total Inspections</th>' +
         '<th>Negative Findings</th>' +
         '<th>Negative Finding Rate</th>' +
         '</tr></thead><tbody>' +
-        groups.map(function(group) {
-          return '<tr>' +
+        groups.map(function(group, index) {
+          return '<tr' + summaryRowAttributes(kind, group, index) + '>' +
             '<td>' + escHtml(group.period) + '</td>' +
             '<td>' + escHtml(group.status) + '</td>' +
             '<td>' + group.totalInspections + '</td>' +
@@ -1141,15 +1291,15 @@
         '</tbody></table></div>';
     }
 
-    return '<div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
+    return '<div class="ai-insight-summary-hint">Click a summary row to view its underlying inspection records.</div><div class="aiInsightDrilldownTableWrap"><table><thead><tr>' +
       '<th>Asset / Equipment</th>' +
       '<th>Facility / Site</th>' +
       '<th>Finding Count</th>' +
       '<th>Latest Inspection Date</th>' +
       '<th>Severity / Status</th>' +
       '</tr></thead><tbody>' +
-      groups.map(function(group) {
-        return '<tr>' +
+      groups.map(function(group, index) {
+        return '<tr' + summaryRowAttributes(kind, group, index) + '>' +
           '<td>' + escHtml(group.asset) + '</td>' +
           '<td>' + escHtml(group.facility) + '</td>' +
           '<td>' + group.findingCount + '</td>' +
@@ -1356,19 +1506,25 @@
     if (severityEl) {
       severityEl.innerHTML = renderAiInsightSeverityBadge(insight.severity || 'info');
     }
+    var originalCountLabel = getSummaryCountLabel(summaryKind, summaryGroups, rows, payload, reconciledCounts);
+    aiInsightDrawerContext = {
+      insight: insight,
+      payload: payload,
+      kind: summaryKind,
+      groups: summaryGroups,
+      allRows: rows,
+      selectedGroup: null,
+      originalCountLabel: originalCountLabel
+    };
     if (countEl) {
-
-      countEl.textContent = getSummaryCountLabel(summaryKind, summaryGroups, rows, payload, reconciledCounts);
-
+      countEl.textContent = originalCountLabel;
     }
     bodyEl.innerHTML = details.join('');
     attachAiInsightTabHandlers();
+    attachAiInsightSummaryRowHandlers();
 
     if (hasExport) {
-      var exportBtn = document.getElementById('aiInsightExportRowsButton');
-      if (exportBtn) {
-        exportBtn.onclick = function() { exportAiInsightRows(insight, rows); };
-      }
+      bindAiInsightExportButton();
     }
 
     drawer.classList.add('open');
@@ -1590,7 +1746,11 @@
     addHoverCursor,
     enableLegendToggle,
     hasNegativeKeyword,
-    escHtml
+    escHtml,
+    renderAiInsightSummaryTable,
+    getRowsForSummaryGroup,
+    getSummaryGroupKey,
+    buildSelectedGroupLabel
   };
 
 })(typeof window !== 'undefined' ? window : global);

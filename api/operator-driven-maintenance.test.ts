@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createContext, runInContext } from "node:vm";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -155,3 +156,183 @@ describe("Operator-Driven Maintenance records API", () => {
     expect(mwDashboardSource).not.toContain("reporting_month");
   });
 });
+
+function loadChartInteractions() {
+  const source = readFileSync(resolve(process.cwd(), "public/chart-interactions.js"), "utf8");
+
+  class FakeElement {
+    tagName: string;
+    id = "";
+    textContent = "";
+    innerHTML = "";
+    children: any[] = [];
+    style: Record<string, any> = {};
+    private dataset: Record<string, string> = {};
+    private classSet = new Set<string>();
+    classList = {
+      add: (c: string) => this.classSet.add(c),
+      remove: (c: string) => this.classSet.delete(c),
+      toggle: (c: string, force?: boolean) => {
+        if (force) this.classSet.add(c);
+        else this.classSet.delete(c);
+      },
+      contains: (c: string) => this.classSet.has(c),
+    };
+    constructor(tagName: string) {
+      this.tagName = tagName;
+    }
+    setAttribute(name: string, value: string) {
+      this.dataset[name] = value;
+    }
+    getAttribute(name: string) {
+      return this.dataset[name] ?? null;
+    }
+    appendChild(child: any) {
+      this.children.push(child);
+      return child;
+    }
+    querySelector() {
+      return null;
+    }
+    querySelectorAll() {
+      return [] as any[];
+    }
+  }
+
+  const documentStub = {
+    head: { appendChild() {}, children: [] as any[] },
+    body: { appendChild() {}, children: [] as any[] },
+    createElement(tagName: string) {
+      return new FakeElement(tagName);
+    },
+    getElementById() {
+      return null;
+    },
+    querySelector() {
+      return null;
+    },
+    querySelectorAll() {
+      return [] as any[];
+    },
+    addEventListener() {},
+  };
+
+  const windowStub = {
+    ...globalThis,
+    document: documentStub,
+    renderInsights: () => {},
+    AnalyticsEngine: { generateInsights: () => [] as any[] },
+    setTimeout,
+    clearTimeout,
+  };
+
+  const context = createContext({ ...globalThis, window: windowStub, document: documentStub });
+  runInContext(source, context, { timeout: 2000 });
+  return context.window.ChartInteractions as any;
+}
+
+const chartSource = readFileSync(resolve(process.cwd(), "public/chart-interactions.js"), "utf8");
+
+describe("AI Operational Insights drill-down drawer", () => {
+  it("does not add an Equipment History tab or page", () => {
+    expect(chartSource.toLowerCase()).not.toContain("equipment history");
+    expect(mwDashboardSource.toLowerCase()).not.toContain("equipment history");
+  });
+
+  it("renders summary table rows as clickable, focusable buttons", () => {
+    const ci = loadChartInteractions();
+    const groups = [
+      { asset: "WS-WPS-BAL-00141", facility: "Balara PS", findingCount: 80, latestDate: "2026-06-20", severity: "high", rows: [] as any[] },
+      { asset: "WS-WPS-BAL-00142", facility: "Balara PS", findingCount: 20, latestDate: "2026-06-19", severity: "medium", rows: [] as any[] },
+    ];
+    const html = ci.renderAiInsightSummaryTable("asset", groups);
+    expect(html).toContain("ai-insight-summary-row");
+    expect(html).toContain('data-summary-kind="asset"');
+    expect(html).toContain('data-summary-key="WS-WPS-BAL-00141"');
+    expect(html).toContain('data-summary-index="0"');
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain('role="button"');
+    expect(html).toContain("Click a summary row to view its underlying inspection records.");
+    expect(html).toContain('data-summary-index="1"');
+    expect(html).not.toContain('data-summary-index="2"');
+  });
+
+  it("filters raw records for an asset summary row using stored rows when available", () => {
+    const ci = loadChartInteractions();
+    const rows = [
+      { AssetTag: "A1", Inspector: "I1", InspectionDate: "2026-06-20", EntryNotes: "leak" },
+      { AssetTag: "A2", Inspector: "I2", InspectionDate: "2026-06-19", EntryNotes: "ok" },
+      { AssetTag: "A1", Inspector: "I3", InspectionDate: "2026-06-18", EntryNotes: "noise" },
+    ];
+    const group = { asset: "A1", rows: [rows[0], rows[2]] };
+    expect(ci.getRowsForSummaryGroup("asset", group, rows)).toEqual(group.rows);
+  });
+
+  it("filters raw records for a category summary row by EquipmentType", () => {
+    const ci = loadChartInteractions();
+    const rows = [
+      { AssetTag: "A1", EquipmentType: "Pump", InspectionDate: "2026-06-20", EntryNotes: "leak" },
+      { AssetTag: "A2", EquipmentType: "Motor", InspectionDate: "2026-06-19", EntryNotes: "ok" },
+      { AssetTag: "A3", EquipmentType: "Pump", InspectionDate: "2026-06-18", EntryNotes: "noise" },
+    ];
+    const group = { category: "Pump" };
+    const filtered = ci.getRowsForSummaryGroup("category", group, rows);
+    expect(filtered).toHaveLength(2);
+    expect(filtered.map((r: any) => r.AssetTag).sort()).toEqual(["A1", "A3"]);
+  });
+
+  it("filters raw records for an inspector summary row by Inspector", () => {
+    const ci = loadChartInteractions();
+    const rows = [
+      { AssetTag: "A1", Inspector: "Bob", InspectionDate: "2026-06-20", EntryNotes: "leak" },
+      { AssetTag: "A2", Inspector: "Alice", InspectionDate: "2026-06-19", EntryNotes: "ok" },
+      { AssetTag: "A3", Inspector: "Bob", InspectionDate: "2026-06-18", EntryNotes: "noise" },
+    ];
+    const group = { inspector: "Bob" };
+    const filtered = ci.getRowsForSummaryGroup("inspector", group, rows);
+    expect(filtered).toHaveLength(2);
+    expect(filtered.map((r: any) => r.AssetTag).sort()).toEqual(["A1", "A3"]);
+  });
+
+  it("filters raw records for a trend summary row by period and status", () => {
+    const ci = loadChartInteractions();
+    const rows = [
+      { AssetTag: "A1", InspectionDate: "2026-06-20", EntryNotes: "leak" },
+      { AssetTag: "A2", InspectionDate: "2026-06-20", EntryNotes: "ok" },
+      { AssetTag: "A3", InspectionDate: "2026-06-19", EntryNotes: "vibration" },
+    ];
+    const group = { period: "2026-06-20", status: "Negative" };
+    const filtered = ci.getRowsForSummaryGroup("trend", group, rows);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].AssetTag).toBe("A1");
+  });
+
+  it("filters raw records for a critical-pareto summary row by contributor name", () => {
+    const ci = loadChartInteractions();
+    const rows = [
+      { AssetTag: "TAG-001", InspectionDate: "2026-06-20", EntryNotes: "critical leak" },
+      { AssetTag: "TAG-002", InspectionDate: "2026-06-19", EntryNotes: "ok" },
+      { AssetTag: "TAG-001", InspectionDate: "2026-06-18", EntryNotes: "fault" },
+    ];
+    const group = { name: "TAG-001" };
+    const filtered = ci.getRowsForSummaryGroup("critical-pareto", group, rows);
+    expect(filtered).toHaveLength(2);
+    expect(filtered.map((r: any) => r.AssetTag).sort()).toEqual(["TAG-001", "TAG-001"]);
+  });
+
+  it("builds the selected-group label", () => {
+    const ci = loadChartInteractions();
+    const group = { asset: "WS-WPS-BAL-00141" };
+    expect(ci.buildSelectedGroupLabel("asset", group, 80)).toBe("Records for WS-WPS-BAL-00141 — 80 findings");
+  });
+
+  it("does not introduce destructive or schema-changing statements for this feature", () => {
+    const lower = chartSource.toLowerCase();
+    expect(lower).not.toContain("insert into");
+    expect(lower).not.toContain("delete from");
+    expect(lower).not.toContain("update mw_inspections");
+    expect(lower).not.toContain("alter table");
+    expect(lower).not.toContain("create table");
+  });
+});
+
