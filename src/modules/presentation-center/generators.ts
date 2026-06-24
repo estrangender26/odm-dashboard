@@ -1098,18 +1098,24 @@ export async function generateMonthlyKpiDeck(
   const title = `Monthly KPI Scorecard - ${persisted.businessUnit} - ${persisted.reportingMonthLabel}`;
   const blob = await createPresentation(buildMonthlyKpiSlides(persisted, now));
   const dataUrl = await blobToDataUrl(blob);
+  const name = `${slug(title)}.pptx`;
+  const generatedAt = now.toISOString();
   return {
     id: crypto.randomUUID(),
-    name: `${slug(title)}.pptx`,
+    name,
     type: "Monthly KPI Scorecard Deck",
-    generatedDate: now.toISOString(),
+    generatedDate: generatedAt,
     generatedBy: context.generatedBy,
     size: blob.size,
     dataUrl,
+    generatorId: "monthly-kpi-scorecard",
+    generatorName: "Monthly KPI Scorecard Deck",
     reportingYear: persisted.reportingYear,
     reportingMonth: persisted.reportingMonth,
     businessUnit: persisted.businessUnit,
     template: persisted.template,
+    filename: name,
+    generatedAt,
   };
 }
 

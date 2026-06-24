@@ -94,3 +94,35 @@ describe("Presentation Center Operator-Driven Maintenance generation dialog", ()
     expect(ODM_TEMPLATE_OPTIONS).toEqual(["Executive Summary"]);
   });
 });
+
+describe("Presentation Center Recent Presentations deduplication", () => {
+  it("uses mergeGeneratedPresentation to avoid duplicate recent rows", () => {
+    expect(presentationCenterSource).toContain(
+      "mergeGeneratedPresentation(generated, deck)"
+    );
+  });
+
+  it("imports the merge helper from the presentation-center storage module", () => {
+    expect(presentationCenterSource).toContain(
+      "mergeGeneratedPresentation,"
+    );
+    expect(presentationCenterSource).toContain(
+      'from "@/modules/presentation-center/storage"'
+    );
+  });
+
+  it("sorts Recent Presentations by generatedAt descending", () => {
+    expect(presentationCenterSource).toContain("const sortedGenerated");
+    expect(presentationCenterSource).toContain("a.generatedAt ?? a.generatedDate");
+    expect(presentationCenterSource).toContain("b.generatedAt ?? b.generatedDate");
+    expect(presentationCenterSource).toContain("{sortedGenerated.map(deck =>");
+  });
+
+  it("keeps download buttons wired to the latest dataUrl", () => {
+    const recentTable = presentationCenterSource.slice(
+      presentationCenterSource.indexOf("Recent Presentations"),
+      presentationCenterSource.indexOf("No recent presentations yet")
+    );
+    expect(recentTable).toContain("downloadDataUrl(deck.dataUrl, deck.name)");
+  });
+});

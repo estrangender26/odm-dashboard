@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   Download,
@@ -33,9 +33,11 @@ import {
 } from "@/modules/presentation-center/odmScorecardData";
 import {
   blobToDataUrl,
+  cleanupGeneratedPresentationsHistory,
   downloadDataUrl,
   getGeneratedPresentations,
   getUploadedPresentations,
+  mergeGeneratedPresentation,
   saveGeneratedPresentations,
   saveUploadedPresentations,
 } from "@/modules/presentation-center/storage";
@@ -188,6 +190,13 @@ export default function PresentationCenter() {
   const [odmOptionsError, setOdmOptionsError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const deduped = cleanupGeneratedPresentationsHistory();
+    setGenerated(previous =>
+      deduped.length === previous.length ? previous : deduped
+    );
+  }, []);
+
   const monthlyKpiBusinessUnitOptions = [
     ALL_BUSINESS_UNITS_LABEL,
     ...(monthlyKpiOptions.businessUnits.length
@@ -246,6 +255,14 @@ export default function PresentationCenter() {
         );
       });
   }, [query, sortKey, uploaded]);
+
+  const sortedGenerated = useMemo(() => {
+    return [...generated].sort((a, b) => {
+      const aDate = a.generatedAt ?? a.generatedDate;
+      const bDate = b.generatedAt ?? b.generatedDate;
+      return new Date(bDate).getTime() - new Date(aDate).getTime();
+    });
+  }, [generated]);
 
   async function handleUpload(fileList: FileList | null) {
     const file = fileList?.[0];
@@ -416,7 +433,7 @@ export default function PresentationCenter() {
         generatedBy: "ODM User",
         ...generationContext,
       });
-      const next = [deck, ...generated];
+      const next = mergeGeneratedPresentation(generated, deck);
       setGenerated(next);
       saveGeneratedPresentations(next);
       toast.success("Presentation generated successfully.", {
@@ -774,7 +791,7 @@ export default function PresentationCenter() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E2E8F0] bg-white">
-                {generated.map(deck => (
+                {sortedGenerated.map(deck => (
                   <tr key={deck.id}>
                     <td className="px-4 py-3 font-semibold text-[#0B1D44]">
                       {deck.name}
