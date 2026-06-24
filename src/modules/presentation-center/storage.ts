@@ -1,4 +1,4 @@
-import type { GeneratedPresentation, UploadedPresentation } from "./types";
+import type { GeneratedPresentation, PresentationCategory, UploadedPresentation } from "./types";
 
 const ALL_DATES_SCOPE = "all-dates";
 
@@ -205,7 +205,55 @@ export function getUploadedPresentations() {
 }
 
 export function saveUploadedPresentations(items: UploadedPresentation[]) {
-  writeCollection(UPLOADED_KEY, items);
+  try {
+    writeCollection(UPLOADED_KEY, items);
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")
+    ) {
+      throw new Error(
+        "Upload could not be saved locally because browser storage is full. Please remove older files and try again."
+      );
+    }
+    throw error;
+  }
+}
+
+export async function createUploadedPresentation(
+  file: File,
+  context: {
+    category: PresentationCategory;
+    uploadedBy?: string;
+  }
+): Promise<{ deck?: UploadedPresentation; error?: string }> {
+  if (
+    !file.name.toLowerCase().endsWith(".pptx") ||
+    file.type === "application/vnd.ms-powerpoint"
+  ) {
+    return { error: "Unsupported file type. Please upload a .pptx PowerPoint file." };
+  }
+  try {
+    const dataUrl = await blobToDataUrl(file);
+    const deck: UploadedPresentation = {
+      id: crypto.randomUUID(),
+      name: file.name,
+      uploadDate: new Date().toISOString(),
+      uploadedBy: context.uploadedBy ?? "ODM User",
+      size: file.size,
+      category: context.category,
+      dataUrl,
+    };
+    return { deck };
+  } catch (error) {
+    console.error("[PresentationCenter] Failed to read uploaded file", error);
+    return {
+      error:
+        error instanceof Error && error.name === "QuotaExceededError"
+          ? "Upload could not be saved locally because browser storage is full. Please remove older files and try again."
+          : "Upload failed. Please try again with a valid .pptx file.",
+    };
+  }
 }
 
 export function getGeneratedPresentations() {

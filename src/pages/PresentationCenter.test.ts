@@ -204,3 +204,29 @@ describe("Presentation Center Uploaded Files / Deck Library Manager", () => {
     );
   });
 });
+
+
+describe("Presentation Center Uploaded Files persistence", () => {
+  it("converts uploaded PPTX to a dataUrl before saving", () => {
+    expect(presentationCenterSource).toContain("createUploadedPresentation(file,");
+    expect(presentationCenterSource).not.toContain("FileReader");
+  });
+
+  it("persists uploaded files through storage helpers instead of raw File objects", () => {
+    expect(presentationCenterSource).toContain("saveUploadedPresentations(next)");
+    expect(presentationCenterSource).toContain("getUploadedPresentations()");
+  });
+
+  it("imports the createUploadedPresentation helper that handles upload failures", () => {
+    expect(presentationCenterSource).toContain("createUploadedPresentation");
+  });
+
+  it("imports storage helpers for persistence and rehydration", () => {
+    expect(presentationCenterSource).toContain("saveUploadedPresentations(next)");
+    expect(presentationCenterSource).toContain("getUploadedPresentations()");
+  });
+
+  it("rehydrates uploaded files on page load via cleanupUploadedPresentationsHistory", () => {
+    expect(presentationCenterSource).toContain("cleanupUploadedPresentationsHistory");
+  });
+});

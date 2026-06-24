@@ -4,7 +4,10 @@ import {
   cleanupGeneratedPresentationsHistory,
   cleanupUploadedPresentationsHistory,
   clearGeneratedPresentationsHistory,
+  createUploadedPresentation,
   deleteGeneratedPresentation,
+  getGeneratedPresentations,
+  getUploadedPresentations,
   deleteUploadedPresentation,
   deduplicateGeneratedPresentations,
   deduplicateUploadedPresentations,
@@ -14,6 +17,7 @@ import {
   renameUploadedPresentation,
   replaceUploadedPresentation,
   saveGeneratedPresentations,
+  saveUploadedPresentations,
   validateUploadedFileName,
 } from "./storage";
 
@@ -462,5 +466,221 @@ describe("uploaded file / deck library management", () => {
         window.localStorage.getItem("odm.presentationCenter.uploadedDecks") || "[]"
       )
     ).toHaveLength(1);
+  });
+});
+
+
+describe("uploaded file persistence and rehydration", () => {
+  beforeEach(() => {
+    const store: Record<string, string> = {};
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store[key] ?? null,
+        setItem: (key: string, value: string) => {
+          store[key] = value;
+        },
+        removeItem: (key: string) => {
+          delete store[key];
+        },
+      },
+    });
+    vi.stubGlobal("FileReader", MockFileReader);
+    vi.stubGlobal("crypto", { randomUUID: () => "uploaded-deck-id" });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("creates an uploaded presentation with a serializable dataUrl", async () => {
+    const file = new File(["pptx"], "report.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+
+    const result = await createUploadedPresentation(file, {
+      category: "Uploaded Deck",
+      uploadedBy: "Test User",
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.deck).toMatchObject({
+      id: "uploaded-deck-id",
+      name: "report.pptx",
+      uploadedBy: "Test User",
+      size: file.size,
+      category: "Uploaded Deck",
+    });
+    expect(result.deck?.dataUrl).toMatch(/^data:/);
+    expect(result.deck?.uploadDate).toBeDefined();
+  });
+
+  it("rejects unsupported file types", async () => {
+    const file = new File(["x"], "report.pdf", { type: "application/pdf" });
+
+    const result = await createUploadedPresentation(file, {
+      category: "Uploaded Deck",
+    });
+
+    expect(result.error).toContain(".pptx");
+    expect(result.deck).toBeUndefined();
+  });
+
+  it("saves uploaded presentations to localStorage and rehydrates on read", async () => {
+    const file = new File(["pptx"], "report.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const result = await createUploadedPresentation(file, {
+      category: "Uploaded Deck",
+    });
+    if (!result.deck) throw new Error("Expected deck");
+
+    saveUploadedPresentations([result.deck]);
+
+    const stored = JSON.parse(
+      window.localStorage.getItem("odm.presentationCenter.uploadedDecks") || "[]"
+    );
+    expect(stored).toHaveLength(1);
+    expect(stored[0].name).toBe("report.pptx");
+    expect(stored[0].dataUrl).toMatch(/^data:/);
+
+    const rehydrated = getUploadedPresentations();
+    expect(rehydrated).toHaveLength(1);
+    expect(rehydrated[0].name).toBe("report.pptx");
+    expect(rehydrated[0].dataUrl).toMatch(/^data:/);
+  });
+
+  it("renames a persisted uploaded file and rehydrates the new name", async () => {
+    const file = new File(["pptx"], "old.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const result = await createUploadedPresentation(file, {
+      category: "Uploaded Deck",
+    });
+    if (!result.deck) throw new Error("Expected deck");
+    saveUploadedPresentations([result.deck]);
+
+    const rename = renameUploadedPresentation(
+      getUploadedPresentations(),
+      result.deck.id,
+      "renamed.pptx"
+    );
+    if (rename.error) throw new Error(rename.error);
+    saveUploadedPresentations(rename.items);
+
+    expect(getUploadedPresentations()[0].name).toBe("renamed.pptx");
+  });
+
+  it("replaces a persisted uploaded file and rehydrates updated metadata", async () => {
+    const file = new File(["pptx"], "old.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const result = await createUploadedPresentation(file, {
+      category: "Uploaded Deck",
+    });
+    if (!result.deck) throw new Error("Expected deck");
+    saveUploadedPresentations([result.deck]);
+
+    const newFile = new File(["new pptx content"], "new.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const replace = await replaceUploadedPresentation(
+      getUploadedPresentations(),
+      result.deck.id,
+      newFile,
+      false
+    );
+    if (replace.error) throw new Error(replace.error);
+    saveUploadedPresentations(replace.items);
+
+    const rehydrated = getUploadedPresentations();
+    expect(rehydrated).toHaveLength(1);
+    expect(rehydrated[0].name).toBe("new.pptx");
+    expect(rehydrated[0].size).toBe(newFile.size);
+  });
+
+  it("deletes a persisted uploaded file after reading it back", async () => {
+    const file = new File(["pptx"], "report.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const result = await createUploadedPresentation(file, {
+      category: "Uploaded Deck",
+    });
+    if (!result.deck) throw new Error("Expected deck");
+    saveUploadedPresentations([result.deck]);
+
+    expect(getUploadedPresentations()).toHaveLength(1);
+
+    const next = deleteUploadedPresentation(getUploadedPresentations(), result.deck.id);
+    saveUploadedPresentations(next);
+
+    expect(getUploadedPresentations()).toHaveLength(0);
+  });
+
+  it("deduplicates uploaded files on load and keeps newest copy", async () => {
+    const file = new File(["pptx"], "report.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const first = await createUploadedPresentation(file, { category: "Uploaded Deck" });
+    if (!first.deck) throw new Error("Expected deck");
+    const second = await createUploadedPresentation(file, { category: "Uploaded Deck" });
+    if (!second.deck) throw new Error("Expected deck");
+    second.deck.uploadDate = new Date(
+      new Date(first.deck.uploadDate).getTime() + 1000
+    ).toISOString();
+    window.localStorage.setItem(
+      "odm.presentationCenter.uploadedDecks",
+      JSON.stringify([first.deck, second.deck])
+    );
+
+    const rehydrated = cleanupUploadedPresentationsHistory();
+
+    expect(rehydrated).toHaveLength(1);
+    expect(rehydrated[0].uploadDate).toBe(second.deck.uploadDate);
+  });
+
+  it("throws a friendly error when localStorage quota is exceeded", () => {
+    window.localStorage.setItem = () => {
+      const error = new DOMException("quota", "QuotaExceededError");
+      throw error;
+    };
+
+    expect(() => saveUploadedPresentations([makeUploaded()])).toThrow(
+      "Upload could not be saved locally because browser storage is full."
+    );
+  });
+
+  it("does not delete uploaded files when clearing generated history", async () => {
+    const file = new File(["pptx"], "report.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const result = await createUploadedPresentation(file, {
+      category: "Uploaded Deck",
+    });
+    if (!result.deck) throw new Error("Expected deck");
+    saveUploadedPresentations([result.deck]);
+    saveGeneratedPresentations([makeDeck()]);
+
+    clearGeneratedPresentationsHistory();
+
+    expect(getUploadedPresentations()).toHaveLength(1);
+    expect(getGeneratedPresentations()).toHaveLength(0);
+  });
+
+  it("does not delete generated presentations when cleaning up uploaded duplicates", async () => {
+    const file = new File(["pptx"], "report.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const result = await createUploadedPresentation(file, {
+      category: "Uploaded Deck",
+    });
+    if (!result.deck) throw new Error("Expected deck");
+    const duplicate = { ...result.deck, id: "duplicate-id" };
+    saveUploadedPresentations([result.deck, duplicate]);
+    saveGeneratedPresentations([makeDeck()]);
+
+    cleanupUploadedPresentationsHistory();
+
+    expect(getUploadedPresentations()).toHaveLength(1);
+    expect(getGeneratedPresentations()).toHaveLength(1);
   });
 });
