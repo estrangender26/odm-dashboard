@@ -1889,3 +1889,44 @@ describe("Monthly KPI dashboard presentation", () => {
   });
 
 });
+
+describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
+  it("adds a Scope / Inclusions tab beside Definitions / FAQ", () => {
+    expect(scorecardHtml).toContain('<button class="tab" data-tab="scope-inclusions">Scope / Inclusions</button>');
+    expect(scorecardHtml).toContain('id="t-scope-inclusions"');
+    expect(scorecardHtml).toContain('id="scope-inclusions-content"');
+  });
+
+  it("states that the scorecard covers only Repair and Maintenance – Technical Equipment", () => {
+    const scopePanel = scorecardHtml.match(/id="t-scope-inclusions"[\s\S]*?<!-- MANUAL INPUT MODAL/)?.[0] ?? "";
+    expect(scopePanel).toContain("Repair and Maintenance – Technical Equipment");
+    expect(scopePanel).toContain("Primary GL scope for this scorecard");
+    expect(scopePanel).toContain("Included");
+  });
+
+  it("lists the required excluded categories", () => {
+    const scopePanel = scorecardHtml.match(/id="t-scope-inclusions"[\s\S]*?<!-- MANUAL INPUT MODAL/)?.[0] ?? "";
+    expect(scopePanel).toContain("Building / civil / structural");
+    expect(scopePanel).toContain("Fleet / vehicle");
+    expect(scopePanel).toContain("IT equipment and office equipment");
+    expect(scopePanel).toContain("Property / Facilities / General Services");
+    expect(scopePanel).toContain("CAPEX");
+  });
+
+  it("does not invent exact SAP GL account numbers", () => {
+    const scopePanel = scorecardHtml.match(/id="t-scope-inclusions"[\s\S]*?<!-- MANUAL INPUT MODAL/)?.[0] ?? "";
+    expect(scopePanel).toContain("Exact SAP GL account codes should be confirmed");
+    expect(scopePanel).not.toMatch(/\b\d{4,6}\b/);
+  });
+
+  it("keeps only the six approved KPI cards visible", () => {
+    expect(extractScriptArray("GaugeKPIs")).toEqual([
+      "pmCompliance",
+      "budgetSpend",
+      "pmcmWORatio",
+      "pmcmCostRatio",
+      "mttr",
+      "facilityUptime",
+    ]);
+  });
+});

@@ -133,6 +133,14 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .faq-item{background:#F8FAFC;border:1px solid var(--border);border-radius:var(--r);padding:10px 12px}
 .faq-question{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:5px}
 .faq-answer{font-size:12px;color:var(--text);line-height:1.45;white-space:pre-line}
+.scope-inclusions-content{display:grid;gap:10px}
+.scope-section-title{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:5px;margin-top:10px}
+.scope-section p,.scope-section ul,.scope-section li{font-size:12px;color:var(--text);line-height:1.45}
+.scope-section ul{padding-left:18px;margin:0}
+.scope-section li{margin-bottom:4px}
+.scope-note{font-size:11px;color:var(--muted);font-style:italic;margin-top:8px;border-left:3px solid var(--blue);padding-left:10px}
+.scope-table th,.scope-table td{text-align:left;vertical-align:top}
+.scope-table td:first-child{font-weight:700}
 
 /* GAUGE CARDS */
 .gauge-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
@@ -393,6 +401,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   <div class="tabs">
   <button class="tab active" data-tab="summary">Summary Matrix</button>
   <button class="tab" data-tab="definitions">Definitions / FAQ</button>
+  <button class="tab" data-tab="scope-inclusions">Scope / Inclusions</button>
   </div>
 
   <!-- SUMMARY TAB -->
@@ -436,6 +445,97 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <div id="definitions-content" class="matrix-card">
       <div class="matrix-title">KPI Definitions &amp; FAQ</div>
       <div class="definitions-content"></div>
+    </div>
+  </div>
+
+  <div id="t-scope-inclusions" class="tc">
+    <div id="scope-inclusions-content" class="matrix-card">
+      <div class="matrix-title">Monthly KPI Scorecard Scope and GL Account Coverage</div>
+      <div class="scope-inclusions-content">
+        <div class="scope-section">
+          <div class="scope-section-title">1. Primary Scope</div>
+          <p>The Monthly KPI Scorecard monitors maintenance performance using the approved Repair and Maintenance scope. For the current scorecard, KPI values are based only on Repair and Maintenance – Technical Equipment costs and activities.</p>
+        </div>
+        <div class="scope-section">
+          <div class="scope-section-title">2. Included</div>
+          <ul>
+            <li>Repair and Maintenance – Technical Equipment GL</li>
+            <li>Maintenance activities directly related to technical equipment reliability, availability, corrective maintenance, preventive maintenance, and equipment uptime</li>
+            <li>Equipment-related work orders and cost entries that fall under the approved Technical Equipment R&amp;M GL scope</li>
+            <li>PM and CM work orders/costs where the asset or activity belongs to the Technical Equipment maintenance scope</li>
+          </ul>
+        </div>
+        <div class="scope-section">
+          <div class="scope-section-title">3. Excluded</div>
+          <ul>
+            <li>Building / civil / structural repairs</li>
+            <li>Office facilities and general admin repairs</li>
+            <li>Fleet / vehicle repair and maintenance</li>
+            <li>IT equipment and office equipment repairs</li>
+            <li>Property management costs</li>
+            <li>Janitorial, housekeeping, security, landscaping, and non-technical facility services</li>
+            <li>CAPEX, project works, asset replacement projects, and construction-related costs</li>
+            <li>Warranty works performed by contractors where no R&amp;M cost is booked to the Technical Equipment GL</li>
+            <li>Non-maintenance operating expenses</li>
+            <li>Any R&amp;M GL not classified as Repair and Maintenance – Technical Equipment</li>
+          </ul>
+        </div>
+        <div class="scope-section">
+          <div class="scope-section-title">4. SAP R&amp;M GL Account Reference</div>
+          <div style="overflow-x:auto">
+            <table class="matrix-table scope-table">
+              <thead>
+                <tr>
+                  <th>SAP R&amp;M GL Category</th>
+                  <th>Scorecard Treatment</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Repair and Maintenance – Technical Equipment</td>
+                  <td>Included</td>
+                  <td>Primary GL scope for this scorecard</td>
+                </tr>
+                <tr>
+                  <td>Repair and Maintenance – Building / Civil / Structures</td>
+                  <td>Excluded</td>
+                  <td>Outside technical equipment scope</td>
+                </tr>
+                <tr>
+                  <td>Repair and Maintenance – Fleet / Vehicles</td>
+                  <td>Excluded</td>
+                  <td>To be monitored separately if required</td>
+                </tr>
+                <tr>
+                  <td>Repair and Maintenance – IT / Office Equipment</td>
+                  <td>Excluded</td>
+                  <td>Outside technical equipment maintenance scorecard</td>
+                </tr>
+                <tr>
+                  <td>Repair and Maintenance – Property / Facilities / General Services</td>
+                  <td>Excluded</td>
+                  <td>Not part of this scorecard unless separately approved</td>
+                </tr>
+                <tr>
+                  <td>Other R&amp;M GL Accounts</td>
+                  <td>Excluded by default</td>
+                  <td>Include only if formally mapped to Technical Equipment scope</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="scope-note">Exact SAP GL account codes should be confirmed against the active SAP chart of accounts. This scorecard uses the GL category/scope definition and should not assume account codes unless validated from SAP.</p>
+        </div>
+        <div class="scope-section">
+          <div class="scope-section-title">5. Governance Note</div>
+          <p>For monthly reporting, each business unit must ensure that imported KPI values are aligned with this GL scope. If costs or work orders include non-technical-equipment items, they should be excluded or separately identified before upload.</p>
+        </div>
+        <div class="scope-section">
+          <div class="scope-section-title">6. Future Expansion</div>
+          <p>Additional scorecards may be created later for Fleet, Building/Facilities, Property, IT/Office Equipment, or other R&amp;M GL categories, but these are outside the current Technical Equipment scorecard.</p>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -637,7 +737,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
 // ===== TAB SWITCH =====
 function getMonthlyKpiTabIds(){
-  return ['summary','definitions','business-unit'].concat(BUs.map(function(bu){return bu.id;}));
+  return ['summary','definitions','scope-inclusions','business-unit'].concat(BUs.map(function(bu){return bu.id;}));
 }
 
 function isValidMonthlyKpiTab(id){
@@ -735,7 +835,7 @@ function getBusinessUnitTrendSectionId(buId){
 function syncBusinessUnitDropdownForTab(id){
   var sel = document.getElementById('businessUnitSel');
   if(!sel)return;
-  if(id==='summary'){
+  if(id==='summary' || id==='scope-inclusions'){
     sel.value = ALL_BUSINESS_UNITS_VALUE;
     return;
   }
@@ -791,6 +891,12 @@ function showTab(id,btn,skipFetch){
     updateExportButtonState();
     return;
   }
+  if(id==='scope-inclusions'){
+    renderScopeInclusionsPanel();
+    updateClearButtonState('scope-inclusions');
+    updateExportButtonState();
+    return;
+  }
   if(id==='business-unit'){
     if(isValidBusinessUnitId(targetBusinessUnitId))selectedBusinessUnitId = targetBusinessUnitId;
     persistDeckContext();
@@ -806,6 +912,7 @@ function getBUById(buId){return BUs.find(function(bu){return bu.id===buId;}) || 
 function getSelectedBU(){return getBUById(selectedBusinessUnitId);}
 function isSummaryTabActive(){var activePanel=document.querySelector('.tc.active');return !activePanel || activePanel.id==='t-summary';}
 function isDefinitionsTabActive(){var activePanel=document.querySelector('.tc.active');return activePanel && activePanel.id==='t-definitions';}
+function isScopeInclusionsTabActive(){var activePanel=document.querySelector('.tc.active');return activePanel && activePanel.id==='t-scope-inclusions';}
 function getBUApiValue(buId){var bu=getBUById(buId);return bu.apiValue || bu.label || bu.id;}
 function initBusinessUnitSelector(){
   var sel = document.getElementById('businessUnitSel');
@@ -1302,7 +1409,7 @@ function setClearingKpiRecords(flag){
 function updateClearButtonState(activeTabId){
   var btn = document.getElementById('clearKpiBtn');
   if(!btn)return;
-  var summarySelected = activeTabId ? (activeTabId==='summary' || activeTabId==='definitions') : (isSummaryTabActive() || isDefinitionsTabActive());
+  var summarySelected = activeTabId ? (activeTabId==='summary' || activeTabId==='definitions' || activeTabId==='scope-inclusions') : (isSummaryTabActive() || isDefinitionsTabActive() || isScopeInclusionsTabActive());
   btn.disabled = isClearingKpiRecords || summarySelected;
   btn.title = summarySelected ? 'Select a Business Unit before clearing KPI records.' : (isClearingKpiRecords ? 'Clearing KPI records...' : 'Clear KPI records for '+getSelectedBU().label+'.');
   btn.innerHTML = isClearingKpiRecords ? '<span class="spinner"></span> Clearing...' : 'Clear';
@@ -1334,7 +1441,7 @@ document.addEventListener('click',function(event){
 function updateExportButtonState(){
   var btn = document.getElementById('exportDataBtn');
   var label = document.getElementById('exportBtnLabel');
-  if(btn)btn.disabled = isExportingKpiRecords || isKpiLoading() || isDefinitionsTabActive();
+  if(btn)btn.disabled = isExportingKpiRecords || isKpiLoading() || isDefinitionsTabActive() || isScopeInclusionsTabActive();
   if(label)label.innerHTML = isExportingKpiRecords ? '<span class="spinner"></span> Exporting...' : 'Export Data';
 }
 
@@ -2461,6 +2568,14 @@ function renderDefinitionsPanel(){
 }
 
 
+function renderScopeInclusionsPanel(){
+  var container = document.getElementById('scope-inclusions-content');
+  if(!container)return;
+  // Static markup is already present in the page; ensure the container is visible.
+  container.style.display = '';
+}
+
+
 // ===== LOAD / INIT DATA =====
 function loadData(){
   persistDeckContext();
@@ -2471,6 +2586,10 @@ function loadData(){
   }
   if(activePanel.id==='t-definitions'){
     renderDefinitionsPanel();
+    return;
+  }
+  if(activePanel.id==='t-scope-inclusions'){
+    renderScopeInclusionsPanel();
     return;
   }
   renderSummary();
