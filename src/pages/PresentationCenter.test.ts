@@ -120,9 +120,87 @@ describe("Presentation Center Recent Presentations deduplication", () => {
 
   it("keeps download buttons wired to the latest dataUrl", () => {
     const recentTable = presentationCenterSource.slice(
-      presentationCenterSource.indexOf("Recent Presentations"),
+      presentationCenterSource.indexOf("Recent Generated Presentations"),
       presentationCenterSource.indexOf("No recent presentations yet")
     );
     expect(recentTable).toContain("downloadDataUrl(deck.dataUrl, deck.name)");
+  });
+});
+
+describe("Presentation Center Uploaded Files / Deck Library Manager", () => {
+  it("renders an Uploaded Files / Deck Library section", () => {
+    expect(presentationCenterSource).toContain("Uploaded Files /");
+    expect(presentationCenterSource).toContain("Deck Library");
+  });
+
+  it("displays the required uploaded file columns", () => {
+    expect(presentationCenterSource).toContain("File Name");
+    expect(presentationCenterSource).toContain("File Type");
+    expect(presentationCenterSource).toContain("Uploaded Date");
+    expect(presentationCenterSource).toContain("Uploaded By");
+    expect(presentationCenterSource).toContain("File Size");
+    expect(presentationCenterSource).toContain("Used For / Generator");
+    expect(presentationCenterSource).toContain("Actions");
+  });
+
+  it("provides download, rename, replace, details, and delete actions", () => {
+    expect(presentationCenterSource).toContain("setUploadRenameCandidate");
+    expect(presentationCenterSource).toContain("setUploadReplaceCandidate");
+    expect(presentationCenterSource).toContain("setUploadDetailCandidate");
+    expect(presentationCenterSource).toContain("setUploadDeleteCandidate");
+    expect(presentationCenterSource).toContain("confirmDeleteUploaded");
+  });
+
+  it("shows a delete confirmation modal before removing an uploaded file", () => {
+    expect(presentationCenterSource).toContain("Delete Uploaded File");
+    expect(presentationCenterSource).toContain("What will be removed");
+    expect(presentationCenterSource).toContain("What will NOT be removed");
+  });
+
+  it("shows a rename modal that validates the file name", () => {
+    expect(presentationCenterSource).toContain("Rename Uploaded File");
+    expect(presentationCenterSource).toContain("handleRenameSubmit");
+  });
+
+  it("shows a replace flow with a hidden file input", () => {
+    expect(presentationCenterSource).toContain("Replace Uploaded File");
+    expect(presentationCenterSource).toContain("replaceInputRef");
+    expect(presentationCenterSource).toContain("handleReplaceFileList");
+  });
+
+  it("shows a duplicate cleanup preview before removing duplicates", () => {
+    expect(presentationCenterSource).toContain("Clean Up Duplicates");
+    expect(presentationCenterSource).toContain("openCleanupDuplicatesPreview");
+    expect(presentationCenterSource).toContain("cleanupDuplicatesPreview");
+    expect(presentationCenterSource).toContain("Confirm Cleanup");
+  });
+
+  it("separates generated presentation history from uploaded files", () => {
+    expect(presentationCenterSource).toContain("Recent Generated Presentations");
+    expect(presentationCenterSource).toContain("Clear Generated History");
+    expect(presentationCenterSource).toContain("Uploaded files are not affected");
+  });
+
+  it("does not clear uploaded files when clearing generated history", () => {
+    expect(presentationCenterSource).toContain("clearGeneratedPresentationsHistory");
+    expect(presentationCenterSource).toContain(
+      "uploaded files in the Deck Library"
+    );
+  });
+
+  it("keeps generated download buttons wired to dataUrl", () => {
+    const recentTable = presentationCenterSource.slice(
+      presentationCenterSource.indexOf("Recent Generated Presentations"),
+      presentationCenterSource.indexOf("No generated presentations yet")
+    );
+    expect(recentTable).toContain("downloadDataUrl(deck.dataUrl, deck.name)");
+  });
+
+  it("keeps presentation tables sorted newest first", () => {
+    expect(presentationCenterSource).toContain("const sortedGenerated");
+    expect(presentationCenterSource).toContain("new Date(bDate).getTime() - new Date(aDate).getTime()");
+    expect(presentationCenterSource).toContain(
+      "new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()"
+    );
   });
 });

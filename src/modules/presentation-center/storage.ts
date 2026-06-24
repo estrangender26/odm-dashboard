@@ -54,6 +54,135 @@ export function mergeGeneratedPresentation(
   return [deck, ...filtered];
 }
 
+export function getUploadedPresentationDedupeKey(
+  deck: UploadedPresentation
+): string {
+  return [deck.name, deck.category ?? "Uploaded Deck"].join("::");
+}
+
+export function deduplicateUploadedPresentations(
+  items: UploadedPresentation[]
+): UploadedPresentation[] {
+  const newestFirst = [...items].sort((a, b) => {
+    return (
+      new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
+    );
+  });
+  const unique = new Map<string, UploadedPresentation>();
+  for (const deck of newestFirst) {
+    const key = getUploadedPresentationDedupeKey(deck);
+    if (!unique.has(key)) {
+      unique.set(key, deck);
+    }
+  }
+  return Array.from(unique.values());
+}
+
+export function cleanupUploadedPresentationsHistory() {
+  const items = readCollection<UploadedPresentation>(UPLOADED_KEY);
+  const deduped = deduplicateUploadedPresentations(items);
+  if (deduped.length !== items.length) {
+    writeCollection(UPLOADED_KEY, deduped);
+  }
+  return deduped;
+}
+
+export function validateUploadedFileName(value: string): {
+  valid: boolean;
+  error?: string;
+  sanitized?: string;
+} {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { valid: false, error: "File name cannot be blank." };
+  }
+  if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
+    return { valid: false, error: "File name cannot contain paths." };
+  }
+  if (!trimmed.toLowerCase().endsWith(".pptx")) {
+    return { valid: false, error: "File name must keep the .pptx extension." };
+  }
+  return { valid: true, sanitized: trimmed };
+}
+
+export function renameUploadedPresentation(
+  items: UploadedPresentation[],
+  id: string,
+  nextName: string
+): { items: UploadedPresentation[]; error?: string } {
+  const validation = validateUploadedFileName(nextName);
+  if (!validation.valid) {
+    return { items, error: validation.error };
+  }
+  let updated = false;
+  const next = items.map(item => {
+    if (item.id !== id) return item;
+    updated = true;
+    return { ...item, name: validation.sanitized as string };
+  });
+  if (!updated) {
+    return { items, error: "File not found." };
+  }
+  return { items: next };
+}
+
+export async function replaceUploadedPresentation(
+  items: UploadedPresentation[],
+  id: string,
+  file: File,
+  keepName = false
+): Promise<{ items: UploadedPresentation[]; error?: string }> {
+  if (
+    !file.name.toLowerCase().endsWith(".pptx") ||
+    file.type === "application/vnd.ms-powerpoint"
+  ) {
+    return { items, error: "Unsupported file type. Please upload a .pptx file." };
+  }
+  const existing = items.find(item => item.id === id);
+  if (!existing) {
+    return { items, error: "File not found." };
+  }
+  try {
+    const dataUrl = await blobToDataUrl(file);
+    const nextName = keepName
+      ? existing.name
+      : validateUploadedFileName(file.name).sanitized ?? file.name;
+    const next = items.map(item =>
+      item.id === id
+        ? {
+            ...item,
+            name: nextName,
+            size: file.size,
+            uploadDate: new Date().toISOString(),
+            dataUrl,
+          }
+        : item
+    );
+    return { items: next };
+  } catch (error) {
+    return { items, error: "Failed to read replacement file." };
+  }
+}
+
+export function deleteUploadedPresentation(
+  items: UploadedPresentation[],
+  id: string
+): UploadedPresentation[] {
+  return items.filter(item => item.id !== id);
+}
+
+export function clearGeneratedPresentationsHistory(): GeneratedPresentation[] {
+  writeCollection(GENERATED_KEY, []);
+  return [];
+}
+
+export function deleteGeneratedPresentation(
+  items: GeneratedPresentation[],
+  id: string
+): GeneratedPresentation[] {
+  return items.filter(item => item.id !== id);
+}
+
 const UPLOADED_KEY = "odm.presentationCenter.uploadedDecks";
 const GENERATED_KEY = "odm.presentationCenter.generatedDecks";
 
