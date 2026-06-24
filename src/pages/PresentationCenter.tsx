@@ -36,10 +36,10 @@ import {
   type OdmAvailableOptions,
 } from "@/modules/presentation-center/odmScorecardData";
 import {
-  blobToDataUrl,
   cleanupGeneratedPresentationsHistory,
   cleanupUploadedPresentationsHistory,
   clearGeneratedPresentationsHistory,
+  createUploadedPresentation,
   deleteGeneratedPresentation,
   deleteUploadedPresentation,
   downloadDataUrl,
@@ -414,36 +414,26 @@ export default function PresentationCenter() {
   async function handleUpload(fileList: FileList | null) {
     const file = fileList?.[0];
     if (!file) return;
-    if (
-      !file.name.toLowerCase().endsWith(".pptx") ||
-      file.type === "application/vnd.ms-powerpoint"
-    ) {
-      toast.error(
-        "Unsupported file type. Please upload a .pptx PowerPoint file."
-      );
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
 
     setIsUploading(true);
     try {
-      const dataUrl = await blobToDataUrl(file);
-      const deck: UploadedPresentation = {
-        id: crypto.randomUUID(),
-        name: file.name,
-        uploadDate: new Date().toISOString(),
-        uploadedBy: "ODM User",
-        size: file.size,
+      const result = await createUploadedPresentation(file, {
         category,
-        dataUrl,
-      };
-      const next = [deck, ...uploaded];
+        uploadedBy: "ODM User",
+      });
+      if (result.error || !result.deck) {
+        toast.error(result.error ?? "Upload failed.");
+        return;
+      }
+      const next = [result.deck, ...uploaded];
       setUploaded(next);
       saveUploadedPresentations(next);
       toast.success("Presentation uploaded successfully.");
     } catch (error) {
       console.error("[PresentationCenter] Upload failed", error);
-      toast.error("Upload failed. Please try again with a valid .pptx file.");
+      const message =
+        error instanceof Error ? error.message : "Upload failed. Please try again with a valid .pptx file.";
+      toast.error(message);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
