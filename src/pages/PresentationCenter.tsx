@@ -2,10 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   Download,
+  Edit3,
+  Eye,
   FileText,
   Loader2,
   Presentation,
+  Replace,
   Search,
+  Trash2,
   Upload,
   WandSparkles,
   X,
@@ -34,10 +38,16 @@ import {
 import {
   blobToDataUrl,
   cleanupGeneratedPresentationsHistory,
+  cleanupUploadedPresentationsHistory,
+  clearGeneratedPresentationsHistory,
+  deleteGeneratedPresentation,
+  deleteUploadedPresentation,
   downloadDataUrl,
   getGeneratedPresentations,
   getUploadedPresentations,
   mergeGeneratedPresentation,
+  renameUploadedPresentation,
+  replaceUploadedPresentation,
   saveGeneratedPresentations,
   saveUploadedPresentations,
 } from "@/modules/presentation-center/storage";
@@ -189,11 +199,36 @@ export default function PresentationCenter() {
   const [odmOptionsLoading, setOdmOptionsLoading] = useState(false);
   const [odmOptionsError, setOdmOptionsError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+
+  const [uploadDeleteCandidate, setUploadDeleteCandidate] =
+    useState<UploadedPresentation | null>(null);
+  const [uploadRenameCandidate, setUploadRenameCandidate] =
+    useState<UploadedPresentation | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [uploadReplaceCandidate, setUploadReplaceCandidate] =
+    useState<UploadedPresentation | null>(null);
+  const [replaceKeepName, setReplaceKeepName] = useState(true);
+  const [uploadDetailCandidate, setUploadDetailCandidate] =
+    useState<UploadedPresentation | null>(null);
+  const [generatedDetailCandidate, setGeneratedDetailCandidate] =
+    useState<GeneratedPresentation | null>(null);
+  const [generatedDeleteCandidate, setGeneratedDeleteCandidate] =
+    useState<GeneratedPresentation | null>(null);
+  const [clearGeneratedOpen, setClearGeneratedOpen] = useState(false);
+  const [cleanupDuplicatesOpen, setCleanupDuplicatesOpen] = useState(false);
+  const [cleanupDuplicatesPreview, setCleanupDuplicatesPreview] = useState<
+    UploadedPresentation[]
+  >([]);
 
   useEffect(() => {
-    const deduped = cleanupGeneratedPresentationsHistory();
+    const dedupedGenerated = cleanupGeneratedPresentationsHistory();
     setGenerated(previous =>
-      deduped.length === previous.length ? previous : deduped
+      dedupedGenerated.length === previous.length ? previous : dedupedGenerated
+    );
+    const dedupedUploaded = cleanupUploadedPresentationsHistory();
+    setUploaded(previous =>
+      dedupedUploaded.length === previous.length ? previous : dedupedUploaded
     );
   }, []);
 
@@ -263,6 +298,118 @@ export default function PresentationCenter() {
       return new Date(bDate).getTime() - new Date(aDate).getTime();
     });
   }, [generated]);
+
+  function closeUploadModals() {
+    setUploadDeleteCandidate(null);
+    setUploadRenameCandidate(null);
+    setRenameValue("");
+    setUploadReplaceCandidate(null);
+    setReplaceKeepName(true);
+    setUploadDetailCandidate(null);
+  }
+
+  function closeGeneratedModals() {
+    setGeneratedDeleteCandidate(null);
+    setGeneratedDetailCandidate(null);
+    setClearGeneratedOpen(false);
+  }
+
+  function getUploadedFileUsage(deck: UploadedPresentation) {
+    return generated.some(entry => entry.dataUrl === deck.dataUrl)
+      ? "Used by at least one generated presentation."
+      : "Not referenced by generated presentation history.";
+  }
+
+  function confirmDeleteUploaded(deck: UploadedPresentation) {
+    const next = deleteUploadedPresentation(uploaded, deck.id);
+    setUploaded(next);
+    saveUploadedPresentations(next);
+    toast.success("Uploaded file removed.");
+    closeUploadModals();
+  }
+
+  function confirmDeleteGenerated(deck: GeneratedPresentation) {
+    const next = deleteGeneratedPresentation(generated, deck.id);
+    setGenerated(next);
+    saveGeneratedPresentations(next);
+    toast.success("Generated presentation removed from history.");
+    closeGeneratedModals();
+  }
+
+  function confirmClearGeneratedHistory() {
+    const next = clearGeneratedPresentationsHistory();
+    setGenerated(next);
+    toast.success("Generated presentation history cleared. Uploaded files are untouched.");
+    closeGeneratedModals();
+  }
+
+  function handleRenameSubmit() {
+    if (!uploadRenameCandidate) return;
+    const result = renameUploadedPresentation(
+      uploaded,
+      uploadRenameCandidate.id,
+      renameValue
+    );
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setUploaded(result.items);
+    saveUploadedPresentations(result.items);
+    toast.success("File renamed.");
+    closeUploadModals();
+  }
+
+  async function handleReplaceFileList(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file || !uploadReplaceCandidate) return;
+    const result = await replaceUploadedPresentation(
+      uploaded,
+      uploadReplaceCandidate.id,
+      file,
+      replaceKeepName
+    );
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setUploaded(result.items);
+    saveUploadedPresentations(result.items);
+    toast.success("File replaced.");
+    if (replaceInputRef.current) replaceInputRef.current.value = "";
+    closeUploadModals();
+  }
+
+  function openCleanupDuplicatesPreview() {
+    const sorted = [...uploaded].sort(
+      (a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
+    );
+    const seen = new Set<string>();
+    const duplicates: UploadedPresentation[] = [];
+    for (const deck of sorted) {
+      const key = [deck.name, deck.category].join("::");
+      if (seen.has(key)) {
+        duplicates.push(deck);
+      } else {
+        seen.add(key);
+      }
+    }
+    setCleanupDuplicatesPreview(duplicates);
+    setCleanupDuplicatesOpen(true);
+  }
+
+  function confirmCleanupDuplicates() {
+    const keep = new Set(uploaded.map(deck => deck.id));
+    for (const removed of cleanupDuplicatesPreview) {
+      keep.delete(removed.id);
+    }
+    const next = uploaded.filter(deck => keep.has(deck.id));
+    setUploaded(next);
+    saveUploadedPresentations(next);
+    toast.success(`Removed ${cleanupDuplicatesPreview.length} duplicate library entries.`);
+    setCleanupDuplicatesOpen(false);
+    setCleanupDuplicatesPreview([]);
+  }
 
   async function handleUpload(fileList: FileList | null) {
     const file = fileList?.[0];
@@ -573,11 +720,12 @@ export default function PresentationCenter() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div>
               <h2 className="flex items-center gap-2 text-xl font-bold text-[#0B1D44]">
-                <FileText className="h-5 w-5 text-[#005BAC]" /> Uploaded Deck
-                Library
+                <FileText className="h-5 w-5 text-[#005BAC]" /> Uploaded Files /
+                Deck Library
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Upload, search, sort, and download .pptx presentation files.
+                Manage uploaded .pptx files. Download, rename, replace, delete,
+                or clean up duplicate library entries.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -644,18 +792,27 @@ export default function PresentationCenter() {
               )}{" "}
               {isUploading ? "Uploading…" : "Upload Deck"}
             </button>
+            <button
+              type="button"
+              onClick={() => openCleanupDuplicatesPreview()}
+              disabled={isUploading || uploaded.length < 2}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] transition hover:bg-[#EEF6FF] disabled:opacity-60"
+            >
+              <Trash2 className="h-4 w-4" /> Clean Up Duplicates
+            </button>
           </div>
 
           <div className="mt-5 overflow-x-auto rounded-xl border border-[#E2E8F0]">
             <table className="min-w-full divide-y divide-[#E2E8F0] text-sm">
               <thead className="bg-[#F1F5F9] text-left text-xs font-bold uppercase tracking-wide text-slate-600">
                 <tr>
-                  <th className="px-4 py-3">File name</th>
-                  <th className="px-4 py-3">Upload date</th>
-                  <th className="px-4 py-3">Uploaded by</th>
-                  <th className="px-4 py-3">File size</th>
-                  <th className="px-4 py-3">Type/category</th>
-                  <th className="px-4 py-3">Action</th>
+                  <th className="px-4 py-3">File Name</th>
+                  <th className="px-4 py-3">File Type</th>
+                  <th className="px-4 py-3">Uploaded Date</th>
+                  <th className="px-4 py-3">Uploaded By</th>
+                  <th className="px-4 py-3">File Size</th>
+                  <th className="px-4 py-3">Used For / Generator</th>
+                  <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E2E8F0] bg-white">
@@ -663,6 +820,11 @@ export default function PresentationCenter() {
                   <tr key={deck.id}>
                     <td className="px-4 py-3 font-semibold text-[#0B1D44]">
                       {deck.name}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      <span className="rounded-full bg-[#DBEAFE] px-2.5 py-1 text-xs font-semibold text-[#005BAC]">
+                        {deck.category}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-slate-600">
                       {formatDate(deck.uploadDate)}
@@ -673,28 +835,64 @@ export default function PresentationCenter() {
                     <td className="px-4 py-3 text-slate-600">
                       {formatBytes(deck.size)}
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-full bg-[#DBEAFE] px-2.5 py-1 text-xs font-semibold text-[#005BAC]">
-                        {deck.category}
-                      </span>
+                    <td className="px-4 py-3 text-slate-600">
+                      {getUploadedFileUsage(deck)}
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => downloadDataUrl(deck.dataUrl, deck.name)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
-                      >
-                        <Download className="h-3.5 w-3.5" /> Download
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => downloadDataUrl(deck.dataUrl, deck.name)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="Download"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download
+                        </button>
+                        <button
+                          onClick={() => {
+                            setUploadRenameCandidate(deck);
+                            setRenameValue(deck.name);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="Rename"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" /> Rename
+                        </button>
+                        <button
+                          onClick={() => {
+                            setUploadReplaceCandidate(deck);
+                            setReplaceKeepName(true);
+                            setTimeout(() => replaceInputRef.current?.click(), 0);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="Replace"
+                        >
+                          <Replace className="h-3.5 w-3.5" /> Replace
+                        </button>
+                        <button
+                          onClick={() => setUploadDetailCandidate(deck)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="View Details"
+                        >
+                          <Eye className="h-3.5 w-3.5" /> Details
+                        </button>
+                        <button
+                          onClick={() => setUploadDeleteCandidate(deck)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {filteredUploaded.length === 0 && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-4 py-10 text-center text-sm text-slate-500"
                     >
-                      No presentations uploaded yet.
+                      No uploaded files yet. Use Upload Deck to add a .pptx file.
                     </td>
                   </tr>
                 )}
@@ -776,9 +974,25 @@ export default function PresentationCenter() {
         </section>
 
         <section className="rounded-2xl border border-[#D6DFE8] bg-white p-5 shadow-sm sm:p-6">
-          <h2 className="text-xl font-bold text-[#0B1D44]">
-            Recent Presentations
-          </h2>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-[#0B1D44]">
+                Recent Generated Presentations
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                PPTX files created by generators. Download, view details, or clear
+                history. Uploaded files are not affected.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setClearGeneratedOpen(true)}
+              disabled={generated.length === 0}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+            >
+              <Trash2 className="h-4 w-4" /> Clear Generated History
+            </button>
+          </div>
           <div className="mt-4 overflow-x-auto rounded-xl border border-[#E2E8F0]">
             <table className="min-w-full divide-y divide-[#E2E8F0] text-sm">
               <thead className="bg-[#F1F5F9] text-left text-xs font-bold uppercase tracking-wide text-slate-600">
@@ -839,12 +1053,29 @@ export default function PresentationCenter() {
                       {deck.generatedBy}
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => downloadDataUrl(deck.dataUrl, deck.name)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
-                      >
-                        <Download className="h-3.5 w-3.5" /> Download
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => downloadDataUrl(deck.dataUrl, deck.name)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="Download latest file"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download
+                        </button>
+                        <button
+                          onClick={() => setGeneratedDetailCandidate(deck)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="View details"
+                        >
+                          <Eye className="h-3.5 w-3.5" /> Details
+                        </button>
+                        <button
+                          onClick={() => setGeneratedDeleteCandidate(deck)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          title="Delete history entry"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -854,7 +1085,7 @@ export default function PresentationCenter() {
                       colSpan={5}
                       className="px-4 py-10 text-center text-sm text-slate-500"
                     >
-                      No recent presentations yet. Generate a Monthly KPI
+                      No generated presentations yet. Generate a Monthly KPI
                       Scorecard deck to populate this table.
                     </td>
                   </tr>
@@ -1323,6 +1554,402 @@ export default function PresentationCenter() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 )}
                 Generate PPTX
+              </button>
+            </div>
+          </div>
+        </div>
+
+      )}
+      {uploadDeleteCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#0B1D44]">Delete Uploaded File</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Are you sure you want to delete this uploaded file?
+            </p>
+            <div className="mt-4 space-y-2 rounded-lg bg-[#F8FAFC] p-3 text-sm">
+              <div>
+                <span className="font-semibold">File name:</span> {uploadDeleteCandidate.name}
+              </div>
+              <div>
+                <span className="font-semibold">File type:</span> {uploadDeleteCandidate.category}
+              </div>
+              <div>
+                <span className="font-semibold">Uploaded:</span>{" "}
+                {formatDate(uploadDeleteCandidate.uploadDate)}
+              </div>
+              <div>
+                <span className="font-semibold">Usage:</span>{" "}
+                {getUploadedFileUsage(uploadDeleteCandidate)}
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-slate-600">
+              <span className="font-semibold">What will be removed:</span> this uploaded file entry and its stored data payload.
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              <span className="font-semibold">What will NOT be removed:</span> any generated presentation history entries or other uploaded files.
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setUploadDeleteCandidate(null)}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDeleteUploaded(uploadDeleteCandidate)}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                <Trash2 className="h-4 w-4" /> Delete File
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {uploadRenameCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#0B1D44]">Rename Uploaded File</h3>
+            <label className="mt-4 block text-sm font-semibold text-[#0B1D44]">
+              File name
+              <input
+                value={renameValue}
+                onChange={event => setRenameValue(event.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC]"
+                placeholder="file.pptx"
+              />
+            </label>
+            <p className="mt-2 text-xs text-slate-500">
+              Name must not be blank, must keep the .pptx extension, and cannot contain paths.
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => closeUploadModals()}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRenameSubmit()}
+                disabled={!renameValue.trim()}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F] disabled:opacity-60"
+              >
+                <Edit3 className="h-4 w-4" /> Rename
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {uploadReplaceCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#0B1D44]">Replace Uploaded File</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Choose a new .pptx file for{" "}
+              <span className="font-semibold">{uploadReplaceCandidate.name}</span>.
+            </p>
+            <input
+              ref={replaceInputRef}
+              type="file"
+              accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              onChange={event => void handleReplaceFileList(event.target.files)}
+              className="hidden"
+            />
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={replaceKeepName}
+                onChange={event => setReplaceKeepName(event.target.checked)}
+                className="h-4 w-4 rounded border-[#D6DFE8] text-[#005BAC] focus:ring-[#005BAC]"
+              />
+              Keep current file name
+            </label>
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  if (replaceInputRef.current) replaceInputRef.current.value = "";
+                  closeUploadModals();
+                }}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => replaceInputRef.current?.click()}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F]"
+              >
+                <Replace className="h-4 w-4" /> Choose Replacement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {uploadDetailCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="text-lg font-bold text-[#0B1D44]">File Details</h3>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setUploadDetailCandidate(null)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D6DFE8] text-slate-600 hover:bg-[#F8FAFC]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 space-y-2 text-sm">
+              <div>
+                <span className="font-semibold text-slate-600">File name:</span>{" "}
+                {uploadDetailCandidate.name}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">File type:</span>{" "}
+                {uploadDetailCandidate.category}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">Uploaded:</span>{" "}
+                {formatDate(uploadDetailCandidate.uploadDate)}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">Uploaded by:</span>{" "}
+                {uploadDetailCandidate.uploadedBy}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">File size:</span>{" "}
+                {formatBytes(uploadDetailCandidate.size)}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">Usage:</span>{" "}
+                {getUploadedFileUsage(uploadDetailCandidate)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {generatedDeleteCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#0B1D44]">Delete Generated Presentation</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Remove this generated presentation from recent history?
+            </p>
+            <div className="mt-4 rounded-lg bg-[#F8FAFC] p-3 text-sm">
+              <div>
+                <span className="font-semibold">Name:</span> {generatedDeleteCandidate.name}
+              </div>
+              <div>
+                <span className="font-semibold">Type:</span> {generatedDeleteCandidate.type}
+              </div>
+              <div>
+                <span className="font-semibold">Generated:</span>{" "}
+                {formatDate(generatedDeleteCandidate.generatedDate)}
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-slate-600">
+              <span className="font-semibold">What will NOT be removed:</span> uploaded files and other generated presentations.
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setGeneratedDeleteCandidate(null)}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDeleteGenerated(generatedDeleteCandidate)}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                <Trash2 className="h-4 w-4" /> Delete Entry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {generatedDetailCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="text-lg font-bold text-[#0B1D44]">Generated Presentation Details</h3>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setGeneratedDetailCandidate(null)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D6DFE8] text-slate-600 hover:bg-[#F8FAFC]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 space-y-2 text-sm">
+              <div>
+                <span className="font-semibold text-slate-600">Name:</span>{" "}
+                {generatedDetailCandidate.name}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">Type:</span>{" "}
+                {generatedDetailCandidate.type}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">Generated:</span>{" "}
+                {formatDate(generatedDetailCandidate.generatedDate)}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">Generated by:</span>{" "}
+                {generatedDetailCandidate.generatedBy}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">Size:</span>{" "}
+                {formatBytes(generatedDetailCandidate.size)}
+              </div>
+              {generatedDetailCandidate.generatorName && (
+                <div>
+                  <span className="font-semibold text-slate-600">Generator:</span>{" "}
+                  {generatedDetailCandidate.generatorName}
+                </div>
+              )}
+              {generatedDetailCandidate.template && (
+                <div>
+                  <span className="font-semibold text-slate-600">Template:</span>{" "}
+                  {generatedDetailCandidate.template}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {clearGeneratedOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#0B1D44]">Clear Generated History</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              This will remove all {generated.length} generated presentation history entries.
+            </p>
+            <p className="mt-3 text-sm text-slate-600">
+              <span className="font-semibold">What will be removed:</span> all generated PPTX history rows.
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              <span className="font-semibold">What will NOT be removed:</span> uploaded files in the Deck Library.
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setClearGeneratedOpen(false)}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmClearGeneratedHistory()}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                <Trash2 className="h-4 w-4" /> Clear History
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cleanupDuplicatesOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-2xl rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#0B1D44]">Clean Up Duplicate Uploads</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              This is a dry-run preview of duplicate uploaded file entries that will be removed, keeping the newest copy.
+            </p>
+            {cleanupDuplicatesPreview.length === 0 ? (
+              <p className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+                No duplicate uploaded files found.
+              </p>
+            ) : (
+              <div className="mt-4 max-h-64 overflow-auto rounded-lg border border-[#E2E8F0]">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-[#F1F5F9] text-left text-xs font-bold uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th className="px-4 py-2">File Name</th>
+                      <th className="px-4 py-2">Uploaded Date</th>
+                      <th className="px-4 py-2">File Size</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E2E8F0]">
+                    {cleanupDuplicatesPreview.map(deck => (
+                      <tr key={deck.id}>
+                        <td className="px-4 py-2">{deck.name}</td>
+                        <td className="px-4 py-2">{formatDate(deck.uploadDate)}</td>
+                        <td className="px-4 py-2">{formatBytes(deck.size)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="mt-3 text-sm text-slate-600">
+              <span className="font-semibold">What will NOT be removed:</span> the newest copy of each duplicate group, and any generated presentation history.
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setCleanupDuplicatesOpen(false);
+                  setCleanupDuplicatesPreview([]);
+                }}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmCleanupDuplicates()}
+                disabled={cleanupDuplicatesPreview.length === 0}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" /> Confirm Cleanup
               </button>
             </div>
           </div>
