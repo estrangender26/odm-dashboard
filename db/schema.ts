@@ -377,3 +377,33 @@ export const odmTalkNotifications = pgTable("odm_talk_notifications", {
   index("odm_talk_notifications_user_idx").on(table.userId),
   index("odm_talk_notifications_created_idx").on(table.createdAt),
 ]);
+
+
+/* ─── Presentation Center Files ─── */
+export const presentationFiles = pgTable("presentation_files", {
+  id: serial("id").primaryKey(),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  displayName: varchar("display_name", { length: 255 }).notNull(),
+  fileType: varchar("file_type", { length: 100 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull().default("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+  fileSizeBytes: integer("file_size_bytes").notNull(),
+  fileBlob: text("file_blob").notNull(),
+  sha256Hash: varchar("sha256_hash", { length: 64 }).notNull(),
+  fileCategory: varchar("file_category", { length: 50 }).notNull(), // uploaded_deck | generated_deck
+  generatorId: varchar("generator_id", { length: 100 }),
+  generatorName: varchar("generator_name", { length: 255 }),
+  template: varchar("template", { length: 100 }),
+  scopeJson: text("scope_json"),
+  uploadedBy: varchar("uploaded_by", { length: 255 }).notNull().default("ODM User"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+}, (table) => [
+  index("presentation_files_category_idx").on(table.fileCategory),
+  index("presentation_files_generator_idx").on(table.generatorId),
+  index("presentation_files_hash_idx").on(table.sha256Hash),
+  index("presentation_files_deleted_at_idx").on(table.deletedAt),
+]);
+
+export type PresentationFile = typeof presentationFiles.$inferSelect;
+export type InsertPresentationFile = typeof presentationFiles.$inferInsert;

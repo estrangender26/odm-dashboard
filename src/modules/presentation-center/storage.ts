@@ -1,4 +1,13 @@
-import type { GeneratedPresentation, PresentationCategory, UploadedPresentation } from "./types";
+import type { GeneratedPresentation, UploadedPresentation } from "./types";
+import {
+  deletePresentationFile,
+  getPresentationFileDownloadUrl,
+  listPresentationFiles,
+  renamePresentationFile,
+  replacePresentationFile,
+  saveGeneratedPresentationFile,
+  uploadPresentationFile,
+} from "./presentationFilesApi";
 
 const ALL_DATES_SCOPE = "all-dates";
 
@@ -54,37 +63,221 @@ export function mergeGeneratedPresentation(
   return [deck, ...filtered];
 }
 
-export function getUploadedPresentationDedupeKey(
-  deck: UploadedPresentation
-): string {
-  return [deck.name, deck.category ?? "Uploaded Deck"].join("::");
+function apiFileToUploaded(row: {
+  id: number;
+  fileName: string;
+  displayName: string;
+  fileSizeBytes: number;
+  fileCategory: string;
+  uploadedBy: string;
+  createdAt: string;
+}): UploadedPresentation {
+  return {
+    id: String(row.id),
+    name: row.displayName || row.fileName,
+    uploadDate: row.createdAt,
+    uploadedBy: row.uploadedBy,
+    size: row.fileSizeBytes,
+    category: mapApiCategoryToPresentationCategory(row.fileCategory),
+    dataUrl: getPresentationFileDownloadUrl(row.id),
+  };
 }
 
-export function deduplicateUploadedPresentations(
-  items: UploadedPresentation[]
-): UploadedPresentation[] {
-  const newestFirst = [...items].sort((a, b) => {
-    return (
-      new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
-    );
-  });
-  const unique = new Map<string, UploadedPresentation>();
-  for (const deck of newestFirst) {
-    const key = getUploadedPresentationDedupeKey(deck);
-    if (!unique.has(key)) {
-      unique.set(key, deck);
+function mapApiCategoryToPresentationCategory(
+  category: string
+): UploadedPresentation["category"] {
+  switch (category) {
+    case "generated_deck":
+      return "Monthly KPI Scorecard";
+    case "uploaded_deck":
+    default:
+      return "Uploaded Deck";
+  }
+}
+
+function generatedDeckToApiPayload(deck: GeneratedPresentation) {
+  const scope: Record<string, unknown> = {};
+  if (deck.reportingYear) scope.reportingYear = deck.reportingYear;
+  if (deck.reportingMonth) scope.reportingMonth = deck.reportingMonth;
+  if (deck.businessUnit) scope.businessUnit = deck.businessUnit;
+  if (deck.facility) scope.facility = deck.facility;
+  if (deck.dateFrom) scope.dateFrom = deck.dateFrom;
+  if (deck.dateTo) scope.dateTo = deck.dateTo;
+  if (deck.equipmentType) scope.equipmentType = deck.equipmentType;
+  if (deck.category) scope.category = deck.category;
+  if (deck.inspector) scope.inspector = deck.inspector;
+
+  return {
+    file_name: deck.filename ?? deck.name,
+    display_name: deck.name,
+    file_size_bytes: deck.size,
+    file_blob: deck.dataUrl,
+    sha256_hash: "",
+    generator_id: deck.generatorId,
+    generator_name: deck.generatorName,
+    template: deck.template,
+    scope_json: scope,
+    uploaded_by: deck.generatedBy,
+  };
+}
+
+function apiFileToGenerated(row: {
+  id: number;
+  fileName: string;
+  displayName: string;
+  fileSizeBytes: number;
+  fileCategory: string;
+  generatorId?: string | null;
+  generatorName?: string | null;
+  template?: string | null;
+  scopeJson?: string | null;
+  uploadedBy: string;
+  createdAt: string;
+}): GeneratedPresentation {
+  const scope: Partial<GeneratedPresentation> = {};
+  if (row.scopeJson) {
+    try {
+      const parsed = JSON.parse(row.scopeJson) as Record<string, unknown>;
+      if (parsed.reportingYear) scope.reportingYear = Number(parsed.reportingYear);
+      if (parsed.reportingMonth) scope.reportingMonth = Number(parsed.reportingMonth);
+      if (parsed.businessUnit) scope.businessUnit = String(parsed.businessUnit);
+      if (parsed.facility) scope.facility = String(parsed.facility);
+      if (parsed.dateFrom) scope.dateFrom = String(parsed.dateFrom);
+      if (parsed.dateTo) scope.dateTo = String(parsed.dateTo);
+      if (parsed.equipmentType) scope.equipmentType = String(parsed.equipmentType);
+      if (parsed.category) scope.category = String(parsed.category);
+      if (parsed.inspector) scope.inspector = String(parsed.inspector);
+    } catch {
+      // ignore parse errors
     }
   }
-  return Array.from(unique.values());
+
+  return {
+    id: String(row.id),
+    name: row.displayName || row.fileName,
+    type: row.generatorName || "Generated Deck",
+    generatedDate: row.createdAt,
+    generatedBy: row.uploadedBy,
+    size: row.fileSizeBytes,
+    dataUrl: getPresentationFileDownloadUrl(row.id),
+    generatorId: row.generatorId ?? undefined,
+    generatorName: row.generatorName ?? undefined,
+    template: row.template ?? undefined,
+    filename: row.fileName,
+    generatedAt: row.createdAt,
+    ...scope,
+  };
 }
 
-export function cleanupUploadedPresentationsHistory() {
-  const items = readCollection<UploadedPresentation>(UPLOADED_KEY);
-  const deduped = deduplicateUploadedPresentations(items);
-  if (deduped.length !== items.length) {
-    writeCollection(UPLOADED_KEY, deduped);
+export async function createUploadedPresentation(
+  file: File,
+  context: {
+    category: UploadedPresentation["category"];
+    uploadedBy?: string;
   }
-  return deduped;
+): Promise<{ deck?: UploadedPresentation; error?: string }> {
+  try {
+    const apiFile = await uploadPresentationFile(file, {
+      fileCategory: mapPresentationCategoryToApiCategory(context.category),
+      uploadedBy: context.uploadedBy,
+    });
+    return {
+      deck: apiFileToUploaded({
+        ...apiFile,
+        fileCategory: mapPresentationCategoryToApiCategory(context.category),
+      }),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Upload failed.";
+    return { error: message };
+  }
+}
+
+export async function getUploadedPresentations(): Promise<UploadedPresentation[]> {
+  try {
+    const files = await listPresentationFiles({ fileCategory: "uploaded_deck" });
+    return files.map(apiFileToUploaded);
+  } catch (error) {
+    console.error("[PresentationCenter] Failed to load uploaded files", error);
+    return [];
+  }
+}
+
+export async function uploadFileToLibrary(
+  file: File,
+  category: UploadedPresentation["category"]
+): Promise<UploadedPresentation> {
+  const apiFile = await uploadPresentationFile(file, {
+    fileCategory: "uploaded_deck",
+  });
+  return apiFileToUploaded({
+    ...apiFile,
+    fileCategory: mapPresentationCategoryToApiCategory(category),
+  });
+}
+
+function mapPresentationCategoryToApiCategory(
+  category: UploadedPresentation["category"]
+): "uploaded_deck" | "generated_deck" {
+  switch (category) {
+    case "Monthly KPI Scorecard":
+      return "generated_deck";
+    case "Uploaded Deck":
+    default:
+      return "uploaded_deck";
+  }
+}
+
+export async function saveUploadedPresentations(
+  items: UploadedPresentation[]
+): Promise<void> {
+  // Upload any items that are not already API-backed (IDs that look like UUIDs are new local items)
+  const newItems = items.filter(
+    item => !/^[0-9]+$/.test(item.id) && item.dataUrl.startsWith("data:")
+  );
+  for (const item of newItems) {
+    try {
+      const blob = dataUrlToBlob(item.dataUrl);
+      const file = new File([blob], item.name, { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+      await uploadPresentationFile(file, {
+        fileCategory: mapPresentationCategoryToApiCategory(item.category),
+        uploadedBy: item.uploadedBy,
+      });
+    } catch (error) {
+      console.error("[PresentationCenter] Failed to sync uploaded file to API", error);
+    }
+  }
+}
+
+export async function getGeneratedPresentations(): Promise<GeneratedPresentation[]> {
+  try {
+    const files = await listPresentationFiles({ fileCategory: "generated_deck" });
+    return files.map(apiFileToGenerated);
+  } catch (error) {
+    console.error("[PresentationCenter] Failed to load generated presentations", error);
+    return [];
+  }
+}
+
+export async function saveGeneratedPresentations(
+  items: GeneratedPresentation[]
+): Promise<void> {
+  const deduped = deduplicateGeneratedPresentations(items).slice(0, 25);
+  for (const deck of deduped) {
+    try {
+      await saveGeneratedPresentationFile(generatedDeckToApiPayload(deck));
+    } catch (error) {
+      console.error("[PresentationCenter] Failed to sync generated deck to API", error);
+    }
+  }
+}
+
+export async function cleanupGeneratedPresentationsHistory(): Promise<GeneratedPresentation[]> {
+  return getGeneratedPresentations();
+}
+
+export async function cleanupUploadedPresentationsHistory(): Promise<UploadedPresentation[]> {
+  return getUploadedPresentations();
 }
 
 export function validateUploadedFileName(value: string): {
@@ -105,25 +298,29 @@ export function validateUploadedFileName(value: string): {
   return { valid: true, sanitized: trimmed };
 }
 
-export function renameUploadedPresentation(
+export async function renameUploadedPresentation(
   items: UploadedPresentation[],
   id: string,
   nextName: string
-): { items: UploadedPresentation[]; error?: string } {
+): Promise<{ items: UploadedPresentation[]; error?: string }> {
   const validation = validateUploadedFileName(nextName);
   if (!validation.valid) {
     return { items, error: validation.error };
   }
-  let updated = false;
-  const next = items.map(item => {
-    if (item.id !== id) return item;
-    updated = true;
-    return { ...item, name: validation.sanitized as string };
-  });
-  if (!updated) {
-    return { items, error: "File not found." };
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId)) {
+    return { items, error: "Invalid file id." };
   }
-  return { items: next };
+  try {
+    const updated = await renamePresentationFile(numericId, nextName);
+    const next = items.map(item =>
+      item.id === id ? apiFileToUploaded({ ...updated, fileCategory: mapPresentationCategoryToApiCategory(item.category) }) : item
+    );
+    return { items: next };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Rename failed.";
+    return { items, error: message };
+  }
 }
 
 export async function replaceUploadedPresentation(
@@ -132,146 +329,56 @@ export async function replaceUploadedPresentation(
   file: File,
   keepName = false
 ): Promise<{ items: UploadedPresentation[]; error?: string }> {
-  if (
-    !file.name.toLowerCase().endsWith(".pptx") ||
-    file.type === "application/vnd.ms-powerpoint"
-  ) {
-    return { items, error: "Unsupported file type. Please upload a .pptx file." };
-  }
-  const existing = items.find(item => item.id === id);
-  if (!existing) {
-    return { items, error: "File not found." };
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId)) {
+    return { items, error: "Invalid file id." };
   }
   try {
-    const dataUrl = await blobToDataUrl(file);
-    const nextName = keepName
-      ? existing.name
-      : validateUploadedFileName(file.name).sanitized ?? file.name;
+    const updated = await replacePresentationFile(numericId, file, keepName);
     const next = items.map(item =>
-      item.id === id
-        ? {
-            ...item,
-            name: nextName,
-            size: file.size,
-            uploadDate: new Date().toISOString(),
-            dataUrl,
-          }
-        : item
+      item.id === id ? apiFileToUploaded({ ...updated, fileCategory: mapPresentationCategoryToApiCategory(item.category) }) : item
     );
     return { items: next };
   } catch (error) {
-    return { items, error: "Failed to read replacement file." };
+    const message = error instanceof Error ? error.message : "Replace failed.";
+    return { items, error: message };
   }
 }
 
-export function deleteUploadedPresentation(
+export async function deleteUploadedPresentation(
   items: UploadedPresentation[],
   id: string
-): UploadedPresentation[] {
+): Promise<UploadedPresentation[]> {
+  const numericId = Number(id);
+  if (Number.isInteger(numericId)) {
+    try {
+      await deletePresentationFile(numericId);
+    } catch (error) {
+      console.error("[PresentationCenter] Failed to delete uploaded file", error);
+    }
+  }
   return items.filter(item => item.id !== id);
 }
 
-export function clearGeneratedPresentationsHistory(): GeneratedPresentation[] {
-  writeCollection(GENERATED_KEY, []);
+export async function clearGeneratedPresentationsHistory(): Promise<GeneratedPresentation[]> {
+  // Soft delete generated deck rows is not implemented here to avoid mass-deletes;
+  // this helper just returns an empty list for the UI state.
   return [];
 }
 
-export function deleteGeneratedPresentation(
+export async function deleteGeneratedPresentation(
   items: GeneratedPresentation[],
   id: string
-): GeneratedPresentation[] {
-  return items.filter(item => item.id !== id);
-}
-
-const UPLOADED_KEY = "odm.presentationCenter.uploadedDecks";
-const GENERATED_KEY = "odm.presentationCenter.generatedDecks";
-
-function readCollection<T>(key: string): T[] {
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T[]) : [];
-  } catch (error) {
-    console.error(`[PresentationCenter] Failed to read ${key}`, error);
-    return [];
-  }
-}
-
-function writeCollection<T>(key: string, items: T[]) {
-  window.localStorage.setItem(key, JSON.stringify(items));
-}
-
-export function getUploadedPresentations() {
-  return readCollection<UploadedPresentation>(UPLOADED_KEY);
-}
-
-export function saveUploadedPresentations(items: UploadedPresentation[]) {
-  try {
-    writeCollection(UPLOADED_KEY, items);
-  } catch (error) {
-    if (
-      error instanceof DOMException &&
-      (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")
-    ) {
-      throw new Error(
-        "Upload could not be saved locally because browser storage is full. Please remove older files and try again."
-      );
+): Promise<GeneratedPresentation[]> {
+  const numericId = Number(id);
+  if (Number.isInteger(numericId)) {
+    try {
+      await deletePresentationFile(numericId);
+    } catch (error) {
+      console.error("[PresentationCenter] Failed to delete generated presentation", error);
     }
-    throw error;
   }
-}
-
-export async function createUploadedPresentation(
-  file: File,
-  context: {
-    category: PresentationCategory;
-    uploadedBy?: string;
-  }
-): Promise<{ deck?: UploadedPresentation; error?: string }> {
-  if (
-    !file.name.toLowerCase().endsWith(".pptx") ||
-    file.type === "application/vnd.ms-powerpoint"
-  ) {
-    return { error: "Unsupported file type. Please upload a .pptx PowerPoint file." };
-  }
-  try {
-    const dataUrl = await blobToDataUrl(file);
-    const deck: UploadedPresentation = {
-      id: crypto.randomUUID(),
-      name: file.name,
-      uploadDate: new Date().toISOString(),
-      uploadedBy: context.uploadedBy ?? "ODM User",
-      size: file.size,
-      category: context.category,
-      dataUrl,
-    };
-    return { deck };
-  } catch (error) {
-    console.error("[PresentationCenter] Failed to read uploaded file", error);
-    return {
-      error:
-        error instanceof Error && error.name === "QuotaExceededError"
-          ? "Upload could not be saved locally because browser storage is full. Please remove older files and try again."
-          : "Upload failed. Please try again with a valid .pptx file.",
-    };
-  }
-}
-
-export function getGeneratedPresentations() {
-  return readCollection<GeneratedPresentation>(GENERATED_KEY);
-}
-
-export function cleanupGeneratedPresentationsHistory() {
-  const items = readCollection<GeneratedPresentation>(GENERATED_KEY);
-  const deduped = deduplicateGeneratedPresentations(items);
-  if (deduped.length !== items.length) {
-    writeCollection(GENERATED_KEY, deduped);
-  }
-  return deduped;
-}
-
-export function saveGeneratedPresentations(items: GeneratedPresentation[]) {
-  const deduped = deduplicateGeneratedPresentations(items);
-  writeCollection(GENERATED_KEY, deduped.slice(0, 25));
+  return items.filter(item => item.id !== id);
 }
 
 export function dataUrlToBlob(dataUrl: string) {
@@ -295,6 +402,16 @@ export function blobToDataUrl(blob: Blob) {
 }
 
 export function downloadDataUrl(dataUrl: string, fileName: string) {
+  // If dataUrl is an API download URL, navigate to it; otherwise use the inline blob fallback.
+  if (dataUrl.startsWith("/api/")) {
+    const anchor = document.createElement("a");
+    anchor.href = dataUrl;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return;
+  }
   const blob = dataUrlToBlob(dataUrl);
   const href = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

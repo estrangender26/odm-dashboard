@@ -7,6 +7,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { sql, eq, and } from "drizzle-orm";
 import { ensureDbReady, getDb } from "./queries/connection";
 import { appRouter } from "./router";
+import { presentationFilesRouter } from "./presentation-files-router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { authenticateRequest, createOAuthCallbackHandler } from "./kimi/auth";
@@ -1596,6 +1597,9 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     return c.json({ error: e.message }, 500);
   }
 });
+
+logBootStage("registering presentation files routes");
+app.route("/api/presentation-files", presentationFilesRouter);
 
 logBootStage("registering tRPC and API fallback routes");
 

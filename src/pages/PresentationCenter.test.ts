@@ -206,27 +206,25 @@ describe("Presentation Center Uploaded Files / Deck Library Manager", () => {
 });
 
 
-describe("Presentation Center Uploaded Files persistence", () => {
-  it("converts uploaded PPTX to a dataUrl before saving", () => {
+describe("Presentation Center database-backed file persistence", () => {
+  it("uploads files through the API-backed createUploadedPresentation helper", () => {
     expect(presentationCenterSource).toContain("createUploadedPresentation(file,");
-    expect(presentationCenterSource).not.toContain("FileReader");
   });
 
-  it("persists uploaded files through storage helpers instead of raw File objects", () => {
-    expect(presentationCenterSource).toContain("saveUploadedPresentations(next)");
-    expect(presentationCenterSource).toContain("getUploadedPresentations()");
-  });
-
-  it("imports the createUploadedPresentation helper that handles upload failures", () => {
-    expect(presentationCenterSource).toContain("createUploadedPresentation");
-  });
-
-  it("imports storage helpers for persistence and rehydration", () => {
-    expect(presentationCenterSource).toContain("saveUploadedPresentations(next)");
-    expect(presentationCenterSource).toContain("getUploadedPresentations()");
-  });
-
-  it("rehydrates uploaded files on page load via cleanupUploadedPresentationsHistory", () => {
+  it("loads uploaded and generated files from the backend on mount", () => {
     expect(presentationCenterSource).toContain("cleanupUploadedPresentationsHistory");
+    expect(presentationCenterSource).toContain("cleanupGeneratedPresentationsHistory");
+    expect(presentationCenterSource).toContain("loadFiles");
+  });
+
+  it("does not reference localStorage keys for uploaded file payloads", () => {
+    expect(presentationCenterSource).not.toContain(
+      "odm.presentationCenter.uploadedDecks"
+    );
+    expect(presentationCenterSource).not.toContain("data:application");
+  });
+
+  it("keeps generated deck saving API-backed", () => {
+    expect(presentationCenterSource).toContain("saveGeneratedPresentations(next)");
   });
 });

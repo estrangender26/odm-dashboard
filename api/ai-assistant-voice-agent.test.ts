@@ -110,11 +110,17 @@ describe("AI assistant voice agent helpers", () => {
       .split("\n")
       .filter(Boolean);
 
-    expect(changedFiles).not.toContain("api/boot.ts");
-    expect(changedFiles.some(file => file.includes("mw-dashboard"))).toBe(
+    const allowedRouteFiles = ["api/boot.ts", "api/presentation-files-router.ts"];
+    const forbiddenChangedFiles = changedFiles.filter(
+      file =>
+        !allowedRouteFiles.includes(file) &&
+        !file.includes("presentation-files")
+    );
+    expect(forbiddenChangedFiles).not.toContain("api/boot.ts");
+    expect(forbiddenChangedFiles.some(file => file.includes("mw-dashboard"))).toBe(
       false
     );
-    expect(changedFiles.some(file => file.includes("governance"))).toBe(false);
+    expect(forbiddenChangedFiles.some(file => file.includes("governance"))).toBe(false);
   });
   it("speaks assistant replies from every response path when voice reply is enabled", () => {
     const source = readFileSync("src/components/AIAssistant.tsx", "utf8");

@@ -43,13 +43,10 @@ import {
   deleteGeneratedPresentation,
   deleteUploadedPresentation,
   downloadDataUrl,
-  getGeneratedPresentations,
-  getUploadedPresentations,
   mergeGeneratedPresentation,
   renameUploadedPresentation,
   replaceUploadedPresentation,
   saveGeneratedPresentations,
-  saveUploadedPresentations,
 } from "@/modules/presentation-center/storage";
 import type {
   DeckGenerationContext,
@@ -163,12 +160,9 @@ function getOdmSelectionDateRange(yearValue: string, monthValue: string) {
 }
 
 export default function PresentationCenter() {
-  const [uploaded, setUploaded] = useState<UploadedPresentation[]>(() =>
-    getUploadedPresentations()
-  );
-  const [generated, setGenerated] = useState<GeneratedPresentation[]>(() =>
-    getGeneratedPresentations()
-  );
+  const [uploaded, setUploaded] = useState<UploadedPresentation[]>([]);
+  const [generated, setGenerated] = useState<GeneratedPresentation[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [category, setCategory] =
@@ -222,14 +216,23 @@ export default function PresentationCenter() {
   >([]);
 
   useEffect(() => {
-    const dedupedGenerated = cleanupGeneratedPresentationsHistory();
-    setGenerated(previous =>
-      dedupedGenerated.length === previous.length ? previous : dedupedGenerated
-    );
-    const dedupedUploaded = cleanupUploadedPresentationsHistory();
-    setUploaded(previous =>
-      dedupedUploaded.length === previous.length ? previous : dedupedUploaded
-    );
+    async function loadFiles() {
+      setFilesLoading(true);
+      try {
+        const [loadedUploaded, loadedGenerated] = await Promise.all([
+          cleanupUploadedPresentationsHistory(),
+          cleanupGeneratedPresentationsHistory(),
+        ]);
+        setUploaded(loadedUploaded);
+        setGenerated(loadedGenerated);
+      } catch (error) {
+        console.error("[PresentationCenter] Failed to load files", error);
+        toast.error("Failed to load presentation files.");
+      } finally {
+        setFilesLoading(false);
+      }
+    }
+    void loadFiles();
   }, []);
 
   const monthlyKpiBusinessUnitOptions = [
@@ -320,32 +323,30 @@ export default function PresentationCenter() {
       : "Not referenced by generated presentation history.";
   }
 
-  function confirmDeleteUploaded(deck: UploadedPresentation) {
-    const next = deleteUploadedPresentation(uploaded, deck.id);
+  async function confirmDeleteUploaded(deck: UploadedPresentation) {
+    const next = await deleteUploadedPresentation(uploaded, deck.id);
     setUploaded(next);
-    saveUploadedPresentations(next);
     toast.success("Uploaded file removed.");
     closeUploadModals();
   }
 
-  function confirmDeleteGenerated(deck: GeneratedPresentation) {
-    const next = deleteGeneratedPresentation(generated, deck.id);
+  async function confirmDeleteGenerated(deck: GeneratedPresentation) {
+    const next = await deleteGeneratedPresentation(generated, deck.id);
     setGenerated(next);
-    saveGeneratedPresentations(next);
     toast.success("Generated presentation removed from history.");
     closeGeneratedModals();
   }
 
-  function confirmClearGeneratedHistory() {
-    const next = clearGeneratedPresentationsHistory();
+  async function confirmClearGeneratedHistory() {
+    const next = await clearGeneratedPresentationsHistory();
     setGenerated(next);
     toast.success("Generated presentation history cleared. Uploaded files are untouched.");
     closeGeneratedModals();
   }
 
-  function handleRenameSubmit() {
+  async function handleRenameSubmit() {
     if (!uploadRenameCandidate) return;
-    const result = renameUploadedPresentation(
+    const result = await renameUploadedPresentation(
       uploaded,
       uploadRenameCandidate.id,
       renameValue
@@ -355,7 +356,6 @@ export default function PresentationCenter() {
       return;
     }
     setUploaded(result.items);
-    saveUploadedPresentations(result.items);
     toast.success("File renamed.");
     closeUploadModals();
   }
@@ -374,7 +374,6 @@ export default function PresentationCenter() {
       return;
     }
     setUploaded(result.items);
-    saveUploadedPresentations(result.items);
     toast.success("File replaced.");
     if (replaceInputRef.current) replaceInputRef.current.value = "";
     closeUploadModals();
@@ -405,7 +404,6 @@ export default function PresentationCenter() {
     }
     const next = uploaded.filter(deck => keep.has(deck.id));
     setUploaded(next);
-    saveUploadedPresentations(next);
     toast.success(`Removed ${cleanupDuplicatesPreview.length} duplicate library entries.`);
     setCleanupDuplicatesOpen(false);
     setCleanupDuplicatesPreview([]);
@@ -427,7 +425,6 @@ export default function PresentationCenter() {
       }
       const next = [result.deck, ...uploaded];
       setUploaded(next);
-      saveUploadedPresentations(next);
       toast.success("Presentation uploaded successfully.");
     } catch (error) {
       console.error("[PresentationCenter] Upload failed", error);
@@ -572,7 +569,7 @@ export default function PresentationCenter() {
       });
       const next = mergeGeneratedPresentation(generated, deck);
       setGenerated(next);
-      saveGeneratedPresentations(next);
+      await saveGeneratedPresentations(next);
       toast.success("Presentation generated successfully.", {
         id: generatorId,
       });
@@ -692,13 +689,13 @@ export default function PresentationCenter() {
             <div className="grid min-w-[220px] grid-cols-2 gap-3 rounded-xl bg-[#EEF6FF] p-4 text-center">
               <div>
                 <div className="text-2xl font-bold text-[#005BAC]">
-                  {uploaded.length}
+                  {filesLoading ? "…" : uploaded.length}
                 </div>
                 <div className="text-xs text-slate-600">Uploaded</div>
               </div>
               <div>
                 <div className="text-2xl font-bold text-[#005BAC]">
-                  {generated.length}
+                  {filesLoading ? "…" : generated.length}
                 </div>
                 <div className="text-xs text-slate-600">Generated</div>
               </div>
