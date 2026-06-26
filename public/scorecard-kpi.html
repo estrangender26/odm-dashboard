@@ -1832,6 +1832,40 @@ function normalizeHeader(value){
   return String(cleanCellValue(value)||'').toLowerCase().replace(/\s+/g,' ').trim().replace(/[^a-z0-9]/g,'');
 }
 
+
+function isMonthLikeValue(val){
+  val = cleanCellValue(val);
+  if(val===null)return false;
+  if(val instanceof Date && !isNaN(val.getTime()))return true;
+  if(typeof val==='number')return val > 40000;
+  if(typeof val!=='string')return false;
+  var text = val.trim();
+  return /^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\s\-\/.,]*(\d{2,4})?$/i.test(text);
+}
+
+function detectMonthColumn(rows,headerMap){
+  if(headerMap && headerMap.month!==undefined)return headerMap.month;
+  if(!rows || rows.length<2)return -1;
+  var monthCount = 0, nonEmptyCount = 0;
+  for(var i=1;i<rows.length;i++){
+    var row = rows[i] || [];
+    var val = row[0];
+    if(isEmptyValue(val))continue;
+    nonEmptyCount++;
+    if(isMonthLikeValue(val))monthCount++;
+  }
+  if(nonEmptyCount>0 && monthCount===nonEmptyCount)return 0;
+  return -1;
+}
+
+function inferFallbackMonth(rows){
+  if(!rows || rows.length!==2)return null;
+  var year = getSelectedYear();
+  var month = getSelectedMonth();
+  if(!year || !month)return null;
+  console.warn('No month column found in Summary sheet; using selected reporting month fallback:',month,year);
+  return {year:year,month:month,label:MonthNames[month-1]+' '+year};
+}
 function isEmptyValue(val){
   return cleanCellValue(val)===null;
 }
@@ -1999,7 +2033,8 @@ function getCurrentData(buId){
 
 function mapSummaryHeader(header){
   var h = normalizeHeader(header);
-  if(h==='month'||h==='reportingmonth')return 'month';
+  var monthAliases = ['month','reportingmonth','reportmonth','monthname','monthperiod','period','reportingperiod','kpimonth','date','monthdate'];
+  if(monthAliases.indexOf(h)!==-1)return 'month';
   if(h==='pmcompliance'||h==='pmcompliancepercent')return 'pmCompliance';
   if(h==='pmplanned')return 'pmPlanned';
   if(h==='schedulecompliance'||h==='schedulecompliancepercent')return 'scheduleCompliance';
@@ -2029,14 +2064,24 @@ function importSummaryWorkbook(workbook,fileName,buId){
     var key = mapSummaryHeader(header);
     if(key)headerMap[key]=index;
   });
-  if(headerMap.month===undefined)throw new Error('Month column not found in Summary sheet.');
+  var monthCol = detectMonthColumn(rows,headerMap);
+  if(monthCol>=0)headerMap.month=monthCol;
+  var fallbackMonth = null;
+  if(headerMap.month===undefined){
+    fallbackMonth = inferFallbackMonth(rows);
+    if(!fallbackMonth){
+      var detectedHeaders = rows[0].map(function(h){return String(h===null||h===undefined?'':h);}).join(', ');
+      console.warn('Summary sheet headers:',detectedHeaders);
+      throw new Error('Could not identify the reporting month in the Summary sheet. Expected a header such as Month, Reporting Month, Period, or Month Date.');
+    }
+  }
   var imported = 0;
   buId = buId || selectedBusinessUnitId;
   var records = [];
   var importedMonths = [];
   for(var i=1;i<rows.length;i++){
     var row = rows[i]||[];
-    var monthInfo = excelDateToReportingMonth(row[headerMap.month]);
+    var monthInfo = fallbackMonth || excelDateToReportingMonth(row[headerMap.month]);
     if(!monthInfo)continue;
     var rawImportedValues = {sourceSheet:'Summary',rowNumber:i+1,values:{}};
     var dbRecord = {

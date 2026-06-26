@@ -1890,6 +1890,297 @@ describe("Monthly KPI dashboard presentation", () => {
 
 });
 
+
+  it('imports successfully when Summary month header is "Reporting Month"', () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => 'amd-ez';
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ['Summary'],
+      Sheets: {
+        Summary: makeSheet([
+          ['Reporting Month', 'PM Compliance (%)', 'Budget Spend (%)', 'PM vs CM Ratio (Work Orders) (%)', 'PM vs CM Ratio (Cost) (%)', 'MTTR (days)', 'Facility Uptime (%)'],
+          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    };
+
+    const result = ctx.importSummaryWorkbook(workbook, 'test.xlsx', 'ez');
+    expect(result.imported).toBe(1);
+    const record = result.records[0];
+    expect(record.reporting_month).toBe(1);
+    expect(record.reporting_year).toBe(2026);
+    expect(record.pm_compliance).toBe(98.9);
+    expect(record.budget_spend).toBe(103.67);
+    expect(record.pm_cm_work_order_ratio).toBe(69.52);
+    expect(record.pm_cm_cost_ratio).toBe(74.73);
+  });
+
+  it('imports successfully when Summary month header is "Period"', () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => 'amd-ez';
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ['Summary'],
+      Sheets: {
+        Summary: makeSheet([
+          ['Period', 'PM Compliance (%)', 'Budget Spend (%)', 'PM vs CM Ratio (Work Orders) (%)', 'PM vs CM Ratio (Cost) (%)', 'MTTR (days)', 'Facility Uptime (%)'],
+          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    };
+
+    const result = ctx.importSummaryWorkbook(workbook, 'test.xlsx', 'ez');
+    expect(result.imported).toBe(1);
+    expect(result.records[0].reporting_month).toBe(1);
+  });
+
+  it('imports successfully when Summary month header is "Month Date"', () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => 'amd-ez';
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ['Summary'],
+      Sheets: {
+        Summary: makeSheet([
+          ['Month Date', 'PM Compliance (%)', 'Budget Spend (%)', 'PM vs CM Ratio (Work Orders) (%)', 'PM vs CM Ratio (Cost) (%)', 'MTTR (days)', 'Facility Uptime (%)'],
+          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    };
+
+    const result = ctx.importSummaryWorkbook(workbook, 'test.xlsx', 'ez');
+    expect(result.imported).toBe(1);
+    expect(result.records[0].reporting_month).toBe(1);
+  });
+
+  it('matches month header case-insensitively and trims spaces', () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => 'amd-ez';
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ['Summary'],
+      Sheets: {
+        Summary: makeSheet([
+          ['  RePoRtInG MoNth ', 'PM Compliance (%)', 'Budget Spend (%)', 'PM vs CM Ratio (Work Orders) (%)', 'PM vs CM Ratio (Cost) (%)', 'MTTR (days)', 'Facility Uptime (%)'],
+          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    };
+
+    const result = ctx.importSummaryWorkbook(workbook, 'test.xlsx', 'ez');
+    expect(result.imported).toBe(1);
+    expect(result.records[0].reporting_month).toBe(1);
+  });
+
+  it('imports a Summary sheet with a line-break month header', () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => 'amd-ez';
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ['Summary'],
+      Sheets: {
+        Summary: makeSheet([
+          ['Reporting\nMonth', 'PM Compliance (%)', 'Budget Spend (%)', 'PM vs CM Ratio (Work Orders) (%)', 'PM vs CM Ratio (Cost) (%)', 'MTTR (days)', 'Facility Uptime (%)'],
+          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    };
+
+    const result = ctx.importSummaryWorkbook(workbook, 'test.xlsx', 'ez');
+    expect(result.imported).toBe(1);
+    expect(result.records[0].reporting_month).toBe(1);
+  });
+
+  it('detects month labels from the first column when no month header is present', () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => 'amd-ez';
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ['Summary'],
+      Sheets: {
+        Summary: makeSheet([
+          ['', 'PM Compliance (%)', 'Budget Spend (%)', 'PM vs CM Ratio (Work Orders) (%)', 'PM vs CM Ratio (Cost) (%)', 'MTTR (days)', 'Facility Uptime (%)'],
+          ['January', 98.9, 103.67, 69.52, 74.73, 113, 100],
+          ['February', 99.1, 104.0, 70.0, 75.0, 110, 99],
+        ]),
+      },
+    };
+
+    const result = ctx.importSummaryWorkbook(workbook, 'test.xlsx', 'ez');
+    expect(result.imported).toBe(2);
+    const jan = result.records.find((r: any) => r.reporting_month === 1);
+    const feb = result.records.find((r: any) => r.reporting_month === 2);
+    expect(jan).toBeDefined();
+    expect(feb).toBeDefined();
+    expect(jan?.pm_compliance).toBe(98.9);
+    expect(feb?.pm_compliance).toBe(99.1);
+  });
+
+  it('falls back to the selected UI month for a single-row Summary sheet with no month column', () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => 'amd-ez';
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ['Summary'],
+      Sheets: {
+        Summary: makeSheet([
+          ['', 'PM Compliance (%)', 'Budget Spend (%)', 'PM vs CM Ratio (Work Orders) (%)', 'PM vs CM Ratio (Cost) (%)', 'MTTR (days)', 'Facility Uptime (%)'],
+          ['', 98.9, 103.67, 69.52, 74.73, 113, 100],
+        ]),
+      },
+    };
+
+    const result = ctx.importSummaryWorkbook(workbook, 'test.xlsx', 'ez');
+    expect(result.imported).toBe(1);
+    expect(result.records[0].reporting_month).toBe(1);
+    expect(result.records[0].reporting_year).toBe(2026);
+  });
+
+  it('throws a user-friendly error when the month column cannot be identified', () => {
+    const ctx = createImportContext();
+    ctx.getBUApiValue = () => 'amd-ez';
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ['Summary'],
+      Sheets: {
+        Summary: makeSheet([
+          ['Metric', 'PM Compliance (%)', 'Budget Spend (%)'],
+          ['Row 1', 98.9, 103.67],
+          ['Row 2', 99.1, 104.0],
+        ]),
+      },
+    };
+
+    expect(() => ctx.importSummaryWorkbook(workbook, 'test.xlsx', 'ez')).toThrow(
+      'Could not identify the reporting month in the Summary sheet. Expected a header such as Month, Reporting Month, Period, or Month Date.'
+    );
+  });
+
+  it('Budget Spend persists correctly after refresh', () => {
+    const ctx = createImportContext();
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        {
+          id: 10,
+          business_unit: 'AMD-EZ',
+          reporting_year: 2026,
+          reporting_month: 5,
+          budget_spend: 96.5,
+        },
+      ],
+      { businessUnitId: 'ez' },
+    );
+    expect(ctx.MonthlyScoreData.ez[2026][5].budgetSpend).toBe(96.5);
+    expect(ctx.MonthlyScoreData.ez[2026][5].budget_spend).toBe(96.5);
+  });
+
+  it('PM:CM cost ratio persists correctly after refresh', () => {
+    const ctx = createImportContext();
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        {
+          id: 11,
+          business_unit: 'AMD-EZ',
+          reporting_year: 2026,
+          reporting_month: 5,
+          pm_cm_cost_ratio: 71.25,
+        },
+      ],
+      { businessUnitId: 'ez' },
+    );
+    expect(ctx.MonthlyScoreData.ez[2026][5].pmcmCostRatio).toBe(71.25);
+    expect(ctx.MonthlyScoreData.ez[2026][5].pm_cm_cost_ratio).toBe(71.25);
+  });
+
 describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
   it("adds a Scope / Inclusions tab beside Definitions / FAQ", () => {
     expect(scorecardHtml).toContain('<button class="tab" data-tab="scope-inclusions">Scope / Inclusions</button>');
