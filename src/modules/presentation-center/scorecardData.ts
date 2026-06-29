@@ -5,6 +5,11 @@ import {
   normalizeKpiNumber,
   type PersistedMonthlyKpiRecord,
 } from "../monthly-kpi/kpiAggregation";
+import {
+  evaluateKpiStatus,
+  formatThresholdBenchmark,
+  getDefaultMonthlyKpiThresholdConfig,
+} from "../monthly-kpi/kpiThresholds";
 import type { MonthlyKpiTemplate } from "./types";
 
 export type KpiRecord = {
@@ -78,25 +83,35 @@ export type MonthlyKpiScorecardDataset = {
   template: MonthlyKpiTemplate;
 };
 
+const defaultThresholds = getDefaultMonthlyKpiThresholdConfig();
+
 export const scorecardBenchmarks = [
-  { key: "pmCompliance", label: "PM Compliance", benchmark: "95%" },
+  {
+    key: "pmCompliance",
+    label: "PM Compliance",
+    benchmark: formatThresholdBenchmark(defaultThresholds.pmCompliance),
+  },
   {
     key: "budgetSpend",
     label: "Maintenance Budget Spend",
-    benchmark: "95% - 105%",
+    benchmark: formatThresholdBenchmark(defaultThresholds.budgetSpend),
   },
   {
     key: "pmCmWorkOrderRatio",
     label: "PM:CM Ratio (WO)",
-    benchmark: "≥86% (6:1)",
+    benchmark: formatThresholdBenchmark(defaultThresholds.pmCmWorkOrderRatio),
   },
   {
     key: "pmCmCostRatio",
     label: "PM:CM Ratio (Cost)",
-    benchmark: "≥60% (1.5:1)",
+    benchmark: formatThresholdBenchmark(defaultThresholds.pmCmCostRatio),
   },
-  { key: "mttrDays", label: "MTTR", benchmark: "Decreasing Trend" },
-  { key: "facilityUptime", label: "Facility Uptime", benchmark: "99.97%" },
+  { key: "mttrDays", label: "MTTR", benchmark: "Data exists" },
+  {
+    key: "facilityUptime",
+    label: "Facility Uptime",
+    benchmark: formatThresholdBenchmark(defaultThresholds.facilityUptime),
+  },
   { key: "notes", label: "Notes", benchmark: "Commentary" },
 ] as const;
 
@@ -130,32 +145,53 @@ function evaluateAggregatedRecord(record: KpiRecord): KpiRecord {
   const wins: string[] = [];
   const risks: string[] = [];
   const actions: string[] = [];
+  const config = getDefaultMonthlyKpiThresholdConfig();
 
-  if (isPresentNumber(record.pmCompliance) && record.pmCompliance >= 95) {
-    wins.push("PM compliance met or exceeded the 95% benchmark.");
-  } else if (isPresentNumber(record.pmCompliance)) {
-    risks.push("PM compliance is below the 95% benchmark.");
-    actions.push("Review overdue PM backlog and closure constraints.");
-  }
+  type ThresholdField = {
+    key: "pmCompliance" | "budgetSpend" | "pmCmWorkOrderRatio" | "pmCmCostRatio" | "facilityUptime" | "mttrDays";
+    value: number | null;
+    label: string;
+    isRange: boolean;
+  };
 
-  if (
-    isPresentNumber(record.facilityUptime) &&
-    record.facilityUptime >= 99.97
-  ) {
-    wins.push("Facility uptime met or exceeded the 99.97% benchmark.");
-  } else if (isPresentNumber(record.facilityUptime)) {
-    risks.push("Facility uptime is below the 99.97% benchmark.");
-    actions.push("Confirm uptime recovery actions for critical equipment.");
-  }
+  const fields: ThresholdField[] = [
+    { key: "pmCompliance", value: record.pmCompliance, label: "PM compliance", isRange: false },
+    { key: "facilityUptime", value: record.facilityUptime, label: "Facility uptime", isRange: false },
+    { key: "budgetSpend", value: record.budgetSpend, label: "Budget spend", isRange: true },
+    { key: "pmCmWorkOrderRatio", value: record.pmCmWorkOrderRatio, label: "PM:CM work order ratio", isRange: false },
+    { key: "pmCmCostRatio", value: record.pmCmCostRatio, label: "PM:CM cost ratio", isRange: false },
+    { key: "mttrDays", value: record.mttrDays, label: "MTTR", isRange: false },
+  ];
 
-  if (
-    isPresentNumber(record.budgetSpend) &&
-    (record.budgetSpend < 95 || record.budgetSpend > 105)
-  ) {
-    risks.push("Budget spend is outside the 95% to 105% control band.");
-    actions.push("Validate planned-versus-actual cost drivers.");
-  } else if (isPresentNumber(record.budgetSpend)) {
-    wins.push("Budget spend stayed within the scorecard control band.");
+  for (const field of fields) {
+    if (!isPresentNumber(field.value)) continue;
+    const status = evaluateKpiStatus(field.key, field.value, config).status;
+    if (field.key === "mttrDays") {
+      if (status === "green") {
+        wins.push("MTTR data is available for the period.");
+      }
+      continue;
+    }
+
+    const benchmark = formatThresholdBenchmark(config[field.key]);
+    if (field.isRange) {
+      if (status === "green") {
+        wins.push(`${field.label} stayed within the ${benchmark} control band.`);
+      } else if (status === "amber" || status === "red") {
+        risks.push(`${field.label} is outside the ${benchmark} control band.`);
+        actions.push(`Validate planned-versus-actual ${field.label.toLowerCase()} drivers.`);
+      }
+    } else {
+      if (status === "green") {
+        wins.push(`${field.label} met or exceeded the ${benchmark} benchmark.`);
+      } else if (status === "amber") {
+        risks.push(`${field.label} is in the warning band against the ${benchmark} benchmark.`);
+        actions.push(`Review ${field.label.toLowerCase()} drivers and recovery actions.`);
+      } else if (status === "red") {
+        risks.push(`${field.label} is below the ${benchmark} benchmark.`);
+        actions.push(`Confirm recovery actions for ${field.label.toLowerCase()}.`);
+      }
+    }
   }
 
   return {
