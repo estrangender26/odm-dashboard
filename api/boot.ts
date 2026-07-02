@@ -44,6 +44,9 @@ const DOC_FILE_MIME_TYPES: Record<string, string> = {
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ppt: "application/vnd.ms-powerpoint",
   zip: "application/zip",
+  html: "text/html",
+  htm: "text/html",
+  xhtml: "application/xhtml+xml",
 };
 
 function sanitizeHeaderFilename(fileName: string): string {
@@ -1152,6 +1155,9 @@ app.get("/api/documents/files/:id/view", async (c) => {
     c.header("Cache-Control", "private, max-age=300");
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Accept-Ranges", "bytes");
+    if (parsed.mimeType.startsWith("text/html") || parsed.mimeType === "application/xhtml+xml") {
+      c.header("Content-Security-Policy", "sandbox");
+    }
 
     const parsedRange = parseRangeHeader(range, totalSize);
     if (parsedRange === "invalid") {
