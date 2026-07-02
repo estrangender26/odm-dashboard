@@ -416,7 +416,7 @@ const TreeFolderItem = memo(function TreeFolderItem({
 // PDF Viewer Component
 // ═══════════════════════════════════════════════════════════
 
-const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, title, fileName, onDelete }: { fileId: number; hasFileData: boolean; fileUrl: string | null; title: string; fileName: string; onDelete?: () => void }) {
+const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileType, title, fileName, onDelete }: { fileId: number; hasFileData: boolean; fileUrl: string | null; fileType: string | null; title: string; fileName: string; onDelete?: () => void }) {
   const [zoom, setZoom] = useState(1);
   const [loadError, setLoadError] = useState(false);
 
@@ -441,6 +441,8 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, title,
 
   const hasData = hasFileData || !!externalPreviewUrl;
 
+  const isHtmlFile = (fileType ?? "").startsWith("text/html") || (fileType ?? "") === "application/xhtml+xml";
+
   const openLink = useCallback((href: string, download = false) => {
     const a = document.createElement("a");
     a.href = href;
@@ -461,6 +463,35 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, title,
     if (effectiveDownloadUrl) openLink(effectiveDownloadUrl, true);
   }, [effectiveDownloadUrl, openLink]);
 
+  // Safe fallback for HTML/XHTML files — never render them inline in the dashboard shell.
+  const HtmlFallbackCard = useCallback(() => {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center max-w-md text-gray-500 bg-white rounded-lg shadow p-6">
+          <div className="text-5xl mb-4">🌐</div>
+          <h3 className="text-lg font-semibold text-gray-700 mb-1">HTML Document</h3>
+          <p className="text-sm mb-4 break-all" title={fileName}>{fileName}</p>
+          <p className="text-xs text-gray-400 mb-4">Type: {fileType || "text/html"}</p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+            <button type="button" onClick={handleOpenInNewTab} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2">
+              Open
+            </button>
+            <button type="button" onClick={handleDownload} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-100 flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Download
+            </button>
+          </div>
+          {onDelete && (
+            <button type="button" onClick={onDelete} className="mt-4 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100 flex items-center gap-2 mx-auto">
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M3 3h6M5 3V2h2v1M4 3v7M6 3v7M8 3v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Delete File
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }, [fileName, fileType, handleOpenInNewTab, handleDownload, onDelete]);
+
   if (!hasData) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -476,6 +507,10 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, title,
         </div>
       </div>
     );
+  }
+
+  if (isHtmlFile) {
+    return <HtmlFallbackCard />;
   }
 
   if (loadError || !src) {
@@ -1004,7 +1039,7 @@ export default function OmManualsLibrary() {
                 className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
                 <span>📤</span> Upload
               </button>
-              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx" className="hidden" onChange={handleFileUpload} />
+              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx,.html,.htm,.xhtml" className="hidden" onChange={handleFileUpload} />
               <button type="button" onClick={expandAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Expand</button>
               <button type="button" onClick={collapseAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Collapse</button>
               {search && <button type="button" onClick={() => setSearch("")} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100">Clear</button>}
@@ -1112,6 +1147,7 @@ export default function OmManualsLibrary() {
               fileId={selectedFile.id}
               hasFileData={selectedFile.hasFileData}
               fileUrl={selectedFile.fileUrl}
+              fileType={selectedFile.fileType}
               title={selectedFile.title}
               fileName={selectedFile.fileName || "document.pdf"}
               onDelete={() => setModal({ type: "deleteFile", fileId: selectedFile.id })}
