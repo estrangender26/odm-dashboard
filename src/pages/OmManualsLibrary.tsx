@@ -919,11 +919,22 @@ export default function OmManualsLibrary() {
   }, []);
 
   // ── Handle file upload via multipart POST (avoids base64 JSON overhead and global tRPC body limit) ──
+  const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const targetFolder = selectedFolderId;
     if (!targetFolder) { setBanner({ type: "error", message: "Select a folder first" }); return; }
+
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+      setBanner({
+        type: "error",
+        message: `File is too large (${sizeMb} MB). Maximum upload size is 25 MB.`,
+      });
+      e.target.value = "";
+      return;
+    }
 
     setIsUploading(true);
     setUploadProgress(0);
@@ -960,7 +971,7 @@ export default function OmManualsLibrary() {
         } catch {
           // ignore parse failure
         }
-        if (xhr.status === 413) message = "File is too large. Maximum upload size is 100 MB.";
+        if (xhr.status === 413) message = "File is too large. Maximum upload size is 25 MB.";
         setBanner({ type: "error", message });
       }
     });
@@ -1039,7 +1050,7 @@ export default function OmManualsLibrary() {
                 className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
                 <span>📤</span> Upload
               </button>
-              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx,.html,.htm,.xhtml" className="hidden" onChange={handleFileUpload} />
+              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.svg,.webp,.txt,.csv,.json,.zip,.html,.htm,.xhtml" className="hidden" onChange={handleFileUpload} />
               <button type="button" onClick={expandAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Expand</button>
               <button type="button" onClick={collapseAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Collapse</button>
               {search && <button type="button" onClick={() => setSearch("")} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100">Clear</button>}

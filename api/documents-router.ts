@@ -12,7 +12,7 @@ import { TRPCError } from "@trpc/server";
 
 export const documentsUploadRouter = new Hono();
 
-const DOCUMENT_UPLOAD_MAX_SIZE = 100 * 1024 * 1024; // 100 MB
+const DOCUMENT_UPLOAD_MAX_SIZE = 25 * 1024 * 1024; // 25 MB - production-safe limit while files are stored as base64 in Postgres
 
 const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
   "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
@@ -61,17 +61,42 @@ function sanitizeDocumentFileName(value: string): string {
 documentsUploadRouter.use(bodyLimit({ maxSize: DOCUMENT_UPLOAD_MAX_SIZE }));
 
 documentsUploadRouter.post("/upload", async (c) => {
+  const uploadId = Math.random().toString(36).slice(2, 10);
+  const contentLength = Number(c.req.header("content-length") || "0");
+
+  console.log(`[documents/upload:${uploadId}] start content-length=${contentLength}`);
+
+  // Early size guard before parsing the request body. This prevents the server
+  // from buffering oversized multipart bodies into memory on Render.
+  if (contentLength > DOCUMENT_UPLOAD_MAX_SIZE) {
+    console.warn(
+      `[documents/upload:${uploadId}] rejected oversized request: ${contentLength} bytes exceeds ${DOCUMENT_UPLOAD_MAX_SIZE} bytes`
+    );
+    return c.json(
+      { error: "File is too large. Maximum upload size is 25 MB." },
+      413
+    );
+  }
+
   try {
     const body = await c.req.parseBody({ all: false });
     const file = body.file;
 
     if (!(file instanceof File)) {
+      console.warn(`[documents/upload:${uploadId}] no file provided`);
       return c.json({ error: "No file provided." }, 400);
     }
 
+    console.log(
+      `[documents/upload:${uploadId}] parsed file name="${file.name}" type="${file.type}" size=${file.size}`
+    );
+
     if (file.size > DOCUMENT_UPLOAD_MAX_SIZE) {
+      console.warn(
+        `[documents/upload:${uploadId}] rejected oversized file: ${file.size} bytes exceeds ${DOCUMENT_UPLOAD_MAX_SIZE} bytes`
+      );
       return c.json(
-        { error: "File is too large. Maximum upload size is 100 MB." },
+        { error: "File is too large. Maximum upload size is 25 MB." },
         413
       );
     }
@@ -128,10 +153,11 @@ documentsUploadRouter.post("/upload", async (c) => {
       updatedAt: now,
     }).returning();
 
+    console.log(`[documents/upload:${uploadId}] success id=${inserted[0].id} size=${file.size}`);
     return c.json({ file: inserted[0] }, 201);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error("[documents/upload] failed:", message);
+    console.error(`[documents/upload:${uploadId}] failed:`, message);
     return c.json({ error: "Failed to upload file." }, 500);
   }
 });
