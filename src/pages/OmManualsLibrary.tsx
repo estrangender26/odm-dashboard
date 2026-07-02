@@ -821,20 +821,7 @@ export default function OmManualsLibrary() {
     onSuccess: async () => { await refreshTree("moveFolder"); setBanner({ type: "success", message: "Folder moved" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to move folder. ${e.message}` }); },
   });
-  const uploadFile = trpc.documents.uploadFile.useMutation({
-    onMutate: () => { setUploadProgress(75); },
-    onSuccess: async (data) => {
-      setUploadProgress(100);
-      setTimeout(() => { setIsUploading(false); setUploadProgress(0); }, 600);
-      await refreshTree("uploadFile");
-      setBanner({ type: "success", message: `File "${data.title}" uploaded` });
-    },
-    onError: (e) => {
-      setIsUploading(false);
-      setUploadProgress(0);
-      setBanner({ type: "error", message: `Upload failed. ${e.message}` });
-    },
-  });
+
   const deleteFile = trpc.documents.deleteFile.useMutation({
     onSuccess: async () => { await refreshTree("deleteFile"); setSelectedFileId(null); setSelectedFile(null); setBanner({ type: "success", message: "File deleted" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to delete file. ${e.message}` }); },
@@ -931,7 +918,7 @@ export default function OmManualsLibrary() {
     setSelectedFile(null);
   }, []);
 
-  // ── Handle file upload ──
+  // ── Handle file upload via multipart POST (avoids base64 JSON overhead and global tRPC body limit) ──
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -940,47 +927,60 @@ export default function OmManualsLibrary() {
 
     setIsUploading(true);
     setUploadProgress(0);
-    setUploadLabel(`Reading "${file.name}"...`);
+    setUploadLabel(`Uploading "${file.name}"...`);
 
-    const reader = new FileReader();
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("folderId", String(targetFolder));
+    formData.append("uploadedBy", "User");
 
-    reader.onprogress = (ev) => {
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener("progress", (ev) => {
       if (ev.lengthComputable) {
-        const pct = Math.round((ev.loaded / ev.total) * 50);
-        setUploadProgress(pct);
-        setUploadLabel(`Reading "${file.name}"... ${Math.round((ev.loaded / ev.total) * 100)}%`);
+        const pct = Math.round((ev.loaded / ev.total) * 100);
+        setUploadProgress(Math.max(5, pct));
+        setUploadLabel(`Uploading "${file.name}"... ${pct}%`);
       }
-    };
+    });
 
-    reader.onloadstart = () => {
-      setUploadProgress(5);
-      setUploadLabel(`Reading "${file.name}"...`);
-    };
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        setUploadProgress(100);
+        setTimeout(() => { setIsUploading(false); setUploadProgress(0); }, 600);
+        refreshTree("uploadFile");
+        setBanner({ type: "success", message: `File "${file.name}" uploaded` });
+      } else {
+        setIsUploading(false);
+        setUploadProgress(0);
+        let message = `Upload failed (${xhr.status})`;
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (data.error) message = data.error;
+        } catch {
+          // ignore parse failure
+        }
+        if (xhr.status === 413) message = "File is too large. Maximum upload size is 100 MB.";
+        setBanner({ type: "error", message });
+      }
+    });
 
-    reader.onload = () => {
-      setUploadProgress(60);
-      setUploadLabel(`Uploading "${file.name}"...`);
-      const base64 = (reader.result as string).split(",")[1];
-      uploadFile.mutate({
-        folderId: targetFolder,
-        title: file.name.replace(/\.[^.]+$/, ""),
-        fileName: file.name,
-        fileType: file.type || "application/pdf",
-        fileSize: file.size,
-        fileData: base64,
-        uploadedBy: "User",
-      });
-    };
-
-    reader.onerror = () => {
+    xhr.addEventListener("error", () => {
       setIsUploading(false);
       setUploadProgress(0);
-      setBanner({ type: "error", message: `Failed to read "${file.name}"` });
-    };
+      setBanner({ type: "error", message: "Upload failed. Please check your connection and try again." });
+    });
 
-    reader.readAsDataURL(file);
+    xhr.addEventListener("abort", () => {
+      setIsUploading(false);
+      setUploadProgress(0);
+      setBanner({ type: "info", message: "Upload cancelled." });
+    });
+
+    xhr.open("POST", "/api/documents/upload");
+    xhr.send(formData);
     e.target.value = "";
-  }, [selectedFolderId, uploadFile]);
+  }, [selectedFolderId, refreshTree]);
 
   // ── Breadcrumbs ──
   const breadcrumbs = useMemo(() => selectedFolderId ? getFolderPath(tree, selectedFolderId) : [], [tree, selectedFolderId]);
