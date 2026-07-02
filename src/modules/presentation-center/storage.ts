@@ -67,19 +67,25 @@ function apiFileToUploaded(row: {
   id: number;
   fileName: string;
   displayName: string;
+  title?: string | null;
+  version?: string | null;
   fileSizeBytes: number;
   fileCategory: string;
   uploadedBy: string;
   createdAt: string;
+  originalFileUrl?: string | null;
 }): UploadedPresentation {
   return {
     id: String(row.id),
     name: row.displayName || row.fileName,
+    title: row.title ?? row.displayName,
+    version: row.version ?? "1.0",
     uploadDate: row.createdAt,
     uploadedBy: row.uploadedBy,
     size: row.fileSizeBytes,
     category: mapApiCategoryToPresentationCategory(row.fileCategory),
-    dataUrl: getPresentationFileDownloadUrl(row.id),
+    dataUrl: row.originalFileUrl ?? getPresentationFileDownloadUrl(row.id),
+    originalFileUrl: row.originalFileUrl ?? getPresentationFileDownloadUrl(row.id),
   };
 }
 
@@ -110,6 +116,8 @@ function generatedDeckToApiPayload(deck: GeneratedPresentation) {
   return {
     file_name: deck.filename ?? deck.name,
     display_name: deck.name,
+    title: deck.title ?? deck.name,
+    version: deck.version ?? "1.0",
     file_size_bytes: deck.size,
     file_blob: deck.dataUrl,
     sha256_hash: "",
@@ -125,6 +133,8 @@ function apiFileToGenerated(row: {
   id: number;
   fileName: string;
   displayName: string;
+  title?: string | null;
+  version?: string | null;
   fileSizeBytes: number;
   fileCategory: string;
   generatorId?: string | null;
@@ -133,6 +143,7 @@ function apiFileToGenerated(row: {
   scopeJson?: string | null;
   uploadedBy: string;
   createdAt: string;
+  originalFileUrl?: string | null;
 }): GeneratedPresentation {
   const scope: Partial<GeneratedPresentation> = {};
   if (row.scopeJson) {
@@ -155,11 +166,14 @@ function apiFileToGenerated(row: {
   return {
     id: String(row.id),
     name: row.displayName || row.fileName,
+    title: row.title ?? row.displayName,
+    version: row.version ?? "1.0",
     type: row.generatorName || "Generated Deck",
     generatedDate: row.createdAt,
     generatedBy: row.uploadedBy,
     size: row.fileSizeBytes,
-    dataUrl: getPresentationFileDownloadUrl(row.id),
+    dataUrl: row.originalFileUrl ?? getPresentationFileDownloadUrl(row.id),
+    originalFileUrl: row.originalFileUrl ?? getPresentationFileDownloadUrl(row.id),
     generatorId: row.generatorId ?? undefined,
     generatorName: row.generatorName ?? undefined,
     template: row.template ?? undefined,

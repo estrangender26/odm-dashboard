@@ -14,21 +14,27 @@ export type PresentationCategory =
 export type UploadedPresentation = {
   id: string;
   name: string;
+  title?: string;
+  version?: string;
   uploadDate: string;
   uploadedBy: string;
   size: number;
   category: PresentationCategory;
   dataUrl: string;
+  originalFileUrl?: string;
 };
 
 export type GeneratedPresentation = {
   id: string;
   name: string;
+  title?: string;
+  version?: string;
   type: string;
   generatedDate: string;
   generatedBy: string;
   size: number;
   dataUrl: string;
+  originalFileUrl?: string;
   generatorId?: string;
   generatorName?: string;
   reportingYear?: number;

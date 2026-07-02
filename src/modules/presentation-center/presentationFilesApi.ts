@@ -6,6 +6,8 @@ export type PresentationFileMetadata = {
   id: number;
   fileName: string;
   displayName: string;
+  title?: string | null;
+  version?: string | null;
   fileType: string;
   mimeType: string;
   fileSizeBytes: number;
@@ -15,6 +17,7 @@ export type PresentationFileMetadata = {
   generatorName?: string | null;
   template?: string | null;
   scopeJson?: string | null;
+  originalFileUrl?: string | null;
   uploadedBy: string;
   createdAt: string;
   updatedAt: string;
@@ -54,12 +57,16 @@ export async function uploadPresentationFile(
   options: {
     fileCategory?: PresentationFileCategory;
     uploadedBy?: string;
+    title?: string;
+    version?: string;
   } = {}
 ): Promise<PresentationFileMetadata> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("file_category", options.fileCategory ?? "uploaded_deck");
   if (options.uploadedBy) formData.append("uploaded_by", options.uploadedBy);
+  if (options.title) formData.append("title", options.title);
+  if (options.version) formData.append("version", options.version);
 
   const response = await fetch(`${API_BASE}/upload`, {
     method: "POST",
