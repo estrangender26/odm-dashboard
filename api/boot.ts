@@ -8,6 +8,7 @@ import { sql, eq, and } from "drizzle-orm";
 import { ensureDbReady, getDb } from "./queries/connection";
 import { appRouter } from "./router";
 import { presentationFilesRouter } from "./presentation-files-router";
+import { documentsUploadRouter } from "./documents-router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { authenticateRequest, createOAuthCallbackHandler } from "./kimi/auth";
@@ -258,6 +259,9 @@ function findDistPublic(): string | null {
 // Resolve dist path once at module load
 const distPath = findDistPublic();
 logBootStage("dist/public path resolved", { distPath });
+
+logBootStage("registering document upload routes");
+app.route("/api/documents", documentsUploadRouter);
 
 logBootStage("registering body limit middleware");
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));

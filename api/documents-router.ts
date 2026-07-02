@@ -1,9 +1,140 @@
 import { z } from "zod";
 import { eq, inArray, isNull, sql } from "drizzle-orm";
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { db } from "./queries/connection";
 import { docFolders, docFiles } from "@db/schema";
 import { publicQuery } from "./middleware";
 import { TRPCError } from "@trpc/server";
+
+// ── Multipart upload router for O&M Manuals Library ──
+// Mounted separately in api/boot.ts before the global body-limit so this route can accept larger files.
+
+export const documentsUploadRouter = new Hono();
+
+const DOCUMENT_UPLOAD_MAX_SIZE = 100 * 1024 * 1024; // 100 MB
+
+const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "png", "jpg", "jpeg", "gif", "svg", "webp",
+  "txt", "csv", "json", "zip",
+  "html", "htm", "xhtml",
+]);
+
+const DOC_FILE_MIME_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+  txt: "text/plain",
+  csv: "text/csv",
+  json: "application/json",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  doc: "application/msword",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppt: "application/vnd.ms-powerpoint",
+  zip: "application/zip",
+  html: "text/html",
+  htm: "text/html",
+  xhtml: "application/xhtml+xml",
+};
+
+function inferDocumentMimeType(fileName: string, declaredMimeType?: string | null): string {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  const typeFromExtension = ext ? DOC_FILE_MIME_TYPES[ext] : undefined;
+  const typeFromFile = declaredMimeType?.trim();
+  if (typeFromExtension === "application/pdf") return typeFromExtension;
+  return typeFromFile && typeFromFile !== "application/octet-stream"
+    ? typeFromFile
+    : typeFromExtension || "application/octet-stream";
+}
+
+function sanitizeDocumentFileName(value: string): string {
+  return value.replace(/[\r\n"]/g, "_").replace(/\\/g, "/");
+}
+
+documentsUploadRouter.use(bodyLimit({ maxSize: DOCUMENT_UPLOAD_MAX_SIZE }));
+
+documentsUploadRouter.post("/upload", async (c) => {
+  try {
+    const body = await c.req.parseBody({ all: false });
+    const file = body.file;
+
+    if (!(file instanceof File)) {
+      return c.json({ error: "No file provided." }, 400);
+    }
+
+    if (file.size > DOCUMENT_UPLOAD_MAX_SIZE) {
+      return c.json(
+        { error: "File is too large. Maximum upload size is 100 MB." },
+        413
+      );
+    }
+
+    const fileName = sanitizeDocumentFileName(file.name);
+    const ext = fileName.split(".").pop()?.toLowerCase();
+    if (!ext || !ALLOWED_DOCUMENT_EXTENSIONS.has(ext)) {
+      return c.json(
+        { error: `Unsupported file type: ${ext ? `.${ext}` : "none"}. Allowed: PDF, Word, Excel, PowerPoint, images, text/CSV/JSON, ZIP, HTML, HTM, XHTML.` },
+        400
+      );
+    }
+
+    const folderIdRaw = body.folderId;
+    const folderId = Number(folderIdRaw);
+    if (!Number.isInteger(folderId) || folderId <= 0) {
+      return c.json({ error: "A valid target folder is required." }, 400);
+    }
+
+    const folderRows = await db
+      .select({ id: docFolders.id })
+      .from(docFolders)
+      .where(eq(docFolders.id, folderId))
+      .limit(1);
+    if (!folderRows.length) {
+      return c.json({ error: "Target folder not found." }, 404);
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const base64 = buffer.toString("base64");
+
+    const title = String(body.title || fileName.replace(/\.[^.]+$/, "")).trim();
+    const uploadedBy = String(body.uploadedBy || "User").trim() || "User";
+    const description = String(body.description || "").trim() || null;
+    const revision = String(body.revision || "").trim() || null;
+    const tags = String(body.tags || "").trim() || null;
+    const fileType = inferDocumentMimeType(fileName, file.type);
+    const now = new Date();
+
+    const inserted = await db.insert(docFiles).values({
+      folderId,
+      title,
+      fileName,
+      fileType,
+      fileSize: file.size,
+      fileData: base64,
+      fileUrl: null,
+      description,
+      revision,
+      tags,
+      uploadedBy,
+      uploadedAt: now,
+      updatedAt: now,
+    }).returning();
+
+    return c.json({ file: inserted[0] }, 201);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[documents/upload] failed:", message);
+    return c.json({ error: "Failed to upload file." }, 500);
+  }
+});
 
 // ── Types ──
 interface TreeFolder {
