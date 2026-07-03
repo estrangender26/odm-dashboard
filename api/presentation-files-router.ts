@@ -436,6 +436,7 @@ router.post("/generated", async (c) => {
     const uploadedBy = String(body.uploaded_by || "ODM User");
 
     if (!fileName || !fileBlob || !sha256Hash) {
+      console.error("[PresentationFiles] generated upsert validation failed", { fileName: Boolean(fileName), fileBlob: Boolean(fileBlob), sha256Hash: Boolean(sha256Hash) });
       return c.json({ error: "file_name, file_blob, and sha256_hash are required." }, 400);
     }
 

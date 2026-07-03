@@ -10,6 +10,7 @@ import {
   mergeGeneratedPresentation,
   renameUploadedPresentation,
   replaceUploadedPresentation,
+  saveGeneratedPresentations,
 } from "./storage";
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -318,6 +319,46 @@ describe("presentation storage API-backed helpers", () => {
       template: "Executive Scorecard",
       dataUrl: "/api/presentation-files/10/download",
     });
+  });
+
+  it("persists generated presentations to the backend with a non-empty sha256 hash", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        file: {
+          id: 20,
+          fileName: "odm.pptx",
+          displayName: "odm.pptx",
+          fileType: PPTX_MIME,
+          mimeType: PPTX_MIME,
+          fileSizeBytes: 1234,
+          sha256Hash: "nonemptyhash",
+          fileCategory: "generated_deck",
+          generatorId: "operator-driven-maintenance",
+          generatorName: "Operator Driven Maintenance Deck",
+          uploadedBy: "ODM User",
+          createdAt: "2026-06-01T10:00:00Z",
+          updatedAt: "2026-06-01T10:00:00Z",
+        },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const deck = makeGenerated({
+      id: "local-1",
+      dataUrl: "data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,dGVzdA==",
+      size: 4,
+    });
+
+    await saveGeneratedPresentations([deck]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const callArgs = fetchMock.mock.calls[0];
+    expect(callArgs[0]).toBe("/api/presentation-files/generated");
+    const body = JSON.parse(callArgs[1].body as string);
+    expect(body.file_name).toBe("generated.pptx");
+    expect(body.file_blob).toBe(deck.dataUrl);
+    expect(body.sha256_hash).toBeTruthy();
+    expect(body.sha256_hash).not.toBe("");
   });
 });
 
