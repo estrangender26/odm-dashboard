@@ -73,3 +73,29 @@
     @apply bg-background text-foreground;
   }
 }
+/* ── PPTX Viewer overrides ── */
+.pptx-viewer-canvas,
+.pptx-viewer-canvas .pptx-preview-wrapper {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+.pptx-viewer-canvas .pptx-preview-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f172a !important;
+}
+
+.pptx-viewer-canvas .pptx-preview-wrapper-next,
+.pptx-viewer-canvas .pptx-preview-wrapper-pagination {
+  display: none !important;
+}
+
+.pptx-viewer-canvas .pptx-preview-slide-wrapper {
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}

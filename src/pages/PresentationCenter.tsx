@@ -6,6 +6,7 @@ import {
   Eye,
   FileText,
   Loader2,
+  Play,
   Presentation,
   Replace,
   Search,
@@ -14,6 +15,7 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
+import PptxViewer from "@/components/PptxViewer";
 import { toast, Toaster } from "sonner";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import { deckGeneratorRegistry } from "@/modules/presentation-center/generators";
@@ -207,6 +209,10 @@ export default function PresentationCenter() {
     useState<UploadedPresentation | null>(null);
   const [generatedDetailCandidate, setGeneratedDetailCandidate] =
     useState<GeneratedPresentation | null>(null);
+  const [viewerDeck, setViewerDeck] = useState<
+    UploadedPresentation | GeneratedPresentation | null
+  >(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const [generatedDeleteCandidate, setGeneratedDeleteCandidate] =
     useState<GeneratedPresentation | null>(null);
   const [clearGeneratedOpen, setClearGeneratedOpen] = useState(false);
@@ -805,8 +811,17 @@ export default function PresentationCenter() {
               <tbody className="divide-y divide-[#E2E8F0] bg-white">
                 {filteredUploaded.map(deck => (
                   <tr key={deck.id}>
-                    <td className="px-4 py-3 font-semibold text-[#0B1D44]">
-                      {deck.name}
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => {
+                          setViewerDeck(deck);
+                          setViewerOpen(true);
+                        }}
+                        className="font-semibold text-[#0B1D44] hover:text-[#005BAC] hover:underline"
+                        title="View slides"
+                      >
+                        {deck.name}
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-slate-600">
                       <span className="rounded-full bg-[#DBEAFE] px-2.5 py-1 text-xs font-semibold text-[#005BAC]">
@@ -833,6 +848,16 @@ export default function PresentationCenter() {
                           title="Download"
                         >
                           <Download className="h-3.5 w-3.5" /> Download
+                        </button>
+                        <button
+                          onClick={() => {
+                            setViewerDeck(deck);
+                            setViewerOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="View slides"
+                        >
+                          <Play className="h-3.5 w-3.5" /> View Slides
                         </button>
                         <button
                           onClick={() => {
@@ -994,8 +1019,17 @@ export default function PresentationCenter() {
               <tbody className="divide-y divide-[#E2E8F0] bg-white">
                 {sortedGenerated.map(deck => (
                   <tr key={deck.id}>
-                    <td className="px-4 py-3 font-semibold text-[#0B1D44]">
-                      {deck.name}
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => {
+                          setViewerDeck(deck);
+                          setViewerOpen(true);
+                        }}
+                        className="font-semibold text-[#0B1D44] hover:text-[#005BAC] hover:underline"
+                        title="View slides"
+                      >
+                        {deck.name}
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-slate-600">
                       <div>{deck.type}</div>
@@ -1047,6 +1081,16 @@ export default function PresentationCenter() {
                           title="Download latest file"
                         >
                           <Download className="h-3.5 w-3.5" /> Download
+                        </button>
+                        <button
+                          onClick={() => {
+                            setViewerDeck(deck);
+                            setViewerOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="View slides"
+                        >
+                          <Play className="h-3.5 w-3.5" /> View Slides
                         </button>
                         <button
                           onClick={() => setGeneratedDetailCandidate(deck)}
@@ -1940,6 +1984,20 @@ export default function PresentationCenter() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {viewerOpen && viewerDeck && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-slate-950">
+          <PptxViewer
+            fileUrl={viewerDeck.dataUrl}
+            fileName={viewerDeck.name}
+            title={viewerDeck.title || viewerDeck.name}
+            onClose={() => {
+              setViewerOpen(false);
+              setViewerDeck(null);
+            }}
+          />
         </div>
       )}
     </div>
