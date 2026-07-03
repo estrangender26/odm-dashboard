@@ -840,14 +840,31 @@ export default function PresentationCenter() {
                     <td className="px-4 py-3 text-slate-600">
                       {getUploadedFileUsage(deck)}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
+                    <td className="px-3 py-2">
+                      <div className="grid grid-cols-[1.25fr_1fr_1fr] gap-1.5 min-w-[16rem]">
+                        <button
+                          onClick={() => {
+                            setViewerDeck(deck);
+                            setViewerOpen(true);
+                          }}
+                          className="col-span-1 inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="View slides"
+                        >
+                          <Play className="h-3.5 w-3.5" /> View Slides
+                        </button>
                         <button
                           onClick={() => downloadDataUrl(deck.dataUrl, deck.name)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
                           title="Download"
                         >
                           <Download className="h-3.5 w-3.5" /> Download
+                        </button>
+                        <button
+                          onClick={() => setUploadDetailCandidate(deck)}
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="View Details"
+                        >
+                          <Eye className="h-3.5 w-3.5" /> Details
                         </button>
                         <button
                           onClick={() => {
@@ -864,7 +881,7 @@ export default function PresentationCenter() {
                             setUploadRenameCandidate(deck);
                             setRenameValue(deck.name);
                           }}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
                           title="Rename"
                         >
                           <Edit3 className="h-3.5 w-3.5" /> Rename
@@ -875,21 +892,14 @@ export default function PresentationCenter() {
                             setReplaceKeepName(true);
                             setTimeout(() => replaceInputRef.current?.click(), 0);
                           }}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
                           title="Replace"
                         >
                           <Replace className="h-3.5 w-3.5" /> Replace
                         </button>
                         <button
-                          onClick={() => setUploadDetailCandidate(deck)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
-                          title="View Details"
-                        >
-                          <Eye className="h-3.5 w-3.5" /> Details
-                        </button>
-                        <button
                           onClick={() => setUploadDeleteCandidate(deck)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 hover:bg-red-50"
                           title="Delete"
                         >
                           <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -1073,11 +1083,21 @@ export default function PresentationCenter() {
                     <td className="px-4 py-3 text-slate-600">
                       {deck.generatedBy}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
+                    <td className="px-3 py-2">
+                      <div className="grid grid-cols-[1.25fr_1fr_1fr] gap-1.5 min-w-[16rem]">
+                        <button
+                          onClick={() => {
+                            setViewerDeck(deck);
+                            setViewerOpen(true);
+                          }}
+                          className="col-span-1 inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          title="View slides"
+                        >
+                          <Play className="h-3.5 w-3.5" /> View Slides
+                        </button>
                         <button
                           onClick={() => downloadDataUrl(deck.dataUrl, deck.name)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
                           title="Download latest file"
                         >
                           <Download className="h-3.5 w-3.5" /> Download
@@ -1094,14 +1114,16 @@ export default function PresentationCenter() {
                         </button>
                         <button
                           onClick={() => setGeneratedDetailCandidate(deck)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
                           title="View details"
                         >
                           <Eye className="h-3.5 w-3.5" /> Details
                         </button>
+                        <div aria-hidden="true" />
+                        <div aria-hidden="true" />
                         <button
                           onClick={() => setGeneratedDeleteCandidate(deck)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 hover:bg-red-50"
                           title="Delete history entry"
                         >
                           <Trash2 className="h-3.5 w-3.5" /> Delete
