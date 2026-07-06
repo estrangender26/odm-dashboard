@@ -2922,4 +2922,28 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(sel.innerHTML).not.toContain('value="100"');
   });
 
+  it("clearData resets local state and calls fetchSavedMonthlyKpiRecords when payload lacks records", async () => {
+    const ctx = createImportContext();
+    const captured: { url: string }[] = [];
+    (ctx as any).fetch = async (url: string) => {
+      captured.push({ url });
+      if (url.includes("/api/monthly-kpi/records?")) {
+        return { ok: true, json: async () => ({ records: [] }) };
+      }
+      return { ok: true, json: async () => ({ success: true, deletedCount: 0 }) };
+    };
+    (ctx as any).selectedBusinessUnitId = "all-business-units";
+    (ctx.document.getElementById("monthSel") as any).value = "5";
+
+    const clearPromise = ctx.clearData();
+    await ctx.resolveClearConfirmation(true);
+    await clearPromise;
+
+    const deleteUrl = captured.find((c) => c.url.includes("/api/monthly-kpi/records") && !c.url.includes("aggregates"));
+    expect(deleteUrl).toBeDefined();
+    expect(deleteUrl!.url).toContain("reporting_year=2026");
+    expect(deleteUrl!.url).toContain("reporting_month=5");
+    expect((ctx as any).MonthlyScoreData).toEqual({});
+  });
+
 });

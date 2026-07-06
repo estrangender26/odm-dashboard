@@ -2224,7 +2224,7 @@ async function fetchSavedMonthlyKpiRecords(buId,options){
     var res = await fetch(url,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Unable to load saved Monthly KPI records.');
-    applyPersistedMonthlyKpiRecords(payload.records || [],buId?{businessUnitId:buId,merge:!!options.merge}:{reset:true,merge:!!options.merge});
+    applyPersistedMonthlyKpiRecords(payload.records || [],buId?{businessUnitId:buId,merge:!!options.merge,reset:!!options.reset}:{reset:true,merge:!!options.merge});
     refreshBusinessUnitSelectors();
     await fetchMonthlyKpiAggregates();
     return {ok:true,records:payload.records || []};
@@ -3284,16 +3284,23 @@ async function clearData(){
       params.set('business_unit', getBUApiValue(bu.id));
     }
     var deleteUrl = '/api/monthly-kpi/records?'+params.toString();
+    console.log('[Monthly KPI clear] DELETE', deleteUrl);
     var res = await fetch(deleteUrl,{method:'DELETE',cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Failed to clear KPI records.');
+    var deletedCount = payload && typeof payload.deletedCount === 'number' ? payload.deletedCount : null;
+    console.log('[Monthly KPI clear] deletedCount:', deletedCount, 'scope:', scope);
+    if(deletedCount === 0){
+      // Nothing deleted for the selected scope; still refresh to ensure UI matches backend.
+    }
+    // Always reset local state to the backend's current view so stale MonthlyScoreData is removed.
     if(Array.isArray(payload.records)){
       applyPersistedMonthlyKpiRecords(payload.records,{reset:true});
-      KpiAggregates = normalizeKpiAggregates(payload.aggregates);
-      if(!KpiAggregates)await fetchMonthlyKpiAggregates();
     }else{
-      await fetchSavedMonthlyKpiRecords();
+      await fetchSavedMonthlyKpiRecords(null,{reset:true});
     }
+    KpiAggregates = normalizeKpiAggregates(payload.aggregates);
+    await fetchMonthlyKpiAggregates();
     refreshBusinessUnitSelectors();
     renderSummaryDashboard();
     if(!scope.isAll)renderBUCharts(selectedBusinessUnitId);
