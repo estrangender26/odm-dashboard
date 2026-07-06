@@ -2307,5 +2307,173 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(feb?.pm_cm_work_order_ratio).toBeCloseTo((80 / 100) * 100, 2);
     expect(feb?.pm_cm_cost_ratio).toBeCloseTo((6000 / 10000) * 100, 2);
   });
+  it("imports a Notes column from a consolidated KPI sheet and persists it to record.notes", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["AMD-EZ", 46023, 100, 100, "Under budget due to deferred vendor work."],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "notes-single.xlsx");
+    expect(result.imported).toBe(1);
+    const jan = result.records[0];
+    expect(jan.notes).toBe("Under budget due to deferred vendor work.");
+    expect(jan.actual_spend).toBe(100);
+    expect(jan.budget).toBe(100);
+    expect(jan.budget_spend).toBe(100);
+  });
+
+  it("does not fail import when a consolidated KPI sheet is missing the Notes column", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget"],
+          ["AMD-EZ", 46023, 100, 100],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "notes-missing.xlsx");
+    expect(result.imported).toBe(1);
+    expect(result.records[0].notes).toBeNull();
+    expect(result.records[0].budget_spend).toBe(100);
+  });
+
+  it("turns a blank Notes cell into null during consolidated import", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Remarks"],
+          ["AMD-EZ", 46023, 100, 100, ""],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "notes-blank.xlsx");
+    expect(result.imported).toBe(1);
+    expect(result.records[0].notes).toBeNull();
+  });
+
+  it("recognizes alternate Notes headers such as Remarks and Comment", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["MTTR", "Facility Uptime"],
+      Sheets: {
+        MTTR: makeSheet([
+          ["BUSINESS UNIT", "Month", "Total Downtime", "Number of Repairs", "Remarks"],
+          ["AMD-EZ", 46023, 10, 2, "Pump seal leak"],
+        ]),
+        "Facility Uptime": makeSheet([
+          ["BU", "Month", "Total Operating Time", "Total Downtime", "Comment"],
+          ["AMD-EZ", 46023, 1000, 10, "Scheduled outage"],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "notes-aliases.xlsx");
+    expect(result.imported).toBe(1);
+    const jan = result.records[0];
+    expect(jan.notes).toBe("MTTR: Pump seal leak; Facility Uptime: Scheduled outage");
+    expect(jan.mttr_days).toBeCloseTo(5, 2);
+    expect(jan.facility_uptime).toBeCloseTo(99, 2);
+  });
+
+  it("combines notes from multiple consolidated sheets for the same BU/month with sheet labels and deduplicates identical text", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend", "MTTR", "PM CM Work Orders"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["AMD-EZ", 46023, 100, 100, "Shared note"],
+        ]),
+        MTTR: makeSheet([
+          ["BUSINESS UNIT", "Month", "Total Downtime", "Number of Repairs", "Note"],
+          ["AMD-EZ", 46023, 10, 2, "Shared note"],
+        ]),
+        "PM CM Work Orders": makeSheet([
+          ["BUSINESS UNIT", "Month", "PM Work Orders", "CM Work Orders", "Notes"],
+          ["AMD-EZ", 46023, 90, 10, "PM dominated month."],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "notes-combined.xlsx");
+    expect(result.imported).toBe(1);
+    const jan = result.records[0];
+    expect(jan.notes).toBe("Budget Spend: Shared note; PM CM Work Orders: PM dominated month.");
+    expect(jan.budget_spend).toBe(100);
+    expect(jan.mttr_days).toBeCloseTo(5, 2);
+    expect(jan.pm_cm_work_order_ratio).toBeCloseTo(90, 2);
+  });
 
 });
