@@ -806,6 +806,12 @@ function loadBusinessUnitsFromStorage(){
   }catch(err){}
 }
 
+function isValidBusinessUnitApiValue(value){
+  if(!value || value===true)return false;
+  var text = String(value).trim();
+  if(!text || /^\d+(\.\d+)?$/.test(text))return false;
+  return BUs.some(function(bu){ return bu.apiValue===text || bu.label===text || bu.name===text || bu.id===text; });
+}
 function isValidBusinessUnitId(buId){
   return BUs.some(function(bu){
     return bu.id === buId;
@@ -913,9 +919,11 @@ function initBusinessUnitSelector(){
   if(!sel)return;
   var year = getSelectedYear();
   var activeBuIds = getBusinessUnitsWithMonthlyKpiData(year);
+  var activeSet = {};
+  activeBuIds.forEach(function(id){ activeSet[id] = true; });
   var options = '<option value="'+ALL_BUSINESS_UNITS_VALUE+'">All Business Units</option>';
   BUs.forEach(function(bu){
-    if(activeBuIds.indexOf(bu.id) !== -1 || activeBuIds.indexOf(bu.apiValue) !== -1 || activeBuIds.indexOf(normalizePersistedBusinessUnit(bu.apiValue)) !== -1){
+    if(activeSet[bu.id] || activeSet[bu.apiValue] || activeSet[normalizePersistedBusinessUnit(bu.apiValue)] || activeSet[bu.label] || activeSet[bu.name]){
       options += '<option value="'+bu.id+'">'+bu.label+'</option>';
     }
   });
@@ -972,6 +980,7 @@ function countImportedMonths(buId,year){
 function getBusinessUnitsWithMonthlyKpiData(year,month){
   var activeBuIds = new Set();
   Object.keys(MonthlyScoreData).forEach(function(buId){
+    if(!isValidBusinessUnitApiValue(buId))return;
     var yearData = MonthlyScoreData[buId] && MonthlyScoreData[buId][year];
     if(!yearData)return;
     var months = Object.keys(yearData);
@@ -1114,7 +1123,7 @@ function getSummaryNotesForBusinessUnit(buId){
 }
 
 function getBusinessUnitCommentaryRows(){
-  return BUs.map(function(bu){
+  return BUs.filter(function(bu){return isValidBusinessUnitId(bu.id);}).map(function(bu){
     return {businessUnit:bu.label,notes:getSummaryNotesForBusinessUnit(bu.id)};
   }).filter(function(row){return !!row.notes;});
 }
@@ -1271,7 +1280,7 @@ function normalizeAggregateKpiFields(source){
 function addBusinessUnitAggregateMapAliases(map,aggregate){
   if(!map || !aggregate)return;
   var businessUnit = aggregate.businessUnit || aggregate.business_unit || aggregate.businessUnitId || aggregate.business_unit_id;
-  if(businessUnit)map[businessUnit] = aggregate;
+  if(businessUnit && !/^\d+(\.\d+)?$/.test(String(businessUnit).trim()))map[businessUnit] = aggregate;
   BUs.forEach(function(bu){
     if(businessUnit===bu.label || businessUnit===bu.apiValue || businessUnit===bu.name || businessUnit===bu.id){
       map[bu.apiValue] = aggregate;
@@ -1544,7 +1553,7 @@ function buildSummaryMatrixExportRows(aggregates,scope){
     });
   }
   var allowedBu = scope==='current' ? getBUApiValue(selectedBusinessUnitId) : null;
-  BUs.forEach(function(bu){
+  BUs.filter(function(bu){return isValidBusinessUnitId(bu.id);}).forEach(function(bu){
     if(allowedBu && getBUApiValue(bu.id)!==allowedBu)return;
     var aggregate = (aggregates.byBusinessUnitMap || {})[getBUApiValue(bu.id)] || (aggregates.byBusinessUnitMap || {})[bu.label] || null;
     rows.push({
@@ -2142,6 +2151,11 @@ function applyPersistedMonthlyKpiRecords(records,options){
     }
   }
   (records||[]).forEach(function(row){
+    var rawBu = String(row.business_unit || row.businessUnit || '').trim();
+    if(/^\d+(\.\d+)?$/.test(rawBu)){
+      console.warn('[Monthly KPI] Skipping invalid numeric Business Unit:', rawBu, 'for year', row.reporting_year, 'month', row.reporting_month);
+      return;
+    }
     var buId = normalizePersistedBusinessUnit(row.business_unit);
     if(!buId)return;
     var year = parseInt(row.reporting_year,10);
@@ -2304,7 +2318,7 @@ function renderSummary(){
   getPortfolioSummaryKPIs().forEach(function(k){html += '<td class="'+k.cls+'">'+k.display+'</td>';});
   html += '<td class="notes-col">'+renderAggregateNotesRollup()+'</td>';
   html += '</tr>';
-  BUs.forEach(function(bu){
+  BUs.filter(function(bu){return isValidBusinessUnitId(bu.id) && hasImportedData(bu.id,getSelectedYear());}).forEach(function(bu){
     var kpis = getSummaryKPIs(bu);
     html += '<tr>';
     html += '<td>'+bu.label+'</td>';
