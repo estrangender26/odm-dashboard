@@ -83,16 +83,33 @@ describe("Monthly KPI records API", () => {
     expectInOrder(importRoute, [
       "INSERT INTO monthly_kpi_records",
       "facility_uptime,",
+      "actual_spend,",
+      "budget,",
+      "pm_orders_completed_on_time,",
+      "total_pm_orders,",
+      "pm_work_orders,",
+      "cm_work_orders,",
+      "pm_cost,",
+      "cm_cost,",
+      "total_downtime,",
+      "number_of_repairs,",
+      "total_operating_time,",
+      "source_sheet,",
+      "import_batch_id,",
       "notes,",
       "raw_imported_values",
       "${record.facilityUptime},",
+      "${record.actualSpend},",
+      "${record.sourceSheet},",
       "${record.notes},",
       "ON CONFLICT (business_unit, reporting_year, reporting_month)",
       "notes = EXCLUDED.notes,",
       "RETURNING",
       "facility_uptime,",
+      "actual_spend,",
+      "source_sheet,",
       "notes,",
-      "raw_imported_values",
+      "raw_imported_values"
     ]);
   });
 
@@ -103,9 +120,12 @@ describe("Monthly KPI records API", () => {
     expectInOrder(patchRoute, [
       "UPDATE monthly_kpi_records SET",
       "facility_uptime = ${record.facilityUptime},",
+      "actual_spend = ${record.actualSpend},",
+      "source_sheet = ${record.sourceSheet},",
+      "import_batch_id = ${record.importBatchId},",
       "notes = ${record.notes},",
       "raw_imported_values = ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb",
-      "RETURNING *",
+      "RETURNING *"
     ]);
   });
 

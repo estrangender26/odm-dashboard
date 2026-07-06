@@ -19,6 +19,7 @@ export type PersistedMonthlyKpiRecord = {
   source_file_name?: string | null;
   imported_at?: string | Date | null;
   pm_compliance: number | string | null;
+  pm_planned?: number | string | null;
   schedule_compliance?: number | string | null;
   budget_spend: number | string | null;
   pm_cm_work_order_ratio: number | string | null;
@@ -28,6 +29,20 @@ export type PersistedMonthlyKpiRecord = {
   facility_uptime: number | string | null;
   notes?: string | null;
   raw_imported_values?: unknown;
+  // Raw input fields used to recompute KPIs inside the app.
+  actual_spend?: number | string | null;
+  budget?: number | string | null;
+  pm_orders_completed_on_time?: number | string | null;
+  total_pm_orders?: number | string | null;
+  pm_work_orders?: number | string | null;
+  cm_work_orders?: number | string | null;
+  pm_cost?: number | string | null;
+  cm_cost?: number | string | null;
+  total_downtime?: number | string | null;
+  number_of_repairs?: number | string | null;
+  total_operating_time?: number | string | null;
+  source_sheet?: string | null;
+  import_batch_id?: string | null;
 };
 
 export type MonthlyKpiValues = Record<MonthlyKpiKey, number | null>;
@@ -48,7 +63,7 @@ export type MonthlyKpiAggregateResult = {
 
 type PersistedKpiValueField = Exclude<
   keyof PersistedMonthlyKpiRecord,
-  "business_unit" | "reporting_month" | "reporting_year" | "source_file_name" | "imported_at" | "raw_imported_values"
+  "business_unit" | "reporting_month" | "reporting_year" | "source_file_name" | "imported_at" | "raw_imported_values" | "source_sheet" | "import_batch_id"
 >;
 
 const sourceFieldByKpiKey: Record<MonthlyKpiKey, PersistedKpiValueField> = {
@@ -162,7 +177,7 @@ function isZeroOnlyWorkbookPlaceholder(record: PersistedMonthlyKpiRecord) {
   return hasZero && normalizedValues.every((value) => value === null || value === 0);
 }
 
-function hasImportedKpiValue(record: PersistedMonthlyKpiRecord, key: MonthlyKpiKey) {
+export function hasImportedKpiValue(record: PersistedMonthlyKpiRecord, key: MonthlyKpiKey) {
   const value = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
   if (value === null) return false;
   if (value !== 0) return true;
@@ -178,10 +193,127 @@ function emptyKpiValues(): MonthlyKpiValues {
   }, {} as MonthlyKpiValues);
 }
 
+// ── Period-aware KPI computation ──
+
+const MONTHLY_ONLY_KEYS: MonthlyKpiKey[] = ["pmCompliance", "facilityUptime"];
+const YTD_KEYS: MonthlyKpiKey[] = ["budgetSpend", "pmCmWorkOrderRatio", "pmCmCostRatio", "mttrDays"];
+
+function sumField(records: PersistedMonthlyKpiRecord[], field: keyof PersistedMonthlyKpiRecord) {
+  return records.reduce((sum, record) => {
+    const value = normalizeKpiNumber((record as any)[field]);
+    return value === null ? sum : sum + value;
+  }, 0);
+}
+
+function safeDivide(numerator: number, denominator: number): number | null {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
+  return numerator / denominator;
+}
+
+function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord): number | null {
+  if (key === "pmCompliance") {
+    const completed = normalizeKpiNumber(record.pm_orders_completed_on_time);
+    const total = normalizeKpiNumber(record.total_pm_orders);
+    if (completed === null || total === null || total === 0) return null;
+    return (completed / total) * 100;
+  }
+  if (key === "facilityUptime") {
+    const operating = normalizeKpiNumber(record.total_operating_time);
+    const downtime = normalizeKpiNumber(record.total_downtime);
+    if (operating === null || downtime === null || operating === 0) return null;
+    return safeDivide((operating as number) - (downtime as number), operating as number)! * 100;
+  }
+  if (key === "budgetSpend") {
+    const actual = normalizeKpiNumber(record.actual_spend);
+    const budget = normalizeKpiNumber(record.budget);
+    return safeDivide(actual as number, budget as number) ? safeDivide(actual as number, budget as number)! * 100 : null;
+  }
+  if (key === "pmCmWorkOrderRatio") {
+    const pm = normalizeKpiNumber(record.pm_work_orders);
+    const cm = normalizeKpiNumber(record.cm_work_orders);
+    if (pm === null || cm === null) return null;
+    return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
+  }
+  if (key === "pmCmCostRatio") {
+    const pm = normalizeKpiNumber(record.pm_cost);
+    const cm = normalizeKpiNumber(record.cm_cost);
+    if (pm === null || cm === null) return null;
+    return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
+  }
+  if (key === "mttrDays") {
+    const downtime = normalizeKpiNumber(record.total_downtime);
+    const repairs = normalizeKpiNumber(record.number_of_repairs);
+    return safeDivide(downtime as number, repairs as number);
+  }
+  return normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
+}
+
+function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord): boolean {
+  if (key === "pmCompliance") {
+    return normalizeKpiNumber(record.pm_orders_completed_on_time) !== null && normalizeKpiNumber(record.total_pm_orders) !== null;
+  }
+  if (key === "facilityUptime") {
+    return normalizeKpiNumber(record.total_operating_time) !== null && normalizeKpiNumber(record.total_downtime) !== null;
+  }
+  if (key === "budgetSpend") {
+    return normalizeKpiNumber(record.actual_spend) !== null && normalizeKpiNumber(record.budget) !== null;
+  }
+  if (key === "pmCmWorkOrderRatio") {
+    return normalizeKpiNumber(record.pm_work_orders) !== null && normalizeKpiNumber(record.cm_work_orders) !== null;
+  }
+  if (key === "pmCmCostRatio") {
+    return normalizeKpiNumber(record.pm_cost) !== null && normalizeKpiNumber(record.cm_cost) !== null;
+  }
+  if (key === "mttrDays") {
+    return normalizeKpiNumber(record.total_downtime) !== null && normalizeKpiNumber(record.number_of_repairs) !== null;
+  }
+  return false;
+}
+
+function computeYtdKpiValue(key: MonthlyKpiKey, records: PersistedMonthlyKpiRecord[]): number | null {
+  if (key === "budgetSpend") {
+    const actual = sumField(records, "actual_spend");
+    const budget = sumField(records, "budget");
+    return safeDivide(actual as number, budget as number) ? safeDivide(actual as number, budget as number)! * 100 : null;
+  }
+  if (key === "pmCmWorkOrderRatio") {
+    const pm = sumField(records, "pm_work_orders");
+    const cm = sumField(records, "cm_work_orders");
+    return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
+  }
+  if (key === "pmCmCostRatio") {
+    const pm = sumField(records, "pm_cost");
+    const cm = sumField(records, "cm_cost");
+    return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
+  }
+  if (key === "mttrDays") {
+    const downtime = sumField(records, "total_downtime");
+    const repairs = sumField(records, "number_of_repairs");
+    return safeDivide(downtime as number, repairs as number);
+  }
+  return null;
+}
+
+export function computeMonthlyKpiValuesFromRaw(record: PersistedMonthlyKpiRecord): Partial<MonthlyKpiValues> {
+  const values: Partial<MonthlyKpiValues> = {};
+  monthlyKpiKeys.forEach((key) => {
+    if (hasRawInputForKpi(key, record)) {
+      const computed = computeMonthlyKpiValue(key, record);
+      if (computed !== null) values[key] = computed;
+    }
+  });
+  return values;
+}
+
+function selectedMonthRecord(records: PersistedMonthlyKpiRecord[], month: number) {
+  return records.find((record) => Number(record.reporting_month) === month) || null;
+}
+
 function aggregateRecordsForBusinessUnit(
   businessUnit: string,
   reportingYear: number,
-  records: PersistedMonthlyKpiRecord[]
+  records: PersistedMonthlyKpiRecord[],
+  selectedMonth?: number
 ): BusinessUnitKpiAggregate {
   const aggregate = {
     ...emptyKpiValues(),
@@ -189,17 +321,64 @@ function aggregateRecordsForBusinessUnit(
     reportingYear,
     recordCount: records.length,
   };
+
+  const periodRecords = selectedMonth !== undefined
+    ? records.filter((record) => Number(record.reporting_month) >= 1 && Number(record.reporting_month) <= selectedMonth)
+    : records;
+
   monthlyKpiKeys.forEach((key) => {
+    if (key === "scheduleCompliance" || key === "mtbfDays") {
+      // Keep legacy average behavior for KPIs that are not part of the Summary Matrix.
+      aggregate[key] = averageKpiValues(
+        periodRecords.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
+      );
+      return;
+    }
+
+    if (selectedMonth === undefined) {
+      // No selected month: preserve the previous full-year average behavior.
+      aggregate[key] = averageKpiValues(
+        records.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
+      );
+      return;
+    }
+
+    if (MONTHLY_ONLY_KEYS.includes(key)) {
+      const monthRecord = selectedMonthRecord(records, selectedMonth);
+      if (monthRecord && hasRawInputForKpi(key, monthRecord)) {
+        aggregate[key] = computeMonthlyKpiValue(key, monthRecord);
+      } else if (monthRecord && hasImportedKpiValue(monthRecord, key)) {
+        aggregate[key] = normalizeKpiNumber(monthRecord[sourceFieldByKpiKey[key]]);
+      }
+      return;
+    }
+
+    if (YTD_KEYS.includes(key)) {
+      const hasRawInputs = periodRecords.some((record) => hasRawInputForKpi(key, record));
+      if (hasRawInputs) {
+        aggregate[key] = computeYtdKpiValue(key, periodRecords);
+      } else {
+        // Fall back to the selected month's stored computed value when raw inputs are unavailable.
+        const monthRecord = selectedMonthRecord(records, selectedMonth);
+        if (monthRecord && hasImportedKpiValue(monthRecord, key)) {
+          aggregate[key] = normalizeKpiNumber(monthRecord[sourceFieldByKpiKey[key]]);
+        }
+      }
+      return;
+    }
+
     aggregate[key] = averageKpiValues(
-      records.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
+      periodRecords.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
     );
   });
+
   return aggregate;
 }
 
 export function aggregateMonthlyKpiRecords(
   records: PersistedMonthlyKpiRecord[],
-  reportingYear: number
+  reportingYear: number,
+  selectedMonth?: number
 ): MonthlyKpiAggregateResult {
   const yearlyRecords = preferCurrentBusinessUnitAliasRecords(
     records.filter((record) => Number(record.reporting_year) === reportingYear)
@@ -213,7 +392,7 @@ export function aggregateMonthlyKpiRecords(
   });
 
   const byBusinessUnit = Array.from(byBusinessUnitRecords.entries())
-    .map(([businessUnit, unitRecords]) => aggregateRecordsForBusinessUnit(businessUnit, reportingYear, unitRecords))
+    .map(([businessUnit, unitRecords]) => aggregateRecordsForBusinessUnit(businessUnit, reportingYear, unitRecords, selectedMonth))
     .sort((a, b) => a.businessUnit.localeCompare(b.businessUnit));
 
   const byBusinessUnitMap = byBusinessUnit.reduce<Record<string, BusinessUnitKpiAggregate>>((map, aggregate) => {
@@ -231,9 +410,15 @@ export function aggregateMonthlyKpiRecords(
       const monthlyRecords = yearlyRecords.filter((record) => Number(record.reporting_month) === month);
       const monthValues = emptyKpiValues();
       monthlyKpiKeys.forEach((key) => {
-        monthValues[key] = averageKpiValues(
-          monthlyRecords.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
-        );
+        // Portfolio monthly averages use per-month computed values. Recompute from raw when available.
+        const recordsWithRaw = monthlyRecords.filter((record) => hasRawInputForKpi(key, record));
+        if (recordsWithRaw.length > 0) {
+          monthValues[key] = averageKpiValues(recordsWithRaw.map((record) => computeMonthlyKpiValue(key, record)));
+        } else {
+          monthValues[key] = averageKpiValues(
+            monthlyRecords.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
+          );
+        }
       });
       months[month] = monthValues;
       return months;

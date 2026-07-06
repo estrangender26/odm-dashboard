@@ -239,6 +239,7 @@ function createImportContext() {
   vm.runInContext(scorecardScript, context);
   return context as typeof context & {
     importSummaryWorkbook: (workbook: unknown, fileName: string, buId: string) => { imported: number; records: Array<Record<string, unknown>>; importedMonths: Array<{ year: number; month: number }> };
+    importConsolidatedWorkbook: (workbook: unknown, fileName: string) => { imported: number; records: Array<Record<string, unknown>>; createdBusinessUnits: Array<{ id: string; apiValue: string; name: string; label: string }> };
     getBUApiValue: (buId: string) => string;
     getSelectedYear: () => number;
     getSelectedMonth: () => number;
@@ -434,11 +435,11 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(scorecardHtml).toContain("gauge-tooltip");
     expect(scorecardHtml).toContain("aria-describedby");
     expect(tooltipByKey.pmCompliance?.formula).toBe("PM Orders Completed On Time ÷ Total PM Orders × 100");
-    expect(tooltipByKey.budgetSpend?.formula).toBe("Monthly Actual Spend ÷ Monthly Budget × 100");
+    expect(tooltipByKey.budgetSpend?.formula).toBe("Cumulative Actual Spend ÷ Cumulative Budget × 100");
     expect(tooltipByKey.pmcmWORatio?.formula).toBe("PM Work Orders ÷ (PM + CM Work Orders) × 100");
     expect(tooltipByKey.pmcmWORatio?.displayedAs).toBe("Percentage + Equivalent Ratio (example: 90% = 9:1)");
     expect(tooltipByKey.pmcmCostRatio?.formula).toBe("PM Cost ÷ (PM + CM Cost) × 100");
-    expect(tooltipByKey.pmcmCostRatio?.displayedAs).toBe("Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)");
+    expect(tooltipByKey.pmcmCostRatio?.displayedAs).toBe("Percentage + Equivalent Ratio (example: 80% = 4:1)");
     expect(tooltipByKey.mttr?.formula).toBe("Total Downtime ÷ Number of Repairs");
     expect(tooltipByKey.facilityUptime?.formula).toBe("(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100");
     expect(tooltipByKey.pmCompliance?.interpretation).toBe("Higher is better.");
@@ -2220,4 +2221,41 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
       "facilityUptime",
     ]);
   });
+  it("imports raw Budget Spend values from a consolidated workbook and recomputes monthly budget spend", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Budget Spend (%)"],
+          ["AMD-EZ", 46023, 100, 100, 99],
+          ["AMD-EZ", 46054, 150, 100, 149],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "consolidated.xlsx");
+    expect(result.imported).toBe(2);
+    const jan = result.records.find((r: any) => r.reporting_month === 1);
+    const feb = result.records.find((r: any) => r.reporting_month === 2);
+    expect(jan?.actual_spend).toBe(100);
+    expect(jan?.budget).toBe(100);
+    expect(jan?.budget_spend).toBe(100);
+    expect(feb?.actual_spend).toBe(150);
+    expect(feb?.budget).toBe(100);
+    expect(feb?.budget_spend).toBe(150);
+  });
+
 });

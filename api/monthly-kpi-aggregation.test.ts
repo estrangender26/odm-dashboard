@@ -148,4 +148,118 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.portfolioMonthlyAverages[5].pmCompliance).toBe(100);
   });
 
+
+  it("recomputes Budget Spend as YTD cumulative actual spend over cumulative budget", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, actual_spend: 100, budget: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, actual_spend: 150, budget: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 3, actual_spend: 50, budget: 100 },
+      ],
+      2026,
+      3
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeCloseTo((300 / 300) * 100, 2);
+  });
+
+  it("uses selected month only for PM Compliance", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_orders_completed_on_time: 90, total_pm_orders: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_orders_completed_on_time: 95, total_pm_orders: 100 },
+      ],
+      2026,
+      2
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo(95, 2);
+  });
+
+  it("uses selected month only for Facility Uptime", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, total_operating_time: 720, total_downtime: 10 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, total_operating_time: 700, total_downtime: 7 },
+      ],
+      2026,
+      2
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].facilityUptime).toBeCloseTo(((700 - 7) / 700) * 100, 2);
+  });
+
+  it("recomputes PM:CM Work Order Ratio as YTD cumulative", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_work_orders: 10, cm_work_orders: 5 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_work_orders: 20, cm_work_orders: 10 },
+      ],
+      2026,
+      2
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].pmCmWorkOrderRatio).toBeCloseTo((30 / 45) * 100, 2);
+  });
+
+  it("recomputes PM:CM Cost Ratio as YTD cumulative", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_cost: 1000, cm_cost: 500 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_cost: 2000, cm_cost: 1000 },
+      ],
+      2026,
+      2
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].pmCmCostRatio).toBeCloseTo((3000 / 4500) * 100, 2);
+  });
+
+  it("recomputes MTTR as YTD cumulative downtime over cumulative repairs", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, total_downtime: 10, number_of_repairs: 2 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, total_downtime: 12, number_of_repairs: 3 },
+      ],
+      2026,
+      2
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].mttrDays).toBeCloseTo(22 / 5, 2);
+  });
+
+  it("ignores partial KPI data and returns null for missing KPIs", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 5, actual_spend: 100, budget: 100 },
+      ],
+      2026,
+      5
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeCloseTo(100, 2);
+    expect(result.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeNull();
+    expect(result.byBusinessUnitMap["AMD-EZ"].facilityUptime).toBeNull();
+  });
+
+  it("handles zero denominator safely without NaN or Infinity", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_orders_completed_on_time: 10, total_pm_orders: 0 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, actual_spend: 100, budget: 0 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 3, total_downtime: 10, number_of_repairs: 0 },
+      ],
+      2026,
+      3
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeNull();
+    expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeNull();
+    expect(result.byBusinessUnitMap["AMD-EZ"].mttrDays).toBeNull();
+  });
+
+  it("ignores blank business unit rows and blank month records", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, actual_spend: 100, budget: 100 },
+        { ...base, business_unit: "", reporting_year: 2026, reporting_month: 2, actual_spend: 200, budget: 200 },
+      ],
+      2026,
+      2
+    );
+    expect(result.byBusinessUnit).toHaveLength(1);
+    expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeCloseTo(100, 2);
+  });
 });

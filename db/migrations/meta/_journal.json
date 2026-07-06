@@ -57,6 +57,13 @@
       "when": 1782000000000,
       "tag": "0007_presentation_files",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783301078050,
+      "tag": "0008_monthly_kpi_raw_fields",
+      "breakpoints": true
     }
   ]
 }
