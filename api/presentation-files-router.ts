@@ -48,6 +48,8 @@ function rowToMetadata(row: typeof presentationFiles.$inferSelect) {
     id: row.id,
     fileName: row.fileName,
     displayName: row.displayName,
+    title: row.title ?? row.displayName,
+    version: row.version ?? "1.0",
     fileType: row.fileType,
     mimeType: row.mimeType,
     fileSizeBytes: row.fileSizeBytes,
@@ -57,6 +59,7 @@ function rowToMetadata(row: typeof presentationFiles.$inferSelect) {
     generatorName: row.generatorName,
     template: row.template,
     scopeJson: row.scopeJson,
+    originalFileUrl: row.originalFileUrl ?? `/api/presentation-files/${row.id}/download`,
     uploadedBy: row.uploadedBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -103,6 +106,8 @@ router.post("/upload", async (c) => {
     const file = body.file;
     const fileCategory = String(body.file_category || "uploaded_deck");
     const uploadedBy = String(body.uploaded_by || "ODM User");
+    const title = String(body.title || "").trim() || undefined;
+    const version = String(body.version || "").trim() || "1.0";
 
     if (!(file instanceof File)) {
       return c.json({ error: "No file provided." }, 400);
@@ -134,6 +139,8 @@ router.post("/upload", async (c) => {
       .values({
         fileName: file.name,
         displayName: file.name,
+        title,
+        version,
         fileType: file.type || PPTX_MIME,
         mimeType: PPTX_MIME,
         fileSizeBytes: file.size,
@@ -146,7 +153,14 @@ router.post("/upload", async (c) => {
       })
       .returning();
 
-    return c.json({ file: rowToMetadata(inserted[0]) }, 201);
+    const fileId = inserted[0].id;
+    const originalFileUrl = `/api/presentation-files/${fileId}/download`;
+    await db
+      .update(presentationFiles)
+      .set({ originalFileUrl })
+      .where(eq(presentationFiles.id, fileId));
+
+    return c.json({ file: rowToMetadata({ ...inserted[0], originalFileUrl }) }, 201);
   } catch (error) {
     console.error("[PresentationFiles] upload failed", error);
     const message =
@@ -376,17 +390,21 @@ router.post("/:id/replace", async (c) => {
     const nextDisplayName = keepDisplayName
       ? existing.displayName
       : file.name;
+    const originalFileUrl = `/api/presentation-files/${id}/download`;
 
     const updated = await db
       .update(presentationFiles)
       .set({
         fileName: file.name,
         displayName: nextDisplayName,
+        title: existing.title ?? nextDisplayName,
+        version: existing.version ?? "1.0",
         fileType: file.type || PPTX_MIME,
         mimeType: PPTX_MIME,
         fileSizeBytes: file.size,
         fileBlob: base64,
         sha256Hash: hash,
+        originalFileUrl,
         updatedAt: new Date(),
       })
       .where(eq(presentationFiles.id, id))
@@ -406,6 +424,8 @@ router.post("/generated", async (c) => {
     const body = await c.req.json();
     const fileName = String(body.file_name ?? "");
     const displayName = String(body.display_name ?? fileName);
+    const title = String(body.title ?? "").trim() || displayName;
+    const version = String(body.version ?? "").trim() || "1.0";
     const fileSizeBytes = Number(body.file_size_bytes ?? 0);
     const fileBlob = String(body.file_blob ?? "");
     const sha256Hash = String(body.sha256_hash ?? "");
@@ -416,6 +436,7 @@ router.post("/generated", async (c) => {
     const uploadedBy = String(body.uploaded_by || "ODM User");
 
     if (!fileName || !fileBlob || !sha256Hash) {
+      console.error("[PresentationFiles] generated upsert validation failed", { fileName: Boolean(fileName), fileBlob: Boolean(fileBlob), sha256Hash: Boolean(sha256Hash) });
       return c.json({ error: "file_name, file_blob, and sha256_hash are required." }, 400);
     }
 
@@ -440,6 +461,8 @@ router.post("/generated", async (c) => {
         .update(presentationFiles)
         .set({
           displayName,
+          title,
+          version,
           fileSizeBytes,
           fileBlob,
           sha256Hash,
@@ -457,6 +480,8 @@ router.post("/generated", async (c) => {
       .values({
         fileName,
         displayName,
+        title,
+        version,
         fileType: PPTX_MIME,
         mimeType: PPTX_MIME,
         fileSizeBytes,
@@ -473,7 +498,14 @@ router.post("/generated", async (c) => {
       })
       .returning();
 
-    return c.json({ file: rowToMetadata(inserted[0]) }, 201);
+    const genId = inserted[0].id;
+    const genOriginalFileUrl = `/api/presentation-files/${genId}/download`;
+    await db
+      .update(presentationFiles)
+      .set({ originalFileUrl: genOriginalFileUrl })
+      .where(eq(presentationFiles.id, genId));
+
+    return c.json({ file: rowToMetadata({ ...inserted[0], originalFileUrl: genOriginalFileUrl }) }, 201);
   } catch (error) {
     console.error("[PresentationFiles] generated upsert failed", error);
     return c.json({ error: "Failed to save generated deck." }, 500);

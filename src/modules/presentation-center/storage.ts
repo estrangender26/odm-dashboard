@@ -11,6 +11,43 @@ import {
 
 const ALL_DATES_SCOPE = "all-dates";
 
+async function sha256Hex(input: string | ArrayBuffer): Promise<string> {
+  const subtle = typeof crypto !== "undefined" && "subtle" in crypto
+    ? crypto.subtle
+    : undefined;
+  if (subtle) {
+    const data = typeof input === "string"
+      ? new TextEncoder().encode(input)
+      : input;
+    const buffer = await subtle.digest("SHA-256", data as BufferSource);
+    return Array.from(new Uint8Array(buffer))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  // Fallback for test environments without crypto.subtle: deterministic, non-empty hash.
+  const text =
+    typeof input === "string"
+      ? input
+      : Array.from(new Uint8Array(input))
+          .map(b => String.fromCharCode(b))
+          .join("");
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(16).padStart(8, "0");
+}
+
+async function hashDataUrl(dataUrl: string): Promise<string> {
+  if (dataUrl.startsWith("data:")) {
+    const blob = dataUrlToBlob(dataUrl);
+    const buffer = await blob.arrayBuffer();
+    return sha256Hex(buffer);
+  }
+  return sha256Hex(dataUrl);
+}
+
+
 function getDateScopeLabel(deck: GeneratedPresentation): string {
   if (deck.dateFrom || deck.dateTo) {
     return `${deck.dateFrom ?? ""}|${deck.dateTo ?? ""}`;
@@ -67,19 +104,25 @@ function apiFileToUploaded(row: {
   id: number;
   fileName: string;
   displayName: string;
+  title?: string | null;
+  version?: string | null;
   fileSizeBytes: number;
   fileCategory: string;
   uploadedBy: string;
   createdAt: string;
+  originalFileUrl?: string | null;
 }): UploadedPresentation {
   return {
     id: String(row.id),
     name: row.displayName || row.fileName,
+    title: row.title ?? row.displayName,
+    version: row.version ?? "1.0",
     uploadDate: row.createdAt,
     uploadedBy: row.uploadedBy,
     size: row.fileSizeBytes,
     category: mapApiCategoryToPresentationCategory(row.fileCategory),
-    dataUrl: getPresentationFileDownloadUrl(row.id),
+    dataUrl: row.originalFileUrl ?? getPresentationFileDownloadUrl(row.id),
+    originalFileUrl: row.originalFileUrl ?? getPresentationFileDownloadUrl(row.id),
   };
 }
 
@@ -95,7 +138,7 @@ function mapApiCategoryToPresentationCategory(
   }
 }
 
-function generatedDeckToApiPayload(deck: GeneratedPresentation) {
+async function generatedDeckToApiPayload(deck: GeneratedPresentation) {
   const scope: Record<string, unknown> = {};
   if (deck.reportingYear) scope.reportingYear = deck.reportingYear;
   if (deck.reportingMonth) scope.reportingMonth = deck.reportingMonth;
@@ -110,9 +153,11 @@ function generatedDeckToApiPayload(deck: GeneratedPresentation) {
   return {
     file_name: deck.filename ?? deck.name,
     display_name: deck.name,
+    title: deck.title ?? deck.name,
+    version: deck.version ?? "1.0",
     file_size_bytes: deck.size,
     file_blob: deck.dataUrl,
-    sha256_hash: "",
+    sha256_hash: await hashDataUrl(deck.dataUrl),
     generator_id: deck.generatorId,
     generator_name: deck.generatorName,
     template: deck.template,
@@ -125,6 +170,8 @@ function apiFileToGenerated(row: {
   id: number;
   fileName: string;
   displayName: string;
+  title?: string | null;
+  version?: string | null;
   fileSizeBytes: number;
   fileCategory: string;
   generatorId?: string | null;
@@ -133,6 +180,7 @@ function apiFileToGenerated(row: {
   scopeJson?: string | null;
   uploadedBy: string;
   createdAt: string;
+  originalFileUrl?: string | null;
 }): GeneratedPresentation {
   const scope: Partial<GeneratedPresentation> = {};
   if (row.scopeJson) {
@@ -155,11 +203,14 @@ function apiFileToGenerated(row: {
   return {
     id: String(row.id),
     name: row.displayName || row.fileName,
+    title: row.title ?? row.displayName,
+    version: row.version ?? "1.0",
     type: row.generatorName || "Generated Deck",
     generatedDate: row.createdAt,
     generatedBy: row.uploadedBy,
     size: row.fileSizeBytes,
-    dataUrl: getPresentationFileDownloadUrl(row.id),
+    dataUrl: row.originalFileUrl ?? getPresentationFileDownloadUrl(row.id),
+    originalFileUrl: row.originalFileUrl ?? getPresentationFileDownloadUrl(row.id),
     generatorId: row.generatorId ?? undefined,
     generatorName: row.generatorName ?? undefined,
     template: row.template ?? undefined,
@@ -265,7 +316,8 @@ export async function saveGeneratedPresentations(
   const deduped = deduplicateGeneratedPresentations(items).slice(0, 25);
   for (const deck of deduped) {
     try {
-      await saveGeneratedPresentationFile(generatedDeckToApiPayload(deck));
+      const payload = await generatedDeckToApiPayload(deck);
+      await saveGeneratedPresentationFile(payload);
     } catch (error) {
       console.error("[PresentationCenter] Failed to sync generated deck to API", error);
     }
@@ -384,7 +436,7 @@ export async function deleteGeneratedPresentation(
 export function dataUrlToBlob(dataUrl: string) {
   const [header, payload] = dataUrl.split(",");
   const mime = header.match(/data:(.*);base64/)?.[1] || "application/octet-stream";
-  const binary = window.atob(payload);
+  const binary = atob(payload);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
