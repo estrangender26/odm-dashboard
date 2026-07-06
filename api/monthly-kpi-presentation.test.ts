@@ -113,8 +113,9 @@ function createScorecardContext() {
     style: {},
     querySelector() { return null; },
     querySelectorAll() { return []; },
-    set innerHTML(_value: string) {},
-    get innerHTML() { return ""; },
+    _innerHTML: "",
+    set innerHTML(value: string) { this._innerHTML = value; },
+    get innerHTML() { return this._innerHTML; },
     set textContent(_value: string) {},
     get textContent() { return ""; },
     value: "",
@@ -139,6 +140,13 @@ function createScorecardContext() {
   };
   vm.createContext(context);
   vm.runInContext(scorecardScript, context);
+  const ctxAny = context as any;
+  ctxAny.loadData = () => {};
+  ctxAny.renderBUCharts = () => {};
+  ctxAny.renderSummaryDashboard = () => {};
+  ctxAny.updateChartLoadingOverlays = () => {};
+  ctxAny.fetchMonthlyKpiAggregates = async () => {};
+  ctxAny.refreshBusinessUnitSelectors = () => { ctxAny.initBusinessUnitSelector(); };
   return context as typeof context & {
     KpiAggregates: NormalizedAggregateResponse;
     normalizeKpiAggregates: (aggregates: unknown) => NormalizedAggregateResponse;
@@ -150,7 +158,7 @@ function createScorecardContext() {
     fetchMonthlyKpiAggregates: () => Promise<void>;
     loadData: () => void;
     fetchSavedMonthlyKpiRecords: (buId?: string) => Promise<void>;
-    applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { businessUnitId?: string; reset?: boolean }) => void;
+    applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { businessUnitId?: string; reset?: boolean; merge?: boolean }) => void;
     renderMonthlyRecords: (buId: string) => void;
     KPIs: Array<{
       key: string;
@@ -205,6 +213,7 @@ function createImportContext() {
     set innerHTML(_value: string) {},
     get innerHTML() { return ""; },
     value: "2026",
+    focus() {},
   };
   const yearSelect = { ...element, value: "2026" };
   const elementCache: Record<string, any> = {};
@@ -214,6 +223,7 @@ function createImportContext() {
     clearTimeout,
     URLSearchParams,
     XLSX: createMockXLSX(),
+    Chart: class Chart { constructor() {} static register() {} },
     document: {
       body: element,
       addEventListener() {},
@@ -221,6 +231,24 @@ function createImportContext() {
       getElementById(id: string) {
         if (id === "yearSel") return yearSelect;
         if (id === "monthSel") return { ...element, value: "1", style: { ...element.style } };
+        if (id === "businessUnitSel") {
+          if (!elementCache["businessUnitSel"]) {
+            const sel: any = { ...element };
+            Object.defineProperty(sel, "options", {
+              get() {
+                const html = sel._innerHTML || "";
+                const matches = html.matchAll(/<option value="([^"]+)"[^>]*>([^<]*)<\/option>/g);
+                return Array.from(matches).map((m: any) => ({ value: m[1], text: m[2] }));
+              },
+            });
+            Object.defineProperty(sel, "value", {
+              get() { return sel._value || "all-business-units"; },
+              set(v: any) { sel._value = v; },
+            });
+            elementCache["businessUnitSel"] = sel;
+          }
+          return elementCache["businessUnitSel"];
+        }
         if (id === "importConflictPanel" || id === "importPrimaryActions" || id === "importConflictMessage") {
           if (!elementCache[id]) elementCache[id] = { ...element, style: { ...element.style } };
           return elementCache[id];
@@ -237,19 +265,31 @@ function createImportContext() {
   };
   vm.createContext(context);
   vm.runInContext(scorecardScript, context);
+  const ctxAny: any = context;
+  ctxAny.loadData = () => {};
+  ctxAny.renderBUCharts = () => {};
+  ctxAny.renderSummaryDashboard = () => {};
+  ctxAny.updateChartLoadingOverlays = () => {};
+  ctxAny.fetchMonthlyKpiAggregates = async () => {};
+  ctxAny.refreshBusinessUnitSelectors = () => { ctxAny.initBusinessUnitSelector(); };
   return context as typeof context & {
     importSummaryWorkbook: (workbook: unknown, fileName: string, buId: string) => { imported: number; records: Array<Record<string, unknown>>; importedMonths: Array<{ year: number; month: number }> };
     importConsolidatedWorkbook: (workbook: unknown, fileName: string) => { imported: number; records: Array<Record<string, unknown>>; createdBusinessUnits: Array<{ id: string; apiValue: string; name: string; label: string }> };
     getBUApiValue: (buId: string) => string;
     getSelectedYear: () => number;
     getSelectedMonth: () => number;
-    applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { businessUnitId?: string; reset?: boolean }) => void;
+    applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { businessUnitId?: string; reset?: boolean; merge?: boolean }) => void;
     MonthlyScoreData: Record<string, Record<number, Record<number, any>>>;
     ScoreData: Record<string, any>;
     importExcel: () => void;
+    clearData: () => Promise<void>;
+    resolveClearConfirmation: (confirmed: boolean) => void;
     closeImportModal: (force?: boolean) => void;
     isImportModalOpen: () => boolean;
     setImporting: (flag: boolean) => void;
+    initBusinessUnitSelector: () => void;
+    fetchSavedMonthlyKpiRecords: (buId?: string, options?: any) => Promise<{ ok: boolean; records?: unknown[]; error?: Error }>;
+    selectedBusinessUnitId: string;
     BUs: Array<{ id: string; apiValue: string; name: string; label: string }>;
   };
 }
@@ -2422,5 +2462,185 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(jan.mttr_days).toBeCloseTo(5, 2);
     expect(jan.pm_cm_work_order_ratio).toBeCloseTo(90, 2);
   });
+
+
+  it("clears AMD-EZ data when All Business Units is selected", async () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend", "PM Compliance"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["AMD-EZ", 46023, 100, 100, "EZ note"],
+          ["Clark Water", 46023, 200, 100, "Clark note"],
+        ]),
+        "PM Compliance": makeSheet([
+          ["BUSINESS UNIT", "Month", "Completed On Time", "Total Orders", "Notes"],
+          ["AMD-EZ", 46023, 98, 100, null],
+          ["Clark Water", 46023, 95, 100, null],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "multi-bu.xlsx");
+    expect(result.imported).toBe(2);
+    ctx.applyPersistedMonthlyKpiRecords(result.records, { reset: true });
+
+    expect(ctx.MonthlyScoreData.ez[2026][1].budget_spend).toBe(100);
+    expect(ctx.MonthlyScoreData.clark[2026][1].budget_spend).toBe(200);
+
+    ctx.fetchSavedMonthlyKpiRecords = async (buId?: string, options?: any) => {
+      if (!buId) {
+        ctx.applyPersistedMonthlyKpiRecords([], { reset: true });
+      }
+      return { ok: true, records: [] };
+    };
+
+    ctx.selectedBusinessUnitId = "all-business-units";
+    const clearPromise = ctx.clearData();
+    await ctx.resolveClearConfirmation(true);
+    await clearPromise;
+
+    expect(ctx.MonthlyScoreData.ez).toBeUndefined();
+    expect(ctx.MonthlyScoreData.clark).toBeUndefined();
+  });
+
+  it("clears only the selected BU and leaves other BU data intact", async () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend", "PM Compliance"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["AMD-EZ", 46023, 100, 100, "EZ note"],
+          ["Clark Water", 46023, 200, 100, "Clark note"],
+        ]),
+        "PM Compliance": makeSheet([
+          ["BUSINESS UNIT", "Month", "Completed On Time", "Total Orders", "Notes"],
+          ["AMD-EZ", 46023, 98, 100, null],
+          ["Clark Water", 46023, 95, 100, null],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "multi-bu.xlsx");
+    ctx.applyPersistedMonthlyKpiRecords(result.records, { reset: true });
+
+    expect(ctx.MonthlyScoreData.ez[2026][1].budget_spend).toBe(100);
+    expect(ctx.MonthlyScoreData.clark[2026][1].budget_spend).toBe(200);
+
+    ctx.fetchSavedMonthlyKpiRecords = async (buId?: string, options?: any) => {
+      if (!buId || buId === "ez") {
+        ctx.applyPersistedMonthlyKpiRecords([], { businessUnitId: "ez", merge: false });
+      }
+      return { ok: true, records: [] };
+    };
+
+    ctx.selectedBusinessUnitId = "ez";
+    const clearPromise = ctx.clearData();
+    await ctx.resolveClearConfirmation(true);
+    await clearPromise;
+
+    expect(ctx.MonthlyScoreData.ez).toBeUndefined();
+    expect(ctx.MonthlyScoreData.clark[2026][1].budget_spend).toBe(200);
+  });
+
+  it("Business Unit dropdown only shows BUs with Monthly KPI data", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["AMD-EZ", 46023, 100, 100, "EZ note"],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "ez-only.xlsx");
+    ctx.applyPersistedMonthlyKpiRecords(result.records, { reset: true });
+
+    ctx.initBusinessUnitSelector();
+    const sel = ctx.document.getElementById("businessUnitSel") as any;
+    const html = sel.innerHTML;
+    expect(html).toContain('value="all-business-units"');
+    expect(html).toContain('value="ez"');
+    expect(html).not.toContain('value="clark"');
+    expect(html).not.toContain('value="laguna"');
+  });
+
+  it("Business Unit dropdown resets to All Business Units when the selected BU no longer has data", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["Clark Water", 46023, 200, 100, "Clark note"],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "clark-only.xlsx");
+    ctx.applyPersistedMonthlyKpiRecords(result.records, { reset: true });
+    ctx.selectedBusinessUnitId = "ez";
+
+    ctx.initBusinessUnitSelector();
+    const sel = ctx.document.getElementById("businessUnitSel") as any;
+    expect(sel.value).toBe("all-business-units");
+    const html = sel.innerHTML;
+    expect(html).toContain('value="all-business-units"');
+    expect(html).toContain('value="clark"');
+    expect(html).not.toContain('value="ez"');
+  });
+
 
 });

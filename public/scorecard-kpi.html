@@ -910,7 +910,20 @@ function getBUApiValue(buId){var bu=getBUById(buId);return bu.apiValue || bu.lab
 function initBusinessUnitSelector(){
   var sel = document.getElementById('businessUnitSel');
   if(!sel)return;
-  sel.innerHTML = '<option value="'+ALL_BUSINESS_UNITS_VALUE+'">All Business Units</option>' + BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
+  var year = getSelectedYear();
+  var activeBuIds = getBusinessUnitsWithMonthlyKpiData(year);
+  var options = '<option value="'+ALL_BUSINESS_UNITS_VALUE+'">All Business Units</option>';
+  BUs.forEach(function(bu){
+    if(activeBuIds.indexOf(bu.id) !== -1 || activeBuIds.indexOf(bu.apiValue) !== -1 || activeBuIds.indexOf(normalizePersistedBusinessUnit(bu.apiValue)) !== -1){
+      options += '<option value="'+bu.id+'">'+bu.label+'</option>';
+    }
+  });
+  sel.innerHTML = options;
+  var current = selectedBusinessUnitId;
+  if(current !== ALL_BUSINESS_UNITS_VALUE && activeBuIds.indexOf(current) === -1){
+    selectedBusinessUnitId = ALL_BUSINESS_UNITS_VALUE;
+    persistDeckContext();
+  }
   sel.value = selectedBusinessUnitId;
 }
 function initManualSelectors(){
@@ -955,6 +968,21 @@ function countImportedMonths(buId,year){
     return !!(record && KPIs.some(function(kpi){return hasImportedKpiValue(record,kpi.key);}));
   }).length;
 }
+function getBusinessUnitsWithMonthlyKpiData(year,month){
+  var activeBuIds = new Set();
+  Object.keys(MonthlyScoreData).forEach(function(buId){
+    var yearData = MonthlyScoreData[buId] && MonthlyScoreData[buId][year];
+    if(!yearData)return;
+    var months = Object.keys(yearData);
+    if(month){
+      if(countImportedMonths(buId,year) > 0) activeBuIds.add(buId);
+    }else{
+      if(countImportedMonths(buId,year) > 0) activeBuIds.add(buId);
+    }
+  });
+  return Array.from(activeBuIds);
+}
+
 function renderBUContext(buId){
   var container = document.getElementById(getBusinessUnitPanelIdBySection(buId,'context'));
   if(!container)return;
@@ -1395,9 +1423,9 @@ function setClearingKpiRecords(flag){
 function updateClearButtonState(activeTabId){
   var btn = document.getElementById('clearKpiBtn');
   if(!btn)return;
-  var summarySelected = activeTabId ? (activeTabId==='summary' || activeTabId==='definitions' || activeTabId==='scope-inclusions') : (isSummaryTabActive() || isDefinitionsTabActive() || isScopeInclusionsTabActive());
-  btn.disabled = isClearingKpiRecords || summarySelected;
-  btn.title = summarySelected ? 'Select a Business Unit before clearing KPI records.' : (isClearingKpiRecords ? 'Clearing KPI records...' : 'Clear KPI records for '+getSelectedBU().label+'.');
+  var scope = buildClearScopeLabel();
+  btn.disabled = isClearingKpiRecords;
+  btn.title = isClearingKpiRecords ? 'Clearing KPI records...' : 'Clear KPI records for '+scope.buLabel+' ('+scope.monthLabel+' '+scope.year+')';
   btn.innerHTML = isClearingKpiRecords ? '<span class="spinner"></span> Clearing...' : 'Clear';
 }
 
@@ -1671,11 +1699,15 @@ function resolveClearConfirmation(confirmed){
   if(resolver)resolver(!!confirmed);
 }
 
-function confirmClearKpiRecords(bu){
+function confirmClearKpiRecords(scope){
   var modal = document.getElementById('clearConfirmModal');
   var message = document.getElementById('clearConfirmMessage');
-  if(!modal || !message)return Promise.resolve(window.confirm('Clear KPI records for '+bu.label+'? This will permanently remove saved KPI data for this business unit only.'));
-  message.textContent = 'Clear KPI records for '+bu.label+'? This will permanently remove saved KPI data for this business unit only.';
+  var title = document.getElementById('clearConfirmTitle');
+  var confirmLabel = scope.isAll ? 'All Business Units' : scope.buLabel;
+  var bodyText = 'Clear KPI records for '+confirmLabel+' for '+scope.monthLabel+' '+scope.year+'? This will permanently remove saved Monthly KPI data for the selected scope. This action cannot be undone.';
+  if(!modal || !message)return Promise.resolve(window.confirm(bodyText));
+  if(title)title.textContent = 'Clear KPI Records';
+  message.textContent = bodyText;
   modal.classList.add('active');
   var confirmBtn = document.getElementById('clearConfirmBtn');
   if(confirmBtn)confirmBtn.focus();
@@ -3186,27 +3218,32 @@ function importLegacyWorkbook(workbook,fileName,importBuId,importBu){
 }
 
 // ===== CLEAR =====
+function buildClearScopeLabel(){
+  var year = getSelectedYear();
+  var month = getSelectedMonth();
+  var monthLabel = MonthNames[month-1];
+  var bu = getSelectedBU();
+  var buLabel = selectedBusinessUnitId === ALL_BUSINESS_UNITS_VALUE ? 'All Business Units' : (bu ? bu.label : 'Selected Business Unit');
+  return { year: year, month: month, monthLabel: monthLabel, buLabel: buLabel, isAll: selectedBusinessUnitId === ALL_BUSINESS_UNITS_VALUE };
+}
+
 async function clearData(){
   if(isClearingKpiRecords)return;
-  if(isSummaryTabActive()){
-    showToast('warning','Select a Business Unit before clearing KPI records.');
-    updateClearButtonState('summary');
-    return;
-  }
-  var bu = getSelectedBU();
-  if(!bu)return;
-  var confirmed = await confirmClearKpiRecords(bu);
+  var scope = buildClearScopeLabel();
+  var confirmed = await confirmClearKpiRecords(scope);
   if(!confirmed)return;
   setClearingKpiRecords(true);
   try{
-    var deleteUrl = '/api/monthly-kpi/records?business_unit='+encodeURIComponent(getBUApiValue(bu.id))+'&reporting_year='+encodeURIComponent(getSelectedYear());
+    var params = new URLSearchParams();
+    params.set('reporting_year', String(scope.year));
+    if(!scope.isAll){
+      var bu = getSelectedBU();
+      params.set('business_unit', getBUApiValue(bu.id));
+    }
+    var deleteUrl = '/api/monthly-kpi/records?'+params.toString();
     var res = await fetch(deleteUrl,{method:'DELETE',cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
     if(!res.ok)throw new Error(payload.error || 'Failed to clear KPI records.');
-    var panelPrefix = getBusinessUnitSelectorId(bu.id);
-    Object.keys(Charts).forEach(function(key){
-      if(key.indexOf(panelPrefix+'-')===0 || key.indexOf('summary-')===0){Charts[key].destroy();delete Charts[key];}
-    });
     if(Array.isArray(payload.records)){
       applyPersistedMonthlyKpiRecords(payload.records,{reset:true});
       KpiAggregates = normalizeKpiAggregates(payload.aggregates);
@@ -3214,13 +3251,14 @@ async function clearData(){
     }else{
       await fetchSavedMonthlyKpiRecords();
     }
+    refreshBusinessUnitSelectors();
     renderSummaryDashboard();
-    renderBUCharts(bu.id);
+    if(!scope.isAll)renderBUCharts(selectedBusinessUnitId);
     updateChartLoadingOverlays();
-    showToast('success','KPI records cleared for '+bu.label+'.');
+    showToast('success','KPI records cleared for '+scope.buLabel+' ('+scope.monthLabel+' '+scope.year+').');
   }catch(err){
     console.error('Clear KPI records error:',err);
-    showToast('error','Failed to clear KPI records for '+bu.label+'.');
+    showToast('error','Failed to clear KPI records for '+scope.buLabel+'.');
   }finally{
     setClearingKpiRecords(false);
   }
