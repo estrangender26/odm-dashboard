@@ -16,7 +16,7 @@ import { Paths } from "@contracts/constants";
 import fs from "fs";
 import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
-import { aggregateMonthlyKpiRecords, normalizeBusinessUnitLabel } from "../src/modules/monthly-kpi/kpiAggregation";
+import { aggregateMonthlyKpiRecords, computeMonthlyKpiValuesFromRaw, normalizeBusinessUnitLabel, normalizeKpiNumber } from "../src/modules/monthly-kpi/kpiAggregation";
 import type { PersistedMonthlyKpiRecord } from "../src/modules/monthly-kpi/kpiAggregation";
 import {
   buildOdmDashboardScorecard,
@@ -402,22 +402,67 @@ function normalizeMonthlyKpiRecord(input: any, fallbackSourceFileName?: string |
   if (reportingMonth < 1 || reportingMonth > 12) throw new Error("reporting_month must be between 1 and 12");
   if (reportingYear < 1900 || reportingYear > 3000) throw new Error("reporting_year must be a valid year");
 
+  const sourceFileName = String(input?.source_file_name ?? input?.sourceFileName ?? fallbackSourceFileName ?? "").trim() || null;
+
+  // Raw input fields.
+  const rawFields = {
+    actualSpend: asNullableKpiNumber(input?.actual_spend ?? input?.actualSpend),
+    budget: asNullableKpiNumber(input?.budget),
+    pmOrdersCompletedOnTime: asNullableKpiNumber(input?.pm_orders_completed_on_time ?? input?.pmOrdersCompletedOnTime),
+    totalPmOrders: asNullableKpiNumber(input?.total_pm_orders ?? input?.totalPmOrders),
+    pmWorkOrders: asNullableKpiNumber(input?.pm_work_orders ?? input?.pmWorkOrders),
+    cmWorkOrders: asNullableKpiNumber(input?.cm_work_orders ?? input?.cmWorkOrders),
+    pmCost: asNullableKpiNumber(input?.pm_cost ?? input?.pmCost),
+    cmCost: asNullableKpiNumber(input?.cm_cost ?? input?.cmCost),
+    totalDowntime: asNullableKpiNumber(input?.total_downtime ?? input?.totalDowntime),
+    numberOfRepairs: asNullableKpiNumber(input?.number_of_repairs ?? input?.numberOfRepairs),
+    totalOperatingTime: asNullableKpiNumber(input?.total_operating_time ?? input?.totalOperatingTime),
+    sourceSheet: asNullableText(input?.source_sheet ?? input?.sourceSheet),
+    importBatchId: asNullableText(input?.import_batch_id ?? input?.importBatchId),
+  };
+
+  // Compute monthly KPI values from raw inputs when the computed column is missing.
+  const rawInputRecord: PersistedMonthlyKpiRecord = {
+    business_unit: businessUnit,
+    reporting_month: reportingMonth,
+    reporting_year: reportingYear,
+    source_file_name: sourceFileName,
+    pm_compliance: asNullableKpiNumber(input?.pm_compliance ?? input?.pmCompliance),
+    pm_planned: asNullableKpiNumber(input?.pm_planned ?? input?.pmPlanned),
+    schedule_compliance: asNullableKpiNumber(input?.schedule_compliance ?? input?.scheduleCompliance),
+    budget_spend: asNullableKpiNumber(input?.budget_spend ?? input?.budgetSpend),
+    pm_cm_work_order_ratio: asNullableKpiNumber(input?.pm_cm_work_order_ratio ?? input?.pmCmWorkOrderRatio ?? input?.pmcmWORatio),
+    pm_cm_cost_ratio: asNullableKpiNumber(input?.pm_cm_cost_ratio ?? input?.pmCmCostRatio ?? input?.pmcmCostRatio),
+    mtbf_days: asNullableKpiNumber(input?.mtbf_days ?? input?.mtbfDays ?? input?.mtbf),
+    mttr_days: asNullableKpiNumber(input?.mttr_days ?? input?.mttrDays ?? input?.mttr),
+    facility_uptime: asNullableKpiNumber(input?.facility_uptime ?? input?.facilityUptime),
+    notes: asNullableText(input?.notes ?? input?.Notes),
+    raw_imported_values: input?.raw_imported_values ?? input?.rawImportedValues ?? null,
+    ...rawFields,
+  };
+  const computedFromRaw = computeMonthlyKpiValuesFromRaw(rawInputRecord);
+
+  function pickComputed(key: keyof typeof computedFromRaw, stored: number | null): number | null {
+    return stored !== null ? stored : (computedFromRaw[key] ?? null);
+  }
+
   return {
     businessUnit,
     reportingMonth,
     reportingYear,
-    sourceFileName: String(input?.source_file_name ?? input?.sourceFileName ?? fallbackSourceFileName ?? "").trim() || null,
-    pmCompliance: asNullableKpiNumber(input?.pm_compliance ?? input?.pmCompliance),
+    sourceFileName,
+    pmCompliance: pickComputed("pmCompliance", normalizeKpiNumber(rawInputRecord.pm_compliance)),
     pmPlanned: asNullableKpiNumber(input?.pm_planned ?? input?.pmPlanned),
     scheduleCompliance: asNullableKpiNumber(input?.schedule_compliance ?? input?.scheduleCompliance),
-    budgetSpend: asNullableKpiNumber(input?.budget_spend ?? input?.budgetSpend),
-    pmCmWorkOrderRatio: asNullableKpiNumber(input?.pm_cm_work_order_ratio ?? input?.pmCmWorkOrderRatio ?? input?.pmcmWORatio),
-    pmCmCostRatio: asNullableKpiNumber(input?.pm_cm_cost_ratio ?? input?.pmCmCostRatio ?? input?.pmcmCostRatio),
+    budgetSpend: pickComputed("budgetSpend", normalizeKpiNumber(rawInputRecord.budget_spend)),
+    pmCmWorkOrderRatio: pickComputed("pmCmWorkOrderRatio", normalizeKpiNumber(rawInputRecord.pm_cm_work_order_ratio)),
+    pmCmCostRatio: pickComputed("pmCmCostRatio", normalizeKpiNumber(rawInputRecord.pm_cm_cost_ratio)),
     mtbfDays: asNullableKpiNumber(input?.mtbf_days ?? input?.mtbfDays ?? input?.mtbf),
-    mttrDays: asNullableKpiNumber(input?.mttr_days ?? input?.mttrDays ?? input?.mttr),
-    facilityUptime: asNullableKpiNumber(input?.facility_uptime ?? input?.facilityUptime),
+    mttrDays: pickComputed("mttrDays", normalizeKpiNumber(rawInputRecord.mttr_days)),
+    facilityUptime: pickComputed("facilityUptime", normalizeKpiNumber(rawInputRecord.facility_uptime)),
     notes: asNullableText(input?.notes ?? input?.Notes),
     rawImportedValues: input?.raw_imported_values ?? input?.rawImportedValues ?? null,
+    ...rawFields,
   };
 }
 
@@ -458,6 +503,19 @@ async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: strin
       mtbf_days,
       mttr_days,
       facility_uptime,
+      actual_spend,
+      budget,
+      pm_orders_completed_on_time,
+      total_pm_orders,
+      pm_work_orders,
+      cm_work_orders,
+      pm_cost,
+      cm_cost,
+      total_downtime,
+      number_of_repairs,
+      total_operating_time,
+      source_sheet,
+      import_batch_id,
       notes,
       raw_imported_values
     FROM (
@@ -479,7 +537,7 @@ async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: strin
   return rowsFromDb<Record<string, unknown>>(rows);
 }
 
-async function fetchMonthlyKpiAggregateForResponse(reportingYear: number) {
+async function fetchMonthlyKpiAggregateForResponse(reportingYear: number, reportingMonth?: number) {
   const rows = await getDb().execute(sql`
     SELECT
       business_unit,
@@ -493,13 +551,26 @@ async function fetchMonthlyKpiAggregateForResponse(reportingYear: number) {
       mtbf_days,
       mttr_days,
       facility_uptime,
+      actual_spend,
+      budget,
+      pm_orders_completed_on_time,
+      total_pm_orders,
+      pm_work_orders,
+      cm_work_orders,
+      pm_cost,
+      cm_cost,
+      total_downtime,
+      number_of_repairs,
+      total_operating_time,
+      source_sheet,
+      import_batch_id,
       notes,
       raw_imported_values
     FROM monthly_kpi_records
     WHERE reporting_year = ${reportingYear}
     ORDER BY business_unit ASC, reporting_month ASC
   `);
-  return aggregateMonthlyKpiRecords(rowsFromDb<PersistedMonthlyKpiRecord>(rows), reportingYear);
+  return aggregateMonthlyKpiRecords(rowsFromDb<PersistedMonthlyKpiRecord>(rows), reportingYear, reportingMonth);
 }
 
 app.get("/api/monthly-kpi/records", async (c) => {
@@ -526,7 +597,15 @@ app.get("/api/monthly-kpi/aggregates", async (c) => {
     if (!Number.isInteger(reportingYear)) {
       return c.json({ error: "reporting_year query parameter is required" }, 400);
     }
-    return c.json(await fetchMonthlyKpiAggregateForResponse(reportingYear));
+    const reportingMonthParam = c.req.query("reporting_month");
+    let reportingMonth: number | undefined;
+    if (reportingMonthParam) {
+      reportingMonth = Number(reportingMonthParam);
+      if (!Number.isInteger(reportingMonth) || reportingMonth < 1 || reportingMonth > 12) {
+        return c.json({ error: "reporting_month query parameter must be between 1 and 12" }, 400);
+      }
+    }
+    return c.json(await fetchMonthlyKpiAggregateForResponse(reportingYear, reportingMonth));
   } catch (e: any) {
     console.error("[monthly-kpi] GET aggregates failed", e);
     return c.json({ error: e?.message ?? "Unable to aggregate Monthly KPI records" }, 500);
@@ -561,6 +640,19 @@ app.post("/api/monthly-kpi/import", async (c) => {
           mtbf_days,
           mttr_days,
           facility_uptime,
+          actual_spend,
+          budget,
+          pm_orders_completed_on_time,
+          total_pm_orders,
+          pm_work_orders,
+          cm_work_orders,
+          pm_cost,
+          cm_cost,
+          total_downtime,
+          number_of_repairs,
+          total_operating_time,
+          source_sheet,
+          import_batch_id,
           notes,
           raw_imported_values
         ) VALUES (
@@ -578,6 +670,19 @@ app.post("/api/monthly-kpi/import", async (c) => {
           ${record.mtbfDays},
           ${record.mttrDays},
           ${record.facilityUptime},
+          ${record.actualSpend},
+          ${record.budget},
+          ${record.pmOrdersCompletedOnTime},
+          ${record.totalPmOrders},
+          ${record.pmWorkOrders},
+          ${record.cmWorkOrders},
+          ${record.pmCost},
+          ${record.cmCost},
+          ${record.totalDowntime},
+          ${record.numberOfRepairs},
+          ${record.totalOperatingTime},
+          ${record.sourceSheet},
+          ${record.importBatchId},
           ${record.notes},
           ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb
         )
@@ -594,6 +699,19 @@ app.post("/api/monthly-kpi/import", async (c) => {
           mtbf_days = EXCLUDED.mtbf_days,
           mttr_days = EXCLUDED.mttr_days,
           facility_uptime = EXCLUDED.facility_uptime,
+          actual_spend = EXCLUDED.actual_spend,
+          budget = EXCLUDED.budget,
+          pm_orders_completed_on_time = EXCLUDED.pm_orders_completed_on_time,
+          total_pm_orders = EXCLUDED.total_pm_orders,
+          pm_work_orders = EXCLUDED.pm_work_orders,
+          cm_work_orders = EXCLUDED.cm_work_orders,
+          pm_cost = EXCLUDED.pm_cost,
+          cm_cost = EXCLUDED.cm_cost,
+          total_downtime = EXCLUDED.total_downtime,
+          number_of_repairs = EXCLUDED.number_of_repairs,
+          total_operating_time = EXCLUDED.total_operating_time,
+          source_sheet = EXCLUDED.source_sheet,
+          import_batch_id = EXCLUDED.import_batch_id,
           notes = EXCLUDED.notes,
           raw_imported_values = EXCLUDED.raw_imported_values
         RETURNING
@@ -612,6 +730,19 @@ app.post("/api/monthly-kpi/import", async (c) => {
           mtbf_days,
           mttr_days,
           facility_uptime,
+          actual_spend,
+          budget,
+          pm_orders_completed_on_time,
+          total_pm_orders,
+          pm_work_orders,
+          cm_work_orders,
+          pm_cost,
+          cm_cost,
+          total_downtime,
+          number_of_repairs,
+          total_operating_time,
+          source_sheet,
+          import_batch_id,
           notes,
           raw_imported_values
       `);
@@ -688,6 +819,19 @@ app.patch("/api/monthly-kpi/records/:id", async (c) => {
         mtbf_days = ${record.mtbfDays},
         mttr_days = ${record.mttrDays},
         facility_uptime = ${record.facilityUptime},
+        actual_spend = ${record.actualSpend},
+        budget = ${record.budget},
+        pm_orders_completed_on_time = ${record.pmOrdersCompletedOnTime},
+        total_pm_orders = ${record.totalPmOrders},
+        pm_work_orders = ${record.pmWorkOrders},
+        cm_work_orders = ${record.cmWorkOrders},
+        pm_cost = ${record.pmCost},
+        cm_cost = ${record.cmCost},
+        total_downtime = ${record.totalDowntime},
+        number_of_repairs = ${record.numberOfRepairs},
+        total_operating_time = ${record.totalOperatingTime},
+        source_sheet = ${record.sourceSheet},
+        import_batch_id = ${record.importBatchId},
         notes = ${record.notes},
         raw_imported_values = ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb
       WHERE id = ${id}

@@ -239,6 +239,7 @@ function createImportContext() {
   vm.runInContext(scorecardScript, context);
   return context as typeof context & {
     importSummaryWorkbook: (workbook: unknown, fileName: string, buId: string) => { imported: number; records: Array<Record<string, unknown>>; importedMonths: Array<{ year: number; month: number }> };
+    importConsolidatedWorkbook: (workbook: unknown, fileName: string) => { imported: number; records: Array<Record<string, unknown>>; createdBusinessUnits: Array<{ id: string; apiValue: string; name: string; label: string }> };
     getBUApiValue: (buId: string) => string;
     getSelectedYear: () => number;
     getSelectedMonth: () => number;
@@ -434,11 +435,11 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(scorecardHtml).toContain("gauge-tooltip");
     expect(scorecardHtml).toContain("aria-describedby");
     expect(tooltipByKey.pmCompliance?.formula).toBe("PM Orders Completed On Time ÷ Total PM Orders × 100");
-    expect(tooltipByKey.budgetSpend?.formula).toBe("Monthly Actual Spend ÷ Monthly Budget × 100");
+    expect(tooltipByKey.budgetSpend?.formula).toBe("Cumulative Actual Spend ÷ Cumulative Budget × 100");
     expect(tooltipByKey.pmcmWORatio?.formula).toBe("PM Work Orders ÷ (PM + CM Work Orders) × 100");
     expect(tooltipByKey.pmcmWORatio?.displayedAs).toBe("Percentage + Equivalent Ratio (example: 90% = 9:1)");
     expect(tooltipByKey.pmcmCostRatio?.formula).toBe("PM Cost ÷ (PM + CM Cost) × 100");
-    expect(tooltipByKey.pmcmCostRatio?.displayedAs).toBe("Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)");
+    expect(tooltipByKey.pmcmCostRatio?.displayedAs).toBe("Percentage + Equivalent Ratio (example: 80% = 4:1)");
     expect(tooltipByKey.mttr?.formula).toBe("Total Downtime ÷ Number of Repairs");
     expect(tooltipByKey.facilityUptime?.formula).toBe("(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100");
     expect(tooltipByKey.pmCompliance?.interpretation).toBe("Higher is better.");
@@ -2220,4 +2221,91 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
       "facilityUptime",
     ]);
   });
+  it("imports raw Budget Spend values from a consolidated workbook and recomputes monthly budget spend", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Budget Spend (%)"],
+          ["AMD-EZ", 46023, 100, 100, 99],
+          ["AMD-EZ", 46054, 150, 100, 149],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "consolidated.xlsx");
+    expect(result.imported).toBe(2);
+    const jan = result.records.find((r: any) => r.reporting_month === 1);
+    const feb = result.records.find((r: any) => r.reporting_month === 2);
+    expect(jan?.actual_spend).toBe(100);
+    expect(jan?.budget).toBe(100);
+    expect(jan?.budget_spend).toBe(100);
+    expect(feb?.actual_spend).toBe(150);
+    expect(feb?.budget).toBe(100);
+    expect(feb?.budget_spend).toBe(150);
+  });
+
+  it("imports PM:CM Work Orders and PM:CM Cost sheets without cross-populating fields", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["PM CM Work Orders", "PM CM Cost"],
+      Sheets: {
+        "PM CM Work Orders": makeSheet([
+          ["BUSINESS UNIT", "Month", "PM Work Orders", "CM Work Orders"],
+          ["AMD-EZ", 46023, 90, 10],
+          ["AMD-EZ", 46054, 80, 20],
+        ]),
+        "PM CM Cost": makeSheet([
+          ["BUSINESS UNIT", "Month", "PM Cost", "CM Cost"],
+          ["AMD-EZ", 46023, 8000, 2000],
+          ["AMD-EZ", 46054, 6000, 4000],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "pmcm-multi-sheet.xlsx");
+    expect(result.imported).toBe(2);
+    const jan = result.records.find((r: any) => r.reporting_month === 1);
+    const feb = result.records.find((r: any) => r.reporting_month === 2);
+
+    expect(jan?.pm_work_orders).toBe(90);
+    expect(jan?.cm_work_orders).toBe(10);
+    expect(jan?.pm_cost).toBe(8000);
+    expect(jan?.cm_cost).toBe(2000);
+    expect(jan?.pm_cm_work_order_ratio).toBeCloseTo((90 / 100) * 100, 2);
+    expect(jan?.pm_cm_cost_ratio).toBeCloseTo((8000 / 10000) * 100, 2);
+
+    expect(feb?.pm_work_orders).toBe(80);
+    expect(feb?.cm_work_orders).toBe(20);
+    expect(feb?.pm_cost).toBe(6000);
+    expect(feb?.cm_cost).toBe(4000);
+    expect(feb?.pm_cm_work_order_ratio).toBeCloseTo((80 / 100) * 100, 2);
+    expect(feb?.pm_cm_cost_ratio).toBeCloseTo((6000 / 10000) * 100, 2);
+  });
+
 });

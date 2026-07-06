@@ -686,12 +686,12 @@ var selectedBusinessUnitId = (function(){
 // - Budget Spend uses an inclusive green band of 95%-105%.
 // - MTTR is expected to trend decreasing.
 var KPIs = [
-  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:95,benchmarkLabel:'95%',tooltip:{name:'PM Compliance',formula:'PM Orders Completed On Time ÷ Total PM Orders × 100',target:'95%',interpretation:'Higher is better.'},definitionName:'PM Compliance (%)',definitionFormula:'PM Orders Completed On Time ÷ Total PM Orders × 100',definitionBenchmark:'≥95%',definitionText:'Measures the percentage of PM tasks that were completed on time.'},
-  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%',tooltip:{name:'Budget Spend',formula:'Monthly Actual Spend ÷ Monthly Budget × 100',target:'95% - 105%',interpretation:'Values within range are preferred.'},definitionName:'Maintenance Budget Spend (%)',definitionFormula:'Monthly Actual Spend ÷ Monthly Budget × 100',definitionBenchmark:'95%–105%',definitionText:'Measures utilization of the R&M Budget.'},
+  {key:'pmCompliance',name:'PM Compliance',unit:'%',benchmark:98,benchmarkLabel:'≥98%',tooltip:{name:'PM Compliance',formula:'PM Orders Completed On Time ÷ Total PM Orders × 100',target:'≥98%',interpretation:'Higher is better.'},definitionName:'PM Compliance (%)',definitionFormula:'PM Orders Completed On Time ÷ Total PM Orders × 100',definitionBenchmark:'≥98%',definitionText:'Measures the percentage of PM tasks that were completed on time.'},
+  {key:'budgetSpend',name:'Budget Spend',unit:'%',benchmark:100,range:[95,105],benchmarkLabel:'95% - 105%',tooltip:{name:'Budget Spend',formula:'Cumulative Actual Spend ÷ Cumulative Budget × 100',target:'95% - 105%',interpretation:'Values within range are preferred.'},definitionName:'Maintenance Budget Spend (%)',definitionFormula:'Cumulative Actual Spend ÷ Cumulative Budget × 100',definitionBenchmark:'95%–105%',definitionText:'Measures utilization of the approved R&M Budget.'},
   {key:'pmcmWORatio',name:'PM:CM Ratio (WO)',unit:'%',benchmark:86,benchmarkLabel:'≥86% (6:1)',tooltip:{name:'PM:CM Ratio (Work Orders)',formula:'PM Work Orders ÷ (PM + CM Work Orders) × 100',target:'≥86% (approximately 6:1)',displayedAs:'Percentage + Equivalent Ratio (example: 90% = 9:1)',interpretation:'Higher PM proportion is generally preferred.'},definitionName:'PM:CM Ratio (Work Orders)',definitionFormula:'PM Work Orders ÷ (PM + CM Work Orders) × 100',definitionBenchmark:'≥86% or 6:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
-  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:60,benchmarkLabel:'≥60% (1.5:1)',tooltip:{name:'PM:CM Ratio (Cost)',formula:'PM Cost ÷ (PM + CM Cost) × 100',target:'≥60% (approximately 1.5:1)',displayedAs:'Percentage + Equivalent Ratio (example: 72.7% = 2.7:1)',interpretation:'Higher PM investment generally reduces reactive maintenance.'},definitionName:'PM:CM Ratio (Cost)',definitionFormula:'PM Cost ÷ (PM + CM Cost) × 100',definitionBenchmark:'≥60% or 1.5:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
-  {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing',benchmarkLabel:'Decreasing Trend',tooltip:{name:'Mean Time To Repair (MTTR)',formula:'Total Downtime ÷ Number of Repairs',target:'Decreasing Trend',interpretation:'Lower recovery time is preferred.'},definitionName:'Mean Time To Repair (MTTR, days)',definitionFormula:'Total Downtime ÷ Number of Repairs',definitionBenchmark:'Decreasing Trend',definitionText:'Indicates the average time it takes to recover from an equipment or system failure.'},
-  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:99.97,benchmarkLabel:'99.97%',tooltip:{name:'Facility Uptime',formula:'(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100',target:'99.97%',interpretation:'Higher is better.'},definitionName:'Uptime of Key Facilities (%)',definitionFormula:'(Total Operating Time − Total Downtime) ÷ Total Operating Time × 100',definitionBenchmark:'99.97%',definitionText:'Indicates the total amount of time, or its percentage equivalent, that facilities are fully operational.'}
+  {key:'pmcmCostRatio',name:'PM:CM Ratio (Cost)',unit:'%',benchmark:80,benchmarkLabel:'≥80% (4:1)',tooltip:{name:'PM:CM Ratio (Cost)',formula:'PM Cost ÷ (PM + CM Cost) × 100',target:'≥80% (approximately 4:1)',displayedAs:'Percentage + Equivalent Ratio (example: 80% = 4:1)',interpretation:'Higher PM investment generally reduces reactive maintenance.'},definitionName:'PM:CM Ratio (Cost)',definitionFormula:'PM Cost ÷ (PM + CM Cost) × 100',definitionBenchmark:'≥80% or 4:1',definitionText:'Indicates the balance between Preventive and Corrective Maintenance, including all maintenance activities whether outsourced or performed in-house.'},
+  {key:'mttr',name:'MTTR',unit:'days',benchmark:0,trend:'decreasing',benchmarkLabel:'Data exists',tooltip:{name:'Mean Time To Repair (MTTR)',formula:'Total Downtime ÷ Number of Repairs',target:'Data exists',interpretation:'Lower recovery time is preferred.'},definitionName:'Mean Time To Repair (MTTR, days)',definitionFormula:'Total Downtime ÷ Number of Repairs',definitionBenchmark:'Data exists',definitionText:'Indicates the average time it takes to recover from an equipment or system failure.'},
+  {key:'facilityUptime',name:'Facility Uptime',unit:'%',benchmark:100,benchmarkLabel:'100%',tooltip:{name:'Facility Uptime',formula:'(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100',target:'100%',interpretation:'Higher is better.'},definitionName:'Uptime of Key Facilities (%)',definitionFormula:'(Total Operating Time − Total Downtime) ÷ Total Operating Time × 100',definitionBenchmark:'100%',definitionText:'Indicates the total amount of time, or its percentage equivalent, that facilities are fully operational.'}
 ];
 var KPI_DEFINITION_FAQ = [
   {q:'Why is a KPI yellow if data exists?',a:'Yellow means warning or marginal performance based on KPI-specific threshold logic. It does not mean missing data.'},
@@ -2210,7 +2210,8 @@ function applyPersistedMonthlyKpiRecords(records,options){
 
 async function fetchMonthlyKpiAggregates(){
   var year = getSelectedYear();
-  var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year),{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
+  var month = getSelectedMonth();
+  var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year)+'&reporting_month='+encodeURIComponent(month),{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
   var payload = await res.json().catch(function(){return {};});
   if(!res.ok)throw new Error(payload.error || 'Unable to load Monthly KPI aggregates.');
   KpiAggregates = normalizeKpiAggregates(payload);
@@ -2795,6 +2796,270 @@ async function saveManualData(){
   }
 }
 
+// ===== CONSOLIDATED WORKBOOK IMPORT =====
+// Handles the official consolidated KPI workbook where each KPI lives in its own sheet
+// with raw numerator/denominator columns. External links are ignored; only cached cell
+// values from the uploaded workbook are read.
+
+function normalizeConsolidatedBusinessUnit(value){
+  return normalizeBusinessUnitName(value).toLowerCase().trim();
+}
+
+function findConsolidatedBusinessUnitHeader(headers){
+  var aliases = ['business unit','businessunit','business_unit','bu','facility','plant'];
+  for(var i=0;i<headers.length;i++){
+    var h = normalizeHeader(headers[i]);
+    if(!h) continue;
+    for(var j=0;j<aliases.length;j++){
+      var normalizedAlias = normalizeHeader(aliases[j]);
+      // Require exact match for short aliases like 'bu' to avoid matching unrelated words.
+      if(normalizedAlias.length <= 2 ? h === normalizedAlias : h.indexOf(normalizedAlias) === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function findConsolidatedMonthHeader(headers){
+  var aliases = ['month','reportingmonth','reportmonth','monthname','monthperiod','period','reportingperiod','kpimonth','date','monthdate'];
+  for(var i=0;i<headers.length;i++){
+    var h = normalizeHeader(headers[i]);
+    if(aliases.indexOf(h)!==-1) return i;
+  }
+  return -1;
+}
+
+function matchConsolidatedHeader(header, patterns){
+  var h = normalizeHeader(header);
+  if(!h) return false;
+  return patterns.some(function(p){ return h.indexOf(normalizeHeader(p))!==-1; });
+}
+
+var ConsolidatedSheetConfigs = [
+  {sheetMatch:/budget\s*spend/i,kpi:'budgetSpend',fields:{
+    actualSpend:['actual spend','actual','actuals','spend'],
+    budget:['budget','approved budget','cumulative budget'],
+    ignore:['budget spend','budget spend %','budget spend (%)']
+  }},
+  {sheetMatch:/pm\s*compliance/i,kpi:'pmCompliance',fields:{
+    completed:['pm orders completed on time','pm completed on time','orders completed on time','completed on time','pm orders completed'],
+    total:['total pm orders','total orders','pm orders total','pm orders']
+  }},
+  {sheetMatch:/pm[:\-\s]?cm.*work\s*orders?|pmcm.*wo|pm:cm.*wo/i,kpi:'pmCmWorkOrderRatio',fields:{
+    pm:['pm work orders','preventive work orders','pm wo','pm workorder','pm work order'],
+    cm:['cm work orders','corrective work orders','cm wo','cm workorder','cm work order']
+  }},
+  {sheetMatch:/pm[:\-\s]?cm.*cost|pmcm.*cost|pm:cm.*cost/i,kpi:'pmCmCostRatio',fields:{
+    pmCost:['pm cost','preventive cost','pm costs'],
+    cmCost:['cm cost','corrective cost','cm costs']
+  }},
+  {sheetMatch:/mttr/i,kpi:'mttr',fields:{
+    downtime:['total downtime','downtime','equipment downtime','technical downtime'],
+    repairs:['number of repairs','repairs','count of repairs','repair count']
+  }},
+  {sheetMatch:/facility\s*uptime|uptime/i,kpi:'facilityUptime',fields:{
+    operating:['total operating time','operating time','total operating hours'],
+    downtime:['total downtime','downtime','facility downtime']
+  }}
+];
+
+function findConsolidatedSheetConfig(sheetName){
+  for(var i=0;i<ConsolidatedSheetConfigs.length;i++){
+    if(ConsolidatedSheetConfigs[i].sheetMatch.test(sheetName)) return ConsolidatedSheetConfigs[i];
+  }
+  return null;
+}
+
+function mapConsolidatedSheetHeaders(headers, config){
+  var map = {businessUnit:-1,month:-1,fields:{}};
+  var seen = {};
+  headers.forEach(function(header, index){
+    var h = normalizeHeader(header);
+    if(!h || seen[h]) return;
+    seen[h] = true;
+    if(findConsolidatedBusinessUnitHeader([header])===0){
+      map.businessUnit = index;
+      return;
+    }
+    if(findConsolidatedMonthHeader([header])===0){
+      map.month = index;
+      return;
+    }
+    if(!config) return;
+    Object.keys(config.fields).forEach(function(fieldKey){
+      if(fieldKey === 'ignore') return;
+      if(map.fields[fieldKey] !== undefined) return;
+      if(matchConsolidatedHeader(header, config.fields[fieldKey])) map.fields[fieldKey] = index;
+    });
+  });
+  return map;
+}
+
+function computeImportedMonthlyKpis(record){
+  if(record.actual_spend !== null && record.budget !== null && record.budget !== 0){
+    record.budget_spend = (record.actual_spend / record.budget) * 100;
+  }
+  if(record.pm_orders_completed_on_time !== null && record.total_pm_orders !== null && record.total_pm_orders !== 0){
+    record.pm_compliance = (record.pm_orders_completed_on_time / record.total_pm_orders) * 100;
+  }
+  if(record.pm_work_orders !== null && record.cm_work_orders !== null && (record.pm_work_orders + record.cm_work_orders) !== 0){
+    record.pm_cm_work_order_ratio = (record.pm_work_orders / (record.pm_work_orders + record.cm_work_orders)) * 100;
+  }
+  if(record.pm_cost !== null && record.cm_cost !== null && (record.pm_cost + record.cm_cost) !== 0){
+    record.pm_cm_cost_ratio = (record.pm_cost / (record.pm_cost + record.cm_cost)) * 100;
+  }
+  if(record.total_downtime !== null && record.number_of_repairs !== null && record.number_of_repairs !== 0){
+    record.mttr_days = record.total_downtime / record.number_of_repairs;
+  }
+  if(record.total_operating_time !== null && record.total_downtime !== null && record.total_operating_time !== 0){
+    record.facility_uptime = ((record.total_operating_time - record.total_downtime) / record.total_operating_time) * 100;
+  }
+}
+
+function emptyImportedKpiRecord(buApiValue, year, month, sourceFileName, sourceSheet){
+  return {
+    business_unit: buApiValue,
+    reporting_year: year,
+    reporting_month: month,
+    source_file_name: sourceFileName || null,
+    source_sheet: sourceSheet || null,
+    pm_compliance: null,
+    pm_planned: null,
+    schedule_compliance: null,
+    budget_spend: null,
+    pm_cm_work_order_ratio: null,
+    pm_cm_cost_ratio: null,
+    mtbf_days: null,
+    mttr_days: null,
+    facility_uptime: null,
+    notes: null,
+    actual_spend: null,
+    budget: null,
+    pm_orders_completed_on_time: null,
+    total_pm_orders: null,
+    pm_work_orders: null,
+    cm_work_orders: null,
+    pm_cost: null,
+    cm_cost: null,
+    total_downtime: null,
+    number_of_repairs: null,
+    total_operating_time: null,
+    raw_imported_values: {sourceSheet: sourceSheet || 'Consolidated', values:{}}
+  };
+}
+
+function parseConsolidatedSheet(workbook, sheetName, config, fileName){
+  var sheet = workbook.Sheets[sheetName];
+  var rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:null, raw:true});
+  if(rows.length < 2) return [];
+  var headers = rows[0];
+  var headerMap = mapConsolidatedSheetHeaders(headers, config);
+  if(headerMap.businessUnit < 0 || headerMap.month < 0) return [];
+  var parsed = [];
+  for(var i=1;i<rows.length;i++){
+    var row = rows[i] || [];
+    var buValue = cleanCellValue(row[headerMap.businessUnit]);
+    if(isEmptyValue(buValue)) continue;
+    var monthInfo = excelDateToReportingMonth(row[headerMap.month]);
+    if(!monthInfo) continue;
+    var bu = getOrCreateBusinessUnitByName(String(buValue), {persist:false});
+    if(!bu.bu) continue;
+    var record = emptyImportedKpiRecord(bu.bu.apiValue, monthInfo.year, monthInfo.month, fileName, sheetName);
+    var rawValues = {rowNumber:i+1, values:{}};
+    if(config){
+      Object.keys(config.fields).forEach(function(fieldKey){
+        if(fieldKey === 'ignore') return;
+        var col = headerMap.fields[fieldKey];
+        if(col === undefined) return;
+        var cell = getSheetCell(sheet, i, col);
+        var rawValue = getRawSummaryValue(row, col);
+        var parsedValue = parseImportedKPINumber(row[col], cell);
+        var dbKey = {
+          actualSpend:'actual_spend',
+          budget:'budget',
+          completed:'pm_orders_completed_on_time',
+          total:'total_pm_orders',
+          pm:'pm_work_orders',
+          cm:'cm_work_orders',
+          pmCost:'pm_cost',
+          cmCost:'cm_cost',
+          downtime:'total_downtime',
+          repairs:'number_of_repairs',
+          operating:'total_operating_time'
+        }[fieldKey];
+        if(dbKey){
+          record[dbKey] = parsedValue;
+          rawValues.values[dbKey] = rawImportedCellValue(rawValue, cell);
+        }
+      });
+    }
+    record.raw_imported_values = {sourceSheet: sheetName, ...rawValues};
+    computeImportedMonthlyKpis(record);
+    parsed.push(record);
+  }
+  return parsed;
+}
+
+function importConsolidatedWorkbook(workbook, fileName){
+  var recordsByKey = {};
+  var createdBusinessUnits = [];
+  var initialCount = BUs.length;
+  workbook.SheetNames.forEach(function(sheetName){
+    var config = findConsolidatedSheetConfig(sheetName);
+    if(!config) return;
+    var sheetRecords = parseConsolidatedSheet(workbook, sheetName, config, fileName);
+    sheetRecords.forEach(function(record){
+      var key = record.business_unit + '|' + record.reporting_year + '|' + record.reporting_month;
+      var existing = recordsByKey[key];
+      if(!existing){
+        existing = emptyImportedKpiRecord(record.business_unit, record.reporting_year, record.reporting_month, fileName, 'Consolidated');
+        existing.raw_imported_values = {sourceSheet:'Consolidated', sheets:{}, values:{}};
+        recordsByKey[key] = existing;
+      }
+      // Merge raw values and computed KPIs.
+      Object.keys(record).forEach(function(k){
+        if(k === 'raw_imported_values') return;
+        if(record[k] !== null && existing[k] === null) existing[k] = record[k];
+      });
+      if(record.raw_imported_values && record.raw_imported_values.values){
+        Object.keys(record.raw_imported_values.values).forEach(function(vk){
+          existing.raw_imported_values.values[vk] = record.raw_imported_values.values[vk];
+        });
+        existing.raw_imported_values.sheets[sheetName] = record.raw_imported_values.rowNumber || true;
+      }
+      computeImportedMonthlyKpis(existing);
+    });
+  });
+  if(BUs.length !== initialCount){
+    createdBusinessUnits = BUs.slice(initialCount);
+    persistBusinessUnits();
+  }
+  var records = Object.keys(recordsByKey).map(function(key){ return recordsByKey[key]; });
+  return {imported:records.length, records:records, createdBusinessUnits:createdBusinessUnits};
+}
+
+function hasConsolidatedKpiSheets(workbook){
+  return workbook.SheetNames.some(function(name){ return !!findConsolidatedSheetConfig(name); });
+}
+
+async function checkConsolidatedImportConflicts(records){
+  var allConflicts = [];
+  var byBu = {};
+  records.forEach(function(record){
+    var key = record.business_unit;
+    if(!byBu[key]) byBu[key] = [];
+    byBu[key].push(record);
+  });
+  for(var buApi in byBu){
+    var buRecords = byBu[buApi];
+    var bu = getBusinessUnitByName(buApi) || getBUById(normalizePersistedBusinessUnit(buApi));
+    if(!bu) continue;
+    var conflicts = await checkImportConflicts(bu.id, buRecords);
+    allConflicts = allConflicts.concat(conflicts);
+  }
+  return allConflicts;
+}
+
+
 // ===== EXCEL IMPORT =====
 function importExcel(){
   var ctx = getImportContext();
@@ -2831,32 +3096,47 @@ function importExcel(){
         var data = new Uint8Array(e.target.result);
         var workbook = XLSX.read(data,{type:'array',cellDates:false});
         var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
+        var isConsolidated = false;
+        var consolidatedCreatedBusinessUnits = [];
         if(!importBu)importBu = getBUById(importBuId);
-        if(!importBu)throw new Error('Unable to resolve import business unit.');
 
         var importRecords = [];
         var importedCount = 0;
         if(hasSummary){
+          if(!importBu)throw new Error('Unable to resolve import business unit.');
           var summaryImport = importSummaryWorkbook(workbook,file.name,importBuId);
           importRecords = summaryImport.records;
           importedCount = summaryImport.imported;
+        }else if(hasConsolidatedKpiSheets(workbook)){
+          var consolidatedImport = importConsolidatedWorkbook(workbook,file.name);
+          importRecords = consolidatedImport.records;
+          importedCount = consolidatedImport.imported;
+          consolidatedCreatedBusinessUnits = consolidatedImport.createdBusinessUnits || [];
+          isConsolidated = true;
         }else{
+          if(!importBu)throw new Error('Unable to resolve import business unit.');
           var legacyImport = importLegacyWorkbook(workbook,file.name,importBuId,importBu);
           importRecords = legacyImport.records;
           importedCount = legacyImport.imported;
         }
 
-        var conflicts = await checkImportConflicts(importBuId,importRecords);
+        if(importRecords.length === 0) throw new Error('No importable KPI rows found in the workbook.');
+
+        var conflicts = isConsolidated
+          ? await checkConsolidatedImportConflicts(importRecords)
+          : await checkImportConflicts(importBuId,importRecords);
         if(conflicts.length){
-          var confirmReplace = await confirmImportReplacement(formatImportConflictMessage(conflicts,importBu.label));
+          var conflictLabel = isConsolidated ? 'selected business units' : importBu.label;
+          var confirmReplace = await confirmImportReplacement(formatImportConflictMessage(conflicts,conflictLabel));
           if(!confirmReplace){
             resetImportConflictPanel();
             if(createdBusinessUnit && !saveSucceeded)removeBusinessUnitById(createdBusinessUnit.bu.id);
+            consolidatedCreatedBusinessUnits.forEach(function(bu){ if(!saveSucceeded) removeBusinessUnitById(bu.id); });
             return;
           }
         }
 
-        if(createdBusinessUnit){
+        if(createdBusinessUnit || consolidatedCreatedBusinessUnits.length){
           persistBusinessUnits();
           refreshBusinessUnitSelectors();
         }
@@ -2868,27 +3148,38 @@ function importExcel(){
         // Apply only persisted records as the authoritative dashboard state.
         var persistedRecords = (saveResult && Array.isArray(saveResult.records)) ? saveResult.records : [];
         if(persistedRecords.length){
-          applyPersistedMonthlyKpiRecords(persistedRecords,{businessUnitId:importBuId,merge:true});
+          applyPersistedMonthlyKpiRecords(persistedRecords,isConsolidated ? {merge:true} : {businessUnitId:importBuId,merge:true});
         }else{
           try{
-            await fetchSavedMonthlyKpiRecords(importBuId,{rethrow:true,merge:true});
+            await fetchSavedMonthlyKpiRecords(isConsolidated ? null : importBuId,{rethrow:true,merge:true});
           }catch(fetchErr){
             console.warn('Post-import record refresh failed:',fetchErr);
             showToast('warning','Import was saved, but the dashboard could not refresh automatically.');
           }
         }
 
-        try{
-          await switchToImportedBusinessUnit(importBuId);
-        }catch(switchErr){
-          console.warn('Post-import tab switch failed:',switchErr);
-          showToast('warning','Import was saved, but the dashboard could not refresh automatically.');
-        }
+        if(isConsolidated){
+          try{
+            await fetchMonthlyKpiAggregates();
+          }catch(aggErr){
+            console.warn('Post-import aggregate refresh failed:',aggErr);
+          }
+          showTab('summary');
+          loadData();
+          showToast('success','Consolidated KPI workbook imported for '+importedCount+' BU/month records.');
+        }else{
+          try{
+            await switchToImportedBusinessUnit(importBuId);
+          }catch(switchErr){
+            console.warn('Post-import tab switch failed:',switchErr);
+            showToast('warning','Import was saved, but the dashboard could not refresh automatically.');
+          }
 
-        if(hasSummary && importedCount!==12){
-          showToast('warning','Imported '+importedCount+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
+          if(hasSummary && importedCount!==12){
+            showToast('warning','Imported '+importedCount+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
+          }
+          showToast('success','KPI records imported for '+importBu.label+'.');
         }
-        showToast('success','KPI records imported for '+importBu.label+'.');
       }catch(err){
         console.error('Import error:',err);
         showToast('error','Error importing Excel: '+err.message);
