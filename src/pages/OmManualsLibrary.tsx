@@ -919,7 +919,7 @@ export default function OmManualsLibrary() {
   }, []);
 
   // ── Handle file upload via multipart POST (avoids base64 JSON overhead and global tRPC body limit) ──
-  const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+  const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -930,7 +930,7 @@ export default function OmManualsLibrary() {
       const sizeMb = (file.size / 1024 / 1024).toFixed(1);
       setBanner({
         type: "error",
-        message: `File is too large (${sizeMb} MB). Maximum upload size is 25 MB.`,
+        message: `File is too large (${sizeMb} MB). Maximum upload size is 100 MB.`,
       });
       e.target.value = "";
       return;
@@ -971,7 +971,7 @@ export default function OmManualsLibrary() {
         } catch {
           // ignore parse failure
         }
-        if (xhr.status === 413) message = "File is too large. Maximum upload size is 25 MB.";
+        if (xhr.status === 413) message = "File is too large. Maximum upload size is 100 MB.";
         setBanner({ type: "error", message });
       }
     });

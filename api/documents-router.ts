@@ -12,7 +12,7 @@ import { TRPCError } from "@trpc/server";
 
 export const documentsUploadRouter = new Hono();
 
-const DOCUMENT_UPLOAD_MAX_SIZE = 25 * 1024 * 1024; // 25 MB - production-safe limit while files are stored as base64 in Postgres
+const DOCUMENT_UPLOAD_MAX_SIZE = 100 * 1024 * 1024; // 100 MB - production-safe limit while files are stored as base64 in Postgres
 
 const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
   "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
@@ -73,7 +73,7 @@ documentsUploadRouter.post("/upload", async (c) => {
       `[documents/upload:${uploadId}] rejected oversized request: ${contentLength} bytes exceeds ${DOCUMENT_UPLOAD_MAX_SIZE} bytes`
     );
     return c.json(
-      { error: "File is too large. Maximum upload size is 25 MB." },
+      { error: "File is too large. Maximum upload size is 100 MB." },
       413
     );
   }
@@ -96,7 +96,7 @@ documentsUploadRouter.post("/upload", async (c) => {
         `[documents/upload:${uploadId}] rejected oversized file: ${file.size} bytes exceeds ${DOCUMENT_UPLOAD_MAX_SIZE} bytes`
       );
       return c.json(
-        { error: "File is too large. Maximum upload size is 25 MB." },
+        { error: "File is too large. Maximum upload size is 100 MB." },
         413
       );
     }
@@ -154,7 +154,8 @@ documentsUploadRouter.post("/upload", async (c) => {
     }).returning();
 
     console.log(`[documents/upload:${uploadId}] success id=${inserted[0].id} size=${file.size}`);
-    return c.json({ file: inserted[0] }, 201);
+    const { fileData: _fileData, ...metadata } = inserted[0];
+    return c.json({ file: { ...metadata, hasFileData: true } }, 201);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[documents/upload:${uploadId}] failed:`, message);
