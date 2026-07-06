@@ -761,18 +761,19 @@ app.delete("/api/monthly-kpi/records", async (c) => {
   try {
     preventMonthlyKpiResponseCaching(c);
     await ensureDbReady();
-    const businessUnit = c.req.query("business_unit");
+    const rawBusinessUnit = c.req.query("business_unit");
+    const businessUnit = rawBusinessUnit ? rawBusinessUnit.trim() : null;
     const reportingYear = Number(c.req.query("reporting_year"));
-    if (!businessUnit || !businessUnit.trim()) {
-      return c.json({ error: "business_unit query parameter is required" }, 400);
-    }
+    const rawReportingMonth = c.req.query("reporting_month");
+    const reportingMonth = rawReportingMonth ? Number(rawReportingMonth) : null;
     if (!Number.isInteger(reportingYear)) {
       return c.json({ error: "reporting_year query parameter is required" }, 400);
     }
     const result = await getDb().execute(sql`
       DELETE FROM monthly_kpi_records
-      WHERE business_unit = ${businessUnit.trim()}
-        AND reporting_year = ${reportingYear}
+      WHERE reporting_year = ${reportingYear}
+        ${businessUnit ? sql`AND ${monthlyKpiCanonicalBusinessUnitSql} = ${normalizeMonthlyKpiBusinessUnitFilter(businessUnit)}` : sql``}
+        ${Number.isInteger(reportingMonth) ? sql`AND reporting_month = ${reportingMonth}` : sql``}
       RETURNING id
     `);
     const rows = rowsFromDb<{ id: number }>(result);
@@ -782,7 +783,9 @@ app.delete("/api/monthly-kpi/records", async (c) => {
       : null;
     return c.json({
       success: true,
-      business_unit: businessUnit.trim(),
+      business_unit: businessUnit,
+      reporting_year: reportingYear,
+      reporting_month: reportingMonth,
       deletedCount: rows.length,
       records,
       aggregates,
