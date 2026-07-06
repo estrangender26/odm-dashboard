@@ -367,7 +367,6 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
       <option value="2025">2025</option>
     </select>
     <select id="monthSel" class="ctrl-gray" onchange="handleReportingContextChange()">
-      <option value="all">All Months</option>
       <option value="1">January</option><option value="2">February</option><option value="3">March</option>
       <option value="4">April</option><option value="5" selected>May</option><option value="6">June</option>
       <option value="7">July</option><option value="8">August</option><option value="9">September</option>
@@ -1435,8 +1434,7 @@ function updateClearButtonState(activeTabId){
   if(!btn)return;
   var scope = buildClearScopeLabel();
   btn.disabled = isClearingKpiRecords;
-  var scopeText = scope.isAllMonths ? scope.year : scope.monthLabel+' '+scope.year;
-  btn.title = isClearingKpiRecords ? 'Clearing KPI records...' : 'Clear KPI records for '+scope.buLabel+' — '+scopeText+' only';
+  btn.title = isClearingKpiRecords ? 'Clearing KPI records...' : 'Clear all '+scope.year+' KPI records for '+scope.buLabel;
   btn.innerHTML = isClearingKpiRecords ? '<span class="spinner"></span> Clearing...' : 'Clear';
 }
 
@@ -1715,8 +1713,7 @@ function confirmClearKpiRecords(scope){
   var message = document.getElementById('clearConfirmMessage');
   var title = document.getElementById('clearConfirmTitle');
   var confirmLabel = scope.isAll ? 'All Business Units' : scope.buLabel;
-  var scopeText = scope.isAllMonths ? scope.year : scope.monthLabel+' '+scope.year;
-  var bodyText = 'Clear KPI records for '+confirmLabel+' — '+scopeText+' only? This will permanently remove saved Monthly KPI data for the selected scope. This action cannot be undone.';
+  var bodyText = 'Clear all '+scope.year+' KPI records for '+confirmLabel+'? This will permanently remove saved Monthly KPI data for the selected scope. This action cannot be undone.';
   if(!modal || !message)return Promise.resolve(window.confirm(bodyText));
   if(title)title.textContent = 'Clear KPI Records';
   message.textContent = bodyText;
@@ -1918,8 +1915,7 @@ function excelDateToReportingMonth(val){
 function persistDeckContext(){try{var bu=getSelectedBU();localStorage.setItem('monthlyKpiSelectedBusinessUnit',getBUApiValue(bu.id));localStorage.setItem('monthlyKpiSelectedBusinessUnitLabel',bu.label);localStorage.setItem('monthlyKpiSelectedYear',String(getSelectedYear()));localStorage.setItem('monthlyKpiSelectedMonth',String(getSelectedMonth()));}catch(err){}}
 function getSelectedYear(){return parseInt(document.getElementById('yearSel').value,10);}
 function getSelectedMonthValue(){
-  var val = document.getElementById('monthSel').value;
-  return val === 'all' ? 'all' : parseInt(val,10);
+  return parseInt(document.getElementById('monthSel').value,10);
 }
 function getSelectedMonth(){return getSelectedMonthValue();}
 function refreshBusinessUnitSelectors(){
@@ -2202,7 +2198,7 @@ function applyPersistedMonthlyKpiRecords(records,options){
 async function fetchMonthlyKpiAggregates(){
   var year = getSelectedYear();
   var monthValue = getSelectedMonthValue();
-  var monthParam = monthValue === 'all' ? '' : '&reporting_month='+encodeURIComponent(monthValue);
+  var monthParam = '&reporting_month='+encodeURIComponent(monthValue);
   var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year)+monthParam,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
   var payload = await res.json().catch(function(){return {};});
   if(!res.ok)throw new Error(payload.error || 'Unable to load Monthly KPI aggregates.');
@@ -3260,12 +3256,9 @@ function importLegacyWorkbook(workbook,fileName,importBuId,importBu){
 // ===== CLEAR =====
 function buildClearScopeLabel(){
   var year = getSelectedYear();
-  var monthValue = getSelectedMonthValue();
-  var isAllMonths = monthValue === 'all';
-  var monthLabel = isAllMonths ? 'All Months' : MonthNames[Number(monthValue)-1];
   var bu = getSelectedBU();
   var buLabel = selectedBusinessUnitId === ALL_BUSINESS_UNITS_VALUE ? 'All Business Units' : (bu ? bu.label : 'Selected Business Unit');
-  return { year: year, month: monthValue, monthLabel: monthLabel, buLabel: buLabel, isAll: selectedBusinessUnitId === ALL_BUSINESS_UNITS_VALUE, isAllMonths: isAllMonths };
+  return { year: year, buLabel: buLabel, isAll: selectedBusinessUnitId === ALL_BUSINESS_UNITS_VALUE };
 }
 
 async function clearData(){
@@ -3277,9 +3270,6 @@ async function clearData(){
   try{
     var params = new URLSearchParams();
     params.set('reporting_year', String(scope.year));
-    if(!scope.isAllMonths){
-      params.set('reporting_month', String(scope.month));
-    }
     if(!scope.isAll){
       var bu = getSelectedBU();
       params.set('business_unit', getBUApiValue(bu.id));
@@ -3299,8 +3289,7 @@ async function clearData(){
     renderSummaryDashboard();
     if(!scope.isAll)renderBUCharts(selectedBusinessUnitId);
     updateChartLoadingOverlays();
-    var scopeText = scope.isAllMonths ? scope.year : scope.monthLabel+' '+scope.year;
-    showToast('success','KPI records cleared for '+scope.buLabel+' — '+scopeText+' only.');
+    showToast('success','KPI records cleared for '+scope.buLabel+' — '+scope.year+'.');
   }catch(err){
     console.error('Clear KPI records error:',err);
     showToast('error','Failed to clear KPI records for '+scope.buLabel+'.');
