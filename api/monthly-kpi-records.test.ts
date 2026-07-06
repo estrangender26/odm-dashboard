@@ -45,12 +45,13 @@ describe("Monthly KPI records API", () => {
     expect(bootSource).toContain("WHERE alias_rank = 1");
   });
 
-  it("requires reporting_year and deletes only the selected business unit plus selected year", () => {
+  it("requires reporting_year and supports optional business_unit and reporting_month filters", () => {
     const deleteRoute = routeBlock("delete", "/api/monthly-kpi/records");
 
     expect(deleteRoute).toContain('return c.json({ error: "reporting_year query parameter is required" }, 400)');
-    expect(deleteRoute).toContain("WHERE business_unit = ${businessUnit.trim()}");
-    expect(deleteRoute).toContain("AND reporting_year = ${reportingYear}");
+    expect(deleteRoute).not.toContain('return c.json({ error: "business_unit query parameter is required" }, 400)');
+    expect(deleteRoute).toContain("DELETE FROM monthly_kpi_records");
+    expect(deleteRoute).toContain("WHERE reporting_year = ${reportingYear}");
     expect(deleteRoute).toContain("fetchMonthlyKpiRecordsForResponse({ reportingYear })");
   });
 

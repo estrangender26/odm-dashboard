@@ -3236,6 +3236,7 @@ async function clearData(){
   try{
     var params = new URLSearchParams();
     params.set('reporting_year', String(scope.year));
+    params.set('reporting_month', String(scope.month));
     if(!scope.isAll){
       var bu = getSelectedBU();
       params.set('business_unit', getBUApiValue(bu.id));
