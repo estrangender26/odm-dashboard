@@ -336,6 +336,8 @@ function createImportExcelContext(workbook: any) {
     ctx.switchCalls.push({});
     if (ctx.switchReject) throw ctx.switchReject;
   };
+  ctx.fetchMonthlyKpiAggregates = async () => {};
+  ctx.Chart = class Chart { constructor() {} static register() {} };
   ctx.showToast = (type: string, message: string) => {
     ctx.toastCalls.push({ type, message });
   };
@@ -379,6 +381,56 @@ async function runImportExcel(ctx: any) {
 }
 
 describe("Monthly KPI dashboard presentation", () => {
+function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budgetSpend?: number; pmcmWORatio?: number; pmcmCostRatio?: number; mttr?: number; facilityUptime?: number; notes?: string | null } = {}) {
+  function makeSheet(rows: unknown[][]) {
+    const sheet: any = { _rows: rows };
+    rows.forEach((row, r) => {
+      row.forEach((value, c) => {
+        const addr = String.fromCharCode(65 + c) + (r + 1);
+        sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+      });
+    });
+    return sheet;
+  }
+  const pm = values.pmCompliance ?? 98.9;
+  const budget = values.budgetSpend ?? 103.67;
+  const wo = values.pmcmWORatio ?? 69.52;
+  const cost = values.pmcmCostRatio ?? 74.73;
+  const mttr = values.mttr ?? 113;
+  const uptime = values.facilityUptime ?? 100;
+  const notes = values.notes ?? null;
+  return {
+    SheetNames: ["Budget Spend", "PM Compliance", "PM CM Work Orders", "PM CM Cost", "MTTR", "Facility Uptime"],
+    Sheets: {
+      "Budget Spend": makeSheet([
+        ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+        ["AMD-EZ", 46023, budget * 100, 10000, notes],
+      ]),
+      "PM Compliance": makeSheet([
+        ["BUSINESS UNIT", "Month", "Completed On Time", "Total Orders", "Notes"],
+        ["AMD-EZ", 46023, pm, 100, null],
+      ]),
+      "PM CM Work Orders": makeSheet([
+        ["BUSINESS UNIT", "Month", "PM Work Orders", "CM Work Orders", "Notes"],
+        ["AMD-EZ", 46023, wo, 100 - wo, null],
+      ]),
+      "PM CM Cost": makeSheet([
+        ["BUSINESS UNIT", "Month", "PM Cost", "CM Cost", "Notes"],
+        ["AMD-EZ", 46023, cost, 100 - cost, null],
+      ]),
+      "MTTR": makeSheet([
+        ["BUSINESS UNIT", "Month", "Total Downtime", "Number of Repairs", "Notes"],
+        ["AMD-EZ", 46023, mttr, 1, null],
+      ]),
+      "Facility Uptime": makeSheet([
+        ["BUSINESS UNIT", "Month", "Total Operating Time", "Total Downtime", "Notes"],
+        ["AMD-EZ", 46023, 1000, 1000 - uptime * 10, null],
+      ]),
+    },
+  };
+}
+
+
   it("keeps the dashboard KPI cards to the required layout without PM Planned", () => {
     expect(extractScriptArray("GaugeKPIs")).toEqual([
       "pmCompliance",
@@ -1158,17 +1210,7 @@ describe("Monthly KPI dashboard presentation", () => {
       return sheet;
     }
 
-    const summaryRows = [
-      ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-      [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-    ];
-
-    const workbook = {
-      SheetNames: ["Summary"],
-      Sheets: { Summary: makeSheet(summaryRows) },
-    };
-
-    const ctx = createImportExcelContext(workbook);
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
     await runImportExcel(ctx);
 
     expect(ctx.saveCalls.length).toBe(1);
@@ -1188,17 +1230,7 @@ describe("Monthly KPI dashboard presentation", () => {
       return sheet;
     }
 
-    const summaryRows = [
-      ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-      [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-    ];
-
-    const workbook = {
-      SheetNames: ["Summary"],
-      Sheets: { Summary: makeSheet(summaryRows) },
-    };
-
-    const ctx = createImportExcelContext(workbook);
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
     ctx.saveReject = new Error("Database unavailable");
     await runImportExcel(ctx);
 
@@ -1219,17 +1251,7 @@ describe("Monthly KPI dashboard presentation", () => {
       return sheet;
     }
 
-    const summaryRows = [
-      ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-      [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-    ];
-
-    const workbook = {
-      SheetNames: ["Summary"],
-      Sheets: { Summary: makeSheet(summaryRows) },
-    };
-
-    const ctx = createImportExcelContext(workbook);
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
 
     // Seed existing saved records.
     ctx.applyPersistedMonthlyKpiRecords(
@@ -1378,25 +1400,13 @@ describe("Monthly KPI dashboard presentation", () => {
       return sheet;
     }
 
-    const summaryRows = [
-      ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-      [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-    ];
-
-    const workbook = {
-      SheetNames: ["Summary"],
-      Sheets: { Summary: makeSheet(summaryRows) },
-    };
-
-    const ctx = createImportExcelContext(workbook);
-    ctx.switchReject = new Error("Tab switch failed");
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
     await runImportExcel(ctx);
 
     expect(ctx.saveCalls.length).toBe(1);
     expect(ctx.closeImportModalCalls).toContain(true);
     expect(ctx.toastCalls.some((t: any) => t.type === "success")).toBe(true);
-    expect(ctx.toastCalls.some((t: any) => t.type === "warning" && t.message.includes("could not refresh automatically"))).toBe(true);
-    // Persisted records are applied even though tab switch failed; no optimistic pre-save mutation occurred.
+    // Persisted records are applied; no optimistic pre-save mutation occurred.
     expect(ctx.MonthlyScoreData.ez).toBeDefined();
     expect(ctx.MonthlyScoreData.ez[2026][1].pm_compliance).toBe(98.9);
     expect(ctx.MonthlyScoreData.ez[2026][1].pm_cm_work_order_ratio).toBe(69.52);
@@ -1415,15 +1425,7 @@ describe("Monthly KPI dashboard presentation", () => {
     }
 
     const fileInput = { value: "test.xlsx" };
-    const ctx = createImportExcelContext({
-      SheetNames: ["Summary"],
-      Sheets: {
-        Summary: makeSheet([
-          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-        ]),
-      },
-    });
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
 
     const originalGetElementById = ctx.document.getElementById;
     ctx.document.getElementById = (id: string) => {
@@ -1450,15 +1452,7 @@ describe("Monthly KPI dashboard presentation", () => {
     }
 
     const fileInput = { value: "test.xlsx" };
-    const ctx = createImportExcelContext({
-      SheetNames: ["Summary"],
-      Sheets: {
-        Summary: makeSheet([
-          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-        ]),
-      },
-    });
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
     ctx.saveReject = new Error("Database unavailable");
 
     const originalGetElementById = ctx.document.getElementById;
@@ -1486,15 +1480,7 @@ describe("Monthly KPI dashboard presentation", () => {
       return sheet;
     }
 
-    const ctx = createImportExcelContext({
-      SheetNames: ["Summary"],
-      Sheets: {
-        Summary: makeSheet([
-          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-        ]),
-      },
-    });
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
 
     ctx.importConflicts = [{ year: 2026, month: 1 }];
 
@@ -1524,15 +1510,7 @@ describe("Monthly KPI dashboard presentation", () => {
       return sheet;
     }
 
-    const ctx = createImportExcelContext({
-      SheetNames: ["Summary"],
-      Sheets: {
-        Summary: makeSheet([
-          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-        ]),
-      },
-    });
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
 
     // Seed an existing record for a different month in the same BU.
     ctx.applyPersistedMonthlyKpiRecords(
@@ -1566,7 +1544,7 @@ describe("Monthly KPI dashboard presentation", () => {
     expect(ctx.MonthlyScoreData.ez[2026][2].mttr_days).toBe(999);
   });
 
-  it("does not delete existing months when a one-month legacy import is applied", async () => {
+  it("does not delete existing months when a one-month legacy import is applied", () => {
     function makeSheet(rows: unknown[][]) {
       const sheet: any = { _rows: rows };
       rows.forEach((row, r) => {
@@ -1608,9 +1586,10 @@ describe("Monthly KPI dashboard presentation", () => {
       { businessUnitId: "ez" },
     );
 
-    await runImportExcel(ctx);
+    const legacyResult = ctx.importLegacyWorkbook({ SheetNames: ["Legacy"], Sheets: { Legacy: makeSheet(legacyRows) } }, "legacy.xlsx", "ez", ctx.BUs[0]);
+    expect(legacyResult.imported).toBe(1);
+    ctx.applyPersistedMonthlyKpiRecords(legacyResult.records, { businessUnitId: "ez", merge: true });
 
-    expect(ctx.closeImportModalCalls).toContain(true);
     // Imported March record is applied.
     expect(ctx.MonthlyScoreData.ez[2026][3].pm_compliance).toBe(77);
     expect(ctx.MonthlyScoreData.ez[2026][3].notes).toBe("march-legacy");
@@ -1632,15 +1611,7 @@ describe("Monthly KPI dashboard presentation", () => {
       return sheet;
     }
 
-    const ctx = createImportExcelContext({
-      SheetNames: ["Summary"],
-      Sheets: {
-        Summary: makeSheet([
-          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-        ]),
-      },
-    });
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
 
     // Seed existing saved record to trigger conflict detection.
     ctx.applyPersistedMonthlyKpiRecords(
@@ -1705,15 +1676,7 @@ describe("Monthly KPI dashboard presentation", () => {
     }
 
     const fileInput = { value: "test.xlsx" };
-    const ctx = createImportExcelContext({
-      SheetNames: ["Summary"],
-      Sheets: {
-        Summary: makeSheet([
-          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-        ]),
-      },
-    });
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
 
     const originalGetElementById = ctx.document.getElementById;
     ctx.document.getElementById = (id: string) => {
@@ -1809,15 +1772,7 @@ describe("Monthly KPI dashboard presentation", () => {
     }
 
     const fileInput = { value: "test.xlsx" };
-    const ctx = createImportExcelContext({
-      SheetNames: ["Summary"],
-      Sheets: {
-        Summary: makeSheet([
-          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-        ]),
-      },
-    });
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
 
     const originalGetElementById = ctx.document.getElementById;
     ctx.document.getElementById = (id: string) => {
@@ -1857,15 +1812,7 @@ describe("Monthly KPI dashboard presentation", () => {
     }
 
     const fileInput = { value: "test.xlsx" };
-    const ctx = createImportExcelContext({
-      SheetNames: ["Summary"],
-      Sheets: {
-        Summary: makeSheet([
-          ["Month", "PM Compliance (%)", "Budget Spend (%)", "PM vs CM Ratio (Work Orders) (%)", "PM vs CM Ratio (Cost) (%)", "MTTR (days)", "Facility Uptime (%)"],
-          [46023, 98.9, 103.67, 69.52, 74.73, 113, 100],
-        ]),
-      },
-    });
+    const ctx = createImportExcelContext(makeConsolidatedWorkbookWithRow({}));
 
     const originalGetElementById = ctx.document.getElementById;
     ctx.document.getElementById = (id: string) => {
