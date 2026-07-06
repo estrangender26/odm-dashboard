@@ -154,7 +154,8 @@ documentsUploadRouter.post("/upload", async (c) => {
     }).returning();
 
     console.log(`[documents/upload:${uploadId}] success id=${inserted[0].id} size=${file.size}`);
-    return c.json({ file: inserted[0] }, 201);
+    const { fileData: _fileData, ...metadata } = inserted[0];
+    return c.json({ file: { ...metadata, hasFileData: true } }, 201);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[documents/upload:${uploadId}] failed:`, message);
