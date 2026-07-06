@@ -2217,9 +2217,10 @@ async function fetchSavedMonthlyKpiRecords(buId,options){
     params.set('reporting_year',String(getSelectedYear()));
     if(buId){
       params.set('business_unit',getBUApiValue(buId));
-    }else if(getSelectedMonthValue() !== 'all'){
-      params.set('reporting_month',String(getSelectedMonth()));
     }
+    // Note: do not filter by reporting_month for the all-BU/summary view.
+    // The dropdown and Summary Matrix must reflect every BU with data for the selected year,
+    // regardless of which month is currently selected.
     var url = '/api/monthly-kpi/records?'+params.toString();
     var res = await fetch(url,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
     var payload = await res.json().catch(function(){return {};});
@@ -3290,16 +3291,9 @@ async function clearData(){
     if(!res.ok)throw new Error(payload.error || 'Failed to clear KPI records.');
     var deletedCount = payload && typeof payload.deletedCount === 'number' ? payload.deletedCount : null;
     console.log('[Monthly KPI clear] deletedCount:', deletedCount, 'scope:', scope);
-    if(deletedCount === 0){
-      // Nothing deleted for the selected scope; still refresh to ensure UI matches backend.
-    }
-    // Always reset local state to the backend's current view so stale MonthlyScoreData is removed.
-    if(Array.isArray(payload.records)){
-      applyPersistedMonthlyKpiRecords(payload.records,{reset:true});
-    }else{
-      await fetchSavedMonthlyKpiRecords(null,{reset:true});
-    }
-    KpiAggregates = normalizeKpiAggregates(payload.aggregates);
+    // Always do a fresh records fetch after delete. Do not rely only on the DELETE response payload,
+    // because the browser network path can return a stale or incomplete snapshot.
+    await fetchSavedMonthlyKpiRecords(null,{reset:true,rethrow:true});
     await fetchMonthlyKpiAggregates();
     refreshBusinessUnitSelectors();
     renderSummaryDashboard();
