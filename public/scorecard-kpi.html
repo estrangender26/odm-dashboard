@@ -2828,6 +2828,15 @@ function findConsolidatedMonthHeader(headers){
   return -1;
 }
 
+function findConsolidatedNotesHeader(headers){
+  var aliases = ['notes','note','remarks','remark','comment','comments'];
+  for(var i=0;i<headers.length;i++){
+    var h = normalizeHeader(headers[i]);
+    if(aliases.indexOf(h)!==-1) return i;
+  }
+  return -1;
+}
+
 function matchConsolidatedHeader(header, patterns){
   var h = normalizeHeader(header);
   if(!h) return false;
@@ -2870,7 +2879,7 @@ function findConsolidatedSheetConfig(sheetName){
 }
 
 function mapConsolidatedSheetHeaders(headers, config){
-  var map = {businessUnit:-1,month:-1,fields:{}};
+  var map = {businessUnit:-1,month:-1,notes:-1,fields:{}};
   var seen = {};
   headers.forEach(function(header, index){
     var h = normalizeHeader(header);
@@ -2882,6 +2891,10 @@ function mapConsolidatedSheetHeaders(headers, config){
     }
     if(findConsolidatedMonthHeader([header])===0){
       map.month = index;
+      return;
+    }
+    if(findConsolidatedNotesHeader([header])===0){
+      map.notes = index;
       return;
     }
     if(!config) return;
@@ -2965,6 +2978,12 @@ function parseConsolidatedSheet(workbook, sheetName, config, fileName){
     if(!bu.bu) continue;
     var record = emptyImportedKpiRecord(bu.bu.apiValue, monthInfo.year, monthInfo.month, fileName, sheetName);
     var rawValues = {rowNumber:i+1, values:{}};
+    if(headerMap.notes >= 0){
+      var rawNoteValue = getRawSummaryValue(row, headerMap.notes);
+      var noteValue = normalizeNotesValue(rawNoteValue);
+      record.notes = noteValue || null;
+      rawValues.values.notes = rawImportedCellValue(rawNoteValue, getSheetCell(sheet, i, headerMap.notes));
+    }
     if(config){
       Object.keys(config.fields).forEach(function(fieldKey){
         if(fieldKey === 'ignore') return;
@@ -3001,6 +3020,7 @@ function parseConsolidatedSheet(workbook, sheetName, config, fileName){
 
 function importConsolidatedWorkbook(workbook, fileName){
   var recordsByKey = {};
+  var notesSourcesByKey = {};
   var createdBusinessUnits = [];
   var initialCount = BUs.length;
   workbook.SheetNames.forEach(function(sheetName){
@@ -3026,8 +3046,28 @@ function importConsolidatedWorkbook(workbook, fileName){
         });
         existing.raw_imported_values.sheets[sheetName] = record.raw_imported_values.rowNumber || true;
       }
+      if(record.notes){
+        var sources = notesSourcesByKey[key];
+        if(!sources){
+          sources = [];
+          notesSourcesByKey[key] = sources;
+        }
+        var alreadyExists = sources.some(function(s){ return s.text === record.notes; });
+        if(!alreadyExists) sources.push({sheet: sheetName, text: record.notes});
+      }
       computeImportedMonthlyKpis(existing);
     });
+  });
+  Object.keys(notesSourcesByKey).forEach(function(key){
+    var record = recordsByKey[key];
+    if(!record) return;
+    var sources = notesSourcesByKey[key];
+    if(!sources || !sources.length) return;
+    if(sources.length === 1){
+      record.notes = sources[0].text;
+    } else {
+      record.notes = sources.map(function(s){ return s.sheet + ': ' + s.text; }).join('; ');
+    }
   });
   if(BUs.length !== initialCount){
     createdBusinessUnits = BUs.slice(initialCount);
