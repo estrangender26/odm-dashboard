@@ -303,7 +303,7 @@ function createImportContext() {
     initBusinessUnitSelector: () => void;
     fetchSavedMonthlyKpiRecords: (buId?: string, options?: any) => Promise<{ ok: boolean; records?: unknown[]; error?: Error }>;
     saveImportedMonthlyKpiRecords: (fileName: string, records: unknown[], buId: string | null) => Promise<{ records?: unknown[] }>;
-    buildClearScopeLabel: () => { year: number; month: number | string; monthLabel: string; buLabel: string; isAll: boolean; isAllMonths: boolean };
+    buildClearScopeLabel: () => { year: number; buLabel: string; isAll: boolean };
     fetchMonthlyKpiAggregates: () => Promise<void>;
     normalizeKpiAggregates: (aggregates: unknown) => any;
     KpiAggregates: any;
@@ -2681,7 +2681,7 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
 
 
 
-  it("sends reporting_year and reporting_month without business_unit when clearing All Business Units", async () => {
+  it("sends reporting_year only when clearing All Business Units", async () => {
     const ctx = createImportContext();
     const capturedUrls: string[] = [];
     (ctx as any).fetch = async (url: any) => {
@@ -2689,6 +2689,7 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
       return { ok: true, json: async () => ({}) };
     };
     ctx.selectedBusinessUnitId = "all-business-units";
+    (ctx.document.getElementById("monthSel") as any).value = "5";
     const clearPromise = ctx.clearData();
     await ctx.resolveClearConfirmation(true);
     await clearPromise;
@@ -2696,11 +2697,11 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     const deleteUrl = capturedUrls.find((u) => u.includes("/api/monthly-kpi/records"));
     expect(deleteUrl).toBeDefined();
     expect(deleteUrl).toContain("reporting_year=2026");
-    expect(deleteUrl).toContain("reporting_month=1");
+    expect(deleteUrl).not.toContain("reporting_month");
     expect(deleteUrl).not.toContain("business_unit=");
   });
 
-  it("sends business_unit when clearing a specific BU", async () => {
+  it("sends business_unit but no reporting_month when clearing a specific BU", async () => {
     const ctx = createImportContext();
     const capturedUrls: string[] = [];
     (ctx as any).fetch = async (url: any) => {
@@ -2708,6 +2709,7 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
       return { ok: true, json: async () => ({}) };
     };
     ctx.selectedBusinessUnitId = "ez";
+    (ctx.document.getElementById("monthSel") as any).value = "5";
     const clearPromise = ctx.clearData();
     await ctx.resolveClearConfirmation(true);
     await clearPromise;
@@ -2715,8 +2717,8 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     const deleteUrl = capturedUrls.find((u) => u.includes("/api/monthly-kpi/records"));
     expect(deleteUrl).toBeDefined();
     expect(deleteUrl).toContain("reporting_year=2026");
-    expect(deleteUrl).toContain("reporting_month=1");
     expect(deleteUrl).toContain("business_unit=AMD-EZ");
+    expect(deleteUrl).not.toContain("reporting_month");
   });
 
 
@@ -2846,7 +2848,7 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(html).toContain('value="clark"');
   });
 
-  it("clear request includes reporting_month for a specific month", async () => {
+  it("clear request ignores selected month and clears full selected year for the BU", async () => {
     const ctx = createImportContext();
     const capturedUrls: string[] = [];
     const toasts: string[] = [];
@@ -2868,8 +2870,8 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(deleteUrl).toBeDefined();
     expect(deleteUrl).toContain("reporting_year=2026");
     expect(deleteUrl).toContain("business_unit=AMD-EZ");
-    expect(deleteUrl).toContain("reporting_month=5");
-    expect(toasts.some((m) => m.includes("AMD-EZ") && m.includes("May 2026 only"))).toBe(true);
+    expect(deleteUrl).not.toContain("reporting_month");
+    expect(toasts.some((m) => m.includes("KPI records cleared for AMD-EZ") && m.includes("2026"))).toBe(true);
   });
 
   it("numeric Business Unit values are not imported", () => {
@@ -2902,14 +2904,14 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(result.records[0].business_unit).toBe("AMD-EZ");
   });
 
-  it("buildClearScopeLabel reflects selected month-only scope", () => {
+  it("buildClearScopeLabel only contains year and BU scope", () => {
     const ctx = createImportContext();
     (ctx.document.getElementById("monthSel") as any).value = "5";
     (ctx as any).selectedBusinessUnitId = "ez";
     const scope = ctx.buildClearScopeLabel();
     expect(scope.buLabel).toBe("AMD-EZ");
-    expect(scope.monthLabel).toBe("May");
-    expect(scope.isAllMonths).toBe(false);
+    expect(scope.year).toBe(2026);
+    expect(scope.isAll).toBe(false);
   });
 
   it("dropdown excludes invalid numeric Business Unit values", () => {
@@ -3007,7 +3009,7 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     const aggregatesCall = captured.find((c) => c.kind === "aggregates");
     expect(deleteCall).toBeDefined();
     expect(deleteCall!.url).toContain("reporting_year=2026");
-    expect(deleteCall!.url).toContain("reporting_month=5");
+    expect(deleteCall!.url).not.toContain("reporting_month");
     expect(recordsCall).toBeDefined();
     expect(aggregatesCall).toBeDefined();
     const recordsIdx = captured.findIndex((c) => c.kind === "records");
