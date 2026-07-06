@@ -145,4 +145,16 @@ describe("Monthly KPI records API", () => {
     expect(nullableText).toContain("return text || null");
     expect(normalizer).toContain("notes: asNullableText(input?.notes ?? input?.Notes)");
   });
+
+  it("imports all payload records and does not filter by fallback business_unit", () => {
+    const importRoute = routeBlock("post", "/api/monthly-kpi/import");
+    const normalizer = sourceBlock(
+      "function normalizeMonthlyKpiRecord",
+      'logBootStage("registering monthly KPI scorecard routes")',
+    );
+
+    expect(importRoute).toContain("for (const payloadRecord of payloadRecords)");
+    expect(importRoute).toContain("normalizeMonthlyKpiRecord(payloadRecord, sourceFileName, fallbackBusinessUnit)");
+    expect(normalizer).toContain('input?.business_unit ?? input?.businessUnit ?? fallbackBusinessUnit ?? ""');
+  });
 });

@@ -230,7 +230,12 @@ function createImportContext() {
       createElement() { return element; },
       getElementById(id: string) {
         if (id === "yearSel") return yearSelect;
-        if (id === "monthSel") return { ...element, value: "1", style: { ...element.style } };
+        if (id === "monthSel") {
+          if (!elementCache["monthSel"]) {
+            elementCache["monthSel"] = { ...element, value: "1", style: { ...element.style } };
+          }
+          return elementCache["monthSel"];
+        }
         if (id === "businessUnitSel") {
           if (!elementCache["businessUnitSel"]) {
             const sel: any = { ...element };
@@ -289,6 +294,8 @@ function createImportContext() {
     setImporting: (flag: boolean) => void;
     initBusinessUnitSelector: () => void;
     fetchSavedMonthlyKpiRecords: (buId?: string, options?: any) => Promise<{ ok: boolean; records?: unknown[]; error?: Error }>;
+    saveImportedMonthlyKpiRecords: (fileName: string, records: unknown[], buId: string | null) => Promise<{ records?: unknown[] }>;
+    buildClearScopeLabel: () => { year: number; month: number | string; monthLabel: string; buLabel: string; isAll: boolean; isAllMonths: boolean };
     selectedBusinessUnitId: string;
     BUs: Array<{ id: string; apiValue: string; name: string; label: string }>;
   };
@@ -2682,5 +2689,197 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(deleteUrl).toContain("business_unit=AMD-EZ");
   });
 
+
+
+  it("imports AMD-EZ and Clark Water from a consolidated workbook", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend", "PM Compliance"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["AMD-EZ", 46023, 100, 100, "EZ note"],
+          ["Clark Water", 46023, 200, 100, "Clark note"],
+        ]),
+        "PM Compliance": makeSheet([
+          ["BUSINESS UNIT", "Month", "Completed On Time", "Total Orders", "Notes"],
+          ["AMD-EZ", 46023, 98, 100, null],
+          ["Clark Water", 46023, 95, 100, null],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "multi-bu.xlsx");
+    expect(result.imported).toBe(2);
+    expect(result.records.some((r: any) => r.business_unit === "AMD-EZ")).toBe(true);
+    expect(result.records.some((r: any) => r.business_unit === "Clark Water")).toBe(true);
+  });
+
+  it("Business Unit dropdown shows all imported BUs after consolidated import", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["AMD-EZ", 46023, 100, 100, "EZ note"],
+          ["Clark Water", 46023, 200, 100, "Clark note"],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "multi-bu-budget.xlsx");
+    ctx.applyPersistedMonthlyKpiRecords(result.records, { reset: true });
+    ctx.initBusinessUnitSelector();
+    const sel = ctx.document.getElementById("businessUnitSel") as any;
+    const html = sel.innerHTML;
+    expect(html).toContain('value="all-business-units"');
+    expect(html).toContain('value="ez"');
+    expect(html).toContain('value="clark"');
+  });
+
+  it("clear request omits reporting_month when All Months is selected", async () => {
+    const ctx = createImportContext();
+    const capturedUrls: string[] = [];
+    (ctx as any).fetch = async (url: any) => {
+      capturedUrls.push(String(url));
+      return { ok: true, json: async () => ({}) };
+    };
+    (ctx as any).selectedBusinessUnitId = "ez";
+    (ctx.document.getElementById("monthSel") as any).value = "all";
+
+    const clearPromise = ctx.clearData();
+    await ctx.resolveClearConfirmation(true);
+    await clearPromise;
+
+    const deleteUrl = capturedUrls.find((u) => u.includes("/api/monthly-kpi/records"));
+    expect(deleteUrl).toBeDefined();
+    expect(deleteUrl).toContain("reporting_year=2026");
+    expect(deleteUrl).toContain("business_unit=AMD-EZ");
+    expect(deleteUrl).not.toContain("reporting_month");
+  });
+
+  it("saveImportedMonthlyKpiRecords does not send business_unit for consolidated import", async () => {
+    const ctx = createImportContext();
+    const captured: { url: string; body: string }[] = [];
+    (ctx as any).fetch = async (url: string, options: any) => {
+      captured.push({ url, body: options.body });
+      return { ok: true, json: async () => ({ records: [] }) };
+    };
+    await (ctx as any).saveImportedMonthlyKpiRecords(
+      "consolidated.xlsx",
+      [{ business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1 }],
+      null
+    );
+    expect(captured).toHaveLength(1);
+    const body = JSON.parse(captured[0].body);
+    expect(body).not.toHaveProperty("business_unit");
+    expect(body.records).toHaveLength(1);
+  });
+
+  it("fetchSavedMonthlyKpiRecords refreshes dropdown with all BUs returned by API", async () => {
+    const ctx = createImportContext();
+    const records = [
+      { id: 1, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, budget_spend: 50 },
+      { id: 2, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 1, budget_spend: 60 },
+    ];
+    (ctx as any).fetch = async () => ({ ok: true, json: async () => ({ records }) });
+    await (ctx as any).fetchSavedMonthlyKpiRecords();
+    const sel = ctx.document.getElementById("businessUnitSel") as any;
+    const html = sel.innerHTML;
+    expect(html).toContain('value="all-business-units"');
+    expect(html).toContain('value="ez"');
+    expect(html).toContain('value="clark"');
+  });
+
+  it("clear request includes reporting_month for a specific month", async () => {
+    const ctx = createImportContext();
+    const capturedUrls: string[] = [];
+    const toasts: string[] = [];
+    (ctx as any).fetch = async (url: any) => {
+      capturedUrls.push(String(url));
+      return { ok: true, json: async () => ({}) };
+    };
+    (ctx as any).showToast = (_type: any, message: string) => {
+      toasts.push(message);
+    };
+    (ctx as any).selectedBusinessUnitId = "ez";
+    (ctx.document.getElementById("monthSel") as any).value = "5";
+
+    const clearPromise = ctx.clearData();
+    await ctx.resolveClearConfirmation(true);
+    await clearPromise;
+
+    const deleteUrl = capturedUrls.find((u) => u.includes("/api/monthly-kpi/records"));
+    expect(deleteUrl).toBeDefined();
+    expect(deleteUrl).toContain("reporting_year=2026");
+    expect(deleteUrl).toContain("business_unit=AMD-EZ");
+    expect(deleteUrl).toContain("reporting_month=5");
+    expect(toasts.some((m) => m.includes("AMD-EZ") && m.includes("May 2026 only"))).toBe(true);
+  });
+
+  it("numeric Business Unit values are not imported", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Notes"],
+          ["12345", 46023, 100, 100, "numeric BU"],
+          ["AMD-EZ", 46023, 200, 100, "EZ note"],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "numeric-bu.xlsx");
+    expect(result.imported).toBe(1);
+    expect(result.records[0].business_unit).toBe("AMD-EZ");
+  });
+
+  it("buildClearScopeLabel reflects selected month-only scope", () => {
+    const ctx = createImportContext();
+    (ctx.document.getElementById("monthSel") as any).value = "5";
+    (ctx as any).selectedBusinessUnitId = "ez";
+    const scope = ctx.buildClearScopeLabel();
+    expect(scope.buLabel).toBe("AMD-EZ");
+    expect(scope.monthLabel).toBe("May");
+    expect(scope.isAllMonths).toBe(false);
+  });
 
 });
