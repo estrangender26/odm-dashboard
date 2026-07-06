@@ -2849,8 +2849,8 @@ var ConsolidatedSheetConfigs = [
     cm:['cm work orders','corrective work orders','cm wo','cm workorder','cm work order']
   }},
   {sheetMatch:/pm[:\-\s]?cm.*cost|pmcm.*cost|pm:cm.*cost/i,kpi:'pmCmCostRatio',fields:{
-    pm:['pm cost','preventive cost','pm costs'],
-    cm:['cm cost','corrective cost','cm costs']
+    pmCost:['pm cost','preventive cost','pm costs'],
+    cmCost:['cm cost','corrective cost','cm costs']
   }},
   {sheetMatch:/mttr/i,kpi:'mttr',fields:{
     downtime:['total downtime','downtime','equipment downtime','technical downtime'],
