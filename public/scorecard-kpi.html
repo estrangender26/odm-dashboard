@@ -589,22 +589,17 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 <div class="modal-overlay" id="importModal">
   <div class="modal" style="max-width:560px">
     <div class="modal-header">
-      <div class="modal-title">Import Excel Workbook</div>
+      <div class="modal-title">Import Monthly KPI Workbook</div>
       <button class="modal-close" onclick="closeImportModal()">&times;</button>
     </div>
-    <div class="import-hint">Choose the destination Business Unit for this workbook. Import does not use the currently selected BU tab.</div>
     <div class="manual-validation" id="importValidation"></div>
     <div class="manual-controls import-controls">
-      <div class="manual-field">
-        <label for="importBusinessUnitSel">Business Unit</label>
-        <select id="importBusinessUnitSel" onchange="handleImportBusinessUnitSelection()" aria-label="Import Business Unit"></select>
-      </div>
-      <div class="manual-field" id="importNewBusinessUnitField" style="display:none">
-        <label for="importNewBusinessUnitInput">New Business Unit / Facility Name</label>
-        <input id="importNewBusinessUnitInput" type="text" placeholder="Enter business unit or facility name" autocomplete="off" oninput="handleImportBusinessUnitSelection()" aria-label="New Business Unit or Facility Name">
+      <div class="manual-field" style="flex-direction:column;gap:6px">
+        <p style="margin:0;font-size:13px;color:var(--text);line-height:1.5">Upload the consolidated Monthly KPI workbook. Business Unit values will be read from the workbook’s Business Unit column.</p>
+        <p style="margin:0;font-size:12px;color:var(--muted);line-height:1.5">This supports both the full consolidated workbook and BU-level files that use the same consolidated template structure.</p>
       </div>
       <div class="manual-field">
-        <label for="excelInput">Workbook</label>
+        <label for="excelInput">Upload workbook</label>
         <input type="file" id="excelInput" accept=".xlsx,.xls" onchange="updateImportButtonState()" aria-label="Excel Workbook File">
       </div>
     </div>
@@ -1710,11 +1705,9 @@ function showToast(type,message){
 function triggerExcelImport(){
   if(isImporting)return;
   setImportValidation('');
-  setSelectValue('importBusinessUnitSel','');
   var fileInput = document.getElementById('excelInput');
   if(fileInput)fileInput.value = '';
   resetImportConflictPanel();
-  handleImportBusinessUnitSelection();
   updateImportButtonState();
   document.getElementById('importModal').classList.add('active');
 }
@@ -1734,57 +1727,23 @@ function setImportValidation(message){
 }
 
 function getImportContext(){
-  var buSelection = (document.getElementById('importBusinessUnitSel')||{}).value || '';
-  var newBusinessUnitInput = (document.getElementById('importNewBusinessUnitInput')||{}).value || '';
   var fileInput = document.getElementById('excelInput');
   return {
-    buSelection:buSelection,
-    buId:buSelection && buSelection!==ADD_NEW_BUSINESS_UNIT_VALUE ? buSelection : '',
-    bu:buSelection && buSelection!==ADD_NEW_BUSINESS_UNIT_VALUE ? getBUById(buSelection) : null,
-    file:fileInput&&fileInput.files?fileInput.files[0]:null,
-    isNewBusinessUnit:buSelection===ADD_NEW_BUSINESS_UNIT_VALUE,
-    newBusinessUnitName:normalizeBusinessUnitName(newBusinessUnitInput)
+    file:fileInput&&fileInput.files?fileInput.files[0]:null
   };
 }
 
 function updateImportButtonState(){
   var ctx = getImportContext();
   var btn = document.getElementById('importSubmitBtn');
-  var canSubmit = !isImporting && !!ctx.file && (ctx.buId || (ctx.isNewBusinessUnit && !!ctx.newBusinessUnitName));
+  var canSubmit = !isImporting && !!ctx.file;
   if(btn)btn.disabled = !canSubmit;
-  if(ctx.buId && ctx.file)setImportValidation('');
-}
-
-function handleImportBusinessUnitSelection(){
-  var selection = getImportContext();
-  var customInput = document.getElementById('importNewBusinessUnitField');
-  var customName = document.getElementById('importNewBusinessUnitInput');
-  if(customInput && customName){
-    var isNew = selection.isNewBusinessUnit;
-    customInput.style.display = isNew ? 'flex' : 'none';
-    if(!isNew)customName.value = '';
-  }
-  var submitInfo = getImportContext();
-  if(submitInfo.isNewBusinessUnit && submitInfo.newBusinessUnitName){
-    var existingBu = getBusinessUnitByName(submitInfo.newBusinessUnitName);
-    if(existingBu){
-      setImportValidation('Using existing business unit: '+existingBu.label+'.');
-    }else{
-      setImportValidation('');
-    }
-  }else{
-    setImportValidation('');
-  }
-  updateImportButtonState();
+  if(ctx.file)setImportValidation('');
 }
 
 function validateImportContext(ctx){
-  var missing = [];
-  if(!ctx.buSelection)missing.push('Business Unit');
-  if(!ctx.file)missing.push('Workbook File');
-  if(ctx.isNewBusinessUnit && !ctx.newBusinessUnitName)missing.push('New Business Unit / Facility Name');
-  if(missing.length){
-    setImportValidation('Please select '+missing.join(' and ')+' before importing.');
+  if(!ctx.file){
+    setImportValidation('Please select a workbook file before importing.');
     updateImportButtonState();
     return false;
   }
@@ -1929,17 +1888,6 @@ function refreshBusinessUnitSelectors(){
   initManualSelectors();
   initImportSelectors();
   syncBusinessUnitDropdownForTab(isSummaryTabActive() ? 'summary' : (isDefinitionsTabActive() ? 'definitions' : selectedBusinessUnitId));
-}
-function resolveImportBusinessUnit(ctx){
-  if(!ctx)return {buId:'',created:false,reason:'missing'};
-  if(!ctx.isNewBusinessUnit){
-    if(ctx.bu && isValidBusinessUnitId(ctx.bu.id))return {buId:ctx.bu.id,bu:ctx.bu,created:false};
-    return {buId:ctx.buId,created:false};
-  }
-  var existing = getBusinessUnitByName(ctx.newBusinessUnitName);
-  if(existing)return {buId:existing.id,bu:existing,created:false};
-  if(!ctx.newBusinessUnitName)return {buId:'',created:false,reason:'invalid'};
-  return {buId:'',created:true,newName:ctx.newBusinessUnitName};
 }
 function getImportYearMonthPairs(records){
   var pairs = {};
@@ -3104,27 +3052,6 @@ async function checkConsolidatedImportConflicts(records){
 function importExcel(){
   var ctx = getImportContext();
   if(isImporting || !validateImportContext(ctx))return;
-  var resolvedImportBu = resolveImportBusinessUnit(ctx);
-  if(!resolvedImportBu.buId && !resolvedImportBu.created){
-    showToast('error','Unable to resolve import destination business unit.');
-    return;
-  }
-  if(!resolvedImportBu.buId && resolvedImportBu.created && !resolvedImportBu.newName){
-    showToast('error','Please provide a business unit name.');
-    return;
-  }
-  var importBuId = resolvedImportBu.buId;
-  var importBu = resolvedImportBu.bu;
-  var createdBusinessUnit = null;
-  if(resolvedImportBu.created){
-    createdBusinessUnit = getOrCreateBusinessUnitByName(resolvedImportBu.newName,{persist:false});
-    if(!createdBusinessUnit.bu){
-      showToast('error','Unable to prepare new business unit.');
-      return;
-    }
-    importBuId = createdBusinessUnit.bu.id;
-    importBu = createdBusinessUnit.bu;
-  }
   var file = ctx.file;
   setImporting(true);
   updateImportButtonState();
@@ -3132,105 +3059,70 @@ function importExcel(){
   reader.onload = function(e){
     setTimeout(async function(){
       var saveSucceeded = false;
+      var consolidatedCreatedBusinessUnits = [];
       try{
         var data = new Uint8Array(e.target.result);
         var workbook = XLSX.read(data,{type:'array',cellDates:false});
-        var hasSummary = workbook.SheetNames.some(function(name){return name.toLowerCase().trim()==='summary'});
-        var isConsolidated = false;
-        var consolidatedCreatedBusinessUnits = [];
-        if(!importBu)importBu = getBUById(importBuId);
+        if(!hasConsolidatedKpiSheets(workbook)) throw new Error('The workbook does not look like a consolidated Monthly KPI workbook. Expected sheets such as Budget Spend, PM Compliance, PM CM Work Orders, etc.');
 
-        var importRecords = [];
-        var importedCount = 0;
-        if(hasSummary){
-          if(!importBu)throw new Error('Unable to resolve import business unit.');
-          var summaryImport = importSummaryWorkbook(workbook,file.name,importBuId);
-          importRecords = summaryImport.records;
-          importedCount = summaryImport.imported;
-        }else if(hasConsolidatedKpiSheets(workbook)){
-          var consolidatedImport = importConsolidatedWorkbook(workbook,file.name);
-          importRecords = consolidatedImport.records;
-          importedCount = consolidatedImport.imported;
-          consolidatedCreatedBusinessUnits = consolidatedImport.createdBusinessUnits || [];
-          isConsolidated = true;
-        }else{
-          if(!importBu)throw new Error('Unable to resolve import business unit.');
-          var legacyImport = importLegacyWorkbook(workbook,file.name,importBuId,importBu);
-          importRecords = legacyImport.records;
-          importedCount = legacyImport.imported;
-        }
-
+        var consolidatedImport = importConsolidatedWorkbook(workbook,file.name);
+        var importRecords = consolidatedImport.records;
+        var importedCount = consolidatedImport.imported;
+        consolidatedCreatedBusinessUnits = consolidatedImport.createdBusinessUnits || [];
         if(importRecords.length === 0) throw new Error('No importable KPI rows found in the workbook.');
 
-        var conflicts = isConsolidated
-          ? await checkConsolidatedImportConflicts(importRecords)
-          : await checkImportConflicts(importBuId,importRecords);
+        var conflicts = await checkConsolidatedImportConflicts(importRecords);
         if(conflicts.length){
-          var conflictLabel = isConsolidated ? 'selected business units' : importBu.label;
-          var confirmReplace = await confirmImportReplacement(formatImportConflictMessage(conflicts,conflictLabel));
+          var confirmReplace = await confirmImportReplacement(formatImportConflictMessage(conflicts,'selected business units'));
           if(!confirmReplace){
             resetImportConflictPanel();
-            if(createdBusinessUnit && !saveSucceeded)removeBusinessUnitById(createdBusinessUnit.bu.id);
             consolidatedCreatedBusinessUnits.forEach(function(bu){ if(!saveSucceeded) removeBusinessUnitById(bu.id); });
             return;
           }
         }
 
-        if(createdBusinessUnit || consolidatedCreatedBusinessUnits.length){
+        if(consolidatedCreatedBusinessUnits.length){
           persistBusinessUnits();
           refreshBusinessUnitSelectors();
         }
 
-        var saveResult = await saveImportedMonthlyKpiRecords(file.name,importRecords,importBuId);
+        var saveResult = await saveImportedMonthlyKpiRecords(file.name,importRecords,null);
         saveSucceeded = true;
         closeImportModal(true);
 
         // Apply only persisted records as the authoritative dashboard state.
         var persistedRecords = (saveResult && Array.isArray(saveResult.records)) ? saveResult.records : [];
         if(persistedRecords.length){
-          applyPersistedMonthlyKpiRecords(persistedRecords,isConsolidated ? {merge:true} : {businessUnitId:importBuId,merge:true});
+          applyPersistedMonthlyKpiRecords(persistedRecords,{merge:true});
         }else{
           try{
-            await fetchSavedMonthlyKpiRecords(isConsolidated ? null : importBuId,{rethrow:true,merge:true});
+            await fetchSavedMonthlyKpiRecords(null,{rethrow:true,merge:true});
           }catch(fetchErr){
             console.warn('Post-import record refresh failed:',fetchErr);
             showToast('warning','Import was saved, but the dashboard could not refresh automatically.');
           }
         }
 
-        if(isConsolidated){
-          try{
-            await fetchMonthlyKpiAggregates();
-          }catch(aggErr){
-            console.warn('Post-import aggregate refresh failed:',aggErr);
-          }
-          showTab('summary');
-          loadData();
-          showToast('success','Consolidated KPI workbook imported for '+importedCount+' BU/month records.');
-        }else{
-          try{
-            await switchToImportedBusinessUnit(importBuId);
-          }catch(switchErr){
-            console.warn('Post-import tab switch failed:',switchErr);
-            showToast('warning','Import was saved, but the dashboard could not refresh automatically.');
-          }
-
-          if(hasSummary && importedCount!==12){
-            showToast('warning','Imported '+importedCount+' monthly KPI records from Summary. Expected 12 records in A1:J13.');
-          }
-          showToast('success','KPI records imported for '+importBu.label+'.');
+        try{
+          await fetchMonthlyKpiAggregates();
+        }catch(aggErr){
+          console.warn('Post-import aggregate refresh failed:',aggErr);
         }
+        showTab('summary');
+        loadData();
+        showToast('success','Consolidated KPI workbook imported for '+importedCount+' BU/month records.');
       }catch(err){
         console.error('Import error:',err);
         showToast('error','Error importing Excel: '+err.message);
-        if(createdBusinessUnit && !saveSucceeded)removeBusinessUnitById(createdBusinessUnit.bu.id);
+        try{
+          consolidatedCreatedBusinessUnits.forEach(function(bu){ if(!saveSucceeded) removeBusinessUnitById(bu.id); });
+        }catch(cleanupErr){console.warn('Business unit cleanup failed:',cleanupErr);}
       }finally{
         setImporting(false);
         if(saveSucceeded){
           var fileInput = document.getElementById('excelInput');
           if(fileInput)fileInput.value='';
         }
-        if(createdBusinessUnit && !isValidBusinessUnitId(createdBusinessUnit.bu.id))refreshBusinessUnitSelectors();
         updateImportButtonState();
         // Modal remains open only if the database save did not succeed.
         // No explicit action needed; closeImportModal is only called on success.
