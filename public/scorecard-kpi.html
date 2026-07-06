@@ -669,7 +669,6 @@ var DEFAULT_BUSINESS_UNITS = [
 var BUs = DEFAULT_BUSINESS_UNITS.slice(0);
 var BASE_BUSINESS_UNIT_IDS = DEFAULT_BUSINESS_UNITS.map(function(bu){return bu.id;});
 var ALL_BUSINESS_UNITS_VALUE = 'all-business-units';
-var ADD_NEW_BUSINESS_UNIT_VALUE = '__add_new_business_unit__';
 var BUSINESS_UNIT_STORAGE_KEY = 'monthlyKpiCustomBusinessUnits';
 var selectedBusinessUnitId = (function(){
   try{loadBusinessUnitsFromStorage();return normalizePersistedBusinessUnit(localStorage.getItem('monthlyKpiSelectedBusinessUnit')) || 'ez';}
@@ -719,7 +718,6 @@ var pendingClearConfirmationResolver = null;
 document.addEventListener('DOMContentLoaded',function(){
   initBusinessUnitSelector();
   initManualSelectors();
-  initImportSelectors();
   initForm();
   initMonthlyKpiTabListeners();
   updateClearButtonState();
@@ -915,13 +913,6 @@ function initBusinessUnitSelector(){
   sel.innerHTML = '<option value="'+ALL_BUSINESS_UNITS_VALUE+'">All Business Units</option>' + BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
   sel.value = selectedBusinessUnitId;
 }
-function initImportSelectors(){
-  var buSel = document.getElementById('importBusinessUnitSel');
-  if(!buSel)return;
-  buSel.innerHTML = '<option value="">Select business unit</option>'+BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('')+'<option value="'+ADD_NEW_BUSINESS_UNIT_VALUE+'">+ Add New Business Unit / Facility</option>';
-  handleImportBusinessUnitSelection();
-}
-
 function initManualSelectors(){
   var buSel = document.getElementById('manualBusinessUnitSel');
   var monthSel = document.getElementById('manualMonthSel');
@@ -1886,7 +1877,6 @@ function getSelectedMonth(){return parseInt(document.getElementById('monthSel').
 function refreshBusinessUnitSelectors(){
   initBusinessUnitSelector();
   initManualSelectors();
-  initImportSelectors();
   syncBusinessUnitDropdownForTab(isSummaryTabActive() ? 'summary' : (isDefinitionsTabActive() ? 'definitions' : selectedBusinessUnitId));
 }
 function getImportYearMonthPairs(records){
