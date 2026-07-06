@@ -51,7 +51,15 @@ function createMonthlyKpiTabContext(search: string) {
     "t-summary": { id: "t-summary", classList: createClassList("tc active") },
     "t-business-unit": { id: "t-business-unit", classList: createClassList("tc") },
   };
-  const businessUnitSelect = { id: "businessUnitSel", value: "" };
+  const businessUnitSelect: any = { id: "businessUnitSel", _value: "", _innerHTML: "" };
+  Object.defineProperty(businessUnitSelect, "value", {
+    get() { return this._value; },
+    set(v) { this._value = v; },
+  });
+  Object.defineProperty(businessUnitSelect, "innerHTML", {
+    get() { return this._innerHTML; },
+    set(v) { this._innerHTML = v; },
+  });
   const genericElement = { addEventListener() {}, classList: createClassList(), style: {}, appendChild() {}, remove() {} };
   const buttons = [
     { tab: "summary", classList: createClassList("tab active"), getAttribute(name: string) { return name === "data-tab" ? "summary" : null; }, addEventListener() {} },
@@ -2880,6 +2888,38 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(scope.buLabel).toBe("AMD-EZ");
     expect(scope.monthLabel).toBe("May");
     expect(scope.isAllMonths).toBe(false);
+  });
+
+  it("dropdown excludes invalid numeric Business Unit values", () => {
+    const ctx = createImportContext();
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        { id: 1, business_unit: "100", reporting_year: 2026, reporting_month: 1, budget_spend: 10 },
+        { id: 2, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, budget_spend: 50 },
+      ],
+      { reset: true }
+    );
+    ctx.initBusinessUnitSelector();
+    const sel = ctx.document.getElementById("businessUnitSel") as any;
+    const html = sel.innerHTML;
+    expect(html).toContain('value="all-business-units"');
+    expect(html).toContain('value="ez"');
+    expect(html).not.toContain('value="100"');
+  });
+
+  it("Summary Matrix excludes invalid numeric Business Unit rows", () => {
+    const ctx = createImportContext();
+    ctx.applyPersistedMonthlyKpiRecords(
+      [
+        { id: 1, business_unit: "100", reporting_year: 2026, reporting_month: 1, budget_spend: 10 },
+        { id: 2, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, budget_spend: 50 },
+      ],
+      { reset: true }
+    );
+    ctx.initBusinessUnitSelector();
+    const sel = ctx.document.getElementById("businessUnitSel") as any;
+    expect(sel.innerHTML).toContain('value="ez"');
+    expect(sel.innerHTML).not.toContain('value="100"');
   });
 
 });
