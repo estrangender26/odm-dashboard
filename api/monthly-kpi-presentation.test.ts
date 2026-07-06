@@ -304,6 +304,9 @@ function createImportContext() {
     fetchSavedMonthlyKpiRecords: (buId?: string, options?: any) => Promise<{ ok: boolean; records?: unknown[]; error?: Error }>;
     saveImportedMonthlyKpiRecords: (fileName: string, records: unknown[], buId: string | null) => Promise<{ records?: unknown[] }>;
     buildClearScopeLabel: () => { year: number; month: number | string; monthLabel: string; buLabel: string; isAll: boolean; isAllMonths: boolean };
+    fetchMonthlyKpiAggregates: () => Promise<void>;
+    normalizeKpiAggregates: (aggregates: unknown) => any;
+    KpiAggregates: any;
     selectedBusinessUnitId: string;
     BUs: Array<{ id: string; apiValue: string; name: string; label: string }>;
   };
@@ -716,27 +719,46 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(requests[0]).not.toContain("reporting_month=5");
   });
 
-  it("keeps Summary Matrix saved-record loads scoped to the selected reporting month", async () => {
+  it("loads all-year records for the Summary Matrix / all-BU view regardless of selected month", async () => {
     const requests: string[] = [];
-    const context = createScorecardContext();
-    context.getSelectedYear = () => 2026;
-    context.getSelectedMonth = () => 5;
+    const context = createImportContext();
+    (context as any).getSelectedYear = () => 2026;
+    (context as any).getSelectedMonth = () => 5;
+    (context as any).getSelectedMonthValue = () => 5;
     context.fetchMonthlyKpiAggregates = async () => {};
-    context.loadData = () => {};
-    context.fetch = (async (url: string) => {
+    (context as any).loadData = () => {};
+    (context as any).fetch = async (url: string) => {
       requests.push(url);
-      return {
-        ok: true,
-        json: async () => ({ records: [] }),
-      };
-    }) as any;
+      return { ok: true, json: async () => ({ records: [] }) };
+    };
 
     await context.fetchSavedMonthlyKpiRecords();
 
     expect(requests).toHaveLength(1);
     expect(requests[0]).toContain("reporting_year=2026");
-    expect(requests[0]).toContain("reporting_month=5");
+    expect(requests[0]).not.toContain("reporting_month");
     expect(requests[0]).not.toContain("business_unit=AMD-EZ");
+  });
+
+  it("still scopes per-BU record loads to the selected year and does not add a month filter", async () => {
+    const requests: string[] = [];
+    const context = createImportContext();
+    (context as any).getSelectedYear = () => 2026;
+    (context as any).getSelectedMonth = () => 5;
+    (context as any).getSelectedMonthValue = () => 5;
+    context.fetchMonthlyKpiAggregates = async () => {};
+    (context as any).loadData = () => {};
+    (context as any).fetch = async (url: string) => {
+      requests.push(url);
+      return { ok: true, json: async () => ({ records: [] }) };
+    };
+
+    await context.fetchSavedMonthlyKpiRecords("ez");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain("reporting_year=2026");
+    expect(requests[0]).toContain("business_unit=AMD-EZ");
+    expect(requests[0]).not.toContain("reporting_month");
   });
 
   it("keeps current API-value rows from being overwritten by legacy alias rows in the UI", () => {
@@ -2922,28 +2944,100 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(sel.innerHTML).not.toContain('value="100"');
   });
 
-  it("clearData resets local state and calls fetchSavedMonthlyKpiRecords when payload lacks records", async () => {
+
+
+  it("dropdown includes all BUs after a full-year records refresh", async () => {
     const ctx = createImportContext();
-    const captured: { url: string }[] = [];
+    (ctx as any).fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        records: [
+          { id: 1, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, budget_spend: 50 },
+          { id: 2, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 2, budget_spend: 60 },
+        ],
+      }),
+    });
+    ctx.fetchMonthlyKpiAggregates = async () => {};
+    (ctx as any).loadData = () => {};
+    (ctx.document.getElementById("monthSel") as any).value = "5";
+
+    await ctx.fetchSavedMonthlyKpiRecords();
+
+    const sel = ctx.document.getElementById("businessUnitSel") as any;
+    const html = sel.innerHTML;
+    expect(html).toContain('value="all-business-units"');
+    expect(html).toContain('value="ez"');
+    expect(html).toContain('value="clark"');
+  });
+
+  it("clearData always fetches records after delete even when DELETE response includes records", async () => {
+    const ctx = createImportContext();
+    const captured: { url: string; kind?: string }[] = [];
     (ctx as any).fetch = async (url: string) => {
-      captured.push({ url });
-      if (url.includes("/api/monthly-kpi/records?")) {
+      const isDelete = url.includes("/api/monthly-kpi/records") && !url.includes("aggregates");
+      const isGetRecords = isDelete && captured.some((c) => c.kind === "delete");
+      if (isDelete && !isGetRecords) {
+        captured.push({ url, kind: "delete" });
+        return { ok: true, json: async () => ({ success: true, deletedCount: 2, records: [{ id: 1, business_unit: "AMD-EZ" }] }) };
+      }
+      if (isGetRecords) {
+        captured.push({ url, kind: "records" });
         return { ok: true, json: async () => ({ records: [] }) };
       }
-      return { ok: true, json: async () => ({ success: true, deletedCount: 0 }) };
+      if (url.includes("/api/monthly-kpi/aggregates")) {
+        captured.push({ url, kind: "aggregates" });
+        return { ok: true, json: async () => ({ reportingYear: 2026, byBusinessUnit: [], portfolioMonthlyAverages: {} }) };
+      }
+      return { ok: true, json: async () => ({}) };
     };
     (ctx as any).selectedBusinessUnitId = "all-business-units";
     (ctx.document.getElementById("monthSel") as any).value = "5";
+    ctx.fetchMonthlyKpiAggregates = async () => {
+      const res = await (ctx as any).fetch('/api/monthly-kpi/aggregates?reporting_year=2026');
+      const payload = await res.json();
+      ctx.KpiAggregates = (ctx as any).normalizeKpiAggregates(payload);
+    };
 
     const clearPromise = ctx.clearData();
     await ctx.resolveClearConfirmation(true);
     await clearPromise;
 
-    const deleteUrl = captured.find((c) => c.url.includes("/api/monthly-kpi/records") && !c.url.includes("aggregates"));
-    expect(deleteUrl).toBeDefined();
-    expect(deleteUrl!.url).toContain("reporting_year=2026");
-    expect(deleteUrl!.url).toContain("reporting_month=5");
+    const deleteCall = captured.find((c) => c.kind === "delete");
+    const recordsCall = captured.find((c) => c.kind === "records");
+    const aggregatesCall = captured.find((c) => c.kind === "aggregates");
+    expect(deleteCall).toBeDefined();
+    expect(deleteCall!.url).toContain("reporting_year=2026");
+    expect(deleteCall!.url).toContain("reporting_month=5");
+    expect(recordsCall).toBeDefined();
+    expect(aggregatesCall).toBeDefined();
+    const recordsIdx = captured.findIndex((c) => c.kind === "records");
+    const aggregatesIdx = captured.findIndex((c) => c.kind === "aggregates");
+    expect(recordsIdx).toBeLessThan(aggregatesIdx);
     expect((ctx as any).MonthlyScoreData).toEqual({});
+  });
+
+  it("clearData builds correct DELETE URL for All Months and specific BU", async () => {
+    const ctx = createImportContext();
+    const captured: string[] = [];
+    (ctx as any).fetch = async (url: string) => {
+      captured.push(String(url));
+      if (url.includes("/api/monthly-kpi/records?")) {
+        return { ok: true, json: async () => ({ records: [] }) };
+      }
+      return { ok: true, json: async () => ({ success: true, deletedCount: 0 }) };
+    };
+    (ctx as any).selectedBusinessUnitId = "ez";
+    (ctx.document.getElementById("monthSel") as any).value = "all";
+
+    const clearPromise = ctx.clearData();
+    await ctx.resolveClearConfirmation(true);
+    await clearPromise;
+
+    const deleteUrl = captured.find((u) => u.startsWith("/api/monthly-kpi/records") && !u.includes("aggregates"));
+    expect(deleteUrl).toBeDefined();
+    expect(deleteUrl).toContain("reporting_year=2026");
+    expect(deleteUrl).toContain("business_unit=AMD-EZ");
+    expect(deleteUrl).not.toContain("reporting_month");
   });
 
 });
