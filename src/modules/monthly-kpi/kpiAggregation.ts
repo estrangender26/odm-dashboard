@@ -58,6 +58,20 @@ export type MonthlyKpiAggregateResult = {
   byBusinessUnit: BusinessUnitKpiAggregate[];
   byBusinessUnitMap: Record<string, BusinessUnitKpiAggregate>;
   portfolioYearAverage: MonthlyKpiValues;
+  /**
+   * Monthly values intended for trend charts. The semantics differ by KPI:
+   * - PM Compliance and Facility Uptime: running average/YTD average of monthly
+   *   KPI values up to that month.
+   * - Budget Spend, PM:CM Work Orders, PM:CM Cost, and MTTR: cumulative/YTD
+   *   value up to that month.
+   * - Legacy KPIs (e.g. scheduleCompliance, mtbfDays): per-month average when
+   *   available.
+   * Months with no imported data for a KPI are null, never zero-filled.
+   *
+   * Note: the field name `portfolioMonthlyAverages` is historical. A more
+   * accurate name would be `portfolioMonthlyTrendValues` because some entries
+   * are cumulative or running-average rather than simple averages.
+   */
   portfolioMonthlyAverages: Record<number, MonthlyKpiValues>;
 };
 
@@ -411,7 +425,10 @@ export function aggregateMonthlyKpiRecords(
     portfolioYearAverage[key] = averageKpiValues(byBusinessUnit.map((aggregate) => aggregate[key]));
   });
 
-  const portfolioMonthlyAverages = Array.from({ length: 12 }, (_, index) => index + 1).reduce<Record<number, MonthlyKpiValues>>(
+  // Build trend-ready monthly values. Kept as `portfolioMonthlyAverages` in the
+  // returned object for API compatibility; internally we compute trend semantics
+  // (running averages for monthly KPIs, cumulative/YTD for YTD KPIs).
+  const portfolioMonthlyTrendValues = Array.from({ length: 12 }, (_, index) => index + 1).reduce<Record<number, MonthlyKpiValues>>(
     (months, month) => {
       const monthlyRecords = yearlyRecords.filter((record) => Number(record.reporting_month) === month);
       const periodRecords = yearlyRecords.filter((record) => Number(record.reporting_month) >= 1 && Number(record.reporting_month) <= month);
@@ -470,6 +487,7 @@ export function aggregateMonthlyKpiRecords(
     byBusinessUnit,
     byBusinessUnitMap,
     portfolioYearAverage,
-    portfolioMonthlyAverages,
+    // Historical field name retained for API compatibility; see TSDoc above.
+    portfolioMonthlyAverages: portfolioMonthlyTrendValues,
   };
 }
