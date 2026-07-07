@@ -55,7 +55,7 @@ describe("Monthly KPI records API", () => {
     expect(deleteRoute).toContain("fetchMonthlyKpiRecordsForResponse({ reportingYear })");
   });
 
-  it("returns notes from the Monthly KPI records list query", () => {
+  it("returns notes from the Monthly KPI records list query and does not select non-existent mtbf_days", () => {
     const listQuery = sourceBlock(
       "async function fetchMonthlyKpiRecordsForResponse",
       "async function fetchMonthlyKpiAggregateForResponse",
@@ -69,6 +69,7 @@ describe("Monthly KPI records API", () => {
       "raw_imported_values",
       "FROM monthly_kpi_records",
     ]);
+    expect(listQuery).not.toContain("mtbf_days");
     expect(getRoute).toContain("const records = await fetchMonthlyKpiRecordsForResponse");
     expect(getRoute).toContain("return c.json({ records })");
   });
