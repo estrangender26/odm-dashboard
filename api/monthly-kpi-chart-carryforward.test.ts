@@ -318,3 +318,74 @@ describe("Monthly KPI chart YTD/Trend carry-forward prevention", () => {
     expect(may.mttr).toBeNull();
   });
 });
+
+describe("summary chart per-KPI carry-forward prevention", () => {
+  it("PM Compliance YTD stops after last month with PM Compliance source data, but PM:CM WO continues", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: {},
+      portfolioMonthlyAverages: {
+        1: { pmCompliance: 90, pmCmWorkOrderRatio: 80 },
+        2: { pmCompliance: 92.5, pmCmWorkOrderRatio: 82 },
+        3: { pmCompliance: 94, pmCmWorkOrderRatio: 84 },
+        4: { pmCompliance: null, pmCmWorkOrderRatio: 83 },
+        5: { pmCompliance: null, pmCmWorkOrderRatio: 85 },
+      },
+      portfolioMonthlyActuals: {
+        1: { pmCompliance: 90, pmCmWorkOrderRatio: 80 },
+        2: { pmCompliance: 95, pmCmWorkOrderRatio: 84 },
+        3: { pmCompliance: 97, pmCmWorkOrderRatio: 86 },
+        4: { pmCompliance: null, pmCmWorkOrderRatio: 82 },
+        5: { pmCompliance: null, pmCmWorkOrderRatio: 88 },
+      },
+    });
+    context.renderSummaryCharts();
+
+    const pmChart = findChart(capturedCharts, "PM Compliance %");
+    const pmTrend = pmChart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    expect(pmTrend.data[2]).toBeCloseTo(94, 2);
+    expect(pmTrend.data[3]).toBeNull();
+    expect(pmTrend.data[4]).toBeNull();
+
+    const woChart = findChart(capturedCharts, "PM:CM WO %");
+    const woTrend = woChart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    expect(woTrend.data[4]).toBeCloseTo(85, 2);
+    expect(woTrend.data[4]).not.toBeNull();
+  });
+
+  it("All-BU MTTR chart shows Monthly Actual bars and YTD line when MTTR source data exists", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: { mttrDays: 26.4 },
+      portfolioMonthlyAverages: {
+        1: { mttrDays: 24 },
+        2: { mttrDays: 17.4 },
+        3: { mttrDays: 26.4 },
+        4: { mttrDays: null },
+      },
+      portfolioMonthlyActuals: {
+        1: { mttrDays: 24 },
+        2: { mttrDays: 17.4 },
+        3: { mttrDays: 26.4 },
+        4: { mttrDays: null },
+      },
+    });
+    context.renderSummaryCharts();
+
+    const mttrChart = findChart(capturedCharts, "MTTR days");
+    expect(mttrChart).toBeDefined();
+    const actualDataset = mttrChart.data.datasets.find((ds: any) => ds.label === "Monthly Actual");
+    const trendDataset = mttrChart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    expect(actualDataset.data[0]).toBeCloseTo(24, 2);
+    expect(actualDataset.data[1]).toBeCloseTo(17.4, 2);
+    expect(actualDataset.data[3]).toBeNull();
+    expect(trendDataset.data[2]).toBeCloseTo(26.4, 2);
+    expect(trendDataset.data[3]).toBeNull();
+  });
+});

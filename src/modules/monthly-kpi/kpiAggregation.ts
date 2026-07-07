@@ -237,7 +237,9 @@ const YTD_KEYS: MonthlyKpiKey[] = ["budgetSpend", "pmCmWorkOrderRatio", "pmCmCos
 
 function sumField(records: PersistedMonthlyKpiRecord[], field: keyof PersistedMonthlyKpiRecord) {
   return records.reduce((sum, record) => {
-    const value = normalizeKpiNumber((record as any)[field]);
+    const value =
+      normalizeKpiNumber((record as any)[field]) ??
+      rawImportedInputValue(record, field as string);
     return value === null ? sum : sum + value;
   }, 0);
 }
@@ -282,33 +284,43 @@ function safeDivide(numerator: number, denominator: number): number | null {
 
 function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord): number | null {
   if (key === "pmCompliance") {
-    const completed = normalizeKpiNumber(record.pm_orders_completed_on_time);
-    const total = normalizeKpiNumber(record.total_pm_orders);
+    const completed =
+      normalizeKpiNumber(record.pm_orders_completed_on_time) ??
+      rawImportedInputValue(record, "pm_orders_completed_on_time");
+    const total =
+      normalizeKpiNumber(record.total_pm_orders) ??
+      rawImportedInputValue(record, "total_pm_orders");
     if (completed === null || total === null || total === 0) return null;
     return (completed / total) * 100;
   }
   if (key === "facilityUptime") {
     const operating =
-      normalizeKpiNumber(record.facility_operating_time) ?? normalizeKpiNumber(record.total_operating_time);
+      normalizeKpiNumber(record.facility_operating_time) ??
+      normalizeKpiNumber(record.total_operating_time) ??
+      rawImportedInputValue(record, "facility_operating_time") ??
+      rawImportedInputValue(record, "total_operating_time");
     const downtime =
-      normalizeKpiNumber(record.facility_downtime) ?? normalizeKpiNumber(record.total_downtime);
+      normalizeKpiNumber(record.facility_downtime) ??
+      normalizeKpiNumber(record.total_downtime) ??
+      rawImportedInputValue(record, "facility_downtime") ??
+      rawImportedInputValue(record, "total_downtime");
     if (operating === null || downtime === null || operating === 0) return null;
     return safeDivide((operating as number) - (downtime as number), operating as number)! * 100;
   }
   if (key === "budgetSpend") {
-    const actual = normalizeKpiNumber(record.actual_spend);
-    const budget = normalizeKpiNumber(record.budget);
+    const actual = normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend");
+    const budget = normalizeKpiNumber(record.budget) ?? rawImportedInputValue(record, "budget");
     return safeDivide(actual as number, budget as number) ? safeDivide(actual as number, budget as number)! * 100 : null;
   }
   if (key === "pmCmWorkOrderRatio") {
-    const pm = normalizeKpiNumber(record.pm_work_orders);
-    const cm = normalizeKpiNumber(record.cm_work_orders);
+    const pm = normalizeKpiNumber(record.pm_work_orders) ?? rawImportedInputValue(record, "pm_work_orders");
+    const cm = normalizeKpiNumber(record.cm_work_orders) ?? rawImportedInputValue(record, "cm_work_orders");
     if (pm === null || cm === null) return null;
     return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
   }
   if (key === "pmCmCostRatio") {
-    const pm = normalizeKpiNumber(record.pm_cost);
-    const cm = normalizeKpiNumber(record.cm_cost);
+    const pm = normalizeKpiNumber(record.pm_cost) ?? rawImportedInputValue(record, "pm_cost");
+    const cm = normalizeKpiNumber(record.cm_cost) ?? rawImportedInputValue(record, "cm_cost");
     if (pm === null || cm === null) return null;
     return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
   }
@@ -334,23 +346,41 @@ function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiR
 
 function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord): boolean {
   if (key === "pmCompliance") {
-    return normalizeKpiNumber(record.pm_orders_completed_on_time) !== null && normalizeKpiNumber(record.total_pm_orders) !== null;
+    const completed =
+      normalizeKpiNumber(record.pm_orders_completed_on_time) ??
+      rawImportedInputValue(record, "pm_orders_completed_on_time");
+    const total =
+      normalizeKpiNumber(record.total_pm_orders) ??
+      rawImportedInputValue(record, "total_pm_orders");
+    return completed !== null && total !== null;
   }
   if (key === "facilityUptime") {
     const operating =
-      normalizeKpiNumber(record.facility_operating_time) ?? normalizeKpiNumber(record.total_operating_time);
+      normalizeKpiNumber(record.facility_operating_time) ??
+      normalizeKpiNumber(record.total_operating_time) ??
+      rawImportedInputValue(record, "facility_operating_time") ??
+      rawImportedInputValue(record, "total_operating_time");
     const downtime =
-      normalizeKpiNumber(record.facility_downtime) ?? normalizeKpiNumber(record.total_downtime);
+      normalizeKpiNumber(record.facility_downtime) ??
+      normalizeKpiNumber(record.total_downtime) ??
+      rawImportedInputValue(record, "facility_downtime") ??
+      rawImportedInputValue(record, "total_downtime");
     return operating !== null && downtime !== null;
   }
   if (key === "budgetSpend") {
-    return normalizeKpiNumber(record.actual_spend) !== null && normalizeKpiNumber(record.budget) !== null;
+    const actual = normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend");
+    const budget = normalizeKpiNumber(record.budget) ?? rawImportedInputValue(record, "budget");
+    return actual !== null && budget !== null;
   }
   if (key === "pmCmWorkOrderRatio") {
-    return normalizeKpiNumber(record.pm_work_orders) !== null && normalizeKpiNumber(record.cm_work_orders) !== null;
+    const pm = normalizeKpiNumber(record.pm_work_orders) ?? rawImportedInputValue(record, "pm_work_orders");
+    const cm = normalizeKpiNumber(record.cm_work_orders) ?? rawImportedInputValue(record, "cm_work_orders");
+    return pm !== null && cm !== null;
   }
   if (key === "pmCmCostRatio") {
-    return normalizeKpiNumber(record.pm_cost) !== null && normalizeKpiNumber(record.cm_cost) !== null;
+    const pm = normalizeKpiNumber(record.pm_cost) ?? rawImportedInputValue(record, "pm_cost");
+    const cm = normalizeKpiNumber(record.cm_cost) ?? rawImportedInputValue(record, "cm_cost");
+    return pm !== null && cm !== null;
   }
   if (key === "mttrDays") {
     const downtime =
@@ -512,19 +542,22 @@ function computePortfolioMonthlyActual(
   monthlyRecords: PersistedMonthlyKpiRecord[]
 ): number | null {
   // Monthly actual for a single KPI in a single month across all BUs.
+  // Only emit a value when the current month has source data for this KPI,
+  // so chart Monthly Actual bars do not appear for months with no source data.
+  const hasCurrentMonthData = monthlyRecords.some((record) => hasRawInputForKpi(key, record));
+  if (!hasCurrentMonthData) {
+    return null;
+  }
   // For MTTR, the portfolio monthly actual must be weighted across BUs.
   if (key === "mttrDays") {
     return mttrWeightedValue(monthlyRecords);
   }
-  // Prefer recomputing from raw inputs; fall back to stored computed KPI value.
+  // Recompute from raw inputs.
   const values: number[] = [];
   monthlyRecords.forEach((record) => {
     if (hasRawInputForKpi(key, record)) {
       const computed = computeMonthlyKpiValue(key, record);
       if (computed !== null) values.push(computed);
-    } else if (hasImportedKpiValue(record, key)) {
-      const stored = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
-      if (stored !== null) values.push(stored);
     }
   });
   return averageKpiValues(values);
@@ -574,7 +607,10 @@ export function aggregateMonthlyKpiRecords(
       const periodRecords = yearlyRecords.filter((record) => Number(record.reporting_month) >= 1 && Number(record.reporting_month) <= month);
       const monthValues = emptyKpiValues();
       monthlyKpiKeys.forEach((key) => {
-        const hasCurrentMonthData = monthlyRecords.some((record) => hasRawInputForKpi(key, record) || hasImportedKpiValue(record, key));
+        // Trend/chart series must have source data in the current month. Use
+        // raw input fields only, not derived KPI values, to avoid carrying
+        // forward trend lines into months with no actual source data.
+        const hasCurrentMonthData = monthlyRecords.some((record) => hasRawInputForKpi(key, record));
         if (!hasCurrentMonthData) {
           monthValues[key] = null;
           return;
