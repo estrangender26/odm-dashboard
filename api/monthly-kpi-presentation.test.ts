@@ -2501,6 +2501,186 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
   });
 
 
+
+  it("imports the new 7-column BU template and ignores formula/output columns F and G", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Instructions", "Summary", "_Lists", "_ChartData", "PM Compliance", "Budget Spend", "PM CM Work Orders", "PM CM Cost", "MTTR", "Facility Uptime", "Executive Dashboard"],
+      Sheets: {
+        Instructions: makeSheet([["Instructions"]]),
+        Summary: makeSheet([["Summary"]]),
+        _Lists: makeSheet([["Business Units"], ["AMD-EZ"], ["Clark Water"]]),
+        _ChartData: makeSheet([["Chart Data"]]),
+        "PM Compliance": makeSheet([
+          ["Business Unit", "Month", "PM Orders Completed On Time", "Total PM Orders", "Notes", "PM Compliance (%)", "Average / YTD KPI (%)"],
+          ["AMD-EZ", 46023, 90, 100, "PM note", 90, 90],
+        ]),
+        "Budget Spend": makeSheet([
+          ["Business Unit", "Month", "Actual Spend", "Budget", "Notes", "Budget Spend (%)", "Cumulative Budget Spend (%)"],
+          ["AMD-EZ", 46023, 100, 100, null, 100, 100],
+        ]),
+        "PM CM Work Orders": makeSheet([
+          ["Business Unit", "Month", "PM Work Orders", "CM Work Orders", "Notes", "PM:CM WO (%)", "Cumulative PM:CM WO (%)"],
+          ["AMD-EZ", 46023, 90, 10, null, 90, 90],
+        ]),
+        "PM CM Cost": makeSheet([
+          ["Business Unit", "Month", "PM Cost", "CM Cost", "Notes", "PM:CM Cost (%)", "Cumulative PM:CM Cost (%)"],
+          ["AMD-EZ", 46023, 8000, 2000, null, 80, 80],
+        ]),
+        MTTR: makeSheet([
+          ["Business Unit", "Month", "Total Downtime", "Number of Repairs", "Notes", "MTTR (Days)", "Cumulative MTTR (Days)"],
+          ["AMD-EZ", 46023, 10, 2, null, 5, 5],
+        ]),
+        "Facility Uptime": makeSheet([
+          ["Business Unit", "Month", "Total Operating Time", "Total Downtime", "Notes", "Facility Uptime (%)", "Average / YTD KPI (%)"],
+          ["AMD-EZ", 46023, 1000, 0, null, 100, 100],
+        ]),
+        "Executive Dashboard": makeSheet([["Executive Dashboard"]]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "bu-template-7col.xlsx");
+    expect(result.imported).toBe(1);
+    const jan = result.records[0];
+    expect(jan.business_unit).toBe("AMD-EZ");
+    expect(jan.pm_orders_completed_on_time).toBe(90);
+    expect(jan.total_pm_orders).toBe(100);
+    expect(jan.pm_compliance).toBeCloseTo(90, 2);
+    expect(jan.actual_spend).toBe(100);
+    expect(jan.budget).toBe(100);
+    expect(jan.budget_spend).toBeCloseTo(100, 2);
+    expect(jan.pm_work_orders).toBe(90);
+    expect(jan.cm_work_orders).toBe(10);
+    expect(jan.pm_cm_work_order_ratio).toBeCloseTo(90, 2);
+    expect(jan.pm_cost).toBe(8000);
+    expect(jan.cm_cost).toBe(2000);
+    expect(jan.pm_cm_cost_ratio).toBeCloseTo(80, 2);
+    expect(jan.total_downtime).toBe(10);
+    expect(jan.number_of_repairs).toBe(2);
+    expect(jan.mttr_days).toBeCloseTo(5, 2);
+    expect(jan.total_operating_time).toBe(1000);
+    expect(jan.total_downtime).toBe(10);
+    expect(jan.facility_uptime).toBeCloseTo(99, 2);
+    expect(jan.notes).toBe("PM note");
+  });
+
+  it("imports both AMD-EZ and Clark Water from a 7-column consolidated workbook", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    function kpiSheet(name: string, c1: number, c2: number) {
+      return makeSheet([
+        ["Business Unit", "Month", name, "Total", "Notes", name + " (%)", "Cumulative " + name + " (%)"],
+        ["AMD-EZ", 46023, c1, c2, null, (c1 / c2) * 100, (c1 / c2) * 100],
+        ["Clark Water", 46023, c1, c2, null, (c1 / c2) * 100, (c1 / c2) * 100],
+      ]);
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend", "PM Compliance"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["Business Unit", "Month", "Actual Spend", "Budget", "Notes", "Budget Spend (%)", "Cumulative Budget Spend (%)"],
+          ["AMD-EZ", 46023, 100, 100, null, 100, 100],
+          ["Clark Water", 46023, 200, 100, null, 200, 200],
+        ]),
+        "PM Compliance": makeSheet([
+          ["Business Unit", "Month", "PM Orders Completed On Time", "Total PM Orders", "Notes", "PM Compliance (%)", "Average / YTD KPI (%)"],
+          ["AMD-EZ", 46023, 90, 100, null, 90, 90],
+          ["Clark Water", 46023, 95, 100, null, 95, 95],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "multi-bu-7col.xlsx");
+    expect(result.imported).toBe(2);
+    const bus = result.records.map((r: any) => r.business_unit).sort();
+    expect(bus).toEqual(["AMD-EZ", "Clark Water"]);
+  });
+
+  it("skips blank future months in the 7-column template without creating zero KPI records", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["Business Unit", "Month", "Actual Spend", "Budget", "Notes", "Budget Spend (%)", "Cumulative Budget Spend (%)"],
+          ["AMD-EZ", 46023, 100, 100, null, 100, 100],
+          ["AMD-EZ", 46054, null, null, null, "", ""],
+          ["AMD-EZ", 46083, null, null, null, "", ""],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "blank-future.xlsx");
+    expect(result.imported).toBe(1);
+    const months = result.records.map((r: any) => r.reporting_month).sort();
+    expect(months).toEqual([1]);
+  });
+
+  it("skips rows with numeric-only Business Unit values in the 7-column template", () => {
+    const ctx = createImportContext();
+
+    function makeSheet(rows: unknown[][]) {
+      const sheet: any = { _rows: rows };
+      rows.forEach((row, r) => {
+        row.forEach((value, c) => {
+          const addr = String.fromCharCode(65 + c) + (r + 1);
+          sheet[addr] = { v: value, t: typeof value === "number" ? "n" : "s" };
+        });
+      });
+      return sheet;
+    }
+
+    const workbook = {
+      SheetNames: ["Budget Spend"],
+      Sheets: {
+        "Budget Spend": makeSheet([
+          ["Business Unit", "Month", "Actual Spend", "Budget", "Notes", "Budget Spend (%)", "Cumulative Budget Spend (%)"],
+          ["AMD-EZ", 46023, 100, 100, null, 100, 100],
+          [100, 46023, 200, 100, null, 200, 200],
+        ]),
+      },
+    };
+
+    const result = ctx.importConsolidatedWorkbook(workbook, "numeric-bu-7col.xlsx");
+    expect(result.imported).toBe(1);
+    expect(result.records[0].business_unit).toBe("AMD-EZ");
+  });
   it("clears AMD-EZ data when All Business Units is selected", async () => {
     const ctx = createImportContext();
 

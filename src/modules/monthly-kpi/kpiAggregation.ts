@@ -344,12 +344,18 @@ function aggregateRecordsForBusinessUnit(
     }
 
     if (MONTHLY_ONLY_KEYS.includes(key)) {
-      const monthRecord = selectedMonthRecord(records, selectedMonth);
-      if (monthRecord && hasRawInputForKpi(key, monthRecord)) {
-        aggregate[key] = computeMonthlyKpiValue(key, monthRecord);
-      } else if (monthRecord && hasImportedKpiValue(monthRecord, key)) {
-        aggregate[key] = normalizeKpiNumber(monthRecord[sourceFieldByKpiKey[key]]);
-      }
+      // Running average of monthly KPI values up to the selected month.
+      const values: number[] = [];
+      periodRecords.forEach((record) => {
+        if (hasRawInputForKpi(key, record)) {
+          const computed = computeMonthlyKpiValue(key, record);
+          if (computed !== null) values.push(computed);
+        } else if (hasImportedKpiValue(record, key)) {
+          const stored = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
+          if (stored !== null) values.push(stored);
+        }
+      });
+      aggregate[key] = averageKpiValues(values);
       return;
     }
 
@@ -408,9 +414,42 @@ export function aggregateMonthlyKpiRecords(
   const portfolioMonthlyAverages = Array.from({ length: 12 }, (_, index) => index + 1).reduce<Record<number, MonthlyKpiValues>>(
     (months, month) => {
       const monthlyRecords = yearlyRecords.filter((record) => Number(record.reporting_month) === month);
+      const periodRecords = yearlyRecords.filter((record) => Number(record.reporting_month) >= 1 && Number(record.reporting_month) <= month);
       const monthValues = emptyKpiValues();
       monthlyKpiKeys.forEach((key) => {
-        // Portfolio monthly averages use per-month computed values. Recompute from raw when available.
+        const hasCurrentMonthData = monthlyRecords.some((record) => hasRawInputForKpi(key, record) || hasImportedKpiValue(record, key));
+        if (!hasCurrentMonthData) {
+          monthValues[key] = null;
+          return;
+        }
+        if (MONTHLY_ONLY_KEYS.includes(key)) {
+          // Running average of monthly KPI values up to this month.
+          const values: number[] = [];
+          periodRecords.forEach((record) => {
+            if (hasRawInputForKpi(key, record)) {
+              const computed = computeMonthlyKpiValue(key, record);
+              if (computed !== null) values.push(computed);
+            } else if (hasImportedKpiValue(record, key)) {
+              const stored = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
+              if (stored !== null) values.push(stored);
+            }
+          });
+          monthValues[key] = averageKpiValues(values);
+          return;
+        }
+        if (YTD_KEYS.includes(key)) {
+          // Cumulative/YTD value up to this month.
+          const hasRawInputs = periodRecords.some((record) => hasRawInputForKpi(key, record));
+          if (hasRawInputs) {
+            monthValues[key] = computeYtdKpiValue(key, periodRecords);
+          } else {
+            monthValues[key] = averageKpiValues(
+              monthlyRecords.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
+            );
+          }
+          return;
+        }
+        // Legacy/default: per-month average.
         const recordsWithRaw = monthlyRecords.filter((record) => hasRawInputForKpi(key, record));
         if (recordsWithRaw.length > 0) {
           monthValues[key] = averageKpiValues(recordsWithRaw.map((record) => computeMonthlyKpiValue(key, record)));
