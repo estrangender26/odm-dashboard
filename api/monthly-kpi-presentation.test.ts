@@ -1076,11 +1076,13 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(html).toContain("May");
     expect(html).toContain("MTTR (Days)");
     expect(html).toContain("Notes");
+    // PM Compliance now displays running/YTD averages in the monthly table.
+    // Jan=91, Feb=(91+92)/2=91.5, Mar=(91+92+93)/3=92, Apr=92.5, May=93.
     expect(html).toContain("91.00");
+    expect(html).toContain("91.50");
     expect(html).toContain("92.00");
+    expect(html).toContain("92.50");
     expect(html).toContain("93.00");
-    expect(html).toContain("94.00");
-    expect(html).toContain("95.00");
     expect(html).toContain("Planned shutdown completed.");
     expect(html).not.toContain("Schedule Compliance");
     expect(html).not.toContain("MTBF");
