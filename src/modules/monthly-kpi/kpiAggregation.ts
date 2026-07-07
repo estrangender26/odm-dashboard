@@ -79,6 +79,14 @@ export type MonthlyKpiAggregateResult = {
    * are cumulative or running-average rather than simple averages.
    */
   portfolioMonthlyAverages: Record<number, MonthlyKpiValues>;
+  /**
+   * Per-KPI, per-month actual monthly values averaged across all business
+   * units that have data for that month. This is intended for chart series that
+   * show month-by-month performance (e.g. bar series), distinct from the
+   * trend/YTD series in `portfolioMonthlyAverages`.
+   * Months with no imported data for a KPI are null, never zero-filled.
+   */
+  portfolioMonthlyActuals: Record<number, MonthlyKpiValues>;
 };
 
 type PersistedKpiValueField = Exclude<
@@ -423,6 +431,25 @@ function aggregateRecordsForBusinessUnit(
   return aggregate;
 }
 
+function computePortfolioMonthlyActual(
+  key: MonthlyKpiKey,
+  monthlyRecords: PersistedMonthlyKpiRecord[]
+): number | null {
+  // Monthly actual for a single KPI in a single month across all BUs.
+  // Prefer recomputing from raw inputs; fall back to stored computed KPI value.
+  const values: number[] = [];
+  monthlyRecords.forEach((record) => {
+    if (hasRawInputForKpi(key, record)) {
+      const computed = computeMonthlyKpiValue(key, record);
+      if (computed !== null) values.push(computed);
+    } else if (hasImportedKpiValue(record, key)) {
+      const stored = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
+      if (stored !== null) values.push(stored);
+    }
+  });
+  return averageKpiValues(values);
+}
+
 export function aggregateMonthlyKpiRecords(
   records: PersistedMonthlyKpiRecord[],
   reportingYear: number,
@@ -510,6 +537,20 @@ export function aggregateMonthlyKpiRecords(
     {}
   );
 
+  // Build per-month actual monthly values averaged across BUs.
+  const portfolioMonthlyActualValues = Array.from({ length: 12 }, (_, index) => index + 1).reduce<Record<number, MonthlyKpiValues>>(
+    (months, month) => {
+      const monthlyRecords = yearlyRecords.filter((record) => Number(record.reporting_month) === month);
+      const monthValues = emptyKpiValues();
+      monthlyKpiKeys.forEach((key) => {
+        monthValues[key] = computePortfolioMonthlyActual(key, monthlyRecords);
+      });
+      months[month] = monthValues;
+      return months;
+    },
+    {}
+  );
+
   return {
     reportingYear,
     byBusinessUnit,
@@ -517,5 +558,6 @@ export function aggregateMonthlyKpiRecords(
     portfolioYearAverage,
     // Historical field name retained for API compatibility; see TSDoc above.
     portfolioMonthlyAverages: portfolioMonthlyTrendValues,
+    portfolioMonthlyActuals: portfolioMonthlyActualValues,
   };
 }
