@@ -389,3 +389,67 @@ describe("summary chart per-KPI carry-forward prevention", () => {
     expect(trendDataset.data[3]).toBeNull();
   });
 });
+
+
+  it("PM Compliance summary trend stops at June when aggregate data ends at June", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: {},
+      portfolioMonthlyAverages: {
+        1: { pmCompliance: 90 },
+        2: { pmCompliance: 92.5 },
+        3: { pmCompliance: 94 },
+        4: { pmCompliance: 95 },
+        5: { pmCompliance: 96 },
+        6: { pmCompliance: 97 },
+      },
+      portfolioMonthlyActuals: {
+        1: { pmCompliance: 90 },
+        2: { pmCompliance: 95 },
+        3: { pmCompliance: 97 },
+        4: { pmCompliance: 96 },
+        5: { pmCompliance: 98 },
+        6: { pmCompliance: 99 },
+      },
+    });
+    context.renderSummaryCharts();
+    const pmChart = findChart(capturedCharts, "PM Compliance %");
+    const pmTrend = pmChart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    const pmActual = pmChart.data.datasets.find((ds: any) => ds.label === "Monthly Actual");
+    expect(pmTrend.data[5]).toBeCloseTo(97, 2);
+    expect(pmTrend.data[6]).toBeNull();
+    expect(pmTrend.data[11]).toBeNull();
+    expect(pmActual.data[5]).toBeCloseTo(99, 2);
+    expect(pmActual.data[6]).toBeNull();
+  });
+
+  it("missing months are null in both Monthly Actual and YTD / Trend", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: {},
+      portfolioMonthlyAverages: {
+        1: { budgetSpend: 100 },
+        2: { budgetSpend: 125 },
+      },
+      portfolioMonthlyActuals: {
+        1: { budgetSpend: 100 },
+        2: { budgetSpend: 150 },
+      },
+    });
+    context.renderSummaryCharts();
+    const chart = findChart(capturedCharts, "Budget Spend %");
+    const actualDataset = chart.data.datasets.find((ds: any) => ds.label === "Monthly Actual");
+    const trendDataset = chart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    expect(trendDataset.data[2]).toBeNull();
+    expect(trendDataset.data[11]).toBeNull();
+    expect(actualDataset.data[2]).toBeNull();
+    expect(actualDataset.data[11]).toBeNull();
+    expect(trendDataset.data[2]).not.toBe(0);
+    expect(actualDataset.data[2]).not.toBe(0);
+  });

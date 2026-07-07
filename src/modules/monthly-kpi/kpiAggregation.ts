@@ -352,7 +352,9 @@ function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord
     const total =
       normalizeKpiNumber(record.total_pm_orders) ??
       rawImportedInputValue(record, "total_pm_orders");
-    return completed !== null && total !== null;
+    // Source data exists only when the denominator is positive; zero total
+    // orders would produce a meaningless compliance value.
+    return completed !== null && total !== null && total > 0;
   }
   if (key === "facilityUptime") {
     const operating =
@@ -365,22 +367,26 @@ function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord
       normalizeKpiNumber(record.total_downtime) ??
       rawImportedInputValue(record, "facility_downtime") ??
       rawImportedInputValue(record, "total_downtime");
-    return operating !== null && downtime !== null;
+    // Operating time must be positive for uptime percentage to be meaningful.
+    return operating !== null && downtime !== null && operating > 0;
   }
   if (key === "budgetSpend") {
     const actual = normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend");
     const budget = normalizeKpiNumber(record.budget) ?? rawImportedInputValue(record, "budget");
-    return actual !== null && budget !== null;
+    // Budget must be positive for spend percentage to be meaningful.
+    return actual !== null && budget !== null && budget > 0;
   }
   if (key === "pmCmWorkOrderRatio") {
     const pm = normalizeKpiNumber(record.pm_work_orders) ?? rawImportedInputValue(record, "pm_work_orders");
     const cm = normalizeKpiNumber(record.cm_work_orders) ?? rawImportedInputValue(record, "cm_work_orders");
-    return pm !== null && cm !== null;
+    // At least one work order must exist to compute a ratio.
+    return pm !== null && cm !== null && pm + cm > 0;
   }
   if (key === "pmCmCostRatio") {
     const pm = normalizeKpiNumber(record.pm_cost) ?? rawImportedInputValue(record, "pm_cost");
     const cm = normalizeKpiNumber(record.cm_cost) ?? rawImportedInputValue(record, "cm_cost");
-    return pm !== null && cm !== null;
+    // At least one cost value must be positive to compute a ratio.
+    return pm !== null && cm !== null && pm + cm > 0;
   }
   if (key === "mttrDays") {
     const downtime =
@@ -393,10 +399,11 @@ function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord
       normalizeKpiNumber(record.number_of_repairs) ??
       rawImportedInputValue(record, "repair_count") ??
       rawImportedInputValue(record, "number_of_repairs");
-    if (downtime !== null && repairs !== null) return true;
+    // Repair count must be positive for weighted MTTR to be meaningful.
+    if (downtime !== null && repairs !== null && repairs > 0) return true;
     // Also accept a pre-computed monthly MTTR plus repair count to reconstruct downtime.
     const monthlyMttr = normalizeKpiNumber(record.mttr_days) ?? rawImportedInputValue(record, "mttr_days");
-    return monthlyMttr !== null && repairs !== null;
+    return monthlyMttr !== null && repairs !== null && repairs > 0;
   }
   return false;
 }

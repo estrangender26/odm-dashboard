@@ -94,3 +94,41 @@ describe("portfolio monthly trend carry-forward prevention per KPI", () => {
     expect(result.portfolioMonthlyActuals[2].pmCompliance).toBeNull();
   });
 });
+
+
+  it("zero denominator returns null, not zero", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_orders_completed_on_time: 90, total_pm_orders: 0, actual_spend: 100, budget: 0, pm_work_orders: 0, cm_work_orders: 0, pm_cost: 0, cm_cost: 0, facility_operating_time: 0, facility_downtime: 0, mttr_downtime: 10, repair_count: 0 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyActuals[1].pmCompliance).toBeNull();
+    expect(result.portfolioMonthlyActuals[1].budgetSpend).toBeNull();
+    expect(result.portfolioMonthlyActuals[1].pmCmWorkOrderRatio).toBeNull();
+    expect(result.portfolioMonthlyActuals[1].pmCmCostRatio).toBeNull();
+    expect(result.portfolioMonthlyActuals[1].facilityUptime).toBeNull();
+    expect(result.portfolioMonthlyActuals[1].mttrDays).toBeNull();
+  });
+
+  it("missing KPI months are null, not zero", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_orders_completed_on_time: 90, total_pm_orders: 100, actual_spend: 100, budget: 100, pm_work_orders: 60, cm_work_orders: 10, pm_cost: 80, cm_cost: 20, mttr_downtime: 10, repair_count: 1, facility_operating_time: 744, facility_downtime: 0 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyActuals[2].pmCompliance).toBeNull();
+    expect(result.portfolioMonthlyActuals[2].budgetSpend).toBeNull();
+    expect(result.portfolioMonthlyActuals[2].pmCmWorkOrderRatio).toBeNull();
+    expect(result.portfolioMonthlyActuals[2].pmCmCostRatio).toBeNull();
+    expect(result.portfolioMonthlyActuals[2].mttrDays).toBeNull();
+    expect(result.portfolioMonthlyActuals[2].facilityUptime).toBeNull();
+    expect(result.portfolioMonthlyAverages[2].pmCompliance).toBeNull();
+    expect(result.portfolioMonthlyAverages[2].budgetSpend).toBeNull();
+    expect(result.portfolioMonthlyAverages[2].pmCmWorkOrderRatio).toBeNull();
+    expect(result.portfolioMonthlyAverages[2].pmCmCostRatio).toBeNull();
+    expect(result.portfolioMonthlyAverages[2].mttrDays).toBeNull();
+    expect(result.portfolioMonthlyAverages[2].facilityUptime).toBeNull();
+  });
