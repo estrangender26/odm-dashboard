@@ -2263,6 +2263,25 @@ function applyPersistedMonthlyKpiRecords(records,options){
     record.mttr_days = row.mttr_days;
     record.facilityUptime = row.facility_uptime;
     record.facility_uptime = row.facility_uptime;
+    // Copy raw imported input fields so the frontend can recompute cumulative/YTD
+    // and running-average trend values for the monthly records table.
+    record.actual_spend = row.actual_spend;
+    record.budget = row.budget;
+    record.pm_orders_completed_on_time = row.pm_orders_completed_on_time;
+    record.total_pm_orders = row.total_pm_orders;
+    record.pm_work_orders = row.pm_work_orders;
+    record.cm_work_orders = row.cm_work_orders;
+    record.pm_cost = row.pm_cost;
+    record.cm_cost = row.cm_cost;
+    // KPI-specific downtime/operating fields take precedence for MTTR and Facility Uptime.
+    record.mttr_downtime = row.mttr_downtime;
+    record.repair_count = row.repair_count;
+    record.facility_operating_time = row.facility_operating_time;
+    record.facility_downtime = row.facility_downtime;
+    // Legacy generic downtime/operating fields kept for backward compatibility.
+    record.total_downtime = row.total_downtime;
+    record.number_of_repairs = row.number_of_repairs;
+    record.total_operating_time = row.total_operating_time;
     record.notes = row.notes || null;
     record.raw_imported_values = row.raw_imported_values || null;
     if(year===getSelectedYear() && month===getSelectedMonth())ScoreData[buId] = record;
