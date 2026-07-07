@@ -1372,6 +1372,9 @@ function normalizeKpiAggregates(aggregates){
   Object.keys(aggregates.portfolioMonthlyAverages || {}).forEach(function(month){
     normalizeAggregateKpiFields(aggregates.portfolioMonthlyAverages[month]);
   });
+  Object.keys(aggregates.portfolioMonthlyActuals || {}).forEach(function(month){
+    normalizeAggregateKpiFields(aggregates.portfolioMonthlyActuals[month]);
+  });
   var map = aggregates.byBusinessUnitMap && typeof aggregates.byBusinessUnitMap==='object' ? aggregates.byBusinessUnitMap : {};
   Object.keys(map).forEach(function(key){
     normalizeAggregateKpiFields(map[key]);
@@ -1415,6 +1418,13 @@ function getPortfolioAverageForMonth(year,month,key){
   // monthly KPIs and cumulative/YTD values for YTD KPIs. Months without data
   // are null rather than zero-filled.
   return aggregateValueForUiKey((KpiAggregates.portfolioMonthlyAverages || {})[month],key);
+}
+
+function getPortfolioActualForMonth(year,month,key){
+  if(!KpiAggregates || Number(KpiAggregates.reportingYear)!==Number(year))return null;
+  // portfolioMonthlyActuals holds the average actual monthly KPI value across
+  // business units for that month. Months without data are null.
+  return aggregateValueForUiKey((KpiAggregates.portfolioMonthlyActuals || {})[month],key);
 }
 
 function getPortfolioYearAverage(year,key){
@@ -2586,7 +2596,7 @@ function makeChartOptions(kpiKey,yTitle){
       x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:false,maxTicksLimit:12}}
     },
     plugins:{
-      legend:{display:false},
+      legend:{display:true,position:'bottom',labels:{boxWidth:12,font:{size:11}}},
       tooltip:{
         callbacks:{
           title:function(items){return items&&items.length?ShortMonthNames[items[0].dataIndex]:'';},
@@ -2644,6 +2654,38 @@ function renderSummaryDashboard(){
   updateChartLoadingOverlays();
 }
 
+function makeMonthlyActualDataset(label,data,color){
+  return {
+    type:'bar',
+    label:label,
+    data:data,
+    backgroundColor:color,
+    borderColor:color,
+    borderWidth:1,
+    barPercentage:0.5,
+    order:2,
+    spanGaps:false
+  };
+}
+
+function makeTrendDataset(label,data,color){
+  return {
+    type:'line',
+    label:label,
+    data:data,
+    borderColor:color,
+    backgroundColor:color,
+    pointBackgroundColor:data.map(function(v){return v===null||v===undefined?'#CBD5E1':color;}),
+    pointRadius:4,
+    pointHoverRadius:7,
+    tension:.25,
+    fill:false,
+    borderWidth:3,
+    order:1,
+    spanGaps:false
+  };
+}
+
 function renderSummaryCharts(){
   buildTrendSection('summary');
   var year = getSelectedYear();
@@ -2653,8 +2695,17 @@ function renderSummaryCharts(){
     if(Charts[chartKey])Charts[chartKey].destroy();
     var ctx = document.getElementById(chartKey+'-chart');
     if(!ctx)return;
-    var data = months.map(function(_,index){return getPortfolioAverageForMonth(year,index+1,cfg.key);});
-    Charts[chartKey] = new Chart(ctx,{type:'line',data:{labels:months,datasets:[{label:'Portfolio Average '+cfg.title.replace(' Trend',''),data:data,borderColor:cfg.color,backgroundColor:cfg.color,pointBackgroundColor:data.map(function(v){return v===null||v===undefined?'#CBD5E1':cfg.color;}),pointRadius:4,pointHoverRadius:7,tension:.25,fill:false,spanGaps:false}]},options:makeChartOptions(cfg.key,cfg.axis)});
+    var trendData = months.map(function(_,index){return getPortfolioAverageForMonth(year,index+1,cfg.key);});
+    var actualData = months.map(function(_,index){return getPortfolioActualForMonth(year,index+1,cfg.key);});
+    var lighterColor = cfg.color + '80';
+    Charts[chartKey] = new Chart(ctx,{
+      type:'bar',
+      data:{labels:months,datasets:[
+        makeMonthlyActualDataset('Monthly Actual',actualData,lighterColor),
+        makeTrendDataset('YTD / Trend',trendData,cfg.color)
+      ]},
+      options:makeChartOptions(cfg.key,cfg.axis)
+    });
   });
 }
 
@@ -2665,13 +2716,26 @@ function renderBUCharts(buId){
   buildTrendSection(buId);
   var year = getSelectedYear();
   var months = ShortMonthNames.slice();
+  var records = getKpiRecordsForYear(buId,year);
   TrendKpiConfig.forEach(function(cfg){
     var chartKey = getBusinessUnitChartKey(buId,cfg.key);
     if(Charts[chartKey])Charts[chartKey].destroy();
     var ctx = document.getElementById(chartKey+'-chart');
     if(!ctx)return;
-    var data = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),cfg.key);});
-    Charts[chartKey] = new Chart(ctx,{type:'line',data:{labels:months,datasets:[{label:cfg.title.replace(' Trend',''),data:data,borderColor:cfg.color,backgroundColor:cfg.color,pointBackgroundColor:data.map(function(v){return v===null||v===undefined?'#CBD5E1':cfg.color;}),pointRadius:4,pointHoverRadius:7,tension:.25,fill:false,spanGaps:false}]},options:makeChartOptions(cfg.key,cfg.axis)});
+    var actualData = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),cfg.key);});
+    var trendData = months.map(function(_,index){
+      var trend = computeTrendKpiValuesForMonth(records,index+1);
+      return trend[cfg.key] !== undefined ? trend[cfg.key] : null;
+    });
+    var lighterColor = cfg.color + '80';
+    Charts[chartKey] = new Chart(ctx,{
+      type:'bar',
+      data:{labels:months,datasets:[
+        makeMonthlyActualDataset('Monthly Actual',actualData,lighterColor),
+        makeTrendDataset('YTD / Trend',trendData,cfg.color)
+      ]},
+      options:makeChartOptions(cfg.key,cfg.axis)
+    });
   });
 }
 

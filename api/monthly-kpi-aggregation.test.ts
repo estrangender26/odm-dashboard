@@ -349,4 +349,45 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.portfolioMonthlyAverages[1].budgetSpend).toBeCloseTo(100, 2);
     expect(result.portfolioMonthlyAverages[2].budgetSpend).toBeNull();
   });
+
+  it("returns portfolioMonthlyActuals with actual monthly values averaged across BUs", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 90, budget_spend: 80 },
+        { ...base, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 100, budget_spend: 120 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyActuals).toBeDefined();
+    expect(result.portfolioMonthlyActuals[1].pmCompliance).toBeCloseTo(95, 2);
+    expect(result.portfolioMonthlyActuals[1].budgetSpend).toBeCloseTo(100, 2);
+    expect(result.portfolioMonthlyActuals[2].pmCompliance).toBeNull();
+  });
+
+  it("computes portfolioMonthlyActuals from raw inputs when stored computed values are missing", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, actual_spend: 100, budget: 100 },
+        { ...base, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 1, actual_spend: 150, budget: 100 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyActuals[1].budgetSpend).toBeCloseTo(((100 / 100) * 100 + (150 / 100) * 100) / 2, 2);
+  });
+
+  it("keeps portfolioMonthlyActuals distinct from portfolioMonthlyAverages for cumulative KPIs", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, actual_spend: 100, budget: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, actual_spend: 150, budget: 100 },
+      ],
+      2026
+    );
+    // Actuals are monthly values.
+    expect(result.portfolioMonthlyActuals[1].budgetSpend).toBeCloseTo(100, 2);
+    expect(result.portfolioMonthlyActuals[2].budgetSpend).toBeCloseTo(150, 2);
+    // Averages/trend are cumulative/YTD values.
+    expect(result.portfolioMonthlyAverages[1].budgetSpend).toBeCloseTo(100, 2);
+    expect(result.portfolioMonthlyAverages[2].budgetSpend).toBeCloseTo((250 / 200) * 100, 2);
+  });
 });
