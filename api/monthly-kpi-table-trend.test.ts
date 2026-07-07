@@ -130,32 +130,32 @@ describe("monthly records table trend values", () => {
     expect(apr.pmcmCostRatio).toBeNull();
   });
 
-  it("computes cumulative MTTR using KPI-specific downtime and repair fields", () => {
+  it("computes cumulative MTTR as sum of monthly MTTR days", () => {
     const ctx = createContext();
     const records = [
-      makeBaseRecord(1, { mttr_downtime: 24, repair_count: 3 }),
-      makeBaseRecord(2, { mttr_downtime: 48, repair_count: 4 }),
-      makeBaseRecord(3, { mttr_downtime: 0, repair_count: 2 }),
+      makeBaseRecord(1, { mttr_days: 8 }),
+      makeBaseRecord(2, { mttr_days: 12 }),
+      makeBaseRecord(3, { mttr_days: 0 }),
     ];
     records.forEach((r: any) => ctx.computeImportedMonthlyKpis(r));
 
     const feb = ctx.computeTrendKpiValuesForMonth(records, 2);
-    expect(feb.mttr).toBeCloseTo((24 + 48) / (3 + 4), 2);
+    expect(feb.mttr).toBeCloseTo(8 + 12, 2);
 
     const mar = ctx.computeTrendKpiValuesForMonth(records, 3);
-    expect(mar.mttr).toBeCloseTo((24 + 48 + 0) / (3 + 4 + 2), 2);
+    expect(mar.mttr).toBeCloseTo(8 + 12 + 0, 2);
   });
 
-  it("falls back to legacy generic downtime/repair fields for MTTR", () => {
+  it("falls back to legacy generic downtime/repair fields for monthly MTTR", () => {
     const ctx = createContext();
     const records = [
-      makeBaseRecord(1, { total_downtime: 30, number_of_repairs: 3 }),
-      makeBaseRecord(2, { total_downtime: 60, number_of_repairs: 6 }),
+      makeBaseRecord(1, { mttr_days: 10 }),
+      makeBaseRecord(2, { mttr_days: 20 }),
     ];
     records.forEach((r: any) => ctx.computeImportedMonthlyKpis(r));
 
     const feb = ctx.computeTrendKpiValuesForMonth(records, 2);
-    expect(feb.mttr).toBeCloseTo((30 + 60) / (3 + 6), 2);
+    expect(feb.mttr).toBeCloseTo(10 + 20, 2);
   });
 
   it("computes running average Facility Uptime", () => {

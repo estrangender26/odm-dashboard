@@ -271,18 +271,9 @@ function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiR
     return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
   }
   if (key === "mttrDays") {
-    let downtime =
-      normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
-    const repairs =
-      normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
-    // Reconstruct downtime from monthly MTTR and repair count when downtime is unavailable.
-    if (downtime === null && repairs !== null) {
-      const monthlyMttr = normalizeKpiNumber(record.mttr_days);
-      if (monthlyMttr !== null) {
-        downtime = monthlyMttr * repairs;
-      }
-    }
-    return safeDivide(downtime as number, repairs as number);
+    // Monthly MTTR is simply the stored monthly MTTR days value.
+    // KPI-specific raw fields are preserved only to prevent MTTR/Facility Uptime collision.
+    return normalizeKpiNumber(record.mttr_days);
   }
   return normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
 }
@@ -308,14 +299,8 @@ function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord
     return normalizeKpiNumber(record.pm_cost) !== null && normalizeKpiNumber(record.cm_cost) !== null;
   }
   if (key === "mttrDays") {
-    const downtime =
-      normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
-    const repairs =
-      normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
-    if (downtime !== null && repairs !== null) return true;
-    // Also accept a pre-computed monthly MTTR plus repair count to reconstruct downtime.
-    const monthlyMttr = normalizeKpiNumber(record.mttr_days);
-    return monthlyMttr !== null && repairs !== null;
+    // MTTR is a cumulative KPI; raw input presence is determined by a stored monthly MTTR value.
+    return normalizeKpiNumber(record.mttr_days) !== null;
   }
   return false;
 }
@@ -337,24 +322,11 @@ function computeYtdKpiValue(key: MonthlyKpiKey, records: PersistedMonthlyKpiReco
     return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
   }
   if (key === "mttrDays") {
-    let totalDowntime = 0;
-    let totalRepairs = 0;
-    records.forEach((record) => {
-      const repairs = normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
-      if (repairs === null) return;
-      let downtime = normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
-      if (downtime === null) {
-        const monthlyMttr = normalizeKpiNumber(record.mttr_days);
-        if (monthlyMttr !== null) {
-          downtime = monthlyMttr * repairs;
-        }
-      }
-      if (downtime !== null) {
-        totalDowntime += downtime;
-        totalRepairs += repairs;
-      }
-    });
-    return safeDivide(totalDowntime, totalRepairs);
+    // MTTR is treated as a cumulative KPI: sum monthly MTTR days through the period.
+    return records.reduce((sum, record) => {
+      const value = normalizeKpiNumber(record.mttr_days);
+      return value === null ? sum : sum + value;
+    }, 0) || null;
   }
   return null;
 }
