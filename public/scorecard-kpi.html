@@ -1241,11 +1241,60 @@ function getKpiRecordsForYear(buId,year){
   return Object.keys(months).map(function(month){return months[month];}).filter(Boolean);
 }
 
+function rawKpiInputValue(record, key, fallbackKeys){
+  if(!record)return null;
+  var keys = [key];
+  if(fallbackKeys) keys = keys.concat(fallbackKeys);
+  for(var i=0;i<keys.length;i++){
+    var k = keys[i];
+    if(record[k] !== undefined && record[k] !== null) return parseFiniteKPIValue(record[k]);
+    var nested = record.raw_imported_values && typeof record.raw_imported_values === 'object' && record.raw_imported_values.values;
+    if(nested && nested[k] !== undefined && nested[k] !== null) return parseFiniteKPIValue(nested[k]);
+  }
+  return null;
+}
+
+function hasKpiSourceData(record, key){
+  if(!record)return false;
+  if(key === 'pmCompliance'){
+    return rawKpiInputValue(record, 'pm_orders_completed_on_time') !== null && rawKpiInputValue(record, 'total_pm_orders') !== null;
+  }
+  if(key === 'facilityUptime'){
+    var op = rawKpiInputValue(record, 'facility_operating_time', ['total_operating_time']);
+    var dt = rawKpiInputValue(record, 'facility_downtime', ['total_downtime']);
+    return op !== null && dt !== null;
+  }
+  if(key === 'budgetSpend'){
+    return rawKpiInputValue(record, 'actual_spend') !== null && rawKpiInputValue(record, 'budget') !== null;
+  }
+  if(key === 'pmcmWORatio'){
+    return rawKpiInputValue(record, 'pm_work_orders') !== null && rawKpiInputValue(record, 'cm_work_orders') !== null;
+  }
+  if(key === 'pmcmCostRatio'){
+    return rawKpiInputValue(record, 'pm_cost') !== null && rawKpiInputValue(record, 'cm_cost') !== null;
+  }
+  if(key === 'mttr'){
+    var downtime = rawKpiInputValue(record, 'mttr_downtime', ['total_downtime']);
+    var repairs = rawKpiInputValue(record, 'repair_count', ['number_of_repairs']);
+    // Also accept a pre-computed monthly MTTR plus repair count so we can reconstruct downtime.
+    if(downtime === null){
+      var mttrVal = rawKpiInputValue(record, 'mttr_days');
+      if(mttrVal !== null && repairs !== null) return true;
+    }
+    return downtime !== null && repairs !== null;
+  }
+  return hasImportedKpiValue(record, key);
+}
+
 function computeTrendKpiValuesForMonth(records, month){
   // Compute trend-ready values up to the given month, matching the KPI cards/charts.
   // PM Compliance and Facility Uptime use running averages of monthly KPI values.
   // Budget Spend, PM:CM WO, PM:CM Cost, and MTTR use cumulative/YTD values.
-  // Months with no imported record for the requested month are left as null.
+  // MTTR YTD is weighted: SUM(mttr_downtime) / SUM(repair_count).
+  // If downtime is missing but monthly MTTR and repair count exist, downtime is
+  // reconstructed as monthly MTTR * repair count.
+  // Months with no imported record for the requested month, or no source data
+  // for the KPI in that month, are left as null so chart lines do not carry forward.
   var result = {};
   var monthRecord = records.find(function(r){ return Number(r.reporting_month) === month; });
   if(!monthRecord){
@@ -1255,10 +1304,13 @@ function computeTrendKpiValuesForMonth(records, month){
   var periodRecords = records.filter(function(r){ return Number(r.reporting_month) >= 1 && Number(r.reporting_month) <= month; });
   SummaryMatrixKPIs.forEach(function(key){
     var snakeKey = snakeAggregateKeyForUiKey(key);
+    if(!hasKpiSourceData(monthRecord, key)){
+      result[key] = null;
+      return;
+    }
     if(key === 'pmCompliance' || key === 'facilityUptime'){
       var values = [];
       periodRecords.forEach(function(r){
-        // For running average, include months that have a stored computed KPI value.
         var v = parseFiniteKPIValue(r[snakeKey]);
         if(v !== null && v !== undefined && v !== '' && !isNaN(v)) values.push(Number(v));
       });
@@ -1268,8 +1320,8 @@ function computeTrendKpiValuesForMonth(records, month){
     if(key === 'budgetSpend'){
       var actual = 0, budget = 0, hasValues = false;
       periodRecords.forEach(function(r){
-        var a = parseFiniteKPIValue(r.actual_spend);
-        var b = parseFiniteKPIValue(r.budget);
+        var a = rawKpiInputValue(r, 'actual_spend');
+        var b = rawKpiInputValue(r, 'budget');
         if(a !== null){ actual += a; hasValues = true; }
         if(b !== null){ budget += b; hasValues = true; }
       });
@@ -1279,8 +1331,8 @@ function computeTrendKpiValuesForMonth(records, month){
     if(key === 'pmcmWORatio'){
       var pm = 0, cm = 0, hasValues = false;
       periodRecords.forEach(function(r){
-        var p = parseFiniteKPIValue(r.pm_work_orders);
-        var c = parseFiniteKPIValue(r.cm_work_orders);
+        var p = rawKpiInputValue(r, 'pm_work_orders');
+        var c = rawKpiInputValue(r, 'cm_work_orders');
         if(p !== null){ pm += p; hasValues = true; }
         if(c !== null){ cm += c; hasValues = true; }
       });
@@ -1290,8 +1342,8 @@ function computeTrendKpiValuesForMonth(records, month){
     if(key === 'pmcmCostRatio'){
       var pmCost = 0, cmCost = 0, hasValues = false;
       periodRecords.forEach(function(r){
-        var p = parseFiniteKPIValue(r.pm_cost);
-        var c = parseFiniteKPIValue(r.cm_cost);
+        var p = rawKpiInputValue(r, 'pm_cost');
+        var c = rawKpiInputValue(r, 'cm_cost');
         if(p !== null){ pmCost += p; hasValues = true; }
         if(c !== null){ cmCost += c; hasValues = true; }
       });
@@ -1301,8 +1353,13 @@ function computeTrendKpiValuesForMonth(records, month){
     if(key === 'mttr'){
       var downtime = 0, repairs = 0, hasValues = false;
       periodRecords.forEach(function(r){
-        var d = parseFiniteKPIValue(r.mttr_downtime) !== null ? parseFiniteKPIValue(r.mttr_downtime) : parseFiniteKPIValue(r.total_downtime);
-        var rc = parseFiniteKPIValue(r.repair_count) !== null ? parseFiniteKPIValue(r.repair_count) : parseFiniteKPIValue(r.number_of_repairs);
+        var d = rawKpiInputValue(r, 'mttr_downtime', ['total_downtime']);
+        var rc = rawKpiInputValue(r, 'repair_count', ['number_of_repairs']);
+        // Reconstruct downtime from monthly MTTR and repair count when downtime is unavailable.
+        if(d === null && rc !== null){
+          var mttrVal = rawKpiInputValue(r, 'mttr_days');
+          if(mttrVal !== null) d = mttrVal * rc;
+        }
         if(d !== null){ downtime += d; hasValues = true; }
         if(rc !== null){ repairs += rc; hasValues = true; }
       });
@@ -2695,8 +2752,12 @@ function renderSummaryCharts(){
     if(Charts[chartKey])Charts[chartKey].destroy();
     var ctx = document.getElementById(chartKey+'-chart');
     if(!ctx)return;
-    var trendData = months.map(function(_,index){return getPortfolioAverageForMonth(year,index+1,cfg.key);});
     var actualData = months.map(function(_,index){return getPortfolioActualForMonth(year,index+1,cfg.key);});
+    var trendData = months.map(function(_,index){
+      var actual = actualData[index];
+      if(actual===null || actual===undefined) return null;
+      return getPortfolioAverageForMonth(year,index+1,cfg.key);
+    });
     var lighterColor = cfg.color + '80';
     Charts[chartKey] = new Chart(ctx,{
       type:'bar',
@@ -2724,6 +2785,8 @@ function renderBUCharts(buId){
     if(!ctx)return;
     var actualData = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),cfg.key);});
     var trendData = months.map(function(_,index){
+      var r = getMonthlyRecord(buId,year,index+1);
+      if(!hasKpiSourceData(r, cfg.key)) return null;
       var trend = computeTrendKpiValuesForMonth(records,index+1);
       return trend[cfg.key] !== undefined ? trend[cfg.key] : null;
     });

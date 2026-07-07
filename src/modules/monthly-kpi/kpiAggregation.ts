@@ -233,16 +233,6 @@ function sumField(records: PersistedMonthlyKpiRecord[], field: keyof PersistedMo
   }, 0);
 }
 
-function sumFields(records: PersistedMonthlyKpiRecord[], fields: Array<keyof PersistedMonthlyKpiRecord>) {
-  return records.reduce((sum, record) => {
-    for (const field of fields) {
-      const value = normalizeKpiNumber((record as any)[field]);
-      if (value !== null) return sum + value;
-    }
-    return sum;
-  }, 0);
-}
-
 function safeDivide(numerator: number, denominator: number): number | null {
   if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
   return numerator / denominator;
@@ -281,10 +271,17 @@ function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiR
     return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
   }
   if (key === "mttrDays") {
-    const downtime =
+    let downtime =
       normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
     const repairs =
       normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
+    // Reconstruct downtime from monthly MTTR and repair count when downtime is unavailable.
+    if (downtime === null && repairs !== null) {
+      const monthlyMttr = normalizeKpiNumber(record.mttr_days);
+      if (monthlyMttr !== null) {
+        downtime = monthlyMttr * repairs;
+      }
+    }
     return safeDivide(downtime as number, repairs as number);
   }
   return normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
@@ -315,7 +312,10 @@ function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord
       normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
     const repairs =
       normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
-    return downtime !== null && repairs !== null;
+    if (downtime !== null && repairs !== null) return true;
+    // Also accept a pre-computed monthly MTTR plus repair count to reconstruct downtime.
+    const monthlyMttr = normalizeKpiNumber(record.mttr_days);
+    return monthlyMttr !== null && repairs !== null;
   }
   return false;
 }
@@ -337,9 +337,24 @@ function computeYtdKpiValue(key: MonthlyKpiKey, records: PersistedMonthlyKpiReco
     return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
   }
   if (key === "mttrDays") {
-    const downtime = sumFields(records, ["mttr_downtime", "total_downtime"]);
-    const repairs = sumFields(records, ["repair_count", "number_of_repairs"]);
-    return safeDivide(downtime as number, repairs as number);
+    let totalDowntime = 0;
+    let totalRepairs = 0;
+    records.forEach((record) => {
+      const repairs = normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
+      if (repairs === null) return;
+      let downtime = normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
+      if (downtime === null) {
+        const monthlyMttr = normalizeKpiNumber(record.mttr_days);
+        if (monthlyMttr !== null) {
+          downtime = monthlyMttr * repairs;
+        }
+      }
+      if (downtime !== null) {
+        totalDowntime += downtime;
+        totalRepairs += repairs;
+      }
+    });
+    return safeDivide(totalDowntime, totalRepairs);
   }
   return null;
 }
@@ -386,7 +401,32 @@ function aggregateRecordsForBusinessUnit(
     }
 
     if (selectedMonth === undefined) {
-      // No selected month: preserve the previous full-year average behavior.
+      // Full-year aggregate uses YTD/trend semantics when raw inputs exist.
+      if (MONTHLY_ONLY_KEYS.includes(key)) {
+        const values: number[] = [];
+        records.forEach((record) => {
+          if (hasRawInputForKpi(key, record)) {
+            const computed = computeMonthlyKpiValue(key, record);
+            if (computed !== null) values.push(computed);
+          } else if (hasImportedKpiValue(record, key)) {
+            const stored = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
+            if (stored !== null) values.push(stored);
+          }
+        });
+        aggregate[key] = averageKpiValues(values);
+        return;
+      }
+      if (YTD_KEYS.includes(key)) {
+        const hasRawInputs = records.some((record) => hasRawInputForKpi(key, record));
+        if (hasRawInputs) {
+          aggregate[key] = computeYtdKpiValue(key, records);
+          return;
+        }
+        aggregate[key] = averageKpiValues(
+          records.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
+        );
+        return;
+      }
       aggregate[key] = averageKpiValues(
         records.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
       );
