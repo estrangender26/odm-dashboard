@@ -83,3 +83,65 @@ describe("portfolio / All Business Units MTTR", () => {
     expect(result.portfolioMonthlyActuals[2].mttrDays).toBeNull();
   });
 });
+
+  it("uses raw_imported_values when top-level MTTR fields are not populated", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        {
+          ...base,
+          business_unit: "BU-A",
+          reporting_year: 2026,
+          reporting_month: 1,
+          mttr_days: 24,
+          mttr_downtime: null,
+          repair_count: null,
+          raw_imported_values: { values: { mttr_downtime: 48, repair_count: 2 } },
+        },
+        {
+          ...base,
+          business_unit: "BU-B",
+          reporting_year: 2026,
+          reporting_month: 1,
+          mttr_days: 90,
+          mttr_downtime: null,
+          repair_count: null,
+          raw_imported_values: { values: { mttr_downtime: 90, repair_count: 1 } },
+        },
+      ],
+      2026
+    );
+    // (48 + 90) / (2 + 1) = 46
+    expect(result.portfolioYearAverage.mttrDays).toBeCloseTo(46, 2);
+    expect(result.portfolioMonthlyActuals[1].mttrDays).toBeCloseTo(46, 2);
+    expect(result.portfolioMonthlyAverages[1].mttrDays).toBeCloseTo(46, 2);
+  });
+
+  it("reconstructs All-BU MTTR from raw_imported_values mttr_days and repair_count", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        {
+          ...base,
+          business_unit: "BU-A",
+          reporting_year: 2026,
+          reporting_month: 1,
+          mttr_days: 24,
+          mttr_downtime: null,
+          repair_count: null,
+          raw_imported_values: { values: { mttr_days: 24, repair_count: 2 } },
+        },
+        {
+          ...base,
+          business_unit: "BU-B",
+          reporting_year: 2026,
+          reporting_month: 1,
+          mttr_days: 90,
+          mttr_downtime: null,
+          repair_count: null,
+          raw_imported_values: { values: { mttr_days: 90, repair_count: 1 } },
+        },
+      ],
+      2026
+    );
+    // Reconstructed downtime: A=48, B=90; total repairs: 3
+    expect(result.portfolioYearAverage.mttrDays).toBeCloseTo(138 / 3, 2);
+  });
