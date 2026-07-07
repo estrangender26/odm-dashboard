@@ -159,6 +159,15 @@ export function averageKpiValues(values: Array<number | string | null | undefine
   return valid.reduce((sum, value) => sum + value, 0) / valid.length;
 }
 
+function rawImportedInputValue(record: PersistedMonthlyKpiRecord, key: string): number | null {
+  const raw = record.raw_imported_values;
+  if (!raw || typeof raw !== "object") return null;
+  const values = (raw as { values?: unknown }).values;
+  if (!values || typeof values !== "object") return null;
+  const value = (values as Record<string, unknown>)[key];
+  return normalizeKpiNumber(value as number | string | null | undefined);
+}
+
 function hasRawImportedValues(record: PersistedMonthlyKpiRecord) {
   return record.raw_imported_values !== null && record.raw_imported_values !== undefined;
 }
@@ -235,14 +244,23 @@ function sumField(records: PersistedMonthlyKpiRecord[], field: keyof PersistedMo
 
 function mttrWeightedValue(records: PersistedMonthlyKpiRecord[]): number | null {
   // Portfolio/All-BU MTTR = SUM(downtime) / SUM(repairs) across all records.
+  // Reads raw fields from both top-level columns and raw_imported_values for
+  // compatibility with the current DB schema.
   let totalDowntime = 0;
   let totalRepairs = 0;
   records.forEach((record) => {
-    const repairs = normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
+    const repairs =
+      normalizeKpiNumber(record.repair_count) ??
+      normalizeKpiNumber(record.number_of_repairs) ??
+      rawImportedInputValue(record, "repair_count") ??
+      rawImportedInputValue(record, "number_of_repairs");
     if (repairs === null) return;
     const downtime =
       (normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime)) ??
-      reconstructMttrDowntime(record.mttr_days, repairs);
+      rawImportedInputValue(record, "mttr_downtime") ??
+      rawImportedInputValue(record, "total_downtime") ??
+      reconstructMttrDowntime(record.mttr_days, repairs) ??
+      reconstructMttrDowntime(rawImportedInputValue(record, "mttr_days"), repairs);
     if (downtime !== null) {
       totalDowntime += downtime;
       totalRepairs += repairs;
@@ -296,12 +314,19 @@ function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiR
   }
   if (key === "mttrDays") {
     // Monthly MTTR = downtime / repairs. Reconstruct downtime from monthly MTTR and
-    // repair count when the raw downtime field is unavailable.
+    // repair count when the raw downtime field is unavailable. Fall back to
+    // raw_imported_values when top-level columns are not populated.
     const repairs =
-      normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
+      normalizeKpiNumber(record.repair_count) ??
+      normalizeKpiNumber(record.number_of_repairs) ??
+      rawImportedInputValue(record, "repair_count") ??
+      rawImportedInputValue(record, "number_of_repairs");
     const downtime =
       (normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime)) ??
-      (repairs !== null ? reconstructMttrDowntime(record.mttr_days, repairs) : null);
+      rawImportedInputValue(record, "mttr_downtime") ??
+      rawImportedInputValue(record, "total_downtime") ??
+      (repairs !== null ? reconstructMttrDowntime(record.mttr_days, repairs) : null) ??
+      (repairs !== null ? reconstructMttrDowntime(rawImportedInputValue(record, "mttr_days"), repairs) : null);
     return safeDivide(downtime as number, repairs as number);
   }
   return normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
@@ -329,12 +354,18 @@ function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord
   }
   if (key === "mttrDays") {
     const downtime =
-      normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
+      normalizeKpiNumber(record.mttr_downtime) ??
+      normalizeKpiNumber(record.total_downtime) ??
+      rawImportedInputValue(record, "mttr_downtime") ??
+      rawImportedInputValue(record, "total_downtime");
     const repairs =
-      normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
+      normalizeKpiNumber(record.repair_count) ??
+      normalizeKpiNumber(record.number_of_repairs) ??
+      rawImportedInputValue(record, "repair_count") ??
+      rawImportedInputValue(record, "number_of_repairs");
     if (downtime !== null && repairs !== null) return true;
     // Also accept a pre-computed monthly MTTR plus repair count to reconstruct downtime.
-    const monthlyMttr = normalizeKpiNumber(record.mttr_days);
+    const monthlyMttr = normalizeKpiNumber(record.mttr_days) ?? rawImportedInputValue(record, "mttr_days");
     return monthlyMttr !== null && repairs !== null;
   }
   return false;
@@ -359,20 +390,7 @@ function computeYtdKpiValue(key: MonthlyKpiKey, records: PersistedMonthlyKpiReco
   if (key === "mttrDays") {
     // Cumulative MTTR = SUM(downtime) / SUM(repairs), reconstructing downtime from
     // monthly MTTR * repair count when raw downtime is unavailable.
-    let totalDowntime = 0;
-    let totalRepairs = 0;
-    records.forEach((record) => {
-      const repairs = normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
-      if (repairs === null) return;
-      const downtime =
-        (normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime)) ??
-        reconstructMttrDowntime(record.mttr_days, repairs);
-      if (downtime !== null) {
-        totalDowntime += downtime;
-        totalRepairs += repairs;
-      }
-    });
-    return safeDivide(totalDowntime, totalRepairs);
+    return mttrWeightedValue(records);
   }
   return null;
 }
