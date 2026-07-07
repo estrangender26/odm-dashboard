@@ -1231,8 +1231,10 @@ function hasImportedKpiValue(record,key){
   var value = record ? parseFiniteKPIValue(record[key]) : null;
   if(value===null)return false;
   if(value!==0)return true;
+  // For a literal 0 value, accept it only if there is an imported raw value for
+  // this specific KPI. This keeps genuinely missing data as No Data while still
+  // allowing real 0% / 0-day values that came from the workbook.
   if(!record.raw_imported_values)return true;
-  if(isZeroOnlyWorkbookPlaceholderRecord(record))return false;
   return !isBlankRawImportedValue(rawValueForUiKpi(record,key));
 }
 
@@ -1296,11 +1298,12 @@ function hasKpiSourceData(record, key){
 }
 
 function hasPortfolioKpiSourceDataForMonth(year, month, key){
-  // Check whether any business unit has raw source data for this KPI/month.
-  // This is used by summary/portfolio charts so the YTD / Trend line stops at
-  // the last month that actually has source data for that specific KPI,
-  // rather than being carried forward because another KPI has later data.
-  // First check the raw per-BU records if they are loaded.
+  // Check whether any business unit has imported (displayed) data for this
+  // KPI/month. This must match the monthly records table so that the chart
+  // never draws a YTD / Trend point or Monthly Actual bar for a month the
+  // table labels "No Data". Per-KPI source data is evaluated against the
+  // table's own hasImportedKpiValue check, not raw input fields, so a real 0%
+  // with valid source data still renders while genuinely missing data does not.
   if(MonthlyScoreData){
     var buIds = Object.keys(MonthlyScoreData).filter(function(buId){
       return buId !== 'summary' && buId !== 'all';
@@ -1309,11 +1312,11 @@ function hasPortfolioKpiSourceDataForMonth(year, month, key){
       var yearData = MonthlyScoreData[buIds[i]] && MonthlyScoreData[buIds[i]][year];
       if(!yearData) continue;
       var record = yearData[month];
-      if(record && hasKpiSourceData(record, key)) return true;
+      if(record && hasImportedKpiValue(record, key)) return true;
     }
   }
-  // Fallback: trust the backend aggregate's monthly actual value, which already
-  // uses hasRawInputForKpi to decide whether source data exists for the month.
+  // Fallback for views that load only aggregates (no per-BU records): trust the
+  // backend aggregate's monthly actual value as an imported-value signal.
   if(KpiAggregates && Number(KpiAggregates.reportingYear) === Number(year)){
     var monthActuals = KpiAggregates.portfolioMonthlyActuals && KpiAggregates.portfolioMonthlyActuals[month];
     if(monthActuals){
@@ -1336,8 +1339,10 @@ function computeTrendKpiValuesForMonth(records, month){
   // MTTR YTD is weighted: SUM(mttr_downtime) / SUM(repair_count).
   // If downtime is missing but monthly MTTR and repair count exist, downtime is
   // reconstructed as monthly MTTR * repair count.
-  // Months with no imported record for the requested month, or no source data
-  // for the KPI in that month, are left as null so chart lines do not carry forward.
+  // The current month only gets a trend point if the monthly records table would
+  // show a value for that KPI/month. Trend values are computed from prior months
+  // that also have imported values, so the line never extends past the last month
+  // with real data for the selected scope.
   var result = {};
   var monthRecord = records.find(function(r){ return Number(r.reporting_month) === month; });
   if(!monthRecord){
@@ -1347,13 +1352,14 @@ function computeTrendKpiValuesForMonth(records, month){
   var periodRecords = records.filter(function(r){ return Number(r.reporting_month) >= 1 && Number(r.reporting_month) <= month; });
   SummaryMatrixKPIs.forEach(function(key){
     var snakeKey = snakeAggregateKeyForUiKey(key);
-    if(!hasKpiSourceData(monthRecord, key)){
+    if(!hasImportedKpiValue(monthRecord, key)){
       result[key] = null;
       return;
     }
     if(key === 'pmCompliance' || key === 'facilityUptime'){
       var values = [];
       periodRecords.forEach(function(r){
+        if(!hasImportedKpiValue(r, key)) return;
         var v = parseFiniteKPIValue(r[snakeKey]);
         if(v !== null && v !== undefined && v !== '' && !isNaN(v)) values.push(Number(v));
       });
@@ -1363,6 +1369,7 @@ function computeTrendKpiValuesForMonth(records, month){
     if(key === 'budgetSpend'){
       var actual = 0, budget = 0, hasValues = false;
       periodRecords.forEach(function(r){
+        if(!hasImportedKpiValue(r, key)) return;
         var a = rawKpiInputValue(r, 'actual_spend');
         var b = rawKpiInputValue(r, 'budget');
         if(a !== null){ actual += a; hasValues = true; }
@@ -1374,6 +1381,7 @@ function computeTrendKpiValuesForMonth(records, month){
     if(key === 'pmcmWORatio'){
       var pm = 0, cm = 0, hasValues = false;
       periodRecords.forEach(function(r){
+        if(!hasImportedKpiValue(r, key)) return;
         var p = rawKpiInputValue(r, 'pm_work_orders');
         var c = rawKpiInputValue(r, 'cm_work_orders');
         if(p !== null){ pm += p; hasValues = true; }
@@ -1385,6 +1393,7 @@ function computeTrendKpiValuesForMonth(records, month){
     if(key === 'pmcmCostRatio'){
       var pmCost = 0, cmCost = 0, hasValues = false;
       periodRecords.forEach(function(r){
+        if(!hasImportedKpiValue(r, key)) return;
         var p = rawKpiInputValue(r, 'pm_cost');
         var c = rawKpiInputValue(r, 'cm_cost');
         if(p !== null){ pmCost += p; hasValues = true; }
@@ -1398,6 +1407,7 @@ function computeTrendKpiValuesForMonth(records, month){
       // from monthly MTTR * repair count when raw downtime is unavailable.
       var downtime = 0, repairs = 0, hasValues = false;
       periodRecords.forEach(function(r){
+        if(!hasImportedKpiValue(r, key)) return;
         var d = rawKpiInputValue(r, 'mttr_downtime', ['total_downtime']);
         var rc = rawKpiInputValue(r, 'repair_count', ['number_of_repairs']);
         if(d === null && rc !== null){
@@ -2837,7 +2847,10 @@ function renderBUCharts(buId){
     var actualData = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),cfg.key);});
     var trendData = months.map(function(_,index){
       var r = getMonthlyRecord(buId,year,index+1);
-      if(!hasKpiSourceData(r, cfg.key)) return null;
+      // The trend line must follow the same imported-value rule as the monthly
+      // records table. If the table says No Data for this KPI/month, the chart
+      // must not draw a trend point here, even if raw input fields exist.
+      if(!hasImportedKpiValue(r, cfg.key)) return null;
       var trend = computeTrendKpiValuesForMonth(records,index+1);
       return trend[cfg.key] !== undefined ? trend[cfg.key] : null;
     });
@@ -3194,29 +3207,38 @@ function mapConsolidatedSheetHeaders(headers, config){
 }
 
 function computeImportedMonthlyKpis(record){
+  // Compute monthly KPI values from raw inputs. Set both camelCase UI keys and
+  // snake_case DB-style keys so the record is consistent whether it is rendered
+  // directly, sent to the backend, or loaded back from persisted records.
   if(record.actual_spend !== null && record.budget !== null && record.budget !== 0){
-    record.budget_spend = (record.actual_spend / record.budget) * 100;
+    record.budgetSpend = (record.actual_spend / record.budget) * 100;
+    record.budget_spend = record.budgetSpend;
   }
   if(record.pm_orders_completed_on_time !== null && record.total_pm_orders !== null && record.total_pm_orders !== 0){
-    record.pm_compliance = (record.pm_orders_completed_on_time / record.total_pm_orders) * 100;
+    record.pmCompliance = (record.pm_orders_completed_on_time / record.total_pm_orders) * 100;
+    record.pm_compliance = record.pmCompliance;
   }
   if(record.pm_work_orders !== null && record.cm_work_orders !== null && (record.pm_work_orders + record.cm_work_orders) !== 0){
-    record.pm_cm_work_order_ratio = (record.pm_work_orders / (record.pm_work_orders + record.cm_work_orders)) * 100;
+    record.pmcmWORatio = (record.pm_work_orders / (record.pm_work_orders + record.cm_work_orders)) * 100;
+    record.pm_cm_work_order_ratio = record.pmcmWORatio;
   }
   if(record.pm_cost !== null && record.cm_cost !== null && (record.pm_cost + record.cm_cost) !== 0){
-    record.pm_cm_cost_ratio = (record.pm_cost / (record.pm_cost + record.cm_cost)) * 100;
+    record.pmcmCostRatio = (record.pm_cost / (record.pm_cost + record.cm_cost)) * 100;
+    record.pm_cm_cost_ratio = record.pmcmCostRatio;
   }
   // MTTR uses KPI-specific downtime/repair fields; fall back to legacy generic fields for old records.
   var mttrDowntime = record.mttr_downtime !== null ? record.mttr_downtime : record.total_downtime;
   var repairCount = record.repair_count !== null ? record.repair_count : record.number_of_repairs;
   if(mttrDowntime !== null && repairCount !== null && repairCount !== 0){
-    record.mttr_days = mttrDowntime / repairCount;
+    record.mttr = mttrDowntime / repairCount;
+    record.mttr_days = record.mttr;
   }
   // Facility Uptime uses KPI-specific operating/downtime fields; fall back to legacy generic fields for old records.
   var facilityOperating = record.facility_operating_time !== null ? record.facility_operating_time : record.total_operating_time;
   var facilityDowntime = record.facility_downtime !== null ? record.facility_downtime : record.total_downtime;
   if(facilityOperating !== null && facilityDowntime !== null && facilityOperating !== 0){
-    record.facility_uptime = ((facilityOperating - facilityDowntime) / facilityOperating) * 100;
+    record.facilityUptime = ((facilityOperating - facilityDowntime) / facilityOperating) * 100;
+    record.facility_uptime = record.facilityUptime;
   }
 }
 

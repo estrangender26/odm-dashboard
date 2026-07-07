@@ -60,10 +60,7 @@ function createContext() {
 }
 
 function makeBaseRecord(month: number, overrides: any = {}) {
-  return {
-    business_unit: "AMD-EZ",
-    reporting_year: 2026,
-    reporting_month: month,
+  const rawFields: Record<string, number | null> = {
     actual_spend: null,
     budget: null,
     pm_orders_completed_on_time: null,
@@ -79,10 +76,36 @@ function makeBaseRecord(month: number, overrides: any = {}) {
     total_downtime: null,
     number_of_repairs: null,
     total_operating_time: null,
+  };
+  const record: any = {
+    business_unit: "AMD-EZ",
+    reporting_year: 2026,
+    reporting_month: month,
     notes: null,
     raw_imported_values: { values: {} },
+    ...rawFields,
     ...overrides,
   };
+  // Mirror any provided raw field overrides into raw_imported_values so the
+  // records resemble real imported data and zero values are not treated as
+  // blank placeholder rows by hasImportedKpiValue. Also mirror MTTR downtime
+  // into the displayed/source MTTR column and facility downtime into the
+  // displayed/source uptime column so rawValueForUiKpi finds them.
+  Object.keys(rawFields).forEach((k) => {
+    if (overrides[k] !== undefined) {
+      record.raw_imported_values.values[k] = overrides[k];
+    }
+  });
+  if (overrides.mttr_downtime !== undefined) {
+    record.raw_imported_values.values.mttr_days = overrides.mttr_downtime;
+  }
+  if (overrides.total_downtime !== undefined) {
+    record.raw_imported_values.values.mttr_days = overrides.total_downtime;
+  }
+  if (overrides.facility_downtime !== undefined) {
+    record.raw_imported_values.values.facility_uptime = ((overrides.facility_operating_time ?? record.facility_operating_time) - overrides.facility_downtime) / (overrides.facility_operating_time ?? record.facility_operating_time) * 100;
+  }
+  return record;
 }
 
 describe("monthly records table trend values", () => {

@@ -100,31 +100,37 @@ function baseRecord(month: number, kpiKey: string, value: number) {
   };
   switch (kpiKey) {
     case "budgetSpend":
+      record.budgetSpend = value;
       record.budget_spend = value;
       record.actual_spend = value;
       record.budget = 100;
       break;
     case "pmcmWORatio":
+      record.pmcmWORatio = value;
       record.pm_cm_work_order_ratio = value;
       record.pm_work_orders = value;
       record.cm_work_orders = 20;
       break;
     case "pmcmCostRatio":
+      record.pmcmCostRatio = value;
       record.pm_cm_cost_ratio = value;
       record.pm_cost = value;
       record.cm_cost = 25;
       break;
     case "mttr":
+      record.mttr = value;
       record.mttr_days = value;
       record.mttr_downtime = value;
       record.repair_count = 1;
       break;
     case "pmCompliance":
+      record.pmCompliance = value;
       record.pm_compliance = value;
       record.pm_orders_completed_on_time = value;
       record.total_pm_orders = 100;
       break;
     case "facilityUptime":
+      record.facilityUptime = value;
       record.facility_uptime = value;
       record.facility_operating_time = 744;
       record.facility_downtime = 7.44;
@@ -136,6 +142,26 @@ function baseRecord(month: number, kpiKey: string, value: number) {
 function findChart(capturedCharts: any[], title: string) {
   return capturedCharts.find((c: any) => c.options?.scales?.y?.title?.text === title);
 }
+function recordWithRawOnly(month: number, kpiKey: string, rawValues: Record<string, number | null>) {
+  const record: any = baseRecord(month, kpiKey, 0);
+  // Set all displayed KPI values to null while keeping raw fields, simulating
+  // a persisted record where computed columns are missing but raw inputs exist.
+  [
+    'pm_compliance',
+    'budget_spend',
+    'pm_cm_work_order_ratio',
+    'pm_cm_cost_ratio',
+    'mttr_days',
+    'facility_uptime',
+  ].forEach((field) => {
+    record[field] = null;
+  });
+  Object.keys(rawValues).forEach((k) => {
+    record[k] = rawValues[k];
+  });
+  return record;
+}
+
 
 describe("Monthly KPI chart YTD/Trend carry-forward prevention", () => {
   it("Budget Spend YTD/Trend does not carry forward past last actual month", () => {
@@ -261,8 +287,8 @@ describe("Monthly KPI chart YTD/Trend carry-forward prevention", () => {
   it("MTTR YTD is weighted downtime over repairs, not sum or simple average", () => {
     const { context } = createScorecardContext();
     const records = [
-      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_days: 10, mttr_downtime: 10, repair_count: 1 },
-      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr_days: 5, mttr_downtime: 30, repair_count: 6 },
+      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr: 10, mttr_days: 10, mttr_downtime: 10, repair_count: 1 },
+      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr: 5, mttr_days: 5, mttr_downtime: 30, repair_count: 6 },
     ];
     const feb = context.computeTrendKpiValuesForMonth(records, 2);
     // Weighted YTD MTTR = (10 + 30) / (1 + 6) = 40 / 7 ≈ 5.71
@@ -313,11 +339,92 @@ describe("Monthly KPI chart YTD/Trend carry-forward prevention", () => {
 
   it("MTTR future months are null", () => {
     const { context } = createScorecardContext();
-    const records = [{ business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_days: 10, mttr_downtime: 10, repair_count: 1 }];
+    const records = [{ business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr: 10, mttr_days: 10, mttr_downtime: 10, repair_count: 1 }];
     const may = context.computeTrendKpiValuesForMonth(records, 5);
     expect(may.mttr).toBeNull();
   });
 });
+
+
+
+  it("specific BU PM Compliance trend stops when that BU has no displayed PM Compliance value", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    // Jan-Jun have imported PM Compliance values; Jul-Dec have raw inputs but
+    // no computed/displayed value, so the table shows No Data.
+    const records = [
+      ...[1, 2, 3, 4, 5, 6].map((m) => baseRecord(m, "pmCompliance", 90 + m)),
+      ...[7, 8, 9, 10, 11, 12].map((m) =>
+        recordWithRawOnly(m, "pmCompliance", {
+          pm_orders_completed_on_time: 0,
+          total_pm_orders: 100,
+        })
+      ),
+    ];
+    context.applyPersistedMonthlyKpiRecords(records, { businessUnitId: "ez" });
+    context.renderBUCharts("ez");
+    const chart = findChart(capturedCharts, "PM Compliance %");
+    const trendDataset = chart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    const actualDataset = chart.data.datasets.find((ds: any) => ds.label === "Monthly Actual");
+    expect(trendDataset.data[5]).toBeCloseTo((91 + 92 + 93 + 94 + 95 + 96) / 6, 2);
+    expect(trendDataset.data[6]).toBeNull();
+    expect(trendDataset.data[11]).toBeNull();
+    expect(actualDataset.data[5]).toBeCloseTo(96, 2);
+    expect(actualDataset.data[6]).toBeNull();
+    expect(actualDataset.data[11]).toBeNull();
+  });
+
+  it("specific BU real 0% PM Compliance still renders as 0", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    const records = [
+      baseRecord(1, "pmCompliance", 90),
+      {
+        ...baseRecord(2, "pmCompliance", 0),
+        pm_orders_completed_on_time: 0,
+        total_pm_orders: 100,
+      },
+    ];
+    context.applyPersistedMonthlyKpiRecords(records, { businessUnitId: "ez" });
+    context.renderBUCharts("ez");
+    const chart = findChart(capturedCharts, "PM Compliance %");
+    const trendDataset = chart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    const actualDataset = chart.data.datasets.find((ds: any) => ds.label === "Monthly Actual");
+    expect(actualDataset.data[1]).toBeCloseTo(0, 2);
+    expect(trendDataset.data[1]).toBeCloseTo((90 + 0) / 2, 2);
+  });
+
+  it("specific BU No Data months are null, not 0", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    const records = [
+      baseRecord(1, "pmCompliance", 90),
+      recordWithRawOnly(2, "pmCompliance", { pm_orders_completed_on_time: null, total_pm_orders: 100 }),
+    ];
+    context.applyPersistedMonthlyKpiRecords(records, { businessUnitId: "ez" });
+    context.renderBUCharts("ez");
+    const chart = findChart(capturedCharts, "PM Compliance %");
+    const trendDataset = chart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    const actualDataset = chart.data.datasets.find((ds: any) => ds.label === "Monthly Actual");
+    expect(trendDataset.data[1]).toBeNull();
+    expect(trendDataset.data[1]).not.toBe(0);
+    expect(actualDataset.data[1]).toBeNull();
+    expect(actualDataset.data[1]).not.toBe(0);
+  });
+
+  it("specific BU PM:CM WO can continue later than PM Compliance when it has imported values", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    const records = [
+      ...[1, 2].map((m) => baseRecord(m, "pmCompliance", 90 + m)),
+      ...[1, 2, 3, 4].map((m) => baseRecord(m, "pmcmWORatio", 80 + m)),
+    ];
+    context.applyPersistedMonthlyKpiRecords(records, { businessUnitId: "ez" });
+    context.renderBUCharts("ez");
+    const pmChart = findChart(capturedCharts, "PM Compliance %");
+    const woChart = findChart(capturedCharts, "PM:CM WO %");
+    const pmTrend = pmChart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    const woTrend = woChart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
+    expect(pmTrend.data[2]).toBeNull();
+    expect(woTrend.data[3]).not.toBeNull();
+  });
+
 
 describe("summary chart per-KPI carry-forward prevention", () => {
   it("PM Compliance YTD stops after last month with PM Compliance source data, but PM:CM WO continues", () => {
