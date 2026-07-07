@@ -2800,20 +2800,16 @@ function normalizeConsolidatedBusinessUnit(value){
 }
 
 function findConsolidatedBusinessUnitHeader(headers){
-  var aliases = ['business unit','businessunit','business_unit','bu','facility','plant'];
+  // Avoid 'facility'/'plant' aliases because they overlap with KPI sheet names such as
+  // "Facility Uptime (%)" and could be mistaken for the Business Unit column.
+  var aliases = ['business unit','businessunit','business_unit','bu'];
   for(var i=0;i<headers.length;i++){
     var h = normalizeHeader(headers[i]);
     if(!h) continue;
     for(var j=0;j<aliases.length;j++){
       var normalizedAlias = normalizeHeader(aliases[j]);
       // Require exact match for short aliases like 'bu' to avoid matching unrelated words.
-      if(normalizedAlias.length <= 2){
-        if(h === normalizedAlias) return i;
-        continue;
-      }
-      // Require exact match or alias followed by a separator so formula columns
-      // like "Facility Uptime (%)" are not mistaken for the Business Unit column.
-      if(h === normalizedAlias || (h.indexOf(normalizedAlias) === 0 && !/[a-z0-9]/.test(h.charAt(normalizedAlias.length)))) return i;
+      if(normalizedAlias.length <= 2 ? h === normalizedAlias : h.indexOf(normalizedAlias) === 0) return i;
     }
   }
   return -1;
