@@ -1338,6 +1338,9 @@ function getBusinessUnitYearAverages(buId,year){
 
 function getPortfolioAverageForMonth(year,month,key){
   if(!KpiAggregates || Number(KpiAggregates.reportingYear)!==Number(year))return null;
+  // portfolioMonthlyAverages holds trend-ready values: running averages for
+  // monthly KPIs and cumulative/YTD values for YTD KPIs. Months without data
+  // are null rather than zero-filled.
   return aggregateValueForUiKey((KpiAggregates.portfolioMonthlyAverages || {})[month],key);
 }
 
