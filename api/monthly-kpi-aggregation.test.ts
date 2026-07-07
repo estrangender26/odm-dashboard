@@ -210,16 +210,16 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.byBusinessUnitMap["AMD-EZ"].pmCmCostRatio).toBeCloseTo((3000 / 4500) * 100, 2);
   });
 
-  it("recomputes MTTR as YTD cumulative downtime over cumulative repairs", () => {
+  it("recomputes MTTR as cumulative sum of monthly MTTR days", () => {
     const result = aggregateMonthlyKpiRecords(
       [
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, total_downtime: 10, number_of_repairs: 2 },
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, total_downtime: 12, number_of_repairs: 3 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_days: 10 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr_days: 12 },
       ],
       2026,
       2
     );
-    expect(result.byBusinessUnitMap["AMD-EZ"].mttrDays).toBeCloseTo(22 / 5, 2);
+    expect(result.byBusinessUnitMap["AMD-EZ"].mttrDays).toBeCloseTo(22, 2);
   });
 
   it("ignores partial KPI data and returns null for missing KPIs", () => {
@@ -325,16 +325,16 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.portfolioMonthlyAverages[2].pmCmCostRatio).toBeCloseTo((3000 / 4500) * 100, 2);
   });
 
-  it("computes portfolio MTTR trend as cumulative/YTD", () => {
+  it("computes portfolio MTTR trend as cumulative sum of monthly MTTR days", () => {
     const result = aggregateMonthlyKpiRecords(
       [
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, total_downtime: 10, number_of_repairs: 2 },
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, total_downtime: 12, number_of_repairs: 3 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_days: 10 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr_days: 12 },
       ],
       2026
     );
-    expect(result.portfolioMonthlyAverages[1].mttrDays).toBeCloseTo(5, 2);
-    expect(result.portfolioMonthlyAverages[2].mttrDays).toBeCloseTo(22 / 5, 2);
+    expect(result.portfolioMonthlyAverages[1].mttrDays).toBeCloseTo(10, 2);
+    expect(result.portfolioMonthlyAverages[2].mttrDays).toBeCloseTo(22, 2);
   });
 
   it("leaves future trend months as null when no data exists for that month", () => {
