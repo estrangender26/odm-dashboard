@@ -551,21 +551,22 @@ function computePortfolioMonthlyActual(
   // Monthly actual for a single KPI in a single month across all BUs.
   // Only emit a value when the current month has source data for this KPI,
   // so chart Monthly Actual bars do not appear for months with no source data.
-  const hasCurrentMonthData = monthlyRecords.some((record) => hasRawInputForKpi(key, record));
-  if (!hasCurrentMonthData) {
+  const recordsWithSource = monthlyRecords.filter((record) => hasRawInputForKpi(key, record));
+  if (recordsWithSource.length === 0) {
     return null;
   }
   // For MTTR, the portfolio monthly actual must be weighted across BUs.
   if (key === "mttrDays") {
-    return mttrWeightedValue(monthlyRecords);
+    return mttrWeightedValue(recordsWithSource);
   }
-  // Recompute from raw inputs.
+  // Recompute from raw inputs. If the computed value is 0 because the source
+  // value is literally 0, that is valid. If it is null because inputs are
+  // incomplete, skip it. Averaging a single valid 0% record can produce 0,
+  // which is a real monthly value, not missing data.
   const values: number[] = [];
-  monthlyRecords.forEach((record) => {
-    if (hasRawInputForKpi(key, record)) {
-      const computed = computeMonthlyKpiValue(key, record);
-      if (computed !== null) values.push(computed);
-    }
+  recordsWithSource.forEach((record) => {
+    const computed = computeMonthlyKpiValue(key, record);
+    if (computed !== null) values.push(computed);
   });
   return averageKpiValues(values);
 }
