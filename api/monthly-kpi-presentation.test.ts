@@ -2567,13 +2567,17 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(jan.pm_cost).toBe(8000);
     expect(jan.cm_cost).toBe(2000);
     expect(jan.pm_cm_cost_ratio).toBeCloseTo(80, 2);
-    expect(jan.total_downtime).toBe(10);
-    expect(jan.number_of_repairs).toBe(2);
+    expect(jan.mttr_downtime).toBe(10);
+    expect(jan.repair_count).toBe(2);
     expect(jan.mttr_days).toBeCloseTo(5, 2);
-    expect(jan.total_operating_time).toBe(1000);
-    expect(jan.total_downtime).toBe(10);
-    expect(jan.facility_uptime).toBeCloseTo(99, 2);
+    expect(jan.facility_operating_time).toBe(1000);
+    expect(jan.facility_downtime).toBe(0);
+    expect(jan.facility_uptime).toBeCloseTo(100, 2);
     expect(jan.notes).toBe("PM note");
+    // Generic legacy fields should remain null because KPI-specific fields are used.
+    expect(jan.total_downtime).toBeNull();
+    expect(jan.number_of_repairs).toBeNull();
+    expect(jan.total_operating_time).toBeNull();
   });
 
   it("imports both AMD-EZ and Clark Water from a 7-column consolidated workbook", () => {

@@ -38,9 +38,15 @@ export type PersistedMonthlyKpiRecord = {
   cm_work_orders?: number | string | null;
   pm_cost?: number | string | null;
   cm_cost?: number | string | null;
+  // Legacy generic downtime fields (kept for backward compatibility with old imports).
   total_downtime?: number | string | null;
   number_of_repairs?: number | string | null;
   total_operating_time?: number | string | null;
+  // KPI-specific downtime/operating fields to avoid MTTR ↔ Facility Uptime collisions.
+  mttr_downtime?: number | string | null;
+  repair_count?: number | string | null;
+  facility_operating_time?: number | string | null;
+  facility_downtime?: number | string | null;
   source_sheet?: string | null;
   import_batch_id?: string | null;
 };
@@ -219,6 +225,16 @@ function sumField(records: PersistedMonthlyKpiRecord[], field: keyof PersistedMo
   }, 0);
 }
 
+function sumFields(records: PersistedMonthlyKpiRecord[], fields: Array<keyof PersistedMonthlyKpiRecord>) {
+  return records.reduce((sum, record) => {
+    for (const field of fields) {
+      const value = normalizeKpiNumber((record as any)[field]);
+      if (value !== null) return sum + value;
+    }
+    return sum;
+  }, 0);
+}
+
 function safeDivide(numerator: number, denominator: number): number | null {
   if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
   return numerator / denominator;
@@ -232,8 +248,10 @@ function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiR
     return (completed / total) * 100;
   }
   if (key === "facilityUptime") {
-    const operating = normalizeKpiNumber(record.total_operating_time);
-    const downtime = normalizeKpiNumber(record.total_downtime);
+    const operating =
+      normalizeKpiNumber(record.facility_operating_time) ?? normalizeKpiNumber(record.total_operating_time);
+    const downtime =
+      normalizeKpiNumber(record.facility_downtime) ?? normalizeKpiNumber(record.total_downtime);
     if (operating === null || downtime === null || operating === 0) return null;
     return safeDivide((operating as number) - (downtime as number), operating as number)! * 100;
   }
@@ -255,8 +273,10 @@ function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiR
     return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
   }
   if (key === "mttrDays") {
-    const downtime = normalizeKpiNumber(record.total_downtime);
-    const repairs = normalizeKpiNumber(record.number_of_repairs);
+    const downtime =
+      normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
+    const repairs =
+      normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
     return safeDivide(downtime as number, repairs as number);
   }
   return normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
@@ -267,7 +287,11 @@ function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord
     return normalizeKpiNumber(record.pm_orders_completed_on_time) !== null && normalizeKpiNumber(record.total_pm_orders) !== null;
   }
   if (key === "facilityUptime") {
-    return normalizeKpiNumber(record.total_operating_time) !== null && normalizeKpiNumber(record.total_downtime) !== null;
+    const operating =
+      normalizeKpiNumber(record.facility_operating_time) ?? normalizeKpiNumber(record.total_operating_time);
+    const downtime =
+      normalizeKpiNumber(record.facility_downtime) ?? normalizeKpiNumber(record.total_downtime);
+    return operating !== null && downtime !== null;
   }
   if (key === "budgetSpend") {
     return normalizeKpiNumber(record.actual_spend) !== null && normalizeKpiNumber(record.budget) !== null;
@@ -279,7 +303,11 @@ function hasRawInputForKpi(key: MonthlyKpiKey, record: PersistedMonthlyKpiRecord
     return normalizeKpiNumber(record.pm_cost) !== null && normalizeKpiNumber(record.cm_cost) !== null;
   }
   if (key === "mttrDays") {
-    return normalizeKpiNumber(record.total_downtime) !== null && normalizeKpiNumber(record.number_of_repairs) !== null;
+    const downtime =
+      normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime);
+    const repairs =
+      normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
+    return downtime !== null && repairs !== null;
   }
   return false;
 }
@@ -301,8 +329,8 @@ function computeYtdKpiValue(key: MonthlyKpiKey, records: PersistedMonthlyKpiReco
     return safeDivide(pm as number, (pm as number) + (cm as number)) ? safeDivide(pm as number, (pm as number) + (cm as number))! * 100 : null;
   }
   if (key === "mttrDays") {
-    const downtime = sumField(records, "total_downtime");
-    const repairs = sumField(records, "number_of_repairs");
+    const downtime = sumFields(records, ["mttr_downtime", "total_downtime"]);
+    const repairs = sumFields(records, ["repair_count", "number_of_repairs"]);
     return safeDivide(downtime as number, repairs as number);
   }
   return null;
