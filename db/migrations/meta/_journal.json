@@ -71,6 +71,13 @@
       "when": 1783301078050,
       "tag": "0009_monthly_kpi_raw_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783430206762,
+      "tag": "0010_monthly_kpi_raw_fields",
+      "breakpoints": true
     }
   ]
 }
