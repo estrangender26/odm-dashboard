@@ -1090,28 +1090,19 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(html).toContain("May");
     expect(html).toContain("MTTR (Days)");
     expect(html).toContain("Notes");
-    // PM Compliance now displays running/YTD averages in the monthly table.
-    // Jan=91, Feb=(91+92)/2=91.5, Mar=(91+92+93)/3=92, Apr=92.5, May=93.
+    // The monthly table now displays actual monthly imported values, not
+    // running averages or cumulative/YTD values. Jan=91..May=95.
     expect(html).toContain("91.00");
-    expect(html).toContain("91.50");
     expect(html).toContain("92.00");
-    expect(html).toContain("92.50");
     expect(html).toContain("93.00");
-    // Budget Spend displays cumulative/YTD values.
-    expect(html).toContain("100.00");
-    // PM:CM WO ratio displays cumulative/YTD values.
-    expect(html).toContain("85.92");
-    expect(html).toContain("86.01");
-    expect(html).toContain("86.11");
-    expect(html).toContain("86.21");
-    expect(html).toContain("86.30");
-    // PM:CM Cost ratio displays cumulative/YTD values.
-    expect(html).toContain("85.92");
-    expect(html).toContain("86.30");
-    // MTTR displays cumulative/YTD values.
-    expect(html).toContain("10.00");
-    // Facility Uptime displays running average of stored monthly computed values.
-    expect(html).toContain("99.97");
+    expect(html).toContain("94.00");
+    expect(html).toContain("95.00");
+    // Monthly table should NOT contain running-average PM Compliance values.
+    expect(html).not.toContain("91.50");
+    expect(html).not.toContain("92.50");
+    // The audit subtitle explains the distinction.
+    expect(html).toContain("Monthly table shows actual monthly imported values");
+    expect(html).toContain("KPI cards and trend charts show YTD/cumulative or running-average performance");
     expect(html).toContain("Planned shutdown completed.");
     expect(html).not.toContain("Schedule Compliance");
     expect(html).not.toContain("MTBF");

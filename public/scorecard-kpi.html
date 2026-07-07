@@ -2468,26 +2468,20 @@ function renderMonthlyRecords(buId){
     container.innerHTML = '<div class="matrix-title">Monthly Imported Records</div><div class="empty-state">No KPI data imported yet.</div>';
     return;
   }
-  var records = getKpiRecordsForYear(buId,year);
-  var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div><div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
+  var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div>';
+  // Audit-note: the monthly records table shows the actual monthly imported KPI
+  // values exactly as they came from the workbook. KPI cards and trend charts
+  // show YTD/cumulative or running-average values where applicable.
+  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Monthly table shows actual monthly imported values. KPI cards and trend charts show YTD/cumulative or running-average performance where applicable.</div>';
+  html += '<div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
   ['Month','PM Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
   html += '<th class="notes-col">Notes</th>';
   html += '</tr></thead><tbody>';
   for(var month=1;month<=12;month++){
     var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
-    // The table displays trend-ready values: running averages for monthly KPIs,
-    // cumulative/YTD values for YTD KPIs, matching the KPI cards and charts.
-    var trendValues = computeTrendKpiValuesForMonth(records, month);
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
     SummaryMatrixKPIs.forEach(function(key){
-      var val = trendValues[key];
-      // Trend helper is the source of truth for the table. Fall back to the stored
-      // monthly KPI value only if the trend value is missing, using the snake_case
-      // field name so persisted records and imported records behave the same.
-      if(val===undefined||val===null){
-        var snakeKey = snakeAggregateKeyForUiKey(key);
-        val = hasImportedKpiValue(r,key)?r[snakeKey]:null;
-      }
+      var val = hasImportedKpiValue(r,key)?r[key]:null;
       var display = (val===null||val===undefined||val==='')?'No Data':(isPmCmRatioKey(key)?formatDisplayKpiValue(key,val):formatKPIValue(val,{blank:''}));
       var cls = getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+display+'</td>';
