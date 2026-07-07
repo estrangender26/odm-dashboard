@@ -1274,8 +1274,14 @@ function hasKpiSourceData(record, key){
     return rawKpiInputValue(record, 'pm_cost') !== null && rawKpiInputValue(record, 'cm_cost') !== null;
   }
   if(key === 'mttr'){
-    // MTTR is a cumulative KPI; source data is the monthly MTTR days value.
-    return rawKpiInputValue(record, 'mttr_days') !== null;
+    var downtime = rawKpiInputValue(record, 'mttr_downtime', ['total_downtime']);
+    var repairs = rawKpiInputValue(record, 'repair_count', ['number_of_repairs']);
+    // Also accept a pre-computed monthly MTTR plus repair count so we can reconstruct downtime.
+    if(downtime === null){
+      var mttrVal = rawKpiInputValue(record, 'mttr_days');
+      if(mttrVal !== null && repairs !== null) return true;
+    }
+    return downtime !== null && repairs !== null;
   }
   return hasImportedKpiValue(record, key);
 }
@@ -1284,7 +1290,9 @@ function computeTrendKpiValuesForMonth(records, month){
   // Compute trend-ready values up to the given month, matching the KPI cards/charts.
   // PM Compliance and Facility Uptime use running averages of monthly KPI values.
   // Budget Spend, PM:CM WO, PM:CM Cost, and MTTR use cumulative/YTD values.
-  // MTTR YTD is the cumulative sum of monthly MTTR days through the period.
+  // MTTR YTD is weighted: SUM(mttr_downtime) / SUM(repair_count).
+  // If downtime is missing but monthly MTTR and repair count exist, downtime is
+  // reconstructed as monthly MTTR * repair count.
   // Months with no imported record for the requested month, or no source data
   // for the KPI in that month, are left as null so chart lines do not carry forward.
   var result = {};
@@ -1343,13 +1351,20 @@ function computeTrendKpiValuesForMonth(records, month){
       return;
     }
     if(key === 'mttr'){
-      // MTTR YTD is the cumulative sum of monthly MTTR days through the period.
-      var total = 0, hasValue = false;
+      // Cumulative MTTR = SUM(downtime) / SUM(repairs), reconstructing downtime
+      // from monthly MTTR * repair count when raw downtime is unavailable.
+      var downtime = 0, repairs = 0, hasValues = false;
       periodRecords.forEach(function(r){
-        var v = rawKpiInputValue(r, 'mttr_days');
-        if(v !== null){ total += v; hasValue = true; }
+        var d = rawKpiInputValue(r, 'mttr_downtime', ['total_downtime']);
+        var rc = rawKpiInputValue(r, 'repair_count', ['number_of_repairs']);
+        if(d === null && rc !== null){
+          var mttrVal = rawKpiInputValue(r, 'mttr_days');
+          if(mttrVal !== null) d = mttrVal * rc;
+        }
+        if(d !== null){ downtime += d; hasValues = true; }
+        if(rc !== null){ repairs += rc; hasValues = true; }
       });
-      result[key] = hasValue ? total : null;
+      result[key] = hasValues && repairs !== 0 ? downtime / repairs : null;
       return;
     }
     result[key] = null;
