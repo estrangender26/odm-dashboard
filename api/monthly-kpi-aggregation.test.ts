@@ -42,9 +42,9 @@ describe("aggregateMonthlyKpiRecords", () => {
   it("keeps portfolio yearly averages as averages of business-unit aggregates", () => {
     const result = aggregateMonthlyKpiRecords(
       [
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 100 },
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_compliance: 50 },
-        { ...base, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 90 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 100, pm_orders_completed_on_time: 100, total_pm_orders: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_compliance: 50, pm_orders_completed_on_time: 50, total_pm_orders: 100 },
+        { ...base, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 90, pm_orders_completed_on_time: 90, total_pm_orders: 100 },
       ],
       2026
     );
@@ -137,8 +137,8 @@ describe("aggregateMonthlyKpiRecords", () => {
   it("prefers current AMD-EZ records over legacy ez alias records for the same year and month", () => {
     const result = aggregateMonthlyKpiRecords(
       [
-        { ...base, business_unit: "ez", reporting_year: 2026, reporting_month: 5, pm_compliance: 10 },
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 5, pm_compliance: 100 },
+        { ...base, business_unit: "ez", reporting_year: 2026, reporting_month: 5, pm_compliance: 10, pm_orders_completed_on_time: 10, total_pm_orders: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 5, pm_compliance: 100, pm_orders_completed_on_time: 100, total_pm_orders: 100 },
       ],
       2026
     );
@@ -366,8 +366,8 @@ describe("aggregateMonthlyKpiRecords", () => {
   it("returns portfolioMonthlyActuals with actual monthly values averaged across BUs", () => {
     const result = aggregateMonthlyKpiRecords(
       [
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 90, budget_spend: 80 },
-        { ...base, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 100, budget_spend: 120 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 90, pm_orders_completed_on_time: 90, total_pm_orders: 100, budget_spend: 80, actual_spend: 80, budget: 100 },
+        { ...base, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 100, pm_orders_completed_on_time: 100, total_pm_orders: 100, budget_spend: 120, actual_spend: 120, budget: 100 },
       ],
       2026
     );
