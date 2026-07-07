@@ -2866,12 +2866,16 @@ var ConsolidatedSheetConfigs = [
   {sheetMatch:/mttr/i,kpi:'mttr',fields:{
     downtime:['total downtime','downtime','equipment downtime','technical downtime'],
     repairs:['number of repairs','repairs','count of repairs','repair count'],
-    ignore:['mttr','mttr %','mttr (days)','mttr days','cumulative mttr','cumulative mttr (days)','cumulative mttr (%)']
+    ignore:['mttr','mttr %','mttr (days)','mttr days','cumulative mttr','cumulative mttr (days)','cumulative mttr (%)'],
+    // KPI-specific output keys so MTTR downtime is never merged into Facility Uptime.
+    outputKeys:{downtime:'mttr_downtime', repairs:'repair_count'}
   }},
   {sheetMatch:/facility\s*uptime|uptime/i,kpi:'facilityUptime',fields:{
     operating:['total operating time','operating time','total operating hours'],
     downtime:['total downtime','downtime','facility downtime'],
-    ignore:['facility uptime','facility uptime %','facility uptime (%)','average / ytd kpi','average / ytd kpi %','average / ytd kpi (%)']
+    ignore:['facility uptime','facility uptime %','facility uptime (%)','average / ytd kpi','average / ytd kpi %','average / ytd kpi (%)'],
+    // KPI-specific output keys so Facility Uptime downtime is never merged into MTTR.
+    outputKeys:{operating:'facility_operating_time', downtime:'facility_downtime'}
   }}
 ];
 
@@ -2906,7 +2910,7 @@ function mapConsolidatedSheetHeaders(headers, config){
     var ignorePatterns = config.fields.ignore;
     if(ignorePatterns && matchConsolidatedHeader(header, ignorePatterns)) return;
     Object.keys(config.fields).forEach(function(fieldKey){
-      if(fieldKey === 'ignore') return;
+      if(fieldKey === 'ignore' || fieldKey === 'outputKeys') return;
       if(map.fields[fieldKey] !== undefined) return;
       if(matchConsolidatedHeader(header, config.fields[fieldKey])) map.fields[fieldKey] = index;
     });
@@ -2927,11 +2931,17 @@ function computeImportedMonthlyKpis(record){
   if(record.pm_cost !== null && record.cm_cost !== null && (record.pm_cost + record.cm_cost) !== 0){
     record.pm_cm_cost_ratio = (record.pm_cost / (record.pm_cost + record.cm_cost)) * 100;
   }
-  if(record.total_downtime !== null && record.number_of_repairs !== null && record.number_of_repairs !== 0){
-    record.mttr_days = record.total_downtime / record.number_of_repairs;
+  // MTTR uses KPI-specific downtime/repair fields; fall back to legacy generic fields for old records.
+  var mttrDowntime = record.mttr_downtime !== null ? record.mttr_downtime : record.total_downtime;
+  var repairCount = record.repair_count !== null ? record.repair_count : record.number_of_repairs;
+  if(mttrDowntime !== null && repairCount !== null && repairCount !== 0){
+    record.mttr_days = mttrDowntime / repairCount;
   }
-  if(record.total_operating_time !== null && record.total_downtime !== null && record.total_operating_time !== 0){
-    record.facility_uptime = ((record.total_operating_time - record.total_downtime) / record.total_operating_time) * 100;
+  // Facility Uptime uses KPI-specific operating/downtime fields; fall back to legacy generic fields for old records.
+  var facilityOperating = record.facility_operating_time !== null ? record.facility_operating_time : record.total_operating_time;
+  var facilityDowntime = record.facility_downtime !== null ? record.facility_downtime : record.total_downtime;
+  if(facilityOperating !== null && facilityDowntime !== null && facilityOperating !== 0){
+    record.facility_uptime = ((facilityOperating - facilityDowntime) / facilityOperating) * 100;
   }
 }
 
@@ -2960,9 +2970,15 @@ function emptyImportedKpiRecord(buApiValue, year, month, sourceFileName, sourceS
     cm_work_orders: null,
     pm_cost: null,
     cm_cost: null,
+    // Legacy generic downtime/operating fields (kept for backward compatibility with old imports).
     total_downtime: null,
     number_of_repairs: null,
     total_operating_time: null,
+    // KPI-specific fields to prevent MTTR ↔ Facility Uptime collisions.
+    mttr_downtime: null,
+    repair_count: null,
+    facility_operating_time: null,
+    facility_downtime: null,
     raw_imported_values: {sourceSheet: sourceSheet || 'Consolidated', values:{}}
   };
 }
@@ -3018,6 +3034,11 @@ function parseConsolidatedSheet(workbook, sheetName, config, fileName){
           repairs:'number_of_repairs',
           operating:'total_operating_time'
         }[fieldKey];
+        // KPI-specific output keys take precedence for MTTR and Facility Uptime so their
+        // downtime/operating fields never collide after multi-sheet merge.
+        if(config.fields.outputKeys && config.fields.outputKeys[fieldKey]){
+          dbKey = config.fields.outputKeys[fieldKey];
+        }
         if(dbKey){
           record[dbKey] = parsedValue;
           rawValues.values[dbKey] = rawImportedCellValue(rawValue, cell);
