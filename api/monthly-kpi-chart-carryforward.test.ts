@@ -116,7 +116,8 @@ function baseRecord(month: number, kpiKey: string, value: number) {
       break;
     case "mttr":
       record.mttr_days = value;
-      // Leave mttr_downtime/repair_count null so MTTR is driven solely by monthly mttr_days.
+      record.mttr_downtime = value;
+      record.repair_count = 1;
       break;
     case "pmCompliance":
       record.pm_compliance = value;
@@ -189,7 +190,7 @@ describe("Monthly KPI chart YTD/Trend carry-forward prevention", () => {
     const chart = findChart(capturedCharts, "MTTR days");
     const trendDataset = chart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
     expect(trendDataset.data[0]).toBeCloseTo(6, 2);
-    expect(trendDataset.data[1]).toBeCloseTo(6 + 7, 2);
+    expect(trendDataset.data[1]).toBeCloseTo((6 + 7) / 2, 2);
     expect(trendDataset.data[2]).toBeNull();
     expect(trendDataset.data[11]).toBeNull();
   });
@@ -257,18 +258,21 @@ describe("Monthly KPI chart YTD/Trend carry-forward prevention", () => {
     expect(trendDataset.data[11]).toBeNull();
   });
 
-  it("MTTR YTD is cumulative sum of monthly MTTR days, not average", () => {
+  it("MTTR YTD is weighted downtime over repairs, not sum or simple average", () => {
     const { context } = createScorecardContext();
     const records = [
-      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_days: 10 },
-      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr_days: 5 },
+      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_days: 10, mttr_downtime: 10, repair_count: 1 },
+      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr_days: 5, mttr_downtime: 30, repair_count: 6 },
     ];
     const feb = context.computeTrendKpiValuesForMonth(records, 2);
-    expect(feb.mttr).toBeCloseTo(15, 2);
-    expect(feb.mttr).not.toBeCloseTo(7.5, 2); // not simple average
+    // Weighted YTD MTTR = (10 + 30) / (1 + 6) = 40 / 7 ≈ 5.71
+    // Not (10 + 5) / 2 = 7.5, not 10 + 5 = 15.
+    expect(feb.mttr).toBeCloseTo(40 / 7, 2);
+    expect(feb.mttr).not.toBeCloseTo(7.5, 2);
+    expect(feb.mttr).not.toBeCloseTo(15, 2);
   });
 
-  it("backend MTTR YTD is cumulative sum of monthly MTTR days", () => {
+  it("backend MTTR YTD is weighted downtime over repairs", () => {
     const base = {
       pm_compliance: null,
       budget_spend: null,
@@ -279,13 +283,32 @@ describe("Monthly KPI chart YTD/Trend carry-forward prevention", () => {
     };
     const result = aggregateMonthlyKpiRecords(
       [
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_days: 10 },
-        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr_days: 5 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_downtime: 10, repair_count: 1 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr_downtime: 30, repair_count: 6 },
       ],
       2026
     );
-    expect(result.byBusinessUnitMap["AMD-EZ"].mttrDays).toBeCloseTo(15, 2);
-    expect(result.portfolioMonthlyAverages[2].mttrDays).toBeCloseTo(15, 2);
+    expect(result.byBusinessUnitMap["AMD-EZ"].mttrDays).toBeCloseTo(40 / 7, 2);
+    expect(result.portfolioMonthlyAverages[2].mttrDays).toBeCloseTo(40 / 7, 2);
+  });
+
+  it("backend reconstructs MTTR downtime from monthly MTTR and repair count", () => {
+    const base = {
+      pm_compliance: null,
+      budget_spend: null,
+      pm_cm_work_order_ratio: null,
+      pm_cm_cost_ratio: null,
+      mttr_days: null,
+      facility_uptime: null,
+    };
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, mttr_days: 10, repair_count: 1 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, mttr_days: 5, repair_count: 6 },
+      ],
+      2026
+    );
+    expect(result.byBusinessUnitMap["AMD-EZ"].mttrDays).toBeCloseTo(40 / 7, 2);
   });
 
   it("MTTR future months are null", () => {
