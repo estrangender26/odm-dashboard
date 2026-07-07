@@ -233,6 +233,24 @@ function sumField(records: PersistedMonthlyKpiRecord[], field: keyof PersistedMo
   }, 0);
 }
 
+function mttrWeightedValue(records: PersistedMonthlyKpiRecord[]): number | null {
+  // Portfolio/All-BU MTTR = SUM(downtime) / SUM(repairs) across all records.
+  let totalDowntime = 0;
+  let totalRepairs = 0;
+  records.forEach((record) => {
+    const repairs = normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs);
+    if (repairs === null) return;
+    const downtime =
+      (normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime)) ??
+      reconstructMttrDowntime(record.mttr_days, repairs);
+    if (downtime !== null) {
+      totalDowntime += downtime;
+      totalRepairs += repairs;
+    }
+  });
+  return safeDivide(totalDowntime, totalRepairs);
+}
+
 function reconstructMttrDowntime(mttrDays: number | string | null | undefined, repairs: number): number | null {
   const monthlyMttr = normalizeKpiNumber(mttrDays);
   if (monthlyMttr === null) return null;
@@ -476,6 +494,10 @@ function computePortfolioMonthlyActual(
   monthlyRecords: PersistedMonthlyKpiRecord[]
 ): number | null {
   // Monthly actual for a single KPI in a single month across all BUs.
+  // For MTTR, the portfolio monthly actual must be weighted across BUs.
+  if (key === "mttrDays") {
+    return mttrWeightedValue(monthlyRecords);
+  }
   // Prefer recomputing from raw inputs; fall back to stored computed KPI value.
   const values: number[] = [];
   monthlyRecords.forEach((record) => {
@@ -517,7 +539,12 @@ export function aggregateMonthlyKpiRecords(
 
   const portfolioYearAverage = emptyKpiValues();
   monthlyKpiKeys.forEach((key) => {
-    portfolioYearAverage[key] = averageKpiValues(byBusinessUnit.map((aggregate) => aggregate[key]));
+    if (key === "mttrDays") {
+      // All-BU MTTR = total downtime / total repairs across all yearly records.
+      portfolioYearAverage[key] = mttrWeightedValue(yearlyRecords);
+    } else {
+      portfolioYearAverage[key] = averageKpiValues(byBusinessUnit.map((aggregate) => aggregate[key]));
+    }
   });
 
   // Build trend-ready monthly values. Kept as `portfolioMonthlyAverages` in the
@@ -553,7 +580,7 @@ export function aggregateMonthlyKpiRecords(
           // Cumulative/YTD value up to this month.
           const hasRawInputs = periodRecords.some((record) => hasRawInputForKpi(key, record));
           if (hasRawInputs) {
-            monthValues[key] = computeYtdKpiValue(key, periodRecords);
+            monthValues[key] = key === "mttrDays" ? mttrWeightedValue(periodRecords) : computeYtdKpiValue(key, periodRecords);
           } else {
             monthValues[key] = averageKpiValues(
               monthlyRecords.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
