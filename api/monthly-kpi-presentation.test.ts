@@ -1055,12 +1055,26 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
         business_unit: "AMD-EZ",
         reporting_year: 2026,
         reporting_month: month,
+        // Computed KPI values returned by the backend.
         pm_compliance: 90 + month,
         budget_spend: 100,
         pm_cm_work_order_ratio: 86,
         pm_cm_cost_ratio: 60,
         mttr_days: month,
         facility_uptime: 99.97,
+        // Raw input fields required for trend-ready table display.
+        actual_spend: 100 * month,
+        budget: 100 * month,
+        pm_orders_completed_on_time: 90 + month,
+        total_pm_orders: 100,
+        pm_work_orders: 60 + month,
+        cm_work_orders: 10,
+        pm_cost: 6000 + month * 200,
+        cm_cost: 1000,
+        mttr_downtime: 10 * month,
+        repair_count: month,
+        facility_operating_time: 744,
+        facility_downtime: 0,
         notes: month === 3 ? "Planned shutdown completed.\nSpare delivery tracked." : null,
       })),
       { businessUnitId: "ez" },
@@ -1083,6 +1097,21 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(html).toContain("92.00");
     expect(html).toContain("92.50");
     expect(html).toContain("93.00");
+    // Budget Spend displays cumulative/YTD values.
+    expect(html).toContain("100.00");
+    // PM:CM WO ratio displays cumulative/YTD values.
+    expect(html).toContain("85.92");
+    expect(html).toContain("86.01");
+    expect(html).toContain("86.11");
+    expect(html).toContain("86.21");
+    expect(html).toContain("86.30");
+    // PM:CM Cost ratio displays cumulative/YTD values.
+    expect(html).toContain("85.92");
+    expect(html).toContain("86.30");
+    // MTTR displays cumulative/YTD values.
+    expect(html).toContain("10.00");
+    // Facility Uptime displays running average of stored monthly computed values.
+    expect(html).toContain("99.97");
     expect(html).toContain("Planned shutdown completed.");
     expect(html).not.toContain("Schedule Compliance");
     expect(html).not.toContain("MTBF");
