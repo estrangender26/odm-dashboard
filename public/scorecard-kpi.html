@@ -1257,33 +1257,76 @@ function rawKpiInputValue(record, key, fallbackKeys){
 function hasKpiSourceData(record, key){
   if(!record)return false;
   if(key === 'pmCompliance'){
-    return rawKpiInputValue(record, 'pm_orders_completed_on_time') !== null && rawKpiInputValue(record, 'total_pm_orders') !== null;
+    var completed = rawKpiInputValue(record, 'pm_orders_completed_on_time');
+    var total = rawKpiInputValue(record, 'total_pm_orders');
+    return completed !== null && total !== null && total > 0;
   }
   if(key === 'facilityUptime'){
     var op = rawKpiInputValue(record, 'facility_operating_time', ['total_operating_time']);
     var dt = rawKpiInputValue(record, 'facility_downtime', ['total_downtime']);
-    return op !== null && dt !== null;
+    return op !== null && dt !== null && op > 0;
   }
   if(key === 'budgetSpend'){
-    return rawKpiInputValue(record, 'actual_spend') !== null && rawKpiInputValue(record, 'budget') !== null;
+    var actual = rawKpiInputValue(record, 'actual_spend');
+    var budget = rawKpiInputValue(record, 'budget');
+    return actual !== null && budget !== null && budget > 0;
   }
   if(key === 'pmcmWORatio'){
-    return rawKpiInputValue(record, 'pm_work_orders') !== null && rawKpiInputValue(record, 'cm_work_orders') !== null;
+    var pm = rawKpiInputValue(record, 'pm_work_orders');
+    var cm = rawKpiInputValue(record, 'cm_work_orders');
+    return pm !== null && cm !== null && pm + cm > 0;
   }
   if(key === 'pmcmCostRatio'){
-    return rawKpiInputValue(record, 'pm_cost') !== null && rawKpiInputValue(record, 'cm_cost') !== null;
+    var pm = rawKpiInputValue(record, 'pm_cost');
+    var cm = rawKpiInputValue(record, 'cm_cost');
+    return pm !== null && cm !== null && pm + cm > 0;
   }
   if(key === 'mttr'){
     var downtime = rawKpiInputValue(record, 'mttr_downtime', ['total_downtime']);
     var repairs = rawKpiInputValue(record, 'repair_count', ['number_of_repairs']);
+    if(repairs === null || repairs <= 0) return false;
     // Also accept a pre-computed monthly MTTR plus repair count so we can reconstruct downtime.
     if(downtime === null){
       var mttrVal = rawKpiInputValue(record, 'mttr_days');
-      if(mttrVal !== null && repairs !== null) return true;
+      return mttrVal !== null;
     }
-    return downtime !== null && repairs !== null;
+    return downtime !== null;
   }
   return hasImportedKpiValue(record, key);
+}
+
+function hasPortfolioKpiSourceDataForMonth(year, month, key){
+  // Check whether any business unit has raw source data for this KPI/month.
+  // This is used by summary/portfolio charts so the YTD / Trend line stops at
+  // the last month that actually has source data for that specific KPI,
+  // rather than being carried forward because another KPI has later data.
+  // First check the raw per-BU records if they are loaded.
+  if(MonthlyScoreData){
+    var buIds = Object.keys(MonthlyScoreData).filter(function(buId){
+      return buId !== 'summary' && buId !== 'all';
+    });
+    for(var i=0;i<buIds.length;i++){
+      var yearData = MonthlyScoreData[buIds[i]] && MonthlyScoreData[buIds[i]][year];
+      if(!yearData) continue;
+      var record = yearData[month];
+      if(record && hasKpiSourceData(record, key)) return true;
+    }
+  }
+  // Fallback: trust the backend aggregate's monthly actual value, which already
+  // uses hasRawInputForKpi to decide whether source data exists for the month.
+  if(KpiAggregates && Number(KpiAggregates.reportingYear) === Number(year)){
+    var monthActuals = KpiAggregates.portfolioMonthlyActuals && KpiAggregates.portfolioMonthlyActuals[month];
+    if(monthActuals){
+      var aggregateKey = aggregateKeyForUiKey(key);
+      var uiKey = key;
+      var snakeKey = snakeAggregateKeyForUiKey(key);
+      var val = monthActuals[aggregateKey];
+      if(val === undefined) val = monthActuals[uiKey];
+      if(val === undefined) val = monthActuals[snakeKey];
+      if(val !== null && val !== undefined) return true;
+    }
+  }
+  return false;
 }
 
 function computeTrendKpiValuesForMonth(records, month){
@@ -2586,10 +2629,15 @@ var benchmarkPlugin = {
       ctx.font = '700 11px Inter, sans-serif';
       var text = label || formatKPIValue(value);
       var width = ctx.measureText(text).width + 10;
+      var midY = (area.top + area.bottom) / 2;
+      // Place label above the line when the line is in the lower half, below when
+      // it is in the upper half, so benchmark text does not overlap the data.
+      var labelAbove = y >= midY;
+      var labelY = labelAbove ? Math.max(area.top + 2, y - 20) : Math.min(area.bottom - 18, y + 4);
       ctx.fillStyle = color || '#0B1D44';
-      ctx.fillRect(area.right - width, Math.max(area.top + 2, y - 18), width, 16);
+      ctx.fillRect(area.right - width, labelY, width, 16);
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillText(text, area.right - width + 5, Math.max(area.top + 14, y - 6));
+      ctx.fillText(text, area.right - width + 5, labelY + 12);
       ctx.restore();
     }
     (opts.lines || []).forEach(function(line){drawLine(line.value,line.label,line.color,line.dash);});
@@ -2753,10 +2801,12 @@ function renderSummaryCharts(){
     if(Charts[chartKey])Charts[chartKey].destroy();
     var ctx = document.getElementById(chartKey+'-chart');
     if(!ctx)return;
-    var actualData = months.map(function(_,index){return getPortfolioActualForMonth(year,index+1,cfg.key);});
+    var actualData = months.map(function(_,index){
+      if(!hasPortfolioKpiSourceDataForMonth(year,index+1,cfg.key)) return null;
+      return getPortfolioActualForMonth(year,index+1,cfg.key);
+    });
     var trendData = months.map(function(_,index){
-      var actual = actualData[index];
-      if(actual===null || actual===undefined) return null;
+      if(!hasPortfolioKpiSourceDataForMonth(year,index+1,cfg.key)) return null;
       return getPortfolioAverageForMonth(year,index+1,cfg.key);
     });
     var lighterColor = cfg.color + '80';
