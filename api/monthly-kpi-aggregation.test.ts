@@ -162,7 +162,7 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeCloseTo((300 / 300) * 100, 2);
   });
 
-  it("uses selected month only for PM Compliance", () => {
+  it("uses running average up to selected month for PM Compliance", () => {
     const result = aggregateMonthlyKpiRecords(
       [
         { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_orders_completed_on_time: 90, total_pm_orders: 100 },
@@ -171,10 +171,10 @@ describe("aggregateMonthlyKpiRecords", () => {
       2026,
       2
     );
-    expect(result.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo(95, 2);
+    expect(result.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo((90 + 95) / 2, 2);
   });
 
-  it("uses selected month only for Facility Uptime", () => {
+  it("uses running average up to selected month for Facility Uptime", () => {
     const result = aggregateMonthlyKpiRecords(
       [
         { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, total_operating_time: 720, total_downtime: 10 },
@@ -183,7 +183,7 @@ describe("aggregateMonthlyKpiRecords", () => {
       2026,
       2
     );
-    expect(result.byBusinessUnitMap["AMD-EZ"].facilityUptime).toBeCloseTo(((700 - 7) / 700) * 100, 2);
+    expect(result.byBusinessUnitMap["AMD-EZ"].facilityUptime).toBeCloseTo(98.80555555555556, 2);
   });
 
   it("recomputes PM:CM Work Order Ratio as YTD cumulative", () => {
@@ -261,5 +261,92 @@ describe("aggregateMonthlyKpiRecords", () => {
     );
     expect(result.byBusinessUnit).toHaveLength(1);
     expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeCloseTo(100, 2);
+  });
+
+  it("computes portfolio PM Compliance trend as a running average", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_orders_completed_on_time: 90, total_pm_orders: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_orders_completed_on_time: 95, total_pm_orders: 100 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyAverages[1].pmCompliance).toBeCloseTo(90, 2);
+    expect(result.portfolioMonthlyAverages[2].pmCompliance).toBeCloseTo((90 + 95) / 2, 2);
+  });
+
+  it("computes portfolio Facility Uptime trend as a running average", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, total_operating_time: 720, total_downtime: 10 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, total_operating_time: 700, total_downtime: 7 },
+      ],
+      2026
+    );
+    const jan = ((720 - 10) / 720) * 100;
+    const feb = ((700 - 7) / 700) * 100;
+    expect(result.portfolioMonthlyAverages[1].facilityUptime).toBeCloseTo(jan, 2);
+    expect(result.portfolioMonthlyAverages[2].facilityUptime).toBeCloseTo((jan + feb) / 2, 2);
+  });
+
+  it("computes portfolio Budget Spend trend as cumulative/YTD", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, actual_spend: 100, budget: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, actual_spend: 150, budget: 100 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyAverages[1].budgetSpend).toBeCloseTo(100, 2);
+    expect(result.portfolioMonthlyAverages[2].budgetSpend).toBeCloseTo((250 / 200) * 100, 2);
+  });
+
+  it("computes portfolio PM:CM Work Orders trend as cumulative/YTD", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_work_orders: 10, cm_work_orders: 5 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_work_orders: 20, cm_work_orders: 10 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyAverages[1].pmCmWorkOrderRatio).toBeCloseTo((10 / 15) * 100, 2);
+    expect(result.portfolioMonthlyAverages[2].pmCmWorkOrderRatio).toBeCloseTo((30 / 45) * 100, 2);
+  });
+
+  it("computes portfolio PM:CM Cost trend as cumulative/YTD", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_cost: 1000, cm_cost: 500 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, pm_cost: 2000, cm_cost: 1000 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyAverages[1].pmCmCostRatio).toBeCloseTo((1000 / 1500) * 100, 2);
+    expect(result.portfolioMonthlyAverages[2].pmCmCostRatio).toBeCloseTo((3000 / 4500) * 100, 2);
+  });
+
+  it("computes portfolio MTTR trend as cumulative/YTD", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, total_downtime: 10, number_of_repairs: 2 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, total_downtime: 12, number_of_repairs: 3 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyAverages[1].mttrDays).toBeCloseTo(5, 2);
+    expect(result.portfolioMonthlyAverages[2].mttrDays).toBeCloseTo(22 / 5, 2);
+  });
+
+  it("leaves future trend months as null when no data exists for that month", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_orders_completed_on_time: 90, total_pm_orders: 100, actual_spend: 100, budget: 100 },
+      ],
+      2026
+    );
+    expect(result.portfolioMonthlyAverages[1].pmCompliance).toBeCloseTo(90, 2);
+    expect(result.portfolioMonthlyAverages[2].pmCompliance).toBeNull();
+    expect(result.portfolioMonthlyAverages[1].budgetSpend).toBeCloseTo(100, 2);
+    expect(result.portfolioMonthlyAverages[2].budgetSpend).toBeNull();
   });
 });

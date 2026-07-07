@@ -595,8 +595,8 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
     <div class="manual-validation" id="importValidation"></div>
     <div class="manual-controls import-controls">
       <div class="manual-field" style="flex-direction:column;gap:6px">
-        <p style="margin:0;font-size:13px;color:var(--text);line-height:1.5">Upload the consolidated Monthly KPI workbook. Business Unit values will be read from the workbook’s Business Unit column.</p>
-        <p style="margin:0;font-size:12px;color:var(--muted);line-height:1.5">This supports both the full consolidated workbook and BU-level files that use the same consolidated template structure.</p>
+        <p style="margin:0;font-size:13px;color:var(--text);line-height:1.5">Upload the Monthly KPI BU or consolidated template. The workbook may include Summary, ChartData, and Executive Dashboard sheets; only the KPI input sheets are imported.</p>
+        <p style="margin:0;font-size:12px;color:var(--muted);line-height:1.5">Business Unit values are read from the workbook's Business Unit column. Columns A–E are the source of truth for raw records; formula/output columns F–G are ignored.</p>
       </div>
       <div class="manual-field">
         <label for="excelInput">Upload workbook</label>
@@ -2800,7 +2800,9 @@ function normalizeConsolidatedBusinessUnit(value){
 }
 
 function findConsolidatedBusinessUnitHeader(headers){
-  var aliases = ['business unit','businessunit','business_unit','bu','facility','plant'];
+  // Avoid 'facility'/'plant' aliases because they overlap with KPI sheet names such as
+  // "Facility Uptime (%)" and could be mistaken for the Business Unit column.
+  var aliases = ['business unit','businessunit','business_unit','bu'];
   for(var i=0;i<headers.length;i++){
     var h = normalizeHeader(headers[i]);
     if(!h) continue;
@@ -2841,27 +2843,32 @@ var ConsolidatedSheetConfigs = [
   {sheetMatch:/budget\s*spend/i,kpi:'budgetSpend',fields:{
     actualSpend:['actual spend','actual','actuals','spend'],
     budget:['budget','approved budget','cumulative budget'],
-    ignore:['budget spend','budget spend %','budget spend (%)']
+    ignore:['budget spend','budget spend %','budget spend (%)','cumulative budget spend','cumulative budget spend %','cumulative budget spend (%)']
   }},
   {sheetMatch:/pm\s*compliance/i,kpi:'pmCompliance',fields:{
     completed:['pm orders completed on time','pm completed on time','orders completed on time','completed on time','pm orders completed'],
-    total:['total pm orders','total orders','pm orders total','pm orders']
+    total:['total pm orders','total orders','pm orders total'],
+    ignore:['pm compliance','pm compliance %','pm compliance (%)','average / ytd kpi','average / ytd kpi %','average / ytd kpi (%)']
   }},
   {sheetMatch:/pm[:\-\s]?cm.*work\s*orders?|pmcm.*wo|pm:cm.*wo/i,kpi:'pmCmWorkOrderRatio',fields:{
     pm:['pm work orders','preventive work orders','pm wo','pm workorder','pm work order'],
-    cm:['cm work orders','corrective work orders','cm wo','cm workorder','cm work order']
+    cm:['cm work orders','corrective work orders','cm wo','cm workorder','cm work order'],
+    ignore:['pm:cm wo','pm:cm wo %','pm:cm wo (%)','cumulative pm:cm wo','cumulative pm:cm wo %','cumulative pm:cm wo (%)','pm cm wo','pm cm wo %','pm cm wo (%)']
   }},
   {sheetMatch:/pm[:\-\s]?cm.*cost|pmcm.*cost|pm:cm.*cost/i,kpi:'pmCmCostRatio',fields:{
     pmCost:['pm cost','preventive cost','pm costs'],
-    cmCost:['cm cost','corrective cost','cm costs']
+    cmCost:['cm cost','corrective cost','cm costs'],
+    ignore:['pm:cm cost','pm:cm cost %','pm:cm cost (%)','cumulative pm:cm cost','cumulative pm:cm cost %','cumulative pm:cm cost (%)','pm cm cost','pm cm cost %','pm cm cost (%)']
   }},
   {sheetMatch:/mttr/i,kpi:'mttr',fields:{
     downtime:['total downtime','downtime','equipment downtime','technical downtime'],
-    repairs:['number of repairs','repairs','count of repairs','repair count']
+    repairs:['number of repairs','repairs','count of repairs','repair count'],
+    ignore:['mttr','mttr %','mttr (days)','mttr days','cumulative mttr','cumulative mttr (days)','cumulative mttr (%)']
   }},
   {sheetMatch:/facility\s*uptime|uptime/i,kpi:'facilityUptime',fields:{
     operating:['total operating time','operating time','total operating hours'],
-    downtime:['total downtime','downtime','facility downtime']
+    downtime:['total downtime','downtime','facility downtime'],
+    ignore:['facility uptime','facility uptime %','facility uptime (%)','average / ytd kpi','average / ytd kpi %','average / ytd kpi (%)']
   }}
 ];
 
@@ -2892,6 +2899,9 @@ function mapConsolidatedSheetHeaders(headers, config){
       return;
     }
     if(!config) return;
+    // Ignore formula/output columns (columns F and G in the 7-column BU template).
+    var ignorePatterns = config.fields.ignore;
+    if(ignorePatterns && matchConsolidatedHeader(header, ignorePatterns)) return;
     Object.keys(config.fields).forEach(function(fieldKey){
       if(fieldKey === 'ignore') return;
       if(map.fields[fieldKey] !== undefined) return;
@@ -2977,6 +2987,7 @@ function parseConsolidatedSheet(workbook, sheetName, config, fileName){
     if(!bu.bu) continue;
     var record = emptyImportedKpiRecord(bu.bu.apiValue, monthInfo.year, monthInfo.month, fileName, sheetName);
     var rawValues = {rowNumber:i+1, values:{}};
+    var anyRawFieldParsed = false;
     if(headerMap.notes >= 0){
       var rawNoteValue = getRawSummaryValue(row, headerMap.notes);
       var noteValue = normalizeNotesValue(rawNoteValue);
@@ -3007,11 +3018,17 @@ function parseConsolidatedSheet(workbook, sheetName, config, fileName){
         if(dbKey){
           record[dbKey] = parsedValue;
           rawValues.values[dbKey] = rawImportedCellValue(rawValue, cell);
+          if(parsedValue !== null) anyRawFieldParsed = true;
         }
       });
     }
     record.raw_imported_values = {sourceSheet: sheetName, ...rawValues};
     computeImportedMonthlyKpis(record);
+    var hasNotes = record.notes && record.notes.trim().length > 0;
+    if(!anyRawFieldParsed && !hasNotes){
+      console.log('[Monthly KPI import] skipped row '+(i+1)+' in '+sheetName+' because all KPI raw fields are blank');
+      continue;
+    }
     parsed.push(record);
   }
   return parsed;
