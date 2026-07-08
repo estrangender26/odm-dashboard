@@ -1524,7 +1524,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,tkey,ev)});
       var label=document.createElement('label');
       label.htmlFor=fileInId;label.className='up-btn'+(EDIT_MODE?'':' disabled');
-      label.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload '+tkey);
+      label.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?'+ Add Files':'Upload Files');
       if(!EDIT_MODE){label.style.opacity='0.4';label.style.cursor='not-allowed';}
       rDiv.appendChild(fileIn);rDiv.appendChild(label);
       // File list
@@ -1591,7 +1591,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       fileIn.addEventListener('change',function(ev){if(!EDIT_MODE)return;hTocUp(mid,akey,ev)});
       var label=document.createElement('label');
       label.htmlFor=fileInId;label.className='up-btn'+(EDIT_MODE?'':' disabled');
-      label.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?files.length+' file(s)':'Upload A'+aid);
+      label.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(files.length?'+ Add Files':'Upload Files');
       if(!EDIT_MODE){label.style.opacity='0.4';label.style.cursor='not-allowed';}
       rDiv.appendChild(fileIn);rDiv.appendChild(label);
       // File list
@@ -1644,7 +1644,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     otherIn.addEventListener('change',function(ev){hTocUp(mid,otherKey,ev)});
     var otherLabel=document.createElement('label');
     otherLabel.htmlFor=otherInId;otherLabel.className='up-btn'+(EDIT_MODE?'':' disabled');
-    otherLabel.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(otherFiles.length?otherFiles.length+' file(s)':'Upload Other');
+    otherLabel.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(otherFiles.length?'+ Add Files':'Upload Files');
     if(!EDIT_MODE){otherLabel.style.opacity='0.4';otherLabel.style.cursor='not-allowed';}
     otherR.appendChild(otherIn);otherR.appendChild(otherLabel);
     if(otherFiles.length>0){
@@ -2051,18 +2051,18 @@ if(allFiles.length>0){
     fr.appendChild(rm);
     c4.appendChild(fr);
   });
-}else{
-  var dlvR=document.createElement('div');dlvR.className='up-area';
-  var dlvInId='fi-dlv-'+tnum;
-  var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.id=dlvInId;fileIn.className='hidden-fi';
-  fileIn.addEventListener('change',function(ev){hDlvUp(tnum,ev)});
-  var dlvLabel=document.createElement('label');
-  dlvLabel.htmlFor=dlvInId;dlvLabel.className='up-btn'+(EDIT_MODE?'':' disabled');
-  dlvLabel.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload '+tnum;
-  if(!EDIT_MODE){dlvLabel.style.opacity='0.4';dlvLabel.style.cursor='not-allowed';}
-  dlvR.appendChild(fileIn);dlvR.appendChild(dlvLabel);
-  c4.appendChild(dlvR);
 }
+// Always show upload button for this TOC item
+var dlvR=document.createElement('div');dlvR.className='up-area';
+var dlvInId='fi-dlv-'+tnum;
+var fileIn=document.createElement('input');fileIn.type='file';fileIn.multiple=true;fileIn.id=dlvInId;fileIn.className='hidden-fi';
+fileIn.addEventListener('change',function(ev){hDlvUp(tnum,ev)});
+var dlvLabel=document.createElement('label');
+dlvLabel.htmlFor=dlvInId;dlvLabel.className='up-btn'+(EDIT_MODE?'':' disabled');
+dlvLabel.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+(allFiles.length?'+ Add Files':'Upload Files');
+if(!EDIT_MODE){dlvLabel.style.opacity='0.4';dlvLabel.style.cursor='not-allowed';}
+dlvR.appendChild(fileIn);dlvR.appendChild(dlvLabel);
+c4.appendChild(dlvR);
 grid.appendChild(c4);
 });
 el.appendChild(grid);
@@ -2078,11 +2078,19 @@ function hDlvUp(tnum,e){if(!EDIT_MODE){alert('Press Edit to upload files');retur
   var facilitySlug=document.getElementById('fs').value;
   var dbSlug=facilitySlug.toLowerCase();
   var targetMid=owner||'__deliv';
-  var total=files.length, done=0, failed=0;
+  var filterResult=filterNewFiles(files,key);
+  var toUpload=filterResult.toUpload;
+  var skipped=filterResult.skipped;
+  if(toUpload.length===0){
+    pbHide();fileInput.value='';
+    alert(skipped.length ? skipped.length+' file(s) already uploaded for this item and were skipped:\n'+skipped.join('\n') : 'No new files to upload.');
+    return;
+  }
+  var total=toUpload.length, done=0, failed=0;
   pbShow('Uploading '+total+' file(s)', 'Reading files...');
-  console.log('[GOV] hDlvUp:', total, 'files | facility:', facilitySlug, 'key:', key, 'mid:', targetMid);
+  console.log('[GOV] hDlvUp:', total, 'files | facility:', facilitySlug, 'key:', key, 'mid:', targetMid, skipped.length?('skipped '+skipped.length+' duplicates'):'');
 
-  Array.from(files).forEach(function(f){
+  toUpload.forEach(function(f){
     if(f.size > 35 * 1024 * 1024){
       alert('File "'+f.name+'" is too large ('+(f.size/1024/1024).toFixed(1)+'MB). Max is 30MB.');
       done++; failed++;
@@ -2179,17 +2187,56 @@ function fallbackDownload(blob,filename){
 
 function RAC(){const c=document.getElementById('rj');c.innerHTML=RJG.map(function(r,i){return'<div class="rj-item"><span class="rj-num">'+(i+1)+'</span><span class="rj-text">'+r+'</span></div>'}).join('')}
 
+// Helpers to prevent accidental duplicate uploads per TOC item
+function dedupeSelectedFiles(files){
+  var seen=new Set();
+  return Array.from(files).filter(function(f){
+    var key=((f.name||'').toLowerCase())+'|'+f.size;
+    if(seen.has(key))return false;
+    seen.add(key);
+    return true;
+  });
+}
+function existingFileNamesForKey(key){
+  var c=CU();
+  var names=new Set();
+  Object.keys(c.up||{}).forEach(function(mid){
+    var arr=(c.up[mid]&&c.up[mid][key])||[];
+    arr.forEach(function(fi){ names.add((fi.name||fi.n||'').toLowerCase()); });
+  });
+  return names;
+}
+function filterNewFiles(files,key){
+  var deduped=dedupeSelectedFiles(files);
+  var existing=existingFileNamesForKey(key);
+  var skipped=[];
+  var toUpload=deduped.filter(function(f){
+    var lower=(f.name||'').toLowerCase();
+    if(existing.has(lower)){ skipped.push(f.name); return false; }
+    return true;
+  });
+  return { toUpload:toUpload, skipped:skipped };
+}
+
 // UPLOAD a file under a milestone+key (Progress tab TOC/Annex/Other)
 function hTocUp(mid,key,e){if(!EDIT_MODE){alert('Press Edit to upload files');return;}const fileInput=e.target;
   const files=fileInput.files;
   if(!files||files.length===0)return;
   var facilitySlug=document.getElementById('fs').value;
   var dbSlug=facilitySlug.toLowerCase();
-  var total=files.length, done=0, failed=0;
+  var filterResult=filterNewFiles(files,key);
+  var toUpload=filterResult.toUpload;
+  var skipped=filterResult.skipped;
+  if(toUpload.length===0){
+    pbHide();fileInput.value='';
+    alert(skipped.length ? skipped.length+' file(s) already uploaded for this item and were skipped:\n'+skipped.join('\n') : 'No new files to upload.');
+    return;
+  }
+  var total=toUpload.length, done=0, failed=0;
   pbShow('Uploading '+total+' file(s)', 'Reading files...');
-  console.log('[GOV] hTocUp:', total, 'files | facility:', facilitySlug, 'mid:', mid, 'key:', key);
+  console.log('[GOV] hTocUp:', total, 'files | facility:', facilitySlug, 'mid:', mid, 'key:', key, skipped.length?('skipped '+skipped.length+' duplicates'):'');
 
-  Array.from(files).forEach(function(f, idx){
+  toUpload.forEach(function(f, idx){
     // Check file size before reading (max ~30MB before base64 inflation)
     if(f.size > 35 * 1024 * 1024){
       alert('File "'+f.name+'" is too large ('+(f.size/1024/1024).toFixed(1)+'MB). Max is 30MB.');
