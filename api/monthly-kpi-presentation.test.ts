@@ -556,7 +556,7 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
 
   });
 
-  it("renders PM:CM ratio equivalents outside the numeric-only monthly table", () => {
+  it("renders PM:CM ratio equivalents in cards, the Summary Matrix, and the monthly table", () => {
     const monthlyRecordsRenderer = scorecardHtml.slice(
       scorecardHtml.indexOf("function renderMonthlyRecords(buId)"),
       scorecardHtml.indexOf("// ===== CHARTS ====="),
@@ -567,8 +567,7 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(scorecardHtml).toContain("return formatKPIValue(pct)+'% ('+formatPmCmRatioEquivalent(pct)+')';");
     expect(scorecardHtml).toContain("formatDisplayKpiValue(sk.key,val)");
     expect(scorecardHtml).toContain("formatDisplayKpiValue(key,v)");
-    expect(monthlyRecordsRenderer).toContain("formatKPIValue(val,{blank:'—'})");
-    expect(monthlyRecordsRenderer).not.toContain("formatDisplayKpiValue(key,val)");
+    expect(monthlyRecordsRenderer).toContain("formatDisplayKpiValue(key,val,{blank:'—'})");
     expect(scorecardHtml).toContain("if(pct>=100)return 'No CM';");
   });
 
@@ -1064,8 +1063,8 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
         // Computed KPI values returned by the backend.
         pm_compliance: 90 + month,
         budget_spend: 100,
-        pm_cm_work_order_ratio: 86,
-        pm_cm_cost_ratio: 60,
+        pm_cm_work_order_ratio: month === 1 ? 82 : 86,
+        pm_cm_cost_ratio: month === 1 ? 65.34 : 60,
         mttr_days: month,
         facility_uptime: 99.97,
         // Raw input fields required for trend-ready table display.
@@ -1073,10 +1072,10 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
         budget: 100 * month,
         pm_orders_completed_on_time: 90 + month,
         total_pm_orders: 100,
-        pm_work_orders: 60 + month,
-        cm_work_orders: 10,
-        pm_cost: 6000 + month * 200,
-        cm_cost: 1000,
+        pm_work_orders: month === 1 ? 82 : 60 + month,
+        cm_work_orders: month === 1 ? 18 : 10,
+        pm_cost: month === 1 ? 6534 : 6000 + month * 200,
+        cm_cost: month === 1 ? 3466 : 1000,
         mttr_downtime: 10 * month,
         repair_count: month,
         facility_operating_time: 744,
@@ -1113,6 +1112,15 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(html).toContain("Planned shutdown completed.");
     expect(html).not.toContain("Schedule Compliance");
     expect(html).not.toContain("MTBF");
+    const populatedMonthRow = (month: string) => html.match(new RegExp(`<tr><td>${month}</td>[\\s\\S]*?</tr>`))?.[0] ?? "";
+    ["January", "February", "March", "April", "May"].forEach((month) => {
+      expect(populatedMonthRow(month).match(/class="kpi-dual-value"/g)).toHaveLength(2);
+    });
+    expect(populatedMonthRow("January")).toContain('<span class="kpi-dual-primary">82.00%</span><span class="kpi-dual-secondary">(4.6:1)</span>');
+    expect(populatedMonthRow("January")).toContain('<span class="kpi-dual-primary">65.34%</span><span class="kpi-dual-secondary">(1.9:1)</span>');
+    const januaryRecord = (runnableContext as any).MonthlyScoreData.ez[2026][1];
+    expect(januaryRecord.pmcmWORatio).toBeCloseTo((januaryRecord.pm_work_orders / (januaryRecord.pm_work_orders + januaryRecord.cm_work_orders)) * 100, 2);
+    expect(januaryRecord.pmcmCostRatio).toBeCloseTo((januaryRecord.pm_cost / (januaryRecord.pm_cost + januaryRecord.cm_cost)) * 100, 2);
 
     const aggregateSnapshot = {
       reportingYear: 2026,
@@ -1251,9 +1259,11 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(situationHtml).toContain('<th class="notes-col">Notes</th><th class="situation-col">Situation</th>');
     expect(situationHtml).not.toContain("No Data");
     expect(januaryRow).toContain(">0.00<");
+    expect(januaryRow.match(/<span class="kpi-dual-primary">0\.00%<\/span><span class="kpi-dual-secondary">\(0\.0:1\)<\/span>/g)).toHaveLength(2);
     expect(januaryRow).toContain('<td class="notes-col">Zero values recorded.</td><td class="situation-col">—</td>');
     expect(januaryRow).not.toContain("Not Submitted");
     expect(februaryRow).toContain('class="kpi-missing">—</td>');
+    expect(februaryRow).toContain('<span class="kpi-dual-primary">100.00%</span><span class="kpi-dual-secondary">(No CM)</span>');
     expect(februaryRow).toContain('<td class="notes-col">Vendor deferral; No Budget</td><td class="situation-col">No Budget; No CM Cost</td>');
     expect(februaryRow.match(/No Budget/g)).toHaveLength(2);
     expect(marchRow).toContain('<td class="notes-col">—</td><td class="situation-col">No Work Orders; No Qualifying Downtime</td>');
