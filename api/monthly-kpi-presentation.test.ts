@@ -556,13 +556,19 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
 
   });
 
-  it("renders PM:CM ratios as percentages with equivalent ratios", () => {
+  it("renders PM:CM ratio equivalents outside the numeric-only monthly table", () => {
+    const monthlyRecordsRenderer = scorecardHtml.slice(
+      scorecardHtml.indexOf("function renderMonthlyRecords(buId)"),
+      scorecardHtml.indexOf("// ===== CHARTS ====="),
+    );
+
     expect(scorecardHtml).toContain("function formatPmCmRatioEquivalent");
     expect(scorecardHtml).toContain("return (pct / cmShare).toFixed(1)+':1';");
     expect(scorecardHtml).toContain("return formatKPIValue(pct)+'% ('+formatPmCmRatioEquivalent(pct)+')';");
     expect(scorecardHtml).toContain("formatDisplayKpiValue(sk.key,val)");
     expect(scorecardHtml).toContain("formatDisplayKpiValue(key,v)");
-    expect(scorecardHtml).toContain("formatDisplayKpiValue(key,val)");
+    expect(monthlyRecordsRenderer).toContain("formatKPIValue(val,{blank:'—'})");
+    expect(monthlyRecordsRenderer).not.toContain("formatDisplayKpiValue(key,val)");
     expect(scorecardHtml).toContain("if(pct>=100)return 'No CM';");
   });
 
@@ -576,7 +582,7 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(monthlyRecordsRenderer).not.toContain("'Schedule Compliance (%)'");
     expect(monthlyRecordsRenderer).not.toContain("'MTBF (Days)'");
     expect(monthlyRecordsRenderer).toContain("'MTTR (Days)'");
-    expect(monthlyRecordsRenderer).toContain("Notes");
+    expect(monthlyRecordsRenderer).toContain("Situation");
     expect(monthlyRecordsRenderer).not.toContain("PM Planned");
     expect(monthlyRecordsRenderer).not.toContain("pmPlanned");
   });
@@ -596,7 +602,7 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(scorecardHtml).toContain("Business Unit Commentary");
     expect(scorecardHtml).toContain("'Notes': exportRecordValue(row,'notes')");
     expect(scorecardHtml).toContain("payload.raw_imported_values.values.notes = payload.notes");
-    expect(scorecardHtml).toContain("if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';");
+    expect(scorecardHtml).toContain("if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments'||h==='situation')return 'notes';");
     expect(scorecardHtml).toContain("textarea id=\"form-manual-notes\"");
   });
 
@@ -1089,7 +1095,7 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(html).toContain("April");
     expect(html).toContain("May");
     expect(html).toContain("MTTR (Days)");
-    expect(html).toContain("Notes");
+    expect(html).toContain("Situation");
     // The monthly table now displays actual monthly imported values, not
     // running averages or cumulative/YTD values. Jan=91..May=95.
     expect(html).toContain("91.00");
@@ -1106,6 +1112,118 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(html).toContain("Planned shutdown completed.");
     expect(html).not.toContain("Schedule Compliance");
     expect(html).not.toContain("MTBF");
+
+    const aggregateSnapshot = {
+      reportingYear: 2026,
+      byBusinessUnitMap: { "AMD-EZ": { budgetSpend: 26.68, pmCompliance: 100 } },
+      portfolioYearAverage: { budgetSpend: 26.68, pmCompliance: 100 },
+    };
+    (runnableContext as any).KpiAggregates = aggregateSnapshot;
+    const aggregateBeforeRender = JSON.stringify((runnableContext as any).KpiAggregates);
+
+    runnableContext.applyPersistedMonthlyKpiRecords(
+      [
+        {
+          id: 101,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 1,
+          pm_compliance: 0,
+          budget_spend: 0,
+          pm_cm_work_order_ratio: 0,
+          pm_cm_cost_ratio: 0,
+          mttr_days: 0,
+          facility_uptime: 100,
+          pm_orders_completed_on_time: 0,
+          total_pm_orders: 10,
+          actual_spend: 0,
+          budget: 100,
+          pm_work_orders: 0,
+          cm_work_orders: 5,
+          pm_cost: 0,
+          cm_cost: 10,
+          mttr_downtime: 0,
+          repair_count: 1,
+          facility_operating_time: 100,
+          facility_downtime: 0,
+          notes: "Zero values recorded.",
+          raw_imported_values: { values: {} },
+        },
+        {
+          id: 102,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 2,
+          pm_compliance: 100,
+          budget_spend: null,
+          pm_cm_work_order_ratio: 100,
+          pm_cm_cost_ratio: null,
+          mttr_days: 1,
+          facility_uptime: 100,
+          pm_orders_completed_on_time: 10,
+          total_pm_orders: 10,
+          actual_spend: 50,
+          budget: 0,
+          pm_work_orders: 1,
+          cm_work_orders: 0,
+          pm_cost: 0,
+          cm_cost: 0,
+          mttr_downtime: 1,
+          repair_count: 1,
+          facility_operating_time: 100,
+          facility_downtime: 0,
+          notes: "Vendor deferral; No Budget",
+          raw_imported_values: { values: {} },
+        },
+        {
+          id: 103,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 3,
+          pm_compliance: 100,
+          budget_spend: 100,
+          pm_cm_work_order_ratio: null,
+          pm_cm_cost_ratio: 80,
+          mttr_days: null,
+          facility_uptime: 100,
+          pm_orders_completed_on_time: 10,
+          total_pm_orders: 10,
+          actual_spend: 100,
+          budget: 100,
+          pm_work_orders: 0,
+          cm_work_orders: 0,
+          pm_cost: 80,
+          cm_cost: 20,
+          mttr_downtime: 0,
+          repair_count: 0,
+          facility_operating_time: 100,
+          facility_downtime: 0,
+          notes: null,
+          raw_imported_values: { values: {} },
+        },
+      ],
+      { businessUnitId: "ez" },
+    );
+    runnableContext.renderMonthlyRecords("ez");
+
+    const situationHtml = elements["ez-monthly-records"].innerHTML;
+    const monthRow = (month: string) => situationHtml.match(new RegExp(`<tr><td>${month}</td>[\\s\\S]*?</tr>`))?.[0] ?? "";
+    const januaryRow = monthRow("January");
+    const februaryRow = monthRow("February");
+    const marchRow = monthRow("March");
+    const aprilRow = monthRow("April");
+
+    expect(situationHtml).toContain('<th class="notes-col">Situation</th>');
+    expect(situationHtml).not.toContain("No Data");
+    expect(januaryRow).toContain(">0.00<");
+    expect(januaryRow).toContain("Zero values recorded.");
+    expect(januaryRow).not.toContain("Not Submitted");
+    expect(februaryRow).toContain('class="kpi-missing">—</td>');
+    expect(februaryRow).toContain("Vendor deferral; No Budget; No CM Cost");
+    expect(februaryRow.match(/No Budget/g)).toHaveLength(1);
+    expect(marchRow).toContain("No Work Orders; No Qualifying Downtime");
+    expect(aprilRow).toContain("Pending");
+    expect(JSON.stringify((runnableContext as any).KpiAggregates)).toBe(aggregateBeforeRender);
   });
   it("imports visible KPI values from the Summary sheet only, ignoring dedicated sheets", () => {
     const ctx = createImportContext();
@@ -2445,7 +2563,7 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(result.records[0].notes).toBeNull();
   });
 
-  it("recognizes alternate Notes headers such as Remarks and Comment", () => {
+  it("recognizes alternate Notes headers such as Remarks, Comment, and Situation", () => {
     const ctx = createImportContext();
 
     function makeSheet(rows: unknown[][]) {
@@ -2460,7 +2578,7 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     }
 
     const workbook = {
-      SheetNames: ["MTTR", "Facility Uptime"],
+      SheetNames: ["MTTR", "Facility Uptime", "Budget Spend"],
       Sheets: {
         MTTR: makeSheet([
           ["BUSINESS UNIT", "Month", "Total Downtime", "Number of Repairs", "Remarks"],
@@ -2470,13 +2588,17 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
           ["BU", "Month", "Total Operating Time", "Total Downtime", "Comment"],
           ["AMD-EZ", 46023, 1000, 10, "Scheduled outage"],
         ]),
+        "Budget Spend": makeSheet([
+          ["BUSINESS UNIT", "Month", "Actual Spend", "Budget", "Situation"],
+          ["AMD-EZ", 46023, 100, 100, "Budget held"],
+        ]),
       },
     };
 
     const result = ctx.importConsolidatedWorkbook(workbook, "notes-aliases.xlsx");
     expect(result.imported).toBe(1);
     const jan = result.records[0];
-    expect(jan.notes).toBe("MTTR: Pump seal leak; Facility Uptime: Scheduled outage");
+    expect(jan.notes).toBe("MTTR: Pump seal leak; Facility Uptime: Scheduled outage; Budget Spend: Budget held");
     expect(jan.mttr_days).toBeCloseTo(5, 2);
     expect(jan.facility_uptime).toBeCloseTo(99, 2);
   });

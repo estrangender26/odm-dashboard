@@ -1109,7 +1109,14 @@ function normalizeNotesValue(value){
 
 function getRecordNotes(record){
   if(!record)return '';
-  return normalizeNotesValue(record.notes || record.Notes || '');
+  var values = [record.notes,record.Notes,record.situation,record.Situation];
+  var unique = [];
+  values.forEach(function(value){
+    var normalized = normalizeNotesValue(value);
+    if(!normalized)return;
+    if(!unique.some(function(item){return item.toLowerCase()===normalized.toLowerCase();}))unique.push(normalized);
+  });
+  return unique.join('; ');
 }
 
 function renderNotesValue(value){
@@ -1295,6 +1302,126 @@ function hasKpiSourceData(record, key){
     return downtime !== null;
   }
   return hasImportedKpiValue(record, key);
+}
+
+var MonthlyTableKpiSourceFields = {
+  pmCompliance:['pm_orders_completed_on_time','total_pm_orders'],
+  budgetSpend:['actual_spend','budget'],
+  pmcmWORatio:['pm_work_orders','cm_work_orders'],
+  pmcmCostRatio:['pm_cost','cm_cost'],
+  mttr:['mttr_downtime','total_downtime','repair_count','number_of_repairs','mttr_days'],
+  facilityUptime:['facility_operating_time','total_operating_time','facility_downtime','total_downtime']
+};
+
+function rawImportedFieldValue(record,key){
+  if(!record)return undefined;
+  var nested = record.raw_imported_values && typeof record.raw_imported_values==='object' ? record.raw_imported_values.values : null;
+  if(nested && Object.prototype.hasOwnProperty.call(nested,key)){
+    var raw = nested[key];
+    if(raw && typeof raw==='object' && Object.prototype.hasOwnProperty.call(raw,'value'))return raw.value;
+    return raw;
+  }
+  return record[key];
+}
+
+function hasNotApplicableMarker(record,key){
+  return (MonthlyTableKpiSourceFields[key] || []).some(function(field){
+    var raw = rawImportedFieldValue(record,field);
+    if(typeof raw!=='string')return false;
+    var normalized = raw.toLowerCase().replace(/[._-]/g,' ').replace(/\s+/g,' ').trim();
+    return normalized==='n/a' || normalized==='na' || normalized==='not applicable';
+  });
+}
+
+function getMonthlyTableKpiValue(record,key){
+  var value = record ? parseFiniteKPIValue(record[key]) : null;
+  if(value===null)return null;
+  if(value!==0)return value;
+  // A calculated zero is displayable when either the imported KPI cell or the
+  // raw formula inputs prove that zero was submitted. This is intentionally
+  // table-only so card, aggregate, and trend behavior remains unchanged.
+  return hasImportedKpiValue(record,key) || hasKpiSourceData(record,key) ? value : null;
+}
+
+function latestMonthlyTableDataMonth(buId,year){
+  var latest = 0;
+  for(var month=1;month<=12;month++){
+    var record = getMonthlyRecord(buId,year,month);
+    if(record && SummaryMatrixKPIs.some(function(key){return getMonthlyTableKpiValue(record,key)!==null;}))latest = month;
+  }
+  return latest;
+}
+
+function deriveMissingKpiSituation(record,key){
+  if(hasNotApplicableMarker(record,key))return 'Not Applicable';
+  if(key==='budgetSpend'){
+    var budget = rawKpiInputValue(record,'budget');
+    if(budget===0)return 'No Budget';
+    return 'Not Submitted';
+  }
+  if(key==='pmcmWORatio'){
+    var pm = rawKpiInputValue(record,'pm_work_orders');
+    var cm = rawKpiInputValue(record,'cm_work_orders');
+    if(pm!==null && cm!==null && pm+cm===0)return 'No Work Orders';
+    return 'Not Submitted';
+  }
+  if(key==='pmcmCostRatio'){
+    var pmCost = rawKpiInputValue(record,'pm_cost');
+    var cmCost = rawKpiInputValue(record,'cm_cost');
+    if(cmCost===0)return 'No CM Cost';
+    return 'Not Submitted';
+  }
+  if(key==='mttr'){
+    var downtime = rawKpiInputValue(record,'mttr_downtime',['total_downtime']);
+    var repairs = rawKpiInputValue(record,'repair_count',['number_of_repairs']);
+    var monthlyMttr = rawKpiInputValue(record,'mttr_days');
+    if(downtime!==null || repairs!==null || monthlyMttr!==null)return 'No Qualifying Downtime';
+    return 'Not Submitted';
+  }
+  if(key==='pmCompliance'){
+    var totalOrders = rawKpiInputValue(record,'total_pm_orders');
+    if(totalOrders===0)return 'Not Applicable';
+    return 'Not Submitted';
+  }
+  if(key==='facilityUptime'){
+    var operating = rawKpiInputValue(record,'facility_operating_time',['total_operating_time']);
+    if(operating===0)return 'Not Applicable';
+    return 'Not Submitted';
+  }
+  return 'Not Submitted';
+}
+
+function deriveMonthlySituation(record,month,latestDataMonth){
+  var hasCalculatedValue = SummaryMatrixKPIs.some(function(key){return getMonthlyTableKpiValue(record,key)!==null;});
+  if(!hasCalculatedValue && month>latestDataMonth)return ['Pending'];
+  var messages = [];
+  SummaryMatrixKPIs.forEach(function(key){
+    if(getMonthlyTableKpiValue(record,key)!==null)return;
+    var message = deriveMissingKpiSituation(record,key);
+    if(message && messages.indexOf(message)===-1)messages.push(message);
+  });
+  return messages;
+}
+
+function combineSituationText(existing,messages){
+  var current = normalizeNotesValue(existing);
+  var existingParts = current.split(/[;\n]+/).map(function(part){return part.trim().toLowerCase();}).filter(Boolean);
+  var additions = [];
+  (messages || []).forEach(function(message){
+    var normalized = normalizeNotesValue(message);
+    if(!normalized)return;
+    var lower = normalized.toLowerCase();
+    if(existingParts.indexOf(lower)!==-1 || additions.some(function(item){return item.toLowerCase()===lower;}))return;
+    additions.push(normalized);
+  });
+  if(current && additions.length)return current+'; '+additions.join('; ');
+  if(current)return current;
+  return additions.join('; ');
+}
+
+function renderSituationValue(record,messages){
+  var situation = combineSituationText(getRecordNotes(record),messages);
+  return situation ? escapeHtml(situation) : '—';
 }
 
 function hasPortfolioKpiSourceDataForMonth(year, month, key){
@@ -2223,7 +2350,7 @@ function mapSummaryHeader(header){
   if(h==='mtbfdays'||h==='mtbf')return 'mtbf';
   if(h==='mttrdays'||h==='mttr')return 'mttr';
   if(h==='facilityuptime'||h==='facilityuptimepercent')return 'facilityUptime';
-  if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';
+  if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments'||h==='situation')return 'notes';
   return null;
 }
 
@@ -2593,21 +2720,22 @@ function renderMonthlyRecords(buId){
   // Audit-note: the monthly records table shows the actual monthly imported KPI
   // values exactly as they came from the workbook. KPI cards and trend charts
   // show YTD/cumulative or running-average values where applicable.
-  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Monthly table shows actual monthly imported values. KPI cards and trend charts show YTD/cumulative or running-average performance where applicable.</div>';
+  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Monthly table shows actual monthly imported values. KPI cards and trend charts show YTD/cumulative or running-average performance where applicable. Situation preserves imported notes and explains unavailable monthly values.</div>';
   html += '<div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
   ['Month','PM Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
-  html += '<th class="notes-col">Notes</th>';
+  html += '<th class="notes-col">Situation</th>';
   html += '</tr></thead><tbody>';
+  var latestDataMonth = latestMonthlyTableDataMonth(buId,year);
   for(var month=1;month<=12;month++){
     var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
     SummaryMatrixKPIs.forEach(function(key){
-      var val = hasImportedKpiValue(r,key)?r[key]:null;
-      var display = (val===null||val===undefined||val==='')?'No Data':(isPmCmRatioKey(key)?formatDisplayKpiValue(key,val):formatKPIValue(val,{blank:''}));
+      var val = getMonthlyTableKpiValue(r,key);
+      var display = val===null?'—':formatKPIValue(val,{blank:'—'});
       var cls = getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+display+'</td>';
     });
-    html += '<td class="notes-col">'+renderNotesValue(getRecordNotes(r))+'</td>';
+    html += '<td class="notes-col">'+renderSituationValue(r,deriveMonthlySituation(r,month,latestDataMonth))+'</td>';
     html += '</tr>';
   }
   html += '</tbody></table></div>';
@@ -3116,7 +3244,7 @@ function findConsolidatedMonthHeader(headers){
 }
 
 function findConsolidatedNotesHeader(headers){
-  var aliases = ['notes','note','remarks','remark','comment','comments'];
+  var aliases = ['notes','note','remarks','remark','comment','comments','situation'];
   for(var i=0;i<headers.length;i++){
     var h = normalizeHeader(headers[i]);
     if(aliases.indexOf(h)!==-1) return i;
@@ -3550,7 +3678,7 @@ function importLegacyWorkbook(workbook,fileName,importBuId,importBu){
     if(h.includes('pmcm')&&h.includes('cost'))headerMap.pmcmCostRatio=i;
     if(h.includes('mttr'))headerMap.mttr=i;
     if(h.includes('uptime')||h.includes('facility'))headerMap.facilityUptime=i;
-    if(h.includes('notes')||h.includes('remarks')||h.includes('comment'))headerMap.notes=i;
+    if(h.includes('notes')||h.includes('remarks')||h.includes('comment')||h.includes('situation'))headerMap.notes=i;
   });
   var year = getSelectedYear();
   var month = getSelectedMonth();
