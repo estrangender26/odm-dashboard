@@ -6,6 +6,12 @@ import type {
 } from "./types";
 import { createPresentation } from "./pptxBuilder";
 import {
+  createMonthlyKpiTemplatePresentation,
+  loadMonthlyKpiTemplate,
+  type MonthlyKpiTemplateSlide,
+  type MonthlyKpiTemplateStatus,
+} from "./monthlyKpiTemplate";
+import {
   MONTHLY_KPI_DECK_DESIGN,
   MONTHLY_KPI_DECK_SOURCE_LABEL,
 } from "./monthlyKpiDeckDesign";
@@ -188,6 +194,12 @@ function statusTextColor(status: KpiStatus) {
   return status === "warning" || status === "no-data"
     ? COLORS.text
     : COLORS.white;
+}
+
+function templateMetricStatuses(record: KpiRecord) {
+  return kpiColumns.map(column =>
+    getKpiStatus(column.key, record[column.key])
+  ) as MonthlyKpiTemplateStatus[];
 }
 
 function averageMetric(records: KpiRecord[], metric: KpiMetric) {
@@ -1082,6 +1094,203 @@ export function buildMonthlyKpiSlides(
   ];
 }
 
+const TEMPLATE_BENCHMARK_ROW = [
+  "TARGET",
+  "95.00%",
+  "95%–105%",
+  "≥86% (6:1)",
+  "≥60% (1.5:1)",
+  "DOWNWARD",
+  "=100%",
+] as const;
+
+function templateCommentary(dataset: MonthlyKpiScorecardDataset) {
+  const summary = getScorecardSummary(dataset.records);
+  const recordedNotes = dataset.records
+    .map(record => record.notes?.trim())
+    .filter((note): note is string => Boolean(note));
+  const candidates = [
+    ...summary.highlights,
+    ...summary.wins,
+    ...summary.risks,
+    ...recordedNotes,
+    ...dataset.records.flatMap(record => record.actionItems),
+  ].filter(Boolean);
+  const unique = Array.from(new Set(candidates));
+  const fallbacks = [
+    "No additional KPI highlights were recorded for this period.",
+    "No additional major wins were recorded for this period.",
+    "No additional major risks were recorded for this period.",
+    "No additional follow-up actions were recorded for this period.",
+  ];
+  const commentary = unique.length
+    ? [...unique, ...fallbacks]
+    : [MONTHLY_KPI_NOTES_FALLBACK, ...fallbacks];
+  return Array.from(new Set(commentary)).slice(0, 5);
+}
+
+function blankTemplateRow(columnCount: number) {
+  return Array.from({ length: columnCount }, () => "");
+}
+
+function blankTemplateStatuses(columnCount: number) {
+  return Array.from(
+    { length: columnCount },
+    () => "none" as MonthlyKpiTemplateStatus
+  );
+}
+
+function individualTemplateSlides(
+  dataset: MonthlyKpiScorecardDataset
+): MonthlyKpiTemplateSlide[] {
+  const header = [
+    "Month",
+    "PM Compliance",
+    "Budget Spend",
+    "PM:CM Ratio (# of WO's)",
+    "PM:CM Ratio (Cost)",
+    "MTTR (days)",
+    "Facility Uptime",
+    "Notifications",
+  ];
+  const sourceRecords = (dataset.ytdRecords?.length
+    ? dataset.ytdRecords
+    : dataset.records
+  ).filter(record => {
+    const month = Number(record.reportingMonth);
+    return (
+      record.businessUnit === dataset.businessUnit &&
+      Number(record.reportingYear) === dataset.reportingYear &&
+      month >= 1 &&
+      month <= dataset.reportingMonth
+    );
+  });
+  const monthNumbers = Array.from(
+    { length: dataset.reportingMonth },
+    (_, index) => index + 1
+  );
+  const monthChunks = Array.from(
+    { length: Math.ceil(monthNumbers.length / 5) },
+    (_, index) => monthNumbers.slice(index * 5, index * 5 + 5)
+  );
+  const ytdRecord = sourceRecords.length
+    ? aggregateRecords(sourceRecords, "YTD")
+    : emptyRecord("YTD", dataset.reportingMonth, dataset.reportingYear);
+
+  return monthChunks.map(months => {
+    const monthRecords = months.map(month => {
+      const records = recordsForMonth(sourceRecords, month);
+      return records.length
+        ? aggregateRecords(records, MONTH_NAMES[month - 1]?.slice(0, 3))
+        : emptyRecord(
+            MONTH_NAMES[month - 1]?.slice(0, 3) || `M${month}`,
+            month,
+            dataset.reportingYear
+          );
+    });
+    const monthRows = monthRecords.map(record => [
+      record.businessUnit,
+      ...metricValues(record),
+      "No Data",
+    ]);
+    const monthStatuses = monthRecords.map(record => [
+      "none" as const,
+      ...templateMetricStatuses(record),
+      "no-data" as const,
+    ]);
+    while (monthRows.length < 5) {
+      monthRows.push(blankTemplateRow(8));
+      monthStatuses.push(blankTemplateStatuses(8));
+    }
+    return {
+      sourceSlide: 1,
+      title: `${dataset.businessUnit} KPI Scorecard – ${dataset.reportingMonthLabel}`,
+      tableName: "Table 2",
+      rows: [
+        header,
+        ...monthRows,
+        ["YTD", ...metricValues(ytdRecord), "No Data"],
+        ["BASELINE", ...Array.from({ length: 7 }, () => "No Data")],
+        [...TEMPLATE_BENCHMARK_ROW, "No Data"],
+      ],
+      statuses: [
+        blankTemplateStatuses(8),
+        ...monthStatuses,
+        [
+          "none",
+          ...templateMetricStatuses(ytdRecord),
+          "no-data",
+        ],
+        blankTemplateStatuses(8),
+        blankTemplateStatuses(8),
+      ],
+      commentary: templateCommentary(dataset),
+    };
+  });
+}
+
+function portfolioTemplateSlides(
+  dataset: MonthlyKpiScorecardDataset
+): MonthlyKpiTemplateSlide[] {
+  const header = [
+    "Business Unit",
+    "PM Compliance",
+    "Budget Spend",
+    "PM:CM Ratio (# of WO's)",
+    "PM:CM Ratio (Cost)",
+    "MTTR (days)",
+    "Facility Uptime",
+  ];
+  const businessUnitOrder = new Map(
+    matrixBusinessUnitOrder.slice(1).map((unit, index) => [unit, index])
+  );
+  const records = [...dataset.records].sort((a, b) => {
+    const aOrder = businessUnitOrder.get(a.businessUnit) ?? Number.MAX_VALUE;
+    const bOrder = businessUnitOrder.get(b.businessUnit) ?? Number.MAX_VALUE;
+    return aOrder - bOrder || a.businessUnit.localeCompare(b.businessUnit);
+  });
+  const chunks = Array.from(
+    { length: Math.ceil(records.length / 5) },
+    (_, index) => records.slice(index * 5, index * 5 + 5)
+  );
+  return chunks.map((chunk, chunkIndex) => {
+    const rows = chunk.map(record => [
+      record.businessUnit,
+      ...metricValues(record),
+    ]);
+    const statuses = chunk.map(record => [
+      "none" as const,
+      ...templateMetricStatuses(record),
+    ]);
+    while (rows.length < 5) {
+      rows.push(blankTemplateRow(7));
+      statuses.push(blankTemplateStatuses(7));
+    }
+    const pageSuffix = chunks.length > 1
+      ? ` (${chunkIndex + 1}/${chunks.length})`
+      : "";
+    return {
+      sourceSlide: 2,
+      title: `All BUs KPI Scorecard – ${dataset.reportingMonthLabel}${pageSuffix}`,
+      tableName: "Table 0",
+      rows: [header, ...rows, [...TEMPLATE_BENCHMARK_ROW]],
+      statuses: [
+        blankTemplateStatuses(7),
+        ...statuses,
+        blankTemplateStatuses(7),
+      ],
+    };
+  });
+}
+
+export function buildMonthlyKpiTemplateSlides(
+  dataset: MonthlyKpiScorecardDataset
+) {
+  return dataset.businessUnit === ALL_BUSINESS_UNITS_LABEL
+    ? portfolioTemplateSlides(dataset)
+    : individualTemplateSlides(dataset);
+}
+
 export async function generateMonthlyKpiDeck(
   context: DeckGenerationContext
 ): Promise<GeneratedPresentation> {
@@ -1096,7 +1305,11 @@ export async function generateMonthlyKpiDeck(
   );
   const now = new Date();
   const title = `Monthly KPI Scorecard - ${persisted.businessUnit} - ${persisted.reportingMonthLabel}`;
-  const blob = await createPresentation(buildMonthlyKpiSlides(persisted, now));
+  const template = await loadMonthlyKpiTemplate();
+  const blob = await createMonthlyKpiTemplatePresentation(
+    template,
+    buildMonthlyKpiTemplateSlides(persisted)
+  );
   const dataUrl = await blobToDataUrl(blob);
   const name = `${slug(title)}.pptx`;
   const generatedAt = now.toISOString();
@@ -1239,15 +1452,13 @@ export const deckGeneratorRegistry: DeckGenerator[] = [
     id: "monthly-kpi-scorecard",
     title: "Monthly KPI Scorecard Deck",
     description:
-      "Create a five-slide PowerPoint deck from persisted Monthly KPI database records.",
+      "Create a PowerPoint scorecard from persisted Monthly KPI records using the approved scorecard template.",
     category: "Monthly KPI Scorecard",
     status: "active",
     slideOutline: [
-      "Title and reporting scope",
-      "Executive summary",
-      "KPI scorecard table",
-      "KPI charts summary",
-      "Issues and action items",
+      "Template scorecard for the selected business-unit scope",
+      "YTD KPI table or portfolio comparison matrix",
+      "Template commentary area when available",
     ],
     enabled: true,
     generate: generateMonthlyKpiDeck,

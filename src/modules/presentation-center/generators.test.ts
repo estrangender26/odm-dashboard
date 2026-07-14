@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildMonthlyKpiNotesText,
@@ -521,24 +522,40 @@ describe("Monthly KPI presentation generator", () => {
   });
 
   it("passes reporting period selections to the records endpoint", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        records: [
-          {
-            business_unit: "AMD-EZ",
-            reporting_year: 2026,
-            reporting_month: 5,
-            pm_compliance: 0,
-            budget_spend: 101,
-            pm_cm_work_order_ratio: 88,
-            pm_cm_cost_ratio: 64,
-            mttr_days: 3.2,
-            facility_uptime: 99.98,
-            notes: "Database note carried into the generated deck.",
-          },
-        ],
-      })
+    const payload = jsonResponse({
+      records: [
+        {
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 5,
+          pm_compliance: 0,
+          budget_spend: 101,
+          pm_cm_work_order_ratio: 88,
+          pm_cm_cost_ratio: 64,
+          mttr_days: 3.2,
+          facility_uptime: 99.98,
+          notes: "Database note carried into the generated deck.",
+        },
+      ],
+    });
+    const template = await fs.readFile(
+      new URL(
+        "../../../public/templates/monthly-kpi-scorecard-template.potx",
+        import.meta.url
+      )
     );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(payload)
+      .mockResolvedValueOnce(payload)
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () =>
+          template.buffer.slice(
+            template.byteOffset,
+            template.byteOffset + template.byteLength
+          ),
+      });
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("FileReader", MockFileReader);
     vi.stubGlobal("crypto", { randomUUID: () => "deck-id" });
@@ -560,6 +577,16 @@ describe("Monthly KPI presentation generator", () => {
       2,
       "/api/monthly-kpi/records?reporting_year=2026",
       { headers: { Accept: "application/json" } }
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/templates/monthly-kpi-scorecard-template.potx",
+      {
+        headers: {
+          Accept:
+            "application/vnd.openxmlformats-officedocument.presentationml.template",
+        },
+      }
     );
     expect(deck).toMatchObject({
       reportingYear: 2026,
