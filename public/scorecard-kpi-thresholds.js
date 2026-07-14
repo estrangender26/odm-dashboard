@@ -219,6 +219,9 @@
       if (min != null && max != null) return min + "%–" + max + "%";
     }
     if (rule.green && rule.green.min != null) {
+      if (rule.key === "facilityUptime") {
+        return "=" + rule.green.min + (rule.unit === "%" ? "%" : "");
+      }
       return "≥" + rule.green.min + (rule.unit === "%" ? "%" : "");
     }
     return "";
@@ -475,8 +478,9 @@
           '"></div></td>';
         html += '<td class="thr-red-label">' + renderRedLabel(rule) + "</td>";
       } else {
+        var greenOperator = rule.key === "facilityUptime" ? "=" : "≥";
         html +=
-          '<td><div class="bound-group"><span class="bound-label">≥</span><input type="number" step="0.01" class="thr-green-min" value="' +
+          '<td><div class="bound-group"><span class="bound-label">' + greenOperator + '</span><input type="number" step="0.01" class="thr-green-min" value="' +
           (rule.green.min != null ? rule.green.min : "") +
           '"></div></td>';
         html +=

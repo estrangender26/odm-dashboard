@@ -209,6 +209,9 @@ export function formatThresholdBenchmark(rule: KpiThresholdRule): string {
     }
   }
   if (rule.green.min != null) {
+    if (rule.key === "facilityUptime") {
+      return `=${rule.green.min}${rule.unit === "%" ? "%" : ""}`;
+    }
     return `≥${rule.green.min}${rule.unit === "%" ? "%" : ""}`;
   }
   return "";

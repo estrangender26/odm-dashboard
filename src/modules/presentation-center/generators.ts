@@ -69,7 +69,7 @@ const kpiColumns: Array<{
     benchmark: "≥60% (1.5:1)",
   },
   { key: "mttrDays", label: "MTTR", benchmark: "Decreasing Trend" },
-  { key: "facilityUptime", label: "Facility Uptime", benchmark: "99.97%" },
+  { key: "facilityUptime", label: "Facility Uptime", benchmark: "=100%" },
 ];
 
 const matrixBusinessUnitOrder = [

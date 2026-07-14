@@ -6,6 +6,7 @@ import {
   getAvailableMonthlyKpiOptions,
   getPersistedMonthlyKpiScorecard,
   MONTHLY_KPI_TEMPLATE_OPTIONS,
+  scorecardBenchmarks,
 } from "./scorecardData";
 
 function jsonResponse(payload: unknown, ok = true) {
@@ -168,5 +169,9 @@ describe("Monthly KPI presentation scorecard data", () => {
 
   it("keeps Executive Scorecard as the only available template", () => {
     expect(MONTHLY_KPI_TEMPLATE_OPTIONS).toEqual(["Executive Scorecard"]);
+  });
+
+  it("uses the exact Facility Uptime benchmark label in presentation data", () => {
+    expect(scorecardBenchmarks.find((item) => item.key === "facilityUptime")?.benchmark).toBe("=100%");
   });
 });
