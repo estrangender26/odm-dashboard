@@ -1095,6 +1095,7 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(html).toContain("April");
     expect(html).toContain("May");
     expect(html).toContain("MTTR (Days)");
+    expect(html).toContain('<th class="notes-col">Notes</th><th class="situation-col">Situation</th>');
     expect(html).toContain("Situation");
     // The monthly table now displays actual monthly imported values, not
     // running averages or cumulative/YTD values. Jan=91..May=95.
@@ -1247,21 +1248,23 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     const mayRow = monthRow("May");
     const juneRow = monthRow("June");
 
-    expect(situationHtml).toContain('<th class="notes-col">Situation</th>');
+    expect(situationHtml).toContain('<th class="notes-col">Notes</th><th class="situation-col">Situation</th>');
     expect(situationHtml).not.toContain("No Data");
     expect(januaryRow).toContain(">0.00<");
-    expect(januaryRow).toContain("Zero values recorded.");
+    expect(januaryRow).toContain('<td class="notes-col">Zero values recorded.</td><td class="situation-col">—</td>');
     expect(januaryRow).not.toContain("Not Submitted");
     expect(februaryRow).toContain('class="kpi-missing">—</td>');
-    expect(februaryRow).toContain("Vendor deferral; No Budget; No CM Cost");
-    expect(februaryRow.match(/No Budget/g)).toHaveLength(1);
-    expect(marchRow).toContain("No Work Orders; No Qualifying Downtime");
-    expect(aprilRow).toContain("Budget submission received.; Not Submitted; No Budget");
+    expect(februaryRow).toContain('<td class="notes-col">Vendor deferral; No Budget</td><td class="situation-col">No Budget; No CM Cost</td>');
+    expect(februaryRow.match(/No Budget/g)).toHaveLength(2);
+    expect(marchRow).toContain('<td class="notes-col">—</td><td class="situation-col">No Work Orders; No Qualifying Downtime</td>');
+    expect(aprilRow).toContain('<td class="notes-col">Budget submission received.</td><td class="situation-col">Not Submitted; No Budget</td>');
     expect(aprilRow).not.toContain("Pending");
-    expect(mayRow).toContain("Not Submitted");
+    expect(mayRow).toContain('<td class="notes-col">—</td><td class="situation-col">Not Submitted</td>');
     expect(mayRow).not.toContain("No Qualifying Downtime");
     expect(mayRow).not.toContain("Pending");
-    expect(juneRow).toContain("Pending");
+    expect(juneRow).toContain('<td class="notes-col">—</td><td class="situation-col">Pending</td>');
+    expect((runnableContext as any).MonthlyScoreData.ez[2026][2].notes).toBe("Vendor deferral; No Budget");
+    expect((runnableContext as any).MonthlyScoreData.ez[2026][4].notes).toBe("Budget submission received.");
     expect(JSON.stringify((runnableContext as any).KpiAggregates)).toBe(aggregateBeforeRender);
   });
   it("imports visible KPI values from the Summary sheet only, ignoring dedicated sheets", () => {

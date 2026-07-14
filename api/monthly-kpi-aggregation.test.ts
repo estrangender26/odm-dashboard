@@ -212,6 +212,23 @@ describe("aggregateMonthlyKpiRecords", () => {
 
     expect(result.byBusinessUnitMap.LARC.recordCount).toBe(12);
     expect(result.byBusinessUnitMap.LARC.budgetSpend).toBeCloseTo((246556.2 / 924000) * 100, 2);
+    expect(result.byBusinessUnitMap.LARC.budgetSpend).toBeCloseTo(26.68, 2);
+    expect(result.portfolioMonthlyAverages[1].budgetSpend).toBeNull();
+    expect(result.portfolioMonthlyAverages[2].budgetSpend).toBeCloseTo(49.74, 2);
+    expect(result.portfolioMonthlyAverages[3].budgetSpend).toBeCloseTo(33.97, 2);
+    expect(result.portfolioMonthlyAverages[4].budgetSpend).toBeCloseTo(53.37, 2);
+    expect(result.portfolioMonthlyAverages[5].budgetSpend).toBeCloseTo(34.05, 2);
+    expect(result.portfolioMonthlyAverages[6].budgetSpend).toBeCloseTo(26.68, 2);
+    expect(result.portfolioMonthlyActuals[1].budgetSpend).toBeNull();
+    expect(result.portfolioMonthlyActuals[2].budgetSpend).toBeCloseTo(49.13, 2);
+    expect(result.portfolioMonthlyActuals[3].budgetSpend).toBeCloseTo(13.31, 2);
+    expect(result.portfolioMonthlyActuals[4].budgetSpend).toBeNull();
+    expect(result.portfolioMonthlyActuals[5].budgetSpend).toBe(0);
+    expect(result.portfolioMonthlyActuals[6].budgetSpend).toBe(0);
+    for (let month = 7; month <= 12; month += 1) {
+      expect(result.portfolioMonthlyAverages[month].budgetSpend).toBeNull();
+      expect(result.portfolioMonthlyActuals[month].budgetSpend).toBeNull();
+    }
   });
 
   it("uses running average up to selected month for PM Compliance", () => {

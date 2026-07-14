@@ -63,6 +63,7 @@ function createScorecardContext() {
   vm.createContext(context);
   vm.runInContext(scorecardScript, context);
   const ctxAny = context as any;
+  ctxAny.renderBUChartsForTest = ctxAny.renderBUCharts;
   ctxAny.loadData = () => {};
   ctxAny.renderBUCharts = () => {};
   ctxAny.renderSummaryDashboard = () => {};
@@ -184,6 +185,62 @@ describe("Monthly KPI chart dual series", () => {
     ];
     const feb = context.computeTrendKpiValuesForMonth(records, 2);
     expect(feb.budgetSpend).toBeCloseTo(((100 + 150) / (100 + 100)) * 100, 2);
+  });
+
+  it("plots LARC Budget Spend through the latest submitted Actual Spend month", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    const months = [
+      { month: 1, actual: 1600, budget: 0, monthly: null, pm: 91 },
+      { month: 2, actual: 128728.1, budget: 262000, monthly: 49.13, pm: 92 },
+      { month: 3, actual: 26628.1, budget: 200000, monthly: 13.31, pm: 93 },
+      { month: 4, actual: 89600, budget: 0, monthly: null, pm: null },
+      { month: 5, actual: 0, budget: 262000, monthly: 0, pm: null },
+      { month: 6, actual: 0, budget: 200000, monthly: 0, pm: null },
+      { month: 7, actual: null, budget: 0, monthly: null, pm: null },
+      { month: 8, actual: null, budget: 262000, monthly: null, pm: null },
+      { month: 9, actual: null, budget: 200000, monthly: null, pm: null },
+      { month: 10, actual: null, budget: 0, monthly: null, pm: null },
+      { month: 11, actual: null, budget: 262000, monthly: null, pm: null },
+      { month: 12, actual: null, budget: 200000, monthly: null, pm: null },
+    ];
+    context.applyPersistedMonthlyKpiRecords(months.map((entry) => ({
+      business_unit: "LARC",
+      reporting_year: 2026,
+      reporting_month: entry.month,
+      actual_spend: entry.actual,
+      budget: entry.budget,
+      budget_spend: entry.monthly,
+      pm_compliance: entry.pm,
+      pm_orders_completed_on_time: entry.pm,
+      total_pm_orders: entry.pm === null ? null : 100,
+    })), { reset: true });
+
+    context.renderBUChartsForTest("larc");
+
+    const budgetChart = capturedCharts.find((chart: any) =>
+      chart.options?.scales?.y?.title?.text === "Budget Spend %"
+    );
+    const actual = budgetChart.data.datasets.find((dataset: any) => dataset.label === "Monthly Actual").data;
+    const trend = budgetChart.data.datasets.find((dataset: any) => dataset.label === "YTD / Trend").data;
+    expect(actual.slice(0, 6)).toEqual([null, 49.13, 13.31, null, 0, 0]);
+    expect(actual.slice(6)).toEqual([null, null, null, null, null, null]);
+    expect(trend[0]).toBeNull();
+    expect(trend[1]).toBeCloseTo(49.74, 2);
+    expect(trend[2]).toBeCloseTo(33.97, 2);
+    expect(trend[3]).toBeCloseTo(53.37, 2);
+    expect(trend[4]).toBeCloseTo(34.05, 2);
+    expect(trend[5]).toBeCloseTo(26.68, 2);
+    expect(trend.slice(6)).toEqual([null, null, null, null, null, null]);
+
+    const tooltipLabel = budgetChart.options.plugins.tooltip.callbacks.label;
+    expect(tooltipLabel({ dataset: { label: "Monthly Actual" }, parsed: { y: 0 }, dataIndex: 4 })).toContain("0.00");
+    expect(tooltipLabel({ dataset: { label: "Monthly Actual" }, parsed: { y: null }, dataIndex: 3 })).toContain("No Data");
+
+    const pmChart = capturedCharts.find((chart: any) =>
+      chart.options?.scales?.y?.title?.text === "PM Compliance %"
+    );
+    expect(pmChart.data.datasets.find((dataset: any) => dataset.label === "Monthly Actual").data.slice(0, 6)).toEqual([91, 92, 93, null, null, null]);
+    expect(pmChart.data.datasets.find((dataset: any) => dataset.label === "YTD / Trend").data.slice(0, 6)).toEqual([91, 91.5, 92, null, null, null]);
   });
 
   it("computeTrendKpiValuesForMonth computes running average PM Compliance for BU charts", () => {
