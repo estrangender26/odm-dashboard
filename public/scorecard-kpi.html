@@ -2747,7 +2747,7 @@ function renderMonthlyRecords(buId){
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
     SummaryMatrixKPIs.forEach(function(key){
       var val = getMonthlyTableKpiValue(r,key);
-      var display = val===null?'—':formatKPIValue(val,{blank:'—'});
+      var display = val===null?'—':formatDisplayKpiValue(key,val,{blank:'—'});
       var cls = getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+display+'</td>';
     });
