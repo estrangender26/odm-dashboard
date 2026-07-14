@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateKpiStatus,
+  formatThresholdBenchmark,
   getDefaultMonthlyKpiThresholdConfig,
   mergeWithDefaultThresholdConfig,
   validateThresholdConfig,
@@ -42,6 +43,11 @@ describe("Monthly KPI threshold engine", () => {
     const merged = mergeWithDefaultThresholdConfig(custom);
     expect(merged.facilityUptime.green.min).toBe(99.5);
     expect(defaults.facilityUptime.green.min).toBe(100);
+  });
+
+  it("formats the Facility Uptime benchmark as an exact target", () => {
+    expect(formatThresholdBenchmark(defaults.facilityUptime)).toBe("=100%");
+    expect(formatThresholdBenchmark(defaults.pmCompliance)).toBe("≥98%");
   });
 
   describe("Budget Spend two-sided range logic", () => {

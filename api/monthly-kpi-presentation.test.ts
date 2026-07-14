@@ -4,6 +4,7 @@ import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 
 const scorecardHtml = readFileSync(resolve(process.cwd(), "public/scorecard-kpi.html"), "utf8");
+const scorecardThresholdScript = readFileSync(resolve(process.cwd(), "public/scorecard-kpi-thresholds.js"), "utf8");
 
 type AggregateValue = number | string | null | undefined;
 type NormalizedAggregateRow = Record<string, AggregateValue>;
@@ -554,6 +555,24 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(tooltipByKey.facilityUptime?.formula).toBe("(Total Operating Time - Total Downtime) ÷ Total Operating Time × 100");
     expect(tooltipByKey.pmCompliance?.interpretation).toBe("Higher is better.");
 
+  });
+
+  it("uses =100% for every Facility Uptime benchmark label", () => {
+    const context = createScorecardContext() as any;
+    const facilityUptime = context.KPIs.find((kpi: any) => kpi.key === "facilityUptime");
+    const definition = context.getKpiDefinitionRows().find((row: any) => row.key === "facilityUptime");
+    const faq = context.KPI_DEFINITION_FAQ.find((item: any) => item.q.includes("Facility Uptime"));
+
+    expect(facilityUptime.benchmarkLabel).toBe("=100%");
+    expect(facilityUptime.tooltip.target).toBe("=100%");
+    expect(facilityUptime.definitionBenchmark).toBe("=100%");
+    expect(context.getKpiBenchmarkLabel("facilityUptime")).toBe("=100%");
+    expect(definition.benchmark).toBe("=100%");
+    expect(context.getTooltipFooter("facilityUptime")).toEqual(["Benchmark Value: =100%"]);
+    expect(context.benchmarkOptionsFor("facilityUptime").lines[0].label).toBe("Benchmark =100%");
+    expect(faq.a).toContain("benchmark (=100%)");
+    expect(scorecardThresholdScript).toContain('if (rule.key === "facilityUptime")');
+    expect(scorecardThresholdScript).toContain('var greenOperator = rule.key === "facilityUptime" ? "=" : "≥";');
   });
 
   it("renders PM:CM ratio equivalents in cards, the Summary Matrix, and the monthly table", () => {

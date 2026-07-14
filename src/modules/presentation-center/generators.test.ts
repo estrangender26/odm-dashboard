@@ -498,7 +498,7 @@ describe("Monthly KPI presentation generator", () => {
       "≥86% (6:1)",
       "≥60% (1.5:1)",
       "Decreasing Trend",
-      "99.97%",
+      "=100%",
     ]);
   });
 
