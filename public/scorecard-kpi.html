@@ -146,8 +146,8 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .scope-table td:first-child{font-weight:700}
 
 /* GAUGE CARDS */
-.gauge-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
-.gauge-card{position:relative;background:var(--card);border-radius:var(--r);padding:10px 12px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center;transition:var(--transition);overflow:visible;cursor:help}
+.gauge-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:stretch;gap:8px;min-width:0;margin-bottom:10px}
+.gauge-card{position:relative;display:flex;flex-direction:column;min-width:0;height:100%;box-sizing:border-box;background:var(--card);border-radius:var(--r);padding:10px 12px;box-shadow:var(--sh);border:1px solid var(--border);text-align:center;transition:var(--transition);overflow:visible;cursor:help}
 .gauge-card:hover,.gauge-card:focus-within,.gauge-card:focus{box-shadow:var(--sh-hover);border-color:#C8D4E0;transform:translateY(-2px)}
 .gauge-card:focus{outline:2px solid rgba(0,102,166,.35);outline-offset:2px}
 .gauge-title{display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;line-height:1.25}
@@ -168,7 +168,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .gauge-value .kpi-dual-secondary{font-size:12px}
 .matrix-table .kpi-dual-value{min-width:58px}
 .gauge-benchmark{font-size:10px;color:var(--muted);margin-bottom:5px;line-height:1.2}
-.gauge-bar{height:6px;background:#E2E8F0;border-radius:4px;overflow:hidden}
+.gauge-bar{height:6px;margin-top:auto;background:#E2E8F0;border-radius:4px;overflow:hidden}
 .gauge-fill{height:100%;border-radius:4px;transition:width .3s ease}
 .gauge-fill.green{background:var(--green)}
 .gauge-fill.yellow{background:var(--yellow)}
@@ -223,12 +223,31 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 
 /* ===== RESPONSIVE ===== */
 
+/* Keep edge-card tooltips inside the viewport at desktop and medium widths. */
+@media(min-width:1280px){
+  .gauge-card:first-child .gauge-tooltip{left:0;transform:translateY(6px)}
+  .gauge-card:first-child .gauge-tooltip::after{left:28px}
+  .gauge-card:first-child:hover .gauge-tooltip,.gauge-card:first-child:focus-within .gauge-tooltip,.gauge-card:first-child:focus .gauge-tooltip{transform:translateY(0)}
+  .gauge-card:last-child .gauge-tooltip{left:auto;right:0;transform:translateY(6px)}
+  .gauge-card:last-child .gauge-tooltip::after{left:auto;right:28px}
+  .gauge-card:last-child:hover .gauge-tooltip,.gauge-card:last-child:focus-within .gauge-tooltip,.gauge-card:last-child:focus .gauge-tooltip{transform:translateY(0)}
+}
+
+@media(min-width:768px) and (max-width:1279px){
+  .gauge-card:nth-child(3n+1) .gauge-tooltip{left:0;transform:translateY(6px)}
+  .gauge-card:nth-child(3n+1) .gauge-tooltip::after{left:28px}
+  .gauge-card:nth-child(3n+1):hover .gauge-tooltip,.gauge-card:nth-child(3n+1):focus-within .gauge-tooltip,.gauge-card:nth-child(3n+1):focus .gauge-tooltip{transform:translateY(0)}
+  .gauge-card:nth-child(3n) .gauge-tooltip{left:auto;right:0;transform:translateY(6px)}
+  .gauge-card:nth-child(3n) .gauge-tooltip::after{left:auto;right:28px}
+  .gauge-card:nth-child(3n):hover .gauge-tooltip,.gauge-card:nth-child(3n):focus-within .gauge-tooltip,.gauge-card:nth-child(3n):focus .gauge-tooltip{transform:translateY(0)}
+}
+
 /* LAPTOP: 1024px-1279px */
 @media(max-width:1279px){
   .hdr-in{padding:8px 16px}
   .brand img{width:56px;height:56px}
   .main{padding:10px 14px 28px}
-  .gauge-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  .gauge-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
   .chart-row{grid-template-columns:repeat(auto-fit,minmax(350px,1fr))}
   .chart-wrap{height:260px}
 }
@@ -248,7 +267,6 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   .matrix-title{font-size:14px}
   .matrix-table{font-size:12px}
   .matrix-table th,.matrix-table td{padding:8px 6px}
-  .gauge-grid{grid-template-columns:repeat(2,1fr);gap:8px}
   .gauge-card{padding:10px}
   .gauge-value{font-size:21px}
   .chart-row{grid-template-columns:1fr}
@@ -275,7 +293,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   .matrix-card{padding:12px}
   .matrix-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;font-size:11px}
   .matrix-table th,.matrix-table td{padding:6px 4px}
-  .gauge-grid{grid-template-columns:1fr 1fr;gap:8px}
+  .gauge-grid{grid-template-columns:minmax(0,1fr)}
   .gauge-card{padding:10px}
   .gauge-value{font-size:20px}
   .gauge-benchmark{font-size:10px}
@@ -302,7 +320,6 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   .matrix-title{font-size:13px}
   .matrix-table th{font-size:9px;padding:5px 3px}
   .matrix-table td{padding:5px 3px;font-size:10px}
-  .gauge-grid{grid-template-columns:1fr}
   .gauge-value{font-size:20px}
   .chart-wrap{height:200px}
   .chart-title{font-size:12px}

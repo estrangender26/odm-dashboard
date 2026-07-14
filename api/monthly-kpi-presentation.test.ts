@@ -502,6 +502,30 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(extractScriptArray("GaugeKPIs")).not.toContain("pmPlanned");
   });
 
+  it("uses a responsive six, three, and one-column KPI card grid without horizontal overflow", () => {
+    const desktopCss = scorecardHtml.slice(0, scorecardHtml.indexOf("/* ===== RESPONSIVE ===== */"));
+    const mediumCss = scorecardHtml.slice(
+      scorecardHtml.indexOf("/* LAPTOP: 1024px-1279px */"),
+      scorecardHtml.indexOf("/* MOBILE: 640px-767px */"),
+    );
+    const mobileCss = scorecardHtml.slice(
+      scorecardHtml.indexOf("/* MOBILE: 640px-767px */"),
+      scorecardHtml.indexOf("/* SMALL MOBILE: 480px-639px */"),
+    );
+
+    expect(desktopCss).toContain(".gauge-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:stretch");
+    expect(mediumCss).toContain(".gauge-grid{grid-template-columns:repeat(3,minmax(0,1fr))}");
+    expect(mobileCss).toContain(".gauge-grid{grid-template-columns:minmax(0,1fr)}");
+    expect(desktopCss).toContain(".gauge-card{position:relative;display:flex;flex-direction:column;min-width:0;height:100%;box-sizing:border-box");
+    expect(desktopCss).toContain(".gauge-bar{height:6px;margin-top:auto");
+    expect(scorecardHtml).toContain("@media(min-width:1280px){");
+    expect(scorecardHtml).toContain(".gauge-card:last-child .gauge-tooltip{left:auto;right:0");
+    expect(scorecardHtml).toContain("@media(min-width:768px) and (max-width:1279px){");
+    expect(scorecardHtml).toContain(".gauge-card:nth-child(3n) .gauge-tooltip{left:auto;right:0");
+    expect(scorecardHtml).toContain('<div id="summary-gauges" class="gauge-grid"></div>');
+    expect(scorecardHtml).toContain('<div id="business-unit-gauges" class="gauge-grid"></div>');
+  });
+
   it("limits the Summary Matrix to the required KPI metrics without PM Planned", () => {
     expect(extractScriptArray("SummaryMatrixKPIs")).toEqual([
       "pmCompliance",
