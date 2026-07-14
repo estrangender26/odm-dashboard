@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { aggregateMonthlyKpiRecords, monthlyKpiKeys } from "../src/modules/monthly-kpi/kpiAggregation";
+import {
+  aggregateMonthlyKpiRecords,
+  computeMonthlyKpiValuesFromRaw,
+  monthlyKpiKeys,
+} from "../src/modules/monthly-kpi/kpiAggregation";
 
 const base = {
   pm_compliance: null,
@@ -160,6 +164,31 @@ describe("aggregateMonthlyKpiRecords", () => {
       3
     );
     expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeCloseTo((300 / 300) * 100, 2);
+  });
+
+  it("returns zero for monthly Budget Spend when actual spend is zero and budget is positive", () => {
+    const result = computeMonthlyKpiValuesFromRaw({
+      ...base,
+      business_unit: "AMD-EZ",
+      reporting_year: 2026,
+      reporting_month: 1,
+      actual_spend: 0,
+      budget: 100,
+    });
+
+    expect(result.budgetSpend).toBe(0);
+  });
+
+  it("returns zero for YTD Budget Spend when cumulative actual spend is zero and budget is positive", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, actual_spend: 0, budget: 100 },
+        { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 2, actual_spend: 0, budget: 200 },
+      ],
+      2026
+    );
+
+    expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBe(0);
   });
 
   it("stops Budget Spend YTD at the latest nonblank actual while retaining explicit zero-spend months", () => {
