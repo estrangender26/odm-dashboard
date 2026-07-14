@@ -1470,10 +1470,10 @@ function computeTrendKpiValuesForMonth(records, month){
   // MTTR YTD is weighted: SUM(mttr_downtime) / SUM(repair_count).
   // If downtime is missing but monthly MTTR and repair count exist, downtime is
   // reconstructed as monthly MTTR * repair count.
-  // The current month only gets a trend point if the monthly records table would
-  // show a value for that KPI/month. Trend values are computed from prior months
-  // that also have imported values, so the line never extends past the last month
-  // with real data for the selected scope.
+  // Most KPI trend points require a displayable monthly KPI value. Budget Spend
+  // YTD is the exception: submitted Actual Spend, including numeric zero, may emit
+  // a cumulative point even when that month's percentage is unavailable because
+  // Budget is zero. Months without submitted Actual Spend remain unplotted.
   var result = {};
   var monthRecord = records.find(function(r){ return Number(r.reporting_month) === month; });
   if(!monthRecord){
