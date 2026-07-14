@@ -310,7 +310,8 @@ function computeMonthlyKpiValue(key: MonthlyKpiKey, record: PersistedMonthlyKpiR
   if (key === "budgetSpend") {
     const actual = normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend");
     const budget = normalizeKpiNumber(record.budget) ?? rawImportedInputValue(record, "budget");
-    return safeDivide(actual as number, budget as number) ? safeDivide(actual as number, budget as number)! * 100 : null;
+    const ratio = safeDivide(actual as number, budget as number);
+    return ratio === null ? null : ratio * 100;
   }
   if (key === "pmCmWorkOrderRatio") {
     const pm = normalizeKpiNumber(record.pm_work_orders) ?? rawImportedInputValue(record, "pm_work_orders");
@@ -412,7 +413,8 @@ function computeYtdKpiValue(key: MonthlyKpiKey, records: PersistedMonthlyKpiReco
   if (key === "budgetSpend") {
     const actual = sumField(records, "actual_spend");
     const budget = sumField(records, "budget");
-    return safeDivide(actual as number, budget as number) ? safeDivide(actual as number, budget as number)! * 100 : null;
+    const ratio = safeDivide(actual as number, budget as number);
+    return ratio === null ? null : ratio * 100;
   }
   if (key === "pmCmWorkOrderRatio") {
     const pm = sumField(records, "pm_work_orders");
@@ -430,6 +432,21 @@ function computeYtdKpiValue(key: MonthlyKpiKey, records: PersistedMonthlyKpiReco
     return mttrWeightedValue(records);
   }
   return null;
+}
+
+function budgetSpendYtdRecords(records: PersistedMonthlyKpiRecord[]) {
+  // A template can contain planned budgets for future months while Actual Spend
+  // remains blank. Those future plans must not reduce the current YTD result.
+  // An explicit zero actual is reported data, however, and must advance the YTD
+  // cutoff (for example, a completed month with no spend).
+  const latestActualMonth = records.reduce((latestMonth, record) => {
+    const actual = normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend");
+    if (actual === null) return latestMonth;
+    return Math.max(latestMonth, Number(record.reporting_month));
+  }, 0);
+
+  if (latestActualMonth === 0) return records;
+  return records.filter((record) => Number(record.reporting_month) <= latestActualMonth);
 }
 
 export function computeMonthlyKpiValuesFromRaw(record: PersistedMonthlyKpiRecord): Partial<MonthlyKpiValues> {
@@ -492,7 +509,8 @@ function aggregateRecordsForBusinessUnit(
       if (YTD_KEYS.includes(key)) {
         const hasRawInputs = records.some((record) => hasRawInputForKpi(key, record));
         if (hasRawInputs) {
-          aggregate[key] = computeYtdKpiValue(key, records);
+          const ytdRecords = key === "budgetSpend" ? budgetSpendYtdRecords(records) : records;
+          aggregate[key] = computeYtdKpiValue(key, ytdRecords);
           return;
         }
         aggregate[key] = averageKpiValues(
