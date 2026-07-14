@@ -162,6 +162,29 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeCloseTo((300 / 300) * 100, 2);
   });
 
+  it("stops Budget Spend YTD at the latest nonblank actual while retaining explicit zero-spend months", () => {
+    const result = aggregateMonthlyKpiRecords(
+      [
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 1, actual_spend: 1600, budget: 0 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 2, actual_spend: 128728.1, budget: 262000 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 3, actual_spend: 26628.1, budget: 200000 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 4, actual_spend: 89600, budget: 0 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 5, actual_spend: 0, budget: 262000 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 6, actual_spend: 0, budget: 200000 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 7, actual_spend: null, budget: 0 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 8, actual_spend: null, budget: 262000 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 9, actual_spend: null, budget: 200000 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 10, actual_spend: null, budget: 0 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 11, actual_spend: null, budget: 262000 },
+        { ...base, business_unit: "LARC", reporting_year: 2026, reporting_month: 12, actual_spend: null, budget: 200000 },
+      ],
+      2026
+    );
+
+    expect(result.byBusinessUnitMap.LARC.recordCount).toBe(12);
+    expect(result.byBusinessUnitMap.LARC.budgetSpend).toBeCloseTo((246556.2 / 924000) * 100, 2);
+  });
+
   it("uses running average up to selected month for PM Compliance", () => {
     const result = aggregateMonthlyKpiRecords(
       [

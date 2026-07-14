@@ -432,6 +432,21 @@ function computeYtdKpiValue(key: MonthlyKpiKey, records: PersistedMonthlyKpiReco
   return null;
 }
 
+function budgetSpendYtdRecords(records: PersistedMonthlyKpiRecord[]) {
+  // A template can contain planned budgets for future months while Actual Spend
+  // remains blank. Those future plans must not reduce the current YTD result.
+  // An explicit zero actual is reported data, however, and must advance the YTD
+  // cutoff (for example, a completed month with no spend).
+  const latestActualMonth = records.reduce((latestMonth, record) => {
+    const actual = normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend");
+    if (actual === null) return latestMonth;
+    return Math.max(latestMonth, Number(record.reporting_month));
+  }, 0);
+
+  if (latestActualMonth === 0) return records;
+  return records.filter((record) => Number(record.reporting_month) <= latestActualMonth);
+}
+
 export function computeMonthlyKpiValuesFromRaw(record: PersistedMonthlyKpiRecord): Partial<MonthlyKpiValues> {
   const values: Partial<MonthlyKpiValues> = {};
   monthlyKpiKeys.forEach((key) => {
@@ -492,7 +507,8 @@ function aggregateRecordsForBusinessUnit(
       if (YTD_KEYS.includes(key)) {
         const hasRawInputs = records.some((record) => hasRawInputForKpi(key, record));
         if (hasRawInputs) {
-          aggregate[key] = computeYtdKpiValue(key, records);
+          const ytdRecords = key === "budgetSpend" ? budgetSpendYtdRecords(records) : records;
+          aggregate[key] = computeYtdKpiValue(key, ytdRecords);
           return;
         }
         aggregate[key] = averageKpiValues(
