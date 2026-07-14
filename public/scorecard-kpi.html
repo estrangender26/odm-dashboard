@@ -96,6 +96,9 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .matrix-table .notes-col{min-width:240px;width:28%;text-align:left;white-space:pre-wrap;line-height:1.35}
 .matrix-table th.notes-col{text-align:left}
 .matrix-table td.notes-col{font-weight:600;color:var(--text)}
+.monthly-records-table .notes-col,.monthly-records-table .situation-col{min-width:220px;width:22%;text-align:left;white-space:pre-wrap;line-height:1.35}
+.monthly-records-table th.situation-col{text-align:left}
+.monthly-records-table td.situation-col{font-weight:600;color:var(--text)}
 .summary-aggregate-row td{background:#F8FAFC}
 .notes-rollup-btn{border:0;background:none;color:var(--blue);font:inherit;font-weight:800;text-align:left;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .notes-rollup-btn:hover,.notes-rollup-btn:focus{color:#004F86;outline:none}
@@ -1108,20 +1111,12 @@ function normalizeNotesValue(value){
 }
 
 function getRecordNotes(record){
-  if(!record)return '';
-  var values = [record.notes,record.Notes,record.situation,record.Situation];
-  var unique = [];
-  values.forEach(function(value){
-    var normalized = normalizeNotesValue(value);
-    if(!normalized)return;
-    if(!unique.some(function(item){return item.toLowerCase()===normalized.toLowerCase();}))unique.push(normalized);
-  });
-  return unique.join('; ');
+  return record ? normalizeNotesValue(record.notes) : '';
 }
 
 function renderNotesValue(value){
   var notes = normalizeNotesValue(value);
-  return notes ? escapeHtml(notes) : '--';
+  return notes ? escapeHtml(notes) : '—';
 }
 
 function getSummaryNotesForBusinessUnit(buId){
@@ -1410,34 +1405,32 @@ function deriveMonthlySituation(record,month,latestImportedMonth){
   return messages;
 }
 
-function combineSituationText(existing,messages){
-  var current = normalizeNotesValue(existing);
-  var existingParts = current.split(/[;\n]+/).map(function(part){return part.trim().toLowerCase();}).filter(Boolean);
+function combineSituationText(messages){
   var additions = [];
   (messages || []).forEach(function(message){
     var normalized = normalizeNotesValue(message);
     if(!normalized)return;
     var lower = normalized.toLowerCase();
-    if(existingParts.indexOf(lower)!==-1 || additions.some(function(item){return item.toLowerCase()===lower;}))return;
+    if(additions.some(function(item){return item.toLowerCase()===lower;}))return;
     additions.push(normalized);
   });
-  if(current && additions.length)return current+'; '+additions.join('; ');
-  if(current)return current;
   return additions.join('; ');
 }
 
-function renderSituationValue(record,messages){
-  var situation = combineSituationText(getRecordNotes(record),messages);
+function renderSituationValue(messages){
+  var situation = combineSituationText(messages);
   return situation ? escapeHtml(situation) : '—';
 }
 
+function hasSubmittedBudgetActualSpend(record){
+  return rawKpiInputValue(record,'actual_spend')!==null;
+}
+
 function hasPortfolioKpiSourceDataForMonth(year, month, key){
-  // Check whether any business unit has imported (displayed) data for this
-  // KPI/month. This must match the monthly records table so that the chart
-  // never draws a YTD / Trend point or Monthly Actual bar for a month the
-  // table labels "No Data". Per-KPI source data is evaluated against the
-  // table's own hasImportedKpiValue check, not raw input fields, so a real 0%
-  // with valid source data still renders while genuinely missing data does not.
+  // Check whether any business unit submitted source data for this KPI/month.
+  // Most KPIs follow the displayed monthly value. Budget Spend is the exception:
+  // submitted Actual Spend establishes a YTD point even when monthly Budget is
+  // zero and the monthly percentage/bar is therefore unavailable.
   if(MonthlyScoreData){
     var buIds = Object.keys(MonthlyScoreData).filter(function(buId){
       return buId !== 'summary' && buId !== 'all';
@@ -1446,7 +1439,7 @@ function hasPortfolioKpiSourceDataForMonth(year, month, key){
       var yearData = MonthlyScoreData[buIds[i]] && MonthlyScoreData[buIds[i]][year];
       if(!yearData) continue;
       var record = yearData[month];
-      if(record && hasImportedKpiValue(record, key)) return true;
+      if(record && (key==='budgetSpend' ? hasSubmittedBudgetActualSpend(record) : hasImportedKpiValue(record, key))) return true;
     }
   }
   // Fallback for views that load only aggregates (no per-BU records): trust the
@@ -1461,6 +1454,10 @@ function hasPortfolioKpiSourceDataForMonth(year, month, key){
       if(val === undefined) val = monthActuals[uiKey];
       if(val === undefined) val = monthActuals[snakeKey];
       if(val !== null && val !== undefined) return true;
+    }
+    if(key==='budgetSpend'){
+      var monthTrend = KpiAggregates.portfolioMonthlyAverages && KpiAggregates.portfolioMonthlyAverages[month];
+      if(monthTrend && aggregateValueForUiKey(monthTrend,key)!==null)return true;
     }
   }
   return false;
@@ -1486,6 +1483,21 @@ function computeTrendKpiValuesForMonth(records, month){
   var periodRecords = records.filter(function(r){ return Number(r.reporting_month) >= 1 && Number(r.reporting_month) <= month; });
   SummaryMatrixKPIs.forEach(function(key){
     var snakeKey = snakeAggregateKeyForUiKey(key);
+    if(key === 'budgetSpend'){
+      if(!hasSubmittedBudgetActualSpend(monthRecord)){
+        result[key] = null;
+        return;
+      }
+      var actual = 0, budget = 0, hasValues = false;
+      periodRecords.forEach(function(r){
+        var a = rawKpiInputValue(r, 'actual_spend');
+        var b = rawKpiInputValue(r, 'budget');
+        if(a !== null){ actual += a; hasValues = true; }
+        if(b !== null) budget += b;
+      });
+      result[key] = hasValues && budget !== 0 ? (actual / budget) * 100 : null;
+      return;
+    }
     if(!hasImportedKpiValue(monthRecord, key)){
       result[key] = null;
       return;
@@ -1498,18 +1510,6 @@ function computeTrendKpiValuesForMonth(records, month){
         if(v !== null && v !== undefined && v !== '' && !isNaN(v)) values.push(Number(v));
       });
       result[key] = values.length ? values.reduce(function(a,b){return a+b;},0) / values.length : null;
-      return;
-    }
-    if(key === 'budgetSpend'){
-      var actual = 0, budget = 0, hasValues = false;
-      periodRecords.forEach(function(r){
-        if(!hasImportedKpiValue(r, key)) return;
-        var a = rawKpiInputValue(r, 'actual_spend');
-        var b = rawKpiInputValue(r, 'budget');
-        if(a !== null){ actual += a; hasValues = true; }
-        if(b !== null){ budget += b; hasValues = true; }
-      });
-      result[key] = hasValues && budget !== 0 ? (actual / budget) * 100 : null;
       return;
     }
     if(key === 'pmcmWORatio'){
@@ -1709,6 +1709,14 @@ function hasSelectedMonthKpiData(buId){
 }
 
 function getChartValue(record,key){
+  if(key==='budgetSpend'){
+    if(!hasSubmittedBudgetActualSpend(record))return null;
+    var actual = rawKpiInputValue(record,'actual_spend');
+    var budget = rawKpiInputValue(record,'budget');
+    if(budget===null || budget===0)return null;
+    var stored = record ? parseFiniteKPIValue(record.budgetSpend) : null;
+    return stored===null ? (actual / budget) * 100 : stored;
+  }
   if(!record || !hasImportedKpiValue(record,key))return null;
   var val = record[key];
   return isBlankDisplayValue(val)?null:val;
@@ -2727,10 +2735,10 @@ function renderMonthlyRecords(buId){
   // Audit-note: the monthly records table shows the actual monthly imported KPI
   // values exactly as they came from the workbook. KPI cards and trend charts
   // show YTD/cumulative or running-average values where applicable.
-  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Monthly table shows actual monthly imported values. KPI cards and trend charts show YTD/cumulative or running-average performance where applicable. Situation preserves imported notes and explains unavailable monthly values.</div>';
-  html += '<div style="overflow-x:auto"><table class="matrix-table"><thead><tr>';
+  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Monthly table shows actual monthly imported values. KPI cards and trend charts show YTD/cumulative or running-average performance where applicable. Notes preserves imported commentary; Situation explains unavailable monthly values.</div>';
+  html += '<div style="overflow-x:auto"><table class="matrix-table monthly-records-table"><thead><tr>';
   ['Month','PM Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
-  html += '<th class="notes-col">Situation</th>';
+  html += '<th class="notes-col">Notes</th><th class="situation-col">Situation</th>';
   html += '</tr></thead><tbody>';
   var latestImportedMonth = latestMonthlyTableImportedMonth(buId,year);
   for(var month=1;month<=12;month++){
@@ -2743,7 +2751,8 @@ function renderMonthlyRecords(buId){
       var cls = getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+display+'</td>';
     });
-    html += '<td class="notes-col">'+renderSituationValue(r,deriveMonthlySituation(importedRecord,month,latestImportedMonth))+'</td>';
+    html += '<td class="notes-col">'+renderNotesValue(getRecordNotes(r))+'</td>';
+    html += '<td class="situation-col">'+renderSituationValue(deriveMonthlySituation(importedRecord,month,latestImportedMonth))+'</td>';
     html += '</tr>';
   }
   html += '</tbody></table></div>';
@@ -2983,10 +2992,9 @@ function renderBUCharts(buId){
     var actualData = months.map(function(_,index){return getChartValue(getMonthlyRecord(buId,year,index+1),cfg.key);});
     var trendData = months.map(function(_,index){
       var r = getMonthlyRecord(buId,year,index+1);
-      // The trend line must follow the same imported-value rule as the monthly
-      // records table. If the table says No Data for this KPI/month, the chart
-      // must not draw a trend point here, even if raw input fields exist.
-      if(!hasImportedKpiValue(r, cfg.key)) return null;
+      // Other KPIs require a displayed monthly value. Budget Spend instead uses
+      // submitted Actual Spend as its YTD cutoff, including numeric zero.
+      if(cfg.key!=='budgetSpend' && !hasImportedKpiValue(r, cfg.key)) return null;
       var trend = computeTrendKpiValuesForMonth(records,index+1);
       return trend[cfg.key] !== undefined ? trend[cfg.key] : null;
     });

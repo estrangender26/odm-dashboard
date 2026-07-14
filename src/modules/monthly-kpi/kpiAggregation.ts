@@ -449,6 +449,10 @@ function budgetSpendYtdRecords(records: PersistedMonthlyKpiRecord[]) {
   return records.filter((record) => Number(record.reporting_month) <= latestActualMonth);
 }
 
+function hasSubmittedBudgetActualSpend(record: PersistedMonthlyKpiRecord) {
+  return (normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend")) !== null;
+}
+
 export function computeMonthlyKpiValuesFromRaw(record: PersistedMonthlyKpiRecord): Partial<MonthlyKpiValues> {
   const values: Partial<MonthlyKpiValues> = {};
   monthlyKpiKeys.forEach((key) => {
@@ -635,7 +639,9 @@ export function aggregateMonthlyKpiRecords(
         // Trend/chart series must have source data in the current month. Use
         // raw input fields only, not derived KPI values, to avoid carrying
         // forward trend lines into months with no actual source data.
-        const hasCurrentMonthData = monthlyRecords.some((record) => hasRawInputForKpi(key, record));
+        const hasCurrentMonthData = monthlyRecords.some((record) =>
+          key === "budgetSpend" ? hasSubmittedBudgetActualSpend(record) : hasRawInputForKpi(key, record)
+        );
         if (!hasCurrentMonthData) {
           monthValues[key] = null;
           return;
