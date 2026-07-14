@@ -1201,6 +1201,38 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
           notes: null,
           raw_imported_values: { values: {} },
         },
+        {
+          id: 104,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 4,
+          pm_compliance: null,
+          budget_spend: null,
+          pm_cm_work_order_ratio: null,
+          pm_cm_cost_ratio: null,
+          mttr_days: null,
+          facility_uptime: null,
+          actual_spend: 50,
+          budget: 0,
+          notes: "Budget submission received.",
+          raw_imported_values: { values: {} },
+        },
+        {
+          id: 105,
+          business_unit: "AMD-EZ",
+          reporting_year: 2026,
+          reporting_month: 5,
+          pm_compliance: null,
+          budget_spend: null,
+          pm_cm_work_order_ratio: null,
+          pm_cm_cost_ratio: null,
+          mttr_days: null,
+          facility_uptime: null,
+          mttr_downtime: 5,
+          repair_count: null,
+          notes: null,
+          raw_imported_values: { values: {} },
+        },
       ],
       { businessUnitId: "ez" },
     );
@@ -1212,6 +1244,8 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     const februaryRow = monthRow("February");
     const marchRow = monthRow("March");
     const aprilRow = monthRow("April");
+    const mayRow = monthRow("May");
+    const juneRow = monthRow("June");
 
     expect(situationHtml).toContain('<th class="notes-col">Situation</th>');
     expect(situationHtml).not.toContain("No Data");
@@ -1222,7 +1256,12 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(februaryRow).toContain("Vendor deferral; No Budget; No CM Cost");
     expect(februaryRow.match(/No Budget/g)).toHaveLength(1);
     expect(marchRow).toContain("No Work Orders; No Qualifying Downtime");
-    expect(aprilRow).toContain("Pending");
+    expect(aprilRow).toContain("Budget submission received.; Not Submitted; No Budget");
+    expect(aprilRow).not.toContain("Pending");
+    expect(mayRow).toContain("Not Submitted");
+    expect(mayRow).not.toContain("No Qualifying Downtime");
+    expect(mayRow).not.toContain("Pending");
+    expect(juneRow).toContain("Pending");
     expect(JSON.stringify((runnableContext as any).KpiAggregates)).toBe(aggregateBeforeRender);
   });
   it("imports visible KPI values from the Summary sheet only, ignoring dedicated sheets", () => {

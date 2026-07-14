@@ -1343,11 +1343,13 @@ function getMonthlyTableKpiValue(record,key){
   return hasImportedKpiValue(record,key) || hasKpiSourceData(record,key) ? value : null;
 }
 
-function latestMonthlyTableDataMonth(buId,year){
+function latestMonthlyTableImportedMonth(buId,year){
   var latest = 0;
   for(var month=1;month<=12;month++){
     var record = getMonthlyRecord(buId,year,month);
-    if(record && SummaryMatrixKPIs.some(function(key){return getMonthlyTableKpiValue(record,key)!==null;}))latest = month;
+    // The presence of a monthly record means the month was submitted even when
+    // its source inputs cannot produce a numeric KPI (for example Budget = 0).
+    if(record)latest = month;
   }
   return latest;
 }
@@ -1375,7 +1377,11 @@ function deriveMissingKpiSituation(record,key){
     var downtime = rawKpiInputValue(record,'mttr_downtime',['total_downtime']);
     var repairs = rawKpiInputValue(record,'repair_count',['number_of_repairs']);
     var monthlyMttr = rawKpiInputValue(record,'mttr_days');
-    if(downtime!==null || repairs!==null || monthlyMttr!==null)return 'No Qualifying Downtime';
+    // Missing required inputs take precedence. A pre-computed monthly MTTR can
+    // stand in for downtime, but repair count is always required to establish
+    // whether there was qualifying corrective-maintenance activity.
+    if((downtime===null && monthlyMttr===null) || repairs===null)return 'Not Submitted';
+    if(repairs<=0 || (downtime!==null && downtime<=0) || (monthlyMttr!==null && monthlyMttr<=0))return 'No Qualifying Downtime';
     return 'Not Submitted';
   }
   if(key==='pmCompliance'){
@@ -1391,9 +1397,10 @@ function deriveMissingKpiSituation(record,key){
   return 'Not Submitted';
 }
 
-function deriveMonthlySituation(record,month,latestDataMonth){
-  var hasCalculatedValue = SummaryMatrixKPIs.some(function(key){return getMonthlyTableKpiValue(record,key)!==null;});
-  if(!hasCalculatedValue && month>latestDataMonth)return ['Pending'];
+function deriveMonthlySituation(record,month,latestImportedMonth){
+  // Pending is reserved for an absent future record. A submitted record with
+  // blank or non-calculable inputs must receive its applicable specific status.
+  if(!record && month>latestImportedMonth)return ['Pending'];
   var messages = [];
   SummaryMatrixKPIs.forEach(function(key){
     if(getMonthlyTableKpiValue(record,key)!==null)return;
@@ -2725,9 +2732,10 @@ function renderMonthlyRecords(buId){
   ['Month','PM Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
   html += '<th class="notes-col">Situation</th>';
   html += '</tr></thead><tbody>';
-  var latestDataMonth = latestMonthlyTableDataMonth(buId,year);
+  var latestImportedMonth = latestMonthlyTableImportedMonth(buId,year);
   for(var month=1;month<=12;month++){
-    var r = getMonthlyRecord(buId,year,month)||{reportingMonth:month,reportingYear:year};
+    var importedRecord = getMonthlyRecord(buId,year,month);
+    var r = importedRecord||{reportingMonth:month,reportingYear:year};
     html += '<tr><td>'+MonthNames[month-1]+'</td>';
     SummaryMatrixKPIs.forEach(function(key){
       var val = getMonthlyTableKpiValue(r,key);
@@ -2735,7 +2743,7 @@ function renderMonthlyRecords(buId){
       var cls = getKPIStatus(key,val).cls;
       html += '<td class="'+cls+'">'+display+'</td>';
     });
-    html += '<td class="notes-col">'+renderSituationValue(r,deriveMonthlySituation(r,month,latestDataMonth))+'</td>';
+    html += '<td class="notes-col">'+renderSituationValue(r,deriveMonthlySituation(importedRecord,month,latestImportedMonth))+'</td>';
     html += '</tr>';
   }
   html += '</tbody></table></div>';
