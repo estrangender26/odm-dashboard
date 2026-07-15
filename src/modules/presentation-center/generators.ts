@@ -1104,7 +1104,50 @@ const TEMPLATE_BENCHMARK_ROW = [
   "=100%",
 ] as const;
 
-function templateCommentary(dataset: MonthlyKpiScorecardDataset) {
+const TEMPLATE_COMMENTARY_SLOTS = 5;
+const TEMPLATE_COMMENTARY_MAX_CHARACTERS = 110;
+const TEMPLATE_COMMENTARY_MAX_UNBROKEN_CHARACTERS = 64;
+
+function splitCommentaryText(value: string) {
+  const chunks: string[] = [];
+  for (const paragraph of value
+    .split(/\r?\n+/)
+    .map(part => part.trim())
+    .filter(Boolean)) {
+    const tokens = paragraph.match(/\S+/g) ?? [];
+    let line = "";
+    const appendLine = () => {
+      if (line) chunks.push(line);
+      line = "";
+    };
+    for (const token of tokens) {
+      const tokenParts =
+        token.length > TEMPLATE_COMMENTARY_MAX_UNBROKEN_CHARACTERS
+          ? (token.match(
+              new RegExp(
+                `.{1,${TEMPLATE_COMMENTARY_MAX_UNBROKEN_CHARACTERS}}`,
+                "g"
+              )
+            ) ?? [])
+          : [token];
+      for (const tokenPart of tokenParts) {
+        const candidate = line ? `${line} ${tokenPart}` : tokenPart;
+        if (candidate.length > TEMPLATE_COMMENTARY_MAX_CHARACTERS && line) {
+          appendLine();
+          line = tokenPart;
+        } else {
+          line = candidate;
+        }
+      }
+    }
+    appendLine();
+  }
+  return chunks.map((chunk, index) =>
+    index === 0 ? chunk : `(continued) ${chunk}`
+  );
+}
+
+function templateCommentaryPages(dataset: MonthlyKpiScorecardDataset) {
   const summary = getScorecardSummary(dataset.records);
   const recordedNotes = dataset.records
     .map(record => record.notes?.trim())
@@ -1124,9 +1167,23 @@ function templateCommentary(dataset: MonthlyKpiScorecardDataset) {
     "No additional follow-up actions were recorded for this period.",
   ];
   const commentary = unique.length
-    ? [...unique, ...fallbacks]
+    ? [
+        ...unique,
+        ...fallbacks.slice(
+          0,
+          Math.max(0, TEMPLATE_COMMENTARY_SLOTS - unique.length)
+        ),
+      ]
     : [MONTHLY_KPI_NOTES_FALLBACK, ...fallbacks];
-  return Array.from(new Set(commentary)).slice(0, 5);
+  const wrapped = Array.from(new Set(commentary)).flatMap(splitCommentaryText);
+  return Array.from(
+    { length: Math.ceil(wrapped.length / TEMPLATE_COMMENTARY_SLOTS) },
+    (_, index) =>
+      wrapped.slice(
+        index * TEMPLATE_COMMENTARY_SLOTS,
+        index * TEMPLATE_COMMENTARY_SLOTS + TEMPLATE_COMMENTARY_SLOTS
+      )
+  );
 }
 
 function blankTemplateRow(columnCount: number) {
@@ -1153,9 +1210,8 @@ function individualTemplateSlides(
     "Facility Uptime",
     "Notifications",
   ];
-  const sourceRecords = (dataset.ytdRecords?.length
-    ? dataset.ytdRecords
-    : dataset.records
+  const sourceRecords = (
+    dataset.ytdRecords?.length ? dataset.ytdRecords : dataset.records
   ).filter(record => {
     const month = Number(record.reportingMonth);
     return (
@@ -1177,7 +1233,22 @@ function individualTemplateSlides(
     ? aggregateRecords(sourceRecords, "YTD")
     : emptyRecord("YTD", dataset.reportingMonth, dataset.reportingYear);
 
-  return monthChunks.map(months => {
+  const commentaryPages = templateCommentaryPages(dataset);
+  const slideCount = Math.max(monthChunks.length, commentaryPages.length);
+
+  const periodLabel = (months: number[]) => {
+    if (months.length === 0) return dataset.reportingMonthLabel;
+    const first = MONTH_NAMES[months[0] - 1]?.slice(0, 3) ?? `M${months[0]}`;
+    const last =
+      MONTH_NAMES[months[months.length - 1] - 1]?.slice(0, 3) ??
+      `M${months[months.length - 1]}`;
+    return months.length === 1
+      ? `${first} ${dataset.reportingYear}`
+      : `${first}–${last} ${dataset.reportingYear}`;
+  };
+
+  return Array.from({ length: slideCount }, (_, slideIndex) => {
+    const months = monthChunks[slideIndex] ?? [];
     const monthRecords = months.map(month => {
       const records = recordsForMonth(sourceRecords, month);
       return records.length
@@ -1202,29 +1273,49 @@ function individualTemplateSlides(
       monthRows.push(blankTemplateRow(8));
       monthStatuses.push(blankTemplateStatuses(8));
     }
+    const isCommentaryContinuation = slideIndex >= monthChunks.length;
+    const pageSuffix =
+      slideCount > 1 ? ` (${slideIndex + 1}/${slideCount})` : "";
+    const title = isCommentaryContinuation
+      ? `${dataset.businessUnit} Notes – ${dataset.reportingMonthLabel}${pageSuffix}`
+      : slideCount > 1
+        ? `${dataset.businessUnit} KPI – ${periodLabel(months)}${pageSuffix}`
+        : `${dataset.businessUnit} KPI – ${dataset.reportingMonthLabel}`;
+    const ytdRow = isCommentaryContinuation
+      ? blankTemplateRow(8)
+      : ["YTD", ...metricValues(ytdRecord), "No Data"];
+    const ytdStatuses = isCommentaryContinuation
+      ? blankTemplateStatuses(8)
+      : [
+          "none" as const,
+          ...templateMetricStatuses(ytdRecord),
+          "no-data" as const,
+        ];
     return {
       sourceSlide: 1,
-      title: `${dataset.businessUnit} KPI Scorecard – ${dataset.reportingMonthLabel}`,
+      title,
       tableName: "Table 2",
       rows: [
         header,
         ...monthRows,
-        ["YTD", ...metricValues(ytdRecord), "No Data"],
+        ytdRow,
         ["BASELINE", ...Array.from({ length: 7 }, () => "No Data")],
         [...TEMPLATE_BENCHMARK_ROW, "No Data"],
       ],
       statuses: [
         blankTemplateStatuses(8),
         ...monthStatuses,
-        [
-          "none",
-          ...templateMetricStatuses(ytdRecord),
-          "no-data",
-        ],
+        ytdStatuses,
         blankTemplateStatuses(8),
         blankTemplateStatuses(8),
       ],
-      commentary: templateCommentary(dataset),
+      commentary: commentaryPages[slideIndex] ?? [
+        `KPI table continued for ${periodLabel(months)}.`,
+        "No additional KPI highlights were recorded for this continuation page.",
+        "No additional major wins were recorded for this continuation page.",
+        "No additional major risks were recorded for this continuation page.",
+        "No additional follow-up actions were recorded for this continuation page.",
+      ],
     };
   });
 }
@@ -1244,11 +1335,20 @@ function portfolioTemplateSlides(
   const businessUnitOrder = new Map(
     matrixBusinessUnitOrder.slice(1).map((unit, index) => [unit, index])
   );
-  const records = [...dataset.records].sort((a, b) => {
-    const aOrder = businessUnitOrder.get(a.businessUnit) ?? Number.MAX_VALUE;
-    const bOrder = businessUnitOrder.get(b.businessUnit) ?? Number.MAX_VALUE;
-    return aOrder - bOrder || a.businessUnit.localeCompare(b.businessUnit);
-  });
+  const records = dataset.records
+    .map((record, sourceIndex) => ({ record, sourceIndex }))
+    .sort((a, b) => {
+      const aOrder = businessUnitOrder.get(a.record.businessUnit);
+      const bOrder = businessUnitOrder.get(b.record.businessUnit);
+      if (aOrder !== undefined || bOrder !== undefined) {
+        return (
+          (aOrder ?? Number.MAX_VALUE) - (bOrder ?? Number.MAX_VALUE) ||
+          a.sourceIndex - b.sourceIndex
+        );
+      }
+      return a.sourceIndex - b.sourceIndex;
+    })
+    .map(({ record }) => record);
   const chunks = Array.from(
     { length: Math.ceil(records.length / 5) },
     (_, index) => records.slice(index * 5, index * 5 + 5)
@@ -1266,9 +1366,8 @@ function portfolioTemplateSlides(
       rows.push(blankTemplateRow(7));
       statuses.push(blankTemplateStatuses(7));
     }
-    const pageSuffix = chunks.length > 1
-      ? ` (${chunkIndex + 1}/${chunks.length})`
-      : "";
+    const pageSuffix =
+      chunks.length > 1 ? ` (${chunkIndex + 1}/${chunks.length})` : "";
     return {
       sourceSlide: 2,
       title: `All BUs KPI Scorecard – ${dataset.reportingMonthLabel}${pageSuffix}`,

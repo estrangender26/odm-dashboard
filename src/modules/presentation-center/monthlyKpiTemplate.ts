@@ -71,6 +71,45 @@ function replaceNamedBlockText(
   return `${slideXml.slice(0, start)}${rewriteTextNodes(block, values)}${slideXml.slice(end)}`;
 }
 
+function replaceNamedCommentary(
+  slideXml: string,
+  elementName: string,
+  values: string[]
+) {
+  const marker = `name="${elementName}"`;
+  const markerIndex = slideXml.indexOf(marker);
+  if (markerIndex < 0) {
+    throw new Error(`Template element ${elementName} was not found.`);
+  }
+  const start = slideXml.lastIndexOf("<p:sp", markerIndex);
+  const closeStart = slideXml.indexOf("</p:sp>", markerIndex);
+  if (start < 0 || closeStart < 0) {
+    throw new Error(`Template element ${elementName} is malformed.`);
+  }
+  const end = closeStart + "</p:sp>".length;
+  const block = slideXml.slice(start, end);
+  let valueIndex = 0;
+  const updatedBlock = block.replace(
+    /<a:p(?:\s[^>]*)?>[\s\S]*?<\/a:p>/g,
+    paragraph => {
+      if (!paragraph.includes("<a:buChar") || !paragraph.includes("<a:t")) {
+        return paragraph;
+      }
+      const value = values[valueIndex++] ?? "";
+      const updatedParagraph = rewriteTextNodes(paragraph, [value]);
+      return value
+        ? updatedParagraph
+        : updatedParagraph.replace(/<a:buChar\b[^>]*\/>/, "<a:buNone/>");
+    }
+  );
+  if (valueIndex !== 5) {
+    throw new Error(
+      `Template commentary ${elementName} has ${valueIndex} bullet slots; 5 were expected.`
+    );
+  }
+  return `${slideXml.slice(0, start)}${updatedBlock}${slideXml.slice(end)}`;
+}
+
 function setCellFill(cellXml: string, color: string) {
   const tcPrStart = cellXml.indexOf("<a:tcPr");
   const tcPrClose = cellXml.indexOf("</a:tcPr>", tcPrStart);
@@ -125,23 +164,20 @@ function rewriteTable(
   const tableEnd = tableClose + "</a:tbl>".length;
   const tableXml = slideXml.slice(tableStart, tableEnd);
   let rowIndex = 0;
-  const updatedTable = tableXml.replace(
-    /<a:tr\b[\s\S]*?<\/a:tr>/g,
-    rowXml => {
-      const values = rows[rowIndex];
-      const rowStatuses = statuses[rowIndex];
-      rowIndex += 1;
-      if (!values) return rowXml;
-      if (rowIndex === 1) return rowXml;
-      let cellIndex = 0;
-      return rowXml.replace(/<a:tc>[\s\S]*?<\/a:tc>/g, cellXml => {
-        const value = values[cellIndex] ?? "";
-        const status = rowStatuses?.[cellIndex] ?? "none";
-        cellIndex += 1;
-        return rewriteCell(cellXml, value, status);
-      });
-    }
-  );
+  const updatedTable = tableXml.replace(/<a:tr\b[\s\S]*?<\/a:tr>/g, rowXml => {
+    const values = rows[rowIndex];
+    const rowStatuses = statuses[rowIndex];
+    rowIndex += 1;
+    if (!values) return rowXml;
+    if (rowIndex === 1) return rowXml;
+    let cellIndex = 0;
+    return rowXml.replace(/<a:tc>[\s\S]*?<\/a:tc>/g, cellXml => {
+      const value = values[cellIndex] ?? "";
+      const status = rowStatuses?.[cellIndex] ?? "none";
+      cellIndex += 1;
+      return rewriteCell(cellXml, value, status);
+    });
+  });
   if (rowIndex !== rows.length) {
     throw new Error(
       `Template table ${tableName} has ${rowIndex} rows; ${rows.length} were supplied.`
@@ -154,7 +190,7 @@ function populateSlide(sourceXml: string, slide: MonthlyKpiTemplateSlide) {
   let xml = replaceNamedBlockText(sourceXml, "TextBox 4", [slide.title]);
   xml = rewriteTable(xml, slide.tableName, slide.rows, slide.statuses);
   if (slide.sourceSlide === 1) {
-    xml = replaceNamedBlockText(
+    xml = replaceNamedCommentary(
       xml,
       "TextBox 6",
       (slide.commentary ?? []).slice(0, 5)
@@ -175,8 +211,10 @@ function removeRelationshipTypes(xml: string, fragments: string[]) {
 }
 
 function updatePresentationXml(xml: string, slideCount: number) {
-  const slideIds = Array.from({ length: slideCount }, (_, index) =>
-    `<p:sldId id="${2147483000 + index}" r:id="rId${10 + index}"/>`
+  const slideIds = Array.from(
+    { length: slideCount },
+    (_, index) =>
+      `<p:sldId id="${2147483000 + index}" r:id="rId${10 + index}"/>`
   ).join("");
   return xml.replace(
     /<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/,
@@ -186,8 +224,8 @@ function updatePresentationXml(xml: string, slideCount: number) {
 
 function updatePresentationRelationships(xml: string, slideCount: number) {
   const withoutSlides = removeRelationshipTypes(xml, [
-    "/relationships/slide\"",
-    "/relationships/authors\"",
+    '/relationships/slide"',
+    '/relationships/authors"',
   ]);
   const slideRelationships = Array.from(
     { length: slideCount },
@@ -254,10 +292,7 @@ export async function createMonthlyKpiTemplatePresentation(
     );
     sourceRelationships.set(
       sourceSlide,
-      await requiredText(
-        zip,
-        `ppt/slides/_rels/slide${sourceSlide}.xml.rels`
-      )
+      await requiredText(zip, `ppt/slides/_rels/slide${sourceSlide}.xml.rels`)
     );
   }
 
