@@ -1168,12 +1168,22 @@ function hasClearCorrectiveWorkContext(items,heading){
   return /\b(?:CM Work Orders?|Corrective Maintenance|Corrective Works?|Emergency Repairs?)\b/i.test(details);
 }
 
-function hasBlockedCompletionLanguage(item){
-  return /\bnot\b|\bincomplete\b|\bpending\b|\bongoing\b|\bin progress\b|\bpartially\b|\bdeferred\b|\bfor completion\b|\bto be\s+(?:completed|repaired|replaced|installed)\b|\bawaiting\b|\b(?:scheduled|planned)\s+for\b/i.test(item);
+function hasContradictoryCompletionLanguage(item){
+  var text = String(item || '').replace(/’/g,"'");
+  var hasNegation = /\b(?:not|never|no|none|nothing|neither|cannot|can't|wasn't|weren't|hasn't|haven't|isn't|aren't|won't)\b/i.test(text);
+  var hasFutureIntent = /\b(?:will|shall|should|would|could|may|might|must)\s+be\s+completed\b|\bto be\s+completed\b|\b(?:scheduled|planned|expected|intended|targeted)\s+(?:to be\s+)?completed\b/i.test(text);
+  var hasUnfinishedStatus = /\b(?:incomplete|pending|ongoing|in progress|partially|awaiting|deferred|unfinished|unresolved|outstanding)\b|\bfor completion\b/i.test(text);
+  var hasConditionalCompletion = /\b(?:if|when|once|until)\b[^.!?]{0,60}\bcompleted\b/i.test(text);
+  return hasNegation || hasFutureIntent || hasUnfinishedStatus || hasConditionalCompletion;
 }
 
 function hasAffirmativeCompletionMarker(item){
-  return !hasBlockedCompletionLanguage(item) && /\bcompleted\b/i.test(item);
+  var text = String(item || '').replace(/’/g,"'").trim();
+  if(hasContradictoryCompletionLanguage(text))return false;
+  return /^completed\b/i.test(text)
+    || /\b(?:was|were)\s+completed\b/i.test(text)
+    || /\b(?:has|have|had)\s+been\s+completed\b/i.test(text)
+    || /\b(?:work|works|repair|repairs|replacement|replacements|installation|installations|activity|activities|item|items|task|tasks|order|orders)\s+completed\b/i.test(text);
 }
 
 function preserveNumberedNotesItems(items){

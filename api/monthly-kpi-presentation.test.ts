@@ -442,6 +442,20 @@ async function runImportExcel(ctx: any) {
 }
 
 describe("Monthly KPI dashboard presentation", () => {
+function makeCompletionSafetyNote(items: string[], trailingStatement = "All listed works remain under completion-status review.") {
+  return [
+    "PM Compliance:",
+    "Scheduled outsourced PM remains deferred due to unavailable SLA during contract review.",
+    "PM:CM Work Orders:",
+    ...items.map((item, index) => `${index + 1}. ${item}`),
+    "MTTR:",
+    "No downtime occurred during the reporting period while completion status remained under review.",
+    "Facility Uptime:",
+    "Facility remained operational throughout the reporting period.",
+    trailingStatement,
+  ].join("\n");
+}
+
 function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budgetSpend?: number; pmcmWORatio?: number; pmcmCostRatio?: number; mttr?: number; facilityUptime?: number; notes?: string | null } = {}) {
   function makeSheet(rows: unknown[][]) {
     const sheet: any = { _rows: rows };
@@ -792,6 +806,57 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
       expect(context.hasAffirmativeCompletionMarker(`Equipment ${verb}.`)).toBe(false);
     },
   );
+
+  it.each([
+    { label: "never completed", makeItem: (subject: string) => `${subject} was never completed.` },
+    { label: "cannot be completed", makeItem: (subject: string) => `${subject} cannot be completed.` },
+    { label: "can't be completed", makeItem: (subject: string) => `${subject} can't be completed.` },
+    { label: "no work was completed", makeItem: (subject: string) => `No work was completed for ${subject}.` },
+    { label: "wasn't completed", makeItem: (subject: string) => `${subject} wasn't completed.` },
+    { label: "weren't completed", makeItem: (subject: string) => `${subject} activities weren't completed.` },
+    { label: "will be completed", makeItem: (subject: string) => `${subject} will be completed.` },
+    { label: "shall be completed", makeItem: (subject: string) => `${subject} shall be completed.` },
+    { label: "should be completed", makeItem: (subject: string) => `${subject} should be completed.` },
+    { label: "to be completed", makeItem: (subject: string) => `${subject} is to be completed.` },
+  ])("does not emit completed for end-to-end $label items", ({ makeItem }) => {
+    const context = createScorecardContext();
+    const subjects = ["Emergency repair", "Surge arrester work", "Switchgear work", "Auto sync work"];
+    const summary = context.summarizeSummaryMatrixNotes(makeCompletionSafetyNote(subjects.map(makeItem)));
+
+    expect(summary).toContain("4 corrective works.");
+    expect(summary).not.toContain("4 corrective works completed");
+  });
+
+  it.each([
+    "Completed.",
+    "Work completed.",
+    "Work was completed.",
+    "Work has been completed.",
+    "All four activities were completed.",
+  ])("accepts the affirmative completion statement: %s", (statement) => {
+    const context = createScorecardContext() as any;
+
+    expect(context.hasAffirmativeCompletionMarker(statement)).toBe(true);
+  });
+
+  it("does not emit completed for the contradictory unfinished review case", () => {
+    const context = createScorecardContext();
+    const longNote = makeCompletionSafetyNote(
+      [
+        "Emergency repair was never completed.",
+        "Surge arrester work cannot be completed.",
+        "No switchgear work was completed.",
+        "Auto sync work will be completed after shutdown.",
+      ],
+      "All four corrective works remain unfinished.",
+    );
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).toContain("4 corrective works.");
+    expect(summary).not.toContain("4 corrective works completed");
+    expect(summary).toContain("All four corrective works remain unfinished.");
+  });
 
   it("allows completion only when every corrective work has an affirmative completion marker", () => {
     const context = createScorecardContext();
