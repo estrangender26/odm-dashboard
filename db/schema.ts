@@ -175,10 +175,10 @@ export const governanceFiles = pgTable("governance_files", {
 /* ─── Gantt Tasks (clean schema — matches UI fields exactly) ─── */
 export const ganttTasks = pgTable("gantt_tasks", {
   id: serial("id").primaryKey(),
-  projectId: integer("project_id"),
+  projectId: integer("project_id").notNull(),
   frontendTaskUid: varchar("frontend_task_uid", { length: 64 }).unique(),
   taskName: varchar("task_name", { length: 500 }).notNull(),
-  parentTaskId: integer("parent_task_id").default(0),
+  parentTaskId: integer("parent_task_id"),
   predecessorTaskId: integer("predecessor_task_id"),
   dependencyType: varchar("dependency_type", { length: 10 }),
   lagDays: integer("lag_days").default(0),
@@ -268,17 +268,52 @@ export const docFiles = pgTable("doc_files", {
 /* ── Gantt Task Dependencies ── */
 export const ganttDependencies = pgTable("gantt_dependencies", {
   id: serial("id").primaryKey(),
-  projectId: integer("project_id"),
+  projectId: integer("project_id").notNull(),
   predecessorTaskId: integer("predecessor_task_id").notNull(),
   successorTaskId: integer("successor_task_id").notNull(),
   dependencyType: varchar("dependency_type", { length: 10 }).notNull().default("FS"),
   lagDays: integer("lag_days").default(0),
+  lagUnit: varchar("lag_unit", { length: 20 }).notNull().default("day"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("gantt_dep_project_idx").on(table.projectId),
   index("gantt_dep_pred_idx").on(table.predecessorTaskId),
   index("gantt_dep_succ_idx").on(table.successorTaskId),
+  unique("gantt_dep_unique").on(table.projectId, table.predecessorTaskId, table.successorTaskId),
+]);
+
+/* ── Gantt Resource Assignments ── */
+export const ganttAssignments = pgTable("gantt_assignments", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  taskId: integer("task_id").notNull(),
+  resourceId: varchar("resource_id", { length: 255 }).notNull(),
+  units: doublePrecision("units").notNull().default(1),
+  role: varchar("role", { length: 100 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("gantt_assignment_project_idx").on(table.projectId),
+  index("gantt_assignment_task_idx").on(table.taskId),
+  unique("gantt_assignment_unique").on(table.projectId, table.taskId, table.resourceId),
+]);
+
+/* ── Gantt Working Calendars (Phase 0 contract; Phase 1 consumes rules) ── */
+export const ganttCalendars = pgTable("gantt_calendars", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("owner_id"),
+  sessionId: varchar("session_id", { length: 255 }),
+  name: varchar("name", { length: 255 }).notNull(),
+  timezone: varchar("timezone", { length: 100 }).notNull(),
+  workingDays: jsonb("working_days").notNull(),
+  workingRanges: jsonb("working_ranges").notNull(),
+  exceptions: jsonb("exceptions").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("gantt_calendar_owner_idx").on(table.ownerId),
+  index("gantt_calendar_session_idx").on(table.sessionId),
 ]);
 
 /* ── SMP Documents ── */
@@ -312,6 +347,9 @@ export const ganttProjects = pgTable("gantt_projects", {
   startDate: varchar("start_date", { length: 20 }),
   finishDate: varchar("finish_date", { length: 20 }),
   status: varchar("status", { length: 50 }),
+  statusDate: varchar("status_date", { length: 20 }),
+  calendarId: integer("calendar_id"),
+  version: integer("version").notNull().default(0),
   tasksData: text("tasks_data").notNull(),
   linksData: text("links_data"),
   description: text("description"),

@@ -34,7 +34,7 @@ import {
   isParent,
 } from "@/modules/gantt/engine/parentEngine";
 import {
-  calcKpi, statusColor as _statusColor, statusBg as _statusBg, rowStatus, fmtMonth, fmtShortDate,
+  calcKpi, statusColor as _statusColor, rowStatus, fmtMonth, fmtShortDate,
 } from "@/modules/gantt/engine/uiUtilsEngine";
 import {
   buildManualHierarchyOrder, getSiblingOrderDebug, getSiblingOrderState, getTaskParentId, sortTasksForHierarchyDisplay,
@@ -59,7 +59,7 @@ const statusBg = (status: string): string => {
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ─── UUID helper (module-level, no hooks) ─── */
-function formatReorderTask(task: any) {
+function formatReorderTask(task: { id: number; text?: string; taskName?: string; parent?: number; parentTaskId?: number; parent_task_id?: number; sortorder?: number; sortOrder?: number; sort_order?: number }) {
   return {
     id: task.id,
     text: task.text ?? task.taskName ?? `Task ${task.id}`,
@@ -68,8 +68,97 @@ function formatReorderTask(task: any) {
   };
 }
 
-function buildProjectSnapshot(tasks: any[] = [], links: any[] = []) {
+function buildProjectSnapshot(tasks: unknown[] = [], links: unknown[] = []) {
   return JSON.stringify({ tasks, links });
+}
+
+const DEPENDENCY_TYPE_TO_CODE: Record<string, string> = { FS: "0", SS: "1", FF: "2", SF: "3" };
+const DEPENDENCY_CODE_TO_TYPE: Record<string, "FS" | "SS" | "FF" | "SF"> = {
+  "0": "FS", "1": "SS", "2": "FF", "3": "SF", FS: "FS", SS: "SS", FF: "FF", SF: "SF",
+};
+
+type CanonicalTaskRecord = {
+  id: number;
+  name: string;
+  parentId: number | null;
+  taskType: string;
+  sortOrder: number;
+  actualStart: string | null;
+  actualEnd: string | null;
+  plannedEnd: string | null;
+  notes: string | null;
+  progress: number;
+  [key: string]: unknown;
+};
+
+type CanonicalDependencyRecord = {
+  predecessorTaskId: number;
+  successorTaskId: number;
+  relationshipType: string;
+  [key: string]: unknown;
+};
+
+function canonicalTaskToView(task: CanonicalTaskRecord): GanttTask & Record<string, unknown> {
+  return {
+    ...task,
+    taskName: task.name,
+    text: task.name,
+    parent: task.parentId ?? 0,
+    parentTaskId: task.parentId ?? 0,
+    type: task.taskType,
+    sortorder: task.sortOrder,
+    sort_order: task.sortOrder,
+    startDate: task.actualStart,
+    endDate: task.actualEnd,
+    actualFinish: task.actualEnd,
+    plannedFinish: task.plannedEnd,
+    remarks: task.notes,
+    progressPercent: task.progress,
+  } as GanttTask & Record<string, unknown>;
+}
+
+function canonicalDependencyToView(dependency: CanonicalDependencyRecord): Record<string, unknown> {
+  return {
+    ...dependency,
+    source: dependency.predecessorTaskId,
+    target: dependency.successorTaskId,
+    type: DEPENDENCY_TYPE_TO_CODE[dependency.relationshipType] ?? "0",
+  };
+}
+
+function legacyTaskToCanonical(input: Record<string, unknown>): Record<string, unknown> {
+  const has = (...keys: string[]) => keys.some(key => Object.prototype.hasOwnProperty.call(input, key));
+  const get = (...keys: string[]) => keys.map(key => input[key]).find(value => value !== undefined);
+  const task: Record<string, unknown> = {};
+  if (has("id")) task.id = input.id;
+  if (has("frontendTaskUid", "frontend_task_uid")) task.frontendTaskUid = get("frontendTaskUid", "frontend_task_uid") || undefined;
+  if (has("name", "text", "taskName", "task_name")) task.name = String(get("name", "text", "taskName", "task_name") ?? "").trim();
+  if (has("parentId", "parent", "parent_task_id")) task.parentId = Number(get("parentId", "parent_task_id", "parent") || 0) || null;
+  if (has("taskType", "type", "task_type")) {
+    const rawType = String(get("taskType", "type", "task_type") || "task").toLowerCase();
+    task.taskType = ["task", "milestone", "summary", "project"].includes(rawType) ? rawType : "task";
+  }
+  if (has("category")) task.category = input.category || null;
+  if (has("sortOrder", "sortorder", "sort_order")) task.sortOrder = Math.max(0, Number(get("sortOrder", "sortorder", "sort_order")) || 0);
+  if (has("plannedStart", "planned_start")) task.plannedStart = get("plannedStart", "planned_start") || null;
+  if (has("plannedEnd", "planned_finish", "planned_end")) task.plannedEnd = get("plannedEnd", "planned_finish", "planned_end") || null;
+  if (has("actualStart", "actual_start", "start_date")) task.actualStart = get("actualStart", "actual_start", "start_date") || null;
+  if (has("actualEnd", "actual_finish", "actual_end", "end_date")) task.actualEnd = get("actualEnd", "actual_finish", "actual_end", "end_date") || null;
+  if (has("duration", "planned_duration")) task.duration = Math.max(0, Number(get("duration", "planned_duration")) || 0);
+  if (has("actualDuration", "actual_duration")) task.actualDuration = get("actualDuration", "actual_duration") ?? null;
+  if (has("progress", "progress_percent")) task.progress = Math.min(100, Math.max(0, Number(get("progress", "progress_percent")) || 0));
+  if (has("status")) task.status = input.status || null;
+  if (has("owner")) task.owner = input.owner || null;
+  if (has("notes", "remarks")) task.notes = get("notes", "remarks") || null;
+
+  if (!task.id) {
+    task.name = task.name || "New Task";
+    task.taskType = task.taskType || "task";
+    task.sortOrder = task.sortOrder ?? 0;
+    task.duration = task.duration ?? 1;
+    task.progress = task.progress ?? 0;
+  }
+  return task;
 }
 
 
@@ -560,7 +649,7 @@ function StatusDatePreviewModal({ preview, onClose, onApply }: { preview: Status
         </div>
 
         <div style={{ padding: "10px 22px", background: "#FFFBEB", color: "#92400E", fontSize: 12, borderBottom: "1px solid #FDE68A" }}>
-          Preview only: Apply stores the status date and metrics in local UI state and marks the project dirty. Use Save Project separately if you want to save the project snapshot.
+          Preview only: Apply stores the status date and metrics in local UI state and marks the project dirty. Use Save Project to persist the status-date metadata.
         </div>
 
         <div style={{ overflow: "auto", padding: "0 22px 14px" }}>
@@ -655,7 +744,7 @@ interface ToolbarProps {
   onSave: () => void | Promise<void | boolean>; onSaveAs: () => void; onOpen: () => void | Promise<void>; onClose: () => void;
   onImport: () => void; onStatusDate: () => void;
   onExportExcel: () => void; onExportCSV: () => void; onExportTemplate: () => void;
-  onReset: () => void; onLoadDemo: () => void;
+  onClearProject: () => void;
   onIndent?: () => void; onOutdent?: () => void;
   onMoveUp?: () => void; onMoveDown?: () => void;
   moveUpDisabled?: boolean; moveDownDisabled?: boolean; moveDisabledReason?: string;
@@ -670,7 +759,7 @@ function GanttToolbar({
   currentProjectId, currentProjectName, hasUnsavedChanges,
   onSave, onSaveAs, onOpen, onClose, onImport, onStatusDate,
   onExportExcel, onExportCSV, onExportTemplate,
-  onReset, onLoadDemo,
+  onClearProject,
   onIndent, onOutdent, onMoveUp, onMoveDown, moveUpDisabled, moveDownDisabled, moveDisabledReason, onInsertAbove, onInsertBelow, onInsertChild,
   onDelete,
   onLink, onClear,
@@ -796,8 +885,7 @@ function GanttToolbar({
 
         {/* ADMIN MENU */}
         <MenuBtn label="Admin" icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>} menuKey="admin">
-          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>} label="Reset Data" onClick={() => { if (confirm("Delete all Gantt data?")) onReset(); }} danger />
-          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#005BAC" strokeWidth="2"><path d="M12 2v4m0 12v4m-7.66-9.34l2.83 2.83m9.66-2.83l2.83-2.83M4 12h4m12 0h-4M6.34 6.34l2.83 2.83m9.66 0l2.83-2.83"/></svg>} label="Load Demo" onClick={onLoadDemo} />
+          <Mi icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>} label="Clear Current Project" onClick={() => { if (confirm("Delete all tasks, dependencies, and assignments in the current project?")) onClearProject(); }} danger />
         </MenuBtn>
 
         <div style={{ marginLeft: "auto" }} />
@@ -821,8 +909,7 @@ function GanttToolbar({
           <Mmi label="Move Up" onClick={() => { moveUpDisabled ? alert(moveDisabledReason || "Select a movable task.") : onMoveUp?.(); setMobileMenuOpen(false); }} />
           <Mmi label="Move Down" onClick={() => { moveDownDisabled ? alert(moveDisabledReason || "Select a movable task.") : onMoveDown?.(); setMobileMenuOpen(false); }} />
           <div style={{ height: 1, background: "rgba(255,255,255,0.1)", margin: "4px 0" }} />
-          <Mmi label="Reset Data" onClick={() => { if (confirm("Delete all Gantt data?")) { onReset(); setMobileMenuOpen(false); } }} />
-          <Mmi label="Load Demo" onClick={() => { onLoadDemo(); setMobileMenuOpen(false); }} />
+          <Mmi label="Clear Current Project" onClick={() => { if (confirm("Delete all tasks, dependencies, and assignments in the current project?")) { onClearProject(); setMobileMenuOpen(false); } }} />
           <Mmi label="Close Project" onClick={() => { onClose(); setMobileMenuOpen(false); }} />
         </div>
       )}
@@ -1815,10 +1902,27 @@ export default function GanttPlanner() {
 
   /* ═══════ SECTION 3: ALL tRPC hooks (THIRD) ═══════ */
   const utils = trpc.useUtils();
-  const tasksQuery = trpc.gantt.tasks.useQuery();
-  const linksQuery = trpc.gantt.links.useQuery();
-  const { refetch: refetchTasks } = tasksQuery;
-  const { refetch: refetchLinks } = linksQuery;
+  const projectQueryInput = { projectId: currentProjectId ?? 1 };
+  const canonicalTasksQuery = trpc.gantt.tasks.useQuery(projectQueryInput, { enabled: currentProjectId !== null });
+  const canonicalLinksQuery = trpc.gantt.links.useQuery(projectQueryInput, { enabled: currentProjectId !== null });
+  const tasksQuery: any = {
+    ...canonicalTasksQuery,
+    data: canonicalTasksQuery.data?.map(canonicalTaskToView),
+  };
+  const linksQuery: any = {
+    ...canonicalLinksQuery,
+    data: canonicalLinksQuery.data?.map(canonicalDependencyToView),
+  };
+  const { refetch: refetchCanonicalTasks } = canonicalTasksQuery;
+  const { refetch: refetchCanonicalLinks } = canonicalLinksQuery;
+  const refetchTasks = useCallback(async () => {
+    const result = await refetchCanonicalTasks();
+    return { ...result, data: result.data?.map(canonicalTaskToView) };
+  }, [refetchCanonicalTasks]);
+  const refetchLinks = useCallback(async () => {
+    const result = await refetchCanonicalLinks();
+    return { ...result, data: result.data?.map(canonicalDependencyToView) };
+  }, [refetchCanonicalLinks]);
 
   useEffect(() => {
     const err = tasksQuery.error || linksQuery.error;
@@ -1866,54 +1970,111 @@ export default function GanttPlanner() {
     emitGanttPerf({ phase: "search-tasks", note: "No dedicated Gantt search UI is mounted; marker exposed at window.__ODM_GANTT_PERF__.markSearchTasks()." });
   }, []);
 
-  const saveTaskMut = trpc.gantt.saveTask.useMutation({
+  const canonicalSaveTaskMut = trpc.gantt.saveTask.useMutation({
     onSuccess: () => {
       utils.gantt.tasks.invalidate();
     },
     onError: (e) => setBanner({ type: "error", message: "Save task failed: " + e.message }),
   });
-  const deleteTaskMut = trpc.gantt.deleteTask.useMutation({
+  const canonicalDeleteTaskMut = trpc.gantt.deleteTask.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
-  const saveLinkMut = trpc.gantt.saveLink.useMutation({
+  const canonicalSaveLinkMut = trpc.gantt.saveLink.useMutation({
     onSuccess: () => utils.gantt.links.invalidate(),
     onError: (e: any) => console.error("[saveLink] FAILED:", e.message, e.data),
   });
-  const saveLinkByUidMut = trpc.gantt.saveLinkByUid.useMutation({
-    onSuccess: () => utils.gantt.links.invalidate(),
-    onError: (e: any) => console.error("[saveLinkByUid] FAILED:", e.message, e.data),
-  });
-  const deleteLinkMut = trpc.gantt.deleteLink.useMutation({
+  const canonicalDeleteLinkMut = trpc.gantt.deleteLink.useMutation({
     onSuccess: () => { utils.gantt.links.invalidate(); setBanner({ type: "success", message: "Dependency deleted." }); },
     onError: (e: any) => setBanner({ type: "error", message: "Delete dependency failed: " + e.message }),
   });
-  const saveLinksBatchMut = trpc.gantt.saveLinksBatch.useMutation({
-    onSuccess: () => utils.gantt.links.invalidate(),
-    onError: (e: any) => console.error("[saveLinksBatch] FAILED:", e.message),
-  });
-  const reorderTasksMut = trpc.gantt.reorderTasks.useMutation({
+  const canonicalReorderTasksMut = trpc.gantt.reorderTasks.useMutation({
     onSuccess: () => utils.gantt.tasks.invalidate(),
     onError: (e: any) => console.error("[reorderTasks] FAILED:", e.message),
   });
-  const resetMut = trpc.gantt.resetGantt.useMutation({
+  const updateHierarchyMut = trpc.gantt.updateHierarchy.useMutation({
+    onSuccess: () => utils.gantt.tasks.invalidate(),
+  });
+  const clearProjectMut = trpc.gantt.clearProject.useMutation({
     onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
-  const seedMut = trpc.gantt.seed.useMutation({
-    onSuccess: (data: any) => {
-      utils.gantt.tasks.invalidate();
-      utils.gantt.links.invalidate();
-      if (data?.seeded) {
-        setBanner({ type: "success", message: `Demo data loaded: ${data.count || 7} tasks created.` });
-      } else if (data?.reason) {
-        setBanner({ type: "info", message: `Seed skipped: ${data.reason}. Use Reset DB first if you want fresh demo data.` });
-      }
-    },
-    onError: (e: any) => setBanner({ type: "error", message: "Demo load failed: " + e.message }),
+  const importProjectMut = trpc.gantt.importProject.useMutation({
+    onSuccess: () => { utils.gantt.tasks.invalidate(); utils.gantt.links.invalidate(); },
   });
+
+  const requireCurrentProject = useCallback(() => {
+    if (currentProjectId === null) throw new Error("Open or create a project first.");
+    return currentProjectId;
+  }, [currentProjectId]);
+  const saveTaskMut: any = useMemo(() => ({
+    ...canonicalSaveTaskMut,
+    mutateAsync: (payload: Record<string, any>) => {
+      const predecessorTaskId = Number(payload.predecessorTaskId ?? payload.predecessor_task_id ?? 0);
+      const relationshipType = DEPENDENCY_CODE_TO_TYPE[String(payload.relationshipType ?? payload.dependency_type ?? "FS")] ?? "FS";
+      const includesDependencyEdit = Object.prototype.hasOwnProperty.call(payload, "predecessorTaskId")
+        || Object.prototype.hasOwnProperty.call(payload, "predecessor_task_id")
+        || Object.prototype.hasOwnProperty.call(payload, "dependency_type");
+      return canonicalSaveTaskMut.mutateAsync({
+        projectId: requireCurrentProject(),
+        task: legacyTaskToCanonical(payload) as any,
+        incomingDependencies: includesDependencyEdit && predecessorTaskId > 0
+          ? [{ predecessorTaskId, relationshipType, lag: Number(payload.lag ?? payload.lag_days ?? 0), lagUnit: "day" }]
+          : includesDependencyEdit ? [] : undefined,
+      });
+    },
+    mutate: (payload: Record<string, any>) => canonicalSaveTaskMut.mutate({
+      projectId: requireCurrentProject(),
+      task: legacyTaskToCanonical(payload) as any,
+    }),
+  }), [canonicalSaveTaskMut, requireCurrentProject]);
+  const deleteTaskMut: any = {
+    ...canonicalDeleteTaskMut,
+    mutateAsync: (payload: { id: number }) => canonicalDeleteTaskMut.mutateAsync({ projectId: requireCurrentProject(), taskId: payload.id }),
+    mutate: (payload: { id: number }) => canonicalDeleteTaskMut.mutate({ projectId: requireCurrentProject(), taskId: payload.id }),
+  };
+  const saveLinkMut: any = {
+    ...canonicalSaveLinkMut,
+    mutateAsync: (payload: any) => canonicalSaveLinkMut.mutateAsync({
+      projectId: requireCurrentProject(),
+      dependency: {
+        predecessorTaskId: payload.predecessorTaskId ?? payload.source,
+        successorTaskId: payload.successorTaskId ?? payload.target,
+        relationshipType: DEPENDENCY_CODE_TO_TYPE[String(payload.relationshipType ?? payload.type ?? "FS")] ?? "FS",
+        lag: Number(payload.lag ?? 0),
+        lagUnit: "day",
+      },
+    }),
+    mutate: (payload: any) => canonicalSaveLinkMut.mutate({
+      projectId: requireCurrentProject(),
+      dependency: {
+        predecessorTaskId: payload.predecessorTaskId ?? payload.source,
+        successorTaskId: payload.successorTaskId ?? payload.target,
+        relationshipType: DEPENDENCY_CODE_TO_TYPE[String(payload.relationshipType ?? payload.type ?? "FS")] ?? "FS",
+        lag: Number(payload.lag ?? 0),
+        lagUnit: "day",
+      },
+    }),
+  };
+  const deleteLinkMut: any = {
+    ...canonicalDeleteLinkMut,
+    mutateAsync: (payload: { id: number }) => canonicalDeleteLinkMut.mutateAsync({ projectId: requireCurrentProject(), dependencyId: payload.id }),
+    mutate: (payload: { id: number }) => canonicalDeleteLinkMut.mutate({ projectId: requireCurrentProject(), dependencyId: payload.id }),
+  };
+  const reorderTasksMut: any = useMemo(() => ({
+    ...canonicalReorderTasksMut,
+    mutateAsync: (updates: any[]) => canonicalReorderTasksMut.mutateAsync({
+      projectId: requireCurrentProject(),
+      updates: updates.map(update => ({ id: update.id, sortOrder: update.sortOrder ?? update.sort_order ?? 0 })),
+    }),
+  }), [canonicalReorderTasksMut, requireCurrentProject]);
+  const clearProjectAction = {
+    mutate: () => currentProjectId === null
+      ? setBanner({ type: "info", message: "Open or create a project first." })
+      : clearProjectMut.mutate({ projectId: currentProjectId }),
+  };
 
   /* Project save/load hooks */
   const { data: projectsListData } = trpc.ganttProjects.list.useQuery(undefined, { retry: 1 });
-  const projectsList = projectsListData?.projects || [];
+  const projectsList = useMemo(() => projectsListData?.projects || [], [projectsListData?.projects]);
   const normalizeProjectId = useCallback((value: unknown): number | null => {
     if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : null;
     if (typeof value === "string") {
@@ -1940,119 +2101,42 @@ export default function GanttPlanner() {
     },
     onError: (e) => setBanner({ type: "error", message: "Save failed: " + e.message }),
   });
-  const loadProjectMut = trpc.ganttProjects.get.useMutation({
-    onMutate: ({ id }: { id: number }) => { setLoadingProjectId(id); },
-    onSettled: () => { setLoadingProjectId(null); },
-    onSuccess: async (data) => {
-      try {
-        const parsed = JSON.parse(data.tasksData);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          await resetMut.mutateAsync(undefined);
-
-          /* PASS 1: Create all tasks with parent=0, track old→new ID mapping */
-          const idMap = new Map<number, number>(); // oldId → newId
-          for (const [idx, t] of parsed.entries()) {
-            const result = await saveTaskMut.mutateAsync({
-              frontend_task_uid: t.frontendTaskUid || t.frontend_task_uid || generateUid(),
-              text: t.text || "", owner: t.owner || null,
-              start_date: t.startDate || t.start_date || null,
-              end_date: t.endDate || t.end_date || null,
-              planned_start: t.plannedStart || t.planned_start || t.plannedStartDate || null,
-              planned_finish: t.plannedEnd || t.planned_end || t.plannedEndDate || null,
-              duration: t.duration || 1, progress: normProgress(t.progress),
-              wbs_level: 1,
-              parent: 0,
-              type: t.type || "task",
-              status: t.status || null, remarks: t.remarks || t.notes || null,
-              category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? t.sortOrder ?? t.sort_order ?? idx,
-            });
-            idMap.set(t.id, result.id);
-          }
-
-          /* PASS 2: Update parent references using new IDs */
-          await refetchTasks();
-          for (const t of parsed) {
-            const newId = idMap.get(t.id);
-            const oldParent = t.parent || 0;
-            const newParent = oldParent > 0 ? (idMap.get(oldParent) || 0) : 0;
-            const wbsLevel = computeWbsLevel(t.id ?? 0, parsed, oldParent);
-            if (newId && (newParent !== 0 || oldParent === 0)) {
-              await saveTaskMut.mutateAsync({
-                id: newId,
-                text: t.text || "", owner: t.owner || null,
-                start_date: t.startDate || t.start_date || null,
-                end_date: t.endDate || t.end_date || null,
-                planned_start: t.plannedStart || t.planned_start || null,
-                planned_finish: t.plannedEnd || t.planned_end || null,
-                duration: t.duration || 1, progress: normProgress(t.progress),
-                wbs_level: wbsLevel,
-                parent: newParent,
-                parent_task_id: newParent,
-                type: t.type || "task",
-                status: t.status || null, remarks: t.remarks || t.notes || null,
-                category: t.category || null, open: t.open ?? 1, sortorder: t.sortorder ?? t.sortOrder ?? t.sort_order ?? 0,
-              });
-            }
-          }
-
-          // Load dependencies from linksData into gantt_dependencies table
-          if (data.linksData) {
-            try {
-              const linksParsed = JSON.parse(data.linksData);
-              if (Array.isArray(linksParsed) && linksParsed.length > 0) {
-                const depsToSave = linksParsed.map((l: any) => ({
-                  source: idMap.get(l.source || l.predecessorTaskId) || l.source,
-                  target: idMap.get(l.target || l.successorTaskId) || l.target,
-                  type: l.type || l.dependencyType || "0",
-                  lag: l.lag || l.lagDays || 0,
-                  projectId: data.id,
-                })).filter((d: any) => d.source && d.target);
-                if (depsToSave.length > 0) {
-                  await saveLinksBatchMut.mutateAsync(depsToSave);
-                }
-              }
-            } catch { /* ignore link parse errors */ }
-          }
-          await utils.gantt.tasks.invalidate();
-          await utils.gantt.links.invalidate();
-          const [freshTasksAfterLoad, freshLinksAfterLoad] = await Promise.all([
-            refetchTasks(),
-            refetchLinks(),
-          ]);
-          setSelectedTaskId(null);
-          setSelectedIds(new Set());
-          setEditingId(null);
-          setShowAdd(false);
-          setForm(EMPTY_FORM);
-          setBanner({ type: "success", message: `Loaded "${data.name}" — ${parsed.length} task(s).` });
-          setCurrentProjectId(data.id);
-          setCurrentProjectName(data.name);
-          setHasUnsavedChanges(false);
-          setImportSourceName("");
-          lastSavedJsonRef.current = buildProjectSnapshot(freshTasksAfterLoad.data || [], freshLinksAfterLoad.data || []);
-        } else {
-          setBanner({ type: "info", message: "Project is empty — no tasks to load." });
-          setCurrentProjectId(data.id);
-          setCurrentProjectName(data.name);
-          setHasUnsavedChanges(false);
-          setImportSourceName("");
-          lastSavedJsonRef.current = "";
-        }
-        setLoadModal(false);
-      } catch (e: any) { setBanner({ type: "error", message: "Failed to parse project data: " + e.message }); }
-    },
-    onError: (e) => {
-      const isMissingProject = /project not found/i.test(e.message);
-      if (isMissingProject) {
-        setBanner({
-          type: "info",
-          message: "Project could not be opened right now. It was not removed; please retry or refresh.",
-        });
-        return;
-      }
-      setBanner({ type: "error", message: "Load failed: " + e.message });
-    },
+  const cloneProjectMut = trpc.ganttProjects.clone.useMutation({
+    onSuccess: () => utils.ganttProjects.list.invalidate(),
+    onError: (e) => setBanner({ type: "error", message: "Save As failed: " + e.message }),
   });
+  const loadProjectMut: any = {
+    mutate: async ({ id }: { id: number }) => {
+      setLoadingProjectId(id);
+      try {
+        const data = await utils.ganttProjects.get.fetch({ id });
+        setCurrentProjectId(data.id);
+        setCurrentProjectName(data.name);
+        setStatusDateInput(data.statusDate || toIsoDate(TODAY));
+        setAppliedStatusDatePreview(null);
+        setTaskList(data.tasks.map(canonicalTaskToView));
+        setSelectedTaskId(null);
+        setSelectedIds(new Set());
+        setEditingId(null);
+        setShowAdd(false);
+        setForm(EMPTY_FORM);
+        setHasUnsavedChanges(false);
+        setImportSourceName("");
+        lastSavedJsonRef.current = buildProjectSnapshot(data.tasks, data.dependencies);
+        setLoadModal(false);
+        setBanner({
+          type: data.tasks.length > 0 ? "success" : "info",
+          message: data.tasks.length > 0
+            ? `Loaded "${data.name}" — ${data.tasks.length} task(s).`
+            : `Opened empty project "${data.name}".`,
+        });
+      } catch (error: any) {
+        setBanner({ type: "error", message: "Load failed: " + (error?.message || "Unknown error") });
+      } finally {
+        setLoadingProjectId(null);
+      }
+    },
+  };
   const deleteProjectMut = trpc.ganttProjects.delete.useMutation({
     onSuccess: async (data) => {
       await utils.ganttProjects.list.invalidate();
@@ -2275,10 +2359,18 @@ export default function GanttPlanner() {
         parent: task.parent || 0,
         parent_task_id: task.parent || 0,
         wbs_level: wbsLevels.get(task.id) || 1,
+        sort_order: task.sortorder ?? task.sortOrder ?? task.sort_order ?? 0,
       }));
 
-    for (const payload of hierarchyUpdates) {
-      await saveTaskMut.mutateAsync(payload);
+    if (hierarchyUpdates.length > 0) {
+      await updateHierarchyMut.mutateAsync({
+        projectId: requireCurrentProject(),
+        updates: hierarchyUpdates.map((payload: any) => ({
+          id: payload.id,
+          parentId: payload.parent || null,
+          sortOrder: Math.max(0, payload.sort_order),
+        })),
+      });
     }
 
     const rolled = recalculateParentRollups(nextTasks.map(({ __hierarchyDirty, ...task }: any) => task));
@@ -2300,11 +2392,11 @@ export default function GanttPlanner() {
     const fresh = await refetchTasks();
     setTaskList(fresh.data || []);
     return fresh.data || [];
-  }, [saveTaskMut, utils, refetchTasks]);
+  }, [saveTaskMut, updateHierarchyMut, requireCurrentProject, utils, refetchTasks]);
 
   const getHierarchySelection = useCallback((): number[] => {
     const chosen = selectedIds.size > 0 ? Array.from(selectedIds) : (selectedTaskId ? [selectedTaskId] : []);
-    const order = new Map((tasksQuery.data || []).map((t: any, index: number) => [t.id, index]));
+    const order = new Map<number, number>((tasksQuery.data || []).map((t: any, index: number) => [Number(t.id), index]));
     return chosen.filter(id => order.has(id)).sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
   }, [selectedIds, selectedTaskId, tasksQuery.data]);
 
@@ -2412,31 +2504,32 @@ export default function GanttPlanner() {
 
   /* Save project (update existing) */
   const handleSave = useCallback(async () => {
-    const currentTasks = tasksQuery.data || [];
     if (saveProjectMut.isPending) {
       setBanner({ type: "info", message: "Save already in progress." });
       return false;
     }
-    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return false; }
     if (currentProjectId == null) { setSaveMode("new"); setProjectName(importSourceName); setSaveModal(true); return false; }
-    const tasksJson = JSON.stringify(currentTasks);
-    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
     try {
       const saved = await saveProjectMut.mutateAsync(
-        { id: currentProjectId, name: currentProjectName, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` }
+        {
+          id: currentProjectId,
+          name: currentProjectName,
+          description: `${tasksQuery.data?.length || 0} tasks`,
+          statusDate: appliedStatusDatePreview?.statusDate,
+        }
       );
       if (!saved?.id) throw new Error("No project ID returned from save");
       setCurrentProjectId(saved.id);
       setCurrentProjectName(saved.name);
       setHasUnsavedChanges(false);
-      lastSavedJsonRef.current = buildProjectSnapshot(currentTasks, linksQuery.data || []);
+      lastSavedJsonRef.current = buildProjectSnapshot(tasksQuery.data || [], linksQuery.data || []);
       setBanner({ type: "success", message: `"${saved.name}" saved.` });
       return true;
     } catch (e: any) {
       setBanner({ type: "error", message: "Save failed: " + (e?.message || "Unknown error") });
       return false;
     }
-  }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut, importSourceName]);
+  }, [currentProjectId, currentProjectName, tasksQuery.data, linksQuery.data, saveProjectMut, importSourceName, appliedStatusDatePreview]);
 
   /* Save As (always show modal) */
   const handleSaveAs = useCallback(() => {
@@ -2449,58 +2542,48 @@ export default function GanttPlanner() {
   const handleSaveProject = useCallback(async () => {
     const name = projectName.trim();
     if (!name) return;
-    const currentTasks = tasksQuery.data || [];
     if (saveProjectMut.isPending) { setBanner({ type: "info", message: "Save already in progress." }); return; }
-    if (currentTasks.length === 0) { setBanner({ type: "error", message: "No tasks to save." }); return; }
-    if (saveMode === "as") {
-      const existing = projectsList.find((p: any) => p.name === name);
+    if (saveMode === "as" && currentProjectId !== null) {
+      const existing = projectsList.find(p => p.name === name);
       if (existing) {
-        const choice = window.confirm(`"${name}" already exists.\n\nOK = Replace existing\nCancel = Keep both (will create new)`);
-        if (choice) {
-          const tasksJson = JSON.stringify(currentTasks);
-          const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
-          try {
-            const saved = await saveProjectMut.mutateAsync(
-              { id: existing.id, name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` }
-            );
-            if (!saved?.id) throw new Error("No project ID returned from save");
-            setCurrentProjectId(saved.id);
-            setCurrentProjectName(saved.name);
-            setHasUnsavedChanges(false);
-            setImportSourceName("");
-            lastSavedJsonRef.current = buildProjectSnapshot(currentTasks, linksQuery.data || []);
-            setBanner({ type: "success", message: `"${saved.name}" replaced.` });
-            return;
-          } catch (e: any) {
-            setBanner({ type: "error", message: "Save failed: " + (e?.message || "Unknown error") });
-            return;
-          }
-        }
+        setBanner({ type: "error", message: `A project named "${name}" already exists. Choose a unique name.` });
+        return;
+      }
+      try {
+        const data = await cloneProjectMut.mutateAsync({ sourceProjectId: currentProjectId, name });
+        setCurrentProjectId(data.id);
+        setCurrentProjectName(data.name);
+        setHasUnsavedChanges(false);
+        setImportSourceName("");
+        setSaveModal(false);
+        setProjectName("");
+        setBanner({ type: "success", message: `"${data.name}" saved as a transactional copy.` });
+        return;
+      } catch (e: any) {
+        setBanner({ type: "error", message: "Save As failed: " + (e?.message || "Unknown error") });
+        return;
       }
     }
-    const tasksJson = JSON.stringify(currentTasks);
-    const linksJson = linksQuery.data ? JSON.stringify(linksQuery.data) : "";
     try {
       const data: any = await saveProjectMut.mutateAsync(
-        { name, tasksData: tasksJson, linksData: linksJson || "", description: `${currentTasks.length} tasks` }
+        { name, description: "Empty project", statusDate: appliedStatusDatePreview?.statusDate }
       );
       if (!data?.id) throw new Error("No project ID returned from save");
       setCurrentProjectId(data.id);
       setCurrentProjectName(data.name);
       setHasUnsavedChanges(false);
       setImportSourceName("");
-      lastSavedJsonRef.current = buildProjectSnapshot(currentTasks, linksQuery.data || []);
+      lastSavedJsonRef.current = "";
       setBanner({ type: "success", message: `"${data.name}" saved.` });
     } catch (e: any) {
       setBanner({ type: "error", message: "Save failed: " + (e?.message || "Unknown error") });
     }
-  }, [projectName, saveMode, tasksQuery.data, linksQuery.data, saveProjectMut, projectsList, currentProjectName]);
+  }, [projectName, saveMode, saveProjectMut, cloneProjectMut, projectsList, currentProjectId, appliedStatusDatePreview]);
 
   /* Close project */
   const handleClose = useCallback(async () => {
     const currentTasks = tasksQuery.data || [];
     const currentLinks = linksQuery.data || [];
-    const hasSessionData = currentTasks.length > 0 || currentLinks.length > 0 || currentProjectId !== null || !!currentProjectName || !!importSourceName;
     const shouldConfirmDiscard = hasUnsavedChanges || (currentProjectId === null && (currentTasks.length > 0 || currentLinks.length > 0));
 
     if (shouldConfirmDiscard && !window.confirm("Discard unsaved changes?")) return;
@@ -2534,19 +2617,8 @@ export default function GanttPlanner() {
     setDepEditorTask(null);
     setKpi({ totalTasks: 0, completed: 0, inProgress: 0, overdue: 0, completionRate: 0, avgDuration: 0 });
 
-    if (!hasSessionData) {
-      setBanner({ type: "info", message: "Project closed." });
-      return;
-    }
-
-    setBanner({ type: "info", message: "Project closed — clearing data..." });
-    try {
-      await resetMut.mutateAsync(undefined);
-      await utils.gantt.tasks.invalidate();
-      await utils.gantt.links.invalidate();
-      setBanner({ type: "info", message: "Project closed." });
-    } catch (e) { setBanner({ type: "error", message: "Close failed — refresh the page." }); }
-  }, [currentProjectId, currentProjectName, hasUnsavedChanges, importSourceName, linksQuery.data, resetMut, tasksQuery.data, utils]);
+    setBanner({ type: "info", message: "Project closed." });
+  }, [currentProjectId, hasUnsavedChanges, linksQuery.data, tasksQuery.data]);
 
   /* Open project with unsaved guard */
   const handleOpenClick = useCallback(async () => {
@@ -2836,16 +2908,11 @@ export default function GanttPlanner() {
     /* UID-based identity — stable across saves */
     const _taskUid       = form.frontendTaskUid || generateUid();
     let _parentUid       = form.parentFrontendUid || "";
-    let _predUid         = form.predecessorFrontendUid || "";
 
     /* Fallback: resolve UID from DB ID if UID missing (e.g. task from before UID migration) */
     if (!_parentUid && _parent && taskList) {
       const pTask = taskList.find((t: any) => t.id === _parent);
       if (pTask) _parentUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
-    }
-    if (!_predUid && _predecessorId && taskList) {
-      const pTask = taskList.find((t: any) => t.id === _predecessorId);
-      if (pTask) _predUid = pTask.frontendTaskUid || pTask.frontend_task_uid || "";
     }
 
     if (_editingId && _predecessorId && _depType) {
@@ -2911,7 +2978,6 @@ export default function GanttPlanner() {
     payload.actual_duration = _duration;
     console.log("[DEBUG] payload AFTER overrides (sent to API):", JSON.stringify(payload, null, 2));
 
-    let depSaveError: string | null = null;
     try {
       const result = await saveTaskMut.mutateAsync(payload);
       const savedTaskId = _editingId || result?.id;
@@ -2923,60 +2989,7 @@ export default function GanttPlanner() {
       const freshLinkArr = freshLinks.data || [];
       setTaskList(freshTaskArr);
 
-      /* ── PHASE 3: Save dependency ── */
-      const succForDelete = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _taskUid) || freshTaskArr.find((t: any) => t.id === savedTaskId);
-      if (succForDelete) {
-        const existing = freshLinkArr.find((l: any) => l.target === succForDelete.id || l.successorTaskId === succForDelete.id);
-        if (existing) {
-          try { await deleteLinkMut.mutateAsync({ id: existing.id }); } catch { /* ignore */ }
-        }
-      }
-
-      if ((_predUid || _predecessorId) && _predecessorId !== savedTaskId && _depType) {
-        const typeMap: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
-        const typeCode = typeMap[_depType] || "0";
-
-        /* Try UID-based save first, fall back to DB-ID-based save */
-        if (_predUid && _predUid !== _taskUid) {
-          try {
-            await saveLinkByUidMut.mutateAsync({
-              sourceUid: _predUid, targetUid: _taskUid,
-              type: typeCode, lag: _lagDays,
-              projectId: currentProjectId ?? undefined,
-            });
-            console.log("[save] dependency saved by UID:", _predUid, "→", _taskUid);
-          } catch (depErr: any) {
-            /* UID save failed — try DB-ID fallback */
-            console.warn("[save] UID dep save failed, trying DB-ID fallback:", depErr.message);
-            try {
-              await saveLinkMut.mutateAsync({
-                source: _predecessorId, target: savedTaskId,
-                type: typeCode, lag: _lagDays,
-                projectId: currentProjectId ?? undefined,
-              });
-              console.log("[save] dependency saved by DB ID (fallback):", _predecessorId, "→", savedTaskId);
-            } catch (fallbackErr: any) {
-              depSaveError = fallbackErr.message || "Dependency save failed";
-              console.error("[save] DB-ID fallback also failed:", depSaveError);
-            }
-          }
-        } else if (_predecessorId && savedTaskId) {
-          /* No UID — use DB-ID-based save directly */
-          try {
-            await saveLinkMut.mutateAsync({
-              source: _predecessorId, target: savedTaskId,
-              type: typeCode, lag: _lagDays,
-              projectId: currentProjectId ?? undefined,
-            });
-            console.log("[save] dependency saved by DB ID:", _predecessorId, "→", savedTaskId);
-          } catch (depErr: any) {
-            depSaveError = depErr.message || "Dependency save failed";
-            console.error("[save] DB-ID dep save failed (non-blocking):", depSaveError);
-          }
-        }
-      }
-
-      /* ── PHASE 4: Rebuild form from fresh data ── */
+      /* Rebuild form from the task/dependency transaction output. */
       const savedTask = freshTaskArr.find((t: any) => (t.frontendTaskUid || t.frontend_task_uid) === _taskUid);
       if (savedTask) {
         const newForm = mapDbRowToForm(savedTask, freshLinkArr, freshTaskArr);
@@ -2985,13 +2998,13 @@ export default function GanttPlanner() {
         setShowAdd(false);
       }
 
-      /* ── PHASE 5: Auto-schedule + rollups ── */
+      /* Auto-schedule + rollups */
       const refreshedLinks = (await refetchLinks()).data || freshLinkArr;
       const refreshedTasks = (await refetchTasks()).data || freshTaskArr;
       const scheduledCount = await runAutoSchedule(savedTaskId, refreshedTasks, refreshedLinks);
       if (_parent > 0) recalcAndSaveParent(_parent, refreshedTasks);
 
-      setBanner({ type: depSaveError ? "error" : "success", message: `"${_text}" saved.${scheduledCount ? ` Auto-scheduled ${scheduledCount} successor task(s).` : ""}${depSaveError ? " Dependency error: " + depSaveError : ""}` });
+      setBanner({ type: "success", message: `"${_text}" saved.${scheduledCount ? ` Auto-scheduled ${scheduledCount} successor task(s).` : ""}` });
 
     } catch (e: any) {
       console.error("[save] ERROR:", e.message, e);
@@ -2999,89 +3012,88 @@ export default function GanttPlanner() {
     } finally {
       setIsSaving(false);
     }
-  }, [form, editingId, saveTaskMut, saveLinkByUidMut, saveLinkMut, deleteLinkMut, runAutoSchedule, tasksQuery.data, taskList, recalcAndSaveParent, currentProjectId, refetchTasks, refetchLinks, linksQuery.data]);
+  }, [form, editingId, saveTaskMut, runAutoSchedule, tasksQuery.data, taskList, recalcAndSaveParent, refetchTasks, refetchLinks, linksQuery.data]);
 
   const handleImportExcel = (file: File) => {
+    if (currentProjectId === null) {
+      setBanner({ type: "error", message: "Create or open a project before importing." });
+      return;
+    }
+    if ((tasksQuery.data?.length || linksQuery.data?.length) && !window.confirm(
+      "Import will atomically replace the current project's tasks, dependencies, and assignments. Continue?",
+    )) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
       const result = parseImportFile(new Uint8Array(e.target?.result as ArrayBuffer));
       if (!result) { setBanner({ type: "error", message: "No data found in the file." }); return; }
       const { rows } = result;
-      let imported = 0; let skipped = 0; const errors: string[] = [];
-      const idMap = new Map<number, number>();
-      const importedRows: Array<{ savedId: number; originalId: number | null; originalParentId: number; payload: any }> = [];
-      const pendingDeps: Array<{ source: number; target: number; type: string; lag: number; projectId?: number }> = [];
-      const depTypeMap: Record<string, string> = { FS: "0", SS: "1", FF: "2", SF: "3", "0": "0", "1": "1", "2": "2", "3": "3" };
+      let skipped = 0;
+      const errors: string[] = [];
+      const tasks: any[] = [];
+      const dependencies: any[] = [];
+      const usedSourceIds = new Set<number>();
 
       for (const [idx, row] of rows.entries()) {
         const { payload, error } = parseImportRow(row, idx);
         if (error) { errors.push(error); continue; }
         if (!payload) { skipped++; continue; }
-
-        const saved = await saveTaskMut.mutateAsync(payload);
-        imported++;
-
         const rowTaskId = parseInt(String(row["Task ID"] || row["task_id"] || row["id"] || ""), 10);
+        const sourceId = !Number.isNaN(rowTaskId) && rowTaskId > 0 ? rowTaskId : idx + 1;
+        if (usedSourceIds.has(sourceId)) {
+          errors.push(`Row ${idx + 2}: duplicate Task ID ${sourceId}.`);
+          continue;
+        }
+        usedSourceIds.add(sourceId);
         const parentRaw = row["Parent Task"] ?? row["parent"] ?? row["parentId"] ?? row["parent_task"] ?? "0";
-        const parentId = parseInt(String(parentRaw), 10) || 0;
-        const originalId = !Number.isNaN(rowTaskId) && rowTaskId > 0 ? rowTaskId : null;
-        if (originalId) idMap.set(originalId, saved.id);
-        importedRows.push({ savedId: saved.id, originalId, originalParentId: parentId, payload });
+        const parentSourceId = parseInt(String(parentRaw), 10) || null;
+        const canonical = legacyTaskToCanonical(payload);
+        tasks.push({
+          ...canonical,
+          id: undefined,
+          sourceId,
+          parentId: null,
+          parentSourceId,
+          frontendTaskUid: canonical.frontendTaskUid || generateUid(),
+          name: canonical.name || `Task ${sourceId}`,
+          taskType: canonical.taskType || "task",
+          sortOrder: canonical.sortOrder ?? idx,
+          duration: canonical.duration ?? 1,
+          progress: canonical.progress ?? 0,
+        });
 
         const depRaw = row["Dependency"] || row["dependency"] || row["predecessorId"] || row["predecessor"] || row["Predecessor"] || "";
         const depId = parseInt(String(depRaw), 10);
-        if (!Number.isNaN(depId) && depId > 0 && originalId) {
+        if (!Number.isNaN(depId) && depId > 0) {
           const rawType = String(row["Dependency Type"] || row["dependency_type"] || row["dependencyType"] || row["linkType"] || row["link_type"] || "FS").toUpperCase();
-          const depType = depTypeMap[rawType] || "0";
           const lagRaw = row["Lag (days)"] || row["lag"] || row["lagDays"] || row["lag_days"] || 0;
-          const lag = parseInt(String(lagRaw), 10) || 0;
-          pendingDeps.push({ source: depId, target: originalId, type: depType, lag, projectId: currentProjectId ?? undefined });
+          dependencies.push({
+            predecessorSourceId: depId,
+            successorSourceId: sourceId,
+            relationshipType: DEPENDENCY_CODE_TO_TYPE[rawType] ?? "FS",
+            lag: parseInt(String(lagRaw), 10) || 0,
+            lagUnit: "day",
+          });
         }
       }
-
-      if (importedRows.length > 0) {
-        const importedHierarchy = importedRows.map((item, index) => {
-          const parent = item.originalParentId > 0 ? (idMap.get(item.originalParentId) || 0) : 0;
-          return {
-            id: item.savedId,
-            parent,
-            parentTaskId: parent,
-            sortorder: item.payload.sort_order ?? item.payload.sortOrder ?? index,
-          };
+      if (errors.length > 0) {
+        setBanner({ type: "error", message: `Import validation failed. No data changed. ${errors.join("; ")}` });
+        return;
+      }
+      try {
+        const imported = await importProjectMut.mutateAsync({
+          projectId: currentProjectId,
+          tasks,
+          dependencies,
+          assignments: [],
         });
-        for (const item of importedRows) {
-          const parent = item.originalParentId > 0 ? (idMap.get(item.originalParentId) || 0) : 0;
-          await saveTaskMut.mutateAsync({
-            id: item.savedId,
-            parent,
-            parent_task_id: parent,
-            wbs_level: computeWbsLevel(item.savedId, importedHierarchy, parent),
-          });
-        }
+        setImportSourceName(file.name.replace(/\.[^.]+$/, ""));
+        setBanner({
+          type: "success",
+          message: `Atomically imported ${imported.tasks} task(s) and ${imported.dependencies} dependency(s)${skipped ? `; ${skipped} blank row(s) skipped` : ""}.`,
+        });
+      } catch (error: any) {
+        setBanner({ type: "error", message: `Import failed; no project data changed. ${error?.message || "Unknown error"}` });
       }
-
-      if (pendingDeps.length > 0) {
-        const existing = (await refetchLinks()).data || [];
-        const existingKeys = new Set(existing.map((l: any) => `${l.source}->${l.target}|${String(l.type || "0")}|${parseInt(String(l.lag || 0), 10) || 0}`));
-        const dedup = new Set<string>();
-        const depsToSave = pendingDeps
-          .map((d) => ({ ...d, source: idMap.get(d.source) || 0, target: idMap.get(d.target) || 0 }))
-          .filter((d) => d.source > 0 && d.target > 0)
-          .filter((d) => {
-            const key = `${d.source}->${d.target}|${d.type}|${d.lag}`;
-            if (existingKeys.has(key) || dedup.has(key)) return false;
-            dedup.add(key);
-            return true;
-          });
-
-        if (depsToSave.length > 0) await saveLinksBatchMut.mutateAsync(depsToSave);
-      }
-
-      const msg = `Imported ${imported} task(s)` + (skipped > 0 ? `, ${skipped} skipped.` : ".");
-      setBanner({ type: errors.length > 0 ? "info" : "success", message: msg + (errors.length > 0 ? ` Warnings: ${errors.join("; ")}` : "") });
-      setImportSourceName(file.name.replace(/\.[^.]+$/, ""));
-      await utils.gantt.tasks.invalidate();
-      await utils.gantt.links.invalidate();
     };
     reader.readAsArrayBuffer(file);
   };
@@ -3100,8 +3112,7 @@ export default function GanttPlanner() {
         onExportExcel={() => exportExcel(tasksQuery.data || [])}
         onExportCSV={() => exportCSV(tasksQuery.data || [])}
         onExportTemplate={exportTemplate}
-        onReset={() => resetMut.mutate()}
-        onLoadDemo={() => seedMut.mutate()}
+        onClearProject={() => clearProjectAction.mutate()}
         onIndent={handleIndent} onOutdent={handleOutdent}
         onMoveUp={() => moveSelectedTask("up")} onMoveDown={() => moveSelectedTask("down")}
         moveUpDisabled={!canMoveUp} moveDownDisabled={!canMoveDown} moveDisabledReason={moveDisabledReason}

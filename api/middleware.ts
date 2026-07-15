@@ -2,6 +2,7 @@ import { ErrorMessages } from "@contracts/constants";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { resolveGanttScope } from "./gantt-scope";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -58,3 +59,15 @@ function requireRole(role: string) {
 
 export const authedQuery = t.procedure.use(requireAuth);
 export const adminQuery = authedQuery.use(requireRole("admin"));
+
+const requireGanttScope = t.middleware(async ({ ctx, next }) => {
+  const ganttScope = await resolveGanttScope(ctx);
+  return next({ ctx: { ...ctx, ganttScope } });
+});
+
+/**
+ * Gantt procedures are never unscoped. Authenticated callers receive their user
+ * scope; intentionally supported anonymous callers receive a signed, httpOnly
+ * server scope that cannot be selected by request input.
+ */
+export const ganttScopedQuery = t.procedure.use(requireGanttScope);
