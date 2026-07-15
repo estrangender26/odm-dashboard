@@ -438,6 +438,7 @@ export default function GovernanceDashboard() {
 
   // ─── Upload status feedback ───
   const [uploadStatus, setUploadStatus] = useState<{ text: string; ts: number } | null>(null);
+  const governanceUploadInProgressRef = useRef(false);
 
   const showStatus = (text: string) => setUploadStatus({ text, ts: Date.now() });
 
@@ -456,6 +457,11 @@ export default function GovernanceDashboard() {
     tocItem?: string
   ) => {
     console.log("[UPLOAD] File selected:", file.name, "mId:", mId, "cat:", cat, "tocItem:", tocItem);
+    if (governanceUploadInProgressRef.current) {
+      showStatus("Another upload is already in progress.");
+      setBanner({ type: "error", message: "Please wait for the current upload to finish." });
+      return;
+    }
     showStatus(`Uploading ${file.name}...`);
     setUploadDebug({
       clicked: `${cat} ${tocItem || ""} (ms: ${mId})`,
@@ -474,6 +480,7 @@ export default function GovernanceDashboard() {
       return;
     }
 
+    governanceUploadInProgressRef.current = true;
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = reader.result as string;
@@ -490,6 +497,7 @@ export default function GovernanceDashboard() {
         },
         {
           onSuccess: (data) => {
+            governanceUploadInProgressRef.current = false;
             console.log("[UPLOAD] Success:", file.name, data);
             showStatus(`Uploaded: ${file.name}`);
             setUploadDebug(prev => ({
@@ -519,6 +527,7 @@ export default function GovernanceDashboard() {
             });
           },
           onError: (err) => {
+            governanceUploadInProgressRef.current = false;
             console.error("[UPLOAD] Failed:", err);
             showStatus(`Upload failed: ${err.message || "Server error"}`);
             setUploadDebug(prev => ({
@@ -531,6 +540,7 @@ export default function GovernanceDashboard() {
       );
     };
     reader.onerror = () => {
+      governanceUploadInProgressRef.current = false;
       console.error("[UPLOAD] FileReader error");
       showStatus("Failed to read file");
       setBanner({ type: "error", message: "Failed to read file. Please try again." });

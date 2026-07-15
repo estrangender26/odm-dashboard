@@ -40,6 +40,23 @@ async function ensureSmpTable() {
   }
 }
 
+const smpMetadataSelection = {
+  id: smpDocuments.id,
+  code: smpDocuments.code,
+  title: smpDocuments.title,
+  revision: smpDocuments.revision,
+  equipmentType: smpDocuments.equipmentType,
+  system: smpDocuments.system,
+  dateIssued: smpDocuments.dateIssued,
+  nextReview: smpDocuments.nextReview,
+  status: smpDocuments.status,
+  responsibleParty: smpDocuments.responsibleParty,
+  fileType: smpDocuments.fileType,
+  fileName: smpDocuments.fileName,
+  createdAt: smpDocuments.createdAt,
+  updatedAt: smpDocuments.updatedAt,
+};
+
 export const smpRouter = createRouter({
   /* ── 1. LIST ALL ── */
   list: publicQuery.query(async () => {
@@ -88,7 +105,7 @@ export const smpRouter = createRouter({
         fileData: input.fileData || null,
         fileType: input.fileType || null,
         fileName: input.fileName || null,
-      }).returning();
+      }).returning(smpMetadataSelection);
       return result[0];
     }),
 
@@ -126,7 +143,11 @@ export const smpRouter = createRouter({
       if (data.fileType !== undefined) clean.fileType = data.fileType || null;
       if (data.fileName !== undefined) clean.fileName = data.fileName || null;
       clean.updatedAt = new Date();
-      const result = await db.update(smpDocuments).set(clean).where(eq(smpDocuments.id, id)).returning();
+      const result = await db
+        .update(smpDocuments)
+        .set(clean)
+        .where(eq(smpDocuments.id, id))
+        .returning(smpMetadataSelection);
       return result[0];
     }),
 
