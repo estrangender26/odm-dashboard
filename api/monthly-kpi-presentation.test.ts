@@ -179,6 +179,8 @@ function createScorecardContext() {
       };
     }>;
     MonthlyScoreData: Record<string, Record<number, Record<number, unknown>>>;
+    summarizeSummaryMatrixNotes: (notes: string) => string;
+    renderSummaryNotesValue: (notes: string) => string;
   };
 }
 
@@ -440,6 +442,20 @@ async function runImportExcel(ctx: any) {
 }
 
 describe("Monthly KPI dashboard presentation", () => {
+function makeCompletionSafetyNote(items: string[], trailingStatement = "All listed works remain under completion-status review.") {
+  return [
+    "PM Compliance:",
+    "Scheduled outsourced PM remains deferred due to unavailable SLA during contract review.",
+    "PM:CM Work Orders:",
+    ...items.map((item, index) => `${index + 1}. ${item}`),
+    "MTTR:",
+    "No downtime occurred during the reporting period while completion status remained under review.",
+    "Facility Uptime:",
+    "Facility remained operational throughout the reporting period.",
+    trailingStatement,
+  ].join("\n");
+}
+
 function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budgetSpend?: number; pmcmWORatio?: number; pmcmCostRatio?: number; mttr?: number; facilityUptime?: number; notes?: string | null } = {}) {
   function makeSheet(rows: unknown[][]) {
     const sheet: any = { _rows: rows };
@@ -646,6 +662,326 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(scorecardHtml).toContain("payload.raw_imported_values.values.notes = payload.notes");
     expect(scorecardHtml).toContain("if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments'||h==='situation')return 'notes';");
     expect(scorecardHtml).toContain("textarea id=\"form-manual-notes\"");
+  });
+
+  it("deterministically summarizes long Summary Matrix Notes while preserving operational meaning", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "PM Compliance:",
+      "Most scheduled outsourced PM are deferred due to unavailable SLA.",
+      "PM CM Work Orders:",
+      "1. Emergency repair of the affected equipment was completed.",
+      "2. Surge arrester replacement was completed.",
+      "3. Switchgear repair was completed.",
+      "4. Auto sync module installation was completed.",
+      "PM CM Cost:",
+      "Emergency repair costs were incurred.",
+      "MTTR:",
+      "No downtime occurred.",
+      "Facility Uptime:",
+      "Facility remained operational.",
+    ].join("\n");
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).toBe(
+      "PM deferred due to unavailable SLA. 4 corrective works completed. Emergency repair costs incurred. No downtime. Facility remained operational.",
+    );
+    expect(summary).toMatch(/deferred due to unavailable SLA/i);
+    expect(summary).toMatch(/4 corrective works completed/i);
+    expect(summary).toMatch(/emergency repair/i);
+    expect(summary).toMatch(/No downtime/i);
+    expect(summary).toMatch(/Facility remained operational/i);
+  });
+
+  it("does not infer completion when numbered corrective work items do not say they were completed", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "PM Compliance:",
+      "Most scheduled outsourced PM are deferred due to unavailable SLA pending contract approval.",
+      "PM CM Work Orders:",
+      "1. Emergency repair is required for the damaged equipment.",
+      "2. Surge arrester requires inspection and technical assessment.",
+      "3. Switchgear requires repair after the recorded breakdown.",
+      "4. Auto sync module requires testing during the planned shutdown.",
+      "MTTR:",
+      "No downtime occurred during the reporting month.",
+      "Facility Uptime:",
+      "Facility remained operational throughout the reporting month.",
+    ].join("\n");
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).toContain("4 corrective works.");
+    expect(summary).not.toContain("4 corrective works completed");
+    expect(summary).toContain("Emergency repair.");
+    expect(summary).toContain("Breakdown.");
+    expect(summary).toContain("Shutdown.");
+  });
+
+  it.each([
+    {
+      label: "not completed",
+      items: [
+        "1. Emergency repair was not completed.",
+        "2. Surge arrester work was not completed.",
+        "3. Switchgear work was not completed.",
+        "4. Auto sync work was not completed.",
+      ],
+    },
+    {
+      label: "not repaired",
+      items: [
+        "1. Emergency equipment was not repaired.",
+        "2. Surge arrester was not repaired.",
+        "3. Switchgear was not repaired.",
+        "4. Auto sync equipment was not repaired.",
+      ],
+    },
+  ])("does not infer completion when all corrective works are $label", ({ items }) => {
+    const context = createScorecardContext();
+    const longNote = [
+      "PM Compliance:",
+      "Scheduled outsourced PM remains deferred due to unavailable SLA pending contract review.",
+      "PM:CM Work Orders:",
+      ...items,
+      "MTTR:",
+      "No downtime occurred during the reporting period while all listed works remain unresolved.",
+      "Facility Uptime:",
+      "Facility remained operational throughout the reporting period while corrective work remains pending.",
+    ].join("\n");
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).toContain("4 corrective works.");
+    expect(summary).not.toContain("4 corrective works completed");
+  });
+
+  it("does not infer completion from a mixed completed and pending corrective-work list", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "PM Compliance:",
+      "Scheduled outsourced PM remains deferred due to unavailable SLA pending contract review.",
+      "CM Work Orders:",
+      "1. Emergency repair was completed.",
+      "2. Surge arrester replacement was completed.",
+      "3. Switchgear repair is pending.",
+      "4. Auto sync module testing is ongoing.",
+      "MTTR:",
+      "No downtime occurred during the reporting period while pending work remains controlled.",
+      "Facility Uptime:",
+      "Facility remained operational throughout the reporting period while work remains pending.",
+    ].join("\n");
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).toContain("4 corrective works.");
+    expect(summary).not.toContain("4 corrective works completed");
+  });
+
+  it.each([
+    "not completed",
+    "not repaired",
+    "not replaced",
+    "not installed",
+    "not yet completed",
+    "not yet repaired",
+    "not yet replaced",
+    "not yet installed",
+    "incomplete",
+    "pending",
+    "ongoing",
+    "for completion",
+  ])("rejects the non-completion marker: %s", (marker) => {
+    const context = createScorecardContext() as any;
+
+    expect(context.hasAffirmativeCompletionMarker(`Corrective work ${marker}.`)).toBe(false);
+  });
+
+  it.each(["repaired", "replaced", "installed", "resolved", "rectified", "restored"])(
+    "does not infer completion from the action verb: %s",
+    (verb) => {
+      const context = createScorecardContext() as any;
+
+      expect(context.hasAffirmativeCompletionMarker(`Equipment ${verb}.`)).toBe(false);
+    },
+  );
+
+  it.each([
+    { label: "never completed", makeItem: (subject: string) => `${subject} was never completed.` },
+    { label: "cannot be completed", makeItem: (subject: string) => `${subject} cannot be completed.` },
+    { label: "can't be completed", makeItem: (subject: string) => `${subject} can't be completed.` },
+    { label: "no work was completed", makeItem: (subject: string) => `No work was completed for ${subject}.` },
+    { label: "wasn't completed", makeItem: (subject: string) => `${subject} wasn't completed.` },
+    { label: "weren't completed", makeItem: (subject: string) => `${subject} activities weren't completed.` },
+    { label: "will be completed", makeItem: (subject: string) => `${subject} will be completed.` },
+    { label: "shall be completed", makeItem: (subject: string) => `${subject} shall be completed.` },
+    { label: "should be completed", makeItem: (subject: string) => `${subject} should be completed.` },
+    { label: "to be completed", makeItem: (subject: string) => `${subject} is to be completed.` },
+  ])("does not emit completed for end-to-end $label items", ({ makeItem }) => {
+    const context = createScorecardContext();
+    const subjects = ["Emergency repair", "Surge arrester work", "Switchgear work", "Auto sync work"];
+    const summary = context.summarizeSummaryMatrixNotes(makeCompletionSafetyNote(subjects.map(makeItem)));
+
+    expect(summary).toContain("4 corrective works.");
+    expect(summary).not.toContain("4 corrective works completed");
+  });
+
+  it.each([
+    "Completed.",
+    "Work completed.",
+    "Work was completed.",
+    "Work has been completed.",
+    "All four activities were completed.",
+  ])("accepts the affirmative completion statement: %s", (statement) => {
+    const context = createScorecardContext() as any;
+
+    expect(context.hasAffirmativeCompletionMarker(statement)).toBe(true);
+  });
+
+  it("does not emit completed for the contradictory unfinished review case", () => {
+    const context = createScorecardContext();
+    const longNote = makeCompletionSafetyNote(
+      [
+        "Emergency repair was never completed.",
+        "Surge arrester work cannot be completed.",
+        "No switchgear work was completed.",
+        "Auto sync work will be completed after shutdown.",
+      ],
+      "All four corrective works remain unfinished.",
+    );
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).toContain("4 corrective works.");
+    expect(summary).not.toContain("4 corrective works completed");
+    expect(summary).toContain("All four corrective works remain unfinished.");
+  });
+
+  it("allows completion only when every corrective work has an affirmative completion marker", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "PM Compliance:",
+      "Scheduled outsourced PM remains deferred due to unavailable SLA pending contract review.",
+      "Corrective Maintenance:",
+      "1. Emergency repair was completed.",
+      "2. Surge arrester work was completed.",
+      "3. Switchgear work was completed.",
+      "4. Auto sync module work was completed.",
+      "MTTR:",
+      "No downtime occurred during the reporting period after the completed corrective work.",
+      "Facility Uptime:",
+      "Facility remained operational throughout the reporting period after the completed work.",
+    ].join("\n");
+
+    expect(context.summarizeSummaryMatrixNotes(longNote)).toContain("4 corrective works completed.");
+  });
+
+  it("does not classify a Budget Spend procurement list as corrective works", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "Budget Spend:",
+      "Procurement items remain under commercial review for the reporting period.",
+      "1. Auto sync module quotation remains pending approval.",
+      "2. Switchgear quotation remains pending approval.",
+      "3. Surge arrester quotation remains pending approval.",
+      "4. Control equipment quotation remains pending approval.",
+      "MTTR:",
+      "No downtime occurred during the reporting period while procurement review continued.",
+      "Facility Uptime:",
+      "Facility remained operational throughout the reporting period without service interruption.",
+    ].join("\n");
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).not.toContain("corrective works");
+    expect(summary).toContain("Auto sync module quotation remains pending approval.");
+  });
+
+  it("does not classify a spare-parts list as corrective works", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "Spare Parts:",
+      "The following spare-parts requirements remain subject to inventory validation and purchasing review.",
+      "1. Auto sync module spare part remains pending.",
+      "2. Switchgear spare part remains pending.",
+      "3. Surge arrester spare part remains pending.",
+      "4. Control equipment spare part remains pending.",
+      "MTTR:",
+      "No downtime occurred during the reporting period while inventory validation continued.",
+      "Facility Uptime:",
+      "Facility remained operational throughout the reporting period without service interruption.",
+    ].join("\n");
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).not.toContain("corrective works");
+    expect(summary).toContain("Auto sync module spare part remains pending.");
+  });
+
+  it("classifies a clearly headed PM:CM Work Orders list as corrective works", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "PM Compliance:",
+      "Scheduled outsourced PM remains deferred due to unavailable SLA pending contract review.",
+      "PM:CM Work Orders:",
+      "1. Emergency repair requires technical assessment.",
+      "2. Surge arrester requires technical assessment.",
+      "3. Switchgear requires technical assessment.",
+      "4. Auto sync module requires technical assessment.",
+      "MTTR:",
+      "No downtime occurred during the reporting period while assessment work continued.",
+      "Facility Uptime:",
+      "Facility remained operational throughout the reporting period without service interruption.",
+    ].join("\n");
+
+    expect(context.summarizeSummaryMatrixNotes(longNote)).toContain("4 corrective works.");
+  });
+
+  it("leaves short Summary Matrix Notes unchanged", () => {
+    const context = createScorecardContext();
+    const shortNote = "Deferred PM due to no SLA. No downtime; facility operational.";
+
+    expect(context.summarizeSummaryMatrixNotes(shortNote)).toBe(shortNote);
+  });
+
+  it("reduces long Summary Matrix Notes without mutating persisted note values or KPI rendering", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "PM Compliance:",
+      "Most scheduled outsourced PM are deferred due to unavailable SLA.",
+      "PM CM Work Orders:",
+      "1. Emergency repair of the affected equipment was completed.",
+      "2. Surge arrester replacement was completed.",
+      "3. Switchgear repair was completed.",
+      "4. Auto sync module installation was completed.",
+      "PM CM Cost:",
+      "Emergency repair costs were incurred.",
+      "MTTR:",
+      "No downtime occurred.",
+      "Facility Uptime:",
+      "Facility remained operational.",
+    ].join("\n");
+    context.applyPersistedMonthlyKpiRecords([
+      {
+        business_unit: "AMD-EZ",
+        reporting_year: 2026,
+        reporting_month: 1,
+        pm_compliance: 98,
+        notes: longNote,
+      },
+    ], { reset: true });
+
+    const storedNote = (context.MonthlyScoreData.ez[2026][1] as { notes: string }).notes;
+    const renderedSummary = context.renderSummaryNotesValue(storedNote);
+    const summary = context.summarizeSummaryMatrixNotes(storedNote);
+
+    expect(storedNote).toBe(longNote);
+    expect(context.MonthlyScoreData.ez[2026][1]).toMatchObject({ pmCompliance: 98, notes: longNote });
+    expect(renderedSummary).toBe(summary);
+    expect(summary.split(/\s+/).length).toBeLessThanOrEqual(25);
+    expect(summary.length).toBeLessThan(longNote.length * 0.6);
+    expect(summary).not.toContain("\n");
   });
 
   it("rolls up All Business Units notes into a clickable commentary count", () => {

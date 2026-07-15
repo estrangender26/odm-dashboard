@@ -1136,6 +1136,172 @@ function renderNotesValue(value){
   return notes ? escapeHtml(notes) : '—';
 }
 
+var SummaryNotesShortWordLimit = 50;
+
+function countNotesWords(value){
+  var words = normalizeNotesValue(value).match(/\S+/g);
+  return words ? words.length : 0;
+}
+
+function compressSummaryNotesSentence(value,heading){
+  var sentence = String(value || '').replace(/^[\s•*-]+/,'').replace(/\s+/g,' ').trim();
+  var section = String(heading || '');
+  if(/PM\s*Compliance/i.test(section) && /\bPM\b.*\bdeferred\b/i.test(sentence)){
+    if(/\bno SLA\b/i.test(sentence))sentence = 'PM deferred (No SLA)';
+    else if(/\bunavailable SLA\b/i.test(sentence))sentence = 'PM deferred due to unavailable SLA';
+  }
+  if(/\bCost\b/i.test(section) && /emergency repair costs?\s+(?:were\s+|was\s+)?incurred/i.test(sentence)){
+    sentence = sentence.match(/emergency repair costs?/i)[0]+' incurred';
+  }
+  if(/MTTR/i.test(section) && /\bno downtime\b/i.test(sentence))sentence = 'No downtime';
+  if(/Facility\s*Uptime/i.test(section) && /facility\s+(?:is|was)\s+operational/i.test(sentence))sentence = 'Facility operational';
+  if(sentence && !/[:.!?]$/.test(sentence))sentence += '.';
+  return sentence;
+}
+
+function hasClearCorrectiveWorkContext(items,heading){
+  var section = String(heading || '').trim();
+  var details = items.join(' ');
+  var clearSection = /^(?:PM\s*[:/]?\s*CM\s*Work Orders?|CM\s*Work Orders?|Corrective\s*(?:Maintenance|Works?)|Emergency\s*Repairs?)$/i;
+  if(clearSection.test(section))return true;
+  if(/\b(?:budgets?(?:\s+spend)?|procurement|purchasing|purchases?|materials?|spare[-\s]?parts?)\b/i.test(section+' '+details))return false;
+  return /\b(?:CM Work Orders?|Corrective Maintenance|Corrective Works?|Emergency Repairs?)\b/i.test(details);
+}
+
+function hasContradictoryCompletionLanguage(item){
+  var text = String(item || '').replace(/’/g,"'");
+  var hasNegation = /\b(?:not|never|no|none|nothing|neither|cannot|can't|wasn't|weren't|hasn't|haven't|isn't|aren't|won't)\b/i.test(text);
+  var hasFutureIntent = /\b(?:will|shall|should|would|could|may|might|must)\s+be\s+completed\b|\bto be\s+completed\b|\b(?:scheduled|planned|expected|intended|targeted)\s+(?:to be\s+)?completed\b/i.test(text);
+  var hasUnfinishedStatus = /\b(?:incomplete|pending|ongoing|in progress|partially|awaiting|deferred|unfinished|unresolved|outstanding)\b|\bfor completion\b/i.test(text);
+  var hasConditionalCompletion = /\b(?:if|when|once|until)\b[^.!?]{0,60}\bcompleted\b/i.test(text);
+  return hasNegation || hasFutureIntent || hasUnfinishedStatus || hasConditionalCompletion;
+}
+
+function hasAffirmativeCompletionMarker(item){
+  var text = String(item || '').replace(/’/g,"'").trim();
+  if(hasContradictoryCompletionLanguage(text))return false;
+  return /^completed\b/i.test(text)
+    || /\b(?:was|were)\s+completed\b/i.test(text)
+    || /\b(?:has|have|had)\s+been\s+completed\b/i.test(text)
+    || /\b(?:work|works|repair|repairs|replacement|replacements|installation|installations|activity|activities|item|items|task|tasks|order|orders)\s+completed\b/i.test(text);
+}
+
+function preserveNumberedNotesItems(items){
+  return items.map(function(item,index){
+    var preserved = String(item || '').trim();
+    if(preserved && !/[.!?]$/.test(preserved))preserved += '.';
+    return (index+1)+'. '+preserved;
+  });
+}
+
+function buildNumberedNotesSummary(items,heading){
+  if(!items.length)return [];
+  if(!hasClearCorrectiveWorkContext(items,heading))return preserveNumberedNotesItems(items);
+  var allCompleted = items.every(hasAffirmativeCompletionMarker);
+  return [items.length+' corrective works'+(allCompleted?' completed':'')+'.'];
+}
+
+function scoreSummaryNotesSentence(sentence,index){
+  var score = Math.max(0,20-index);
+  if(/\b(no|unavailable)\s+SLA\b|\bSLA\b.*\b(unavailable|absent|missing)\b/i.test(sentence))score += 100;
+  if(/\bdeferred\s+PM\b|\bPM\b.*\bdeferred\b/i.test(sentence))score += 100;
+  if(/emergency repairs?|\bbreakdowns?\b|\bshutdowns?\b|no downtime|facility\b.*\boperational/i.test(sentence))score += 100;
+  if(/\b(due to|because|caused by|completed|repaired|replaced|restored)\b/i.test(sentence))score += 30;
+  return score;
+}
+
+function summarizeSummaryMatrixNotes(value){
+  var original = normalizeNotesValue(value);
+  if(!original || countNotesWords(original)<=SummaryNotesShortWordLimit)return original;
+
+  var headingPattern = '(?:PM\\s*Compliance(?:\\s*\\(%\\))?|PM\\s*[:/]?\\s*CM\\s*(?:Work Orders?|WO|Cost|Ratio[^:]*)?|CM\\s*Work Orders?|Corrective\\s*(?:Maintenance|Works?)|Emergency\\s*Repairs?|MTTR(?:\\s*\\([^)]*\\))?|Facility\\s*Uptime(?:\\s*\\(%\\))?|Budget\\s*Spend(?:\\s*\\(%\\))?|Schedule\\s*Compliance(?:\\s*\\(%\\))?)';
+  var prepared = original
+    .replace(new RegExp('([.!?])\\s+(?='+headingPattern+'\\s*:)', 'gi'),'$1\n')
+    .replace(/\s+(?=\d+\s*[.)-]\s+)/g,'\n');
+  var headingOnlyPattern = new RegExp('^('+headingPattern+')\\s*:\\s*$', 'i');
+  var headingWithTextPattern = new RegExp('^('+headingPattern+')\\s*:\\s*(.+)$', 'i');
+  var candidates = [];
+  var numberedItems = [];
+  var numberedHeading = '';
+  var activeHeading = '';
+
+  function flushNumberedItems(){
+    if(!numberedItems.length)return;
+    buildNumberedNotesSummary(numberedItems,numberedHeading).forEach(function(sentence){
+      if(sentence)candidates.push(sentence);
+    });
+    numberedItems = [];
+    numberedHeading = '';
+  }
+
+  prepared.split(/\n+/).forEach(function(rawLine){
+    var line = rawLine.trim();
+    if(!line)return;
+    var headingOnly = line.match(headingOnlyPattern);
+    if(headingOnly){
+      flushNumberedItems();
+      activeHeading = headingOnly[1];
+      return;
+    }
+    var numbered = line.match(/^\d+\s*[.)-]\s*(.+)$/);
+    if(numbered){
+      if(!numberedItems.length)numberedHeading = activeHeading;
+      numberedItems.push(numbered[1].trim());
+      return;
+    }
+    flushNumberedItems();
+    var headingWithText = line.match(headingWithTextPattern);
+    if(headingWithText){
+      activeHeading = headingWithText[1];
+      line = headingWithText[2];
+    }
+    line.split(/(?<=[.!?;])\s+/).forEach(function(part){
+      var sentence = compressSummaryNotesSentence(part,activeHeading);
+      if(sentence)candidates.push(sentence);
+    });
+  });
+  flushNumberedItems();
+
+  [
+    {pattern:/emergency repairs?/i,label:'Emergency repair.'},
+    {pattern:/\bbreakdowns?\b/i,label:'Breakdown.'},
+    {pattern:/\bshutdowns?\b/i,label:'Shutdown.'}
+  ].forEach(function(concept){
+    if(!concept.pattern.test(original))return;
+    var isPreserved = candidates.some(function(sentence){return concept.pattern.test(sentence);});
+    if(!isPreserved)candidates.push(concept.label);
+  });
+
+  var uniqueCandidates = [];
+  var seen = {};
+  candidates.forEach(function(sentence){
+    var key = sentence.toLowerCase().replace(/[^a-z0-9]+/g,' ');
+    if(!key || seen[key])return;
+    seen[key] = true;
+    uniqueCandidates.push(sentence);
+  });
+
+  var ranked = uniqueCandidates.map(function(sentence,index){
+    return {sentence:sentence,index:index,score:scoreSummaryNotesSentence(sentence,index)};
+  }).sort(function(a,b){return b.score-a.score || a.index-b.index;});
+  var selected = [];
+  var selectedWordCount = 0;
+  ranked.forEach(function(candidate){
+    var wordCount = countNotesWords(candidate.sentence);
+    if(wordCount>SummaryNotesShortWordLimit || selectedWordCount+wordCount>SummaryNotesShortWordLimit)return;
+    selected.push(candidate);
+    selectedWordCount += wordCount;
+  });
+  selected.sort(function(a,b){return a.index-b.index;});
+  var summary = selected.map(function(candidate){return candidate.sentence;}).join(' ');
+  return summary && summary.length<original.length ? summary : original;
+}
+
+function renderSummaryNotesValue(value){
+  var notes = summarizeSummaryMatrixNotes(value);
+  return notes ? escapeHtml(notes) : '—';
+}
+
 function getSummaryNotesForBusinessUnit(buId){
   return getRecordNotes(getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth()) || ScoreData[buId]);
 }
@@ -2695,7 +2861,7 @@ function renderSummary(){
     html += '<tr>';
     html += '<td>'+bu.label+'</td>';
     kpis.forEach(function(k){html += '<td class="'+k.cls+'">'+k.display+'</td>';});
-    html += '<td class="notes-col">'+renderNotesValue(getSummaryNotesForBusinessUnit(bu.id))+'</td>';
+    html += '<td class="notes-col">'+renderSummaryNotesValue(getSummaryNotesForBusinessUnit(bu.id))+'</td>';
     html += '</tr>';
   });
   tbody.innerHTML = html;
