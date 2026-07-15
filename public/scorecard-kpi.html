@@ -1136,6 +1136,132 @@ function renderNotesValue(value){
   return notes ? escapeHtml(notes) : '—';
 }
 
+var SummaryNotesShortWordLimit = 50;
+
+function countNotesWords(value){
+  var words = normalizeNotesValue(value).match(/\S+/g);
+  return words ? words.length : 0;
+}
+
+function formatNotesItemCount(count){
+  var countWords = ['Zero','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten'];
+  return countWords[count] || String(count);
+}
+
+function normalizeSummaryNotesSentence(value){
+  var sentence = String(value || '').replace(/^[\s•*-]+/,'').replace(/\s+/g,' ').trim();
+  sentence = sentence.replace(/^Most scheduled outsourced PM (?:are|were) deferred/i,'Scheduled outsourced PM activities were deferred');
+  if(sentence && !/[.!?]$/.test(sentence))sentence += '.';
+  return sentence;
+}
+
+function buildNumberedNotesSummary(items,heading){
+  if(!items.length)return '';
+  var combined = items.join(' ');
+  var isCorrectiveWork = /work orders?|corrective|repair|arrester|switchgear|module/i.test(String(heading || '')+' '+combined);
+  var label = isCorrectiveWork ? 'corrective works' : 'action items';
+  var allCompleted = items.every(function(item){
+    return /\b(completed?|repaired?|replaced?|installed?|resolved?|rectified?|restored?)\b/i.test(item);
+  });
+  var summary = formatNotesItemCount(items.length)+' '+label+' were '+(allCompleted?'completed':'recorded');
+  var highlights = [];
+  if(/emergency repairs?/i.test(combined))highlights.push('emergency repair work');
+  if(/\bbreakdowns?\b/i.test(combined))highlights.push('breakdown');
+  if(/\bshutdowns?\b/i.test(combined))highlights.push('shutdown');
+  if(highlights.length===1)summary += ', including '+highlights[0];
+  if(highlights.length>1)summary += ', including '+highlights.slice(0,-1).join(', ')+' and '+highlights[highlights.length-1]+' items';
+  return summary+'.';
+}
+
+function scoreSummaryNotesSentence(sentence,index){
+  var score = Math.max(0,20-index);
+  if(/\b(no|unavailable)\s+SLA\b|\bSLA\b.*\b(unavailable|absent|missing)\b/i.test(sentence))score += 100;
+  if(/\bdeferred\s+PM\b|\bPM\b.*\bdeferred\b/i.test(sentence))score += 100;
+  if(/emergency repairs?|\bbreakdowns?\b|\bshutdowns?\b|no downtime|facility\b.*\boperational/i.test(sentence))score += 100;
+  if(/\b(due to|because|caused by|completed|repaired|replaced|restored)\b/i.test(sentence))score += 30;
+  return score;
+}
+
+function summarizeSummaryMatrixNotes(value){
+  var original = normalizeNotesValue(value);
+  if(!original || countNotesWords(original)<=SummaryNotesShortWordLimit)return original;
+
+  var headingPattern = '(?:PM\\s*Compliance(?:\\s*\\(%\\))?|PM\\s*[:/]?\\s*CM\\s*(?:Work Orders?|WO|Cost|Ratio[^:]*)?|MTTR(?:\\s*\\([^)]*\\))?|Facility\\s*Uptime(?:\\s*\\(%\\))?|Budget\\s*Spend(?:\\s*\\(%\\))?|Schedule\\s*Compliance(?:\\s*\\(%\\))?)';
+  var prepared = original
+    .replace(new RegExp('([.!?])\\s+(?='+headingPattern+'\\s*:)', 'gi'),'$1\n')
+    .replace(/\s+(?=\d+\s*[.)-]\s+)/g,'\n');
+  var headingOnlyPattern = new RegExp('^('+headingPattern+')\\s*:\\s*$', 'i');
+  var headingWithTextPattern = new RegExp('^('+headingPattern+')\\s*:\\s*(.+)$', 'i');
+  var candidates = [];
+  var numberedItems = [];
+  var numberedHeading = '';
+  var activeHeading = '';
+
+  function flushNumberedItems(){
+    if(!numberedItems.length)return;
+    candidates.push(buildNumberedNotesSummary(numberedItems,numberedHeading));
+    numberedItems = [];
+    numberedHeading = '';
+  }
+
+  prepared.split(/\n+/).forEach(function(rawLine){
+    var line = rawLine.trim();
+    if(!line)return;
+    var headingOnly = line.match(headingOnlyPattern);
+    if(headingOnly){
+      flushNumberedItems();
+      activeHeading = headingOnly[1];
+      return;
+    }
+    var numbered = line.match(/^\d+\s*[.)-]\s*(.+)$/);
+    if(numbered){
+      if(!numberedItems.length)numberedHeading = activeHeading;
+      numberedItems.push(numbered[1].trim());
+      return;
+    }
+    flushNumberedItems();
+    var headingWithText = line.match(headingWithTextPattern);
+    if(headingWithText){
+      activeHeading = headingWithText[1];
+      line = headingWithText[2];
+    }
+    line.split(/(?<=[.!?;])\s+/).forEach(function(part){
+      var sentence = normalizeSummaryNotesSentence(part);
+      if(sentence)candidates.push(sentence);
+    });
+  });
+  flushNumberedItems();
+
+  var uniqueCandidates = [];
+  var seen = {};
+  candidates.forEach(function(sentence){
+    var key = sentence.toLowerCase().replace(/[^a-z0-9]+/g,' ');
+    if(!key || seen[key])return;
+    seen[key] = true;
+    uniqueCandidates.push(sentence);
+  });
+
+  var ranked = uniqueCandidates.map(function(sentence,index){
+    return {sentence:sentence,index:index,score:scoreSummaryNotesSentence(sentence,index)};
+  }).sort(function(a,b){return b.score-a.score || a.index-b.index;});
+  var selected = [];
+  var selectedWordCount = 0;
+  ranked.forEach(function(candidate){
+    var wordCount = countNotesWords(candidate.sentence);
+    if(wordCount>SummaryNotesShortWordLimit || selectedWordCount+wordCount>SummaryNotesShortWordLimit)return;
+    selected.push(candidate);
+    selectedWordCount += wordCount;
+  });
+  selected.sort(function(a,b){return a.index-b.index;});
+  var summary = selected.map(function(candidate){return candidate.sentence;}).join(' ');
+  return summary && summary.length<original.length ? summary : original;
+}
+
+function renderSummaryNotesValue(value){
+  var notes = summarizeSummaryMatrixNotes(value);
+  return notes ? escapeHtml(notes) : '—';
+}
+
 function getSummaryNotesForBusinessUnit(buId){
   return getRecordNotes(getMonthlyRecord(buId,getSelectedYear(),getSelectedMonth()) || ScoreData[buId]);
 }
@@ -2695,7 +2821,7 @@ function renderSummary(){
     html += '<tr>';
     html += '<td>'+bu.label+'</td>';
     kpis.forEach(function(k){html += '<td class="'+k.cls+'">'+k.display+'</td>';});
-    html += '<td class="notes-col">'+renderNotesValue(getSummaryNotesForBusinessUnit(bu.id))+'</td>';
+    html += '<td class="notes-col">'+renderSummaryNotesValue(getSummaryNotesForBusinessUnit(bu.id))+'</td>';
     html += '</tr>';
   });
   tbody.innerHTML = html;
