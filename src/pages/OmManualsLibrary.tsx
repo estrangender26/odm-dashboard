@@ -3,6 +3,10 @@ import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
+import {
+  MAX_UPLOAD_ERROR_MESSAGE,
+  MAX_UPLOAD_FILE_SIZE_BYTES,
+} from "@contracts/upload-limits";
 
 // ═══════════════════════════════════════════════════════════
 // Types
@@ -919,18 +923,16 @@ export default function OmManualsLibrary() {
   }, []);
 
   // ── Handle file upload via multipart POST (avoids base64 JSON overhead and global tRPC body limit) ──
-  const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const targetFolder = selectedFolderId;
     if (!targetFolder) { setBanner({ type: "error", message: "Select a folder first" }); return; }
 
-    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-      const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+    if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
       setBanner({
         type: "error",
-        message: `File is too large (${sizeMb} MB). Maximum upload size is 100 MB.`,
+        message: MAX_UPLOAD_ERROR_MESSAGE,
       });
       e.target.value = "";
       return;
@@ -971,7 +973,7 @@ export default function OmManualsLibrary() {
         } catch {
           // ignore parse failure
         }
-        if (xhr.status === 413) message = "File is too large. Maximum upload size is 100 MB.";
+        if (xhr.status === 413) message = MAX_UPLOAD_ERROR_MESSAGE;
         setBanner({ type: "error", message });
       }
     });

@@ -13,11 +13,19 @@ import { createContext } from "./context";
 import { env } from "./lib/env";
 import { authenticateRequest, createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
+import {
+  DEFAULT_API_BODY_LIMIT_BYTES,
+  MAX_BASE64_UPLOAD_BODY_SIZE_BYTES,
+  MAX_UPLOAD_ERROR_MESSAGE,
+  getDecodedBase64ByteLength,
+  isUploadFileSizeAllowed,
+} from "@contracts/upload-limits";
 import fs from "fs";
 import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
 import { aggregateMonthlyKpiRecords, computeMonthlyKpiValuesFromRaw, normalizeBusinessUnitLabel, normalizeKpiNumber } from "../src/modules/monthly-kpi/kpiAggregation";
 import type { PersistedMonthlyKpiRecord } from "../src/modules/monthly-kpi/kpiAggregation";
+import { isLargeUploadRequestPath } from "./upload-body-limit";
 import {
   buildOdmDashboardScorecard,
   mapInspectionToDashboardRow,
@@ -264,7 +272,17 @@ logBootStage("registering document upload routes");
 app.route("/api/documents", documentsUploadRouter);
 
 logBootStage("registering body limit middleware");
-app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+const defaultApiBodyLimit = bodyLimit({ maxSize: DEFAULT_API_BODY_LIMIT_BYTES });
+const largeUploadBodyLimit = bodyLimit({
+  maxSize: MAX_BASE64_UPLOAD_BODY_SIZE_BYTES,
+  onError: (c) => c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413),
+});
+app.use((c, next) => {
+  const limitMiddleware = isLargeUploadRequestPath(c.req.path)
+    ? largeUploadBodyLimit
+    : defaultApiBodyLimit;
+  return limitMiddleware(c, next);
+});
 
 logBootStage("registering API request logger middleware");
 app.use("*", async (c, next) => {
@@ -1227,6 +1245,16 @@ app.post("/api/governance/files", async (c) => {
     if (!facilitySlug || !filename) {
       console.log("[API] POST files missing fields:", { facilitySlug, milestoneId, filename });
       return c.json({ error: "facilitySlug, filename required" }, 400);
+    }
+    const decodedFileSize = typeof fileUrl === "string"
+      ? getDecodedBase64ByteLength(fileUrl)
+      : 0;
+    const suppliedFileSize = typeof fileSize === "number" ? fileSize : decodedFileSize;
+    if (
+      (decodedFileSize !== null && !isUploadFileSizeAllowed(decodedFileSize))
+      || (suppliedFileSize !== null && !isUploadFileSizeAllowed(suppliedFileSize))
+    ) {
+      return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
     }
     const { getDb } = await import("./queries/connection");
     const db = getDb();

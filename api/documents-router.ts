@@ -6,13 +6,18 @@ import { db } from "./queries/connection";
 import { docFolders, docFiles } from "@db/schema";
 import { publicQuery } from "./middleware";
 import { TRPCError } from "@trpc/server";
+import {
+  MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES,
+  MAX_UPLOAD_ERROR_MESSAGE,
+  MAX_UPLOAD_FILE_SIZE_BYTES,
+  isBase64UploadSizeAllowed,
+  isUploadFileSizeAllowed,
+} from "@contracts/upload-limits";
 
 // ── Multipart upload router for O&M Manuals Library ──
 // Mounted separately in api/boot.ts before the global body-limit so this route can accept larger files.
 
 export const documentsUploadRouter = new Hono();
-
-const DOCUMENT_UPLOAD_MAX_SIZE = 100 * 1024 * 1024; // 100 MB - production-safe limit while files are stored as base64 in Postgres
 
 const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
   "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
@@ -58,7 +63,10 @@ function sanitizeDocumentFileName(value: string): string {
   return value.replace(/[\r\n"]/g, "_").replace(/\\/g, "/");
 }
 
-documentsUploadRouter.use(bodyLimit({ maxSize: DOCUMENT_UPLOAD_MAX_SIZE }));
+documentsUploadRouter.use(bodyLimit({
+  maxSize: MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES,
+  onError: (c) => c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413),
+}));
 
 documentsUploadRouter.post("/upload", async (c) => {
   const uploadId = Math.random().toString(36).slice(2, 10);
@@ -68,12 +76,12 @@ documentsUploadRouter.post("/upload", async (c) => {
 
   // Early size guard before parsing the request body. This prevents the server
   // from buffering oversized multipart bodies into memory on Render.
-  if (contentLength > DOCUMENT_UPLOAD_MAX_SIZE) {
+  if (contentLength > MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES) {
     console.warn(
-      `[documents/upload:${uploadId}] rejected oversized request: ${contentLength} bytes exceeds ${DOCUMENT_UPLOAD_MAX_SIZE} bytes`
+      `[documents/upload:${uploadId}] rejected oversized request: ${contentLength} bytes exceeds ${MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES} bytes`
     );
     return c.json(
-      { error: "File is too large. Maximum upload size is 100 MB." },
+      { error: MAX_UPLOAD_ERROR_MESSAGE },
       413
     );
   }
@@ -91,12 +99,12 @@ documentsUploadRouter.post("/upload", async (c) => {
       `[documents/upload:${uploadId}] parsed file name="${file.name}" type="${file.type}" size=${file.size}`
     );
 
-    if (file.size > DOCUMENT_UPLOAD_MAX_SIZE) {
+    if (!isUploadFileSizeAllowed(file.size)) {
       console.warn(
-        `[documents/upload:${uploadId}] rejected oversized file: ${file.size} bytes exceeds ${DOCUMENT_UPLOAD_MAX_SIZE} bytes`
+        `[documents/upload:${uploadId}] rejected oversized file: ${file.size} bytes exceeds ${MAX_UPLOAD_FILE_SIZE_BYTES} bytes`
       );
       return c.json(
-        { error: "File is too large. Maximum upload size is 100 MB." },
+        { error: MAX_UPLOAD_ERROR_MESSAGE },
         413
       );
     }
@@ -740,8 +748,8 @@ export const documentsRouter = {
         title: z.string().min(1).max(500),
         fileName: z.string().min(1).max(255),
         fileType: z.string().optional(),
-        fileSize: z.number().optional(),
-        fileData: z.string().optional(), // base64
+        fileSize: z.number().refine(isUploadFileSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE).optional(),
+        fileData: z.string().refine(isBase64UploadSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE).optional(), // base64
         fileUrl: z.string().optional(),
         description: z.string().optional(),
         revision: z.string().optional(),

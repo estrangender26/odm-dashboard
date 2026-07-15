@@ -9,6 +9,7 @@ export const trpc = createTRPCReact<AppRouter>();
 
 const API_URL = import.meta.env.VITE_API_URL || "/api/trpc";
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+const UPLOAD_REQUEST_TIMEOUT_MS = 600000;
 const IMPORT_REQUEST_BASE_TIMEOUT_MS = 120000;
 const IMPORT_REQUEST_ROW_INCREMENT_MS = 60000;
 const IMPORT_REQUEST_ROWS_PER_INCREMENT = 250;
@@ -20,6 +21,16 @@ function getRequestUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.toString();
   return input.url;
+}
+
+function isLargeUploadRequestUrl(url: string): boolean {
+  return [
+    "documents.uploadFile",
+    "governance.addUpload",
+    "govFiles.upload",
+    "smp.create",
+    "smp.update",
+  ].some((procedure) => url.includes(procedure));
 }
 
 function byteLengthFromString(value: string): number {
@@ -91,12 +102,17 @@ const trpcClient = trpc.createClient({
       async fetch(input, init) {
         const requestUrl = getRequestUrl(input);
         const isImportRequest = requestUrl.includes("tasks.import");
+        const isLargeUploadRequest = isLargeUploadRequestUrl(requestUrl);
         const controller = new AbortController();
         const originalSignal = init?.signal;
         const startedAt = performance.now();
         const payloadBytes = estimateBodyBytes(init?.body);
         const payloadRows = isImportRequest ? estimateImportRowsFromBody(init?.body) : undefined;
-        const timeoutMs = isImportRequest ? getImportRequestTimeoutMs(payloadRows) : DEFAULT_REQUEST_TIMEOUT_MS;
+        const timeoutMs = isImportRequest
+          ? getImportRequestTimeoutMs(payloadRows)
+          : isLargeUploadRequest
+            ? UPLOAD_REQUEST_TIMEOUT_MS
+            : DEFAULT_REQUEST_TIMEOUT_MS;
         const timeoutDisabled = isImportRequest && (!Number.isFinite(timeoutMs) || timeoutMs <= 0);
         let timedOut = false;
 

@@ -17,6 +17,8 @@
 <script>
 /* ---------- FILE UPLOAD API (Database Storage) ---------- */
 const FILE_API = '/api/trpc';
+const MAX_UPLOAD_FILE_SIZE_BYTES = 157286400;
+const MAX_UPLOAD_ERROR_MESSAGE = 'Maximum file size is 150 MB.';
 
 function govUploadFile(facilitySlug, milestoneId, tocItem, fileName, fileType, fileSize, base64Data) {
   return fetch(FILE_API + '/govFiles.upload', {
@@ -2091,8 +2093,8 @@ function hDlvUp(tnum,e){if(!EDIT_MODE){alert('Press Edit to upload files');retur
   console.log('[GOV] hDlvUp:', total, 'files | facility:', facilitySlug, 'key:', key, 'mid:', targetMid, skipped.length?('skipped '+skipped.length+' duplicates'):'');
 
   toUpload.forEach(function(f){
-    if(f.size > 35 * 1024 * 1024){
-      alert('File "'+f.name+'" is too large ('+(f.size/1024/1024).toFixed(1)+'MB). Max is 30MB.');
+    if(f.size > MAX_UPLOAD_FILE_SIZE_BYTES){
+      alert(MAX_UPLOAD_ERROR_MESSAGE);
       done++; failed++;
       if(done===total){ pbHide(); fileInput.value=''; }
       return;
@@ -2237,9 +2239,9 @@ function hTocUp(mid,key,e){if(!EDIT_MODE){alert('Press Edit to upload files');re
   console.log('[GOV] hTocUp:', total, 'files | facility:', facilitySlug, 'mid:', mid, 'key:', key, skipped.length?('skipped '+skipped.length+' duplicates'):'');
 
   toUpload.forEach(function(f, idx){
-    // Check file size before reading (max ~30MB before base64 inflation)
-    if(f.size > 35 * 1024 * 1024){
-      alert('File "'+f.name+'" is too large ('+(f.size/1024/1024).toFixed(1)+'MB). Max is 30MB.');
+    // Check file size before reading.
+    if(f.size > MAX_UPLOAD_FILE_SIZE_BYTES){
+      alert(MAX_UPLOAD_ERROR_MESSAGE);
       done++; failed++;
       if(done===total){ pbHide(); fileInput.value=''; }
       return;
@@ -2411,7 +2413,7 @@ function hRefUp(ev){
   var files=ev.target.files;if(!files||!files.length)return;
   var total=files.length,done=0,failed=0;
   Array.from(files).forEach(function(file){
-    if(file.size>35*1024*1024){alert('File too large: '+file.name);done++;failed++;return;}
+    if(file.size>MAX_UPLOAD_FILE_SIZE_BYTES){alert(MAX_UPLOAD_ERROR_MESSAGE);done++;failed++;return;}
     var r=new FileReader();
     r.onload=function(e){
       var b64=e.target.result;

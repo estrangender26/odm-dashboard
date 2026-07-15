@@ -3,6 +3,11 @@ import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { governanceFiles } from "@db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import {
+  MAX_UPLOAD_ERROR_MESSAGE,
+  isBase64UploadSizeAllowed,
+  isUploadFileSizeAllowed,
+} from "@contracts/upload-limits";
 
 export const governanceFilesRouter = createRouter({
   // Upload a file
@@ -13,8 +18,8 @@ export const governanceFilesRouter = createRouter({
       tocItem: z.string().optional(),
       fileName: z.string(),
       fileType: z.string(),
-      fileSize: z.number().optional(),
-      fileData: z.string().max(50_000_000, "File too large — max ~37MB"),
+      fileSize: z.number().refine(isUploadFileSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE).optional(),
+      fileData: z.string().refine(isBase64UploadSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE),
     }))
     .mutation(async ({ input, ctx }) => {
       const dbSlug = input.facilitySlug.toLowerCase();

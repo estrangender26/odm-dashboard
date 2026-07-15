@@ -3,6 +3,10 @@ import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { governanceFacilities, governanceMilestoneState, governanceUploads } from "@db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import {
+  MAX_UPLOAD_ERROR_MESSAGE,
+  isBase64UploadSizeAllowed,
+} from "@contracts/upload-limits";
 
 export const governanceRouter = createRouter({
   // Get all facilities
@@ -119,7 +123,7 @@ export const governanceRouter = createRouter({
         category: z.string(),
         tocItem: z.string().nullable().optional(),
         fileName: z.string(),
-        fileUrl: z.string().max(50_000_000, "File too large — max 50MB base64 encoded"),
+        fileUrl: z.string().refine(isBase64UploadSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE),
       })
     )
     .mutation(async ({ input, ctx }) => {
