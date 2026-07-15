@@ -78,6 +78,10 @@ documentsUploadRouter.post("/upload", async (c) => {
   try {
     upload = await parseDocumentMultipartUpload(c.req.raw);
 
+    if (c.req.raw.signal.aborted) {
+      throw new DocumentMultipartUploadError("Upload cancelled.", 400);
+    }
+
     console.log(
       `[documents/upload:${uploadId}] streamed file name="${upload.fileName}" type="${upload.fileType}" size=${upload.fileSize}`
     );
@@ -127,6 +131,10 @@ documentsUploadRouter.post("/upload", async (c) => {
     }
     let base64: string | undefined = buffer.toString("base64");
     buffer = undefined;
+
+    if (c.req.raw.signal.aborted) {
+      throw new DocumentMultipartUploadError("Upload cancelled.", 400);
+    }
 
     const title = String(upload.fields.title || fileName.replace(/\.[^.]+$/, "")).trim();
     const uploadedBy = String(upload.fields.uploadedBy || "User").trim() || "User";

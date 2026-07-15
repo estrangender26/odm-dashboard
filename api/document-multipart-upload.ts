@@ -107,7 +107,7 @@ export async function parseDocumentMultipartUpload(
       });
 
       const output = createWriteStream(tempFilePath, { flags: "wx" });
-      fileWriteFinished = pipeline(file, output);
+      fileWriteFinished = pipeline(file, output, { signal: request.signal });
     });
 
     busboy.on("field", (fieldName, value, nameTruncated, valueTruncated) => {
@@ -122,7 +122,7 @@ export async function parseDocumentMultipartUpload(
     busboy.once("partsLimit", () => fail("Too many multipart parts."));
 
     const requestStream = Readable.fromWeb(request.body as any);
-    await pipeline(requestStream, busboy);
+    await pipeline(requestStream, busboy, { signal: request.signal });
     if (fileWriteFinished) await fileWriteFinished;
 
     if (oversized || fileSize > maxFileSizeBytes) {

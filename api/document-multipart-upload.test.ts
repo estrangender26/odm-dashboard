@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
+import os from "node:os";
 import { describe, expect, it } from "vitest";
 import { MAX_UPLOAD_ERROR_MESSAGE } from "@contracts/upload-limits";
 import {
@@ -74,5 +75,39 @@ describe("streaming document multipart parser", () => {
 
     await expect(parseDocumentMultipartUpload(request, { maxFileSizeBytes: 10 }))
       .rejects.toMatchObject({ status: 400 });
+  });
+
+  it("settles and removes temporary files when the client disconnects", async () => {
+    const before = new Set(
+      (await readdir(os.tmpdir())).filter((name) => name.startsWith("odm-upload-")),
+    );
+    const controller = new AbortController();
+    const boundary = "aborted-upload";
+    const body = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(new TextEncoder().encode(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="aborted.pdf"\r\nContent-Type: application/pdf\r\n\r\n`,
+        ));
+        streamController.enqueue(new Uint8Array(64 * 1024));
+      },
+    });
+    const request = new Request("http://localhost/api/documents/upload", {
+      method: "POST",
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      body,
+      duplex: "half",
+      signal: controller.signal,
+    } as RequestInit & { duplex: "half" });
+
+    const parsePromise = parseDocumentMultipartUpload(request, {
+      maxFileSizeBytes: 1024 * 1024,
+    });
+    controller.abort();
+
+    await expect(parsePromise).rejects.toMatchObject({ status: 400 });
+    const leakedDirectories = (await readdir(os.tmpdir())).filter(
+      (name) => name.startsWith("odm-upload-") && !before.has(name),
+    );
+    expect(leakedDirectories).toEqual([]);
   });
 });
