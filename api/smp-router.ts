@@ -143,7 +143,18 @@ export const smpRouter = createRouter({
       if (data.nextReview !== undefined) clean.nextReview = data.nextReview || null;
       if (data.status !== undefined) clean.status = data.status;
       if (data.responsibleParty !== undefined) clean.responsibleParty = data.responsibleParty || null;
-      if (data.fileData !== undefined) clean.fileData = data.fileData || null;
+      if (data.fileData !== undefined) {
+        clean.fileData = data.fileData || null;
+        // A deliberate legacy replacement becomes authoritative without
+        // deleting the previous Storage object during feature-flag rollback.
+        clean.storageProvider = null;
+        clean.storageBucket = null;
+        clean.storagePath = null;
+        clean.storageSize = null;
+        clean.storageMimeType = null;
+        clean.storageEtag = null;
+        clean.storageUploadedAt = null;
+      }
       if (data.fileType !== undefined) clean.fileType = data.fileType || null;
       if (data.fileName !== undefined) clean.fileName = data.fileName || null;
       clean.updatedAt = new Date();

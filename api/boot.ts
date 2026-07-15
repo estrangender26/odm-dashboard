@@ -1323,8 +1323,14 @@ app.delete("/api/governance/files/:id", async (c) => {
       return c.json({ error: "Invalid file source" }, 400);
     }
     if (source === "governance_files") {
+      const storageCheck = await db.execute(sql`SELECT storage_path FROM governance_files WHERE id = ${id} LIMIT 1`);
+      const storageRows = (storageCheck as any).rows || storageCheck;
+      if (storageRows[0]?.storage_path) return c.json({ error: "Storage-backed files require verified deletion." }, 409);
       await db.execute(sql`DELETE FROM governance_files WHERE id = ${id}`);
     } else {
+      const storageCheck = await db.execute(sql`SELECT storage_path FROM governance_uploads WHERE id = ${id} LIMIT 1`);
+      const storageRows = (storageCheck as any).rows || storageCheck;
+      if (storageRows[0]?.storage_path) return c.json({ error: "Storage-backed files require verified deletion." }, 409);
       await db.execute(sql`DELETE FROM governance_uploads WHERE id = ${id}`);
     }
     return c.json({ success: true });

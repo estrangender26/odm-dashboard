@@ -14,7 +14,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js" integrity="sha384-UlHjK3F7TCQCEUpnoa1ohMbP2oaWB3Aypv4gMo511vaZ86uUZ0Zv7UzZ0J1zRUT1" crossorigin="anonymous"></script>
 <script src="/governance-storage-upload.js"></script>
 <script src="/governance-upload-queue.js"></script>
 <script>
@@ -22,6 +22,8 @@
 const FILE_API = '/api/trpc';
 const MAX_UPLOAD_FILE_SIZE_BYTES = 157286400;
 const MAX_UPLOAD_ERROR_MESSAGE = 'Maximum file size is 150 MB.';
+// JSZip buffers selected inputs and the generated archive in browser memory.
+const MAX_GOVERNANCE_ZIP_INPUT_BYTES = 300 * 1024 * 1024;
 const enqueueGovernanceUpload = createSequentialTaskQueue();
 
 function readGovernanceFile(file) {
@@ -2175,10 +2177,33 @@ function rDlvUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');r
   SV();RD();RM();RS();
 }
 
+async function readZipBlobWithinLimit(response,remainingBytes){
+  var declaredSize=Number(response.headers.get('content-length'));
+  if(Number.isFinite(declaredSize)&&declaredSize>remainingBytes){
+    if(response.body)await response.body.cancel();
+    throw new Error('Selected files exceed the 300 MB ZIP preparation limit. Download fewer files at a time.');
+  }
+  if(!response.body){
+    var fallbackBlob=await response.blob();
+    if(fallbackBlob.size>remainingBytes)throw new Error('Selected files exceed the 300 MB ZIP preparation limit. Download fewer files at a time.');
+    return fallbackBlob;
+  }
+  var reader=response.body.getReader(),chunks=[],received=0;
+  while(true){
+    var part=await reader.read();
+    if(part.done)break;
+    received+=part.value.byteLength;
+    if(received>remainingBytes){await reader.cancel();throw new Error('Selected files exceed the 300 MB ZIP preparation limit. Download fewer files at a time.');}
+    chunks.push(part.value);
+  }
+  return new Blob(chunks,{type:response.headers.get('content-type')||'application/octet-stream'});
+}
+
 async function dldBatch(){
   const cbs=document.querySelectorAll('.dld-cb:checked');
   if(cbs.length===0){alert('No files selected. Check the boxes next to files you want to download.');return}
   var zip=new JSZip();
+  var totalInputBytes=0;
   try{
     pbShow('Preparing ZIP','Downloading selected files...');
     for(var i=0;i<cbs.length;i++){
@@ -2187,7 +2212,9 @@ async function dldBatch(){
       pbUpdate(Math.round((i/cbs.length)*70),'Downloading '+cb.dataset.fname,(i+1)+' / '+cbs.length);
       var response=await fetch(governanceFileUrl(fileId,'download',source),{credentials:'same-origin'});
       if(!response.ok)throw new Error('Download failed for '+cb.dataset.fname+' ('+response.status+')');
-      zip.file(cb.dataset.fname,await response.blob());
+      var blob=await readZipBlobWithinLimit(response,MAX_GOVERNANCE_ZIP_INPUT_BYTES-totalInputBytes);
+      totalInputBytes+=blob.size;
+      zip.file(cb.dataset.fname,blob);
     }
     pbUpdate(80,'Compressing files...');
     var content=await zip.generateAsync({type:'blob'},function(meta){pbUpdate(80+Math.round(meta.percent*0.2),'Compressing files...');});

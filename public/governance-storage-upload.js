@@ -42,35 +42,62 @@
     try{global.localStorage.removeItem(key);}catch(_error){}
   }
 
-  function directUpload(file,target,onProgress){
+  function refreshAuthorization(auth){
+    return fetch('/api/storage/uploads/resume',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:auth.intentId})}).then(jsonResponse);
+  }
+
+  function abandonAuthorization(intentId){
+    return fetch('/api/storage/uploads/abandon',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:intentId})}).catch(function(){});
+  }
+
+  function abortError(signal){
+    return signal&&signal.reason instanceof Error?signal.reason:new DOMException('Upload aborted.','AbortError');
+  }
+
+  function directUpload(file,target,onProgress,signal){
+    if(signal&&signal.aborted)return Promise.reject(abortError(signal));
     if(file.size>MAX_FILE_SIZE)return Promise.reject(new Error('Maximum file size is 150 MB.'));
     var key=resumeKey(file,target);
     var cached=loadAuthorization(key);
-    var authorization=cached?Promise.resolve(cached):fetch('/api/storage/uploads/authorize',{
+    var authorization=(cached?refreshAuthorization(cached).then(function(auth){saveAuthorization(key,auth);return auth;}).catch(function(){clearAuthorization(key);return null;}):Promise.resolve(null)).then(function(auth){
+      if(auth)return auth;
+      return fetch('/api/storage/uploads/authorize',{
         method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({module:'governance',originalFilename:file.name,mimeType:file.type||'application/octet-stream',fileSize:file.size,target:target})
-      }).then(jsonResponse).then(function(auth){saveAuthorization(key,auth);return auth;});
+      }).then(jsonResponse).then(function(newAuth){saveAuthorization(key,newAuth);return newAuth;});
+    });
     return authorization.then(function(auth){
       if(!global.tus||!global.tus.Upload)throw new Error('Resumable upload client is unavailable.');
       return new Promise(function(resolve,reject){
+        var settled=false;
+        function cleanup(){if(signal)signal.removeEventListener('abort',onAbort);}
+        function fail(error){if(settled)return;settled=true;cleanup();reject(error);}
+        function succeed(result){if(settled)return;settled=true;cleanup();resolve(result);}
         var upload=new global.tus.Upload(file,{
           endpoint:auth.endpoint,retryDelays:[0,1000,3000,5000,10000,20000],chunkSize:auth.chunkSize||CHUNK_SIZE,
           uploadDataDuringCreation:true,removeFingerprintOnSuccess:true,fingerprint:function(){return Promise.resolve(key+':'+auth.intentId);},headers:{'x-signature':auth.token},
           metadata:{bucketName:auth.bucket,objectName:auth.path,contentType:file.type||'application/octet-stream',cacheControl:'3600',metadata:JSON.stringify({uploadIntentId:auth.intentId})},
           onProgress:function(done,total){if(onProgress)onProgress(total?Math.round(done/total*100):0);},
-          onError:function(error){reject(error);},
+          onError:fail,
           onSuccess:function(){
+            cleanup();
             fetch('/api/storage/uploads/finalize',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:auth.intentId})})
-              .then(jsonResponse).then(function(result){clearAuthorization(key);result.directStorage=true;resolve(result);}).catch(reject);
+              .then(jsonResponse).then(function(result){clearAuthorization(key);result.directStorage=true;succeed(result);}).catch(fail);
           }
         });
-        upload.findPreviousUploads().then(function(previous){if(previous.length)upload.resumeFromPreviousUpload(previous[0]);upload.start();}).catch(reject);
+        function onAbort(){
+          if(settled||!signal)return;settled=true;cleanup();clearAuthorization(key);abandonAuthorization(auth.intentId);
+          Promise.resolve(upload.abort()).catch(function(){}).then(function(){reject(abortError(signal));});
+        }
+        if(signal)signal.addEventListener('abort',onAbort,{once:true});
+        if(signal&&signal.aborted){onAbort();return;}
+        upload.findPreviousUploads().then(function(previous){if(settled)return;if(previous.length)upload.resumeFromPreviousUpload(previous[0]);upload.start();}).catch(fail);
       });
     });
   }
 
-  global.uploadGovernanceFileWithRollback=function(file,target,legacyUploader,onProgress){
-    return storageEnabled().then(function(enabled){return enabled?directUpload(file,target,onProgress):legacyUploader();});
+  global.uploadGovernanceFileWithRollback=function(file,target,legacyUploader,onProgress,signal){
+    return storageEnabled().then(function(enabled){return enabled?directUpload(file,target,onProgress,signal):legacyUploader();});
   };
 
   global.deleteGovernanceFileWithVerification=function(source,id){

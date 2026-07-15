@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { MAX_UPLOAD_FILE_SIZE_BYTES, isUploadFileSizeAllowed } from "@contracts/upload-limits";
-import { TUS_CHUNK_SIZE_BYTES } from "@contracts/storage";
-import { getFinalizedStorageSizeError } from "./storage-validation";
+import { STORAGE_SIGNED_URL_TTL_SECONDS, TUS_CHUNK_SIZE_BYTES } from "@contracts/storage";
+import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateSupabaseStorageUrls, validateUploadDescriptor } from "./storage-validation";
 
 const root = process.cwd();
 
@@ -18,12 +18,46 @@ describe("direct Storage security boundaries", () => {
     expect(TUS_CHUNK_SIZE_BYTES).toBe(6 * 1024 * 1024);
   });
 
+  it("keeps signed file URLs short-lived", () => {
+    expect(STORAGE_SIGNED_URL_TTL_SECONDS).toBeGreaterThan(0);
+    expect(STORAGE_SIGNED_URL_TTL_SECONDS).toBeLessThanOrEqual(5 * 60);
+  });
+
   it("accepts the exact Storage boundary and returns 413 above it", () => {
     expect(getFinalizedStorageSizeError(157_286_400, 157_286_400)).toBeNull();
     expect(getFinalizedStorageSizeError(157_286_401, 157_286_400)).toEqual({
       status: 413,
       error: "Maximum file size is 150 MB.",
     });
+  });
+
+  it("validates module extensions, MIME types, and safe filenames", () => {
+    expect(validateUploadDescriptor("om", "manual.pdf", "application/pdf")).toEqual({ extension: "pdf", mimeType: "application/pdf" });
+    expect(validateUploadDescriptor("governance", "evidence.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).toEqual({
+      extension: "xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    expect(() => validateUploadDescriptor("smp", "procedure.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toThrow("extension");
+    expect(() => validateUploadDescriptor("smp", "procedure.pdf", "text/plain")).toThrow("MIME");
+    expect(() => validateUploadDescriptor("om", "../manual.pdf", "application/pdf")).toThrow("filename");
+  });
+
+  it("preserves canonical Governance milestone IDs and rejects unknown contexts", () => {
+    expect(normalizeGovernanceMilestoneId("M1")).toBe("M1");
+    expect(normalizeGovernanceMilestoneId("M9")).toBe("M9");
+    expect(normalizeGovernanceMilestoneId("__deliv")).toBe("__deliv");
+    expect(normalizeGovernanceMilestoneId("__ref")).toBe("__ref");
+    expect(() => normalizeGovernanceMilestoneId("m1")).toThrow("Invalid milestone");
+    expect(() => normalizeGovernanceMilestoneId("M10")).toThrow("Invalid milestone");
+  });
+
+  it("accepts only matching HTTPS Supabase API and direct Storage hosts", () => {
+    expect(validateSupabaseStorageUrls("https://project-ref.supabase.co", "https://project-ref.storage.supabase.co")).toEqual({
+      url: "https://project-ref.supabase.co",
+      directStorageUrl: "https://project-ref.storage.supabase.co",
+    });
+    expect(() => validateSupabaseStorageUrls("https://project-ref.supabase.co", "https://attacker.example.test")).toThrow("same Supabase project");
+    expect(() => validateSupabaseStorageUrls("http://project-ref.supabase.co", "https://project-ref.storage.supabase.co")).toThrow("HTTPS");
   });
 
   it("rejects anonymous upload authorization before any Storage call", async () => {
@@ -46,6 +80,78 @@ describe("direct Storage security boundaries", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects anonymous access to every upload, file-content, and delete route", async () => {
+    const { storageRouter } = await import("./storage-router");
+    const requests = [
+      new Request("http://localhost/config"),
+      new Request("http://localhost/uploads/resume", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intentId: "11111111-1111-4111-8111-111111111111" }) }),
+      new Request("http://localhost/uploads/finalize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intentId: "11111111-1111-4111-8111-111111111111" }) }),
+      new Request("http://localhost/uploads/abandon", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intentId: "11111111-1111-4111-8111-111111111111" }) }),
+      new Request("http://localhost/files/doc_files/1/view"),
+      new Request("http://localhost/files/doc_files/1/download"),
+      new Request("http://localhost/files/delete/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "doc_files", id: 1 }) }),
+      new Request("http://localhost/files/delete/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmationToken: "invalid" }) }),
+    ];
+    for (const request of requests) {
+      expect((await storageRouter.request(request)).status).toBe(401);
+    }
+  });
+
+  it("keeps Storage reads and deletes independent from upload rollback flags", () => {
+    const source = readFileSync(join(root, "api/storage-router.ts"), "utf8");
+    const fileRoutes = source.slice(source.indexOf('storageRouter.get("/files/'));
+    expect(fileRoutes).toContain("createSignedUrl");
+    expect(fileRoutes).toContain("deleteStoredFileRecord");
+    expect(fileRoutes).not.toContain("isStorageUploadEnabled");
+  });
+
+  it("makes an SMP legacy replacement authoritative without deleting its old Storage object", () => {
+    const source = readFileSync(join(root, "api/smp-router.ts"), "utf8");
+    const updateRoute = source.slice(source.indexOf("/* ── 4. UPDATE ── */"), source.indexOf("/* ── 5. DELETE ── */"));
+    expect(updateRoute).toContain("if (data.fileData !== undefined)");
+    expect(updateRoute).toContain("clean.storagePath = null");
+    expect(updateRoute).not.toContain("getSupabaseStorageAdmin");
+  });
+
+  it("revalidates resume intents against the authenticated requesting user", () => {
+    const source = readFileSync(join(root, "api/storage-router.ts"), "utf8");
+    const resumeRoute = source.slice(source.indexOf('storageRouter.post("/uploads/resume"'), source.indexOf('storageRouter.post("/uploads/finalize"'));
+    expect(resumeRoute).toContain("requireUser");
+    expect(resumeRoute).toContain("storageUploadIntents.requestedBy");
+    expect(resumeRoute).toContain("user.id");
+  });
+
+  it("binds delete confirmations to user, source, record, bucket, path, and expiry", () => {
+    const source = readFileSync(join(root, "api/storage-router.ts"), "utf8");
+    const deleteRoutes = source.slice(source.indexOf('storageRouter.post("/files/delete/prepare"'));
+    for (const binding of ["source: input.source", "id: input.id", "userId: user.id", "bucket: record.storageBucket", "path: record.storagePath", "exp: expiresAt"]) {
+      expect(deleteRoutes).toContain(binding);
+    }
+    expect(deleteRoutes).toContain("payload.userId !== user.id");
+    expect(deleteRoutes).toContain("record.storageBucket !== payload.bucket");
+    expect(deleteRoutes).toContain("record.storagePath !== payload.path");
+  });
+
+  it("prevents the legacy Governance REST delete route from bypassing Storage deletion", () => {
+    const source = readFileSync(join(root, "api/boot.ts"), "utf8");
+    const legacyDelete = source.slice(source.indexOf('app.delete("/api/governance/files/:id"'), source.indexOf('// GET /api/documents/files/:id/view'));
+    expect(legacyDelete).toContain("SELECT storage_path FROM governance_uploads");
+    expect(legacyDelete).toContain("SELECT storage_path FROM governance_files");
+    expect(legacyDelete.match(/Storage-backed files require verified deletion\./g)).toHaveLength(2);
+  });
+
+  it("bounds mixed Governance ZIP input memory and keeps file data out of DOM attributes", () => {
+    const source = readFileSync(join(root, "public/governance.html"), "utf8");
+    expect(source).toContain("MAX_GOVERNANCE_ZIP_INPUT_BYTES");
+    expect(source).toContain("readZipBlobWithinLimit");
+    expect(source).not.toContain("dataset.fdata");
+  });
+
+  it("pins the standalone TUS client with Subresource Integrity", () => {
+    const source = readFileSync(join(root, "public/governance.html"), "utf8");
+    expect(source).toMatch(/tus-js-client@4\.3\.1[^>]+integrity="sha384-[A-Za-z0-9+/=]+"[^>]+crossorigin="anonymous"/);
+  });
+
   it("does not reference the service-role variable from browser sources", () => {
     const browserFiles = [
       "src/lib/direct-storage-upload.ts",
@@ -66,5 +172,10 @@ describe("direct Storage security boundaries", () => {
     expect(sql).not.toMatch(/\bDELETE\b/i);
     expect(sql).not.toMatch(/\bUPDATE\b/i);
     expect(sql).toContain("storage_upload_intents");
+    expect(sql).not.toMatch(/ALTER\s+COLUMN/i);
+    expect(sql.match(/WHERE "storage_path" IS NOT NULL/g)).toHaveLength(4);
+    for (const column of ["storage_provider", "storage_bucket", "storage_path", "storage_size", "storage_mime_type", "storage_etag", "storage_uploaded_at"]) {
+      expect(sql).toContain(column);
+    }
   });
 });

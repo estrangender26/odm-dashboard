@@ -168,6 +168,7 @@ export const governanceFilesRouter = createRouter({
           storagePath: governanceFiles.storagePath,
           uploadedBy: governanceFiles.uploadedBy,
           uploadedAt: governanceFiles.uploadedAt,
+          source: sql<"governance_files">`'governance_files'`,
         })
         .from(governanceFiles)
         .where(sql`LOWER(${governanceFiles.facilitySlug}) = LOWER(${input.facilitySlug})`)

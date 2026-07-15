@@ -44,4 +44,22 @@ describe("Supabase Storage upload rollback flags", () => {
     expect(isStorageUploadEnabled("governance", value)).toBe(false);
     expect(isStorageUploadEnabled("smp", value)).toBe(false);
   });
+
+  it.each([
+    ["om", "SUPABASE_STORAGE_OM_ENABLED"],
+    ["governance", "SUPABASE_STORAGE_GOVERNANCE_ENABLED"],
+    ["smp", "SUPABASE_STORAGE_SMP_ENABLED"],
+  ] as const)("returns %s uploads to legacy when its module flag is turned off", (module, variable) => {
+    const enabled = flags({ SUPABASE_STORAGE_UPLOADS_ENABLED: "true", [variable]: "true" });
+    expect(isStorageUploadEnabled(module, enabled)).toBe(true);
+    const disabled = flags({ SUPABASE_STORAGE_UPLOADS_ENABLED: "true", [variable]: "false" });
+    expect(isStorageUploadEnabled(module, disabled)).toBe(false);
+  });
+
+  it("has no database or Storage deletion side effects", () => {
+    const enabled = flags({ SUPABASE_STORAGE_UPLOADS_ENABLED: "true", SUPABASE_STORAGE_OM_ENABLED: "true" });
+    const disabled = flags({ SUPABASE_STORAGE_UPLOADS_ENABLED: "false", SUPABASE_STORAGE_OM_ENABLED: "true" });
+    expect(enabled).toEqual({ global: true, om: true, governance: false, smp: false });
+    expect(disabled).toEqual({ global: false, om: true, governance: false, smp: false });
+  });
 });

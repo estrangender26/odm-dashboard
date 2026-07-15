@@ -30,7 +30,7 @@ import { db } from "./queries/connection";
 import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-feature-flags";
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
-import { getFinalizedStorageSizeError } from "./storage-validation";
+import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
 
 export const storageRouter = new Hono();
 
@@ -103,7 +103,7 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
     return { documentId };
   }
   const facilitySlug = normalizedSegment(target.facilitySlug, "facility", 50);
-  const milestoneId = normalizedSegment(target.milestoneId, "milestone", 30);
+  const milestoneId = normalizeGovernanceMilestoneId(target.milestoneId);
   const category = String(target.category ?? "other").trim().slice(0, 50) || "other";
   const tocItem = target.tocItem == null ? null : String(target.tocItem).trim().slice(0, 20) || null;
   if (facilitySlug !== "all") {
@@ -137,9 +137,14 @@ function verifyDeletePayload(token: string) {
   return payload && Number(payload.exp) >= Date.now() ? payload : null;
 }
 
-storageRouter.get("/config", (c) => {
-  c.header("Cache-Control", "no-store");
-  return c.json({ flags: getStorageFeatureFlags() });
+storageRouter.get("/config", async (c) => {
+  try {
+    await requireUser(c.req.raw.headers);
+    c.header("Cache-Control", "no-store");
+    return c.json({ flags: getStorageFeatureFlags() });
+  } catch (error: any) {
+    return c.json({ error: error?.message || "Authentication required." }, 401);
+  }
 });
 
 storageRouter.post("/uploads/authorize", async (c) => {
@@ -147,6 +152,7 @@ storageRouter.post("/uploads/authorize", async (c) => {
     const user = await requireUser(c.req.raw.headers);
     const input = authorizeSchema.parse(await c.req.json());
     if (!isUploadFileSizeAllowed(input.fileSize)) return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
+    const descriptor = validateUploadDescriptor(input.module, input.originalFilename, input.mimeType);
     if (!isStorageUploadEnabled(input.module)) {
       return c.json({ storageEnabled: false, error: "Supabase Storage upload is disabled for this module." }, 409);
     }
@@ -167,7 +173,7 @@ storageRouter.post("/uploads/authorize", async (c) => {
       expectedPath,
       originalFilename: input.originalFilename,
       expectedSize: input.fileSize,
-      expectedMimeType: input.mimeType,
+      expectedMimeType: descriptor.mimeType,
       requestedBy: user.id,
       status: "pending",
       expiresAt,
@@ -184,6 +190,43 @@ storageRouter.post("/uploads/authorize", async (c) => {
     });
   } catch (error: any) {
     const message = error?.issues?.[0]?.message || error?.message || "Upload authorization failed.";
+    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
+storageRouter.post("/uploads/resume", async (c) => {
+  try {
+    const user = await requireUser(c.req.raw.headers);
+    const { intentId } = intentSchema.parse(await c.req.json());
+    const rows = await db.select().from(storageUploadIntents).where(and(
+      eq(storageUploadIntents.id, intentId),
+      eq(storageUploadIntents.requestedBy, user.id),
+    )).limit(1);
+    const intent = rows[0];
+    if (!intent) return c.json({ error: "Upload intent not found." }, 404);
+    if (intent.status !== "pending" || intent.expiresAt.getTime() < Date.now()) {
+      return c.json({ error: "Upload intent is no longer active." }, 409);
+    }
+    const module = z.enum(STORAGE_MODULES).parse(intent.module);
+    if (!isStorageUploadEnabled(module)) {
+      return c.json({ error: "Supabase Storage upload is disabled for this module." }, 409);
+    }
+    const { data, error } = await getSupabaseStorageAdmin().storage.from(intent.expectedBucket)
+      .createSignedUploadUrl(intent.expectedPath, { upsert: false });
+    if (error || !data?.token) throw new Error(error?.message || "Unable to resume signed upload authorization.");
+    return c.json({
+      storageEnabled: true,
+      intentId: intent.id,
+      endpoint: `${getSupabaseStorageConfig().directStorageUrl}/storage/v1/upload/resumable`,
+      token: data.token,
+      bucket: intent.expectedBucket,
+      path: intent.expectedPath,
+      chunkSize: TUS_CHUNK_SIZE_BYTES,
+      expiresAt: intent.expiresAt.toISOString(),
+    });
+  } catch (error: any) {
+    const message = error?.issues?.[0]?.message || error?.message || "Upload resume authorization failed.";
     const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
     return c.json({ error: message }, status);
   }
@@ -220,7 +263,7 @@ storageRouter.post("/uploads/finalize", async (c) => {
     }
     const expectedMime = intent.expectedMimeType.split(";", 1)[0].trim().toLowerCase();
     const actualMime = info.contentType?.split(";", 1)[0].trim().toLowerCase();
-    if (actualMime && expectedMime !== "application/octet-stream" && actualMime !== expectedMime) {
+    if (!actualMime || actualMime !== expectedMime) {
       await db.update(storageUploadIntents).set({ status: "cleanup_required", failureReason: "Storage object MIME type mismatch." })
         .where(eq(storageUploadIntents.id, intent.id));
       return c.json({ error: "Uploaded object MIME type did not match the authorization." }, 409);
@@ -315,7 +358,9 @@ storageRouter.post("/uploads/abandon", async (c) => {
     )).returning({ id: storageUploadIntents.id });
     return c.json({ success: true, abandoned: updated.length > 0 });
   } catch (error: any) {
-    return c.json({ error: error?.message || "Unable to abandon upload." }, 400);
+    const message = error?.message || "Unable to abandon upload.";
+    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
+    return c.json({ error: message }, status);
   }
 });
 
@@ -364,7 +409,9 @@ storageRouter.post("/files/delete/prepare", async (c) => {
     });
     return c.json({ confirmationToken, expiresAt: new Date(expiresAt).toISOString(), fileName: record.fileName, storageBacked: Boolean(record.storagePath) });
   } catch (error: any) {
-    return c.json({ error: error?.message || "Delete verification failed." }, 400);
+    const message = error?.message || "Delete verification failed.";
+    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
+    return c.json({ error: message }, status);
   }
 });
 
@@ -388,6 +435,8 @@ storageRouter.post("/files/delete/confirm", async (c) => {
     await deleteStoredFileRecord(source, id);
     return c.json({ success: true, id, source });
   } catch (error: any) {
-    return c.json({ error: error?.message || "Delete failed." }, 400);
+    const message = error?.message || "Delete failed.";
+    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
+    return c.json({ error: message }, status);
   }
 });

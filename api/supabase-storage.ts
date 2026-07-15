@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { env } from "./lib/env";
+import { validateSupabaseStorageUrls } from "./storage-validation";
 
 let client: SupabaseClient | null = null;
 
@@ -12,7 +13,7 @@ export function getSupabaseStorageConfig() {
       "Supabase Storage is not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and SUPABASE_STORAGE_URL.",
     );
   }
-  return { url, serviceRoleKey, directStorageUrl };
+  return { ...validateSupabaseStorageUrls(url, directStorageUrl), serviceRoleKey };
 }
 
 export function getSupabaseStorageAdmin(): SupabaseClient {

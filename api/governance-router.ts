@@ -119,6 +119,7 @@ export const governanceRouter = createRouter({
           storagePath: governanceUploads.storagePath,
           storageSize: governanceUploads.storageSize,
           storageMimeType: governanceUploads.storageMimeType,
+          source: sql<"governance_uploads">`'governance_uploads'`,
         })
         .from(governanceUploads)
         .where(eq(governanceUploads.facilitySlug, input.facilitySlug))

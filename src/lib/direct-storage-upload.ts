@@ -96,16 +96,49 @@ function clearResumeAuthorization(key: string) {
   }
 }
 
+async function refreshResumeAuthorization(authorization: Authorization) {
+  return fetch("/api/storage/uploads/resume", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ intentId: authorization.intentId }),
+  }).then(parseJson) as Promise<Authorization>;
+}
+
+function abandonAuthorization(intentId: string) {
+  return fetch("/api/storage/uploads/abandon", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ intentId }),
+  }).catch(() => undefined);
+}
+
+function uploadAbortError(signal: AbortSignal) {
+  return signal.reason instanceof Error ? signal.reason : new DOMException("Upload aborted.", "AbortError");
+}
+
 export async function uploadFileDirect(options: {
   module: StorageModule;
   file: File;
   target: UploadTarget;
   onProgress?: (percentage: number, bytesUploaded: number, bytesTotal: number) => void;
+  signal?: AbortSignal;
 }) {
-  const { module, file, target, onProgress } = options;
+  const { module, file, target, onProgress, signal } = options;
+  if (signal?.aborted) throw uploadAbortError(signal);
   if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) throw new Error(MAX_UPLOAD_ERROR_MESSAGE);
   const resumeKey = resumeAuthorizationKey(module, file, target);
   let authorization = loadResumeAuthorization(resumeKey);
+  if (authorization) {
+    try {
+      authorization = await refreshResumeAuthorization(authorization);
+      saveResumeAuthorization(resumeKey, authorization);
+    } catch {
+      clearResumeAuthorization(resumeKey);
+      authorization = null;
+    }
+  }
   if (!authorization) {
     authorization = await fetch("/api/storage/uploads/authorize", {
       method: "POST",
@@ -142,13 +175,34 @@ export async function uploadFileDirect(options: {
         onProgress(bytesUploaded, bytesTotal) {
           onProgress?.(bytesTotal ? Math.round((bytesUploaded / bytesTotal) * 100) : 0, bytesUploaded, bytesTotal);
         },
-        onError: reject,
-        onSuccess: () => resolve(),
+        onError: (error) => settle(reject, error),
+        onSuccess: () => settle(resolve),
       });
+      let settled = false;
+      const settle = (callback: (reason?: any) => void, reason?: any) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        callback(reason);
+      };
+      const onAbort = () => {
+        if (settled || !signal) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        clearResumeAuthorization(resumeKey);
+        void abandonAuthorization(authorization.intentId);
+        void upload.abort().catch(() => undefined).finally(() => reject(uploadAbortError(signal)));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
       void upload.findPreviousUploads().then((previous) => {
+        if (settled) return;
         if (previous.length) upload.resumeFromPreviousUpload(previous[0]);
         upload.start();
-      }).catch(reject);
+      }).catch((error) => settle(reject, error));
     });
 
     const result = await fetch("/api/storage/uploads/finalize", {
