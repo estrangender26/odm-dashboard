@@ -303,6 +303,7 @@ export default function SmpDashboard() {
   // ── Upload PDF ──
   const handleUpload = useCallback((file: File) => {
     if (!selectedDoc) { setBanner({ type: "error", message: "Select a document first" }); return; }
+    if (isUploading) { setBanner({ type: "error", message: "Please wait for the current upload to finish." }); return; }
     if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
       setBanner({ type: "error", message: MAX_UPLOAD_ERROR_MESSAGE });
       return;
@@ -313,16 +314,18 @@ export default function SmpDashboard() {
     reader.onloadstart = () => { setUploadProgress(5); };
     reader.onload = () => {
       setUploadProgress(60); setUploadLabel(`Saving "${file.name}"...`);
-      const base64 = (reader.result as string).split(",")[1];
+      const dataUrl = reader.result as string;
+      const commaIndex = dataUrl.indexOf(",");
+      const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : "";
       if (!base64 || base64.length < 100) { setIsUploading(false); setBanner({ type: "error", message: "Invalid PDF file" }); return; }
       updateMut.mutate({ id: selectedDoc.id, fileData: base64, fileType: file.type || "application/pdf", fileName: file.name }, {
-        onSuccess: () => { setUploadProgress(100); setTimeout(() => setIsUploading(false), 500); setBanner({ type: "success", message: `PDF "${file.name}" uploaded` }); },
+        onSuccess: (data) => { setSelectedDoc(prev => prev?.id === data.id ? { ...prev, ...data, fileData: base64 } : prev); setUploadProgress(100); setTimeout(() => setIsUploading(false), 500); setBanner({ type: "success", message: `PDF "${file.name}" uploaded` }); },
         onError: () => setIsUploading(false),
       });
     };
     reader.onerror = () => { setIsUploading(false); setBanner({ type: "error", message: `Failed to read "${file.name}"` }); };
     reader.readAsDataURL(file);
-  }, [selectedDoc, updateMut]);
+  }, [isUploading, selectedDoc, updateMut]);
 
   // ── Download PDF ──
   const handleDownload = useCallback(() => {

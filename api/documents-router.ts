@@ -1,21 +1,26 @@
 import { z } from "zod";
 import { eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { bodyLimit } from "hono/body-limit";
+import { readFile, stat } from "node:fs/promises";
 import { db } from "./queries/connection";
 import { docFolders, docFiles } from "@db/schema";
 import { publicQuery } from "./middleware";
 import { TRPCError } from "@trpc/server";
 import {
-  MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES,
   MAX_UPLOAD_ERROR_MESSAGE,
   MAX_UPLOAD_FILE_SIZE_BYTES,
   isBase64UploadSizeAllowed,
   isUploadFileSizeAllowed,
 } from "@contracts/upload-limits";
+import {
+  cleanupDocumentMultipartUpload,
+  DocumentMultipartUploadError,
+  parseDocumentMultipartUpload,
+  type ParsedDocumentMultipartUpload,
+} from "./document-multipart-upload";
 
 // ── Multipart upload router for O&M Manuals Library ──
-// Mounted separately in api/boot.ts before the global body-limit so this route can accept larger files.
+// The shared guard in api/boot.ts applies the multipart transport cap before this router.
 
 export const documentsUploadRouter = new Hono();
 
@@ -63,53 +68,28 @@ function sanitizeDocumentFileName(value: string): string {
   return value.replace(/[\r\n"]/g, "_").replace(/\\/g, "/");
 }
 
-documentsUploadRouter.use(bodyLimit({
-  maxSize: MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES,
-  onError: (c) => c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413),
-}));
-
 documentsUploadRouter.post("/upload", async (c) => {
   const uploadId = Math.random().toString(36).slice(2, 10);
-  const contentLength = Number(c.req.header("content-length") || "0");
+  const contentLength = c.req.header("content-length") || "unknown";
+  let upload: ParsedDocumentMultipartUpload | undefined;
 
   console.log(`[documents/upload:${uploadId}] start content-length=${contentLength}`);
 
-  // Early size guard before parsing the request body. This prevents the server
-  // from buffering oversized multipart bodies into memory on Render.
-  if (contentLength > MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES) {
-    console.warn(
-      `[documents/upload:${uploadId}] rejected oversized request: ${contentLength} bytes exceeds ${MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES} bytes`
-    );
-    return c.json(
-      { error: MAX_UPLOAD_ERROR_MESSAGE },
-      413
-    );
-  }
-
   try {
-    const body = await c.req.parseBody({ all: false });
-    const file = body.file;
-
-    if (!(file instanceof File)) {
-      console.warn(`[documents/upload:${uploadId}] no file provided`);
-      return c.json({ error: "No file provided." }, 400);
-    }
+    upload = await parseDocumentMultipartUpload(c.req.raw);
 
     console.log(
-      `[documents/upload:${uploadId}] parsed file name="${file.name}" type="${file.type}" size=${file.size}`
+      `[documents/upload:${uploadId}] streamed file name="${upload.fileName}" type="${upload.fileType}" size=${upload.fileSize}`
     );
 
-    if (!isUploadFileSizeAllowed(file.size)) {
+    if (!isUploadFileSizeAllowed(upload.fileSize)) {
       console.warn(
-        `[documents/upload:${uploadId}] rejected oversized file: ${file.size} bytes exceeds ${MAX_UPLOAD_FILE_SIZE_BYTES} bytes`
+        `[documents/upload:${uploadId}] rejected oversized file: ${upload.fileSize} bytes exceeds ${MAX_UPLOAD_FILE_SIZE_BYTES} bytes`
       );
-      return c.json(
-        { error: MAX_UPLOAD_ERROR_MESSAGE },
-        413
-      );
+      return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
     }
 
-    const fileName = sanitizeDocumentFileName(file.name);
+    const fileName = sanitizeDocumentFileName(upload.fileName);
     const ext = fileName.split(".").pop()?.toLowerCase();
     if (!ext || !ALLOWED_DOCUMENT_EXTENSIONS.has(ext)) {
       return c.json(
@@ -118,7 +98,7 @@ documentsUploadRouter.post("/upload", async (c) => {
       );
     }
 
-    const folderIdRaw = body.folderId;
+    const folderIdRaw = upload.fields.folderId;
     const folderId = Number(folderIdRaw);
     if (!Number.isInteger(folderId) || folderId <= 0) {
       return c.json({ error: "A valid target folder is required." }, 400);
@@ -133,16 +113,27 @@ documentsUploadRouter.post("/upload", async (c) => {
       return c.json({ error: "Target folder not found." }, 404);
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64 = buffer.toString("base64");
+    const fileStat = await stat(upload.tempFilePath);
+    if (
+      fileStat.size !== upload.fileSize
+      || !isUploadFileSizeAllowed(fileStat.size)
+    ) {
+      return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
+    }
 
-    const title = String(body.title || fileName.replace(/\.[^.]+$/, "")).trim();
-    const uploadedBy = String(body.uploadedBy || "User").trim() || "User";
-    const description = String(body.description || "").trim() || null;
-    const revision = String(body.revision || "").trim() || null;
-    const tags = String(body.tags || "").trim() || null;
-    const fileType = inferDocumentMimeType(fileName, file.type);
+    let buffer: Buffer | undefined = await readFile(upload.tempFilePath);
+    if (!isUploadFileSizeAllowed(buffer.byteLength)) {
+      return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
+    }
+    let base64: string | undefined = buffer.toString("base64");
+    buffer = undefined;
+
+    const title = String(upload.fields.title || fileName.replace(/\.[^.]+$/, "")).trim();
+    const uploadedBy = String(upload.fields.uploadedBy || "User").trim() || "User";
+    const description = String(upload.fields.description || "").trim() || null;
+    const revision = String(upload.fields.revision || "").trim() || null;
+    const tags = String(upload.fields.tags || "").trim() || null;
+    const fileType = inferDocumentMimeType(fileName, upload.fileType);
     const now = new Date();
 
     const inserted = await db.insert(docFiles).values({
@@ -150,7 +141,7 @@ documentsUploadRouter.post("/upload", async (c) => {
       title,
       fileName,
       fileType,
-      fileSize: file.size,
+      fileSize: upload.fileSize,
       fileData: base64,
       fileUrl: null,
       description,
@@ -159,15 +150,37 @@ documentsUploadRouter.post("/upload", async (c) => {
       uploadedBy,
       uploadedAt: now,
       updatedAt: now,
-    }).returning();
+    }).returning({
+      id: docFiles.id,
+      folderId: docFiles.folderId,
+      title: docFiles.title,
+      fileName: docFiles.fileName,
+      fileType: docFiles.fileType,
+      fileSize: docFiles.fileSize,
+      fileUrl: docFiles.fileUrl,
+      description: docFiles.description,
+      revision: docFiles.revision,
+      tags: docFiles.tags,
+      uploadedBy: docFiles.uploadedBy,
+      uploadedAt: docFiles.uploadedAt,
+      updatedAt: docFiles.updatedAt,
+    });
+    base64 = undefined;
 
-    console.log(`[documents/upload:${uploadId}] success id=${inserted[0].id} size=${file.size}`);
-    const { fileData: _fileData, ...metadata } = inserted[0];
-    return c.json({ file: { ...metadata, hasFileData: true } }, 201);
+    console.log(`[documents/upload:${uploadId}] success id=${inserted[0].id} size=${upload.fileSize}`);
+    return c.json({ file: { ...inserted[0], hasFileData: true } }, 201);
   } catch (error: unknown) {
+    if (error instanceof DocumentMultipartUploadError) {
+      console.warn(`[documents/upload:${uploadId}] rejected:`, error.message);
+      return c.json({ error: error.message }, error.status);
+    }
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[documents/upload:${uploadId}] failed:`, message);
     return c.json({ error: "Failed to upload file." }, 500);
+  } finally {
+    await cleanupDocumentMultipartUpload(upload).catch((cleanupError) => {
+      console.error(`[documents/upload:${uploadId}] temporary file cleanup failed:`, cleanupError);
+    });
   }
 });
 

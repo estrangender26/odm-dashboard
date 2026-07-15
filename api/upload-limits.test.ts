@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_API_BODY_LIMIT_BYTES,
   MAX_BASE64_UPLOAD_BODY_SIZE_BYTES,
+  MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES,
   MAX_UPLOAD_ERROR_MESSAGE,
   MAX_UPLOAD_FILE_SIZE_BYTES,
   getDecodedBase64ByteLength,
@@ -9,6 +10,7 @@ import {
   isUploadFileSizeAllowed,
 } from "@contracts/upload-limits";
 import {
+  getRequestBodyLimitConfig,
   getRequestBodyLimitBytes,
   isLargeUploadRequestPath,
 } from "./upload-body-limit";
@@ -52,6 +54,14 @@ describe("shared upload limits", () => {
 });
 
 describe("route-specific request body limits", () => {
+  it("uses the multipart transport cap for O&M uploads", () => {
+    expect(getRequestBodyLimitBytes("/api/documents/upload"))
+      .toBe(MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES);
+    expect(MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES).toBe(158_334_976);
+    expect(getRequestBodyLimitConfig("/api/documents/upload").errorMessage)
+      .toBe(MAX_UPLOAD_ERROR_MESSAGE);
+  });
+
   it.each([
     "/api/trpc/documents.uploadFile",
     "/api/trpc/governance.addUpload",

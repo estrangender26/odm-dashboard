@@ -1,7 +1,13 @@
 import {
   DEFAULT_API_BODY_LIMIT_BYTES,
   MAX_BASE64_UPLOAD_BODY_SIZE_BYTES,
+  MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES,
+  MAX_UPLOAD_ERROR_MESSAGE,
 } from "@contracts/upload-limits";
+
+const LARGE_MULTIPART_UPLOAD_PATHS = new Set([
+  "/api/documents/upload",
+]);
 
 const LARGE_UPLOAD_REST_PATHS = new Set([
   "/api/governance/files",
@@ -27,8 +33,34 @@ export function isLargeUploadRequestPath(path: string): boolean {
     .some((procedure) => LARGE_UPLOAD_TRPC_PROCEDURES.has(procedure));
 }
 
+export function isAffectedUploadRequestPath(path: string): boolean {
+  return LARGE_MULTIPART_UPLOAD_PATHS.has(path)
+    || isLargeUploadRequestPath(path);
+}
+
 export function getRequestBodyLimitBytes(path: string): number {
+  if (LARGE_MULTIPART_UPLOAD_PATHS.has(path)) {
+    return MAX_MULTIPART_UPLOAD_BODY_SIZE_BYTES;
+  }
+
   return isLargeUploadRequestPath(path)
     ? MAX_BASE64_UPLOAD_BODY_SIZE_BYTES
     : DEFAULT_API_BODY_LIMIT_BYTES;
+}
+
+export type RequestBodyLimitConfig = {
+  maxSizeBytes: number;
+  errorMessage: string;
+  isAffectedUpload: boolean;
+};
+
+export function getRequestBodyLimitConfig(path: string): RequestBodyLimitConfig {
+  const isAffectedUpload = isAffectedUploadRequestPath(path);
+  return {
+    maxSizeBytes: getRequestBodyLimitBytes(path),
+    errorMessage: isAffectedUpload
+      ? MAX_UPLOAD_ERROR_MESSAGE
+      : "Payload Too Large",
+    isAffectedUpload,
+  };
 }
