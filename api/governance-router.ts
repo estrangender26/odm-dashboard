@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { authedQuery, createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { governanceFacilities, governanceMilestoneState, governanceUploads } from "@db/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -7,6 +7,7 @@ import {
   MAX_UPLOAD_ERROR_MESSAGE,
   isBase64UploadSizeAllowed,
 } from "@contracts/upload-limits";
+import { getSupabaseStorageAdmin } from "./supabase-storage";
 
 export const governanceRouter = createRouter({
   // Get all facilities
@@ -106,7 +107,19 @@ export const governanceRouter = createRouter({
     .query(async ({ input }) => {
       console.log("[GOV API] uploads query for facility:", input.facilitySlug);
       const rows = await db
-        .select()
+        .select({
+          id: governanceUploads.id,
+          facilitySlug: governanceUploads.facilitySlug,
+          milestoneId: governanceUploads.milestoneId,
+          category: governanceUploads.category,
+          tocItem: governanceUploads.tocItem,
+          fileName: governanceUploads.fileName,
+          uploadedBy: governanceUploads.uploadedBy,
+          uploadedAt: governanceUploads.uploadedAt,
+          storagePath: governanceUploads.storagePath,
+          storageSize: governanceUploads.storageSize,
+          storageMimeType: governanceUploads.storageMimeType,
+        })
         .from(governanceUploads)
         .where(eq(governanceUploads.facilitySlug, input.facilitySlug))
         .orderBy(governanceUploads.uploadedAt);
@@ -115,7 +128,7 @@ export const governanceRouter = createRouter({
     }),
 
   // Add upload record
-  addUpload: publicQuery
+  addUpload: authedQuery
     .input(
       z.object({
         facilitySlug: z.string(),
@@ -146,7 +159,7 @@ export const governanceRouter = createRouter({
     }),
 
   // Delete upload — ALWAYS clears completion date (even if other files remain)
-  deleteUpload: publicQuery
+  deleteUpload: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       // Find the upload to get its milestone before deleting
@@ -159,6 +172,10 @@ export const governanceRouter = createRouter({
       const upload = uploadRows[0];
 
       // Delete the upload
+      if (upload?.storageBucket && upload.storagePath) {
+        const { error } = await getSupabaseStorageAdmin().storage.from(upload.storageBucket).remove([upload.storagePath]);
+        if (error) throw new Error(`Storage deletion failed: ${error.message}`);
+      }
       await db.delete(governanceUploads).where(eq(governanceUploads.id, input.id));
 
       // ALWAYS clear completion date for this milestone

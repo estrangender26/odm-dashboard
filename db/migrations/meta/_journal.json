@@ -78,6 +78,13 @@
       "when": 1783430206762,
       "tag": "0010_monthly_kpi_raw_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784073600000,
+      "tag": "0011_supabase_storage_metadata",
+      "breakpoints": true
     }
   ]
 }

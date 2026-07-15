@@ -14,6 +14,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
+<script src="/governance-storage-upload.js"></script>
 <script src="/governance-upload-queue.js"></script>
 <script>
 /* ---------- FILE UPLOAD API (Database Storage) ---------- */
@@ -63,12 +65,22 @@ function govDownloadFile(fileId) {
   }).then(r => r.json());
 }
 
-function govDeleteFile(fileId) {
+function govDeleteFile(fileId, source, storageBacked) {
+  if(storageBacked&&source&&window.deleteGovernanceFileWithVerification){
+    return window.deleteGovernanceFileWithVerification(source,fileId);
+  }
+  if(source==='governance_uploads'){
+    return fetch('/api/governance/files/'+fileId+'?source=governance_uploads',{method:'DELETE',credentials:'same-origin'}).then(r=>r.json());
+  }
   return fetch(FILE_API + '/govFiles.delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ json: { id: fileId } })
   }).then(r => r.json());
+}
+
+function governanceFileUrl(fileId, action, source) {
+  return '/api/storage/files/'+encodeURIComponent(source||'governance_uploads')+'/'+fileId+'/'+action;
 }
 
 function govListByFacility(facilitySlug) {
@@ -707,7 +719,7 @@ async function fetchStateFromDB(facility,opts){
     }
     if(which==='all'||which==='references'){
       REFERENCE_DOCS=refFiles.map(function(f){
-        return{id:f.id,name:f.file_name,date:f.uploaded_at,by:f.uploaded_by||''};
+        return{id:f.id,name:f.file_name,date:f.uploaded_at,by:f.uploaded_by||'',source:f.source||'governance_uploads',storagePath:f.storage_path||null};
       });
       TAB_CACHE.r=Date.now();
     }
@@ -723,7 +735,7 @@ async function fetchStateFromDB(facility,opts){
         if(!ST[facility].up[mid][tkey])ST[facility].up[mid][tkey]=[];
         var already=ST[facility].up[mid][tkey].find(function(u){return u.id===f.id;});
         if(!already){
-          ST[facility].up[mid][tkey].push({id:f.id,n:f.file_name});
+          ST[facility].up[mid][tkey].push({id:f.id,n:f.file_name,source:f.source||'governance_uploads',storagePath:f.storage_path||null});
           fCount++;
         }
       });
@@ -1561,10 +1573,10 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           var fid=fi.id||fi.dbId;
           if(fid&&!fi.isPending){
             var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-            viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+            viewBtn.addEventListener('click',function(){window.open(governanceFileUrl(fid,'view',fi.source),'_blank');});
             actDiv.appendChild(viewBtn);
             var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-            dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+            dldBtn.addEventListener('click',function(){window.open(governanceFileUrl(fid,'download',fi.source),'_blank');});
             actDiv.appendChild(dldBtn);
           }
           // Remove button (edit mode only)
@@ -1626,14 +1638,14 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           var actDiv=document.createElement('div');actDiv.className='fr-actions';
           if(fid&&!fi.isPending){
             var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-            viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+            viewBtn.addEventListener('click',function(){window.open(governanceFileUrl(fid,'view',fi.source),'_blank');});
             actDiv.appendChild(viewBtn);
             var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-            dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+            dldBtn.addEventListener('click',function(){window.open(governanceFileUrl(fid,'download',fi.source),'_blank');});
             actDiv.appendChild(dldBtn);
           }
           var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
-          rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
+          rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId,fi.source,fi.storagePath).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,akey,ix)});
           actDiv.appendChild(rmBtn);
           frDiv.appendChild(actDiv);
           flDiv.appendChild(frDiv);
@@ -1678,14 +1690,14 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
         var fid=fi.id||fi.dbId;
         if(fid&&!fi.isPending){
           var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-          viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+          viewBtn.addEventListener('click',function(){window.open(governanceFileUrl(fid,'view',fi.source),'_blank');});
           actDiv.appendChild(viewBtn);
           var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-          dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+          dldBtn.addEventListener('click',function(){window.open(governanceFileUrl(fid,'download',fi.source),'_blank');});
           actDiv.appendChild(dldBtn);
         }
         var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
-        rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
+        rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+(fi.name||fi.n)+'"?\n\nThe completion date for this milestone will also be cleared.'))return;var fId=fi.id||fi.dbId;if(fId){govDeleteFile(fId,fi.source,fi.storagePath).then(function(){console.log('Deleted from DB:',fId)}).catch(function(err){console.error('DB delete error:',err)})}rTocUp(mid,otherKey,ix)});
         actDiv.appendChild(rmBtn);
         otherFr.appendChild(actDiv);
         otherFl.appendChild(otherFr);
@@ -2024,8 +2036,8 @@ TOC.forEach(function(t){var tnum=t.num;
 // Collect all files for this TOC across all sources
 var allFiles=[];
 var linkedMs=[];Object.entries(MSD).forEach(function(e){if(e[1].t.includes(tnum))linkedMs.push(e[0])});
-linkedMs.forEach(function(mid){var key='TOC-'+tnum;if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].forEach(function(fi,ix){allFiles.push({n:fi.name||fi.n||'File',d:fi.url||fi.d||'',id:fi.id||fi.dbId||null,src:mid,loc:'up',mid:mid,key:key,ix:ix})})}});
-if(c.up['__deliv']&&c.up['__deliv']['TOC-'+tnum]){c.up['__deliv']['TOC-'+tnum].forEach(function(fi,ix){allFiles.push({n:fi.name||fi.n||'File',d:fi.url||fi.d||'',id:fi.id||fi.dbId||null,src:'general',loc:'__deliv',mid:'__deliv',key:'TOC-'+tnum,ix:ix})})}
+linkedMs.forEach(function(mid){var key='TOC-'+tnum;if(c.up[mid]&&c.up[mid][key]){c.up[mid][key].forEach(function(fi,ix){allFiles.push({n:fi.name||fi.n||'File',id:fi.id||fi.dbId||null,source:fi.source||'governance_uploads',storagePath:fi.storagePath||null,src:mid,loc:'up',mid:mid,key:key,ix:ix})})}});
+if(c.up['__deliv']&&c.up['__deliv']['TOC-'+tnum]){c.up['__deliv']['TOC-'+tnum].forEach(function(fi,ix){allFiles.push({n:fi.name||fi.n||'File',id:fi.id||fi.dbId||null,source:fi.source||'governance_uploads',storagePath:fi.storagePath||null,src:'general',loc:'__deliv',mid:'__deliv',key:'TOC-'+tnum,ix:ix})})}
 // DEDUPLICATE: same file may appear in multiple milestone buckets + __deliv
 var seenDbIds=new Set();var uniqueFiles=[];
 allFiles.forEach(function(fi){if(fi.dbId&&seenDbIds.has(fi.dbId))return;if(fi.dbId)seenDbIds.add(fi.dbId);uniqueFiles.push(fi)});
@@ -2048,7 +2060,7 @@ var c4=document.createElement('div');c4.className='dlv-c';c4.style.flexDirection
 if(allFiles.length>0){
   allFiles.forEach(function(fi,idx){
     var fr=document.createElement('div');fr.className='file-action-row';
-    var cb=document.createElement('input');cb.type='checkbox';cb.className='dld-cb';cb.dataset.fname=fi.n;cb.dataset.fdata=fi.d;cb.style.cssText='cursor:pointer;width:14px;height:14px;margin:0';
+    var cb=document.createElement('input');cb.type='checkbox';cb.className='dld-cb';cb.dataset.fname=fi.n;cb.dataset.fileId=fi.id||'';cb.dataset.source=fi.source||'governance_uploads';cb.style.cssText='cursor:pointer;width:14px;height:14px;margin:0';
     fr.appendChild(cb);
     // File name
     var nameSpan=document.createElement('span');nameSpan.className='fr-name';nameSpan.textContent=fi.n||'File';
@@ -2058,15 +2070,15 @@ if(allFiles.length>0){
     // View button
     if(fi.id){
       var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-      viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fi.id+'/view','_blank');});
+      viewBtn.addEventListener('click',function(){window.open(governanceFileUrl(fi.id,'view',fi.source),'_blank');});
       fr.appendChild(viewBtn);
       var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-      dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fi.id+'/download','_blank');});
+      dldBtn.addEventListener('click',function(){window.open(governanceFileUrl(fi.id,'download',fi.source),'_blank');});
       fr.appendChild(dldBtn);
     }
     // Remove button (edit mode only)
     var rm=document.createElement('button');rm.textContent='Remove';rm.className='fr-rm';rm.disabled=!EDIT_MODE;
-    rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.id){govDeleteFile(fi.id).then(function(){console.log('Deleted from DB:',fi.id)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
+    rm.addEventListener('click',function(ev){ev.stopPropagation();if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;if(fi.id){govDeleteFile(fi.id,fi.source,fi.storagePath).then(function(){console.log('Deleted from DB:',fi.id)}).catch(function(err){console.error('DB delete error:',err)})}if(fi.loc==='up')rTocUp(fi.mid,fi.key,fi.ix);else rDlvUp(fi.mid,fi.key,fi.ix)});
     fr.appendChild(rm);
     c4.appendChild(fr);
   });
@@ -2117,10 +2129,12 @@ function hDlvUp(tnum,e){if(!EDIT_MODE){alert('Press Edit to upload files');retur
       return;
     }
     enqueueGovernanceUpload(function(){
-      return readGovernanceFile(f).then(function(b64){
-        pbUpdate((done/total)*50, 'Uploading '+f.name+' ('+(b64.length/1024).toFixed(0)+'KB)...', (done+1)+' / '+total);
-        return govUploadFile(dbSlug, targetMid, key, f.name, f.type||'application/octet-stream', f.size, b64);
-      });
+      return uploadGovernanceFileWithRollback(f,{facilitySlug:dbSlug,milestoneId:targetMid,category:key,tocItem:key},function(){
+        return readGovernanceFile(f).then(function(b64){
+          pbUpdate((done/total)*50, 'Uploading '+f.name+'...', (done+1)+' / '+total);
+          return govUploadFile(dbSlug, targetMid, key, f.name, f.type||'application/octet-stream', f.size, b64);
+        });
+      },function(pct){pbUpdate(pct,'Uploading '+f.name+' directly to Storage...', (done+1)+' / '+total);});
     }).then(function(res){
       var errMsg=getGovernanceUploadError(res);
       if(errMsg){
@@ -2153,7 +2167,7 @@ function rDlvUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');r
   if(!fi)return;
   if(!confirm('Delete "'+fi.n+'"?\n\nThe completion date for this milestone will also be cleared.'))return;
   if(fi.dbId){
-    govDeleteFile(fi.dbId).then(function(){console.log('[GOV] Deleted from DB:',fi.dbId);})
+    govDeleteFile(fi.dbId,fi.source,fi.storagePath).then(function(){console.log('[GOV] Deleted from DB:',fi.dbId);})
     .catch(function(err){console.error('[GOV] DB delete failed:',err);});
   }
   c.up[mid][key].splice(ix,1);
@@ -2161,16 +2175,23 @@ function rDlvUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');r
   SV();RD();RM();RS();
 }
 
-function dldBatch(){
+async function dldBatch(){
   const cbs=document.querySelectorAll('.dld-cb:checked');
   if(cbs.length===0){alert('No files selected. Check the boxes next to files you want to download.');return}
   var zip=new JSZip();
-  cbs.forEach(function(cb){
-    var name=cb.dataset.fname;
-    var data=cb.dataset.fdata;
-    if(data&&data.indexOf('base64,')>-1){var b64=data.split('base64,')[1];zip.file(name,b64,{base64:true})}else if(data){zip.file(name,data)}
-  });
-  zip.generateAsync({type:'blob'}).then(function(content){
+  try{
+    pbShow('Preparing ZIP','Downloading selected files...');
+    for(var i=0;i<cbs.length;i++){
+      var cb=cbs[i],fileId=cb.dataset.fileId,source=cb.dataset.source||'governance_uploads';
+      if(!fileId)continue;
+      pbUpdate(Math.round((i/cbs.length)*70),'Downloading '+cb.dataset.fname,(i+1)+' / '+cbs.length);
+      var response=await fetch(governanceFileUrl(fileId,'download',source),{credentials:'same-origin'});
+      if(!response.ok)throw new Error('Download failed for '+cb.dataset.fname+' ('+response.status+')');
+      zip.file(cb.dataset.fname,await response.blob());
+    }
+    pbUpdate(80,'Compressing files...');
+    var content=await zip.generateAsync({type:'blob'},function(meta){pbUpdate(80+Math.round(meta.percent*0.2),'Compressing files...');});
+    pbHide();
     var filename='O&M_Documents_'+new Date().toISOString().slice(0,10)+'.zip';
     // Try File System Access API for Save As dialog (asks for location)
     if(window.showSaveFilePicker){
@@ -2185,7 +2206,7 @@ function dldBatch(){
     }else{
       fallbackDownload(content,filename);
     }
-  });
+  }catch(err){pbHide();alert('ZIP download failed: '+(err.message||err));}
 }
 function fallbackDownload(blob,filename){
   var a=document.createElement('a');
@@ -2256,10 +2277,12 @@ function hTocUp(mid,key,e){if(!EDIT_MODE){alert('Press Edit to upload files');re
       return;
     }
     enqueueGovernanceUpload(function(){
-      return readGovernanceFile(f).then(function(b64){
-        pbUpdate((done/total)*50, 'Uploading '+f.name+' ('+(b64.length/1024).toFixed(0)+'KB)...', (done+1)+' / '+total);
-        return govUploadFile(dbSlug, mid, key, f.name, f.type||'application/octet-stream', f.size, b64);
-      });
+      return uploadGovernanceFileWithRollback(f,{facilitySlug:dbSlug,milestoneId:mid,category:key,tocItem:key},function(){
+        return readGovernanceFile(f).then(function(b64){
+          pbUpdate((done/total)*50, 'Uploading '+f.name+'...', (done+1)+' / '+total);
+          return govUploadFile(dbSlug, mid, key, f.name, f.type||'application/octet-stream', f.size, b64);
+        });
+      },function(pct){pbUpdate(pct,'Uploading '+f.name+' directly to Storage...', (done+1)+' / '+total);});
     }).then(function(res){
       var errMsg=getGovernanceUploadError(res);
       if(errMsg){
@@ -2293,7 +2316,7 @@ function rTocUp(mid,key,ix){if(!EDIT_MODE){alert('Press Edit to remove files');r
   if(!confirm('Delete "'+fName+'"?\n\nThe completion date for this milestone will also be cleared.'))return;
   var fileId=fi.id||fi.dbId;
   if(fileId){
-    govDeleteFile(fileId).then(function(){console.log('[GOV] Deleted from DB:',fileId);})
+    govDeleteFile(fileId,fi.source,fi.storagePath).then(function(){console.log('[GOV] Deleted from DB:',fileId);})
     .catch(function(err){console.error('[GOV] DB delete failed:',err);});
   }
   c.up[mid][key].splice(ix,1);
@@ -2349,7 +2372,7 @@ function renderRefDocs(){
   }
   if(!el){console.log('[renderRefDocs] No ref-doc-list element');return;}
   var allFiles=[];
-  REFERENCE_DOCS.forEach(function(f){allFiles.push({id:f.id,name:f.name||f.file_name||'File',url:f.url||f.file_url,date:f.date||f.uploaded_at,fromDB:true});});
+  REFERENCE_DOCS.forEach(function(f){allFiles.push({id:f.id,name:f.name||f.file_name||'File',url:f.url||f.file_url,date:f.date||f.uploaded_at,source:f.source||'governance_uploads',storagePath:f.storagePath||null,fromDB:true});});
   console.log('[renderRefDocs] allFiles.length='+allFiles.length);
   if(allFiles.length===0){
     el.innerHTML='';
@@ -2379,15 +2402,15 @@ function renderRefDocs(){
     var fid=fi.id;
     if(fid&&!fi.pending){
       var viewBtn=document.createElement('button');viewBtn.textContent='View';viewBtn.className='fv-btn';
-      viewBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/view','_blank');});
+      viewBtn.addEventListener('click',function(){window.open(governanceFileUrl(fid,'view',fi.source),'_blank');});
       actDiv.appendChild(viewBtn);
       var dldBtn=document.createElement('button');dldBtn.textContent='Download';dldBtn.className='fd-btn';
-      dldBtn.addEventListener('click',function(){window.open('/api/governance/files/'+fid+'/download','_blank');});
+      dldBtn.addEventListener('click',function(){window.open(governanceFileUrl(fid,'download',fi.source),'_blank');});
       actDiv.appendChild(dldBtn);
     }
     var rmBtn=document.createElement('button');rmBtn.textContent='Remove';rmBtn.className='fr-rm';rmBtn.disabled=!EDIT_MODE;
     if(fi.pending){rmBtn.addEventListener('click',function(){rRefUp(ix);});}
-    else if(fid){rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!EDIT_MODE){alert('Press Edit to remove');return;}if(confirm('Delete?')){deleteRefDoc(fid);}});}
+    else if(fid){rmBtn.addEventListener('click',function(ev){ev.stopPropagation();if(!EDIT_MODE){alert('Press Edit to remove');return;}if(confirm('Delete?')){deleteRefDoc(fid,fi.source,fi.storagePath);}});}
     actDiv.appendChild(rmBtn);
     frDiv.appendChild(actDiv);
     flDiv.appendChild(frDiv);
@@ -2414,15 +2437,14 @@ function hRefUp(ev){
     if(file.size>MAX_UPLOAD_FILE_SIZE_BYTES){alert(MAX_UPLOAD_ERROR_MESSAGE);done++;failed++;if(done===total){ev.target.value='';}return;}
     var uploadedBase64='';
     enqueueGovernanceUpload(function(){
-      return readGovernanceFile(file).then(function(b64){
-        uploadedBase64=b64;
-        return saveFileToDB('all','__ref','references',{n:file.name,d:b64,s:file.size});
+      return uploadGovernanceFileWithRollback(file,{facilitySlug:'all',milestoneId:'__ref',category:'references',tocItem:'references'},function(){
+        return readGovernanceFile(file).then(function(b64){uploadedBase64=b64;return saveFileToDB('all','__ref','references',{n:file.name,d:b64,s:file.size});});
       });
     }).then(function(res){
       done++;
-      if(res&&res.id){
+      if(res&&(res.id||res.fileId)){
         // Optimistic: add to local state immediately, no full refetch
-        REFERENCE_DOCS.push({id:res.id,name:file.name,url:uploadedBase64,date:new Date().toISOString(),by:''});
+        REFERENCE_DOCS.push({id:res.id||res.fileId,name:file.name,url:uploadedBase64,date:new Date().toISOString(),by:'',source:res.source||'governance_uploads',storagePath:res.directStorage?'stored':null});
         renderRefDocs();
       }else{
         console.error('[REF] Upload failed:',JSON.stringify(res).substring(0,100));failed++;
@@ -2440,10 +2462,13 @@ function rRefUp(ix){
   renderRefDocs();
 }
 
-async function deleteRefDoc(fileId){
+async function deleteRefDoc(fileId,source,storagePath){
   try{
-    var resp=await fetch(API_BASE+'/api/governance/files/'+fileId,{method:'DELETE'});
-    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    if(storagePath){await deleteGovernanceFileWithVerification(source||'governance_uploads',fileId);}
+    else{
+      var resp=await fetch(API_BASE+'/api/governance/files/'+fileId+'?source='+encodeURIComponent(source||'governance_uploads'),{method:'DELETE',credentials:'same-origin'});
+      if(!resp.ok)throw new Error('HTTP '+resp.status);
+    }
     fetchReferenceDocs().then(function(){renderRefDocs();}).catch(function(e){console.error('[REF] Refetch after delete:',e.message);});
   }catch(err){
     console.error('[REF] Delete failed:',err.message);

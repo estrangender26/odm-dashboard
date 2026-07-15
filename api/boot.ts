@@ -8,6 +8,7 @@ import { ensureDbReady, getDb } from "./queries/connection";
 import { appRouter } from "./router";
 import { presentationFilesRouter } from "./presentation-files-router";
 import { documentsUploadRouter } from "./documents-router";
+import { storageRouter } from "./storage-router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { authenticateRequest, createOAuthCallbackHandler } from "./kimi/auth";
@@ -270,6 +271,7 @@ installRequestBodyGuard(app);
 
 logBootStage("registering document upload routes");
 app.route("/api/documents", documentsUploadRouter);
+app.route("/api/storage", storageRouter);
 
 logBootStage("registering API request logger middleware");
 app.use("*", async (c, next) => {
@@ -1186,13 +1188,25 @@ logBootStage("duplicate cleanup dry-run endpoint registration complete");
 
 logBootStage("registering governance file and debug routes");
 
+async function requireFileRequestUser(c: Context): Promise<Response | null> {
+  try {
+    await authenticateRequest(c.req.raw.headers);
+    return null;
+  } catch {
+    return c.json({ error: "Authentication required" }, 401);
+  }
+}
+
 // Debug: list latest uploads
 app.get("/api/debug/uploads", async (c) => {
   try {
+    const unauthorized = await requireFileRequestUser(c);
+    if (unauthorized) return unauthorized;
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     const rows = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, file_name, file_url, uploaded_at
+      SELECT id, facility_slug, milestone_id, file_name, storage_provider, storage_bucket,
+             storage_path, storage_size, storage_mime_type, uploaded_at
       FROM governance_uploads
       ORDER BY id DESC
       LIMIT 20
@@ -1208,11 +1222,15 @@ app.get("/api/debug/uploads", async (c) => {
 // GET /api/governance/files/:facilitySlug - list files for a facility
 app.get("/api/governance/files/:facilitySlug", async (c) => {
   try {
+    const unauthorized = await requireFileRequestUser(c);
+    if (unauthorized) return unauthorized;
     const facilitySlug = c.req.param("facilitySlug").toLowerCase();
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     const rows = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, file_url, uploaded_by, uploaded_at
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name,
+             storage_provider, storage_bucket, storage_path, storage_size, storage_mime_type,
+             uploaded_by, uploaded_at
       FROM governance_uploads
       WHERE facility_slug = ${facilitySlug}
       ORDER BY id DESC
@@ -1226,6 +1244,8 @@ app.get("/api/governance/files/:facilitySlug", async (c) => {
 // POST /api/governance/files - create a file record
 app.post("/api/governance/files", async (c) => {
   try {
+    const unauthorized = await requireFileRequestUser(c);
+    if (unauthorized) return unauthorized;
     const body = await c.req.json();
     const { facilitySlug, milestoneId, tocItem, filename, fileUrl, fileSize, uploadedAt } = body;
     console.log("[API] POST /api/governance/files body:", JSON.stringify({ facilitySlug, milestoneId, tocItem, filename, fileSize, hasUrl: !!fileUrl }));
@@ -1275,7 +1295,8 @@ app.get("/api/governance/references", async (c) => {
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     const result = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at,
+             storage_path, 'governance_uploads'::text AS source
       FROM governance_uploads
       WHERE milestone_id = '__ref' OR category = 'references'
       ORDER BY uploaded_at DESC
@@ -1291,13 +1312,21 @@ app.get("/api/governance/references", async (c) => {
 // DELETE /api/governance/files/:id - delete a file from either table
 app.delete("/api/governance/files/:id", async (c) => {
   try {
+    const unauthorized = await requireFileRequestUser(c);
+    if (unauthorized) return unauthorized;
     const id = parseInt(c.req.param("id"));
     if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    // Try both tables — one will succeed
-    await db.execute(sql`DELETE FROM governance_uploads WHERE id = ${id}`);
-    await db.execute(sql`DELETE FROM governance_files WHERE id = ${id}`);
+    const source = c.req.query("source") || "governance_uploads";
+    if (source !== "governance_uploads" && source !== "governance_files") {
+      return c.json({ error: "Invalid file source" }, 400);
+    }
+    if (source === "governance_files") {
+      await db.execute(sql`DELETE FROM governance_files WHERE id = ${id}`);
+    } else {
+      await db.execute(sql`DELETE FROM governance_uploads WHERE id = ${id}`);
+    }
     return c.json({ success: true });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -1308,8 +1337,14 @@ app.delete("/api/governance/files/:id", async (c) => {
 // GET /api/documents/files/:id/view - stream O&M Manual Library files inline for same-origin previews.
 app.get("/api/documents/files/:id/view", async (c) => {
   try {
+    const unauthorized = await requireFileRequestUser(c);
+    if (unauthorized) return unauthorized;
     const id = Number.parseInt(c.req.param("id"), 10);
     if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
+
+    const storageRows = await getDb().select({ storagePath: docFiles.storagePath })
+      .from(docFiles).where(eq(docFiles.id, id)).limit(1);
+    if (storageRows[0]?.storagePath) return c.redirect(`/api/storage/files/doc_files/${id}/view`, 302);
 
     const loaded = await getParsedDocumentFile(id);
     if (!loaded) return c.json({ error: "File not found" }, 404);
@@ -1355,8 +1390,14 @@ app.get("/api/documents/files/:id/view", async (c) => {
 // GET /api/documents/files/:id/download - download O&M Manual Library files only when requested.
 app.get("/api/documents/files/:id/download", async (c) => {
   try {
+    const unauthorized = await requireFileRequestUser(c);
+    if (unauthorized) return unauthorized;
     const id = Number.parseInt(c.req.param("id"), 10);
     if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
+
+    const storageRows = await getDb().select({ storagePath: docFiles.storagePath })
+      .from(docFiles).where(eq(docFiles.id, id)).limit(1);
+    if (storageRows[0]?.storagePath) return c.redirect(`/api/storage/files/doc_files/${id}/download`, 302);
 
     const loaded = await getParsedDocumentFile(id);
     if (!loaded) return c.json({ error: "File not found" }, 404);
@@ -1377,29 +1418,41 @@ app.get("/api/documents/files/:id/download", async (c) => {
 
 // GET /api/governance/files/:id/view - stream file inline
 // Helper: fetch file from either governance_uploads or governance_files table
-async function getFileFromEitherTable(db: any, id: number) {
+type GovernanceFileSource = "governance_uploads" | "governance_files";
+
+async function getFileFromEitherTable(db: any, id: number, requestedSource?: GovernanceFileSource) {
   // Try governance_uploads first (REST uploads)
-  let rows = await db.execute(sql`
-    SELECT id, file_name, file_url FROM governance_uploads WHERE id = ${id} LIMIT 1
+  let rows = requestedSource === "governance_files" ? { rows: [] } : await db.execute(sql`
+    SELECT id, file_name, file_url, storage_bucket, storage_path
+    FROM governance_uploads WHERE id = ${id} LIMIT 1
   `);
   let fileRows = rows.rows || rows;
-  if (fileRows.length > 0) return fileRows[0];
+  if (fileRows.length > 0) return { ...fileRows[0], source: "governance_uploads" };
+  if (requestedSource === "governance_uploads") return null;
   // Fallback to governance_files (tRPC uploads)
   rows = await db.execute(sql`
-    SELECT id, file_name, file_data AS file_url FROM governance_files WHERE id = ${id} LIMIT 1
+    SELECT id, file_name, file_data AS file_url, storage_bucket, storage_path
+    FROM governance_files WHERE id = ${id} LIMIT 1
   `);
   fileRows = rows.rows || rows;
-  return fileRows.length > 0 ? fileRows[0] : null;
+  return fileRows.length > 0 ? { ...fileRows[0], source: "governance_files" } : null;
 }
 
 app.get("/api/governance/files/:id/view", async (c) => {
   try {
+    const unauthorized = await requireFileRequestUser(c);
+    if (unauthorized) return unauthorized;
     const id = parseInt(c.req.param("id"));
     if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const file = await getFileFromEitherTable(db, id);
+    const requestedSource = c.req.query("source");
+    if (requestedSource && requestedSource !== "governance_uploads" && requestedSource !== "governance_files") {
+      return c.json({ error: "Invalid file source" }, 400);
+    }
+    const file = await getFileFromEitherTable(db, id, requestedSource as GovernanceFileSource | undefined);
     if (!file) return c.json({ error: "File not found" }, 404);
+    if (file.storage_path) return c.redirect(`/api/storage/files/${file.source}/${id}/view`, 302);
     const fileName = file.file_name || "file";
     const fileUrl = file.file_url || "";
     console.log("[VIEW] id=", id, "name=", fileName, "urlLen=", fileUrl.length, "urlPrefix=", fileUrl.substring(0, 50));
@@ -1464,12 +1517,19 @@ app.get("/api/governance/files/:id/view", async (c) => {
 // GET /api/governance/files/:id/download - stream file as attachment
 app.get("/api/governance/files/:id/download", async (c) => {
   try {
+    const unauthorized = await requireFileRequestUser(c);
+    if (unauthorized) return unauthorized;
     const id = parseInt(c.req.param("id"));
     if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const { getDb } = await import("./queries/connection");
     const db = getDb();
-    const file = await getFileFromEitherTable(db, id);
+    const requestedSource = c.req.query("source");
+    if (requestedSource && requestedSource !== "governance_uploads" && requestedSource !== "governance_files") {
+      return c.json({ error: "Invalid file source" }, 400);
+    }
+    const file = await getFileFromEitherTable(db, id, requestedSource as GovernanceFileSource | undefined);
     if (!file) return c.json({ error: "File not found" }, 404);
+    if (file.storage_path) return c.redirect(`/api/storage/files/${file.source}/${id}/download`, 302);
     const fileName = file.file_name || "file";
     const fileUrl = file.file_url || "";
     console.log("[DL] id=", id, "name=", fileName, "urlLen=", fileUrl.length);
@@ -1585,7 +1645,8 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     }
     // Query uploads table — exclude file_url (base64) to keep response small
     const files1 = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at
+      SELECT id, facility_slug, milestone_id, category, toc_item, file_name, uploaded_by, uploaded_at,
+             storage_path, 'governance_uploads'::text AS source
       FROM governance_uploads
       WHERE facility_slug = ${facilitySlug} OR facility_slug = 'all'
       ORDER BY id DESC
@@ -1605,7 +1666,8 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     console.log("[API] governance_uploads rows:", upRows.length);
     // ALSO query governance_files — exclude file_data (base64) to keep response small
     const files2 = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, toc_item, file_name, uploaded_by, uploaded_at
+      SELECT id, facility_slug, milestone_id, toc_item, file_name, uploaded_by, uploaded_at,
+             storage_path, 'governance_files'::text AS source
       FROM governance_files
       WHERE facility_slug = ${facilitySlug}
       ORDER BY id DESC

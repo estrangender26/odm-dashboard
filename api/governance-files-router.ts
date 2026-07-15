@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { authedQuery, createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { governanceFiles } from "@db/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -8,10 +8,11 @@ import {
   isBase64UploadSizeAllowed,
   isUploadFileSizeAllowed,
 } from "@contracts/upload-limits";
+import { getSupabaseStorageAdmin } from "./supabase-storage";
 
 export const governanceFilesRouter = createRouter({
   // Upload a file
-  upload: publicQuery
+  upload: authedQuery
     .input(z.object({
       facilitySlug: z.string(),
       milestoneId: z.string(),
@@ -94,7 +95,7 @@ export const governanceFilesRouter = createRouter({
     }),
 
   // Download a file
-  download: publicQuery
+  download: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const rows = await db
@@ -114,9 +115,15 @@ export const governanceFilesRouter = createRouter({
     }),
 
   // Delete a file
-  delete: publicQuery
+  delete: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      const rows = await db.select({ bucket: governanceFiles.storageBucket, path: governanceFiles.storagePath })
+        .from(governanceFiles).where(eq(governanceFiles.id, input.id)).limit(1);
+      if (rows[0]?.bucket && rows[0]?.path) {
+        const { error } = await getSupabaseStorageAdmin().storage.from(rows[0].bucket).remove([rows[0].path]);
+        if (error) throw new Error(`Storage deletion failed: ${error.message}`);
+      }
       await db.delete(governanceFiles).where(eq(governanceFiles.id, input.id));
       return { success: true };
     }),
@@ -144,7 +151,7 @@ export const governanceFilesRouter = createRouter({
     }),
 
   // List all files for a facility (across all milestones)
-  listByFacility: publicQuery
+  listByFacility: authedQuery
     .input(z.object({ facilitySlug: z.string() }))
     .mutation(async ({ input }) => {
       console.log("[GOV API] listByFacility input:", input.facilitySlug);
@@ -158,7 +165,7 @@ export const governanceFilesRouter = createRouter({
           fileName: governanceFiles.fileName,
           fileType: governanceFiles.fileType,
           fileSize: governanceFiles.fileSize,
-          fileData: governanceFiles.fileData,
+          storagePath: governanceFiles.storagePath,
           uploadedBy: governanceFiles.uploadedBy,
           uploadedAt: governanceFiles.uploadedAt,
         })
@@ -167,7 +174,7 @@ export const governanceFilesRouter = createRouter({
         .orderBy(governanceFiles.uploadedAt);
       console.log("[GOV API] listByFacility returning:", rows.length, "rows for", input.facilitySlug);
       if (rows.length > 0) {
-        console.log("[GOV API] listByFacility first row:", { id: rows[0].id, milestoneId: rows[0].milestoneId, tocItem: rows[0].tocItem, fileName: rows[0].fileName, fileDataLen: rows[0].fileData?.length });
+        console.log("[GOV API] listByFacility first row:", { id: rows[0].id, milestoneId: rows[0].milestoneId, tocItem: rows[0].tocItem, fileName: rows[0].fileName, storageBacked: Boolean(rows[0].storagePath) });
       }
       return rows;
     }),

@@ -7,6 +7,7 @@ import {
   MAX_UPLOAD_ERROR_MESSAGE,
   MAX_UPLOAD_FILE_SIZE_BYTES,
 } from "@contracts/upload-limits";
+import { deleteFileWithVerification, shouldUseDirectStorage, uploadFileDirect } from "@/lib/direct-storage-upload";
 
 // ═══════════════════════════════════════════════════════════
 // Types
@@ -34,6 +35,7 @@ interface TreeFile {
   revision: string | null;
   uploadedAt: Date | null;
   hasFileData: boolean;
+  storageBacked: boolean;
   fileUrl: string | null;
 }
 
@@ -187,6 +189,16 @@ function fileExists(folders: TreeFolder[], targetId: number): boolean {
     if (fileExists(folder.children, targetId)) return true;
   }
   return false;
+}
+
+function findFileById(folders: TreeFolder[], targetId: number): TreeFile | null {
+  for (const folder of folders) {
+    const found = folder.files.find((file) => file.id === targetId);
+    if (found) return found;
+    const nested = findFileById(folder.children, targetId);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 function mergeFolderSummaries(nextFolders: TreeFolder[], previousFolders: TreeFolder[]): TreeFolder[] {
@@ -923,8 +935,9 @@ export default function OmManualsLibrary() {
   }, []);
 
   // ── Handle file upload via multipart POST (avoids base64 JSON overhead and global tRPC body limit) ──
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
     const targetFolder = selectedFolderId;
     if (!targetFolder) { setBanner({ type: "error", message: "Select a folder first" }); return; }
@@ -934,13 +947,47 @@ export default function OmManualsLibrary() {
         type: "error",
         message: MAX_UPLOAD_ERROR_MESSAGE,
       });
-      e.target.value = "";
+      input.value = "";
       return;
     }
 
     setIsUploading(true);
     setUploadProgress(0);
     setUploadLabel(`Uploading "${file.name}"...`);
+
+    let useStorage: boolean;
+    try {
+      useStorage = await shouldUseDirectStorage("om");
+    } catch (error) {
+      setIsUploading(false);
+      setUploadProgress(0);
+      input.value = "";
+      setBanner({ type: "error", message: error instanceof Error ? error.message : "Unable to determine the upload route." });
+      return;
+    }
+    if (useStorage) {
+      input.value = "";
+      try {
+        await uploadFileDirect({
+          module: "om",
+          file,
+          target: { folderId: targetFolder },
+          onProgress: (pct) => {
+            setUploadProgress(Math.max(5, pct));
+            setUploadLabel(`Uploading "${file.name}" directly to Storage... ${pct}%`);
+          },
+        });
+        setUploadProgress(100);
+        await refreshTree("storageUploadFile");
+        setBanner({ type: "success", message: `File "${file.name}" uploaded` });
+        window.setTimeout(() => { setIsUploading(false); setUploadProgress(0); }, 600);
+      } catch (error) {
+        setIsUploading(false);
+        setUploadProgress(0);
+        setBanner({ type: "error", message: error instanceof Error ? error.message : "Storage upload failed." });
+      }
+      return;
+    }
 
     const formData = new FormData();
     formData.append("file", file);
@@ -992,7 +1039,7 @@ export default function OmManualsLibrary() {
 
     xhr.open("POST", "/api/documents/upload");
     xhr.send(formData);
-    e.target.value = "";
+    input.value = "";
   }, [selectedFolderId, refreshTree]);
 
   // ── Breadcrumbs ──
@@ -1253,7 +1300,22 @@ export default function OmManualsLibrary() {
           <p className="text-sm text-gray-600">This will permanently delete the file. This action cannot be undone.</p>
           <div className="flex justify-end gap-2 mt-3">
             <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-            <button type="button" disabled={deleteFile.isPending} onClick={() => { deleteFile.mutate({ id: modal.fileId! }); setModal(null); }}
+            <button type="button" disabled={deleteFile.isPending} onClick={async () => {
+              const file = findFileById(tree, modal.fileId!);
+              setModal(null);
+              if (file?.storageBacked) {
+                try {
+                  await deleteFileWithVerification("doc_files", file.id);
+                  await refreshTree("deleteStorageFile");
+                  setSelectedFileId(null); setSelectedFile(null);
+                  setBanner({ type: "success", message: "File deleted" });
+                } catch (error) {
+                  setBanner({ type: "error", message: error instanceof Error ? error.message : "Unable to delete file." });
+                }
+              } else {
+                deleteFile.mutate({ id: modal.fileId! });
+              }
+            }}
               className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">{deleteFile.isPending ? "Deleting..." : "Delete"}</button>
           </div>
         </Modal>
