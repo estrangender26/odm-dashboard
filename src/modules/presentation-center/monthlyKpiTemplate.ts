@@ -4,6 +4,7 @@ const PPTX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const TEMPLATE_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.presentationml.template";
+const TITLE_WIDTH_EMU = 11887200;
 
 export const MONTHLY_KPI_TEMPLATE_URL =
   "/templates/monthly-kpi-scorecard-template.potx";
@@ -69,6 +70,33 @@ function replaceNamedBlockText(
   const end = closeStart + closeTag.length;
   const block = slideXml.slice(start, end);
   return `${slideXml.slice(0, start)}${rewriteTextNodes(block, values)}${slideXml.slice(end)}`;
+}
+
+function setNamedTextBoxWidth(
+  slideXml: string,
+  elementName: string,
+  width: number
+) {
+  const marker = `name="${elementName}"`;
+  const markerIndex = slideXml.indexOf(marker);
+  if (markerIndex < 0) {
+    throw new Error(`Template element ${elementName} was not found.`);
+  }
+  const start = slideXml.lastIndexOf("<p:sp", markerIndex);
+  const closeStart = slideXml.indexOf("</p:sp>", markerIndex);
+  if (start < 0 || closeStart < 0) {
+    throw new Error(`Template element ${elementName} is malformed.`);
+  }
+  const end = closeStart + "</p:sp>".length;
+  const block = slideXml.slice(start, end);
+  const updatedBlock = block.replace(
+    /(<a:xfrm>[\s\S]*?<a:ext\s+cx=")\d+("\s+cy="\d+"\s*\/>)/,
+    `$1${width}$2`
+  );
+  if (updatedBlock === block) {
+    throw new Error(`Template element ${elementName} has no shape extent.`);
+  }
+  return `${slideXml.slice(0, start)}${updatedBlock}${slideXml.slice(end)}`;
 }
 
 function replaceNamedCommentary(
@@ -187,7 +215,8 @@ function rewriteTable(
 }
 
 function populateSlide(sourceXml: string, slide: MonthlyKpiTemplateSlide) {
-  let xml = replaceNamedBlockText(sourceXml, "TextBox 4", [slide.title]);
+  let xml = setNamedTextBoxWidth(sourceXml, "TextBox 4", TITLE_WIDTH_EMU);
+  xml = replaceNamedBlockText(xml, "TextBox 4", [slide.title]);
   xml = rewriteTable(xml, slide.tableName, slide.rows, slide.statuses);
   if (slide.sourceSlide === 1) {
     xml = replaceNamedCommentary(

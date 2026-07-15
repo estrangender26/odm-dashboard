@@ -5,6 +5,7 @@ import {
   createUploadedPresentation,
   deleteGeneratedPresentation,
   deleteUploadedPresentation,
+  getGeneratedPresentations,
   getGeneratedPresentationDedupeKey,
   getUploadedPresentations,
   mergeGeneratedPresentation,
@@ -54,7 +55,19 @@ function makeUploaded(overrides: Partial<UploadedPresentation> = {}): UploadedPr
 describe("presentation storage API-backed helpers", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it("keeps presentation history local in explicit Monthly KPI UI acceptance mode", async () => {
+    vi.stubEnv("VITE_MONTHLY_KPI_UI_ACCEPTANCE_MODE", "true");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getUploadedPresentations()).resolves.toEqual([]);
+    await expect(getGeneratedPresentations()).resolves.toEqual([]);
+    await expect(saveGeneratedPresentations([makeGenerated()])).resolves.toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("computes a stable generated presentation dedupe key", () => {

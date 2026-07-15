@@ -135,6 +135,7 @@ describe("Monthly KPI PowerPoint template", () => {
     expect(outputRels).toContain("../slideLayouts/slideLayout12.xml");
     expect(outputRels).toContain("../media/image1.png");
     expect(outputSlide).toContain('name="TextBox 4"');
+    expect(outputSlide).toContain('cx="11887200" cy="523220"');
     expect(outputSlide).toContain('name="Table 2"');
     expect(outputSlide).toContain('name="TextBox 6"');
   });

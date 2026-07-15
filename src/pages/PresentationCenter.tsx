@@ -24,6 +24,7 @@ import {
   EXECUTIVE_SCORECARD_TEMPLATE,
   getAvailableMonthlyKpiOptions,
   getReportingPeriodLabel,
+  isMonthlyKpiUiAcceptanceMode,
   MONTH_NAMES,
   MONTHLY_KPI_BUSINESS_UNITS,
   MONTHLY_KPI_TEMPLATE_OPTIONS,
@@ -162,6 +163,7 @@ function getOdmSelectionDateRange(yearValue: string, monthValue: string) {
 }
 
 export default function PresentationCenter() {
+  const monthlyKpiAcceptanceMode = isMonthlyKpiUiAcceptanceMode();
   const [uploaded, setUploaded] = useState<UploadedPresentation[]>([]);
   const [generated, setGenerated] = useState<GeneratedPresentation[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
@@ -676,6 +678,15 @@ export default function PresentationCenter() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:py-8">
+        {monthlyKpiAcceptanceMode && (
+          <div
+            role="status"
+            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900"
+          >
+            Local Monthly KPI UI acceptance data is active. No production data
+            will be read or changed.
+          </div>
+        )}
         <section className="rounded-2xl border border-[#D6DFE8] bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
