@@ -1,4 +1,5 @@
 import type { GeneratedPresentation, UploadedPresentation } from "./types";
+import { isMonthlyKpiUiAcceptanceMode } from "./scorecardData";
 import {
   deletePresentationFile,
   getPresentationFileDownloadUrl,
@@ -245,6 +246,7 @@ export async function createUploadedPresentation(
 }
 
 export async function getUploadedPresentations(): Promise<UploadedPresentation[]> {
+  if (isMonthlyKpiUiAcceptanceMode()) return [];
   try {
     const files = await listPresentationFiles({ fileCategory: "uploaded_deck" });
     return files.map(apiFileToUploaded);
@@ -282,6 +284,7 @@ function mapPresentationCategoryToApiCategory(
 export async function saveUploadedPresentations(
   items: UploadedPresentation[]
 ): Promise<void> {
+  if (isMonthlyKpiUiAcceptanceMode()) return;
   // Upload any items that are not already API-backed (IDs that look like UUIDs are new local items)
   const newItems = items.filter(
     item => !/^[0-9]+$/.test(item.id) && item.dataUrl.startsWith("data:")
@@ -301,6 +304,7 @@ export async function saveUploadedPresentations(
 }
 
 export async function getGeneratedPresentations(): Promise<GeneratedPresentation[]> {
+  if (isMonthlyKpiUiAcceptanceMode()) return [];
   try {
     const files = await listPresentationFiles({ fileCategory: "generated_deck" });
     return files.map(apiFileToGenerated);
@@ -313,6 +317,7 @@ export async function getGeneratedPresentations(): Promise<GeneratedPresentation
 export async function saveGeneratedPresentations(
   items: GeneratedPresentation[]
 ): Promise<void> {
+  if (isMonthlyKpiUiAcceptanceMode()) return;
   const deduped = deduplicateGeneratedPresentations(items).slice(0, 25);
   for (const deck of deduped) {
     try {

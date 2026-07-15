@@ -83,6 +83,22 @@ export type MonthlyKpiScorecardDataset = {
   template: MonthlyKpiTemplate;
 };
 
+type MonthlyKpiUiAcceptanceEnv = {
+  DEV?: boolean;
+  PROD?: boolean;
+  VITE_MONTHLY_KPI_UI_ACCEPTANCE_MODE?: string;
+};
+
+export function isMonthlyKpiUiAcceptanceMode(
+  env: MonthlyKpiUiAcceptanceEnv = import.meta.env
+) {
+  return (
+    env.DEV === true &&
+    env.PROD !== true &&
+    env.VITE_MONTHLY_KPI_UI_ACCEPTANCE_MODE === "true"
+  );
+}
+
 const defaultThresholds = getDefaultMonthlyKpiThresholdConfig();
 
 export const scorecardBenchmarks = [
@@ -308,6 +324,11 @@ export function buildMonthlyKpiRecordsUrl(
 }
 
 async function fetchMonthlyKpiRecords(url: string) {
+  if (import.meta.env.DEV && isMonthlyKpiUiAcceptanceMode()) {
+    const { getMonthlyKpiUiAcceptanceRecords } =
+      await import("./monthlyKpiUiAcceptanceData");
+    return getMonthlyKpiUiAcceptanceRecords(url);
+  }
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
   });

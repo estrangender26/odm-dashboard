@@ -5,6 +5,7 @@ import {
   EXECUTIVE_SCORECARD_TEMPLATE,
   getAvailableMonthlyKpiOptions,
   getPersistedMonthlyKpiScorecard,
+  isMonthlyKpiUiAcceptanceMode,
   MONTHLY_KPI_TEMPLATE_OPTIONS,
   scorecardBenchmarks,
 } from "./scorecardData";
@@ -19,6 +20,7 @@ function jsonResponse(payload: unknown, ok = true) {
 describe("Monthly KPI presentation scorecard data", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("builds records endpoint queries with reporting period filters", () => {
@@ -173,5 +175,63 @@ describe("Monthly KPI presentation scorecard data", () => {
 
   it("uses the exact Facility Uptime benchmark label in presentation data", () => {
     expect(scorecardBenchmarks.find((item) => item.key === "facilityUptime")?.benchmark).toBe("=100%");
+  });
+
+  it("only enables the Monthly KPI UI acceptance adapter in explicit development mode", () => {
+    expect(
+      isMonthlyKpiUiAcceptanceMode({
+        DEV: true,
+        PROD: false,
+        VITE_MONTHLY_KPI_UI_ACCEPTANCE_MODE: "true",
+      })
+    ).toBe(true);
+    expect(
+      isMonthlyKpiUiAcceptanceMode({
+        DEV: false,
+        PROD: true,
+        VITE_MONTHLY_KPI_UI_ACCEPTANCE_MODE: "true",
+      })
+    ).toBe(false);
+    expect(
+      isMonthlyKpiUiAcceptanceMode({
+        DEV: true,
+        PROD: false,
+        VITE_MONTHLY_KPI_UI_ACCEPTANCE_MODE: "false",
+      })
+    ).toBe(false);
+  });
+
+  it("uses representative acceptance records without calling the API when explicitly enabled", async () => {
+    vi.stubEnv("VITE_MONTHLY_KPI_UI_ACCEPTANCE_MODE", "true");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getAvailableMonthlyKpiOptions()).resolves.toEqual({
+      years: [2026],
+      months: [5, 4, 3, 2, 1],
+      businessUnits: [
+        "AMD-EZ",
+        "Laguna Water",
+        "Clark Water",
+        "Tagum Water",
+        "Estate Water",
+        "LARC",
+      ],
+    });
+    const dataset = await getPersistedMonthlyKpiScorecard({
+      reportingYear: 2026,
+      reportingMonth: 5,
+      businessUnit: "Clark Water",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dataset.records).toHaveLength(1);
+    expect(dataset.ytdRecords).toHaveLength(5);
+    expect(dataset.records[0]).toMatchObject({
+      businessUnit: "Clark Water",
+      reportingMonth: 5,
+      reportingYear: 2026,
+      notes: "Clark Water May 2026 UI acceptance commentary.",
+    });
   });
 });
