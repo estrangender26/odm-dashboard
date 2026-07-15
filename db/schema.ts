@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, doublePrecision, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, doublePrecision, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -234,10 +234,9 @@ export const existingFacilitiesMaintenance = pgTable("existing_facilities_mainte
 ]);
 
 // Document Management — Folder Tree System
-const docFoldersSelfRef: { id?: any } = {};
 export const docFolders = pgTable("doc_folders", {
   id: serial("id").primaryKey(),
-  parentId: integer("parent_id").references(() => docFoldersSelfRef.id as any),
+  parentId: integer("parent_id").references((): AnyPgColumn => docFolders.id),
   name: varchar("name", { length: 255 }).notNull(),
   sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
