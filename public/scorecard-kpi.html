@@ -1143,14 +1143,18 @@ function countNotesWords(value){
   return words ? words.length : 0;
 }
 
-function formatNotesItemCount(count){
-  var countWords = ['Zero','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten'];
-  return countWords[count] || String(count);
-}
-
-function normalizeSummaryNotesSentence(value){
+function compressSummaryNotesSentence(value,heading){
   var sentence = String(value || '').replace(/^[\s•*-]+/,'').replace(/\s+/g,' ').trim();
-  sentence = sentence.replace(/^Most scheduled outsourced PM (?:are|were) deferred/i,'Scheduled outsourced PM activities were deferred');
+  var section = String(heading || '');
+  if(/PM\s*Compliance/i.test(section) && /\bPM\b.*\bdeferred\b/i.test(sentence)){
+    if(/\bno SLA\b/i.test(sentence))sentence = 'PM deferred (No SLA)';
+    else if(/\bunavailable SLA\b/i.test(sentence))sentence = 'PM deferred due to unavailable SLA';
+  }
+  if(/\bCost\b/i.test(section) && /emergency repair costs?\s+(?:were\s+|was\s+)?incurred/i.test(sentence)){
+    sentence = sentence.match(/emergency repair costs?/i)[0]+' incurred';
+  }
+  if(/MTTR/i.test(section) && /\bno downtime\b/i.test(sentence))sentence = 'No downtime';
+  if(/Facility\s*Uptime/i.test(section) && /facility\s+(?:is|was)\s+operational/i.test(sentence))sentence = 'Facility operational';
   if(sentence && !/[.!?]$/.test(sentence))sentence += '.';
   return sentence;
 }
@@ -1163,14 +1167,7 @@ function buildNumberedNotesSummary(items,heading){
   var allCompleted = items.every(function(item){
     return /\b(completed?|repaired?|replaced?|installed?|resolved?|rectified?|restored?)\b/i.test(item);
   });
-  var summary = formatNotesItemCount(items.length)+' '+label+' were '+(allCompleted?'completed':'recorded');
-  var highlights = [];
-  if(/emergency repairs?/i.test(combined))highlights.push('emergency repair work');
-  if(/\bbreakdowns?\b/i.test(combined))highlights.push('breakdown');
-  if(/\bshutdowns?\b/i.test(combined))highlights.push('shutdown');
-  if(highlights.length===1)summary += ', including '+highlights[0];
-  if(highlights.length>1)summary += ', including '+highlights.slice(0,-1).join(', ')+' and '+highlights[highlights.length-1]+' items';
-  return summary+'.';
+  return items.length+' '+label+(allCompleted?' completed':'')+'.';
 }
 
 function scoreSummaryNotesSentence(sentence,index){
@@ -1226,11 +1223,21 @@ function summarizeSummaryMatrixNotes(value){
       line = headingWithText[2];
     }
     line.split(/(?<=[.!?;])\s+/).forEach(function(part){
-      var sentence = normalizeSummaryNotesSentence(part);
+      var sentence = compressSummaryNotesSentence(part,activeHeading);
       if(sentence)candidates.push(sentence);
     });
   });
   flushNumberedItems();
+
+  [
+    {pattern:/emergency repairs?/i,label:'Emergency repair.'},
+    {pattern:/\bbreakdowns?\b/i,label:'Breakdown.'},
+    {pattern:/\bshutdowns?\b/i,label:'Shutdown.'}
+  ].forEach(function(concept){
+    if(!concept.pattern.test(original))return;
+    var isPreserved = candidates.some(function(sentence){return concept.pattern.test(sentence);});
+    if(!isPreserved)candidates.push(concept.label);
+  });
 
   var uniqueCandidates = [];
   var seen = {};

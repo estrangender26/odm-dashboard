@@ -653,26 +653,56 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
   it("deterministically summarizes long Summary Matrix Notes while preserving operational meaning", () => {
     const context = createScorecardContext();
     const longNote = [
-      "PM Compliance: Most scheduled outsourced PM are deferred due to unavailable SLA.",
+      "PM Compliance:",
+      "Most scheduled outsourced PM are deferred due to unavailable SLA.",
       "PM CM Work Orders:",
       "1. Emergency repair of the affected equipment was completed.",
       "2. Surge arrester replacement was completed.",
       "3. Switchgear repair was completed.",
       "4. Auto sync module installation was completed.",
-      "MTTR: No downtime occurred.",
-      "Facility Uptime: Facility remained operational.",
+      "PM CM Cost:",
+      "Emergency repair costs were incurred.",
+      "MTTR:",
+      "No downtime occurred.",
+      "Facility Uptime:",
+      "Facility remained operational.",
     ].join("\n");
 
     const summary = context.summarizeSummaryMatrixNotes(longNote);
 
     expect(summary).toBe(
-      "Scheduled outsourced PM activities were deferred due to unavailable SLA. Four corrective works were completed, including emergency repair work. No downtime occurred. Facility remained operational.",
+      "PM deferred due to unavailable SLA. 4 corrective works completed. Emergency repair costs incurred. No downtime. Facility remained operational.",
     );
     expect(summary).toMatch(/deferred due to unavailable SLA/i);
-    expect(summary).toMatch(/Four corrective works were completed/i);
+    expect(summary).toMatch(/4 corrective works completed/i);
     expect(summary).toMatch(/emergency repair/i);
-    expect(summary).toMatch(/No downtime occurred/i);
+    expect(summary).toMatch(/No downtime/i);
     expect(summary).toMatch(/Facility remained operational/i);
+  });
+
+  it("does not infer completion when numbered corrective work items do not say they were completed", () => {
+    const context = createScorecardContext();
+    const longNote = [
+      "PM Compliance:",
+      "Most scheduled outsourced PM are deferred due to unavailable SLA pending contract approval.",
+      "PM CM Work Orders:",
+      "1. Emergency repair is required for the damaged equipment.",
+      "2. Surge arrester requires inspection and technical assessment.",
+      "3. Switchgear requires repair after the recorded breakdown.",
+      "4. Auto sync module requires testing during the planned shutdown.",
+      "MTTR:",
+      "No downtime occurred during the reporting month.",
+      "Facility Uptime:",
+      "Facility remained operational throughout the reporting month.",
+    ].join("\n");
+
+    const summary = context.summarizeSummaryMatrixNotes(longNote);
+
+    expect(summary).toContain("4 corrective works.");
+    expect(summary).not.toContain("4 corrective works completed");
+    expect(summary).toContain("Emergency repair.");
+    expect(summary).toContain("Breakdown.");
+    expect(summary).toContain("Shutdown.");
   });
 
   it("leaves short Summary Matrix Notes unchanged", () => {
@@ -685,14 +715,19 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
   it("reduces long Summary Matrix Notes without mutating persisted note values or KPI rendering", () => {
     const context = createScorecardContext();
     const longNote = [
-      "PM Compliance: Most scheduled outsourced PM are deferred due to unavailable SLA.",
+      "PM Compliance:",
+      "Most scheduled outsourced PM are deferred due to unavailable SLA.",
       "PM CM Work Orders:",
       "1. Emergency repair of the affected equipment was completed.",
       "2. Surge arrester replacement was completed.",
       "3. Switchgear repair was completed.",
       "4. Auto sync module installation was completed.",
-      "MTTR: No downtime occurred.",
-      "Facility Uptime: Facility remained operational.",
+      "PM CM Cost:",
+      "Emergency repair costs were incurred.",
+      "MTTR:",
+      "No downtime occurred.",
+      "Facility Uptime:",
+      "Facility remained operational.",
     ].join("\n");
     context.applyPersistedMonthlyKpiRecords([
       {
@@ -711,7 +746,7 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(storedNote).toBe(longNote);
     expect(context.MonthlyScoreData.ez[2026][1]).toMatchObject({ pmCompliance: 98, notes: longNote });
     expect(renderedSummary).toBe(summary);
-    expect(summary.split(/\s+/)).toHaveLength(25);
+    expect(summary.split(/\s+/).length).toBeLessThanOrEqual(25);
     expect(summary.length).toBeLessThan(longNote.length * 0.6);
     expect(summary).not.toContain("\n");
   });
