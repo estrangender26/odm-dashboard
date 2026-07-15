@@ -4,6 +4,10 @@ import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
+import {
+  MAX_UPLOAD_ERROR_MESSAGE,
+  MAX_UPLOAD_FILE_SIZE_BYTES,
+} from "@contracts/upload-limits";
 
 // ── Types ──
 interface SmpDoc {
@@ -299,6 +303,10 @@ export default function SmpDashboard() {
   // ── Upload PDF ──
   const handleUpload = useCallback((file: File) => {
     if (!selectedDoc) { setBanner({ type: "error", message: "Select a document first" }); return; }
+    if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
+      setBanner({ type: "error", message: MAX_UPLOAD_ERROR_MESSAGE });
+      return;
+    }
     setIsUploading(true); setUploadProgress(0); setUploadLabel(`Reading "${file.name}"...`);
     const reader = new FileReader();
     reader.onprogress = (ev) => { if (ev.lengthComputable) { setUploadProgress(Math.round((ev.loaded / ev.total) * 50)); setUploadLabel(`Reading "${file.name}"... ${Math.round((ev.loaded / ev.total) * 100)}%`); } };

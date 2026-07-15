@@ -3,6 +3,10 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "./queries/connection";
 import { smpDocuments } from "@db/schema";
 import { createRouter, publicQuery } from "./middleware";
+import {
+  MAX_UPLOAD_ERROR_MESSAGE,
+  isBase64UploadSizeAllowed,
+} from "@contracts/upload-limits";
 
 // ── Auto-create smp_documents table if it doesn't exist ──
 async function ensureSmpTable() {
@@ -65,7 +69,7 @@ export const smpRouter = createRouter({
       nextReview: z.string().optional(),
       status: z.string().optional(),
       responsibleParty: z.string().optional(),
-      fileData: z.string().optional(),
+      fileData: z.string().refine(isBase64UploadSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE).optional(),
       fileType: z.string().optional(),
       fileName: z.string().optional(),
     }))
@@ -101,7 +105,7 @@ export const smpRouter = createRouter({
       nextReview: z.string().optional(),
       status: z.string().optional(),
       responsibleParty: z.string().optional(),
-      fileData: z.string().optional(),
+      fileData: z.string().refine(isBase64UploadSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE).optional(),
       fileType: z.string().optional(),
       fileName: z.string().optional(),
     }))

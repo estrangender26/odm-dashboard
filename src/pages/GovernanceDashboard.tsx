@@ -4,6 +4,10 @@ import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
+import {
+  MAX_UPLOAD_ERROR_MESSAGE,
+  MAX_UPLOAD_FILE_SIZE_BYTES,
+} from "@contracts/upload-limits";
 
 /* ── Banner (replaces alert) ── */
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
@@ -464,10 +468,9 @@ export default function GovernanceDashboard() {
     });
 
     // File size check
-    const MAX_SIZE_MB = 5;
-    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      showStatus(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max ${MAX_SIZE_MB}MB.`);
-      setBanner({ type: "error", message: `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is ${MAX_SIZE_MB}MB.` });
+    if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
+      showStatus(MAX_UPLOAD_ERROR_MESSAGE);
+      setBanner({ type: "error", message: MAX_UPLOAD_ERROR_MESSAGE });
       return;
     }
 
@@ -742,7 +745,9 @@ export default function GovernanceDashboard() {
         {/* Upload status banner */}
         {uploadStatus && (
           <div className={`mb-3 px-3 py-2 rounded-lg text-sm font-semibold text-center transition-opacity ${
-            uploadStatus.text.includes("failed") || uploadStatus.text.includes("too large")
+            uploadStatus.text.includes("failed")
+              || uploadStatus.text.includes("too large")
+              || uploadStatus.text === MAX_UPLOAD_ERROR_MESSAGE
               ? "bg-red-100 text-red-700"
               : uploadStatus.text.includes("Uploading")
               ? "bg-yellow-100 text-yellow-700"
