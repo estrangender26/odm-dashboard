@@ -1,0 +1,30 @@
+# Render Cron Job Configuration for Storage Cleanup
+# NOTE: This file is NOT automatically applied. Manual configuration required.
+# Do not create or activate this cron service without explicit approval.
+
+services:
+  - type: cron
+    name: storage-cleanup
+    runtime: node
+    schedule: "0 */6 * * *"  # Every 6 hours
+    buildCommand: npm install && npm run build
+    startCommand: node dist/cron/storage-cleanup.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: odm-dashboard-db
+          property: connectionString
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_URL
+        sync: false
+      - key: APP_ID
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: DRY_RUN
+        value: "false"
+      - key: GRACE_PERIOD_HOURS
+        value: "24"

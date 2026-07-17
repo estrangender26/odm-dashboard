@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm"
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   docFiles,
@@ -31,6 +32,8 @@ import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-featur
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
 import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
+import { generateCapabilityClaims, signCapabilityClaims, verifyCapabilityToken, hashCapabilityToken } from "./upload-capability";
+import { getClientIdentifier, getRateLimitForClient } from "./lib/client-ip";
 
 const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
 
@@ -45,6 +48,10 @@ const authorizeSchema = z.object({
   target: z.record(z.string(), z.unknown()),
 });
 const intentSchema = z.object({ intentId: z.string().uuid() });
+const capabilitySchema = z.object({ 
+  intentId: z.string().uuid(),
+  capabilityToken: z.string().optional(),
+});
 
 function sanitizeHeaderFilename(value: string) {
   return value.replace(/[\r\n"\\]/g, "_");
@@ -79,6 +86,14 @@ function decodeLegacyData(value: string, fallbackMime: string) {
 
 async function requireUser(headers: Headers): Promise<User> {
   return authenticateRequest(headers);
+}
+
+async function optionalUser(headers: Headers): Promise<User | null> {
+  try {
+    return await authenticateRequest(headers);
+  } catch {
+    return null;
+  }
 }
 
 function normalizedSegment(value: unknown, label: string, maxLength = 80) {
@@ -121,6 +136,93 @@ function buildObjectPath(module: StorageModule, target: Record<string, unknown>)
   if (module === "om") return `v1/folder-${target.folderId}/${id}`;
   if (module === "smp") return `v1/document-${target.documentId}/${id}`;
   return `v1/${target.facilitySlug}/${target.milestoneId}/${id}`;
+}
+
+function getSourceFromModule(module: StorageModule): StorageFileSource {
+  if (module === "om") return "doc_files";
+  if (module === "smp") return "smp_documents";
+  return "governance_uploads";
+}
+
+
+async function checkRateLimit(clientId: string, declaredBytes: number): Promise<{ allowed: boolean; limit?: string }> {
+  const windowStart = new Date();
+  windowStart.setMinutes(0, 0, 0);
+  
+  const clientInfo = { isTrusted: !clientId.startsWith("unknown:") };
+  const limits = getRateLimitForClient(clientInfo);
+  
+  // Atomic upsert that returns empty on over-limit
+  const result = await db.execute(sql`
+    INSERT INTO upload_rate_limits 
+      (client_identifier, window_start, intent_count, total_bytes)
+    VALUES (${clientId}, ${windowStart}, 1, ${declaredBytes})
+    ON CONFLICT (client_identifier, window_start) 
+    DO UPDATE SET 
+      intent_count = upload_rate_limits.intent_count + 1,
+      total_bytes = upload_rate_limits.total_bytes + ${declaredBytes}
+    WHERE upload_rate_limits.intent_count < ${limits.maxIntents}
+      AND upload_rate_limits.total_bytes + ${declaredBytes} <= ${limits.maxBytes}
+    RETURNING intent_count, total_bytes
+  `);
+  
+  if (result.length === 0) {
+    const existing = await db.execute(sql`
+      SELECT intent_count, total_bytes 
+      FROM upload_rate_limits 
+      WHERE client_identifier = ${clientId} 
+      AND window_start = ${windowStart}
+    `);
+    
+    if (existing.length > 0) {
+      const row = existing[0];
+      const count = Number(row.intent_count);
+      const bytes = Number(row.total_bytes);
+      
+      if (count >= limits.maxIntents) return { allowed: false, limit: "count" };
+      if (bytes + declaredBytes > limits.maxBytes) return { allowed: false, limit: "bytes" };
+    }
+    return { allowed: false, limit: "unknown" };
+  }
+  
+  return { allowed: true };
+}
+
+async function verifyCapabilityForIntent(intentId: string, providedToken: string): Promise<boolean> {
+  const providedHash = hashCapabilityToken(providedToken);
+  
+  const intent = await db.query.storageUploadIntents.findFirst({
+    where: eq(storageUploadIntents.id, intentId),
+  });
+  
+  if (!intent) return false;
+  if (intent.status !== "pending") return false;
+  if (intent.capabilityTokenHash === null) return false;
+  if (intent.capabilityConsumedAt !== null) return false;
+  if (intent.capabilityExpiresAt && intent.capabilityExpiresAt < new Date()) return false;
+  
+  const expectedHash = intent.capabilityTokenHash;
+  if (providedHash.length !== expectedHash.length) return false;
+  
+  const match = timingSafeEqual(Buffer.from(providedHash), Buffer.from(expectedHash));
+  if (!match) return false;
+  
+  const claims = verifyCapabilityToken(providedToken);
+  if (!claims) return false;
+  
+  const canonicalMatch = 
+    claims.intentId === intent.id &&
+    claims.mod === intent.module &&
+    claims.src === getSourceFromModule(intent.module as StorageModule) &&
+    JSON.stringify(claims.tgt) === JSON.stringify(intent.targetContext) &&
+    claims.bucket === intent.expectedBucket &&
+    claims.path === intent.expectedPath &&
+    claims.fn === intent.originalFilename &&
+    claims.mime === intent.expectedMimeType &&
+    claims.size === intent.expectedSize &&
+    claims.jti === intent.capabilityJti;
+  
+  return canonicalMatch;
 }
 
 function signDeletePayload(payload: Record<string, unknown>) {
