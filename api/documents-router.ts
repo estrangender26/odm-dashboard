@@ -5,7 +5,6 @@ import { readFile, stat } from "node:fs/promises";
 import { db } from "./queries/connection";
 import { docFolders, docFiles } from "@db/schema";
 import { authedQuery, publicQuery } from "./middleware";
-import { authenticateRequest } from "./kimi/auth";
 import { getSupabaseStorageAdmin } from "./supabase-storage";
 import { TRPCError } from "@trpc/server";
 import {
@@ -78,7 +77,7 @@ documentsUploadRouter.post("/upload", async (c) => {
   console.log(`[documents/upload:${uploadId}] start content-length=${contentLength}`);
 
   try {
-    await authenticateRequest(c.req.raw.headers);
+    // Anonymous uploads supported - no authentication required
     upload = await parseDocumentMultipartUpload(c.req.raw);
 
     if (c.req.raw.signal.aborted) {
@@ -784,7 +783,7 @@ export const documentsRouter = {
     }),
 
   // ── Upload file ──
-  uploadFile: authedQuery
+  uploadFile: publicQuery
     .input(
       z.object({
         folderId: z.number(),

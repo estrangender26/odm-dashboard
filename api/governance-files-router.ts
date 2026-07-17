@@ -12,7 +12,7 @@ import { getSupabaseStorageAdmin } from "./supabase-storage";
 
 export const governanceFilesRouter = createRouter({
   // Upload a file
-  upload: authedQuery
+  upload: publicQuery
     .input(z.object({
       facilitySlug: z.string(),
       milestoneId: z.string(),
@@ -95,7 +95,7 @@ export const governanceFilesRouter = createRouter({
     }),
 
   // Download a file
-  download: authedQuery
+  download: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const rows = await db
@@ -151,7 +151,7 @@ export const governanceFilesRouter = createRouter({
     }),
 
   // List all files for a facility (across all milestones)
-  listByFacility: authedQuery
+  listByFacility: publicQuery
     .input(z.object({ facilitySlug: z.string() }))
     .mutation(async ({ input }) => {
       console.log("[GOV API] listByFacility input:", input.facilitySlug);

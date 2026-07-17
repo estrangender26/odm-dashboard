@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm"
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   docFiles,
@@ -31,6 +32,8 @@ import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-featur
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
 import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
+import { generateCapabilityClaims, signCapabilityClaims, verifyCapabilityToken, hashCapabilityToken } from "./upload-capability";
+import { getClientIdentifier, getRateLimitForClient } from "./lib/client-ip";
 
 const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
 
@@ -45,6 +48,10 @@ const authorizeSchema = z.object({
   target: z.record(z.string(), z.unknown()),
 });
 const intentSchema = z.object({ intentId: z.string().uuid() });
+const capabilitySchema = z.object({ 
+  intentId: z.string().uuid(),
+  capabilityToken: z.string().optional(),
+});
 
 function sanitizeHeaderFilename(value: string) {
   return value.replace(/[\r\n"\\]/g, "_");
@@ -79,6 +86,14 @@ function decodeLegacyData(value: string, fallbackMime: string) {
 
 async function requireUser(headers: Headers): Promise<User> {
   return authenticateRequest(headers);
+}
+
+async function optionalUser(headers: Headers): Promise<User | null> {
+  try {
+    return await authenticateRequest(headers);
+  } catch {
+    return null;
+  }
 }
 
 function normalizedSegment(value: unknown, label: string, maxLength = 80) {
@@ -123,6 +138,92 @@ function buildObjectPath(module: StorageModule, target: Record<string, unknown>)
   return `v1/${target.facilitySlug}/${target.milestoneId}/${id}`;
 }
 
+function getSourceFromModule(module: StorageModule): StorageFileSource {
+  if (module === "om") return "doc_files";
+  if (module === "smp") return "smp_documents";
+  return "governance_uploads";
+}
+
+
+async function checkRateLimit(clientId: string, isTrusted: boolean, declaredBytes: number): Promise<{ allowed: boolean; limit?: string }> {
+  const windowStart = new Date();
+  windowStart.setMinutes(0, 0, 0);
+  
+  const limits = getRateLimitForClient({ isTrusted });
+  
+  // Atomic upsert that returns empty on over-limit
+  const result = await db.execute(sql`
+    INSERT INTO upload_rate_limits 
+      (client_identifier, window_start, intent_count, total_bytes)
+    VALUES (${clientId}, ${windowStart}, 1, ${declaredBytes})
+    ON CONFLICT (client_identifier, window_start) 
+    DO UPDATE SET 
+      intent_count = upload_rate_limits.intent_count + 1,
+      total_bytes = upload_rate_limits.total_bytes + ${declaredBytes}
+    WHERE upload_rate_limits.intent_count < ${limits.maxIntents}
+      AND upload_rate_limits.total_bytes + ${declaredBytes} <= ${limits.maxBytes}
+    RETURNING intent_count, total_bytes
+  `);
+  
+  if (result.length === 0) {
+    const existing = await db.execute(sql`
+      SELECT intent_count, total_bytes 
+      FROM upload_rate_limits 
+      WHERE client_identifier = ${clientId} 
+      AND window_start = ${windowStart}
+    `);
+    
+    if (existing.length > 0) {
+      const row = existing[0];
+      const count = Number(row.intent_count);
+      const bytes = Number(row.total_bytes);
+      
+      if (count >= limits.maxIntents) return { allowed: false, limit: "count" };
+      if (bytes + declaredBytes > limits.maxBytes) return { allowed: false, limit: "bytes" };
+    }
+    return { allowed: false, limit: "unknown" };
+  }
+  
+  return { allowed: true };
+}
+
+async function verifyCapabilityForIntent(intentId: string, providedToken: string): Promise<boolean> {
+  const providedHash = hashCapabilityToken(providedToken);
+  
+  const intent = await db.query.storageUploadIntents.findFirst({
+    where: eq(storageUploadIntents.id, intentId),
+  });
+  
+  if (!intent) return false;
+  if (intent.status !== "pending") return false;
+  if (intent.capabilityTokenHash === null) return false;
+  if (intent.capabilityConsumedAt !== null) return false;
+  if (intent.capabilityExpiresAt && intent.capabilityExpiresAt < new Date()) return false;
+  
+  const expectedHash = intent.capabilityTokenHash;
+  if (providedHash.length !== expectedHash.length) return false;
+  
+  const match = timingSafeEqual(Buffer.from(providedHash), Buffer.from(expectedHash));
+  if (!match) return false;
+  
+  const claims = verifyCapabilityToken(providedToken);
+  if (!claims) return false;
+  
+  const canonicalMatch = 
+    claims.intentId === intent.id &&
+    claims.mod === intent.module &&
+    claims.src === getSourceFromModule(intent.module as StorageModule) &&
+    JSON.stringify(claims.tgt) === JSON.stringify(intent.targetContext) &&
+    claims.bucket === intent.expectedBucket &&
+    claims.path === intent.expectedPath &&
+    claims.fn === intent.originalFilename &&
+    claims.mime === intent.expectedMimeType &&
+    claims.size === intent.expectedSize &&
+    claims.jti === intent.capabilityJti;
+  
+  return canonicalMatch;
+}
+
 function signDeletePayload(payload: Record<string, unknown>) {
   const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const signature = createHmac("sha256", env.appSecret).update(encoded).digest("base64url");
@@ -140,33 +241,72 @@ function verifyDeletePayload(token: string) {
 }
 
 storageRouter.get("/config", async (c) => {
-  try {
-    await requireUser(c.req.raw.headers);
-    c.header("Cache-Control", "no-store");
-    return c.json({ flags: getStorageFeatureFlags() });
-  } catch (error: any) {
-    return c.json({ error: error?.message || "Authentication required." }, 401);
-  }
+  c.header("Cache-Control", "no-store");
+  return c.json({ flags: getStorageFeatureFlags() });
 });
 
 storageRouter.post("/uploads/authorize", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
+    const user = await optionalUser(c.req.raw.headers);
     const input = authorizeSchema.parse(await c.req.json());
-    if (!isUploadFileSizeAllowed(input.fileSize)) return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
+    
+    if (!isUploadFileSizeAllowed(input.fileSize)) {
+      return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
+    }
+    
+    // Rate limiting for anonymous users
+    if (!user) {
+      const client = getClientIdentifier(c.req.raw.headers);
+      const rateCheck = await checkRateLimit(client.id, client.isTrusted, input.fileSize);
+      if (!rateCheck.allowed) {
+        const message = rateCheck.limit === 'count' 
+          ? "Rate limit exceeded: 10 uploads per hour."
+          : "Rate limit exceeded: 5 GB per hour.";
+        return c.json({ error: message }, 429);
+      }
+    }
+    
     const descriptor = validateUploadDescriptor(input.module, input.originalFilename, input.mimeType);
     if (!isStorageUploadEnabled(input.module)) {
       return c.json({ storageEnabled: false, error: "Supabase Storage upload is disabled for this module." }, 409);
     }
+    
     const target = await validateTarget(input.module, input.target);
     const expectedBucket = STORAGE_BUCKET_BY_MODULE[input.module];
     const expectedPath = buildObjectPath(input.module, target);
     const intentId = randomUUID();
     const expiresAt = new Date(Date.now() + STORAGE_UPLOAD_INTENT_TTL_MS);
+    const source = getSourceFromModule(input.module);
+    
+    // Generate capability token for anonymous users
+    let capabilityToken: string | undefined;
+    let capabilityJti: string | undefined;
+    let capabilityTokenHash: string | undefined;
+    let capabilityExpiresAt: Date | undefined;
+    
+    if (!user) {
+      const claims = generateCapabilityClaims(
+        intentId,
+        input.module,
+        source,
+        target,
+        expectedPath,
+        expectedBucket,
+        input.originalFilename,
+        descriptor.mimeType,
+        input.fileSize
+      );
+      capabilityToken = signCapabilityClaims(claims);
+      capabilityJti = claims.jti;
+      capabilityTokenHash = hashCapabilityToken(capabilityToken);
+      capabilityExpiresAt = new Date(claims.exp * 1000);
+    }
+    
     const storage = getSupabaseStorageAdmin();
     const { data, error } = await storage.storage.from(expectedBucket)
       .createSignedUploadUrl(expectedPath, { upsert: false });
     if (error || !data?.token) throw new Error(error?.message || "Unable to create signed upload authorization.");
+    
     await db.insert(storageUploadIntents).values({
       id: intentId,
       module: input.module,
@@ -176,13 +316,18 @@ storageRouter.post("/uploads/authorize", async (c) => {
       originalFilename: input.originalFilename,
       expectedSize: input.fileSize,
       expectedMimeType: descriptor.mimeType,
-      requestedBy: user.id,
+      requestedBy: user?.id ?? null,
+      capabilityJti,
+      capabilityTokenHash,
+      capabilityExpiresAt,
       status: "pending",
       expiresAt,
     });
+    
     return c.json({
       storageEnabled: true,
       intentId,
+      capabilityToken, // Only returned for anonymous
       endpoint: `${getSupabaseStorageConfig().directStorageUrl}${SUPABASE_SIGNED_TUS_PATH}`,
       token: data.token,
       bucket: expectedBucket,
@@ -192,31 +337,52 @@ storageRouter.post("/uploads/authorize", async (c) => {
     });
   } catch (error: any) {
     const message = error?.issues?.[0]?.message || error?.message || "Upload authorization failed.";
-    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
-    return c.json({ error: message }, status);
+    return c.json({ error: message }, 400);
   }
 });
-
 storageRouter.post("/uploads/resume", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
-    const { intentId } = intentSchema.parse(await c.req.json());
-    const rows = await db.select().from(storageUploadIntents).where(and(
-      eq(storageUploadIntents.id, intentId),
-      eq(storageUploadIntents.requestedBy, user.id),
-    )).limit(1);
-    const intent = rows[0];
+    const body = await c.req.json();
+    const { intentId, capabilityToken } = capabilitySchema.parse(body);
+    
+    const intent = await db.query.storageUploadIntents.findFirst({
+      where: eq(storageUploadIntents.id, intentId),
+    });
+    
     if (!intent) return c.json({ error: "Upload intent not found." }, 404);
     if (intent.status !== "pending" || intent.expiresAt.getTime() < Date.now()) {
       return c.json({ error: "Upload intent is no longer active." }, 409);
     }
+    
+    // Verify ownership
+    if (intent.requestedBy) {
+      try {
+        const user = await authenticateRequest(c.req.raw.headers);
+        if (user.id !== intent.requestedBy) {
+          return c.json({ error: "Unauthorized." }, 401);
+        }
+      } catch {
+        return c.json({ error: "Authentication required." }, 401);
+      }
+    } else {
+      if (!capabilityToken) {
+        return c.json({ error: "Capability token required for anonymous resume." }, 401);
+      }
+      const valid = await verifyCapabilityForIntent(intentId, capabilityToken);
+      if (!valid) {
+        return c.json({ error: "Invalid capability token." }, 403);
+      }
+    }
+    
     const module = z.enum(STORAGE_MODULES).parse(intent.module);
     if (!isStorageUploadEnabled(module)) {
       return c.json({ error: "Supabase Storage upload is disabled for this module." }, 409);
     }
+    
     const { data, error } = await getSupabaseStorageAdmin().storage.from(intent.expectedBucket)
       .createSignedUploadUrl(intent.expectedPath, { upsert: false });
     if (error || !data?.token) throw new Error(error?.message || "Unable to resume signed upload authorization.");
+    
     return c.json({
       storageEnabled: true,
       intentId: intent.id,
@@ -229,25 +395,44 @@ storageRouter.post("/uploads/resume", async (c) => {
     });
   } catch (error: any) {
     const message = error?.issues?.[0]?.message || error?.message || "Upload resume authorization failed.";
-    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
-    return c.json({ error: message }, status);
+    return c.json({ error: message }, 400);
   }
 });
-
 storageRouter.post("/uploads/finalize", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
-    const { intentId } = intentSchema.parse(await c.req.json());
-    const rows = await db.select().from(storageUploadIntents).where(and(
-      eq(storageUploadIntents.id, intentId),
-      eq(storageUploadIntents.requestedBy, user.id),
-    )).limit(1);
-    const intent = rows[0];
+    const body = await c.req.json();
+    const { intentId, capabilityToken } = capabilitySchema.parse(body);
+    
+    const intent = await db.query.storageUploadIntents.findFirst({
+      where: eq(storageUploadIntents.id, intentId),
+    });
+    
     if (!intent) return c.json({ error: "Upload intent not found." }, 404);
     if (intent.status === "finalized") return c.json({ success: true, alreadyFinalized: true });
     if (intent.status !== "pending" || intent.expiresAt.getTime() < Date.now()) {
       return c.json({ error: "Upload intent is no longer active." }, 409);
     }
+    
+    // Verify ownership
+    if (intent.requestedBy) {
+      try {
+        const user = await authenticateRequest(c.req.raw.headers);
+        if (user.id !== intent.requestedBy) {
+          return c.json({ error: "Unauthorized." }, 401);
+        }
+      } catch {
+        return c.json({ error: "Authentication required." }, 401);
+      }
+    } else {
+      if (!capabilityToken) {
+        return c.json({ error: "Capability token required for anonymous finalize." }, 401);
+      }
+      const valid = await verifyCapabilityForIntent(intentId, capabilityToken);
+      if (!valid) {
+        return c.json({ error: "Invalid capability token." }, 403);
+      }
+    }
+    
     const storage = getSupabaseStorageAdmin();
     const { data: info, error } = await storage.storage.from(intent.expectedBucket).info(intent.expectedPath);
     if (error || !info) throw new Error(error?.message || "Uploaded object was not found.");
@@ -270,17 +455,26 @@ storageRouter.post("/uploads/finalize", async (c) => {
         .where(eq(storageUploadIntents.id, intent.id));
       return c.json({ error: "Uploaded object MIME type did not match the authorization." }, 409);
     }
+    
     const target = intent.targetContext as Record<string, any>;
     const now = new Date();
-    const { fileId, source } = await db.transaction(async (tx) => {
-      const claimed = await tx.update(storageUploadIntents).set({ status: "finalizing" }).where(and(
+    
+    const result = await db.transaction(async (tx) => {
+      // Atomic status transition with capability consumption
+      const claimed = await tx.update(storageUploadIntents).set({ 
+        status: "finalized",
+        capabilityConsumedAt: new Date(),
+        finalizedAt: new Date(),
+      }).where(and(
         eq(storageUploadIntents.id, intent.id),
         eq(storageUploadIntents.status, "pending"),
       )).returning({ id: storageUploadIntents.id });
+      
       if (!claimed.length) throw new Error("Upload intent is already being finalized.");
-
+      
       let persistedId: number;
       let persistedSource: StorageFileSource;
+      
       if (intent.module === "om") {
         const inserted = await tx.insert(docFiles).values({
           folderId: Number(target.folderId),
@@ -289,86 +483,126 @@ storageRouter.post("/uploads/finalize", async (c) => {
           fileType: intent.expectedMimeType,
           fileSize: actualSize,
           fileData: null,
-          fileUrl: null,
-          uploadedBy: user.name,
+          fileUrl: "",
+          uploadedBy: "anonymous",
           storageProvider: "supabase",
           storageBucket: intent.expectedBucket,
           storagePath: intent.expectedPath,
           storageSize: actualSize,
-          storageMimeType: info.contentType || intent.expectedMimeType,
-          storageEtag: info.etag || null,
+          storageMimeType: actualMime,
+          storageEtag: info.etag,
           storageUploadedAt: now,
+          uploadedAt: now,
           updatedAt: now,
         }).returning({ id: docFiles.id });
         persistedId = inserted[0].id;
         persistedSource = "doc_files";
-      } else if (intent.module === "governance") {
-        const inserted = await tx.insert(governanceUploads).values({
-          facilitySlug: String(target.facilitySlug),
-          milestoneId: String(target.milestoneId),
-          category: String(target.category || "other"),
-          tocItem: target.tocItem || null,
+      } else if (intent.module === "smp") {
+        const inserted = await tx.insert(smpDocuments).values({
+          code: target.code || `SMP-${Date.now()}`,
+          title: intent.originalFilename.replace(/\.[^.]+$/, ""),
           fileName: intent.originalFilename,
-          fileUrl: "",
-          uploadedBy: user.name,
+          fileType: intent.expectedMimeType,
           storageProvider: "supabase",
           storageBucket: intent.expectedBucket,
           storagePath: intent.expectedPath,
           storageSize: actualSize,
-          storageMimeType: info.contentType || intent.expectedMimeType,
-          storageEtag: info.etag || null,
+          storageMimeType: actualMime,
+          storageEtag: info.etag,
           storageUploadedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        }).returning({ id: smpDocuments.id });
+        persistedId = inserted[0].id;
+        persistedSource = "smp_documents";
+      } else {
+        const inserted = await tx.insert(governanceUploads).values({
+          facilitySlug: target.facilitySlug,
+          milestoneId: target.milestoneId,
+          category: target.category || "other",
+          tocItem: target.tocItem,
+          fileName: intent.originalFilename,
+          fileUrl: "",
+          uploadedBy: "anonymous",
+          storageProvider: "supabase",
+          storageBucket: intent.expectedBucket,
+          storagePath: intent.expectedPath,
+          storageSize: actualSize,
+          storageMimeType: actualMime,
+          storageEtag: info.etag,
+          storageUploadedAt: now,
+          uploadedAt: now,
         }).returning({ id: governanceUploads.id });
         persistedId = inserted[0].id;
         persistedSource = "governance_uploads";
-      } else {
-        const updated = await tx.update(smpDocuments).set({
-          fileData: null,
-          fileType: intent.expectedMimeType,
-          fileName: intent.originalFilename,
-          storageProvider: "supabase",
-          storageBucket: intent.expectedBucket,
-          storagePath: intent.expectedPath,
-          storageSize: actualSize,
-          storageMimeType: info.contentType || intent.expectedMimeType,
-          storageEtag: info.etag || null,
-          storageUploadedAt: now,
-          updatedAt: now,
-        }).where(eq(smpDocuments.id, Number(target.documentId))).returning({ id: smpDocuments.id });
-        if (!updated.length) throw new Error("SMP document no longer exists.");
-        persistedId = updated[0].id;
-        persistedSource = "smp_documents";
       }
-      await tx.update(storageUploadIntents).set({ status: "finalized", finalizedAt: now, failureReason: null })
-        .where(eq(storageUploadIntents.id, intent.id));
+      
       return { fileId: persistedId, source: persistedSource };
     });
-    return c.json({ success: true, fileId, source });
+    
+    return c.json({ success: true, fileId: result.fileId, source: result.source });
   } catch (error: any) {
-    const message = error?.issues?.[0]?.message || error?.message || "Upload finalization failed.";
-    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
-    return c.json({ error: message }, status);
+    const message = error?.message || "Finalize failed.";
+    return c.json({ error: message }, 400);
   }
 });
 
 storageRouter.post("/uploads/abandon", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
-    const { intentId } = intentSchema.parse(await c.req.json());
-    const updated = await db.update(storageUploadIntents).set({ status: "abandoned", abandonedAt: new Date() }).where(and(
-      eq(storageUploadIntents.id, intentId), eq(storageUploadIntents.requestedBy, user.id), eq(storageUploadIntents.status, "pending"),
-    )).returning({ id: storageUploadIntents.id });
+    const body = await c.req.json();
+    const { intentId, capabilityToken } = capabilitySchema.parse(body);
+    
+    const intent = await db.query.storageUploadIntents.findFirst({
+      where: eq(storageUploadIntents.id, intentId),
+    });
+    
+    if (!intent) return c.json({ error: "Upload intent not found." }, 404);
+    if (intent.status !== "pending") {
+      return c.json({ success: true, alreadyProcessed: true });
+    }
+    
+    // Verify ownership
+    if (intent.requestedBy) {
+      try {
+        const user = await authenticateRequest(c.req.raw.headers);
+        if (user.id !== intent.requestedBy) {
+          return c.json({ error: "Unauthorized." }, 401);
+        }
+      } catch {
+        return c.json({ error: "Authentication required." }, 401);
+      }
+    } else {
+      if (!capabilityToken) {
+        return c.json({ error: "Capability token required for anonymous abandon." }, 401);
+      }
+      const valid = await verifyCapabilityForIntent(intentId, capabilityToken);
+      if (!valid) {
+        return c.json({ error: "Invalid capability token." }, 403);
+      }
+    }
+    
+    // Atomic abandon with capability consumption
+    const updated = await db.update(storageUploadIntents)
+      .set({ 
+        status: "abandoned",
+        abandonedAt: new Date(),
+        capabilityConsumedAt: new Date(),
+      })
+      .where(and(
+        eq(storageUploadIntents.id, intentId),
+        eq(storageUploadIntents.status, "pending"),
+      ))
+      .returning({ id: storageUploadIntents.id });
+    
     return c.json({ success: true, abandoned: updated.length > 0 });
   } catch (error: any) {
-    const message = error?.message || "Unable to abandon upload.";
-    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
-    return c.json({ error: message }, status);
+    const message = error?.message || "Abandon failed.";
+    return c.json({ error: message }, 400);
   }
 });
 
 storageRouter.get("/files/:source/:id/:action", async (c) => {
   try {
-    await requireUser(c.req.raw.headers);
     const source = sourceSchema.parse(c.req.param("source"));
     const id = Number(c.req.param("id"));
     const action = c.req.param("action");
@@ -393,8 +627,7 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
     c.header("X-Content-Type-Options", "nosniff");
     return c.body(decoded.buffer as any);
   } catch (error: any) {
-    const status = error?.message?.includes("authentication") || error?.message?.includes("token") ? 401 : 400;
-    return c.json({ error: error?.message || "Unable to access file." }, status);
+    return c.json({ error: error?.message || "Unable to access file." }, 400);
   }
 });
 

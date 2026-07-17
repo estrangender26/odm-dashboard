@@ -8,6 +8,7 @@ type UploadTarget = Record<string, string | number | null | undefined>;
 type Authorization = {
   storageEnabled: true;
   intentId: string;
+  capabilityToken?: string; // Only present for anonymous uploads
   endpoint: string;
   token: string;
   bucket: string;
@@ -57,30 +58,32 @@ function resumeAuthorizationKey(module: StorageModule, file: File, target: Uploa
   ])}`;
 }
 
-function loadResumeAuthorization(key: string): Authorization | null {
+// Only store non-sensitive data in localStorage
+// capabilityToken is intentionally NOT persisted
+function loadResumeAuthorization(key: string): Omit<Authorization, 'capabilityToken'> | null {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
-    const authorization = JSON.parse(raw) as Authorization;
+    const data = JSON.parse(raw) as Omit<Authorization, 'capabilityToken'>;
     if (
-      authorization.storageEnabled !== true ||
-      !authorization.intentId ||
-      !authorization.endpoint ||
-      !authorization.token ||
-      !authorization.bucket ||
-      !authorization.path ||
-      new Date(authorization.expiresAt).getTime() <= Date.now() + 60_000
+      data.storageEnabled !== true ||
+      !data.intentId ||
+      !data.endpoint ||
+      !data.token ||
+      !data.bucket ||
+      !data.path ||
+      new Date(data.expiresAt).getTime() <= Date.now() + 60_000
     ) {
       window.localStorage.removeItem(key);
       return null;
     }
-    return authorization;
+    return data;
   } catch {
     return null;
   }
 }
 
-function saveResumeAuthorization(key: string, authorization: Authorization) {
+function saveResumeAuthorization(key: string, authorization: Omit<Authorization, 'capabilityToken'>) {
   try {
     window.localStorage.setItem(key, JSON.stringify(authorization));
   } catch {
@@ -96,21 +99,40 @@ function clearResumeAuthorization(key: string) {
   }
 }
 
-async function refreshResumeAuthorization(authorization: Authorization) {
+// Resume requires capability token for anonymous uploads
+// Anonymous cross-refresh resume is intentionally unsupported
+async function refreshResumeAuthorization(
+  authorization: Authorization
+): Promise<Authorization> {
+  // For anonymous uploads, capabilityToken is required but not stored
+  // This will fail for anonymous users after refresh (intentional)
+  const body: { intentId: string; capabilityToken?: string } = {
+    intentId: authorization.intentId,
+  };
+  
+  if (authorization.capabilityToken) {
+    body.capabilityToken = authorization.capabilityToken;
+  }
+  
   return fetch("/api/storage/uploads/resume", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ intentId: authorization.intentId }),
+    body: JSON.stringify(body),
   }).then(parseJson) as Promise<Authorization>;
 }
 
-function abandonAuthorization(intentId: string) {
+function abandonAuthorization(intentId: string, capabilityToken?: string) {
+  const body: { intentId: string; capabilityToken?: string } = { intentId };
+  if (capabilityToken) {
+    body.capabilityToken = capabilityToken;
+  }
+  
   return fetch("/api/storage/uploads/abandon", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ intentId }),
+    body: JSON.stringify(body),
   }).catch(() => undefined);
 }
 
@@ -128,19 +150,40 @@ export async function uploadFileDirect(options: {
   const { module, file, target, onProgress, signal } = options;
   if (signal?.aborted) throw uploadAbortError(signal);
   if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) throw new Error(MAX_UPLOAD_ERROR_MESSAGE);
+  
   const resumeKey = resumeAuthorizationKey(module, file, target);
-  let authorization = loadResumeAuthorization(resumeKey);
-  if (authorization) {
+  let storedAuth = loadResumeAuthorization(resumeKey);
+  
+  // Track capability token separately (not in localStorage)
+  let capabilityToken: string | undefined;
+  
+  if (storedAuth) {
     try {
-      authorization = await refreshResumeAuthorization(authorization);
-      saveResumeAuthorization(resumeKey, authorization);
-    } catch {
+      // Reconstruct full authorization with capability token if we have it
+      const fullAuth: Authorization = {
+        ...storedAuth,
+        capabilityToken, // Will be undefined if not available
+      };
+      const refreshed = await refreshResumeAuthorization(fullAuth);
+      // Store refreshed data (without capability)
+      const { capabilityToken: _, ...rest } = refreshed;
+      saveResumeAuthorization(resumeKey, rest);
+      capabilityToken = refreshed.capabilityToken;
+    } catch (err: any) {
+      // Anonymous resume after refresh will fail here - clear and restart
       clearResumeAuthorization(resumeKey);
-      authorization = null;
+      storedAuth = null;
+      
+      if (err?.message?.includes("capability")) {
+        throw new Error("Anonymous upload session expired after page refresh. Please restart the upload.");
+      }
     }
   }
-  if (!authorization) {
-    authorization = await fetch("/api/storage/uploads/authorize", {
+  
+  let authorization: Authorization;
+  
+  if (!storedAuth) {
+    const response = await fetch("/api/storage/uploads/authorize", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -151,8 +194,36 @@ export async function uploadFileDirect(options: {
         fileSize: file.size,
         target,
       }),
-    }).then(parseJson) as Authorization;
-    saveResumeAuthorization(resumeKey, authorization);
+    });
+    
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 429) {
+        throw new Error(data.error || "Rate limit exceeded. Please try again later.");
+      }
+      if (response.status === 413) {
+        throw new Error(MAX_UPLOAD_ERROR_MESSAGE);
+      }
+      throw new Error(data.error || `Request failed (${response.status}).`);
+    }
+    
+    const data = await response.json();
+    if (!data.storageEnabled) {
+      throw new Error(data.error || "Storage upload is disabled.");
+    }
+    
+    authorization = data as Authorization;
+    capabilityToken = authorization.capabilityToken;
+    
+    // Store without capability token
+    const { capabilityToken: _, ...rest } = authorization;
+    saveResumeAuthorization(resumeKey, rest);
+  } else {
+    // Reconstruct from stored data
+    authorization = {
+      ...storedAuth,
+      capabilityToken,
+    };
   }
 
   try {
@@ -190,7 +261,7 @@ export async function uploadFileDirect(options: {
         settled = true;
         signal.removeEventListener("abort", onAbort);
         clearResumeAuthorization(resumeKey);
-        void abandonAuthorization(authorization.intentId);
+        void abandonAuthorization(authorization.intentId, capabilityToken);
         void upload.abort().catch(() => undefined).finally(() => reject(uploadAbortError(signal)));
       };
       signal?.addEventListener("abort", onAbort, { once: true });
@@ -209,8 +280,12 @@ export async function uploadFileDirect(options: {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ intentId: authorization.intentId }),
+      body: JSON.stringify({ 
+        intentId: authorization.intentId,
+        capabilityToken,
+      }),
     }).then(parseJson) as { success: true; fileId: number; source: string };
+    
     clearResumeAuthorization(resumeKey);
     return result;
   } catch (error) {
