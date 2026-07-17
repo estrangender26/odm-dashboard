@@ -32,6 +32,8 @@ import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
 import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
 
+const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
+
 export const storageRouter = new Hono();
 
 const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents"]);
@@ -181,7 +183,7 @@ storageRouter.post("/uploads/authorize", async (c) => {
     return c.json({
       storageEnabled: true,
       intentId,
-      endpoint: `${getSupabaseStorageConfig().directStorageUrl}/storage/v1/upload/resumable`,
+      endpoint: `${getSupabaseStorageConfig().directStorageUrl}${SUPABASE_SIGNED_TUS_PATH}`,
       token: data.token,
       bucket: expectedBucket,
       path: expectedPath,
@@ -218,7 +220,7 @@ storageRouter.post("/uploads/resume", async (c) => {
     return c.json({
       storageEnabled: true,
       intentId: intent.id,
-      endpoint: `${getSupabaseStorageConfig().directStorageUrl}/storage/v1/upload/resumable`,
+      endpoint: `${getSupabaseStorageConfig().directStorageUrl}${SUPABASE_SIGNED_TUS_PATH}`,
       token: data.token,
       bucket: intent.expectedBucket,
       path: intent.expectedPath,

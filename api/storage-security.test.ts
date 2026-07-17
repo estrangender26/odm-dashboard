@@ -18,6 +18,13 @@ describe("direct Storage security boundaries", () => {
     expect(TUS_CHUNK_SIZE_BYTES).toBe(6 * 1024 * 1024);
   });
 
+  it("uses Supabase's signed TUS endpoint for authorize and resume", () => {
+    const source = readFileSync(join(root, "api/storage-router.ts"), "utf8");
+    expect(source).toContain('const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign"');
+    expect(source.match(/SUPABASE_SIGNED_TUS_PATH/g)).toHaveLength(3);
+    expect(source).not.toContain('directStorageUrl}/storage/v1/upload/resumable`');
+  });
+
   it("keeps signed file URLs short-lived", () => {
     expect(STORAGE_SIGNED_URL_TTL_SECONDS).toBeGreaterThan(0);
     expect(STORAGE_SIGNED_URL_TTL_SECONDS).toBeLessThanOrEqual(5 * 60);
