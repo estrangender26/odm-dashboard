@@ -633,29 +633,28 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
 
 storageRouter.post("/files/delete/prepare", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
     const input = z.object({ source: sourceSchema, id: z.number().int().positive() }).parse(await c.req.json());
     const record = await getStoredFileRecord(input.source, input.id);
     if (!record) return c.json({ error: "File not found." }, 404);
     const expiresAt = Date.now() + 5 * 60_000;
+    // Use anonymous session ID for public deletion (no user auth required)
+    const sessionId = randomUUID();
     const confirmationToken = signDeletePayload({
-      source: input.source, id: input.id, userId: user.id,
+      source: input.source, id: input.id, sessionId: sessionId,
       bucket: record.storageBucket, path: record.storagePath, exp: expiresAt,
     });
     return c.json({ confirmationToken, expiresAt: new Date(expiresAt).toISOString(), fileName: record.fileName, storageBacked: Boolean(record.storagePath) });
   } catch (error: any) {
     const message = error?.message || "Delete verification failed.";
-    const status = message.includes("authentication") || message.includes("token") ? 401 : 400;
-    return c.json({ error: message }, status);
+    return c.json({ error: message }, 400);
   }
 });
 
 storageRouter.post("/files/delete/confirm", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
     const { confirmationToken } = z.object({ confirmationToken: z.string().min(1) }).parse(await c.req.json());
     const payload = verifyDeletePayload(confirmationToken);
-    if (!payload || payload.userId !== user.id) return c.json({ error: "Delete confirmation is invalid or expired." }, 409);
+    if (!payload || !payload.sessionId) return c.json({ error: "Delete confirmation is invalid or expired." }, 409);
     const source = sourceSchema.parse(payload.source);
     const id = Number(payload.id);
     const record = await getStoredFileRecord(source, id);

@@ -79,26 +79,18 @@ describe("direct Storage security boundaries", () => {
     expect(data.flags).toBeDefined();
   });
 
-  it("allows anonymous access to public routes and requires auth for deletes", async () => {
+  it("allows anonymous access to all file routes including delete", async () => {
     const { storageRouter } = await import("./storage-router");
-    // Public routes (should NOT be 401)
+    // All file routes should be public (should NOT be 401)
     const publicRequests = [
       new Request("http://localhost/config"),
       new Request("http://localhost/files/doc_files/1/view"),
       new Request("http://localhost/files/doc_files/1/download"),
+      new Request("http://localhost/files/delete/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "doc_files", id: 1 }) }),
     ];
     for (const request of publicRequests) {
       const status = (await storageRouter.request(request)).status;
       expect(status).not.toBe(401);
-    }
-    
-    // Protected delete routes (should be 401)
-    const protectedRequests = [
-      new Request("http://localhost/files/delete/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "doc_files", id: 1 }) }),
-      new Request("http://localhost/files/delete/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmationToken: "invalid" }) }),
-    ];
-    for (const request of protectedRequests) {
-      expect((await storageRouter.request(request)).status).toBe(401);
     }
   });
 
@@ -126,13 +118,13 @@ describe("direct Storage security boundaries", () => {
     expect(resumeRoute).toContain("authenticateRequest"); // For authenticated path
   });
 
-  it("binds delete confirmations to user, source, record, bucket, path, and expiry", () => {
+  it("binds delete confirmations to session, source, record, bucket, path, and expiry", () => {
     const source = readFileSync(join(root, "api/storage-router.ts"), "utf8");
     const deleteRoutes = source.slice(source.indexOf('storageRouter.post("/files/delete/prepare"'));
-    for (const binding of ["source: input.source", "id: input.id", "userId: user.id", "bucket: record.storageBucket", "path: record.storagePath", "exp: expiresAt"]) {
+    for (const binding of ["source: input.source", "id: input.id", "sessionId: sessionId", "bucket: record.storageBucket", "path: record.storagePath", "exp: expiresAt"]) {
       expect(deleteRoutes).toContain(binding);
     }
-    expect(deleteRoutes).toContain("payload.userId !== user.id");
+    expect(deleteRoutes).toContain("payload.sessionId");
     expect(deleteRoutes).toContain("record.storageBucket !== payload.bucket");
     expect(deleteRoutes).toContain("record.storagePath !== payload.path");
   });

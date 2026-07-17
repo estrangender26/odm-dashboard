@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { authedQuery, createRouter, publicQuery } from "./middleware";
+import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { governanceFiles } from "@db/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -115,7 +115,7 @@ export const governanceFilesRouter = createRouter({
     }),
 
   // Delete a file
-  delete: authedQuery
+  delete: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const rows = await db.select({ bucket: governanceFiles.storageBucket, path: governanceFiles.storagePath })

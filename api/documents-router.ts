@@ -839,7 +839,7 @@ export const documentsRouter = {
     }),
 
   // ── Delete file ──
-  deleteFile: authedQuery
+  deleteFile: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       try {
