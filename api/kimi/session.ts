@@ -4,10 +4,17 @@ import type { SessionPayload } from "./types";
 
 const JWT_ALG = "HS256";
 
+function getSessionSecret() {
+  if (!env.appSecret) {
+    throw new Error("APP_SECRET is required for session signing.");
+  }
+  return new TextEncoder().encode(env.appSecret);
+}
+
 export async function signSessionToken(
   payload: SessionPayload,
 ): Promise<string> {
-  const secret = new TextEncoder().encode(env.appSecret);
+  const secret = getSessionSecret();
   return new jose.SignJWT(payload)
     .setProtectedHeader({ alg: JWT_ALG })
     .setIssuedAt()
@@ -23,7 +30,7 @@ export async function verifySessionToken(
     return null;
   }
   try {
-    const secret = new TextEncoder().encode(env.appSecret);
+    const secret = getSessionSecret();
     const { payload } = await jose.jwtVerify(token, secret, {
       algorithms: [JWT_ALG],
     });
