@@ -8,6 +8,7 @@ import {
   MAX_UPLOAD_ERROR_MESSAGE,
   MAX_UPLOAD_FILE_SIZE_BYTES,
 } from "@contracts/upload-limits";
+import { deleteFileWithVerification, shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
 
 /* ── Banner (replaces alert) ── */
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
@@ -481,6 +482,44 @@ export default function GovernanceDashboard() {
     }
 
     governanceUploadInProgressRef.current = true;
+    let useStorage: boolean;
+    try {
+      useStorage = await shouldUseDirectStorage("governance");
+    } catch (error) {
+      governanceUploadInProgressRef.current = false;
+      const message = error instanceof Error ? error.message : "Unable to determine the upload route.";
+      showStatus(`Upload failed: ${message}`);
+      setBanner({ type: "error", message });
+      setUploadDebug(prev => ({ ...prev, status: "error", error: message }));
+      return;
+    }
+    if (useStorage) {
+      try {
+        setUploadDebug(prev => ({ ...prev, status: "uploading" }));
+        const result = await uploadFileDirect({
+          module: "governance",
+          file,
+          target: {
+            facilitySlug: activeFacility,
+            milestoneId: mId,
+            category: cat,
+            tocItem: tocItem || null,
+          },
+          onProgress: (pct) => showStatus(`Uploading ${file.name} directly to Storage... ${pct}%`),
+        });
+        await Promise.all([utils.governance.uploads.invalidate(), utils.governance.uploadCounts.invalidate()]);
+        showStatus(`Uploaded: ${file.name}`);
+        setUploadDebug(prev => ({ ...prev, status: "success", responseStatus: 200, responseJson: result, dbUploadId: result.fileId }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Storage upload failed.";
+        showStatus(`Upload failed: ${message}`);
+        setBanner({ type: "error", message });
+        setUploadDebug(prev => ({ ...prev, status: "error", error: message }));
+      } finally {
+        governanceUploadInProgressRef.current = false;
+      }
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = reader.result as string;
@@ -546,6 +585,21 @@ export default function GovernanceDashboard() {
       setBanner({ type: "error", message: "Failed to read file. Please try again." });
     };
     reader.readAsDataURL(file);
+  };
+
+  const removeGovernanceUpload = async (upload: { id: number; fileName: string; storagePath?: string | null }) => {
+    if (!window.confirm(`Remove "${upload.fileName}"?\n\nThis will update milestone completion and the S-Curve.`)) return;
+    if (upload.storagePath) {
+      try {
+        await deleteFileWithVerification("governance_uploads", upload.id);
+        await Promise.all([utils.governance.uploads.invalidate(), utils.governance.uploadCounts.invalidate(), utils.governance.milestoneState.invalidate()]);
+        showStatus("File removed");
+      } catch (error) {
+        setBanner({ type: "error", message: error instanceof Error ? error.message : "Remove failed." });
+      }
+      return;
+    }
+    deleteUpload.mutate({ id: upload.id });
   };
 
   // Reusable file input + label button
@@ -1051,12 +1105,10 @@ export default function GovernanceDashboard() {
                             {tocUploads.map(u => (
                               <span key={u.id} className="text-xs text-green-700 font-medium flex items-center gap-2">
                                 ✓ {u.fileName}
+                                <button type="button" onClick={() => window.open(storageFileUrl("governance_uploads", u.id, "view"), "_blank")} className="text-blue-500 hover:text-blue-700 text-xs px-1">View</button>
+                                <button type="button" onClick={() => window.open(storageFileUrl("governance_uploads", u.id, "download"), "_blank")} className="text-blue-500 hover:text-blue-700 text-xs px-1">Download</button>
                                 <button
-                                  onClick={() => {
-                                    if (window.confirm(`Remove "${u.fileName}"?\n\nThis will update milestone completion and the S-Curve.`)) {
-                                      deleteUpload.mutate({ id: u.id });
-                                    }
-                                  }}
+                                  onClick={() => void removeGovernanceUpload(u)}
                                   className="text-red-400 hover:text-red-600 text-xs px-1"
                                   title="Remove file"
                                 >
@@ -1113,12 +1165,10 @@ export default function GovernanceDashboard() {
                             {tocUploads.map(u => (
                               <div key={u.id} className="flex items-center gap-2">
                                 <span className="text-xs text-green-600">✓ {u.fileName}</span>
+                                <button type="button" onClick={() => window.open(storageFileUrl("governance_uploads", u.id, "view"), "_blank")} className="text-blue-500 hover:text-blue-700 text-xs px-1">View</button>
+                                <button type="button" onClick={() => window.open(storageFileUrl("governance_uploads", u.id, "download"), "_blank")} className="text-blue-500 hover:text-blue-700 text-xs px-1">Download</button>
                                 <button
-                                  onClick={() => {
-                                    if (window.confirm(`Remove "${u.fileName}"?\n\nThis will update milestone completion and the S-Curve.`)) {
-                                      deleteUpload.mutate({ id: u.id });
-                                    }
-                                  }}
+                                  onClick={() => void removeGovernanceUpload(u)}
                                   className="text-red-400 hover:text-red-600 text-xs px-1"
                                   title="Remove file"
                                 >

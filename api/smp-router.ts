@@ -2,11 +2,12 @@ import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
 import { db } from "./queries/connection";
 import { smpDocuments } from "@db/schema";
-import { createRouter, publicQuery } from "./middleware";
+import { authedQuery, createRouter, publicQuery } from "./middleware";
 import {
   MAX_UPLOAD_ERROR_MESSAGE,
   isBase64UploadSizeAllowed,
 } from "@contracts/upload-limits";
+import { getSupabaseStorageAdmin } from "./supabase-storage";
 
 // ── Auto-create smp_documents table if it doesn't exist ──
 async function ensureSmpTable() {
@@ -53,6 +54,9 @@ const smpMetadataSelection = {
   responsibleParty: smpDocuments.responsibleParty,
   fileType: smpDocuments.fileType,
   fileName: smpDocuments.fileName,
+  storagePath: smpDocuments.storagePath,
+  storageSize: smpDocuments.storageSize,
+  storageMimeType: smpDocuments.storageMimeType,
   createdAt: smpDocuments.createdAt,
   updatedAt: smpDocuments.updatedAt,
 };
@@ -61,12 +65,12 @@ export const smpRouter = createRouter({
   /* ── 1. LIST ALL ── */
   list: publicQuery.query(async () => {
     await ensureSmpTable();
-    const rows = await db.select().from(smpDocuments).orderBy(smpDocuments.code);
+    const rows = await db.select(smpMetadataSelection).from(smpDocuments).orderBy(smpDocuments.code);
     return { items: rows, count: rows.length };
   }),
 
   /* ── 2. GET SINGLE ── */
-  get: publicQuery
+  get: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       await ensureSmpTable();
@@ -75,7 +79,7 @@ export const smpRouter = createRouter({
     }),
 
   /* ── 3. CREATE ── */
-  create: publicQuery
+  create: authedQuery
     .input(z.object({
       code: z.string().min(1),
       title: z.string().min(1),
@@ -110,7 +114,7 @@ export const smpRouter = createRouter({
     }),
 
   /* ── 4. UPDATE ── */
-  update: publicQuery
+  update: authedQuery
     .input(z.object({
       id: z.number(),
       code: z.string().optional(),
@@ -139,7 +143,18 @@ export const smpRouter = createRouter({
       if (data.nextReview !== undefined) clean.nextReview = data.nextReview || null;
       if (data.status !== undefined) clean.status = data.status;
       if (data.responsibleParty !== undefined) clean.responsibleParty = data.responsibleParty || null;
-      if (data.fileData !== undefined) clean.fileData = data.fileData || null;
+      if (data.fileData !== undefined) {
+        clean.fileData = data.fileData || null;
+        // A deliberate legacy replacement becomes authoritative without
+        // deleting the previous Storage object during feature-flag rollback.
+        clean.storageProvider = null;
+        clean.storageBucket = null;
+        clean.storagePath = null;
+        clean.storageSize = null;
+        clean.storageMimeType = null;
+        clean.storageEtag = null;
+        clean.storageUploadedAt = null;
+      }
       if (data.fileType !== undefined) clean.fileType = data.fileType || null;
       if (data.fileName !== undefined) clean.fileName = data.fileName || null;
       clean.updatedAt = new Date();
@@ -152,10 +167,16 @@ export const smpRouter = createRouter({
     }),
 
   /* ── 5. DELETE ── */
-  delete: publicQuery
+  delete: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await ensureSmpTable();
+      const rows = await db.select({ bucket: smpDocuments.storageBucket, path: smpDocuments.storagePath })
+        .from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
+      if (rows[0]?.bucket && rows[0]?.path) {
+        const { error } = await getSupabaseStorageAdmin().storage.from(rows[0].bucket).remove([rows[0].path]);
+        if (error) throw new Error(`Storage deletion failed: ${error.message}`);
+      }
       await db.delete(smpDocuments).where(eq(smpDocuments.id, input.id));
       return { deleted: true, id: input.id };
     }),

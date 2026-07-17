@@ -8,6 +8,7 @@ import {
   MAX_UPLOAD_ERROR_MESSAGE,
   MAX_UPLOAD_FILE_SIZE_BYTES,
 } from "@contracts/upload-limits";
+import { deleteFileWithVerification, shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
 
 // ── Types ──
 interface SmpDoc {
@@ -21,9 +22,12 @@ interface SmpDoc {
   nextReview: string | null;
   status: string | null;
   responsibleParty: string | null;
-  fileData: string | null;
+  fileData?: string | null;
   fileType: string | null;
   fileName: string | null;
+  storagePath?: string | null;
+  storageSize?: number | null;
+  storageMimeType?: string | null;
 }
 
 type ModalMode = "create" | "edit" | "delete" | null;
@@ -107,38 +111,13 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-// ── Helpers ──
-function base64ToBlobUrl(b64: string, mime: string): string {
-  try {
-    const byteChars = atob(b64);
-    const byteNums = new Array(byteChars.length);
-    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-    const blob = new Blob([new Uint8Array(byteNums)], { type: mime });
-    return URL.createObjectURL(blob);
-  } catch { return ""; }
-}
-
 // ── PDF Viewer ──
-function PdfViewer({ fileData, title, fileName, onDownload }: {
-  fileData: string | null; title: string; fileName?: string; onDownload?: () => void;
+function PdfViewer({ fileId, hasFile, title, onUpload, onDownload }: {
+  fileId: number; hasFile: boolean; title: string; onUpload?: () => void; onDownload?: () => void;
 }) {
   const [zoom, setZoom] = useState(1);
   const [loadError, setLoadError] = useState(false);
-  const [revokeUrl, setRevokeUrl] = useState<string | null>(null);
-
-  void fileName;
-  const src = useMemo(() => {
-    if (revokeUrl) { URL.revokeObjectURL(revokeUrl); setRevokeUrl(null); }
-    const b64 = fileData?.trim();
-    if (b64 && b64.length > 100) {
-      const url = base64ToBlobUrl(b64, "application/pdf");
-      if (url) { setRevokeUrl(url); return url; }
-    }
-    return null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileData]);
-
-  useEffect(() => () => { if (revokeUrl) URL.revokeObjectURL(revokeUrl); }, [revokeUrl]);
+  const src = hasFile ? storageFileUrl("smp_documents", fileId, "view") : null;
   useEffect(() => { setLoadError(false); }, [src]);
 
   if (!src) {
@@ -148,8 +127,8 @@ function PdfViewer({ fileData, title, fileName, onDownload }: {
           <div className="text-6xl mb-4">📄</div>
           <h3 className="text-lg font-semibold text-gray-500 mb-2">No PDF Available</h3>
           <p className="text-sm">This document has no PDF file attached.</p>
-          {onDownload && (
-            <button onClick={onDownload} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto">
+          {onUpload && (
+            <button onClick={onUpload} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto">
               📤 Upload PDF
             </button>
           )}
@@ -301,7 +280,7 @@ export default function SmpDashboard() {
   }, [modalForm, modalMode, selectedDoc, createMut, updateMut]);
 
   // ── Upload PDF ──
-  const handleUpload = useCallback((file: File) => {
+  const handleUpload = useCallback(async (file: File) => {
     if (!selectedDoc) { setBanner({ type: "error", message: "Select a document first" }); return; }
     if (isUploading) { setBanner({ type: "error", message: "Please wait for the current upload to finish." }); return; }
     if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
@@ -309,6 +288,34 @@ export default function SmpDashboard() {
       return;
     }
     setIsUploading(true); setUploadProgress(0); setUploadLabel(`Reading "${file.name}"...`);
+    let useStorage: boolean;
+    try {
+      useStorage = await shouldUseDirectStorage("smp");
+    } catch (error) {
+      setIsUploading(false);
+      setUploadProgress(0);
+      setBanner({ type: "error", message: error instanceof Error ? error.message : "Unable to determine the upload route." });
+      return;
+    }
+    if (useStorage) {
+      try {
+        const result = await uploadFileDirect({
+          module: "smp",
+          file,
+          target: { documentId: selectedDoc.id },
+          onProgress: (pct) => { setUploadProgress(Math.max(5, pct)); setUploadLabel(`Uploading "${file.name}" directly to Storage... ${pct}%`); },
+        });
+        await utils.smp.list.invalidate();
+        setSelectedDoc(prev => prev ? { ...prev, fileName: file.name, fileType: file.type || "application/pdf", storagePath: "stored" } : prev);
+        setUploadProgress(100); setBanner({ type: "success", message: `PDF "${file.name}" uploaded` });
+        setTimeout(() => setIsUploading(false), 500);
+        void result;
+      } catch (error) {
+        setIsUploading(false);
+        setBanner({ type: "error", message: error instanceof Error ? error.message : "Storage upload failed." });
+      }
+      return;
+    }
     const reader = new FileReader();
     reader.onprogress = (ev) => { if (ev.lengthComputable) { setUploadProgress(Math.round((ev.loaded / ev.total) * 50)); setUploadLabel(`Reading "${file.name}"... ${Math.round((ev.loaded / ev.total) * 100)}%`); } };
     reader.onloadstart = () => { setUploadProgress(5); };
@@ -325,22 +332,16 @@ export default function SmpDashboard() {
     };
     reader.onerror = () => { setIsUploading(false); setBanner({ type: "error", message: `Failed to read "${file.name}"` }); };
     reader.readAsDataURL(file);
-  }, [isUploading, selectedDoc, updateMut]);
+  }, [isUploading, selectedDoc, updateMut, utils.smp.list]);
 
   // ── Download PDF ──
   const handleDownload = useCallback(() => {
     if (!selectedDoc) return;
     setIsDownloading(true); setDownloadLabel(`Preparing "${selectedDoc.code}"...`);
-    if (selectedDoc.fileData) {
-      const url = base64ToBlobUrl(selectedDoc.fileData, selectedDoc.fileType || "application/pdf");
-      if (url) {
-        const a = document.createElement("a");
-        a.href = url; a.download = selectedDoc.fileName || `${selectedDoc.code}.pdf`; a.style.display = "none";
-        document.body.appendChild(a); a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
-        setIsDownloading(false); setBanner({ type: "success", message: `Downloaded ${selectedDoc.fileName || selectedDoc.code}` });
-        return;
-      }
+    if (selectedDoc.fileName) {
+      window.open(storageFileUrl("smp_documents", selectedDoc.id, "download"), "_blank", "noopener,noreferrer");
+      setIsDownloading(false); setBanner({ type: "success", message: `Download started for ${selectedDoc.fileName}` });
+      return;
     }
     setIsDownloading(false); setBanner({ type: "error", message: `No PDF for ${selectedDoc.code}. Upload one first.` });
   }, [selectedDoc]);
@@ -525,10 +526,11 @@ export default function SmpDashboard() {
               </div>
               {/* PDF Viewer */}
               <PdfViewer
-                fileData={selectedDoc.fileData}
+                fileId={selectedDoc.id}
+                hasFile={Boolean(selectedDoc.fileName)}
                 title={`${selectedDoc.code} — ${selectedDoc.title}`}
-                fileName={selectedDoc.fileName || `${selectedDoc.code}.pdf`}
-                onDownload={() => fileInputRef.current?.click()}
+                onUpload={() => fileInputRef.current?.click()}
+                onDownload={handleDownload}
               />
             </div>
           ) : (
@@ -630,7 +632,13 @@ export default function SmpDashboard() {
             This action cannot be undone.
           </p>
           <div className="flex gap-2">
-            <button onClick={() => deleteMut.mutate({ id: selectedDoc.id })}
+            <button onClick={async () => {
+              if (selectedDoc.storagePath) {
+                try { await deleteFileWithVerification("smp_documents", selectedDoc.id); }
+                catch (error) { setBanner({ type: "error", message: error instanceof Error ? error.message : "Unable to remove stored file." }); return; }
+              }
+              deleteMut.mutate({ id: selectedDoc.id });
+            }}
               disabled={deleteMut.isPending}
               className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
               {deleteMut.isPending ? "Deleting..." : "Delete"}

@@ -1,4 +1,14 @@
-import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, doublePrecision, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, doublePrecision, jsonb, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+
+const storageMetadataColumns = () => ({
+  storageProvider: varchar("storage_provider", { length: 32 }),
+  storageBucket: varchar("storage_bucket", { length: 100 }),
+  storagePath: text("storage_path"),
+  storageSize: bigint("storage_size", { mode: "number" }),
+  storageMimeType: varchar("storage_mime_type", { length: 255 }),
+  storageEtag: text("storage_etag"),
+  storageUploadedAt: timestamp("storage_uploaded_at", { withTimezone: true }),
+});
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -106,6 +116,7 @@ export const governanceUploads = pgTable("governance_uploads", {
   fileUrl: text("file_url").notNull(),
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
+  ...storageMetadataColumns(),
 });
 
 export const mwInspections = pgTable("mw_inspections", {
@@ -170,6 +181,7 @@ export const governanceFiles = pgTable("governance_files", {
   fileData: text("file_data").notNull(),
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
+  ...storageMetadataColumns(),
 });
 
 /* ─── Gantt Tasks (clean schema — matches UI fields exactly) ─── */
@@ -260,6 +272,7 @@ export const docFiles = pgTable("doc_files", {
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  ...storageMetadataColumns(),
 }, (table) => [
   index("doc_files_folder_idx").on(table.folderId),
 ]);
@@ -297,10 +310,34 @@ export const smpDocuments = pgTable("smp_documents", {
   fileName: varchar("file_name", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  ...storageMetadataColumns(),
 }, (table) => [
   index("smp_equip_idx").on(table.equipmentType),
   index("smp_system_idx").on(table.system),
   index("smp_status_idx").on(table.status),
+]);
+
+export const storageUploadIntents = pgTable("storage_upload_intents", {
+  id: uuid("id").primaryKey(),
+  module: varchar("module", { length: 32 }).notNull(),
+  targetContext: jsonb("target_context").notNull(),
+  expectedBucket: varchar("expected_bucket", { length: 100 }).notNull(),
+  expectedPath: text("expected_path").notNull(),
+  originalFilename: varchar("original_filename", { length: 255 }).notNull(),
+  expectedSize: bigint("expected_size", { mode: "number" }).notNull(),
+  expectedMimeType: varchar("expected_mime_type", { length: 255 }).notNull(),
+  requestedBy: integer("requested_by").notNull(),
+  status: varchar("status", { length: 32 }).notNull().default("pending"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+  abandonedAt: timestamp("abandoned_at", { withTimezone: true }),
+  cleanupAt: timestamp("cleanup_at", { withTimezone: true }),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  unique("storage_upload_intents_bucket_path_unique").on(table.expectedBucket, table.expectedPath),
+  index("storage_upload_intents_status_expiry_idx").on(table.status, table.expiresAt),
+  index("storage_upload_intents_user_idx").on(table.requestedBy),
 ]);
 
 /* ── Gantt Chart Saved Projects ── */

@@ -7,6 +7,9 @@ const schema = z.object({
   ownerUnionId: z.string().optional(),
   kimiAuthUrl: z.string().default("https://auth.kimi.com"),
   kimiOpenUrl: z.string().default("https://open.kimi.com"),
+  supabaseUrl: z.string().url().optional(),
+  supabaseServiceRoleKey: z.string().min(1).optional(),
+  supabaseStorageUrl: z.string().url().optional(),
 });
 
 export function createEnv(source: NodeJS.ProcessEnv = process.env) {
@@ -17,6 +20,9 @@ export function createEnv(source: NodeJS.ProcessEnv = process.env) {
     ownerUnionId: source.OWNER_UNION_ID,
     kimiAuthUrl: source.KIMI_AUTH_URL,
     kimiOpenUrl: source.KIMI_OPEN_URL,
+    supabaseUrl: source.SUPABASE_URL,
+    supabaseServiceRoleKey: source.SUPABASE_SERVICE_ROLE_KEY,
+    supabaseStorageUrl: source.SUPABASE_STORAGE_URL,
   };
   const parsed = schema.safeParse(raw);
   const result = parsed.success ? parsed.data : (parsed.data || raw as any);

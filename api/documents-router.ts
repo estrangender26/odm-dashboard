@@ -4,7 +4,9 @@ import { Hono } from "hono";
 import { readFile, stat } from "node:fs/promises";
 import { db } from "./queries/connection";
 import { docFolders, docFiles } from "@db/schema";
-import { publicQuery } from "./middleware";
+import { authedQuery, publicQuery } from "./middleware";
+import { authenticateRequest } from "./kimi/auth";
+import { getSupabaseStorageAdmin } from "./supabase-storage";
 import { TRPCError } from "@trpc/server";
 import {
   MAX_UPLOAD_ERROR_MESSAGE,
@@ -76,6 +78,7 @@ documentsUploadRouter.post("/upload", async (c) => {
   console.log(`[documents/upload:${uploadId}] start content-length=${contentLength}`);
 
   try {
+    await authenticateRequest(c.req.raw.headers);
     upload = await parseDocumentMultipartUpload(c.req.raw);
 
     if (c.req.raw.signal.aborted) {
@@ -226,13 +229,14 @@ interface TreeFileSummary {
   revision: string | null;
   uploadedAt: Date | null;
   hasFileData: boolean;
+  storageBacked: boolean;
   fileUrl: string | null;
 }
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-type TreeFileRow = Pick<typeof docFiles.$inferSelect, "id" | "folderId" | "title" | "fileName" | "fileType" | "fileSize" | "revision" | "uploadedAt" | "fileUrl"> & { hasFileData: boolean };
+type TreeFileRow = Pick<typeof docFiles.$inferSelect, "id" | "folderId" | "title" | "fileName" | "fileType" | "fileSize" | "revision" | "uploadedAt" | "fileUrl"> & { hasFileData: boolean; storageBacked: boolean };
 
 // ── Helpers: hierarchy validation and recursive tree safety ──
 function normalizeFolderName(name: string): string {
@@ -322,6 +326,7 @@ function buildTree(
           revision: file.revision,
           uploadedAt: file.uploadedAt,
           hasFileData: file.hasFileData,
+          storageBacked: file.storageBacked,
           fileUrl: file.fileUrl,
         })),
       }];
@@ -385,7 +390,8 @@ async function getDirectFolderContents(parentId: number | null) {
             fileSize: docFiles.fileSize,
             revision: docFiles.revision,
             uploadedAt: docFiles.uploadedAt,
-            hasFileData: sql<boolean>`COALESCE(length(${docFiles.fileData}), 0) > 0`,
+            hasFileData: sql<boolean>`COALESCE(length(${docFiles.fileData}), 0) > 0 OR ${docFiles.storagePath} IS NOT NULL`,
+            storageBacked: sql<boolean>`${docFiles.storagePath} IS NOT NULL`,
             fileUrl: docFiles.fileUrl,
           })
           .from(docFiles)
@@ -421,6 +427,7 @@ async function getDirectFolderContents(parentId: number | null) {
     revision: file.revision,
     uploadedAt: file.uploadedAt,
     hasFileData: file.hasFileData,
+    storageBacked: file.storageBacked,
     fileUrl: file.fileUrl,
   }));
 
@@ -652,7 +659,8 @@ export const documentsRouter = {
           fileSize: docFiles.fileSize,
           revision: docFiles.revision,
           uploadedAt: docFiles.uploadedAt,
-          hasFileData: sql<boolean>`COALESCE(length(${docFiles.fileData}), 0) > 0`,
+          hasFileData: sql<boolean>`COALESCE(length(${docFiles.fileData}), 0) > 0 OR ${docFiles.storagePath} IS NOT NULL`,
+          storageBacked: sql<boolean>`${docFiles.storagePath} IS NOT NULL`,
           fileUrl: docFiles.fileUrl,
         }).from(docFiles),
       ]);
@@ -713,7 +721,7 @@ export const documentsRouter = {
     }),
 
   // ── Delete folder (and all descendants + files) ──
-  deleteFolder: publicQuery
+  deleteFolder: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       try {
@@ -723,6 +731,20 @@ export const documentsRouter = {
         }
         const descendants = getDescendantIds(allFolders, input.id);
         const allIds = [input.id, ...descendants];
+
+        const storedFiles = await db.select({ bucket: docFiles.storageBucket, path: docFiles.storagePath })
+          .from(docFiles).where(inArray(docFiles.folderId, allIds));
+        const pathsByBucket = new Map<string, string[]>();
+        for (const file of storedFiles) {
+          if (!file.bucket || !file.path) continue;
+          pathsByBucket.set(file.bucket, [...(pathsByBucket.get(file.bucket) || []), file.path]);
+        }
+        for (const [bucket, paths] of pathsByBucket) {
+          for (let offset = 0; offset < paths.length; offset += 1000) {
+            const { error } = await getSupabaseStorageAdmin().storage.from(bucket).remove(paths.slice(offset, offset + 1000));
+            if (error) throw new Error(`Storage deletion failed: ${error.message}`);
+          }
+        }
 
         const deletedFiles = await db.transaction(async (tx) => {
           // Break folder-to-folder references inside the delete set first so a
@@ -762,7 +784,7 @@ export const documentsRouter = {
     }),
 
   // ── Upload file ──
-  uploadFile: publicQuery
+  uploadFile: authedQuery
     .input(
       z.object({
         folderId: z.number(),
@@ -803,7 +825,7 @@ export const documentsRouter = {
     }),
 
   // ── Get single file (with data for viewing) ──
-  getFile: publicQuery
+  getFile: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
@@ -818,10 +840,16 @@ export const documentsRouter = {
     }),
 
   // ── Delete file ──
-  deleteFile: publicQuery
+  deleteFile: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       try {
+        const stored = await db.select({ bucket: docFiles.storageBucket, path: docFiles.storagePath })
+          .from(docFiles).where(eq(docFiles.id, input.id)).limit(1);
+        if (stored[0]?.bucket && stored[0]?.path) {
+          const { error } = await getSupabaseStorageAdmin().storage.from(stored[0].bucket).remove([stored[0].path]);
+          if (error) throw new Error(`Storage deletion failed: ${error.message}`);
+        }
         const result = await db.delete(docFiles).where(eq(docFiles.id, input.id)).returning({ id: docFiles.id });
         if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "File not found" });
         return { success: true, deletedFileId: result[0].id };
