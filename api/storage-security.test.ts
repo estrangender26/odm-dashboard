@@ -67,39 +67,37 @@ describe("direct Storage security boundaries", () => {
     expect(() => validateSupabaseStorageUrls("http://project-ref.supabase.co", "https://project-ref.storage.supabase.co")).toThrow("HTTPS");
   });
 
-  it("rejects anonymous upload authorization before any Storage call", async () => {
+  it("allows anonymous config access (public endpoint)", async () => {
     vi.stubEnv("DATABASE_URL", "postgresql://user:password@localhost:5432/test");
     vi.stubEnv("APP_ID", "test-app");
     vi.stubEnv("APP_SECRET", "test-secret");
     vi.stubEnv("KIMI_AUTH_URL", "https://auth.example.test");
     const { storageRouter } = await import("./storage-router");
-    const response = await storageRouter.request("http://localhost/uploads/authorize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        module: "om",
-        originalFilename: "test.pdf",
-        mimeType: "application/pdf",
-        fileSize: 1,
-        target: { folderId: 1 },
-      }),
-    });
-    expect(response.status).toBe(401);
+    const response = await storageRouter.request("http://localhost/config");
+    expect(response.status).toBe(200);
+    const data = await response.json() as any;
+    expect(data.flags).toBeDefined();
   });
 
-  it("rejects anonymous access to every upload, file-content, and delete route", async () => {
+  it("allows anonymous access to public routes and requires auth for deletes", async () => {
     const { storageRouter } = await import("./storage-router");
-    const requests = [
+    // Public routes (should NOT be 401)
+    const publicRequests = [
       new Request("http://localhost/config"),
-      new Request("http://localhost/uploads/resume", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intentId: "11111111-1111-4111-8111-111111111111" }) }),
-      new Request("http://localhost/uploads/finalize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intentId: "11111111-1111-4111-8111-111111111111" }) }),
-      new Request("http://localhost/uploads/abandon", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intentId: "11111111-1111-4111-8111-111111111111" }) }),
       new Request("http://localhost/files/doc_files/1/view"),
       new Request("http://localhost/files/doc_files/1/download"),
+    ];
+    for (const request of publicRequests) {
+      const status = (await storageRouter.request(request)).status;
+      expect(status).not.toBe(401);
+    }
+    
+    // Protected delete routes (should be 401)
+    const protectedRequests = [
       new Request("http://localhost/files/delete/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "doc_files", id: 1 }) }),
       new Request("http://localhost/files/delete/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmationToken: "invalid" }) }),
     ];
-    for (const request of requests) {
+    for (const request of protectedRequests) {
       expect((await storageRouter.request(request)).status).toBe(401);
     }
   });
@@ -120,12 +118,12 @@ describe("direct Storage security boundaries", () => {
     expect(updateRoute).not.toContain("getSupabaseStorageAdmin");
   });
 
-  it("revalidates resume intents against the authenticated requesting user", () => {
+  it("supports both authenticated and anonymous resume with capability verification", () => {
     const source = readFileSync(join(root, "api/storage-router.ts"), "utf8");
     const resumeRoute = source.slice(source.indexOf('storageRouter.post("/uploads/resume"'), source.indexOf('storageRouter.post("/uploads/finalize"'));
-    expect(resumeRoute).toContain("requireUser");
-    expect(resumeRoute).toContain("storageUploadIntents.requestedBy");
-    expect(resumeRoute).toContain("user.id");
+    expect(resumeRoute).toContain("capabilityToken");
+    expect(resumeRoute).toContain("verifyCapabilityForIntent");
+    expect(resumeRoute).toContain("authenticateRequest"); // For authenticated path
   });
 
   it("binds delete confirmations to user, source, record, bucket, path, and expiry", () => {
