@@ -211,3 +211,123 @@ describe("BEHAVIORAL TESTS: Hono Storage Router", () => {
     expect(mocks.deleteStoredFileRecord).not.toHaveBeenCalled();
   });
 });
+
+describe("BEHAVIORAL TESTS: Additional Coverage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.storageRemove.mockResolvedValue({ data: {}, error: null });
+    mocks.from.mockReturnValue({ remove: mocks.storageRemove });
+  });
+
+  it("POST /files/delete/confirm succeeds with valid token for all 4 sources", async () => {
+    const sources = ["doc_files", "governance_uploads", "governance_files", "smp_documents"];
+    for (const source of sources) {
+      vi.clearAllMocks();
+      mocks.getStoredFileRecord.mockResolvedValue({
+        id: 1,
+        fileName: "test.pdf",
+        storageBucket: "odm-files",
+        storagePath: `${source}/test.pdf`,
+      });
+      mocks.deleteStoredFileRecord.mockResolvedValue({});
+      const prepareReq = new Request("http://localhost/files/delete/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source, id: 1 }),
+      });
+      const prepareRes = await storageRouter.request(prepareReq);
+      const { confirmationToken } = await prepareRes.json() as any;
+      const confirmReq = new Request("http://localhost/files/delete/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationToken }),
+      });
+      const confirmRes = await storageRouter.request(confirmReq);
+      expect(confirmRes.status).toBe(200);
+      const body = await confirmRes.json();
+      expect((body as any).success).toBe(true);
+      expect((body as any).source).toBe(source);
+    }
+  });
+
+  it("POST /files/delete/confirm returns 404 when file deleted between prepare and confirm", async () => {
+    mocks.getStoredFileRecord.mockResolvedValue({
+      id: 1,
+      fileName: "test.pdf",
+      storageBucket: "odm-files",
+      storagePath: "doc_files/test.pdf",
+    });
+    const prepareReq = new Request("http://localhost/files/delete/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "doc_files", id: 1 }),
+    });
+    const prepareRes = await storageRouter.request(prepareReq);
+    const { confirmationToken } = await prepareRes.json() as any;
+    mocks.getStoredFileRecord.mockResolvedValue(null);
+    const confirmReq = new Request("http://localhost/files/delete/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmationToken }),
+    });
+    const confirmRes = await storageRouter.request(confirmReq);
+    expect(confirmRes.status).toBe(404);
+  });
+
+  it("POST /files/delete/confirm rejects replay of same token", async () => {
+    mocks.getStoredFileRecord.mockResolvedValue({
+      id: 1,
+      fileName: "test.pdf",
+      storageBucket: "odm-files",
+      storagePath: "doc_files/test.pdf",
+    });
+    mocks.deleteStoredFileRecord.mockResolvedValue({});
+    const prepareReq = new Request("http://localhost/files/delete/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "doc_files", id: 1 }),
+    });
+    const prepareRes = await storageRouter.request(prepareReq);
+    const { confirmationToken } = await prepareRes.json() as any;
+    const confirmReq1 = new Request("http://localhost/files/delete/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmationToken }),
+    });
+    const confirmRes1 = await storageRouter.request(confirmReq1);
+    expect(confirmRes1.status).toBe(200);
+    mocks.getStoredFileRecord.mockResolvedValue(null);
+    const confirmReq2 = new Request("http://localhost/files/delete/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmationToken }),
+    });
+    const confirmRes2 = await storageRouter.request(confirmReq2);
+    expect(confirmRes2.status).toBe(404);
+  });
+
+  it("POST /files/delete/confirm removes from storage with exact path", async () => {
+    mocks.getStoredFileRecord.mockResolvedValue({
+      id: 1,
+      fileName: "test.pdf",
+      storageBucket: "odm-files",
+      storagePath: "doc_files/exact-path-test.pdf",
+    });
+    mocks.deleteStoredFileRecord.mockResolvedValue({});
+    const prepareReq = new Request("http://localhost/files/delete/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "doc_files", id: 1 }),
+    });
+    const prepareRes = await storageRouter.request(prepareReq);
+    const { confirmationToken } = await prepareRes.json() as any;
+    const confirmReq = new Request("http://localhost/files/delete/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmationToken }),
+    });
+    await storageRouter.request(confirmReq);
+    expect(mocks.storageRemove).toHaveBeenCalledWith(["doc_files/exact-path-test.pdf"]);
+    expect(mocks.deleteStoredFileRecord).toHaveBeenCalled();
+  });
+});
