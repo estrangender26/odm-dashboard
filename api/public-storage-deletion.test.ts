@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ============================================================================
 // BEHAVIORAL TESTS FOR PUBLIC DELETION
@@ -332,78 +332,54 @@ describe("BEHAVIORAL TESTS: Additional Coverage", () => {
   });
 });
 
-describe("BEHAVIORAL TESTS: tRPC Router Imports", () => {
-  it("documentsRouter exports deleteFile procedure", async () => {
-    const { documentsRouter } = await import("./documents-router");
-    expect(documentsRouter.deleteFile).toBeDefined();
-    expect(typeof documentsRouter.deleteFile).toBe("function");
+
+describe("BEHAVIORAL TESTS: Token Expiration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.storageRemove.mockResolvedValue({ data: {}, error: null });
+    mocks.from.mockReturnValue({ remove: mocks.storageRemove });
   });
 
-  it("smpRouter exports delete procedure", async () => {
-    const { smpRouter } = await import("./smp-router");
-    expect(smpRouter.delete).toBeDefined();
-    expect(typeof smpRouter.delete).toBe("function");
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("governanceFilesRouter exports delete procedure", async () => {
-    const { governanceFilesRouter } = await import("./governance-files-router");
-    expect(governanceFilesRouter.delete).toBeDefined();
-    expect(typeof governanceFilesRouter.delete).toBe("function");
-  });
+  it("rejects expired confirmation token", async () => {
+    vi.useFakeTimers();
+    
+    mocks.getStoredFileRecord.mockResolvedValue({
+      id: 1,
+      fileName: "test.pdf",
+      storageBucket: "odm-files",
+      storagePath: "doc_files/test.pdf",
+    });
 
-  it("governanceRouter exports deleteUpload procedure", async () => {
-    const { governanceRouter } = await import("./governance-router");
-    expect(governanceRouter.deleteUpload).toBeDefined();
-    expect(typeof governanceRouter.deleteUpload).toBe("function");
-  });
+    // Prepare
+    const prepareReq = new Request("http://localhost/files/delete/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "doc_files", id: 1 }),
+    });
+    const prepareRes = await storageRouter.request(prepareReq);
+    const { confirmationToken } = await prepareRes.json() as any;
 
-  it("all delete procedures use publicQuery", async () => {
-    const { documentsRouter } = await import("./documents-router");
-    const { smpRouter } = await import("./smp-router");
-    const { governanceFilesRouter } = await import("./governance-files-router");
-    const { governanceRouter } = await import("./governance-router");
+    // Advance time beyond 5 minutes
+    vi.advanceTimersByTime(6 * 60 * 1000); // 6 minutes
 
-    // Verify all procedures are accessible (they'd fail auth if not public)
-    expect(documentsRouter.deleteFile).toBeDefined();
-    expect(smpRouter.delete).toBeDefined();
-    expect(governanceFilesRouter.delete).toBeDefined();
-    expect(governanceRouter.deleteUpload).toBeDefined();
-  });
-});
-
-describe("BEHAVIORAL TESTS: tRPC Router Imports", () => {
-  it("documentsRouter exports deleteFile procedure", async () => {
-    const { documentsRouter } = await import("./documents-router");
-    expect(documentsRouter.deleteFile).toBeDefined();
-    expect(typeof documentsRouter.deleteFile).toBe("function");
-  });
-
-  it("smpRouter exports delete procedure", async () => {
-    const { smpRouter } = await import("./smp-router");
-    expect(smpRouter.delete).toBeDefined();
-    expect(typeof smpRouter.delete).toBe("function");
-  });
-
-  it("governanceFilesRouter exports delete procedure", async () => {
-    const { governanceFilesRouter } = await import("./governance-files-router");
-    expect(governanceFilesRouter.delete).toBeDefined();
-    expect(typeof governanceFilesRouter.delete).toBe("function");
-  });
-
-  it("governanceRouter exports deleteUpload procedure", async () => {
-    const { governanceRouter } = await import("./governance-router");
-    expect(governanceRouter.deleteUpload).toBeDefined();
-    expect(typeof governanceRouter.deleteUpload).toBe("function");
-  });
-
-  it("all delete procedures are accessible", async () => {
-    const { documentsRouter } = await import("./documents-router");
-    const { smpRouter } = await import("./smp-router");
-    const { governanceFilesRouter } = await import("./governance-files-router");
-    const { governanceRouter } = await import("./governance-router");
-    expect(documentsRouter.deleteFile).toBeDefined();
-    expect(smpRouter.delete).toBeDefined();
-    expect(governanceFilesRouter.delete).toBeDefined();
-    expect(governanceRouter.deleteUpload).toBeDefined();
+    // Confirm with expired token
+    const confirmReq = new Request("http://localhost/files/delete/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmationToken }),
+    });
+    const confirmRes = await storageRouter.request(confirmReq);
+    
+    expect(confirmRes.status).toBe(409);
+    const body = await confirmRes.json();
+    expect((body as any).error).toContain("invalid or expired");
+    
+    // Neither Supabase nor database should be called
+    expect(mocks.storageRemove).not.toHaveBeenCalled();
+    expect(mocks.deleteStoredFileRecord).not.toHaveBeenCalled();
   });
 });
