@@ -1878,31 +1878,11 @@ export default app;
 
 if (env.isProduction) {
   logBootStage("production startup branch entered");
+
+  // Import production startup helper
+  const { executeProductionStartup } = await import("./production-startup");
   logBootStage("importing @hono/node-server");
   const { serve } = await import("@hono/node-server");
-
-  const migrationReadyPromise = withTimeoutDiagnostics(
-    "database migration/startup verification",
-    (async () => {
-      logBootStage("migration start");
-      try {
-        await ensureDbReady();
-        logBootStage("migration finish");
-
-        logBootStage("post-migration gantt_projects verification start");
-        await getDb().execute(sql`SELECT 1 FROM gantt_projects LIMIT 1`);
-        logBootStage("post-migration gantt_projects verification finish");
-      } catch (error) {
-        logBootError("migration error", error);
-        throw error;
-      }
-    })(),
-    BOOT_MIGRATION_TIMEOUT_MS
-  );
-
-  migrationReadyPromise.catch((error) => {
-    logBootError("background migration/startup verification failed", error);
-  });
 
   // Startup verification — log dist path before serving
   logBootStage("static asset verification start");
@@ -1929,7 +1909,7 @@ if (env.isProduction) {
         : [],
     });
   });
-  
+
 // ═══ AI INSIGHTS: Analyze governance data for a facility ═══
 app.post("/api/governance/ai-insights", async (c) => {
   try {
@@ -2014,16 +1994,35 @@ app.post("/api/governance/ai-summary", async (c) => {
 
   const port = parseInt(process.env.PORT || "3000", 10);
   const host = process.env.HOST || "0.0.0.0";
-  logBootStage("app.listen() about to execute", {
-    PORT: process.env.PORT ?? "unset",
-    parsedPort: port,
-    host,
-  });
-  serve({ fetch: app.fetch, port, hostname: host }, () => {
-    logBootStage("listen callback executed", { port, host });
-    console.log(`Server listening on: ${host}:${port}`);
-    console.log(`Server running on http://${host}:${port}/`);
-    console.log(`[BOOT] Static files served from: ${dp}`);
-    console.log(`[BOOT] Health check: http://${host}:${port}/_health`);
-  });
+
+  const startupDeps = {
+    ensureDatabaseReady: async () => {
+      await withTimeoutDiagnostics(
+        "database migration/startup verification",
+        ensureDbReady(),
+        BOOT_MIGRATION_TIMEOUT_MS
+      );
+    },
+    verifyDatabase: async () => {
+      await getDb().execute(sql`SELECT 1 FROM gantt_projects LIMIT 1`);
+    },
+    startListener: async () => {
+      serve({ fetch: app.fetch, port, hostname: host }, () => {
+        logBootStage("listen callback executed", { port, host });
+        console.log(`Server listening on: ${host}:${port}`);
+        console.log(`Server running on http://${host}:${port}/`);
+        console.log(`[BOOT] Static files served from: ${dp}`);
+        console.log(`[BOOT] Health check: http://${host}:${port}/_health`);
+      });
+    },
+  };
+
+  // Execute production startup: migration, verification, then listen
+  try {
+    await executeProductionStartup(startupDeps);
+  } catch (error) {
+    logBootError("migration/startup verification failed", error);
+    // Exit without starting the server; Render will mark deployment as failed
+    process.exit(1);
+  }
 }
