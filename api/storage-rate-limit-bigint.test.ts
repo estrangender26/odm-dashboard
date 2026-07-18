@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock environment before importing the router
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost/test");
@@ -117,5 +117,44 @@ describe("checkRateLimitWithExecutor behavioral tests", () => {
     });
 
     expect(result.allowed).toBe(true);
+  });
+});
+
+describe("rate limit logging sanitization", () => {
+  const mockDb: RateLimitDbExecutor = {
+    execute: vi.fn(),
+  };
+
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("does not log SQL, parameters, client identifiers, or error messages", async () => {
+    const sensitiveError = new Error("SQL error: INSERT INTO...") as any;
+    sensitiveError.code = "23505";
+    sensitiveError.message = "duplicate key; client_id=secret-id";
+    mockDb.execute.mockRejectedValueOnce(sensitiveError);
+
+    await checkRateLimitWithExecutor({
+      clientId: "secret-client-identifier",
+      isTrusted: true,
+      declaredBytes: 157286400,
+      db: mockDb,
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    const logArgs = consoleErrorSpy.mock.calls[0];
+    const logMessage = JSON.stringify(logArgs);
+    
+    expect(logMessage).not.toContain("secret-client");
+    expect(logMessage).not.toContain("INSERT INTO");
+    expect(logMessage).not.toContain("duplicate key");
   });
 });

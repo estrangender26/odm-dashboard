@@ -180,13 +180,13 @@ export async function checkRateLimitWithExecutor(
     result = await db.execute(sql`
       INSERT INTO upload_rate_limits 
         (client_identifier, window_start, intent_count, total_bytes)
-      VALUES (\${clientId}, \${windowStart}, 1, \${declaredBytes}::bigint)
+      VALUES (${clientId}, ${windowStart}, 1, ${declaredBytes}::bigint)
       ON CONFLICT (client_identifier, window_start) 
       DO UPDATE SET 
         intent_count = upload_rate_limits.intent_count + 1,
-        total_bytes = upload_rate_limits.total_bytes + \${declaredBytes}::bigint
-      WHERE upload_rate_limits.intent_count < \${limits.maxIntents}
-        AND upload_rate_limits.total_bytes + \${declaredBytes}::bigint <= \${limits.maxBytes}::bigint
+        total_bytes = upload_rate_limits.total_bytes + ${declaredBytes}::bigint
+      WHERE upload_rate_limits.intent_count < ${limits.maxIntents}
+        AND upload_rate_limits.total_bytes + ${declaredBytes}::bigint <= ${limits.maxBytes}::bigint
       RETURNING intent_count, total_bytes
     `);
   } catch (dbError: any) {
@@ -207,8 +207,8 @@ export async function checkRateLimitWithExecutor(
       const existing = await db.execute(sql`
         SELECT intent_count, total_bytes 
         FROM upload_rate_limits 
-        WHERE client_identifier = \${clientId} 
-        AND window_start = \${windowStart}
+        WHERE client_identifier = ${clientId} 
+        AND window_start = ${windowStart}
       `);
       
       if (existing.length > 0) {
