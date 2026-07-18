@@ -1052,8 +1052,8 @@ app.get("/_health", async (c) => {
     const db = getDb();
     const result = await db.select({ count: sql`count(*)` }).from(sql`mw_inspections`);
     const dbRecords = result[0]?.count || 0;
-
-    return c.json({
+    
+    return c.json({ 
       status: "ok",
       service: "odm-dashboard",
       timestamp: new Date().toISOString(),
@@ -1063,7 +1063,7 @@ app.get("/_health", async (c) => {
       }
     });
   } catch (e: any) {
-    return c.json({
+    return c.json({ 
       status: "degraded",
       service: "odm-dashboard",
       timestamp: new Date().toISOString(),
@@ -1712,7 +1712,7 @@ app.get("/api/migrate-gantt", async (c) => {
     const { getDb } = await import("./queries/connection");
     const db = getDb();
     await db.execute(sql.raw(`
-      ALTER TABLE gantt_tasks
+      ALTER TABLE gantt_tasks 
       ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
       ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
       ADD COLUMN IF NOT EXISTS category VARCHAR(100),
@@ -1884,10 +1884,116 @@ if (env.isProduction) {
   logBootStage("importing @hono/node-server");
   const { serve } = await import("@hono/node-server");
 
-  // Define dependencies for production startup
+  // Startup verification — log dist path before serving
+  logBootStage("static asset verification start");
+  const dp = distPath || findDistPublic();
+  console.log("[BOOT] import.meta.dirname:", import.meta.dirname);
+  console.log("[BOOT] process.cwd():", process.cwd());
+  console.log("[BOOT] Resolved distPath:", dp);
+  console.log("[BOOT] index.html exists:", dp ? fs.existsSync(path.join(dp, "index.html")) : false);
+  if (dp && fs.existsSync(path.join(dp, "assets"))) {
+    console.log("[BOOT] asset files:", fs.readdirSync(path.join(dp, "assets")).join(", "));
+  }
+  logBootStage("static asset verification finish");
+
+  // Debug endpoint - MUST be before serveStaticFiles
+  app.get("/_debug/static", (c) => {
+    return c.json({
+      distPath: dp,
+      cwd: process.cwd(),
+      dirname: import.meta.dirname,
+      indexExists: dp ? fs.existsSync(path.join(dp, "index.html")) : false,
+      assetsExists: dp ? fs.existsSync(path.join(dp, "assets")) : false,
+      assetsFiles: dp && fs.existsSync(path.join(dp, "assets"))
+        ? fs.readdirSync(path.join(dp, "assets")).slice(0, 10)
+        : [],
+    });
+  });
+
+// ═══ AI INSIGHTS: Analyze governance data for a facility ═══
+app.post("/api/governance/ai-insights", async (c) => {
+  try {
+    const { facilitySlug, allStates } = await c.req.json();
+    if (!facilitySlug || !allStates) {
+      return c.json({ error: "facilitySlug and allStates required" }, 400);
+    }
+    const { analyzeGovernance } = await import("./governance-ai");
+    const state = allStates[facilitySlug] || { pp: "", ms: {}, up: {} };
+    const insights = analyzeGovernance(facilitySlug, state, allStates);
+    return c.json({ success: true, insights });
+  } catch (e: any) {
+    console.error("[AI-INSIGHTS] Error:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ═══ AI CHAT: Answer governance questions ═══
+app.post("/api/governance/ai-chat", async (c) => {
+  try {
+    const { question, facilitySlug, allStates } = await c.req.json();
+    if (!question) return c.json({ error: "question required" }, 400);
+
+    const { analyzeGovernance, chatWithAI } = await import("./governance-ai");
+    const slug = facilitySlug || Object.keys(allStates || {})[0] || "default";
+    const state = allStates?.[slug] || { pp: "", ms: {}, up: {} };
+    const insights = analyzeGovernance(slug, state, allStates || {});
+    const response = chatWithAI(question, insights);
+    return c.json({ success: true, response });
+  } catch (e: any) {
+    console.error("[AI-CHAT] Error:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ═══ AI SUMMARY: Quick cross-facility overview ═══
+app.post("/api/governance/ai-summary", async (c) => {
+  try {
+    const { allStates } = await c.req.json();
+    if (!allStates) return c.json({ error: "allStates required" }, 400);
+
+    const { analyzeGovernance } = await import("./governance-ai");
+    const facilities = Object.keys(allStates);
+    const results = facilities.map((slug) => {
+      const insights = analyzeGovernance(slug, allStates[slug], allStates);
+      return {
+        slug,
+        readiness: insights.overallReadiness,
+        risk: insights.riskLevel,
+        completed: insights.milestoneAnalysis.filter((m: any) => m.completed).length,
+        total: insights.milestoneAnalysis.length,
+        hasPPP: insights.hasPPP,
+      };
+    });
+
+    const avgReadiness = results.length > 0
+      ? Math.round(results.reduce((s, r) => s + r.readiness, 0) / results.length)
+      : 0;
+    const criticalCount = results.filter((r) => r.risk === "CRITICAL").length;
+    const readyCount = results.filter((r) => r.readiness >= 80).length;
+
+    return c.json({
+      success: true,
+      summary: {
+        totalFacilities: facilities.length,
+        avgReadiness,
+        criticalCount,
+        readyCount,
+        facilities: results,
+      },
+    });
+  } catch (e: any) {
+    console.error("[AI-SUMMARY] Error:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+  logBootStage("importing static file server");
+  const { serveStaticFiles } = await import("./lib/vite");
+  logBootStage("registering static file server");
+  serveStaticFiles(app);
+
   const port = parseInt(process.env.PORT || "3000", 10);
   const host = process.env.HOST || "0.0.0.0";
-  const dp = distPath || findDistPublic();
 
   const startupDeps = {
     ensureDatabaseReady: async () => {
