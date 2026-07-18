@@ -145,48 +145,112 @@ function getSourceFromModule(module: StorageModule): StorageFileSource {
 }
 
 
-async function checkRateLimit(clientId: string, isTrusted: boolean, declaredBytes: number): Promise<{ allowed: boolean; limit?: string }> {
-  const windowStart = new Date();
+// Rate limit check result type
+type RateLimitResult = 
+  | { allowed: true }
+  | { allowed: false; limit: "count" | "bytes" | "unknown"; isSystemError: false }
+  | { allowed: false; limit: "system"; isSystemError: true };
+
+// Injectable database executor for testability
+export type RateLimitDbExecutor = {
+  execute: (query: any) => Promise<any[]>;
+};
+
+// Internal implementation with injectable executor for testing
+export async function checkRateLimitWithExecutor(
+  deps: {
+    clientId: string;
+    isTrusted: boolean;
+    declaredBytes: number;
+    db: RateLimitDbExecutor;
+    now?: Date;
+  }
+): Promise<RateLimitResult> {
+  const { clientId, isTrusted, declaredBytes, db, now = new Date() } = deps;
+  
+  const windowStart = new Date(now);
   windowStart.setMinutes(0, 0, 0);
   
   const limits = getRateLimitForClient({ isTrusted });
   
   // Atomic upsert that returns empty on over-limit
-  const result = await db.execute(sql`
-    INSERT INTO upload_rate_limits 
-      (client_identifier, window_start, intent_count, total_bytes)
-    VALUES (${clientId}, ${windowStart}, 1, ${declaredBytes})
-    ON CONFLICT (client_identifier, window_start) 
-    DO UPDATE SET 
-      intent_count = upload_rate_limits.intent_count + 1,
-      total_bytes = upload_rate_limits.total_bytes + ${declaredBytes}
-    WHERE upload_rate_limits.intent_count < ${limits.maxIntents}
-      AND upload_rate_limits.total_bytes + ${declaredBytes} <= ${limits.maxBytes}
-    RETURNING intent_count, total_bytes
-  `);
+  // Explicit bigint cast for total_bytes to ensure correct PostgreSQL type handling
+  let result: any[];
+  try {
+    result = await db.execute(sql`
+      INSERT INTO upload_rate_limits 
+        (client_identifier, window_start, intent_count, total_bytes)
+      VALUES (${clientId}, ${windowStart}, 1, ${declaredBytes}::bigint)
+      ON CONFLICT (client_identifier, window_start) 
+      DO UPDATE SET 
+        intent_count = upload_rate_limits.intent_count + 1,
+        total_bytes = upload_rate_limits.total_bytes + ${declaredBytes}::bigint
+      WHERE upload_rate_limits.intent_count < ${limits.maxIntents}
+        AND upload_rate_limits.total_bytes + ${declaredBytes}::bigint <= ${limits.maxBytes}::bigint
+      RETURNING intent_count, total_bytes
+    `);
+  } catch (dbError: any) {
+    // Log only safe metadata - never SQL text, params, client identifiers, or error messages
+    const errorCode = dbError?.cause?.code ?? dbError?.code ?? "UNKNOWN";
+    console.error("[RATE_LIMIT] Database upsert failed", {
+      errorCode,
+      isTrusted,
+      declaredBytesRange: declaredBytes > 100 * 1024 * 1024 ? "large" : "small",
+    });
+    // Fail closed with system error - caller should return 503
+    return { allowed: false, limit: "system", isSystemError: true };
+  }
   
   if (result.length === 0) {
-    const existing = await db.execute(sql`
-      SELECT intent_count, total_bytes 
-      FROM upload_rate_limits 
-      WHERE client_identifier = ${clientId} 
-      AND window_start = ${windowStart}
-    `);
-    
-    if (existing.length > 0) {
-      const row = existing[0];
-      const count = Number(row.intent_count);
-      const bytes = Number(row.total_bytes);
+    // Try to determine if this is actually a rate limit or a system error
+    try {
+      const existing = await db.execute(sql`
+        SELECT intent_count, total_bytes 
+        FROM upload_rate_limits 
+        WHERE client_identifier = ${clientId} 
+        AND window_start = ${windowStart}
+      `);
       
-      if (count >= limits.maxIntents) return { allowed: false, limit: "count" };
-      if (bytes + declaredBytes > limits.maxBytes) return { allowed: false, limit: "bytes" };
+      if (existing.length > 0) {
+        const row = existing[0];
+        const count = Number(row.intent_count);
+        const bytes = Number(row.total_bytes);
+        
+        if (count >= limits.maxIntents) {
+          return { allowed: false, limit: "count", isSystemError: false };
+        }
+        if (bytes + declaredBytes > limits.maxBytes) {
+          return { allowed: false, limit: "bytes", isSystemError: false };
+        }
+      }
+      return { allowed: false, limit: "unknown", isSystemError: false };
+    } catch (selectError: any) {
+      // Follow-up SELECT failed - log minimal info and fail closed
+      const errorCode = selectError?.cause?.code ?? selectError?.code ?? "UNKNOWN";
+      console.error("[RATE_LIMIT] Database select failed", {
+        errorCode,
+        isTrusted,
+      });
+      return { allowed: false, limit: "system", isSystemError: true };
     }
-    return { allowed: false, limit: "unknown" };
   }
   
   return { allowed: true };
 }
 
+// Production wrapper that uses the global db
+async function checkRateLimit(
+  clientId: string, 
+  isTrusted: boolean, 
+  declaredBytes: number
+): Promise<RateLimitResult> {
+  return checkRateLimitWithExecutor({
+    clientId,
+    isTrusted,
+    declaredBytes,
+    db: { execute: (q) => db.execute(q) },
+  });
+}
 async function verifyCapabilityForIntent(intentId: string, providedToken: string): Promise<boolean> {
   const providedHash = hashCapabilityToken(providedToken);
   
@@ -259,6 +323,10 @@ storageRouter.post("/uploads/authorize", async (c) => {
       const client = getClientIdentifier(c.req.raw.headers);
       const rateCheck = await checkRateLimit(client.id, client.isTrusted, input.fileSize);
       if (!rateCheck.allowed) {
+        // System errors return 503, rate limits return 429
+        if (rateCheck.isSystemError) {
+          return c.json({ error: "Upload authorization is temporarily unavailable." }, 503);
+        }
         const message = rateCheck.limit === 'count' 
           ? "Rate limit exceeded: 10 uploads per hour."
           : "Rate limit exceeded: 5 GB per hour.";
