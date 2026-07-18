@@ -1213,7 +1213,7 @@ app.get("/api/debug/uploads", async (c) => {
     `);
     return c.json({ count: rows.length, uploads: rows });
   } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1237,7 +1237,7 @@ app.get("/api/governance/files/:facilitySlug", async (c) => {
     `);
     return c.json({ files: (rows as unknown as { rows: any[] }).rows || rows });
   } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1285,7 +1285,7 @@ app.post("/api/governance/files", async (c) => {
     return c.json({ id: row.id, file: row, success: true });
   } catch (e: any) {
     console.error("[API] POST files ERROR:", e.message);
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1335,16 +1335,14 @@ app.delete("/api/governance/files/:id", async (c) => {
     }
     return c.json({ success: true });
   } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
 
-// GET /api/documents/files/:id/view - stream O&M Manual Library files inline for same-origin previews.
+// GET /api/documents/files/:id/view - stream Ostream O&M Manual Library files inline for same-origin previews.M Manual Library files inline for same-origin previews (public access).
 app.get("/api/documents/files/:id/view", async (c) => {
   try {
-    const unauthorized = await requireFileRequestUser(c);
-    if (unauthorized) return unauthorized;
     const id = Number.parseInt(c.req.param("id"), 10);
     if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
 
@@ -1388,16 +1386,14 @@ app.get("/api/documents/files/:id/view", async (c) => {
     c.header("Content-Length", String(totalSize));
     return c.body(parsed.buffer.buffer.slice(parsed.buffer.byteOffset, parsed.buffer.byteOffset + parsed.buffer.byteLength) as ArrayBuffer);
   } catch (e: any) {
-    console.error("[documents/view] Error:", e.message, e.stack);
-    return c.json({ error: e.message }, 500);
+    console.error("[documents/view] Error:", e.message);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
-// GET /api/documents/files/:id/download - download O&M Manual Library files only when requested.
+// GET /api/documents/files/:id/download - download Odownload O&M Manual Library files only when requested.M Manual Library files only when requested (public access).
 app.get("/api/documents/files/:id/download", async (c) => {
   try {
-    const unauthorized = await requireFileRequestUser(c);
-    if (unauthorized) return unauthorized;
     const id = Number.parseInt(c.req.param("id"), 10);
     if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
 
@@ -1418,7 +1414,7 @@ app.get("/api/documents/files/:id/download", async (c) => {
     return c.body(parsed.buffer.buffer.slice(parsed.buffer.byteOffset, parsed.buffer.byteOffset + parsed.buffer.byteLength) as ArrayBuffer);
   } catch (e: any) {
     console.error("[documents/download] Error:", e.message, e.stack);
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1516,7 +1512,7 @@ app.get("/api/governance/files/:id/view", async (c) => {
     return c.body(buffer as any);
   } catch (e: any) {
     console.error("[VIEW] Error:", e.message, e.stack);
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1572,7 +1568,7 @@ app.get("/api/governance/files/:id/download", async (c) => {
     return c.body(buffer as any);
   } catch (e: any) {
     console.error("[DL] Error:", e.message, e.stack);
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1607,7 +1603,7 @@ app.post("/api/governance/repair-ppp", async (c) => {
     const r = (rows as any).rows || rows;
     return c.json({ success: true, facility: facilitySlug, milestone: milestoneId, pppDate: Array.isArray(r) && r.length > 0 ? r[0].ppp_date : null });
   } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1625,7 +1621,7 @@ app.get("/api/governance/ppp-diag/:facilitySlug/:milestoneId", async (c) => {
     const r = (rows as any).rows || rows;
     return c.json({ facility: facilitySlug, milestone: milestoneId, count: Array.isArray(r) ? r.length : 0, row: Array.isArray(r) && r.length > 0 ? r[0] : null });
   } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1720,7 +1716,7 @@ app.get("/api/migrate-gantt", async (c) => {
     `));
     return c.json({ success: true, message: "Columns added" });
   } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1760,7 +1756,7 @@ app.post("/api/governance/cleanup-dates", async (c) => {
       compCleared: (cdResult as any).rowCount || 0
     });
   } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1836,7 +1832,7 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     return c.json({ success: true, milestoneId, savedPP: sanitizedPP, savedCD: sanitizedCD });
   } catch (e: any) {
     console.error('[SAVE-BE] ERROR:', e.message);
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1923,7 +1919,7 @@ app.post("/api/governance/ai-insights", async (c) => {
     return c.json({ success: true, insights });
   } catch (e: any) {
     console.error("[AI-INSIGHTS] Error:", e.message);
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1941,7 +1937,7 @@ app.post("/api/governance/ai-chat", async (c) => {
     return c.json({ success: true, response });
   } catch (e: any) {
     console.error("[AI-CHAT] Error:", e.message);
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
@@ -1983,7 +1979,7 @@ app.post("/api/governance/ai-summary", async (c) => {
     });
   } catch (e: any) {
     console.error("[AI-SUMMARY] Error:", e.message);
-    return c.json({ error: e.message }, 500);
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 
