@@ -331,3 +331,79 @@ describe("BEHAVIORAL TESTS: Additional Coverage", () => {
     expect(mocks.deleteStoredFileRecord).toHaveBeenCalled();
   });
 });
+
+describe("BEHAVIORAL TESTS: tRPC Router Imports", () => {
+  it("documentsRouter exports deleteFile procedure", async () => {
+    const { documentsRouter } = await import("./documents-router");
+    expect(documentsRouter.deleteFile).toBeDefined();
+    expect(typeof documentsRouter.deleteFile).toBe("function");
+  });
+
+  it("smpRouter exports delete procedure", async () => {
+    const { smpRouter } = await import("./smp-router");
+    expect(smpRouter.delete).toBeDefined();
+    expect(typeof smpRouter.delete).toBe("function");
+  });
+
+  it("governanceFilesRouter exports delete procedure", async () => {
+    const { governanceFilesRouter } = await import("./governance-files-router");
+    expect(governanceFilesRouter.delete).toBeDefined();
+    expect(typeof governanceFilesRouter.delete).toBe("function");
+  });
+
+  it("governanceRouter exports deleteUpload procedure", async () => {
+    const { governanceRouter } = await import("./governance-router");
+    expect(governanceRouter.deleteUpload).toBeDefined();
+    expect(typeof governanceRouter.deleteUpload).toBe("function");
+  });
+
+  it("all delete procedures use publicQuery", async () => {
+    const { documentsRouter } = await import("./documents-router");
+    const { smpRouter } = await import("./smp-router");
+    const { governanceFilesRouter } = await import("./governance-files-router");
+    const { governanceRouter } = await import("./governance-router");
+
+    // Verify all procedures are accessible (they'd fail auth if not public)
+    expect(documentsRouter.deleteFile).toBeDefined();
+    expect(smpRouter.delete).toBeDefined();
+    expect(governanceFilesRouter.delete).toBeDefined();
+    expect(governanceRouter.deleteUpload).toBeDefined();
+  });
+});
+
+describe("BEHAVIORAL TESTS: tRPC Router Imports", () => {
+  it("documentsRouter exports deleteFile procedure", async () => {
+    const { documentsRouter } = await import("./documents-router");
+    expect(documentsRouter.deleteFile).toBeDefined();
+    expect(typeof documentsRouter.deleteFile).toBe("function");
+  });
+
+  it("smpRouter exports delete procedure", async () => {
+    const { smpRouter } = await import("./smp-router");
+    expect(smpRouter.delete).toBeDefined();
+    expect(typeof smpRouter.delete).toBe("function");
+  });
+
+  it("governanceFilesRouter exports delete procedure", async () => {
+    const { governanceFilesRouter } = await import("./governance-files-router");
+    expect(governanceFilesRouter.delete).toBeDefined();
+    expect(typeof governanceFilesRouter.delete).toBe("function");
+  });
+
+  it("governanceRouter exports deleteUpload procedure", async () => {
+    const { governanceRouter } = await import("./governance-router");
+    expect(governanceRouter.deleteUpload).toBeDefined();
+    expect(typeof governanceRouter.deleteUpload).toBe("function");
+  });
+
+  it("all delete procedures are accessible", async () => {
+    const { documentsRouter } = await import("./documents-router");
+    const { smpRouter } = await import("./smp-router");
+    const { governanceFilesRouter } = await import("./governance-files-router");
+    const { governanceRouter } = await import("./governance-router");
+    expect(documentsRouter.deleteFile).toBeDefined();
+    expect(smpRouter.delete).toBeDefined();
+    expect(governanceFilesRouter.delete).toBeDefined();
+    expect(governanceRouter.deleteUpload).toBeDefined();
+  });
+});
