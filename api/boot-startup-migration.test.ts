@@ -1,88 +1,171 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { executeProductionStartup } from "./production-startup";
 
 /**
- * Startup Migration Sequencing Tests
+ * Production Startup Migration Sequencing Tests
  *
- * These tests verify that production startup:
+ * These tests verify that executeProductionStartup:
  * 1. Awaits database migration before opening the HTTP listener
  * 2. Runs post-migration verification before serving traffic
  * 3. Fails closed (exits) if migration or verification fails
- * 4. Only calls serve() after successful migration
+ * 4. Only calls startListener() after successful migration
  */
 
-describe("production startup migration sequencing", () => {
+describe("executeProductionStartup", () => {
+  const mockExit = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Mock process.exit to prevent actual exit during tests
+    vi.spyOn(process, "exit").mockImplementation(mockExit as any);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("awaits migration before calling serve()", async () => {
+  it("calls dependencies in correct order: migration, verification, listener", async () => {
     const order: string[] = [];
 
-    await Promise.resolve().then(() => order.push("migration"));
-    await Promise.resolve().then(() => order.push("verification"));
-    await Promise.resolve().then(() => order.push("serve"));
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockImplementation(async () => {
+        order.push("migration");
+      }),
+      verifyDatabase: vi.fn().mockImplementation(async () => {
+        order.push("verification");
+      }),
+      startListener: vi.fn().mockImplementation(() => {
+        order.push("listener");
+      }),
+      logBootStage: vi.fn(),
+      logBootError: vi.fn(),
+    };
 
-    expect(order).toEqual(["migration", "verification", "serve"]);
+    await executeProductionStartup(deps);
+
+    expect(order).toEqual(["migration", "verification", "listener"]);
+    expect(deps.ensureDatabaseReady).toHaveBeenCalledTimes(1);
+    expect(deps.verifyDatabase).toHaveBeenCalledTimes(1);
+    expect(deps.startListener).toHaveBeenCalledTimes(1);
   });
 
-  it("does not call serve() when migration fails", async () => {
-    let serveCalled = false;
-    let exitCalled = false;
+  it("does not call startListener when migration fails", async () => {
+    const migrationError = new Error("Connection refused");
 
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockRejectedValue(migrationError),
+      verifyDatabase: vi.fn(),
+      startListener: vi.fn(),
+      logBootStage: vi.fn(),
+      logBootError: vi.fn(),
+    };
+
+    // Wrap in try/catch since process.exit throws in tests
     try {
-      await Promise.reject(new Error("Migration failed"));
-      serveCalled = true;
+      await executeProductionStartup(deps);
     } catch {
-      exitCalled = true;
+      // Expected - process.exit throws
     }
 
-    expect(exitCalled).toBe(true);
-    expect(serveCalled).toBe(false);
+    expect(deps.ensureDatabaseReady).toHaveBeenCalledTimes(1);
+    expect(deps.verifyDatabase).not.toHaveBeenCalled();
+    expect(deps.startListener).not.toHaveBeenCalled();
+    expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("does not call serve() when verification fails", async () => {
-    let serveCalled = false;
-    let exitCalled = false;
+  it("does not call startListener when verification fails", async () => {
+    const verificationError = new Error("Table not found");
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
+      verifyDatabase: vi.fn().mockRejectedValue(verificationError),
+      startListener: vi.fn(),
+      logBootStage: vi.fn(),
+      logBootError: vi.fn(),
+    };
 
     try {
-      await Promise.resolve(); // migration succeeds
-      await Promise.reject(new Error("Verification failed")); // verification fails
-      serveCalled = true;
+      await executeProductionStartup(deps);
     } catch {
-      exitCalled = true;
+      // Expected - process.exit throws
     }
 
-    expect(exitCalled).toBe(true);
-    expect(serveCalled).toBe(false);
+    expect(deps.ensureDatabaseReady).toHaveBeenCalledTimes(1);
+    expect(deps.verifyDatabase).toHaveBeenCalledTimes(1);
+    expect(deps.startListener).not.toHaveBeenCalled();
+    expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("calls serve() exactly once after successful migration", async () => {
-    let serveCallCount = 0;
+  it("calls startListener exactly once after successful migration", async () => {
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
+      verifyDatabase: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
+      logBootStage: vi.fn(),
+      logBootError: vi.fn(),
+    };
 
-    await Promise.resolve(); // migration
-    await Promise.resolve(); // verification
-    serveCallCount++;
+    await executeProductionStartup(deps);
 
-    expect(serveCallCount).toBe(1);
+    expect(deps.startListener).toHaveBeenCalledTimes(1);
+    expect(mockExit).not.toHaveBeenCalled();
   });
 
-  it("propagates migration errors to prevent server start", async () => {
-    const migrationError = new Error("Database unreachable");
-    let caughtError: Error | null = null;
-    let serveStarted = false;
+  it("logs boot stages during startup sequence", async () => {
+    const logStages: string[] = [];
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
+      verifyDatabase: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
+      logBootStage: vi.fn((msg: string) => logStages.push(msg)),
+      logBootError: vi.fn(),
+    };
+
+    await executeProductionStartup(deps);
+
+    expect(logStages).toContain("migration start");
+    expect(logStages).toContain("migration finish");
+    expect(logStages).toContain("post-migration verification start");
+    expect(logStages).toContain("post-migration verification finish");
+  });
+
+  it("logs error and exits when migration fails", async () => {
+    const logErrors: Array<{ stage: string; error: unknown }> = [];
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockRejectedValue(new Error("DB down")),
+      verifyDatabase: vi.fn(),
+      startListener: vi.fn(),
+      logBootStage: vi.fn(),
+      logBootError: vi.fn((stage: string, error: unknown) => {
+        logErrors.push({ stage, error });
+      }),
+    };
 
     try {
-      await Promise.reject(migrationError);
-      serveStarted = true;
-    } catch (error) {
-      caughtError = error as Error;
+      await executeProductionStartup(deps);
+    } catch {
+      // Expected
     }
 
-    expect(caughtError).toBe(migrationError);
-    expect(serveStarted).toBe(false);
+    expect(logErrors.length).toBeGreaterThan(0);
+    expect(logErrors[0].stage).toBe("migration/startup verification failed");
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("uses default console logging when log functions not provided", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
+      verifyDatabase: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn(),
+    };
+
+    await executeProductionStartup(deps);
+
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 });
