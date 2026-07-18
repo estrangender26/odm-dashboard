@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 // Mock environment before importing
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost/test");
@@ -9,6 +10,8 @@ vi.stubEnv("KIMI_OPEN_URL", "https://open.example.test");
 
 // Import after env setup
 const { checkRateLimitWithExecutor } = await import("./storage-router");
+
+const dialect = new PgDialect();
 
 describe("rate limit compiled SQL verification", () => {
   const capturedQueries: any[] = [];
@@ -25,7 +28,7 @@ describe("rate limit compiled SQL verification", () => {
     capturedQueries.length = 0;
   });
 
-  it("generates SQL with proper PostgreSQL placeholders and bigint casts", async () => {
+  it("compiles SQL with PostgreSQL placeholders and bigint casts", async () => {
     const fixedDate = new Date("2024-01-15T14:30:45Z");
     
     await checkRateLimitWithExecutor({
@@ -39,16 +42,37 @@ describe("rate limit compiled SQL verification", () => {
     expect(capturedQueries).toHaveLength(1);
     const query = capturedQueries[0];
     
-    expect(query).toBeDefined();
-    expect(query.constructor).toBeDefined();
+    // Compile the SQL using Drizzle PostgreSQL dialect
+    const compiled = dialect.sqlToQuery(query);
     
-    const queryStr = JSON.stringify(query);
+    // Verify SQL contains PostgreSQL placeholders
+    expect(compiled.sql).toContain("\$1");
+    expect(compiled.sql).toContain("\$2");
+    expect(compiled.sql).toContain("\$3");
     
-    expect(queryStr).not.toContain("${clientId}");
-    expect(queryStr).not.toContain("${declaredBytes}");
-    expect(queryStr).not.toContain("${windowStart}");
-    expect(queryStr).not.toContain("${limits.maxIntents}");
-    expect(queryStr).not.toContain("${limits.maxBytes}");
-    expect(queryStr).not.toContain("\\${");
+    // Verify bigint casts in correct positions
+    expect(compiled.sql).toContain("\$3::bigint");
+    expect(compiled.sql).toContain("\$4::bigint");
+    expect(compiled.sql).toContain("\$6::bigint");
+    expect(compiled.sql).toContain("\$7::bigint");
+    
+    // Verify params array contains expected values
+    expect(compiled.params).toHaveLength(7);
+    expect(compiled.params[0]).toBe("test-client-123");
+    expect(compiled.params[1]).toBeInstanceOf(Date);
+    expect(compiled.params[2]).toBe(157286400);
+    expect(compiled.params[3]).toBe(157286400);
+    expect(compiled.params[4]).toBe(10);
+    expect(compiled.params[5]).toBe(157286400);
+    expect(compiled.params[6]).toBe(5368709120);
+    
+    // Verify no literal template interpolations (TypeScript source code in compiled SQL)
+    expect(compiled.sql).not.toContain("clientId");
+    expect(compiled.sql).not.toContain("declaredBytes");
+    expect(compiled.sql).not.toContain("windowStart");
+    expect(compiled.sql).not.toContain("\${limits");
+    
+    // Verify no backslash-escaped interpolations
+    expect(compiled.sql).not.toContain("\\\${");
   });
 });
