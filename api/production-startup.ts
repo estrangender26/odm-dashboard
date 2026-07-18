@@ -1,5 +1,3 @@
-import type { sql } from "drizzle-orm";
-
 /**
  * Dependencies for production startup
  */
@@ -8,51 +6,30 @@ export interface ProductionStartupDependencies {
   ensureDatabaseReady: () => Promise<void>;
   /** Verifies post-migration schema is accessible */
   verifyDatabase: () => Promise<void>;
-  /** Starts the HTTP listener */
-  startListener: () => void;
-  /** Logs boot stage messages */
-  logBootStage?: (message: string, details?: Record<string, unknown>) => void;
-  /** Logs boot errors */
-  logBootError?: (stage: string, error: unknown) => void;
+  /** Starts the HTTP listener - may be async */
+  startListener: () => Promise<void> | void;
 }
 
 /**
- * Executes production startup sequence with fail-closed behavior.
+ * Executes production startup sequence.
  *
  * Sequence:
  * 1. Await database migration
  * 2. Await post-migration verification
- * 3. Start listener only if both succeed
+ * 3. Start listener only after both succeed
  *
- * If migration or verification fails:
- * - Error is logged
- * - process.exit(1) is called
- * - Listener is never started
- *
- * This prevents serving traffic before the schema is verified.
+ * Any error (migration, verification, or listener) propagates to the caller.
+ * The caller (boot.ts) handles error logging and process termination.
  */
 export async function executeProductionStartup(
   deps: ProductionStartupDependencies
 ): Promise<void> {
-  const logStage = deps.logBootStage ?? ((msg: string) => console.log(msg));
-  const logError = deps.logBootError ?? ((stage: string, err: unknown) =>
-    console.error(`[${stage}]`, err)
-  );
+  // Step 1: Run database migrations
+  await deps.ensureDatabaseReady();
 
-  try {
-    logStage("migration start");
-    await deps.ensureDatabaseReady();
-    logStage("migration finish");
+  // Step 2: Verify post-migration schema is accessible
+  await deps.verifyDatabase();
 
-    logStage("post-migration verification start");
-    await deps.verifyDatabase();
-    logStage("post-migration verification finish");
-
-    // Only start listener after successful migration and verification
-    deps.startListener();
-  } catch (error) {
-    logError("migration/startup verification failed", error);
-    // Exit without starting the server; Render will mark deployment as failed
-    process.exit(1);
-  }
+  // Step 3: Start the HTTP listener only after successful migration and verification
+  await deps.startListener();
 }

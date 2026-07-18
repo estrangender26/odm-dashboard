@@ -4,27 +4,132 @@ import { executeProductionStartup } from "./production-startup";
 /**
  * Production Startup Migration Sequencing Tests
  *
- * These tests verify that executeProductionStartup:
- * 1. Awaits database migration before opening the HTTP listener
- * 2. Runs post-migration verification before serving traffic
- * 3. Fails closed (exits) if migration or verification fails
- * 4. Only calls startListener() after successful migration
+ * Uses deferred promises to prove exact sequencing and blocking behavior.
  */
 
 describe("executeProductionStartup", () => {
-  const mockExit = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mock process.exit to prevent actual exit during tests
-    vi.spyOn(process, "exit").mockImplementation(mockExit as any);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("calls dependencies in correct order: migration, verification, listener", async () => {
+  it("blocks listener while migration is pending", async () => {
+    const { promise: migrationPromise, resolve: resolveMigration } = createDeferred<void>();
+    const { promise: verificationPromise, resolve: resolveVerification } = createDeferred<void>();
+    const { promise: listenerPromise, resolve: resolveListener } = createDeferred<void>();
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockReturnValue(migrationPromise),
+      verifyDatabase: vi.fn().mockReturnValue(verificationPromise),
+      startListener: vi.fn().mockReturnValue(listenerPromise),
+    };
+
+    const startupPromise = executeProductionStartup(deps);
+
+    // Migration is still pending - listener should not be called
+    expect(deps.ensureDatabaseReady).toHaveBeenCalledTimes(1);
+    expect(deps.verifyDatabase).not.toHaveBeenCalled();
+    expect(deps.startListener).not.toHaveBeenCalled();
+
+    resolveMigration();
+    await tick();
+
+    // Now verification is running
+    expect(deps.verifyDatabase).toHaveBeenCalledTimes(1);
+    expect(deps.startListener).not.toHaveBeenCalled();
+
+    resolveVerification();
+    await tick();
+
+    // Now listener should be called
+    expect(deps.startListener).toHaveBeenCalledTimes(1);
+
+    resolveListener();
+    await startupPromise;
+  });
+
+  it("blocks listener while verification is pending", async () => {
+    const { promise: migrationPromise, resolve: resolveMigration } = createDeferred<void>();
+    const { promise: verificationPromise, resolve: resolveVerification } = createDeferred<void>();
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockReturnValue(migrationPromise),
+      verifyDatabase: vi.fn().mockReturnValue(verificationPromise),
+      startListener: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const startupPromise = executeProductionStartup(deps);
+
+    resolveMigration();
+    await tick();
+
+    // Verification is still pending - listener should not be called
+    expect(deps.verifyDatabase).toHaveBeenCalledTimes(1);
+    expect(deps.startListener).not.toHaveBeenCalled();
+
+    resolveVerification();
+    await startupPromise;
+
+    // Now listener should be called
+    expect(deps.startListener).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts listener once after both migration and verification resolve", async () => {
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
+      verifyDatabase: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await executeProductionStartup(deps);
+
+    expect(deps.startListener).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects with migration error when migration fails", async () => {
+    const migrationError = new Error("Connection refused");
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockRejectedValue(migrationError),
+      verifyDatabase: vi.fn(),
+      startListener: vi.fn(),
+    };
+
+    await expect(executeProductionStartup(deps)).rejects.toBe(migrationError);
+
+    expect(deps.verifyDatabase).not.toHaveBeenCalled();
+    expect(deps.startListener).not.toHaveBeenCalled();
+  });
+
+  it("rejects with verification error when verification fails", async () => {
+    const verificationError = new Error("Table not found");
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
+      verifyDatabase: vi.fn().mockRejectedValue(verificationError),
+      startListener: vi.fn(),
+    };
+
+    await expect(executeProductionStartup(deps)).rejects.toBe(verificationError);
+    expect(deps.startListener).not.toHaveBeenCalled();
+  });
+
+  it("rejects with listener error when listener fails", async () => {
+    const listenerError = new Error("Port already in use");
+
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
+      verifyDatabase: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn().mockRejectedValue(listenerError),
+    };
+
+    await expect(executeProductionStartup(deps)).rejects.toBe(listenerError);
+  });
+
+  it("calls dependencies in exact order: migration -> verification -> listener", async () => {
     const order: string[] = [];
 
     const deps = {
@@ -34,138 +139,51 @@ describe("executeProductionStartup", () => {
       verifyDatabase: vi.fn().mockImplementation(async () => {
         order.push("verification");
       }),
-      startListener: vi.fn().mockImplementation(() => {
+      startListener: vi.fn().mockImplementation(async () => {
         order.push("listener");
       }),
-      logBootStage: vi.fn(),
-      logBootError: vi.fn(),
     };
 
     await executeProductionStartup(deps);
 
     expect(order).toEqual(["migration", "verification", "listener"]);
+  });
+
+  it("calls every dependency exactly once", async () => {
+    const deps = {
+      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
+      verifyDatabase: vi.fn().mockResolvedValue(undefined),
+      startListener: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await executeProductionStartup(deps);
+
     expect(deps.ensureDatabaseReady).toHaveBeenCalledTimes(1);
     expect(deps.verifyDatabase).toHaveBeenCalledTimes(1);
     expect(deps.startListener).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not call startListener when migration fails", async () => {
-    const migrationError = new Error("Connection refused");
-
-    const deps = {
-      ensureDatabaseReady: vi.fn().mockRejectedValue(migrationError),
-      verifyDatabase: vi.fn(),
-      startListener: vi.fn(),
-      logBootStage: vi.fn(),
-      logBootError: vi.fn(),
-    };
-
-    // Wrap in try/catch since process.exit throws in tests
-    try {
-      await executeProductionStartup(deps);
-    } catch {
-      // Expected - process.exit throws
-    }
-
-    expect(deps.ensureDatabaseReady).toHaveBeenCalledTimes(1);
-    expect(deps.verifyDatabase).not.toHaveBeenCalled();
-    expect(deps.startListener).not.toHaveBeenCalled();
-    expect(mockExit).toHaveBeenCalledWith(1);
-  });
-
-  it("does not call startListener when verification fails", async () => {
-    const verificationError = new Error("Table not found");
-
-    const deps = {
-      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
-      verifyDatabase: vi.fn().mockRejectedValue(verificationError),
-      startListener: vi.fn(),
-      logBootStage: vi.fn(),
-      logBootError: vi.fn(),
-    };
-
-    try {
-      await executeProductionStartup(deps);
-    } catch {
-      // Expected - process.exit throws
-    }
-
-    expect(deps.ensureDatabaseReady).toHaveBeenCalledTimes(1);
-    expect(deps.verifyDatabase).toHaveBeenCalledTimes(1);
-    expect(deps.startListener).not.toHaveBeenCalled();
-    expect(mockExit).toHaveBeenCalledWith(1);
-  });
-
-  it("calls startListener exactly once after successful migration", async () => {
-    const deps = {
-      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
-      verifyDatabase: vi.fn().mockResolvedValue(undefined),
-      startListener: vi.fn(),
-      logBootStage: vi.fn(),
-      logBootError: vi.fn(),
-    };
-
-    await executeProductionStartup(deps);
-
-    expect(deps.startListener).toHaveBeenCalledTimes(1);
-    expect(mockExit).not.toHaveBeenCalled();
-  });
-
-  it("logs boot stages during startup sequence", async () => {
-    const logStages: string[] = [];
-
-    const deps = {
-      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
-      verifyDatabase: vi.fn().mockResolvedValue(undefined),
-      startListener: vi.fn(),
-      logBootStage: vi.fn((msg: string) => logStages.push(msg)),
-      logBootError: vi.fn(),
-    };
-
-    await executeProductionStartup(deps);
-
-    expect(logStages).toContain("migration start");
-    expect(logStages).toContain("migration finish");
-    expect(logStages).toContain("post-migration verification start");
-    expect(logStages).toContain("post-migration verification finish");
-  });
-
-  it("logs error and exits when migration fails", async () => {
-    const logErrors: Array<{ stage: string; error: unknown }> = [];
-
-    const deps = {
-      ensureDatabaseReady: vi.fn().mockRejectedValue(new Error("DB down")),
-      verifyDatabase: vi.fn(),
-      startListener: vi.fn(),
-      logBootStage: vi.fn(),
-      logBootError: vi.fn((stage: string, error: unknown) => {
-        logErrors.push({ stage, error });
-      }),
-    };
-
-    try {
-      await executeProductionStartup(deps);
-    } catch {
-      // Expected
-    }
-
-    expect(logErrors.length).toBeGreaterThan(0);
-    expect(logErrors[0].stage).toBe("migration/startup verification failed");
-    expect(mockExit).toHaveBeenCalledWith(1);
-  });
-
-  it("uses default console logging when log functions not provided", async () => {
-    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-
-    const deps = {
-      ensureDatabaseReady: vi.fn().mockResolvedValue(undefined),
-      verifyDatabase: vi.fn().mockResolvedValue(undefined),
-      startListener: vi.fn(),
-    };
-
-    await executeProductionStartup(deps);
-
-    expect(consoleSpy).toHaveBeenCalled();
-    consoleSpy.mockRestore();
   });
 });
+
+// Helper to create deferred promises for testing async sequencing
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+}
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
+// Helper to yield control to the event loop
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
