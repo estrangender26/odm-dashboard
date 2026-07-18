@@ -152,18 +152,33 @@ async function checkRateLimit(clientId: string, isTrusted: boolean, declaredByte
   const limits = getRateLimitForClient({ isTrusted });
   
   // Atomic upsert that returns empty on over-limit
-  const result = await db.execute(sql`
-    INSERT INTO upload_rate_limits 
-      (client_identifier, window_start, intent_count, total_bytes)
-    VALUES (${clientId}, ${windowStart}, 1, ${declaredBytes})
+  // Explicit bigint cast for total_bytes to ensure correct PostgreSQL type handling
+  let result: any[];
+  try {
+    result = await db.execute(sql`
+      INSERT INTO upload_rate_limits 
+        (client_identifier, window_start, intent_count, total_bytes)
+      VALUES (${clientId}, ${windowStart}, 1, ${declaredBytes}::bigint)
     ON CONFLICT (client_identifier, window_start) 
     DO UPDATE SET 
       intent_count = upload_rate_limits.intent_count + 1,
-      total_bytes = upload_rate_limits.total_bytes + ${declaredBytes}
+      total_bytes = upload_rate_limits.total_bytes + ${declaredBytes}::bigint
     WHERE upload_rate_limits.intent_count < ${limits.maxIntents}
-      AND upload_rate_limits.total_bytes + ${declaredBytes} <= ${limits.maxBytes}
+      AND upload_rate_limits.total_bytes + ${declaredBytes}::bigint <= ${limits.maxBytes}::bigint
     RETURNING intent_count, total_bytes
   `);
+  
+  } catch (dbError: any) {
+    // Log sanitized error without exposing SQL details or client identifiers
+    console.error("[RATE_LIMIT] Database upsert failed", {
+      errorCode: dbError.code,
+      errorMessage: dbError.message?.replace(/\\$\d+/g, "?"),
+      isTrusted,
+      declaredBytesRange: declaredBytes > 100 * 1024 * 1024 ? "large" : "small",
+    });
+    // Fail closed: treat as rate limit exceeded
+    return { allowed: false, limit: "system" };
+  }
   
   if (result.length === 0) {
     const existing = await db.execute(sql`
