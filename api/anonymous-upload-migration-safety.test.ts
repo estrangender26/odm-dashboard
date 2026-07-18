@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 
 const journalJson = readFileSync("./db/migrations/meta/_journal.json", "utf8");
 const journal = JSON.parse(journalJson);
@@ -17,6 +16,15 @@ const rollbackSql = readFileSync(
 
 describe("anonymous upload migration safety", () => {
   describe("journal registration", () => {
+    it("has migration 0011 registered in _journal.json", () => {
+      const entry = journal.entries.find(
+        (e: any) => e.tag === "0011_supabase_storage_metadata"
+      );
+      expect(entry).toBeDefined();
+      expect(entry.idx).toBe(11);
+      expect(entry.version).toBe("7");
+    });
+
     it("has migration 0012 registered in _journal.json", () => {
       const entry = journal.entries.find(
         (e: any) => e.tag === "0012_anonymous_upload_capability"
@@ -28,13 +36,41 @@ describe("anonymous upload migration safety", () => {
 
     it("has migration 0012 ordered immediately after 0011", () => {
       const entries = journal.entries;
-      const idx11 = entries.findIndex((e: any) => e.idx === 11);
-      const idx12 = entries.findIndex((e: any) => e.idx === 12);
-      expect(idx11).toBeGreaterThanOrEqual(0);
-      expect(idx12).toBeGreaterThanOrEqual(0);
-      expect(idx12).toBe(idx11 + 1);
-      expect(entries[idx11].tag).toBe("0011_supabase_storage_metadata");
-      expect(entries[idx12].tag).toBe("0012_anonymous_upload_capability");
+      const entry0011 = entries.find((e: any) => e.idx === 11);
+      const entry0012 = entries.find((e: any) => e.idx === 12);
+      expect(entry0011).toBeDefined();
+      expect(entry0012).toBeDefined();
+      expect(entry0012.idx).toBe(entry0011.idx + 1);
+      expect(entry0011.tag).toBe("0011_supabase_storage_metadata");
+      expect(entry0012.tag).toBe("0012_anonymous_upload_capability");
+    });
+
+    it("has 0012 timestamp strictly greater than 0011 timestamp", () => {
+      const entries = journal.entries;
+      const entry0011 = entries.find((e: any) => e.idx === 11);
+      const entry0012 = entries.find((e: any) => e.idx === 12);
+      expect(entry0011).toBeDefined();
+      expect(entry0012).toBeDefined();
+      expect(entry0012.when).toBeGreaterThan(entry0011.when);
+    });
+
+    it("has monotonically increasing timestamps across all entries", () => {
+      const entries = journal.entries;
+      for (let i = 1; i < entries.length; i++) {
+        expect(entries[i].when).toBeGreaterThanOrEqual(entries[i - 1].when);
+      }
+    });
+
+    it("has unique migration indices", () => {
+      const indices = journal.entries.map((e: any) => e.idx);
+      const uniqueIndices = new Set(indices);
+      expect(uniqueIndices.size).toBe(indices.length);
+    });
+
+    it("has unique migration tags", () => {
+      const tags = journal.entries.map((e: any) => e.tag);
+      const uniqueTags = new Set(tags);
+      expect(uniqueTags.size).toBe(tags.length);
     });
 
     it("does not have rollback migration in _journal.json", () => {
