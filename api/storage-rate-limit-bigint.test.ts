@@ -1,45 +1,121 @@
-import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-describe("rate limit bigint parameter handling", () => {
-  const routerPath = join(process.cwd(), "api/storage-router.ts");
-  const source = readFileSync(routerPath, "utf-8");
-  
-  it("has explicit ::bigint cast for declaredBytes in VALUES clause", () => {
-    expect(source).toContain("${declaredBytes}::bigint)");
+// Mock environment before importing the router
+vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost/test");
+vi.stubEnv("APP_ID", "test-app");
+vi.stubEnv("APP_SECRET", "test-secret");
+vi.stubEnv("KIMI_AUTH_URL", "https://auth.example.test");
+vi.stubEnv("KIMI_OPEN_URL", "https://open.example.test");
+
+// Import after env setup
+const { checkRateLimitWithExecutor } = await import("./storage-router");
+
+type RateLimitDbExecutor = {
+  execute: (query: any) => Promise<any[]>;
+};
+
+describe("checkRateLimitWithExecutor behavioral tests", () => {
+  const mockDb: RateLimitDbExecutor = {
+    execute: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
   });
-  
-  it("has explicit ::bigint cast for declaredBytes in total_bytes update", () => {
-    expect(source).toContain("total_bytes + ${declaredBytes}::bigint");
+
+  it("allows upload when database returns a row", async () => {
+    mockDb.execute.mockResolvedValueOnce([{ intent_count: 1, total_bytes: 157286400 }]);
+
+    const result = await checkRateLimitWithExecutor({
+      clientId: "test-client",
+      isTrusted: true,
+      declaredBytes: 157286400,
+      db: mockDb,
+    });
+
+    expect(result.allowed).toBe(true);
   });
-  
-  it("has explicit ::bigint cast for declaredBytes in WHERE clause comparison", () => {
-    expect(source).toContain("${declaredBytes}::bigint <= ${limits.maxBytes}::bigint");
+
+  it("returns count limit when intent_count exceeds max", async () => {
+    mockDb.execute
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ intent_count: 10, total_bytes: 1000000 }]);
+
+    const result = await checkRateLimitWithExecutor({
+      clientId: "test-client",
+      isTrusted: true,
+      declaredBytes: 157286400,
+      db: mockDb,
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.limit).toBe("count");
+    expect((result as any).isSystemError).toBe(false);
   });
-  
-  it("has try-catch wrapper for database upsert", () => {
-    const checkRateLimitFn = source.slice(
-      source.indexOf("async function checkRateLimit"),
-      source.indexOf("async function verifyCapabilityForIntent")
-    );
-    expect(checkRateLimitFn).toContain("try {");
-    expect(checkRateLimitFn).toContain(" catch (dbError: any) {");
+
+  it("returns bytes limit when total_bytes would exceed max", async () => {
+    // Trusted limit is 5GB (5368709120 bytes)
+    // Existing: 5GB - 100MB + 1 = already near limit
+    // Adding another 157MB would exceed
+    mockDb.execute
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ intent_count: 1, total_bytes: 5368709120 - 100000000 + 1 }]);
+
+    const result = await checkRateLimitWithExecutor({
+      clientId: "test-client",
+      isTrusted: true,
+      declaredBytes: 157286400,
+      db: mockDb,
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.limit).toBe("bytes");
   });
-  
-  it("has sanitized error logging without SQL details", () => {
-    const checkRateLimitFn = source.slice(
-      source.indexOf("async function checkRateLimit"),
-      source.indexOf("async function verifyCapabilityForIntent")
-    );
-    expect(checkRateLimitFn).toContain("[RATE_LIMIT] Database upsert failed");
+
+  it("returns system error when database upsert fails", async () => {
+    const dbError = new Error("Connection refused") as any;
+    dbError.code = "ECONNREFUSED";
+    mockDb.execute.mockRejectedValueOnce(dbError);
+
+    const result = await checkRateLimitWithExecutor({
+      clientId: "test-client",
+      isTrusted: true,
+      declaredBytes: 157286400,
+      db: mockDb,
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.limit).toBe("system");
+    expect((result as any).isSystemError).toBe(true);
   });
-  
-  it("fails closed when database upsert fails", () => {
-    const checkRateLimitFn = source.slice(
-      source.indexOf("async function checkRateLimit"),
-      source.indexOf("async function verifyCapabilityForIntent")
-    );
-    expect(checkRateLimitFn).toContain('{ allowed: false, limit: "system" }');
+
+  it("returns system error when follow-up SELECT fails", async () => {
+    mockDb.execute
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("SELECT failed"));
+
+    const result = await checkRateLimitWithExecutor({
+      clientId: "test-client",
+      isTrusted: true,
+      declaredBytes: 157286400,
+      db: mockDb,
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.limit).toBe("system");
+    expect((result as any).isSystemError).toBe(true);
+  });
+
+  it("uses untrusted limits when isTrusted is false", async () => {
+    mockDb.execute.mockResolvedValueOnce([{ intent_count: 1, total_bytes: 100 }]);
+
+    const result = await checkRateLimitWithExecutor({
+      clientId: "test-client",
+      isTrusted: false,
+      declaredBytes: 100,
+      db: mockDb,
+    });
+
+    expect(result.allowed).toBe(true);
   });
 });
