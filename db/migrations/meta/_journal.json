@@ -85,6 +85,13 @@
       "when": 1784073600000,
       "tag": "0011_supabase_storage_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1752838800000,
+      "tag": "0012_anonymous_upload_capability",
+      "breakpoints": true
     }
   ]
 }
