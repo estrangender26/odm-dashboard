@@ -3,15 +3,13 @@
  * Legacy Storage Migration CLI - Production Safe
  *
  * Dry-run by default. Execute mode requires --execute --confirm-production.
+ * Refactored for dependency injection with MigrationContext.
  */
 
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, rm, open } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, and, inArray, sql } from "drizzle-orm";
-import { db } from "../api/queries/connection";
 import {
   docFiles,
   governanceFiles,
@@ -21,7 +19,7 @@ import {
   storageUploadIntents,
   type LegacyStorageMigrationState,
 } from "../db/schema";
-import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "../api/supabase-storage";
+import { getSupabaseStorageConfig } from "../api/supabase-storage";
 import { STORAGE_BUCKET_BY_MODULE, TUS_CHUNK_SIZE_BYTES, type StorageFileSource } from "@contracts/storage";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -46,6 +44,20 @@ import {
   HEARTBEAT_INTERVAL_MS,
 } from "./lib/legacy-storage-migrator-core";
 
+import type {
+  MigrationContext,
+  MigrationOptions,
+  ProcessingResult,
+  SourceFingerprint,
+  DecodedPayload,
+} from "./lib/migrator-adapters";
+
+import { createProductionContext } from "./lib/migrator-adapters-production";
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
 const SOURCE_TABLES = {
   doc_files: docFiles,
   governance_files: governanceFiles,
@@ -66,19 +78,6 @@ const LEGACY_COLUMNS: Record<StorageFileSource, string> = {
   governance_uploads: "file_url",
   smp_documents: "file_data",
 };
-
-const WORKER_ID = randomUUID();
-
-interface MigrationOptions {
-  execute: boolean;
-  confirmProduction: boolean;
-  sources?: StorageFileSource[];
-  recordIds?: number[];
-  limit?: number;
-  batchSize?: number;
-}
-
-type ProcessingResult = { success: boolean; state?: string; error?: string; skipped?: boolean };
 
 // ============================================================================
 // CLI
@@ -137,7 +136,7 @@ Options:
   --execute              Enable write operations
   --confirm-production   Required for execute mode
   --sources <list>       Comma-separated sources
-  --ids <list>           Comma-separated record IDs
+  --ids <list>          Comma-separated record IDs
   --limit <n>            Maximum records to process
   --batch-size <n>       Records per batch (default: 1)
   --orphan-audit         Run orphan audit (read-only)
@@ -146,64 +145,89 @@ Options:
 }
 
 // ============================================================================
-// DATABASE
+// DATABASE HELPERS (context-aware)
 // ============================================================================
 
 async function fetchEligibleRecords(
   source: StorageFileSource,
+  ctx: MigrationContext,
   recordIds?: number[],
   limit?: number
-) {
+): Promise<Array<{ id: number; fileName: string | null; fileType: string | null; legacyDataLength: number }>> {
   const table = SOURCE_TABLES[source];
   const legacyColumn = LEGACY_COLUMNS[source];
 
-  let query = db
+  let query = ctx.db
     .select({
-      id: table.id,
-      fileName: source === "governance_uploads" ? sql<string | null>`${sql.raw("file_name")}` : table.fileName,
-      fileType: source === "governance_uploads" ? sql<string | null>`null` : table.fileType,
+      id: (table as any).id,
+      fileName: source === "governance_uploads" ? sql<string | null>`${sql.raw("file_name")}` : (table as any).fileName,
+      fileType: source === "governance_uploads" ? sql<string | null>`null` : (table as any).fileType,
       legacyDataLength: sql<number>`length(${sql.raw(legacyColumn)})`,
     })
     .from(table)
     .where(and(
-      sql`length(${sql.raw(legacyColumn)}) > 0`,
-      sql`storage_path IS NULL`,
-      recordIds?.length ? inArray(table.id, recordIds) : undefined
+      sql`${sql.raw(legacyColumn)} IS NOT NULL`,
+      sql`storage_path IS NULL`
     ));
 
-  if (limit) query = query.limit(limit);
-  const rows = await query;
-  return rows.filter((r) => !(source === "smp_documents" && r.id === 31));
+  if (recordIds?.length) {
+    query = query.where(inArray(table.id, recordIds));
+  }
+
+  // Exclude SMP ID 31
+  if (source === "smp_documents") {
+    query = query.where(sql`${table.id} != 31`);
+  }
+
+  if (limit) {
+    query = query.limit(limit);
+  }
+
+  return await query.orderBy(table.id);
 }
 
-async function fetchBase64Chunk(source: StorageFileSource, recordId: number, start: number, length: number) {
+async function fetchBase64Chunk(
+  source: StorageFileSource,
+  recordId: number,
+  start: number,
+  length: number,
+  ctx: MigrationContext
+): Promise<string> {
   const table = SOURCE_TABLES[source];
   const legacyColumn = LEGACY_COLUMNS[source];
-  const rows = await db.select({
-    chunk: sql<string>`substring(${sql.raw(legacyColumn)}, ${start}, ${length})`,
-  })
+
+  const result = await ctx.db
+    .select({ chunk: sql<string>`substring(${sql.raw(legacyColumn)} from ${start} for ${length})` })
     .from(table)
     .where(eq(table.id, recordId))
     .limit(1);
-  return rows[0]?.chunk || "";
+
+  return result[0]?.chunk || "";
 }
 
-async function getSourceFingerprint(source: StorageFileSource, recordId: number) {
+async function getSourceFingerprint(
+  source: StorageFileSource,
+  recordId: number,
+  ctx: MigrationContext
+): Promise<SourceFingerprint | null> {
   const table = SOURCE_TABLES[source];
   const legacyColumn = LEGACY_COLUMNS[source];
-  const rows = await db.select({
-    length: sql<number>`length(${sql.raw(legacyColumn)})`,
-    hash: sql<string>`md5(${sql.raw(legacyColumn)})`,
-  })
+
+  const result = await ctx.db
+    .select({
+      length: sql<number>`length(${sql.raw(legacyColumn)})`,
+      hash: sql<string>`encode(digest(${sql.raw(legacyColumn)}, 'sha256'), 'hex')`,
+    })
     .from(table)
     .where(eq(table.id, recordId))
     .limit(1);
-  if (!rows[0]) return null;
-  return { length: rows[0].length, hash: rows[0].hash };
+
+  if (!result[0]) return null;
+  return { length: result[0].length, hash: result[0].hash };
 }
 
 // ============================================================================
-// LEASE MANAGEMENT (wrappers around core functions)
+// LEASE MANAGEMENT (context-aware)
 // ============================================================================
 
 async function acquireLease(
@@ -214,21 +238,29 @@ async function acquireLease(
   expectedSize: number,
   legacySha256: string,
   mimeType: string,
-  execute: boolean
+  ctx: MigrationContext
 ): Promise<{ acquired: boolean; conflict?: string }> {
-  return coreAcquireLease(source, recordId, bucket, storagePath, expectedSize, legacySha256, mimeType, execute, WORKER_ID);
+  return coreAcquireLease(source, recordId, bucket, storagePath, expectedSize, legacySha256, mimeType, ctx.execute, ctx.workerId);
 }
 
-async function renewLease(source: StorageFileSource, recordId: number, execute: boolean): Promise<boolean> {
-  return coreRenewLease(source, recordId, execute, WORKER_ID);
+async function renewLease(
+  source: StorageFileSource,
+  recordId: number,
+  ctx: MigrationContext
+): Promise<boolean> {
+  return coreRenewLease(source, recordId, ctx.execute, ctx.workerId);
 }
 
-async function releaseLease(source: StorageFileSource, recordId: number, execute: boolean): Promise<void> {
-  return coreReleaseLease(source, recordId, execute, WORKER_ID);
+async function releaseLease(
+  source: StorageFileSource,
+  recordId: number,
+  ctx: MigrationContext
+): Promise<void> {
+  return coreReleaseLease(source, recordId, ctx.execute, ctx.workerId);
 }
 
 // ============================================================================
-// STATE TRANSITIONS
+// STATE TRANSITIONS (context-aware)
 // ============================================================================
 
 async function transitionState(
@@ -236,14 +268,14 @@ async function transitionState(
   recordId: number,
   expectedState: string,
   newState: LegacyStorageMigrationState,
-  execute: boolean,
-  error?: string
+  ctx: MigrationContext
 ): Promise<{ success: boolean }> {
-  return coreTransitionState(source, recordId, expectedState, newState, execute, WORKER_ID, error);
+  if (!ctx.execute) return { success: true };
+  return coreTransitionState(source, recordId, expectedState, newState, ctx.execute, ctx.workerId);
 }
 
 // ============================================================================
-// TRANSACTIONAL OPERATIONS
+// TRANSACTIONAL OPERATIONS (context-aware)
 // ============================================================================
 
 async function transactionalMetadataCommit(
@@ -253,55 +285,44 @@ async function transactionalMetadataCommit(
   path: string,
   size: number,
   mimeType: string,
-  fingerprint: { length: number; hash: string },
-  execute: boolean
+  fingerprint: SourceFingerprint,
+  ctx: MigrationContext
 ): Promise<{ success: boolean; error?: string }> {
-  if (!execute) return { success: true };
+  if (!ctx.execute) return { success: true };
 
   try {
-    await db.transaction(async (tx) => {
-      // Verify fingerprint still matches
+    await ctx.db.transaction(async (tx: any) => {
       const table = SOURCE_TABLES[source];
-      const legacyColumn = LEGACY_COLUMNS[source];
-      const currentFp = await tx.select({
-        length: sql<number>`length(${sql.raw(legacyColumn)})`,
-        hash: sql<string>`md5(${sql.raw(legacyColumn)})`,
-        storagePath: sql<string | null>`storage_path`,
-      })
-        .from(table)
-        .where(eq(table.id, recordId))
-        .limit(1);
 
-      if (!currentFp[0]) throw new Error("Record not found");
-      if (currentFp[0].storagePath !== null) throw new Error("Already migrated");
-      if (currentFp[0].length !== fingerprint.length) throw new Error("Fingerprint length changed");
-      if (currentFp[0].hash !== fingerprint.hash) throw new Error("Fingerprint hash changed");
-
-      // Update source - NO updatedAt for governance tables
       const updates: Record<string, unknown> = {
         storageProvider: "supabase",
         storageBucket: bucket,
         storagePath: path,
-        storageSize: size,
+        storageSize: size.toString(),
         storageMimeType: mimeType,
-        storageUploadedAt: new Date(),
+        storageUploadedAt: ctx.clock.newDate(),
       };
+
+      // Never write updatedAt to governance tables
       if (source !== "governance_files" && source !== "governance_uploads") {
-        updates.updatedAt = new Date();
+        updates.updatedAt = ctx.clock.newDate();
       }
 
-      const sourceResult = await tx.update(table).set(updates).where(eq(table.id, recordId)).returning({ id: table.id });
-      if (sourceResult.length !== 1) throw new Error("Source update failed");
+      const updateResult = await tx.update(table).set(updates).where(and(
+        eq(table.id, recordId),
+        sql`storage_path IS NULL`
+      )).returning({ id: table.id });
+
+      if (updateResult.length === 0) throw new Error("No row updated - storage_path not NULL or record changed");
 
       // Update ledger
-      const now = new Date();
       const ledgerResult = await tx.update(legacyStorageMigrationLedger)
-        .set({ state: "metadata_committed", metadataCommittedAt: now, updatedAt: now })
+        .set({ state: "metadata_committed", updatedAt: ctx.clock.newDate() })
         .where(and(
           eq(legacyStorageMigrationLedger.source, source),
           eq(legacyStorageMigrationLedger.recordId, recordId),
           eq(legacyStorageMigrationLedger.state, "object_verified"),
-          eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
+          eq(legacyStorageMigrationLedger.leaseOwner, ctx.workerId)
         ))
         .returning({ id: legacyStorageMigrationLedger.id });
 
@@ -318,12 +339,12 @@ async function transactionalRollback(
   recordId: number,
   bucket: string,
   path: string,
-  execute: boolean
-) {
-  if (!execute) return { success: true };
+  ctx: MigrationContext
+): Promise<{ success: boolean; error?: string }> {
+  if (!ctx.execute) return { success: true };
 
   try {
-    await db.transaction(async (tx) => {
+    await ctx.db.transaction(async (tx: any) => {
       const table = SOURCE_TABLES[source];
 
       // Clear metadata only if matches exact bucket/path
@@ -336,7 +357,7 @@ async function transactionalRollback(
         storageUploadedAt: null,
       };
       if (source !== "governance_files" && source !== "governance_uploads") {
-        updates.updatedAt = new Date();
+        updates.updatedAt = ctx.clock.newDate();
       }
 
       await tx.update(table).set(updates).where(and(
@@ -344,6 +365,21 @@ async function transactionalRollback(
         eq(sql`storage_bucket`, bucket),
         eq(sql`storage_path`, path)
       ));
+
+      // Update ledger
+      await tx.update(legacyStorageMigrationLedger)
+        .set({ state: "rolled_back", updatedAt: ctx.clock.newDate() })
+        .where(and(
+          eq(legacyStorageMigrationLedger.source, source),
+          eq(legacyStorageMigrationLedger.recordId, recordId),
+          eq(legacyStorageMigrationLedger.state, "rollback_required")
+        ));
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: sanitizeError(err) };
+  }
+}
 
 // ============================================================================
 // TUS UPLOAD (STANDARDS-COMPLIANT WITH DOCUMENTED PUBLIC API)
@@ -361,10 +397,10 @@ interface FileReader {
   openFile(input: unknown, chunkSize: number): Promise<FileSource>;
 }
 
-function createNodeFileReader(tempFilePath: string, fileSize: number): FileReader {
+function createNodeFileReader(tempFilePath: string, fileSize: number, fs: MigrationContext["fs"]): FileReader {
   return {
     openFile: async (): Promise<FileSource> => {
-      const fd = await open(tempFilePath, "r");
+      const fd = await fs.open(tempFilePath, "r");
       return {
         size: fileSize,
         slice: async (start: number, end: number) => {
@@ -381,7 +417,7 @@ function createNodeFileReader(tempFilePath: string, fileSize: number): FileReade
 }
 
 async function uploadWithTus(
-  supabase: SupabaseClient,
+  storage: MigrationContext["storage"],
   bucket: string,
   path: string,
   tempFilePath: string,
@@ -389,15 +425,15 @@ async function uploadWithTus(
   fileSize: number,
   source: StorageFileSource,
   recordId: number,
-  execute: boolean,
+  ctx: MigrationContext,
   onHeartbeat: () => Promise<void>
 ): Promise<void> {
-  if (!execute) return;
+  if (!ctx.execute) return;
 
   const config = getSupabaseStorageConfig();
   const tusEndpoint = `${config.directStorageUrl}/storage/v1/upload/resumable`;
 
-  const existing = await db.select({ tusUploadUrl: legacyStorageMigrationLedger.tusUploadUrl })
+  const existing = await ctx.db.select({ tusUploadUrl: legacyStorageMigrationLedger.tusUploadUrl })
     .from(legacyStorageMigrationLedger)
     .where(and(
       eq(legacyStorageMigrationLedger.source, source),
@@ -406,10 +442,10 @@ async function uploadWithTus(
     .limit(1);
   const existingUrl = existing[0]?.tusUploadUrl;
 
-  const fileReader = createNodeFileReader(tempFilePath, fileSize);
+  const fileReader = createNodeFileReader(tempFilePath, fileSize, ctx.fs);
 
   return new Promise<void>((resolve, reject) => {
-    const upload = new tus.Upload(null as unknown as File, {
+    const upload = new ctx.tus.Upload(null as unknown as File, {
       endpoint: tusEndpoint,
       retryDelays: [0, 1000, 3000, 5000, 10000],
       chunkSize: TUS_CHUNK_SIZE_BYTES,
@@ -428,19 +464,19 @@ async function uploadWithTus(
       onBeforeRequest: async () => {
         await onHeartbeat();
         if (upload.url && upload.url !== existingUrl) {
-          await db.update(legacyStorageMigrationLedger)
-            .set({ tusUploadUrl: upload.url, updatedAt: new Date() })
+          await ctx.db.update(legacyStorageMigrationLedger)
+            .set({ tusUploadUrl: upload.url, updatedAt: ctx.clock.newDate() })
             .where(and(
               eq(legacyStorageMigrationLedger.source, source),
               eq(legacyStorageMigrationLedger.recordId, recordId),
-              eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
+              eq(legacyStorageMigrationLedger.leaseOwner, ctx.workerId)
             ));
         }
       },
-      onError: (err) => reject(err),
+      onError: (err: Error) => reject(err),
       onSuccess: async () => {
-        await db.update(legacyStorageMigrationLedger)
-          .set({ tusUploadUrl: null, updatedAt: new Date() })
+        await ctx.db.update(legacyStorageMigrationLedger)
+          .set({ tusUploadUrl: null, updatedAt: ctx.clock.newDate() })
           .where(and(
             eq(legacyStorageMigrationLedger.source, source),
             eq(legacyStorageMigrationLedger.recordId, recordId)
@@ -453,18 +489,24 @@ async function uploadWithTus(
   });
 }
 
+// ============================================================================
+// DECODE WITH HEARTBEAT (context-aware)
+// ============================================================================
+
 async function decodeWithHeartbeat(
   source: StorageFileSource,
   recordId: number,
   record: { id: number; fileName: string | null; fileType: string | null; legacyDataLength: number },
   tempFilePath: string,
-  execute: boolean,
-  onProgress: (decodedSize: number) => void
-): Promise<{ size: number; sha256: string; mimeType: string }> {
-  const prefixChunk = await fetchBase64Chunk(source, recordId, 1, 100);
-  const { mimeType: dataUrlMime, headerLength } = parseDataUrlHeader(prefixChunk);
-  const detectedMime = inferMimeType(record.fileName || "unnamed", dataUrlMime, record.fileType);
-  const base64Start = headerLength + 1;
+  ctx: MigrationContext,
+  onProgress: (size: number) => void
+): Promise<DecodedPayload> {
+  // Parse the data URL header from the first chunk
+  const headerChunk = await fetchBase64Chunk(source, recordId, 1, 100, ctx);
+  const headerInfo = parseDataUrlHeader(headerChunk);
+
+  const base64Start = headerInfo.headerLength > 0 ? headerInfo.headerLength : 1;
+  const detectedMime = headerInfo.mimeType || inferMimeType(record.fileName || "", headerInfo.mimeType, record.fileType);
 
   const { createWriteStream } = await import("node:fs");
   const writeStream = createWriteStream(tempFilePath);
@@ -472,7 +514,7 @@ async function decodeWithHeartbeat(
   const hash = createHash("sha256");
   let decodedSize = 0;
   let carryOver = "";
-  let lastHeartbeat = Date.now();
+  let lastHeartbeat = ctx.clock.now();
 
   const decodePromise = new Promise<void>((res, rej) => {
     writeStream.on("finish", res);
@@ -482,15 +524,15 @@ async function decodeWithHeartbeat(
   for (let sqlOffset = base64Start; sqlOffset <= record.legacyDataLength; sqlOffset += BASE64_CHUNK_SIZE) {
     // Heartbeat check every 10 chunks
     if ((sqlOffset - base64Start) / BASE64_CHUNK_SIZE % 10 === 0) {
-      const now = Date.now();
+      const now = ctx.clock.now();
       if (now - lastHeartbeat > HEARTBEAT_INTERVAL_MS) {
-        const renewed = await renewLease(source, recordId, execute);
-        if (!renewed && execute) throw new Error("Lost lease during decode");
+        const renewed = await renewLease(source, recordId, ctx);
+        if (!renewed && ctx.execute) throw new Error("Lost lease during decode");
         lastHeartbeat = now;
       }
     }
 
-    const chunk = await fetchBase64Chunk(source, recordId, sqlOffset, BASE64_CHUNK_SIZE);
+    const chunk = await fetchBase64Chunk(source, recordId, sqlOffset, BASE64_CHUNK_SIZE, ctx);
     let fullChunk = carryOver + chunk;
     const remainder = fullChunk.length % 4;
 
@@ -525,37 +567,36 @@ async function decodeWithHeartbeat(
 }
 
 // ============================================================================
-// MIGRATION WORKFLOW
+// MIGRATION WORKFLOW (context-aware)
 // ============================================================================
 
 async function processRecord(
   source: StorageFileSource,
   record: { id: number; fileName: string | null; fileType: string | null; legacyDataLength: number },
-  supabase: SupabaseClient,
   options: MigrationOptions,
-  baseUrl: string
+  baseUrl: string,
+  ctx: MigrationContext
 ): Promise<ProcessingResult> {
-  const { execute } = options;
   const filename = record.fileName || "unnamed";
   const bucket = SOURCE_BUCKETS[source];
   const path = generateStoragePath(source, record.id, filename);
 
-  const tempDir = join(tmpdir(), `odm-migration-${randomUUID()}`);
+  const tempDir = join(tmpdir(), `odm-migration-${ctx.clock.randomUUID()}`);
   const tempFilePath = join(tempDir, "payload.tmp");
   let leaseAcquired = false;
 
   try {
     // Step 1: Get initial fingerprint
-    const initialFingerprint = await getSourceFingerprint(source, record.id);
+    const initialFingerprint = await getSourceFingerprint(source, record.id, ctx);
     if (!initialFingerprint) return { success: false, error: "Source not found" };
     if (initialFingerprint.length !== record.legacyDataLength) {
       return { success: false, error: "Source changed (length mismatch)" };
     }
 
     // Step 2: ACQUIRE LEASE before decoding (no heartbeat before acquisition)
-    await mkdir(tempDir, { mode: 0o700, recursive: true });
+    await ctx.fs.mkdir(tempDir, { mode: 0o700, recursive: true });
     const leaseResult = await acquireLease(
-      source, record.id, bucket, path, 0, "", "application/octet-stream", execute
+      source, record.id, bucket, path, 0, "", "application/octet-stream", ctx
     );
     if (leaseResult.conflict) {
       return { success: false, state: "conflict", error: leaseResult.conflict };
@@ -564,29 +605,31 @@ async function processRecord(
       return { success: false, skipped: true, error: "Could not acquire lease" };
     }
     leaseAcquired = true;
+
     // Step 3: Decode AFTER lease acquisition (heartbeat OK now)
     const decoded = await decodeWithHeartbeat(
-      source, record.id, record, tempFilePath, execute,
+      source, record.id, record, tempFilePath, ctx,
       (size) => { /* progress */ }
     );
 
     // Update ledger with actual decoded values
-    if (execute) {
-      await db.update(legacyStorageMigrationLedger)
+    if (ctx.execute) {
+      await ctx.db.update(legacyStorageMigrationLedger)
         .set({
           expectedSize: decoded.size,
           legacySha256: decoded.sha256,
           detectedMimeType: decoded.mimeType,
-          updatedAt: new Date(),
+          updatedAt: ctx.clock.newDate(),
         })
         .where(and(
           eq(legacyStorageMigrationLedger.source, source),
           eq(legacyStorageMigrationLedger.recordId, record.id),
-          eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
+          eq(legacyStorageMigrationLedger.leaseOwner, ctx.workerId)
         ));
     }
+
     // Step 4: Check ledger state
-    const ledgerRows = await db.select({ state: legacyStorageMigrationLedger.state })
+    const ledgerRows = await ctx.db.select({ state: legacyStorageMigrationLedger.state })
       .from(legacyStorageMigrationLedger)
       .where(and(
         eq(legacyStorageMigrationLedger.source, source),
@@ -601,11 +644,12 @@ async function processRecord(
 
     // Step 5: Inspect existing object
     const inspection = await inspectExistingObjectStreamed(
-      supabase, bucket, path, decoded.size, decoded.sha256, decoded.mimeType
+      ctx.storage as unknown as SupabaseClient,
+      bucket, path, decoded.size, decoded.sha256, decoded.mimeType
     );
 
     if (inspection.status === "verified_mismatch") {
-      await transitionState(source, record.id, currentState, "conflict", execute, inspection.reason);
+      await transitionState(source, record.id, currentState, "conflict", ctx);
       return { success: false, state: "conflict", error: `Conflict: ${inspection.reason}` };
     }
     if (inspection.status === "indeterminate") {
@@ -616,77 +660,78 @@ async function processRecord(
 
     // Step 6: Upload if needed
     if (!objectVerified) {
-      await transitionState(source, record.id, currentState, "uploading", execute);
+      await transitionState(source, record.id, currentState, "uploading", ctx);
 
       // Upload with heartbeat callback
       await uploadWithTus(
-        supabase, bucket, path, tempFilePath, decoded.mimeType, decoded.size,
-        source, record.id, execute,
+        ctx.storage, bucket, path, tempFilePath, decoded.mimeType, decoded.size,
+        source, record.id, ctx,
         async () => {
-          const renewed = await renewLease(source, record.id, execute);
-          if (!renewed && execute) throw new Error("Lost lease during upload");
+          const renewed = await renewLease(source, record.id, ctx);
+          if (!renewed && ctx.execute) throw new Error("Lost lease during upload");
         }
       );
 
       // Verify ownership after upload
-      const stillOwned = await renewLease(source, record.id, execute);
-      if (!stillOwned && execute) return { success: false, error: "Lost lease after upload" };
+      const stillOwned = await renewLease(source, record.id, ctx);
+      if (!stillOwned && ctx.execute) return { success: false, error: "Lost lease after upload" };
 
-      await transitionState(source, record.id, "uploading", "uploaded", execute);
+      await transitionState(source, record.id, "uploading", "uploaded", ctx);
 
       // Verify object
       const verifyResult = await inspectExistingObjectStreamed(
-        supabase, bucket, path, decoded.size, decoded.sha256, decoded.mimeType
+        ctx.storage as unknown as SupabaseClient,
+        bucket, path, decoded.size, decoded.sha256, decoded.mimeType
       );
       if (verifyResult.status !== "verified_match") {
-        await transitionState(source, record.id, "uploaded", "failed", execute, verifyResult.status);
+        await transitionState(source, record.id, "uploaded", "failed", ctx);
         return { success: false, error: `Verification failed: ${verifyResult.status}` };
       }
 
-      await transitionState(source, record.id, "uploaded", "object_verified", execute);
+      await transitionState(source, record.id, "uploaded", "object_verified", ctx);
     } else {
-      console.log(`    [${source}:${record.id}] Reusing existing`);
-      await transitionState(source, record.id, currentState, "object_verified", execute);
+      ctx.logger.log(`    [${source}:${record.id}] Reusing existing`);
+      await transitionState(source, record.id, currentState, "object_verified", ctx);
     }
 
     // Step 7: Verify source unchanged (both length and hash)
-    const finalFingerprint = await getSourceFingerprint(source, record.id);
+    const finalFingerprint = await getSourceFingerprint(source, record.id, ctx);
     if (!finalFingerprint ||
         finalFingerprint.length !== initialFingerprint.length ||
         finalFingerprint.hash !== initialFingerprint.hash) {
-      await transitionState(source, record.id, "object_verified", "failed", execute, "Source changed");
+      await transitionState(source, record.id, "object_verified", "failed", ctx);
       return { success: false, error: "Source changed during migration" };
     }
 
     // Step 8: Transactional metadata commit (conditional on fingerprint)
     const commitResult = await transactionalMetadataCommit(
-      source, record.id, bucket, path, decoded.size, decoded.mimeType, initialFingerprint, execute
+      source, record.id, bucket, path, decoded.size, decoded.mimeType, initialFingerprint, ctx
     );
     if (!commitResult.success) {
-      await transitionState(source, record.id, "object_verified", "failed", execute, commitResult.error);
+      await transitionState(source, record.id, "object_verified", "failed", ctx);
       return { success: false, error: commitResult.error };
     }
 
     // Step 9: App verification (skip in dry-run)
-    if (execute) {
-      const appVerify = await verifyApplicationRouteStreamed(baseUrl, source, record.id, decoded.size, decoded.sha256, fetch);
+    if (ctx.execute) {
+      const appVerify = await verifyApplicationRouteStreamed(baseUrl, source, record.id, decoded.size, decoded.sha256, ctx.fetchAdapter.fetch);
       if (!appVerify.ok) {
         // Rollback: metadata_committed → rollback_required → rolled_back
-        await transitionState(source, record.id, "metadata_committed", "rollback_required", execute, appVerify.error);
-        await transactionalRollback(source, record.id, bucket, path, execute);
-        await transitionState(source, record.id, "rollback_required", "rolled_back", execute);
+        await transitionState(source, record.id, "metadata_committed", "rollback_required", ctx);
+        await transactionalRollback(source, record.id, bucket, path, ctx);
+        await transitionState(source, record.id, "rollback_required", "rolled_back", ctx);
         return { success: false, error: `App verify failed: ${appVerify.error}` };
       }
     }
 
-    await transitionState(source, record.id, "metadata_committed", "app_verified", execute);
+    await transitionState(source, record.id, "metadata_committed", "app_verified", ctx);
     return { success: true, state: "app_verified" };
 
   } catch (err) {
     return { success: false, error: sanitizeError(err) };
   } finally {
-    try { await rm(tempDir, { recursive: true, force: true }); } catch { }
-    if (leaseAcquired) await releaseLease(source, record.id, execute);
+    try { await ctx.fs.rm(tempDir, { recursive: true, force: true }); } catch { }
+    if (leaseAcquired) await releaseLease(source, record.id, ctx);
   }
 }
 
@@ -694,12 +739,20 @@ async function processRecord(
 // ORPHAN AUDIT (RECURSIVE, PAGINATED, READ-ONLY)
 // ============================================================================
 
-type ObjectClassification =
+type ObjectClassificationValue =
   | "referenced" | "active_upload_intent" | "finalized_upload_intent"
   | "migration_verified" | "migration_staged" | "possible_orphan" | "indeterminate";
 
-async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
-  console.log("\n=== Storage Orphan Audit ===\n");
+interface AuditResult {
+  path: string;
+  classification: ObjectClassificationValue;
+}
+
+async function runOrphanAudit(
+  ctx: MigrationContext,
+  supabase?: SupabaseClient
+): Promise<void> {
+  ctx.logger.log("\n=== Storage Orphan Audit ===\n");
 
   const buckets = ["om-manuals", "om-governance", "smp-library"];
 
@@ -710,11 +763,11 @@ async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
   const ledgerStagedPaths = new Set<string>();
   const ledgerVerifiedPaths = new Set<string>();
 
-  // Collect from source tables
+  // Collect paths from source tables
   const sources: StorageFileSource[] = ["doc_files", "governance_files", "governance_uploads", "smp_documents"];
   for (const source of sources) {
     const table = SOURCE_TABLES[source];
-    const rows = await db
+    const rows = await ctx.db
       .select({ bucket: sql<string | null>`storage_bucket`, path: sql<string | null>`storage_path` })
       .from(table)
       .where(sql`storage_path IS NOT NULL`);
@@ -725,7 +778,7 @@ async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
   }
 
   // Collect from upload intents
-  const intents = await db
+  const intents = await ctx.db
     .select({ bucket: storageUploadIntents.expectedBucket, path: storageUploadIntents.expectedPath, status: storageUploadIntents.status })
     .from(storageUploadIntents);
 
@@ -736,7 +789,7 @@ async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
   }
 
   // Collect from migration ledger
-  const ledger = await db
+  const ledger = await ctx.db
     .select({ bucket: legacyStorageMigrationLedger.bucket, path: legacyStorageMigrationLedger.storagePath, state: legacyStorageMigrationLedger.state })
     .from(legacyStorageMigrationLedger);
 
@@ -748,14 +801,14 @@ async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
     }
   }
 
-  console.log(`References from tables: ${tablePaths.size}`);
-  console.log(`Pending intent paths: ${intentPendingPaths.size}`);
-  console.log(`Finalized intent paths: ${intentFinalizedPaths.size}`);
-  console.log(`Ledger staged: ${ledgerStagedPaths.size}`);
-  console.log(`Ledger verified: ${ledgerVerifiedPaths.size}`);
+  ctx.logger.log(`References from tables: ${tablePaths.size}`);
+  ctx.logger.log(`Pending intent paths: ${intentPendingPaths.size}`);
+  ctx.logger.log(`Finalized intent paths: ${intentFinalizedPaths.size}`);
+  ctx.logger.log(`Ledger staged: ${ledgerStagedPaths.size}`);
+  ctx.logger.log(`Ledger verified: ${ledgerVerifiedPaths.size}`);
 
   // Classification function
-  function classifyObject(bucket: string, path: string): ObjectClassification {
+  function classifyObject(bucket: string, path: string): ObjectClassificationValue {
     const key = `${bucket}:${path}`;
     if (tablePaths.has(key)) return "referenced";
     if (intentPendingPaths.has(key)) return "active_upload_intent";
@@ -766,23 +819,24 @@ async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
   }
 
   // Recursive prefix traversal
-  async function scanPrefix(bucket: string, prefix: string, visited: Set<string>): Promise<Array<{ path: string; classification: ObjectClassification }>> {
+  async function scanPrefix(bucket: string, prefix: string, visited: Set<string>): Promise<AuditResult[]> {
     if (visited.has(prefix)) return [];
     visited.add(prefix);
 
-    const results: Array<{ path: string; classification: ObjectClassification }> = [];
+    const results: AuditResult[] = [];
     let offset = 0;
     const limit = 1000;
 
     while (true) {
-      const { data: objects, error } = await supabase.storage.from(bucket).list(prefix, { limit, offset });
+      const listResult = await ctx.storage.from(bucket).list(prefix, { limit, offset });
 
-      if (error) {
-        console.log(`  Error listing ${prefix}: ${sanitizeError(error)}`);
+      if (listResult.error) {
+        ctx.logger.log(`  Error listing ${prefix}: ${sanitizeError(listResult.error)}`);
         return [{ path: `${prefix}/*`, classification: "indeterminate" }];
       }
 
-      if (!objects || objects.length === 0) break;
+      const objects = listResult.data || [];
+      if (objects.length === 0) break;
 
       for (const obj of objects) {
         const fullPath = prefix ? `${prefix}/${obj.name}` : obj.name;
@@ -805,33 +859,33 @@ async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
 
   // Scan each bucket
   for (const bucket of buckets) {
-    console.log(`\n--- Scanning bucket: ${bucket} ---`);
+    ctx.logger.log(`\n--- Scanning bucket: ${bucket} ---`);
     const visited = new Set<string>();
     const results = await scanPrefix(bucket, "", visited);
 
-    const counts: Record<ObjectClassification, number> = {} as Record<ObjectClassification, number>;
+    const counts: Partial<Record<ObjectClassificationValue, number>> = {};
     for (const { classification } of results) {
       counts[classification] = (counts[classification] || 0) + 1;
     }
 
-    console.log(`  Total objects: ${results.length}`);
+    ctx.logger.log(`  Total objects: ${results.length}`);
     for (const [cls, count] of Object.entries(counts)) {
-      console.log(`  ${cls}: ${count}`);
+      ctx.logger.log(`  ${cls}: ${count}`);
     }
 
     const orphans = results.filter(r => r.classification === "possible_orphan");
     if (orphans.length > 0) {
-      console.log(`  Possible orphans (${orphans.length}):`);
+      ctx.logger.log(`  Possible orphans (${orphans.length}):`);
       for (const orphan of orphans.slice(0, 10)) {
-        console.log(`    - ${orphan.path}`);
+        ctx.logger.log(`    - ${orphan.path}`);
       }
       if (orphans.length > 10) {
-        console.log(`    ... and ${orphans.length - 10} more`);
+        ctx.logger.log(`    ... and ${orphans.length - 10} more`);
       }
     }
   }
 
-  console.log("\nNote: This is a READ-ONLY audit. No objects were deleted.");
+  ctx.logger.log("\nNote: This is a READ-ONLY audit. No objects were deleted.");
 }
 
 // ============================================================================
@@ -841,9 +895,10 @@ async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
 async function main() {
   const args = process.argv.slice(2);
 
+  // Orphan audit mode - always read-only
   if (args.includes("--orphan-audit")) {
-    const supabase = getSupabaseStorageAdmin();
-    await runOrphanAudit(supabase);
+    const ctx = createProductionContext(false);
+    await runOrphanAudit(ctx);
     return;
   }
 
@@ -862,13 +917,15 @@ async function main() {
   }
 
   const baseUrl = rawBaseUrl || "";
-  const supabase = getSupabaseStorageAdmin();
   const sources = options.sources || (["doc_files", "governance_files", "governance_uploads", "smp_documents"] as StorageFileSource[]);
+
+  // Create production context with execute flag
+  const ctx = createProductionContext(options.execute);
 
   console.log(`\n=== Legacy Storage Migration ===`);
   console.log(`Mode: ${options.execute ? "EXECUTE" : "DRY-RUN"}`);
   console.log(`Sources: ${sources.join(", ")}`);
-  console.log(`Worker ID: ${WORKER_ID}`);
+  console.log(`Worker ID: ${ctx.workerId}`);
   console.log();
 
   let totalProcessed = 0, totalSuccess = 0, totalFailed = 0, totalSkipped = 0;
@@ -877,14 +934,14 @@ async function main() {
     console.log(`--- Processing: ${source} ---`);
     if (source === "smp_documents") console.log("Note: SMP ID 31 excluded");
 
-    const records = await fetchEligibleRecords(source, options.recordIds, options.limit);
+    const records = await fetchEligibleRecords(source, ctx, options.recordIds, options.limit);
     console.log(`Found ${records.length} records`);
 
     for (let i = 0; i < records.length; i += options.batchSize!) {
       const batch = records.slice(i, i + options.batchSize!);
       for (const record of batch) {
         totalProcessed++;
-        const result = await processRecord(source, record, supabase, options, baseUrl);
+        const result = await processRecord(source, record, options, baseUrl, ctx);
         if (result.skipped) { console.log(`  [${record.id}] ⊘ ${result.error || result.state}`); totalSkipped++; }
         else if (result.success) { console.log(`  [${record.id}] ✓ ${result.state}`); totalSuccess++; }
         else { console.log(`  [${record.id}] ✗ ${result.error}`); totalFailed++; }
@@ -897,11 +954,13 @@ async function main() {
   if (!options.execute) console.log("DRY-RUN complete - no changes made");
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", sanitizeError(err));
-  process.exit(1);
-});
-
+// Only run main in actual CLI execution, not during module import (tests)
+if (require.main === module || process.argv[1]?.includes('legacy-storage-migrator')) {
+  main().catch((err) => {
+    console.error("Fatal error:", sanitizeError(err));
+    process.exit(1);
+  });
+}
 
 // ============================================================================
 // EXPORTS FOR TESTING
@@ -914,11 +973,15 @@ export {
   decodeWithHeartbeat,
   getSourceFingerprint,
   fetchEligibleRecords,
-  WORKER_ID,
+  acquireLease,
+  renewLease,
+  releaseLease,
+  transitionState,
+  transactionalMetadataCommit,
+  transactionalRollback,
   SOURCE_TABLES,
   SOURCE_BUCKETS,
   LEGACY_COLUMNS,
 };
 
-export type { MigrationOptions, ProcessingResult };
-
+export type { MigrationOptions, ProcessingResult, SourceFingerprint, DecodedPayload };
