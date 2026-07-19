@@ -80,6 +80,19 @@ export function sanitizeError(error: string | Error | unknown): string {
   if (!error) return "Unknown error";
   let message = error instanceof Error ? error.message : String(error);
   const patterns = [
+    // Database URLs and connection strings
+    { pattern: /(postgres(?:ql)?|mysql|mongodb|redis):\/\/[^\s"]+/gi, replacement: "[REDACTED_DB_URL]" },
+    { pattern: /database_url[\s]*[=:][\s]*[^\s"]+/gi, replacement: "DATABASE_URL=[REDACTED]" },
+    { pattern: /host[=:][\s]*[\w.-]+[:\d]+/gi, replacement: "host=[REDACTED]" },
+    { pattern: /port[=:][\s]*\d+/gi, replacement: "port=[REDACTED]" },
+    { pattern: /user(name)?[=:][\s]*[^\s"]+/gi, replacement: "username=[REDACTED]" },
+    { pattern: /password[=:][\s]*[^\s"]+/gi, replacement: "password=[REDACTED]" },
+    // Connection fingerprints
+    { pattern: /[\w.-]+:\d+\/\w+/g, replacement: "[REDACTED_HOST:PORT/DB]" },
+    // SQL queries and parameters
+    { pattern: /\$\d+/g, replacement: "[PARAM]" },
+    { pattern: /statement_timeout[=:]\s*\d+/gi, replacement: "statement_timeout=[REDACTED]" },
+    // URLs and credentials
     { pattern: /[a-zA-Z]+:\/\/[^\s"]+/g, replacement: "[REDACTED_URL]" },
     { pattern: /authorization[:\s=]+[^\s,"]+/gi, replacement: "authorization: [REDACTED]" },
     { pattern: /bearer\s+[a-zA-Z0-9_-]{10,}/gi, replacement: "[REDACTED_BEARER]" },
