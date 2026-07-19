@@ -679,7 +679,7 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
     if (!record) return c.json({ error: "File not found." }, 404);
     if (record.storagePath && record.storageBucket) {
       const { data, error } = await getSupabaseStorageAdmin().storage.from(record.storageBucket)
-        .createSignedUrl(record.storagePath, STORAGE_SIGNED_URL_TTL_SECONDS, action === "download" ? { download: record.fileName } : undefined);
+        .createSignedUrl(record.storagePath, STORAGE_SIGNED_URL_TTL_SECONDS, action === "download" ? { download: sanitizeHeaderFilename(record.fileName) } : undefined);
       if (error || !data?.signedUrl) throw new Error(error?.message || "Unable to sign file URL.");
       return c.redirect(data.signedUrl, 302);
     }
@@ -695,7 +695,9 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
     c.header("X-Content-Type-Options", "nosniff");
     return c.body(decoded.buffer as any);
   } catch (error: any) {
-    return c.json({ error: error?.message || "Unable to access file." }, 400);
+    // Sanitize internal errors to avoid exposing SQL, paths, credentials, or stack traces
+    console.error("[storage/files] Error: file access failed");
+    return c.json({ error: "Unable to access file." }, 500);
   }
 });
 

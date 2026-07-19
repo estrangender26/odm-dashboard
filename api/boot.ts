@@ -1197,6 +1197,7 @@ async function requireFileRequestUser(c: Context): Promise<Response | null> {
   }
 }
 
+
 // Debug: list latest uploads
 app.get("/api/debug/uploads", async (c) => {
   try {
@@ -1340,87 +1341,10 @@ app.delete("/api/governance/files/:id", async (c) => {
 });
 
 
-// GET /api/documents/files/:id/view - stream O&M Manual Library files inline for same-origin previews.
-app.get("/api/documents/files/:id/view", async (c) => {
-  try {
-    const unauthorized = await requireFileRequestUser(c);
-    if (unauthorized) return unauthorized;
-    const id = Number.parseInt(c.req.param("id"), 10);
-    if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
-
-    const storageRows = await getDb().select({ storagePath: docFiles.storagePath })
-      .from(docFiles).where(eq(docFiles.id, id)).limit(1);
-    if (storageRows[0]?.storagePath) return c.redirect(`/api/storage/files/doc_files/${id}/view`, 302);
-
-    const loaded = await getParsedDocumentFile(id);
-    if (!loaded) return c.json({ error: "File not found" }, 404);
-    const { fileName, parsed } = loaded;
-    if (!parsed) return c.json({ error: "No previewable file data" }, 404);
-
-    const totalSize = parsed.buffer.length;
-    const range = c.req.header("range");
-    c.header("Content-Type", parsed.mimeType);
-    c.header("Content-Disposition", `inline; filename="${fileName}"`);
-    c.header("Cache-Control", "private, max-age=300");
-    c.header("X-Content-Type-Options", "nosniff");
-    c.header("Accept-Ranges", "bytes");
-    if (parsed.mimeType.startsWith("text/html") || parsed.mimeType === "application/xhtml+xml") {
-      c.header("Content-Security-Policy", "sandbox");
-    }
-
-    const parsedRange = parseRangeHeader(range, totalSize);
-    if (parsedRange === "invalid") {
-      c.status(416);
-      c.header("Content-Range", `bytes */${totalSize}`);
-      c.header("Content-Length", "0");
-      return c.body("");
-    }
-
-    if (parsedRange) {
-      const { start, end } = parsedRange;
-      const chunk = parsed.buffer.subarray(start, end + 1);
-      c.status(206);
-      c.header("Content-Range", `bytes ${start}-${end}/${totalSize}`);
-      c.header("Content-Length", String(chunk.length));
-      return c.body(chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength) as ArrayBuffer);
-    }
-
-    c.header("Content-Length", String(totalSize));
-    return c.body(parsed.buffer.buffer.slice(parsed.buffer.byteOffset, parsed.buffer.byteOffset + parsed.buffer.byteLength) as ArrayBuffer);
-  } catch (e: any) {
-    console.error("[documents/view] Error:", e.message, e.stack);
-    return c.json({ error: e.message }, 500);
-  }
-});
-
-// GET /api/documents/files/:id/download - download O&M Manual Library files only when requested.
-app.get("/api/documents/files/:id/download", async (c) => {
-  try {
-    const unauthorized = await requireFileRequestUser(c);
-    if (unauthorized) return unauthorized;
-    const id = Number.parseInt(c.req.param("id"), 10);
-    if (Number.isNaN(id)) return c.json({ error: "Invalid file ID" }, 400);
-
-    const storageRows = await getDb().select({ storagePath: docFiles.storagePath })
-      .from(docFiles).where(eq(docFiles.id, id)).limit(1);
-    if (storageRows[0]?.storagePath) return c.redirect(`/api/storage/files/doc_files/${id}/download`, 302);
-
-    const loaded = await getParsedDocumentFile(id);
-    if (!loaded) return c.json({ error: "File not found" }, 404);
-    const { fileName, parsed } = loaded;
-    if (!parsed) return c.json({ error: "No file data" }, 404);
-
-    c.header("Content-Type", parsed.mimeType);
-    c.header("Content-Disposition", `attachment; filename="${fileName}"`);
-    c.header("Content-Length", String(parsed.buffer.length));
-    c.header("Cache-Control", "private, max-age=300");
-    c.header("X-Content-Type-Options", "nosniff");
-    return c.body(parsed.buffer.buffer.slice(parsed.buffer.byteOffset, parsed.buffer.byteOffset + parsed.buffer.byteLength) as ArrayBuffer);
-  } catch (e: any) {
-    console.error("[documents/download] Error:", e.message, e.stack);
-    return c.json({ error: e.message }, 500);
-  }
-});
+// Document view and download routes (public access)
+import { createDefaultDocumentsViewRouter } from "./documents-view-router";
+const documentsViewRouter = createDefaultDocumentsViewRouter(getDb, getParsedDocumentFile);
+app.route("/api/documents/files", documentsViewRouter);
 
 // GET /api/governance/files/:id/view - stream file inline
 // Helper: fetch file from either governance_uploads or governance_files table
