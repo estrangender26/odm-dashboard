@@ -27,6 +27,7 @@ import {
 } from "@contracts/upload-limits";
 import { authenticateRequest } from "./kimi/auth";
 import { env } from "./lib/env";
+import { deepEqualJson } from "./lib/json-equality";
 import { db } from "./queries/connection";
 import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-feature-flags";
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
@@ -48,7 +49,7 @@ const authorizeSchema = z.object({
   target: z.record(z.string(), z.unknown()),
 });
 const intentSchema = z.object({ intentId: z.string().uuid() });
-const capabilitySchema = z.object({
+const capabilitySchema = z.object({ 
   intentId: z.string().uuid(),
   capabilityToken: z.string().optional(),
 });
@@ -146,7 +147,7 @@ function getSourceFromModule(module: StorageModule): StorageFileSource {
 
 
 // Rate limit check result type
-type RateLimitResult =
+type RateLimitResult = 
   | { allowed: true }
   | { allowed: false; limit: "count" | "bytes" | "unknown"; isSystemError: false }
   | { allowed: false; limit: "system"; isSystemError: true };
@@ -228,7 +229,7 @@ export async function checkRateLimitWithExecutor(
     // Fail closed with system error - caller should return 503
     return { allowed: false, limit: "system", isSystemError: true };
   }
-
+  
   if (result.length === 0) {
     // Try to determine if this is actually a rate limit or a system error
     try {
@@ -238,12 +239,12 @@ export async function checkRateLimitWithExecutor(
         WHERE client_identifier = ${clientId}
         AND window_start = ${windowStartIso}::timestamptz
       `);
-
+      
       if (existing.length > 0) {
         const row = existing[0];
         const count = Number(row.intent_count);
         const bytes = Number(row.total_bytes);
-
+        
         if (count >= limits.maxIntents) {
           return { allowed: false, limit: "count", isSystemError: false };
         }
@@ -262,14 +263,14 @@ export async function checkRateLimitWithExecutor(
       return { allowed: false, limit: "system", isSystemError: true };
     }
   }
-
+  
   return { allowed: true };
 }
 
 // Production wrapper that uses the global db
 async function checkRateLimit(
-  clientId: string,
-  isTrusted: boolean,
+  clientId: string, 
+  isTrusted: boolean, 
   declaredBytes: number
 ): Promise<RateLimitResult> {
   return checkRateLimitWithExecutor({
@@ -279,67 +280,29 @@ async function checkRateLimit(
     db: { execute: (q) => db.execute(q) },
   });
 }
-function deepEqualJson(a: unknown, b: unknown): boolean {
-  // Strict equality for primitives
-  if (a === b) return true;
-
-  // Handle null/undefined
-  if (a == null || b == null) return a === b;
-
-  // Different types are not equal
-  if (typeof a !== typeof b) return false;
-
-  // Handle arrays
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!deepEqualJson(a[i], b[i])) return false;
-    }
-    return true;
-  }
-
-  // Handle objects (key-order independent)
-  if (typeof a === "object" && typeof b === "object") {
-    const aObj = a as Record<string, unknown>;
-    const bObj = b as Record<string, unknown>;
-    const aKeys = Object.keys(aObj);
-    const bKeys = Object.keys(bObj);
-
-    if (aKeys.length !== bKeys.length) return false;
-
-    for (const key of aKeys) {
-      if (!Object.prototype.hasOwnProperty.call(bObj, key)) return false;
-      if (!deepEqualJson(aObj[key], bObj[key])) return false;
-    }
-    return true;
-  }
-
-  return false;
-}
-
 async function verifyCapabilityForIntent(intentId: string, providedToken: string): Promise<boolean> {
   const providedHash = hashCapabilityToken(providedToken);
-
+  
   const intent = await db.query.storageUploadIntents.findFirst({
     where: eq(storageUploadIntents.id, intentId),
   });
-
+  
   if (!intent) return false;
   if (intent.status !== "pending") return false;
   if (intent.capabilityTokenHash === null) return false;
   if (intent.capabilityConsumedAt !== null) return false;
   if (intent.capabilityExpiresAt && intent.capabilityExpiresAt < new Date()) return false;
-
+  
   const expectedHash = intent.capabilityTokenHash;
   if (providedHash.length !== expectedHash.length) return false;
-
+  
   const match = timingSafeEqual(Buffer.from(providedHash), Buffer.from(expectedHash));
   if (!match) return false;
-
+  
   const claims = verifyCapabilityToken(providedToken);
   if (!claims) return false;
-
-  const canonicalMatch =
+  
+  const canonicalMatch = 
     claims.intentId === intent.id &&
     claims.mod === intent.module &&
     claims.src === getSourceFromModule(intent.module as StorageModule) &&
@@ -350,7 +313,7 @@ async function verifyCapabilityForIntent(intentId: string, providedToken: string
     claims.mime === intent.expectedMimeType &&
     claims.size === intent.expectedSize &&
     claims.jti === intent.capabilityJti;
-
+  
   return canonicalMatch;
 }
 
@@ -379,11 +342,11 @@ storageRouter.post("/uploads/authorize", async (c) => {
   try {
     const user = await optionalUser(c.req.raw.headers);
     const input = authorizeSchema.parse(await c.req.json());
-
+    
     if (!isUploadFileSizeAllowed(input.fileSize)) {
       return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
     }
-
+    
     // Rate limiting for anonymous users
     if (!user) {
       const client = getClientIdentifier(c.req.raw.headers);
@@ -393,31 +356,31 @@ storageRouter.post("/uploads/authorize", async (c) => {
         if (rateCheck.isSystemError) {
           return c.json({ error: "Upload authorization is temporarily unavailable." }, 503);
         }
-        const message = rateCheck.limit === 'count'
+        const message = rateCheck.limit === 'count' 
           ? "Rate limit exceeded: 10 uploads per hour."
           : "Rate limit exceeded: 5 GB per hour.";
         return c.json({ error: message }, 429);
       }
     }
-
+    
     const descriptor = validateUploadDescriptor(input.module, input.originalFilename, input.mimeType);
     if (!isStorageUploadEnabled(input.module)) {
       return c.json({ storageEnabled: false, error: "Supabase Storage upload is disabled for this module." }, 409);
     }
-
+    
     const target = await validateTarget(input.module, input.target);
     const expectedBucket = STORAGE_BUCKET_BY_MODULE[input.module];
     const expectedPath = buildObjectPath(input.module, target);
     const intentId = randomUUID();
     const expiresAt = new Date(Date.now() + STORAGE_UPLOAD_INTENT_TTL_MS);
     const source = getSourceFromModule(input.module);
-
+    
     // Generate capability token for anonymous users
     let capabilityToken: string | undefined;
     let capabilityJti: string | undefined;
     let capabilityTokenHash: string | undefined;
     let capabilityExpiresAt: Date | undefined;
-
+    
     if (!user) {
       const claims = generateCapabilityClaims(
         intentId,
@@ -435,12 +398,12 @@ storageRouter.post("/uploads/authorize", async (c) => {
       capabilityTokenHash = hashCapabilityToken(capabilityToken);
       capabilityExpiresAt = new Date(claims.exp * 1000);
     }
-
+    
     const storage = getSupabaseStorageAdmin();
     const { data, error } = await storage.storage.from(expectedBucket)
       .createSignedUploadUrl(expectedPath, { upsert: false });
     if (error || !data?.token) throw new Error(error?.message || "Unable to create signed upload authorization.");
-
+    
     await db.insert(storageUploadIntents).values({
       id: intentId,
       module: input.module,
@@ -457,7 +420,7 @@ storageRouter.post("/uploads/authorize", async (c) => {
       status: "pending",
       expiresAt,
     });
-
+    
     return c.json({
       storageEnabled: true,
       intentId,
@@ -478,16 +441,16 @@ storageRouter.post("/uploads/resume", async (c) => {
   try {
     const body = await c.req.json();
     const { intentId, capabilityToken } = capabilitySchema.parse(body);
-
+    
     const intent = await db.query.storageUploadIntents.findFirst({
       where: eq(storageUploadIntents.id, intentId),
     });
-
+    
     if (!intent) return c.json({ error: "Upload intent not found." }, 404);
     if (intent.status !== "pending" || intent.expiresAt.getTime() < Date.now()) {
       return c.json({ error: "Upload intent is no longer active." }, 409);
     }
-
+    
     // Verify ownership
     if (intent.requestedBy) {
       try {
@@ -507,16 +470,16 @@ storageRouter.post("/uploads/resume", async (c) => {
         return c.json({ error: "Invalid capability token." }, 403);
       }
     }
-
+    
     const module = z.enum(STORAGE_MODULES).parse(intent.module);
     if (!isStorageUploadEnabled(module)) {
       return c.json({ error: "Supabase Storage upload is disabled for this module." }, 409);
     }
-
+    
     const { data, error } = await getSupabaseStorageAdmin().storage.from(intent.expectedBucket)
       .createSignedUploadUrl(intent.expectedPath, { upsert: false });
     if (error || !data?.token) throw new Error(error?.message || "Unable to resume signed upload authorization.");
-
+    
     return c.json({
       storageEnabled: true,
       intentId: intent.id,
@@ -536,17 +499,17 @@ storageRouter.post("/uploads/finalize", async (c) => {
   try {
     const body = await c.req.json();
     const { intentId, capabilityToken } = capabilitySchema.parse(body);
-
+    
     const intent = await db.query.storageUploadIntents.findFirst({
       where: eq(storageUploadIntents.id, intentId),
     });
-
+    
     if (!intent) return c.json({ error: "Upload intent not found." }, 404);
     if (intent.status === "finalized") return c.json({ success: true, alreadyFinalized: true });
     if (intent.status !== "pending" || intent.expiresAt.getTime() < Date.now()) {
       return c.json({ error: "Upload intent is no longer active." }, 409);
     }
-
+    
     // Verify ownership
     if (intent.requestedBy) {
       try {
@@ -566,7 +529,7 @@ storageRouter.post("/uploads/finalize", async (c) => {
         return c.json({ error: "Invalid capability token." }, 403);
       }
     }
-
+    
     const storage = getSupabaseStorageAdmin();
     const { data: info, error } = await storage.storage.from(intent.expectedBucket).info(intent.expectedPath);
     if (error || !info) throw new Error(error?.message || "Uploaded object was not found.");
@@ -589,13 +552,13 @@ storageRouter.post("/uploads/finalize", async (c) => {
         .where(eq(storageUploadIntents.id, intent.id));
       return c.json({ error: "Uploaded object MIME type did not match the authorization." }, 409);
     }
-
+    
     const target = intent.targetContext as Record<string, any>;
     const now = new Date();
-
+    
     const result = await db.transaction(async (tx) => {
       // Atomic status transition with capability consumption
-      const claimed = await tx.update(storageUploadIntents).set({
+      const claimed = await tx.update(storageUploadIntents).set({ 
         status: "finalized",
         capabilityConsumedAt: new Date(),
         finalizedAt: new Date(),
@@ -603,12 +566,12 @@ storageRouter.post("/uploads/finalize", async (c) => {
         eq(storageUploadIntents.id, intent.id),
         eq(storageUploadIntents.status, "pending"),
       )).returning({ id: storageUploadIntents.id });
-
+      
       if (!claimed.length) throw new Error("Upload intent is already being finalized.");
-
+      
       let persistedId: number;
       let persistedSource: StorageFileSource;
-
+      
       if (intent.module === "om") {
         const inserted = await tx.insert(docFiles).values({
           folderId: Number(target.folderId),
@@ -670,10 +633,10 @@ storageRouter.post("/uploads/finalize", async (c) => {
         persistedId = inserted[0].id;
         persistedSource = "governance_uploads";
       }
-
+      
       return { fileId: persistedId, source: persistedSource };
     });
-
+    
     return c.json({ success: true, fileId: result.fileId, source: result.source });
   } catch (error: any) {
     const message = error?.message || "Finalize failed.";
@@ -685,16 +648,16 @@ storageRouter.post("/uploads/abandon", async (c) => {
   try {
     const body = await c.req.json();
     const { intentId, capabilityToken } = capabilitySchema.parse(body);
-
+    
     const intent = await db.query.storageUploadIntents.findFirst({
       where: eq(storageUploadIntents.id, intentId),
     });
-
+    
     if (!intent) return c.json({ error: "Upload intent not found." }, 404);
     if (intent.status !== "pending") {
       return c.json({ success: true, alreadyProcessed: true });
     }
-
+    
     // Verify ownership
     if (intent.requestedBy) {
       try {
@@ -714,10 +677,10 @@ storageRouter.post("/uploads/abandon", async (c) => {
         return c.json({ error: "Invalid capability token." }, 403);
       }
     }
-
+    
     // Atomic abandon with capability consumption
     const updated = await db.update(storageUploadIntents)
-      .set({
+      .set({ 
         status: "abandoned",
         abandonedAt: new Date(),
         capabilityConsumedAt: new Date(),
@@ -727,7 +690,7 @@ storageRouter.post("/uploads/abandon", async (c) => {
         eq(storageUploadIntents.status, "pending"),
       ))
       .returning({ id: storageUploadIntents.id });
-
+    
     return c.json({ success: true, abandoned: updated.length > 0 });
   } catch (error: any) {
     const message = error?.message || "Abandon failed.";
