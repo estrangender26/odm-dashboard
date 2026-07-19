@@ -502,10 +502,11 @@ async function decodeWithHeartbeat(
   ctx: MigrationContext,
   onProgress: (size: number) => void
 ): Promise<DecodedPayload> {
-  // Parse the data URL header from the first chunk
-  const headerChunk = await fetchBase64Chunk(source, recordId, 1, 100, ctx);
-  const headerInfo = parseDataUrlHeader(headerChunk);
+  // Fetch first chunk to detect data URL header
+  const firstChunk = await fetchBase64Chunk(source, recordId, 1, Math.min(100, record.legacyDataLength), ctx);
+  const headerInfo = parseDataUrlHeader(firstChunk);
 
+  // Determine where Base64 payload starts (1-indexed for SQL)
   const base64Start = headerInfo.headerLength > 0 ? headerInfo.headerLength : 1;
   const detectedMime = headerInfo.mimeType || inferMimeType(record.fileName || "", headerInfo.mimeType, record.fileType);
 
@@ -514,13 +515,16 @@ async function decodeWithHeartbeat(
 
   const hash = createHash("sha256");
   let decodedSize = 0;
-  let carryOver = "";
+  let carryOver = ""; // Holds incomplete Base64 group from previous chunk
   let lastHeartbeat = ctx.clock.now();
 
   const decodePromise = new Promise<void>((res, rej) => {
     writeStream.on("finish", res);
     writeStream.on("error", rej);
   });
+
+  // Calculate total Base64 payload length
+  const payloadLength = record.legacyDataLength - (base64Start - 1);
 
   for (let sqlOffset = base64Start; sqlOffset <= record.legacyDataLength; sqlOffset += BASE64_CHUNK_SIZE) {
     // Heartbeat check every 10 chunks
@@ -534,19 +538,31 @@ async function decodeWithHeartbeat(
     }
 
     const chunk = await fetchBase64Chunk(source, recordId, sqlOffset, BASE64_CHUNK_SIZE, ctx);
-    let fullChunk = carryOver + chunk;
-    const remainder = fullChunk.length % 4;
 
-    if (remainder !== 0 && sqlOffset + BASE64_CHUNK_SIZE <= record.legacyDataLength) {
+    // Combine with carry-over from previous chunk
+    let fullChunk = carryOver + chunk;
+
+    // Calculate how many complete 4-character Base64 groups we have
+    const remainder = fullChunk.length % 4;
+    const isLastChunk = sqlOffset + BASE64_CHUNK_SIZE > record.legacyDataLength;
+
+    if (remainder !== 0 && !isLastChunk) {
+      // Save remainder for next chunk (not last chunk)
       carryOver = fullChunk.slice(-remainder);
       fullChunk = fullChunk.slice(0, -remainder);
     } else {
+      // Last chunk or complete groups - process all including any remainder
       carryOver = "";
     }
 
     if (fullChunk.length === 0) continue;
-    if (!/^[A-Za-z0-9+/]*=?=?=?$/.test(fullChunk)) throw new Error("Invalid Base64");
 
+    // Validate Base64 characters only
+    if (!/^[A-Za-z0-9+/]*=?=?=?$/.test(fullChunk)) {
+      throw new Error("Invalid Base64 data in chunk");
+    }
+
+    // Decode complete groups
     const buffer = Buffer.from(fullChunk, "base64");
     writeStream.write(buffer);
     hash.update(buffer);
@@ -554,7 +570,11 @@ async function decodeWithHeartbeat(
     onProgress(decodedSize);
   }
 
+  // Process any remaining carry-over (should only happen on last chunk)
   if (carryOver) {
+    if (!/^[A-Za-z0-9+/]*=?=?=?$/.test(carryOver)) {
+      throw new Error("Invalid Base64 data in final chunk");
+    }
     const buffer = Buffer.from(carryOver, "base64");
     writeStream.write(buffer);
     hash.update(buffer);
