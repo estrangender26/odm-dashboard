@@ -35,6 +35,12 @@ import {
   isValidStateTransition,
   inspectExistingObjectStreamed,
   verifyApplicationRouteStreamed,
+  acquireLease as coreAcquireLease,
+  renewLease as coreRenewLease,
+  releaseLease as coreReleaseLease,
+  transitionState as coreTransitionState,
+  transactionalMetadataCommit as coreTransactionalMetadataCommit,
+  transactionalRollback as coreTransactionalRollback,
   BASE64_CHUNK_SIZE,
   LEASE_DURATION_MS,
   HEARTBEAT_INTERVAL_MS,
@@ -197,7 +203,7 @@ async function getSourceFingerprint(source: StorageFileSource, recordId: number)
 }
 
 // ============================================================================
-// LEASE MANAGEMENT
+// LEASE MANAGEMENT (wrappers around core functions)
 // ============================================================================
 
 async function acquireLease(
@@ -210,87 +216,15 @@ async function acquireLease(
   mimeType: string,
   execute: boolean
 ): Promise<{ acquired: boolean; conflict?: string }> {
-  if (!execute) return { acquired: true };
-
-  const now = new Date();
-  const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
-
-  // Insert ledger row if not exists
-  try {
-    await db.insert(legacyStorageMigrationLedger).values({
-      source, recordId, bucket, storagePath,
-      originalFilename: "pending",
-      expectedSize, legacySha256,
-      detectedMimeType: mimeType,
-      state: "inventoried",
-      leaseOwner: null, leaseExpiresAt: null,
-    }).onConflictDoNothing();
-  } catch { }
-
-  // Validate existing ledger matches
-  const existing = await db.select({
-    bucket: legacyStorageMigrationLedger.bucket,
-    storagePath: legacyStorageMigrationLedger.storagePath,
-    expectedSize: legacyStorageMigrationLedger.expectedSize,
-    legacySha256: legacyStorageMigrationLedger.legacySha256,
-  })
-    .from(legacyStorageMigrationLedger)
-    .where(and(
-      eq(legacyStorageMigrationLedger.source, source),
-      eq(legacyStorageMigrationLedger.recordId, recordId)
-    ))
-    .limit(1);
-
-  if (existing[0]) {
-    const e = existing[0];
-    if (e.bucket !== bucket || e.storagePath !== storagePath ||
-        Number(e.expectedSize) !== expectedSize || e.legacySha256 !== legacySha256) {
-      return { acquired: false, conflict: "Ledger identity mismatch" };
-    }
-  }
-
-  // Acquire lease atomically
-  const result = await db.update(legacyStorageMigrationLedger)
-    .set({
-      leaseOwner: WORKER_ID,
-      leaseExpiresAt: leaseExpires,
-      leaseHeartbeatAt: now,
-      updatedAt: now,
-    })
-    .where(and(
-      eq(legacyStorageMigrationLedger.source, source),
-      eq(legacyStorageMigrationLedger.recordId, recordId),
-      sql`(${legacyStorageMigrationLedger.leaseOwner} IS NULL OR ${legacyStorageMigrationLedger.leaseExpiresAt} < ${now})`
-    ))
-    .returning({ id: legacyStorageMigrationLedger.id });
-
-  return { acquired: result.length > 0 };
+  return coreAcquireLease(source, recordId, bucket, storagePath, expectedSize, legacySha256, mimeType, execute, WORKER_ID);
 }
 
 async function renewLease(source: StorageFileSource, recordId: number, execute: boolean): Promise<boolean> {
-  if (!execute) return true;
-  const now = new Date();
-  const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
-  const result = await db.update(legacyStorageMigrationLedger)
-    .set({ leaseExpiresAt: leaseExpires, leaseHeartbeatAt: now, updatedAt: now })
-    .where(and(
-      eq(legacyStorageMigrationLedger.source, source),
-      eq(legacyStorageMigrationLedger.recordId, recordId),
-      eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
-    ))
-    .returning({ id: legacyStorageMigrationLedger.id });
-  return result.length > 0;
+  return coreRenewLease(source, recordId, execute, WORKER_ID);
 }
 
-async function releaseLease(source: StorageFileSource, recordId: number, execute: boolean) {
-  if (!execute) return;
-  await db.update(legacyStorageMigrationLedger)
-    .set({ leaseOwner: null, leaseExpiresAt: null, leaseHeartbeatAt: null, updatedAt: new Date() })
-    .where(and(
-      eq(legacyStorageMigrationLedger.source, source),
-      eq(legacyStorageMigrationLedger.recordId, recordId),
-      eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
-    ));
+async function releaseLease(source: StorageFileSource, recordId: number, execute: boolean): Promise<void> {
+  return coreReleaseLease(source, recordId, execute, WORKER_ID);
 }
 
 // ============================================================================
@@ -304,35 +238,8 @@ async function transitionState(
   newState: LegacyStorageMigrationState,
   execute: boolean,
   error?: string
-) {
-  if (!execute) return { success: true };
-
-  if (!isValidStateTransition(expectedState, newState)) {
-    throw new Error(`Invalid transition: ${expectedState} -> ${newState}`);
-  }
-
-  const now = new Date();
-  const updates: Record<string, unknown> = { state: newState, updatedAt: now };
-  if (error) updates.lastError = sanitizeError(error);
-  if (newState === "object_verified") updates.objectVerifiedAt = now;
-  if (newState === "metadata_committed") updates.metadataCommittedAt = now;
-  if (newState === "app_verified") updates.appVerifiedAt = now;
-  if (newState === "rolled_back") updates.rollbackAt = now;
-
-  const result = await db.update(legacyStorageMigrationLedger)
-    .set(updates)
-    .where(and(
-      eq(legacyStorageMigrationLedger.source, source),
-      eq(legacyStorageMigrationLedger.recordId, recordId),
-      eq(legacyStorageMigrationLedger.state, expectedState),
-      eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
-    ))
-    .returning({ id: legacyStorageMigrationLedger.id });
-
-  if (result.length === 0) {
-    throw new Error(`State transition failed: expected ${expectedState}`);
-  }
-  return { success: true };
+): Promise<{ success: boolean }> {
+  return coreTransitionState(source, recordId, expectedState, newState, execute, WORKER_ID, error);
 }
 
 // ============================================================================

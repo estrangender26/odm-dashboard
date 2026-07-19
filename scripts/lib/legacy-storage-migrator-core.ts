@@ -324,3 +324,290 @@ export async function verifyApplicationRouteStreamed(
     return { ok: false, error: sanitizeError(err) };
   }
 }
+
+
+// ============================================================================
+// WORKFLOW FUNCTIONS (exported for testing)
+// ============================================================================
+
+import { eq, and, inArray, sql } from "drizzle-orm";
+import { db } from "../../api/queries/connection";
+import {
+  docFiles,
+  governanceFiles,
+  governanceUploads,
+  smpDocuments,
+  legacyStorageMigrationLedger,
+} from "../../db/schema";
+
+const SOURCE_TABLES = {
+  doc_files: docFiles,
+  governance_files: governanceFiles,
+  governance_uploads: governanceUploads,
+  smp_documents: smpDocuments,
+} as const;
+
+const LEGACY_COLUMNS: Record<StorageFileSource, string> = {
+  doc_files: "file_data",
+  governance_files: "file_data",
+  governance_uploads: "file_url",
+  smp_documents: "file_data",
+};
+
+/**
+ * Acquires an owner-bound lease for a migration record.
+ * Validates ledger identity and ensures atomic lease acquisition.
+ */
+export async function acquireLease(
+  source: StorageFileSource,
+  recordId: number,
+  bucket: string,
+  storagePath: string,
+  expectedSize: number,
+  legacySha256: string,
+  mimeType: string,
+  execute: boolean,
+  workerId: string
+): Promise<{ acquired: boolean; conflict?: string }> {
+  if (!execute) return { acquired: true };
+
+  const now = new Date();
+  const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
+
+  // Insert ledger row if not exists
+  try {
+    await db.insert(legacyStorageMigrationLedger).values({
+      source, recordId, bucket, storagePath,
+      originalFilename: "pending",
+      expectedSize, legacySha256,
+      detectedMimeType: mimeType,
+      state: "inventoried",
+      leaseOwner: null, leaseExpiresAt: null,
+    }).onConflictDoNothing();
+  } catch { }
+
+  // Validate existing ledger matches
+  const existing = await db.select({
+    bucket: legacyStorageMigrationLedger.bucket,
+    storagePath: legacyStorageMigrationLedger.storagePath,
+    expectedSize: legacyStorageMigrationLedger.expectedSize,
+    legacySha256: legacyStorageMigrationLedger.legacySha256,
+  })
+    .from(legacyStorageMigrationLedger)
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId)
+    ))
+    .limit(1);
+
+  if (existing[0]) {
+    const e = existing[0];
+    if (e.bucket !== bucket || e.storagePath !== storagePath ||
+        Number(e.expectedSize) !== expectedSize || e.legacySha256 !== legacySha256) {
+      return { acquired: false, conflict: "Ledger identity mismatch" };
+    }
+  }
+
+  // Acquire lease atomically
+  const result = await db.update(legacyStorageMigrationLedger)
+    .set({
+      leaseOwner: workerId,
+      leaseExpiresAt: leaseExpires,
+      leaseHeartbeatAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId),
+      sql`(${legacyStorageMigrationLedger.leaseOwner} IS NULL OR ${legacyStorageMigrationLedger.leaseExpiresAt} < ${now})`
+    ))
+    .returning({ id: legacyStorageMigrationLedger.id });
+
+  return { acquired: result.length > 0 };
+}
+
+/**
+ * Renews an existing lease if owned by the worker.
+ */
+export async function renewLease(
+  source: StorageFileSource,
+  recordId: number,
+  execute: boolean,
+  workerId: string
+): Promise<boolean> {
+  if (!execute) return true;
+  const now = new Date();
+  const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
+  const result = await db.update(legacyStorageMigrationLedger)
+    .set({ leaseExpiresAt: leaseExpires, leaseHeartbeatAt: now, updatedAt: now })
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId),
+      eq(legacyStorageMigrationLedger.leaseOwner, workerId)
+    ))
+    .returning({ id: legacyStorageMigrationLedger.id });
+  return result.length > 0;
+}
+
+/**
+ * Releases a lease owned by the worker.
+ */
+export async function releaseLease(
+  source: StorageFileSource,
+  recordId: number,
+  execute: boolean,
+  workerId: string
+): Promise<void> {
+  if (!execute) return;
+  await db.update(legacyStorageMigrationLedger)
+    .set({ leaseOwner: null, leaseExpiresAt: null, leaseHeartbeatAt: null, updatedAt: new Date() })
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId),
+      eq(legacyStorageMigrationLedger.leaseOwner, workerId)
+    ));
+}
+
+/**
+ * Validates and performs a state transition atomically.
+ */
+export async function transitionState(
+  source: StorageFileSource,
+  recordId: number,
+  expectedState: string,
+  newState: string,
+  execute: boolean,
+  workerId: string,
+  error?: string
+): Promise<{ success: boolean }> {
+  // Always validate transition (even in dry-run)
+  if (!isValidStateTransition(expectedState, newState)) {
+    throw new Error(`Invalid transition: ${expectedState} -> ${newState}`);
+  }
+
+  if (!execute) return { success: true };
+
+  const now = new Date();
+  const updates: Record<string, unknown> = { state: newState, updatedAt: now };
+  if (error) updates.lastError = sanitizeError(error);
+  if (newState === "object_verified") updates.objectVerifiedAt = now;
+  if (newState === "metadata_committed") updates.metadataCommittedAt = now;
+  if (newState === "app_verified") updates.appVerifiedAt = now;
+  if (newState === "rolled_back") updates.rollbackAt = now;
+
+  const result = await db.update(legacyStorageMigrationLedger)
+    .set(updates)
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId),
+      eq(legacyStorageMigrationLedger.state, expectedState),
+      eq(legacyStorageMigrationLedger.leaseOwner, workerId)
+    ))
+    .returning({ id: legacyStorageMigrationLedger.id });
+
+  if (result.length === 0) {
+    throw new Error(`State transition failed: expected ${expectedState}`);
+  }
+  return { success: true };
+}
+
+/**
+ * Transactionally commits metadata with fingerprint verification.
+ */
+export async function transactionalMetadataCommit(
+  source: StorageFileSource,
+  recordId: number,
+  bucket: string,
+  path: string,
+  size: number,
+  mimeType: string,
+  fingerprint: { length: number; hash: string },
+  execute: boolean,
+  workerId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!execute) return { success: true };
+
+  try {
+    await db.transaction(async (tx) => {
+      const table = SOURCE_TABLES[source];
+      const legacyColumn = LEGACY_COLUMNS[source];
+
+      // Verify fingerprint still matches
+      const currentFp = await tx.select({
+        length: sql<number>`length(${sql.raw(legacyColumn)})`,
+        hash: sql<string>`md5(${sql.raw(legacyColumn)})`,
+      })
+        .from(table)
+        .where(eq(table.id, recordId))
+        .limit(1);
+
+      if (!currentFp[0]) throw new Error("Record not found");
+      if (currentFp[0].length !== fingerprint.length) throw new Error("Fingerprint length changed");
+      if (currentFp[0].hash !== fingerprint.hash) throw new Error("Fingerprint hash changed");
+
+      // Update source metadata
+      await tx.update(table)
+        .set({
+          storageProvider: "supabase",
+          storageBucket: bucket,
+          storagePath: path,
+          storageSize: size,
+          storageMimeType: mimeType,
+          storageUploadedAt: new Date(),
+        })
+        .where(eq(table.id, recordId));
+
+      // Update ledger
+      const now = new Date();
+      await tx.update(legacyStorageMigrationLedger)
+        .set({ state: "metadata_committed", metadataCommittedAt: now, updatedAt: now })
+        .where(and(
+          eq(legacyStorageMigrationLedger.source, source),
+          eq(legacyStorageMigrationLedger.recordId, recordId),
+          eq(legacyStorageMigrationLedger.state, "object_verified"),
+          eq(legacyStorageMigrationLedger.leaseOwner, workerId)
+        ));
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: sanitizeError(err) };
+  }
+}
+
+/**
+ * Transactionally rolls back metadata changes.
+ */
+export async function transactionalRollback(
+  source: StorageFileSource,
+  recordId: number,
+  bucket: string,
+  path: string,
+  execute: boolean
+): Promise<{ success: boolean; error?: string }> {
+  if (!execute) return { success: true };
+
+  try {
+    await db.transaction(async (tx) => {
+      const table = SOURCE_TABLES[source];
+
+      // Clear metadata only if matches exact bucket/path
+      await tx.update(table)
+        .set({
+          storageProvider: null,
+          storageBucket: null,
+          storagePath: null,
+          storageSize: null,
+          storageMimeType: null,
+          storageUploadedAt: null,
+        })
+        .where(and(
+          eq(table.id, recordId),
+          eq(sql`storage_bucket`, bucket),
+          eq(sql`storage_path`, path)
+        ));
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: sanitizeError(err) };
+  }
+}
