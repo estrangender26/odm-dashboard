@@ -1,0 +1,78 @@
+name: Migration Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Source table (governance_uploads, governance_files, doc_files)'
+        required: true
+        default: 'governance_files'
+      record_id:
+        description: 'Single record ID to migrate (leave empty for dry-run list)'
+        required: false
+        default: ''
+      execute:
+        description: 'Execute mode (requires confirmation)'
+        type: boolean
+        required: true
+        default: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Render CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/render-oss/render-cli/main/install.sh | bash
+          echo "$HOME/.render/bin" >> $GITHUB_PATH
+
+      - name: Run migration in Render environment
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: srv-d7tdokmgvqtc73ck8490
+        run: |
+          set -e
+          
+          SOURCE="${{ github.event.inputs.source }}"
+          RECORD_ID="${{ github.event.inputs.record_id }}"
+          EXECUTE="${{ github.event.inputs.execute }}"
+          
+          # Authenticate Render CLI
+          render login --token "$RENDER_API_KEY"
+          
+          # Prepare command
+          if [ -n "$RECORD_ID" ]; then
+            CMD="LEGACY_MIGRATOR_MODE=1 npx tsx scripts/minimal-storage-migrator.ts --sources $SOURCE --ids $RECORD_ID"
+            if [ "$EXECUTE" = "true" ]; then
+              CMD="$CMD --execute --confirm-production"
+            fi
+            echo "Running: $CMD"
+          else
+            CMD="LEGACY_MIGRATOR_MODE=1 npx tsx scripts/minimal-storage-migrator.ts --sources $SOURCE --limit 5"
+            echo "Running dry-run list: $CMD"
+          fi
+          
+          # Execute via Render SSH
+          render ssh "$RENDER_SERVICE_ID" --command "$CMD" 2>&1 || {
+            echo "Render SSH command failed - trying alternative"
+            # Fallback: trigger deploy with migration env vars
+            exit 1
+          }
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-logs-${{ github.run_id }}
+          path: |
+            *.log
+            migration-*.txt
+          if-no-files-found: ignore
