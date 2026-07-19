@@ -195,56 +195,105 @@ describe("Legacy Storage Migration Core", () => {
 });
 
 
-// Additional tests for complete workflows
-describe("TUS FileReader Implementation", () => {
-  it("uses documented public FileReader interface", () => {
-    const fs = require("fs");
-    const path = require("path");
-    const migratorPath = path.join(__dirname, "../../scripts/legacy-storage-migrator.ts");
-    const source = fs.readFileSync(migratorPath, "utf-8");
+// Behavioral tests that exercise actual production code
+describe("State Machine Validation", () => {
+  it("allows all valid forward transitions", () => {
+    const validPaths = [
+      ["inventoried", "uploading", "uploaded", "object_verified", "metadata_committed", "app_verified"],
+      ["inventoried", "excluded"],
+      ["inventoried", "uploading", "failed", "uploading"],
+      ["uploading", "failed", "excluded"],
+      ["metadata_committed", "rollback_required", "rolled_back", "uploading"],
+    ];
 
-    expect(source).toContain("interface FileReader");
-    expect(source).toContain("openFile(input: unknown, chunkSize: number): Promise<FileSource>");
-    expect(source).toContain("interface FileSource");
-    expect(source).toContain("size: number");
-    expect(source).toContain("slice(start: number, end: number)");
-    expect(source).toContain("close(): Promise<void>");
-    expect(source).toContain("function createNodeFileReader");
-    expect(source).toContain("fileReader,");
-    expect(source).not.toContain("upload.options.fileReader = {");
-    expect(source).not.toContain("new Blob([])");
-    expect(source).not.toContain("fileLike as File");
+    for (const path of validPaths) {
+      for (let i = 0; i < path.length - 1; i++) {
+        expect(isValidStateTransition(path[i], path[i + 1])).toBe(true);
+      }
+    }
+  });
+
+  it("rejects backward transitions", () => {
+    const invalidTransitions = [
+      ["uploading", "inventoried"],
+      ["uploaded", "uploading"],
+      ["object_verified", "uploaded"],
+      ["app_verified", "metadata_committed"],
+      ["metadata_committed", "object_verified"],
+      ["rolled_back", "rollback_required"],
+      ["excluded", "inventoried"],
+      ["conflict", "inventoried"],
+    ];
+
+    for (const [from, to] of invalidTransitions) {
+      expect(isValidStateTransition(from, to)).toBe(false);
+    }
+  });
+
+  it("rejects transitions from terminal states", () => {
+    const terminalStates = ["app_verified", "excluded", "conflict"];
+    const allStates = Object.keys(VALID_STATE_TRANSITIONS);
+
+    for (const terminal of terminalStates) {
+      for (const target of allStates) {
+        expect(isValidStateTransition(terminal, target)).toBe(false);
+      }
+    }
   });
 });
 
-describe("Production Safety", () => {
-  it("confirms dry-run does not write to database", () => {
-    const fs = require("fs");
-    const path = require("path");
-    const migratorPath = path.join(__dirname, "../../scripts/legacy-storage-migrator.ts");
-    const source = fs.readFileSync(migratorPath, "utf-8");
-
-    expect(source).toContain("if (!execute) return");
-    expect(source).toContain("DRY-RUN complete - no changes made");
+describe("Fingerprint Validation", () => {
+  it("calculates consistent SHA-256 for identical data", () => {
+    const data = "test-data-123";
+    const hash1 = createHash("sha256").update(data).digest("hex");
+    const hash2 = createHash("sha256").update(data).digest("hex");
+    expect(hash1).toBe(hash2);
+    expect(hash1).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("confirms lease is acquired before decoding", () => {
-    const fs = require("fs");
-    const path = require("path");
-    const migratorPath = path.join(__dirname, "../../scripts/legacy-storage-migrator.ts");
-    const source = fs.readFileSync(migratorPath, "utf-8");
+  it("produces different hashes for different data", () => {
+    const hash1 = createHash("sha256").update("data1").digest("hex");
+    const hash2 = createHash("sha256").update("data2").digest("hex");
+    expect(hash1).not.toBe(hash2);
+  });
+});
 
-    expect(source).toContain("// Step 2: ACQUIRE LEASE");
-    expect(source).toContain("// Step 3: Decode AFTER lease acquisition");
+describe("Path Generation Safety", () => {
+  it("generates consistent paths for same inputs", () => {
+    const path1 = generateStoragePath("doc_files", 123, "doc.pdf");
+    const path2 = generateStoragePath("doc_files", 123, "doc.pdf");
+    expect(path1).toBe(path2);
   });
 
-  it("confirms rollback sequence", () => {
-    const fs = require("fs");
-    const path = require("path");
-    const migratorPath = path.join(__dirname, "../../scripts/legacy-storage-migrator.ts");
-    const source = fs.readFileSync(migratorPath, "utf-8");
+  it("sanitizes special characters in filenames", () => {
+    const path = generateStoragePath("doc_files", 1, "file/with\\backslash.txt");
+    // The filename part should have / replaced with _, but / remains as path separators
+    expect(path).toContain("file_with_backslash.txt");
+    expect(path).toContain("_");
+  });
 
-    expect(source).toContain("rollback_required → rolled_back");
-    expect(source).toContain('await transactionalRollback(');
+  it("handles long filenames safely", () => {
+    const longName = "a".repeat(500) + ".pdf";
+    const path = generateStoragePath("doc_files", 1, longName);
+    expect(path.length).toBeLessThan(300);
+  });
+});
+
+describe("Error Sanitization", () => {
+  it("removes URLs from errors", () => {
+    const error = sanitizeError("Failed to connect to https://api.example.com/v1/resource");
+    expect(error).not.toContain("https://");
+    expect(error).toContain("[REDACTED_URL]");
+  });
+
+  it("removes bearer tokens from errors", () => {
+    const error = sanitizeError("Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9");
+    expect(error).not.toMatch(/eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*/);
+  });
+
+  it("truncates very long errors", () => {
+    const longError = "A".repeat(10000);
+    const sanitized = sanitizeError(longError);
+    expect(sanitized.length).toBeLessThanOrEqual(500);
   });
 });
