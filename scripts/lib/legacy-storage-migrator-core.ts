@@ -343,7 +343,7 @@ export async function verifyApplicationRouteStreamed(
 // WORKFLOW FUNCTIONS (exported for testing)
 // ============================================================================
 
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, or, inArray, sql, isNull, lt } from "drizzle-orm";
 import { db } from "../../api/queries/connection";
 import {
   docFiles,
@@ -440,7 +440,10 @@ export async function acquireLease(
     .where(and(
       eq(legacyStorageMigrationLedger.source, source),
       eq(legacyStorageMigrationLedger.recordId, recordId),
-      sql`(${legacyStorageMigrationLedger.leaseOwner} IS NULL OR ${legacyStorageMigrationLedger.leaseExpiresAt} < ${now})`
+      or(
+        isNull(legacyStorageMigrationLedger.leaseOwner),
+        lt(legacyStorageMigrationLedger.leaseExpiresAt, now)
+      )
     ))
     .returning({ id: legacyStorageMigrationLedger.id });
 
