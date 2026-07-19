@@ -31,13 +31,17 @@ CREATE TABLE legacy_storage_migration_ledger (
   state legacy_storage_migration_state NOT NULL DEFAULT 'inventoried',
   attempt_count INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
+  -- TUS upload URL for resumable uploads (sensitive - never logged)
+  tus_upload_url TEXT,
+  -- Worker lease for distributed locking
+  lease_expires_at TIMESTAMPTZ,
   object_verified_at TIMESTAMPTZ,
   metadata_committed_at TIMESTAMPTZ,
   app_verified_at TIMESTAMPTZ,
   rollback_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  
+
   -- Unique constraint for idempotency
   UNIQUE (source, record_id)
 );
@@ -46,7 +50,8 @@ CREATE TABLE legacy_storage_migration_ledger (
 CREATE INDEX legacy_migration_ledger_state_idx ON legacy_storage_migration_ledger(state);
 CREATE INDEX legacy_migration_ledger_source_idx ON legacy_storage_migration_ledger(source);
 CREATE INDEX legacy_migration_ledger_updated_idx ON legacy_storage_migration_ledger(updated_at);
+CREATE INDEX legacy_migration_ledger_lease_idx ON legacy_storage_migration_ledger(lease_expires_at);
 
--- Advisory lock helper for worker exclusion
--- Use pg_try_advisory_lock(hashtextextended(source || ':' || record_id::text, 0))
--- to ensure only one worker processes a given record at a time
+-- Worker exclusion uses PostgreSQL advisory locks with session scope
+-- Use: SELECT pg_try_advisory_lock(hashtextextended('legacy:' || source || ':' || record_id::text, 0))
+-- Important: These locks are session-scoped and auto-released on disconnect

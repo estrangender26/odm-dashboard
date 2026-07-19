@@ -481,6 +481,21 @@ export const legacyStorageMigrationStateEnum = [
 
 export type LegacyStorageMigrationState = (typeof legacyStorageMigrationStateEnum)[number];
 
+// Valid state transitions for state machine
+export const VALID_STATE_TRANSITIONS: Record<LegacyStorageMigrationState, LegacyStorageMigrationState[]> = {
+  inventoried: ["uploading", "excluded"],
+  uploading: ["uploaded", "failed"],
+  uploaded: ["object_verified", "failed"],
+  object_verified: ["metadata_committed", "failed"],
+  metadata_committed: ["app_verified", "rollback_required", "failed"],
+  rollback_required: ["rolled_back", "failed"],
+  rolled_back: ["uploading"],
+  conflict: [],
+  failed: ["uploading", "excluded"],
+  app_verified: [],
+  excluded: [],
+};
+
 export const legacyStorageMigrationLedger = pgTable("legacy_storage_migration_ledger", {
   id: serial("id").primaryKey(),
   source: varchar("source", { length: 50 }).notNull(),
@@ -494,6 +509,10 @@ export const legacyStorageMigrationLedger = pgTable("legacy_storage_migration_le
   state: varchar("state", { length: 32 }).notNull().default("inventoried"),
   attemptCount: integer("attempt_count").notNull().default(0),
   lastError: text("last_error"),
+  // TUS upload URL for resumable uploads (never logged or exposed)
+  tusUploadUrl: text("tus_upload_url"),
+  // Worker lease for distributed locking
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
   objectVerifiedAt: timestamp("object_verified_at", { withTimezone: true }),
   metadataCommittedAt: timestamp("metadata_committed_at", { withTimezone: true }),
   appVerifiedAt: timestamp("app_verified_at", { withTimezone: true }),
@@ -505,6 +524,7 @@ export const legacyStorageMigrationLedger = pgTable("legacy_storage_migration_le
   index("legacy_migration_ledger_state_idx").on(table.state),
   index("legacy_migration_ledger_source_idx").on(table.source),
   index("legacy_migration_ledger_updated_idx").on(table.updatedAt),
+  index("legacy_migration_ledger_lease_idx").on(table.leaseExpiresAt),
 ]);
 
 export type LegacyStorageMigrationLedger = typeof legacyStorageMigrationLedger.$inferSelect;

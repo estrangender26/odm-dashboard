@@ -1,8 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createWriteStream, createReadStream, promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pipeline } from "node:stream/promises";
 import * as tus from "tus-js-client";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../api/queries/connection";
@@ -13,10 +12,17 @@ import {
   smpDocuments,
   legacyStorageMigrationLedger,
   storageUploadIntents,
+  VALID_STATE_TRANSITIONS,
+  type LegacyStorageMigrationState,
 } from "../db/schema";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "../api/supabase-storage";
 import { STORAGE_BUCKET_BY_MODULE, TUS_CHUNK_SIZE_BYTES, type StorageFileSource } from "@contracts/storage";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Configuration constants
+const BASE64_CHUNK_SIZE = 64 * 1024; // 64KB chunks (must be multiple of 4 for Base64)
+const MAX_MEMORY_BUFFER = 256 * 1024; // 256KB max in-memory buffer
+const LEASE_DURATION_MS = 5 * 60 * 1000; // 5 minute lease duration
 
 // Source to table mapping
 const SOURCE_TABLES = {
@@ -63,21 +69,6 @@ const EXT_TO_MIME: Record<string, string> = {
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
-// Allowed state transitions
-const VALID_STATE_TRANSITIONS: Record<string, string[]> = {
-  inventoried: ["uploading", "excluded"],
-  uploading: ["uploaded", "failed"],
-  uploaded: ["object_verified", "failed"],
-  object_verified: ["metadata_committed", "failed"],
-  metadata_committed: ["app_verified", "rollback_required", "failed"],
-  rollback_required: ["rolled_back", "failed"],
-  rolled_back: ["uploading"], // Can retry after rollback
-  conflict: [], // Terminal - requires human review
-  failed: ["uploading", "excluded"], // Can retry or exclude
-  app_verified: [], // Terminal success
-  excluded: [], // Terminal - excluded
-};
-
 interface MigrationOptions {
   execute: boolean;
   confirmProduction: boolean;
@@ -88,17 +79,9 @@ interface MigrationOptions {
   concurrency?: number;
 }
 
-interface DecodedStreamResult {
+interface ProcessingContext {
+  tempDir: string;
   tempFilePath: string;
-  size: number;
-  sha256: string;
-  mimeType: string;
-}
-
-interface ExistingObjectInfo {
-  exists: boolean;
-  size?: number;
-  mimeType?: string;
 }
 
 // Parse command line arguments
@@ -183,21 +166,13 @@ function sanitizeError(error: string | Error | unknown): string {
 
   let message = error instanceof Error ? error.message : String(error);
 
-  // Redact patterns
   const patterns = [
-    // URLs with credentials
     { pattern: /[a-zA-Z]+:\/\/[^\s"]+/g, replacement: "[REDACTED_URL]" },
-    // Authorization headers
     { pattern: /authorization[:\s=]+[^\s,"]+/gi, replacement: "authorization: [REDACTED]" },
-    // Bearer tokens
     { pattern: /bearer\s+[a-zA-Z0-9_-]{10,}/gi, replacement: "[REDACTED_BEARER]" },
-    // JWT-like strings (3 base64 parts separated by dots)
     { pattern: /[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, replacement: "[REDACTED_JWT]" },
-    // Service role keys (long alphanumeric)
     { pattern: /ey[a-zA-Z0-9_-]{20,}/g, replacement: "[REDACTED_KEY]" },
-    // Base64 data URLs (long)
     { pattern: /data:[^;]+;base64,[a-zA-Z0-9+/]{100,}/gi, replacement: "[REDACTED_BASE64]" },
-    // Stack traces
     { pattern: /\s+at\s+.+$/gm, replacement: "" },
   ];
 
@@ -205,97 +180,118 @@ function sanitizeError(error: string | Error | unknown): string {
     message = message.replace(pattern, replacement);
   }
 
-  // Limit length
   return message.substring(0, 500).trim();
 }
 
 // Infer MIME type with proper precedence
 function inferMimeType(fileName: string, dataUrlMime: string | null, fileType: string | null): string {
-  // 1. Valid MIME from data URL
   if (dataUrlMime && dataUrlMime !== "application/octet-stream") {
     return dataUrlMime;
   }
-
-  // 2. Existing fileType from source record
   if (fileType?.trim()) {
     return fileType.trim();
   }
-
-  // 3. Filename extension inference
   const ext = fileName.split(".").pop()?.toLowerCase();
   if (ext && EXT_TO_MIME[ext]) {
     return EXT_TO_MIME[ext];
   }
-
-  // 4. Fallback
   return "application/octet-stream";
 }
 
-// Parse data URL and extract MIME type
-function parseDataUrl(value: string): { mimeType: string | null; base64Data: string } {
+// Parse data URL header separately (small bounded read)
+function parseDataUrlHeader(value: string): { mimeType: string | null; headerLength: number } {
   const trimmed = value.trim();
-
   if (!trimmed.startsWith("data:")) {
-    return { mimeType: null, base64Data: trimmed };
+    return { mimeType: null, headerLength: 0 };
   }
-
   const comma = trimmed.indexOf(",");
   if (comma < 0) {
-    return { mimeType: null, base64Data: "" };
+    return { mimeType: null, headerLength: 0 };
   }
-
   const header = trimmed.slice(5, comma);
   const declaredMime = header.split(";")[0] || null;
-  const base64Data = trimmed.slice(comma + 1);
-
-  return { mimeType: declaredMime, base64Data };
+  return { mimeType: declaredMime, headerLength: comma + 1 };
 }
 
-// Decode Base64 to temp file with streaming and SHA-256 calculation
-async function decodeLegacyDataToTemp(
-  value: string,
-  fileName: string,
-  fileType: string | null
-): Promise<DecodedStreamResult> {
-  const { mimeType: dataUrlMime, base64Data } = parseDataUrl(value);
-  const detectedMime = inferMimeType(fileName, dataUrlMime, fileType);
+// Create private temp directory with restrictive permissions
+async function createPrivateTempDir(): Promise<string> {
+  const randomSuffix = randomBytes(16).toString("hex");
+  const tempDir = join(tmpdir(), `odm-migration-${randomSuffix}`);
+  await fs.mkdir(tempDir, { mode: 0o700, recursive: true });
+  return tempDir;
+}
 
-  const tempFilePath = join(tmpdir(), `odm-migration-${randomUUID()}.tmp`);
+// Decode Base64 in chunks to temp file with streaming SHA-256
+async function decodeLegacyDataChunked(
+  base64Data: string,
+  tempFilePath: string
+): Promise<{ size: number; sha256: string }> {
   const hash = createHash("sha256");
   let size = 0;
+  let carryOver = "";
+
+  const writeStream = createWriteStream(tempFilePath);
 
   try {
-    // Decode Base64 to buffer
-    const buffer = Buffer.from(base64Data, "base64");
+    for (let i = 0; i < base64Data.length; i += BASE64_CHUNK_SIZE) {
+      // Include carry-over from previous chunk to maintain 4-character alignment
+      let chunk = carryOver + base64Data.slice(i, i + BASE64_CHUNK_SIZE);
 
-    // Write to temp file
-    const writeStream = createWriteStream(tempFilePath);
-    await new Promise<void>((resolve, reject) => {
-      writeStream.write(buffer, (err) => {
-        if (err) reject(err);
-        else resolve();
+      // Calculate how many complete 4-character groups we have
+      const remainder = chunk.length % 4;
+      if (remainder !== 0 && i + BASE64_CHUNK_SIZE < base64Data.length) {
+        // Not the last chunk - save remainder for next iteration
+        carryOver = chunk.slice(-remainder);
+        chunk = chunk.slice(0, -remainder);
+      } else {
+        carryOver = "";
+      }
+
+      if (chunk.length === 0) continue;
+
+      // Validate Base64 characters
+      if (!/^[A-Za-z0-9+/]*=?=?=?$/.test(chunk)) {
+        throw new Error("Invalid Base64 character detected");
+      }
+
+      // Decode chunk
+      const buffer = Buffer.from(chunk, "base64");
+
+      // Write to file
+      await new Promise<void>((resolve, reject) => {
+        writeStream.write(buffer, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
       });
-    });
-    writeStream.end();
 
-    // Update hash and size
-    hash.update(buffer);
-    size = buffer.length;
+      // Update hash and size
+      hash.update(buffer);
+      size += buffer.length;
+    }
 
-    await new Promise((resolve, reject) => {
-      writeStream.on("finish", resolve);
+    // Handle any remaining carry-over (should only be padding)
+    if (carryOver) {
+      const buffer = Buffer.from(carryOver, "base64");
+      await new Promise<void>((resolve, reject) => {
+        writeStream.write(buffer, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      hash.update(buffer);
+      size += buffer.length;
+    }
+
+    // Close write stream
+    await new Promise<void>((resolve, reject) => {
+      writeStream.end(() => resolve());
       writeStream.on("error", reject);
     });
 
-    return {
-      tempFilePath,
-      size,
-      sha256: hash.digest("hex"),
-      mimeType: detectedMime,
-    };
+    return { size, sha256: hash.digest("hex") };
   } catch (error) {
-    // Clean up on error
-    await fs.unlink(tempFilePath).catch(() => {});
+    writeStream.destroy();
     throw error;
   }
 }
@@ -314,19 +310,6 @@ function generateStoragePath(source: StorageFileSource, recordId: number, filena
   return `legacy/${source}/${recordId}/${sanitized}`;
 }
 
-// Check and lock record for exclusive processing
-async function tryAcquireRecordLock(source: string, recordId: number): Promise<boolean> {
-  const lockId = `legacy:${source}:${recordId}`;
-  const result = await db.execute(sql`SELECT pg_try_advisory_lock(hashtextextended(${lockId}, 0)) as acquired`);
-  return result[0]?.acquired === true;
-}
-
-// Release record lock
-async function releaseRecordLock(source: string, recordId: number): Promise<void> {
-  const lockId = `legacy:${source}:${recordId}`;
-  await db.execute(sql`SELECT pg_advisory_unlock(hashtextextended(${lockId}, 0))`);
-}
-
 // Get ledger entry with state
 async function getLedgerEntry(source: string, recordId: number) {
   const rows = await db
@@ -340,75 +323,123 @@ async function getLedgerEntry(source: string, recordId: number) {
   return rows[0] || null;
 }
 
-// Upsert ledger entry
-async function upsertLedgerEntry(
-  source: StorageFileSource,
+// Try to acquire worker lease (time-based distributed lock)
+async function tryAcquireWorkerLease(
+  source: string,
   recordId: number,
-  bucket: string,
-  storagePath: string,
-  filename: string,
-  expectedSize: number,
-  legacySha256: string,
-  mimeType: string,
   execute: boolean
-): Promise<void> {
+): Promise<boolean> {
+  if (!execute) return true; // Dry-run doesn't need locking
+
+  const now = new Date();
+  const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
+
+  try {
+    // Try to update lease for existing record
+    const result = await db
+      .update(legacyStorageMigrationLedger)
+      .set({ leaseExpiresAt: leaseExpires, updatedAt: now })
+      .where(and(
+        eq(legacyStorageMigrationLedger.source, source),
+        eq(legacyStorageMigrationLedger.recordId, recordId),
+        // Only acquire if no active lease
+        sql`(${legacyStorageMigrationLedger.leaseExpiresAt} IS NULL OR ${legacyStorageMigrationLedger.leaseExpiresAt} < ${now})`
+      ))
+      .returning({ id: legacyStorageMigrationLedger.id });
+
+    return result.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// Release worker lease
+async function releaseWorkerLease(source: string, recordId: number, execute: boolean): Promise<void> {
   if (!execute) return;
 
   await db
-    .insert(legacyStorageMigrationLedger)
-    .values({
-      source,
-      recordId,
-      bucket,
-      storagePath,
-      originalFilename: filename,
-      expectedSize,
-      legacySha256,
-      detectedMimeType: mimeType,
-      state: "inventoried",
-    })
-    .onConflictDoUpdate({
-      target: [legacyStorageMigrationLedger.source, legacyStorageMigrationLedger.recordId],
-      set: { updatedAt: new Date() },
-    });
+    .update(legacyStorageMigrationLedger)
+    .set({ leaseExpiresAt: null, updatedAt: new Date() })
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId)
+    ));
+}
+
+// Validate state transition
+function isValidStateTransition(from: string, to: string): boolean {
+  if (!(from in VALID_STATE_TRANSITIONS)) return false;
+  return VALID_STATE_TRANSITIONS[from as LegacyStorageMigrationState].includes(to as LegacyStorageMigrationState);
 }
 
 // Update ledger state with transition validation
 async function updateLedgerState(
   source: StorageFileSource,
   recordId: number,
-  newState: string,
+  newState: LegacyStorageMigrationState,
   execute: boolean,
   error?: string
 ): Promise<void> {
   if (!execute) return;
 
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  // Get current state
+  const current = await getLedgerEntry(source, recordId);
+  const currentState = current?.state || "inventoried";
+
+  // Validate transition
+  if (!isValidStateTransition(currentState, newState)) {
+    console.error(`Invalid state transition: ${currentState} -> ${newState}`);
+    return;
+  }
+
+  const updates: Record<string, unknown> = {
+    state: newState,
+    updatedAt: new Date(),
+  };
 
   if (error) {
     updates.lastError = sanitizeError(error);
   }
 
-  // Set timestamps based on state
-  if (newState === "object_verified") {
+  // Only set timestamps on transition (not on every update)
+  if (newState === "object_verified" && currentState !== "object_verified") {
     updates.objectVerifiedAt = new Date();
-  } else if (newState === "metadata_committed") {
+  } else if (newState === "metadata_committed" && currentState !== "metadata_committed") {
     updates.metadataCommittedAt = new Date();
-  } else if (newState === "app_verified") {
+  } else if (newState === "app_verified" && currentState !== "app_verified") {
     updates.appVerifiedAt = new Date();
-  } else if (newState === "rolled_back") {
+  } else if (newState === "rolled_back" && currentState !== "rolled_back") {
     updates.rollbackAt = new Date();
   }
 
   await db
     .update(legacyStorageMigrationLedger)
-    .set({ ...updates, state: newState })
-    .where(
-      and(
-        eq(legacyStorageMigrationLedger.source, source),
-        eq(legacyStorageMigrationLedger.recordId, recordId)
-      )
-    );
+    .set(updates)
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId)
+    ));
+}
+
+// Update TUS upload URL
+async function updateTusUploadUrl(
+  source: StorageFileSource,
+  recordId: number,
+  uploadUrl: string | null,
+  execute: boolean
+): Promise<void> {
+  if (!execute) return;
+
+  await db
+    .update(legacyStorageMigrationLedger)
+    .set({
+      tusUploadUrl: uploadUrl,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId)
+    ));
 }
 
 // Increment attempt count
@@ -425,31 +456,29 @@ async function incrementAttemptCount(
       attemptCount: sql`attempt_count + 1`,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(legacyStorageMigrationLedger.source, source),
-        eq(legacyStorageMigrationLedger.recordId, recordId)
-      )
-    );
+    .where(and(
+      eq(legacyStorageMigrationLedger.source, source),
+      eq(legacyStorageMigrationLedger.recordId, recordId)
+    ));
 }
 
-// Check if existing object matches expected
-async function verifyExistingObject(
+// Verify existing object with streaming SHA-256
+async function verifyExistingObjectStreamed(
   supabase: SupabaseClient,
   bucket: string,
   path: string,
   expectedSize: number,
   expectedSha256: string,
   expectedMimeType: string
-): Promise<{ matches: boolean; reason?: string }> {
+): Promise<{ matches: boolean; reason?: string; actualSize?: number; actualSha256?: string }> {
   try {
-    // Get object metadata
+    // Get object metadata first
     const { data: objects, error } = await supabase.storage.from(bucket).list(path.split("/").slice(0, -1).join("/"), {
       limit: 100,
     });
 
     if (error) {
-      return { matches: false, reason: "Failed to list bucket: " + sanitizeError(error) };
+      return { matches: false, reason: "Failed to list bucket" };
     }
 
     const objectName = path.split("/").pop();
@@ -460,43 +489,72 @@ async function verifyExistingObject(
     }
 
     // Verify size
-    if (obj.metadata?.size !== expectedSize) {
-      return { matches: false, reason: `Size mismatch: expected ${expectedSize}, got ${obj.metadata?.size}` };
+    const actualSize = obj.metadata?.size;
+    if (actualSize !== expectedSize) {
+      return {
+        matches: false,
+        reason: "Size mismatch",
+        actualSize,
+      };
     }
 
-    // Verify MIME type if available
-    const objMimeType = obj.metadata?.mimetype;
-    if (objMimeType && objMimeType !== expectedMimeType) {
-      return { matches: false, reason: `MIME type mismatch` };
+    // Verify MIME type if available in metadata
+    const actualMimeType = obj.metadata?.mimetype;
+    if (actualMimeType && actualMimeType !== expectedMimeType) {
+      return { matches: false, reason: "MIME type mismatch" };
     }
 
-    // Download and verify SHA-256
+    // Stream download and calculate SHA-256
     const { data: downloadData, error: downloadError } = await supabase.storage.from(bucket).download(path);
     if (downloadError || !downloadData) {
-      return { matches: false, reason: "Download failed: " + sanitizeError(downloadError) };
+      return { matches: false, reason: "Download failed" };
     }
 
-    const buffer = Buffer.from(await downloadData.arrayBuffer());
-    const actualSha256 = createHash("sha256").update(buffer).digest("hex");
+    // Get reader for streaming
+    const reader = downloadData.stream().getReader();
+    const hash = createHash("sha256");
+    let totalBytes = 0;
 
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const buffer = Buffer.from(value);
+      hash.update(buffer);
+      totalBytes += buffer.length;
+
+      // Safety check
+      if (totalBytes > expectedSize * 2) {
+        return { matches: false, reason: "Downloaded size exceeds expected" };
+      }
+    }
+
+    if (totalBytes !== expectedSize) {
+      return { matches: false, reason: "Downloaded size mismatch", actualSize: totalBytes };
+    }
+
+    const actualSha256 = hash.digest("hex");
     if (actualSha256 !== expectedSha256) {
-      return { matches: false, reason: "SHA-256 mismatch" };
+      return { matches: false, reason: "SHA-256 mismatch", actualSha256 };
     }
 
     return { matches: true };
   } catch (error) {
-    return { matches: false, reason: "Verification error: " + sanitizeError(error) };
+    return { matches: false, reason: "Verification error" };
   }
 }
 
-// Upload file using TUS resumable upload
-async function uploadWithTus(
+// Upload file using TUS with resumable support
+async function uploadWithTusResumable(
   supabase: SupabaseClient,
   bucket: string,
   path: string,
   tempFilePath: string,
   mimeType: string,
   fileSize: number,
+  existingUploadUrl: string | null | undefined,
+  source: StorageFileSource,
+  recordId: number,
   execute: boolean
 ): Promise<{ etag: string | null; uploadUrl: string | null }> {
   if (!execute) {
@@ -506,18 +564,15 @@ async function uploadWithTus(
   const config = getSupabaseStorageConfig();
   const tusEndpoint = `${config.directStorageUrl}/storage/v1/upload/resumable`;
 
-  // Generate a temporary token for TUS upload (this is a simplified approach)
-  // In production, you would use the proper authorization flow
-  const fileStream = createReadStream(tempFilePath);
-  const fileBuffer = await fs.readFile(tempFilePath);
-
   return new Promise((resolve, reject) => {
-    const upload = new tus.Upload(fileBuffer, {
+    // Use file path for streaming upload (not buffer)
+    const upload = new tus.Upload(null as unknown as File, {
       endpoint: tusEndpoint,
       retryDelays: [0, 1000, 3000, 5000, 10000],
       chunkSize: TUS_CHUNK_SIZE_BYTES,
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,
+      uploadUrl: existingUploadUrl || undefined,
       headers: {
         Authorization: `Bearer ${config.serviceRoleKey}`,
       },
@@ -527,20 +582,39 @@ async function uploadWithTus(
         contentType: mimeType,
         cacheControl: "3600",
       },
+      // Use streaming from file
+      chunkSizeBytes: TUS_CHUNK_SIZE_BYTES,
+      onBeforeRequest: (req) => {
+        // Ensure upload URL is captured for resume
+        if (upload.url && upload.url !== existingUploadUrl) {
+          void updateTusUploadUrl(source, recordId, upload.url, execute);
+        }
+      },
       onError: (error) => {
         reject(new Error(`TUS upload failed: ${sanitizeError(error)}`));
       },
       onSuccess: () => {
-        resolve({ etag: "tus-completed", uploadUrl: null });
+        // Clear upload URL on success
+        void updateTusUploadUrl(source, recordId, null, execute);
+        resolve({ etag: "tus-completed", uploadUrl: upload.url });
       },
     });
+
+    // Override to use file stream
+    upload._source = {
+      size: fileSize,
+      slice: (start: number, end: number) => {
+        const stream = createReadStream(tempFilePath, { start, end: end - 1 });
+        return stream as unknown as Blob;
+      },
+    };
 
     upload.start();
   });
 }
 
-// Update source record with storage metadata
-async function updateSourceRecord(
+// Update source record with storage metadata (source-specific, no updatedAt)
+async function updateSourceRecordMetadata(
   source: StorageFileSource,
   recordId: number,
   bucket: string,
@@ -555,19 +629,22 @@ async function updateSourceRecord(
   const table = SOURCE_TABLES[source];
   const now = new Date();
 
-  await db
-    .update(table)
-    .set({
-      storageProvider: "supabase",
-      storageBucket: bucket,
-      storagePath: path,
-      storageSize: size,
-      storageMimeType: mimeType,
-      storageEtag: etag,
-      storageUploadedAt: now,
-      updatedAt: now,
-    })
-    .where(eq(table.id, recordId));
+  const updates: Record<string, unknown> = {
+    storageProvider: "supabase",
+    storageBucket: bucket,
+    storagePath: path,
+    storageSize: size,
+    storageMimeType: mimeType,
+    storageEtag: etag,
+    storageUploadedAt: now,
+  };
+
+  // Only add updatedAt for sources that have it
+  if (source !== "governance_uploads") {
+    updates.updatedAt = now;
+  }
+
+  await db.update(table).set(updates).where(eq(table.id, recordId));
 }
 
 // Clear storage metadata (rollback)
@@ -579,24 +656,27 @@ async function clearStorageMetadata(
   if (!execute) return;
 
   const table = SOURCE_TABLES[source];
+  const now = new Date();
 
-  await db
-    .update(table)
-    .set({
-      storageProvider: null,
-      storageBucket: null,
-      storagePath: null,
-      storageSize: null,
-      storageMimeType: null,
-      storageEtag: null,
-      storageUploadedAt: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(table.id, recordId));
+  const updates: Record<string, unknown> = {
+    storageProvider: null,
+    storageBucket: null,
+    storagePath: null,
+    storageSize: null,
+    storageMimeType: null,
+    storageEtag: null,
+    storageUploadedAt: null,
+  };
+
+  if (source !== "governance_uploads") {
+    updates.updatedAt = now;
+  }
+
+  await db.update(table).set(updates).where(eq(table.id, recordId));
 }
 
-// Verify application route
-async function verifyApplicationRoute(
+// Verify application route with streaming response
+async function verifyApplicationRouteStreamed(
   source: StorageFileSource,
   recordId: number,
   expectedSize: number,
@@ -619,21 +699,40 @@ async function verifyApplicationRoute(
       return { ok: false, error: "No redirect URL in response" };
     }
 
-    // Don't log the full redirect URL
     const contentResponse = await fetch(redirectUrl);
     if (!contentResponse.ok) {
       return { ok: false, error: `Content fetch failed: ${contentResponse.status}` };
     }
 
-    const buffer = Buffer.from(await contentResponse.arrayBuffer());
-
-    if (buffer.length !== expectedSize) {
-      return { ok: false, error: `Content size mismatch: expected ${expectedSize}, got ${buffer.length}` };
+    // Stream response and calculate SHA-256
+    const reader = contentResponse.body?.getReader();
+    if (!reader) {
+      return { ok: false, error: "No response body" };
     }
 
-    const sha256 = createHash("sha256").update(buffer).digest("hex");
+    const hash = createHash("sha256");
+    let totalBytes = 0;
 
-    if (sha256 !== expectedSha256) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const buffer = Buffer.from(value);
+      hash.update(buffer);
+      totalBytes += buffer.length;
+
+      // Safety check
+      if (totalBytes > expectedSize * 2) {
+        return { ok: false, error: "Downloaded size exceeds expected" };
+      }
+    }
+
+    if (totalBytes !== expectedSize) {
+      return { ok: false, error: `Content size mismatch: expected ${expectedSize}, got ${totalBytes}` };
+    }
+
+    const actualSha256 = hash.digest("hex");
+    if (actualSha256 !== expectedSha256) {
       return { ok: false, error: "Content SHA-256 mismatch" };
     }
 
@@ -643,22 +742,24 @@ async function verifyApplicationRoute(
   }
 }
 
-// Fetch records eligible for migration (includes resumed states)
+// Fetch records eligible for migration
 async function fetchEligibleRecords(
   source: StorageFileSource,
   recordIds?: number[],
   limit?: number
-): Promise<Array<{ id: number; fileName: string | null; fileType: string | null; legacyData: string }>> {
+): Promise<Array<{ id: number; fileName: string | null; fileType: string | null; legacyDataPrefix: string | null; legacyDataLength: number }>> {
   const table = SOURCE_TABLES[source];
   const legacyColumn = LEGACY_COLUMNS[source];
 
-  // Build base query - fetch records with legacy data
+  // Fetch metadata only - not full Base64 content
   let query = db
     .select({
       id: table.id,
       fileName: source === "governance_uploads" ? sql<string | null>`${sql.raw("file_name")}` : table.fileName,
       fileType: source === "governance_uploads" ? sql<string | null>`null` : table.fileType,
-      legacyData: sql<string>`${sql.raw(legacyColumn)}`,
+      // Only fetch prefix for MIME detection (first 100 chars for data URL)
+      legacyDataPrefix: sql<string | null>`substring(${sql.raw(legacyColumn)}, 1, 100)`,
+      legacyDataLength: sql<number>`length(${sql.raw(legacyColumn)})`,
     })
     .from(table)
     .where(and(
@@ -673,20 +774,34 @@ async function fetchEligibleRecords(
   const rows = await query;
 
   // Filter out SMP ID 31
-  return rows
-    .filter((r): r is typeof r &amp; { legacyData: string } => !!r.legacyData)
-    .filter((r) => !(source === "smp_documents" && r.id === 31));
+  return rows.filter((r) => !(source === "smp_documents" && r.id === 31));
+}
+
+// Fetch full legacy data for a specific record (bounded query)
+async function fetchLegacyData(
+  source: StorageFileSource,
+  recordId: number
+): Promise<string | null> {
+  const table = SOURCE_TABLES[source];
+  const legacyColumn = LEGACY_COLUMNS[source];
+
+  const rows = await db
+    .select({ legacyData: sql<string>`${sql.raw(legacyColumn)}` })
+    .from(table)
+    .where(eq(table.id, recordId))
+    .limit(1);
+
+  return rows[0]?.legacyData || null;
 }
 
 // Validate APP_BASE_URL for production
 function validateAppBaseUrl(url: string | undefined, isExecute: boolean): { valid: boolean; error?: string } {
   if (!isExecute) {
-    // Dry-run can operate without APP_BASE_URL if verification is skipped
     return { valid: true };
   }
 
   if (!url) {
-    return { valid: false, error: "APP_BASE_URL is required for execute mode" };
+    return { valid: false, error: "APP_BASE_URL environment variable is required for execute mode" };
   }
 
   try {
@@ -708,6 +823,11 @@ function validateAppBaseUrl(url: string | undefined, isExecute: boolean): { vali
       return { valid: false, error: "APP_BASE_URL cannot contain query strings" };
     }
 
+    // Reject fragments
+    if (parsed.hash && parsed.hash !== "") {
+      return { valid: false, error: "APP_BASE_URL cannot contain fragments" };
+    }
+
     // Reject credentials in URL
     if (parsed.username || parsed.password) {
       return { valid: false, error: "APP_BASE_URL cannot contain credentials" };
@@ -722,7 +842,7 @@ function validateAppBaseUrl(url: string | undefined, isExecute: boolean): { vali
 // Process a single record with state-based continuation
 async function processRecord(
   source: StorageFileSource,
-  record: { id: number; fileName: string | null; fileType: string | null; legacyData: string },
+  record: { id: number; fileName: string | null; fileType: string | null; legacyDataPrefix: string | null; legacyDataLength: number },
   supabase: SupabaseClient,
   options: MigrationOptions,
   baseUrl: string
@@ -732,153 +852,205 @@ async function processRecord(
   const bucket = SOURCE_BUCKETS[source];
   const path = generateStoragePath(source, record.id, filename);
 
-  // Try to acquire exclusive lock
-  const lockAcquired = await tryAcquireRecordLock(source, record.id);
-  if (!lockAcquired) {
-    return { success: false, skipped: true, error: "Record locked by another worker" };
-  }
+  // Create temp directory and file path (before any early returns)
+  let tempDir = "";
+  let tempFilePath = "";
+  let cleanupNeeded = false;
 
   try {
+    // Create private temp directory
+    tempDir = await createPrivateTempDir();
+    tempFilePath = join(tempDir, "payload.tmp");
+    cleanupNeeded = true;
+
+    // Try to acquire worker lease
+    const leaseAcquired = await tryAcquireWorkerLease(source, record.id, execute);
+    if (!leaseAcquired) {
+      return { success: false, skipped: true, error: "Record locked by another worker or lease active" };
+    }
+
     // Check existing ledger entry for state-based continuation
     const ledger = await getLedgerEntry(source, record.id);
+    const currentState = ledger?.state || "inventoried";
 
     // Terminal states - skip
-    if (ledger?.state === "app_verified" || ledger?.state === "excluded") {
-      return { success: true, skipped: true, state: ledger.state };
+    if (currentState === "app_verified" || currentState === "excluded") {
+      return { success: true, skipped: true, state: currentState };
     }
 
     // Conflict state - requires human review
-    if (ledger?.state === "conflict") {
+    if (currentState === "conflict") {
       return { success: false, skipped: true, state: "conflict", error: "Requires human review - object conflict" };
     }
 
-    // Step 1-3: Decode legacy data to temp file
-    let decoded: DecodedStreamResult;
-    try {
-      decoded = await decodeLegacyDataToTemp(record.legacyData, filename, record.fileType);
-    } catch (err) {
-      return { success: false, error: `Failed to decode: ${sanitizeError(err)}` };
+    // Fetch full legacy data (after acquiring lease)
+    const legacyData = await fetchLegacyData(source, record.id);
+    if (!legacyData) {
+      return { success: false, error: "No legacy data found" };
     }
 
-    if (decoded.size === 0) {
-      await fs.unlink(decoded.tempFilePath).catch(() => {});
+    // Parse data URL header and extract MIME
+    const { mimeType: dataUrlMime, headerLength } = parseDataUrlHeader(legacyData);
+    const detectedMime = inferMimeType(filename, dataUrlMime, record.fileType);
+
+    // Extract Base64 data (after header)
+    const base64Data = dataUrlMime ? legacyData.slice(headerLength) : legacyData;
+
+    // Decode Base64 in chunks to temp file
+    let decodedResult: { size: number; sha256: string };
+    try {
+      decodedResult = await decodeLegacyDataChunked(base64Data, tempFilePath);
+    } catch (err) {
+      return { success: false, error: `Failed to decode Base64: ${sanitizeError(err)}` };
+    }
+
+    if (decodedResult.size === 0) {
       return { success: false, error: "Empty payload" };
     }
 
-    // Step 4: Upsert ledger
-    await upsertLedgerEntry(
-      source,
-      record.id,
-      bucket,
-      path,
-      filename,
-      decoded.size,
-      decoded.sha256,
-      decoded.mimeType,
-      execute
-    );
+    // Upsert ledger entry (dry-run safe - no writes in dry-run)
+    if (execute) {
+      await db
+        .insert(legacyStorageMigrationLedger)
+        .values({
+          source,
+          recordId: record.id,
+          bucket,
+          storagePath: path,
+          originalFilename: filename,
+          expectedSize: decodedResult.size,
+          legacySha256: decodedResult.sha256,
+          detectedMimeType: detectedMime,
+          state: "inventoried",
+        })
+        .onConflictDoUpdate({
+          target: [legacyStorageMigrationLedger.source, legacyStorageMigrationLedger.recordId],
+          set: { updatedAt: new Date() },
+        });
+    }
 
     await incrementAttemptCount(source, record.id, execute);
 
-    // Check for existing object (idempotent handling)
-    const existingCheck = await verifyExistingObject(
-      supabase,
-      bucket,
-      path,
-      decoded.size,
-      decoded.sha256,
-      decoded.mimeType
-    );
+    // State-based continuation logic
+    let uploadResult: { etag: string | null; uploadUrl: string | null } = { etag: null, uploadUrl: null };
+    let objectVerified = false;
 
-    let etag: string | null = null;
+    // Handle different starting states
+    if (currentState === "uploaded" || currentState === "object_verified") {
+      // Previous upload recorded - verify existing object
+      const existingCheck = await verifyExistingObjectStreamed(
+        supabase, bucket, path, decodedResult.size, decodedResult.sha256, detectedMime
+      );
 
-    if (existingCheck.matches) {
-      // Object already exists and matches - reuse it
-      console.log(`    [${source}:${record.id}] Existing object verified - reusing`);
-      etag = "existing-verified";
-      await updateLedgerState(source, record.id, "uploaded", execute);
-      await updateLedgerState(source, record.id, "object_verified", execute);
-    } else if (ledger?.state === "uploaded" || ledger?.state === "object_verified") {
-      // Previous upload recorded but verification failed
-      await updateLedgerState(source, record.id, "failed", execute, existingCheck.reason);
-      await fs.unlink(decoded.tempFilePath).catch(() => {});
-      return { success: false, error: `Existing object verification failed: ${existingCheck.reason}` };
-    } else {
-      // Step 5: Upload via TUS
+      if (existingCheck.matches) {
+        objectVerified = true;
+        uploadResult = { etag: "existing-verified", uploadUrl: null };
+      } else {
+        // Previous upload failed verification
+        if (currentState === "object_verified") {
+          await updateLedgerState(source, record.id, "failed", execute, existingCheck.reason);
+          return { success: false, error: `Previous upload verification failed: ${existingCheck.reason}` };
+        }
+        // Otherwise, re-upload
+      }
+    }
+
+    // Check for existing object before upload (idempotency)
+    if (!objectVerified) {
+      const existingCheck = await verifyExistingObjectStreamed(
+        supabase, bucket, path, decodedResult.size, decodedResult.sha256, detectedMime
+      );
+
+      if (existingCheck.matches) {
+        // Object already exists and matches - reuse it
+        console.log(`    [${source}:${record.id}] Existing object verified - reusing`);
+        objectVerified = true;
+        uploadResult = { etag: "existing-verified", uploadUrl: null };
+        await updateLedgerState(source, record.id, "uploaded", execute);
+        await updateLedgerState(source, record.id, "object_verified", execute);
+      } else if (existingCheck.reason !== "Object not found") {
+        // Object exists but doesn't match
+        await updateLedgerState(source, record.id, "conflict", execute, existingCheck.reason);
+        return {
+          success: false,
+          state: "conflict",
+          error: `Object conflict: ${existingCheck.reason}. Human review required.`,
+        };
+      }
+    }
+
+    // Upload if not already verified
+    if (!objectVerified) {
       await updateLedgerState(source, record.id, "uploading", execute);
 
       try {
-        const uploadResult = await uploadWithTus(
+        uploadResult = await uploadWithTusResumable(
           supabase,
           bucket,
           path,
-          decoded.tempFilePath,
-          decoded.mimeType,
-          decoded.size,
+          tempFilePath,
+          detectedMime,
+          decodedResult.size,
+          ledger?.tusUploadUrl,
+          source,
+          record.id,
           execute
         );
-        etag = uploadResult.etag;
       } catch (err) {
         await updateLedgerState(source, record.id, "failed", execute, sanitizeError(err));
-        await fs.unlink(decoded.tempFilePath).catch(() => {});
         return { success: false, error: `Upload failed: ${sanitizeError(err)}` };
       }
 
       await updateLedgerState(source, record.id, "uploaded", execute);
 
-      // Step 6: Verify uploaded object
-      const verifyResult = await verifyExistingObject(
+      // Verify uploaded object
+      const verifyResult = await verifyExistingObjectStreamed(
         supabase,
         bucket,
         path,
-        decoded.size,
-        decoded.sha256,
-        decoded.mimeType
+        decodedResult.size,
+        decodedResult.sha256,
+        detectedMime
       );
 
       if (!verifyResult.matches) {
         await updateLedgerState(source, record.id, "failed", execute, verifyResult.reason);
-        await fs.unlink(decoded.tempFilePath).catch(() => {});
         return { success: false, error: `Object verification failed: ${verifyResult.reason}` };
       }
 
       await updateLedgerState(source, record.id, "object_verified", execute);
     }
 
-    // Step 8: Recheck source record hasn't changed
-    const current = await fetchEligibleRecords(source, [record.id], 1);
-    if (current.length === 0 || current[0].legacyData !== record.legacyData) {
+    // Re-check source record hasn't changed
+    const currentLegacyData = await fetchLegacyData(source, record.id);
+    if (currentLegacyData !== legacyData) {
       await updateLedgerState(source, record.id, "failed", execute, "Source record changed during migration");
-      await fs.unlink(decoded.tempFilePath).catch(() => {});
       return { success: false, error: "Source record changed during migration" };
     }
 
-    // Step 9: Commit metadata
-    await updateSourceRecord(
+    // Commit metadata
+    await updateSourceRecordMetadata(
       source,
       record.id,
       bucket,
       path,
-      decoded.size,
-      decoded.mimeType,
-      etag,
+      decodedResult.size,
+      detectedMime,
+      uploadResult.etag,
       execute
     );
 
     await updateLedgerState(source, record.id, "metadata_committed", execute);
 
-    // Step 11: Verify application route
-    const appVerify = await verifyApplicationRoute(
+    // Verify application route
+    const appVerify = await verifyApplicationRouteStreamed(
       source,
       record.id,
-      decoded.size,
-      decoded.sha256,
+      decodedResult.size,
+      decodedResult.sha256,
       baseUrl,
       execute
     );
-
-    // Clean up temp file
-    await fs.unlink(decoded.tempFilePath).catch(() => {});
 
     if (!appVerify.ok) {
       // Rollback
@@ -892,7 +1064,17 @@ async function processRecord(
 
     return { success: true, state: "app_verified" };
   } finally {
-    await releaseRecordLock(source, record.id);
+    // Always release lease
+    await releaseWorkerLease(source, record.id, execute).catch(() => {});
+
+    // Always clean up temp directory
+    if (cleanupNeeded && tempDir) {
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   }
 }
 
@@ -900,12 +1082,20 @@ async function processRecord(
 async function runMigration(options: MigrationOptions): Promise<void> {
   const sources = options.sources || (["doc_files", "governance_files", "governance_uploads", "smp_documents"] as StorageFileSource[]);
 
-  // Validate APP_BASE_URL
-  const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
-  const urlValidation = validateAppBaseUrl(process.env.APP_BASE_URL, options.execute);
+  // Get and validate APP_BASE_URL
+  const rawBaseUrl = process.env.APP_BASE_URL;
+  const urlValidation = validateAppBaseUrl(rawBaseUrl, options.execute);
 
   if (!urlValidation.valid) {
     console.error(`ERROR: ${urlValidation.error}`);
+    process.exit(1);
+  }
+
+  // Use provided URL or fail in execute mode
+  const baseUrl = rawBaseUrl || "";
+
+  if (options.execute && !baseUrl) {
+    console.error("ERROR: APP_BASE_URL is required for execute mode");
     process.exit(1);
   }
 
@@ -923,7 +1113,7 @@ async function runMigration(options: MigrationOptions): Promise<void> {
   console.log(`Sources: ${sources.join(", ")}`);
   console.log(`Limit: ${options.limit || "unlimited"}`);
   console.log(`Batch size: ${options.batchSize}`);
-  console.log(`Base URL: ${baseUrl}`);
+  console.log(`Base URL: ${baseUrl || "(none)"}`);
   console.log(`\n`);
 
   if (options.execute && !options.confirmProduction) {
@@ -983,7 +1173,7 @@ async function runMigration(options: MigrationOptions): Promise<void> {
   }
 }
 
-// Orphan audit mode with proper classification
+// Recursive orphan audit with folder traversal
 async function runOrphanAudit(): Promise<void> {
   console.log("\n=== Storage Orphan Audit ===\n");
 
@@ -1047,24 +1237,37 @@ async function runOrphanAudit(): Promise<void> {
   console.log(`Ledger staged: ${ledgerStagedPaths.size}`);
   console.log(`Ledger verified: ${ledgerVerifiedPaths.size}`);
 
-  // Scan each bucket with pagination
-  for (const bucket of buckets) {
-    console.log(`\n--- Scanning bucket: ${bucket} ---`);
+  // Classify a single object
+  function classifyObject(bucket: string, path: string): string {
+    const key = `${bucket}:${path}`;
 
+    if (tablePaths.has(key)) return "referenced";
+    if (intentPendingPaths.has(key)) return "active_upload_intent";
+    if (intentFinalizedPaths.has(key)) return "finalized_upload_intent";
+    if (ledgerVerifiedPaths.has(key)) return "migration_verified";
+    if (ledgerStagedPaths.has(key)) return "migration_staged";
+    return "possible_orphan";
+  }
+
+  // Recursive prefix traversal
+  async function scanPrefix(bucket: string, prefix: string, visitedPrefixes: Set<string>): Promise<Array<{ path: string; size: number | null; classification: string }>> {
+    if (visitedPrefixes.has(prefix)) return [];
+    visitedPrefixes.add(prefix);
+
+    const results: Array<{ path: string; size: number | null; classification: string }> = [];
     let offset = 0;
     const limit = 1000;
-    let hasMore = true;
-    let objectCount = 0;
 
-    while (hasMore) {
-      const { data: objects, error } = await supabase.storage.from(bucket).list("", {
+    while (true) {
+      const { data: objects, error } = await supabase.storage.from(bucket).list(prefix, {
         limit,
         offset,
       });
 
       if (error) {
-        console.log(`  Error listing bucket: ${sanitizeError(error)}`);
-        break;
+        console.log(`  Error listing ${prefix}: ${sanitizeError(error)}`);
+        // Return indeterminate classification for this prefix
+        return [{ path: `${prefix}/*`, size: null, classification: "indeterminate" }];
       }
 
       if (!objects || objects.length === 0) {
@@ -1072,43 +1275,61 @@ async function runOrphanAudit(): Promise<void> {
       }
 
       for (const obj of objects) {
-        // Skip folders (they have no metadata)
-        if (!obj.metadata) continue;
+        const fullPath = prefix ? `${prefix}/${obj.name}` : obj.name;
 
-        objectCount++;
-        const key = `${bucket}:${obj.name}`;
-
-        // Classification precedence
-        let classification: string;
-
-        if (tablePaths.has(key)) {
-          classification = "referenced";
-        } else if (intentPendingPaths.has(key)) {
-          classification = "active_upload_intent";
-        } else if (intentFinalizedPaths.has(key)) {
-          classification = "finalized_upload_intent";
-        } else if (ledgerVerifiedPaths.has(key)) {
-          classification = "migration_verified";
-        } else if (ledgerStagedPaths.has(key)) {
-          classification = "migration_staged";
+        if (obj.id === null) {
+          // This is a folder - recurse
+          const subResults = await scanPrefix(bucket, fullPath, visitedPrefixes);
+          results.push(...subResults);
         } else {
-          classification = "possible_orphan";
-        }
-
-        // Report but limit output
-        if (classification === "possible_orphan" || objectCount <= 10) {
-          console.log(`  ${obj.name}: ${classification} (${obj.metadata?.size || "unknown"} bytes)`);
+          // This is an object
+          const classification = classifyObject(bucket, fullPath);
+          results.push({
+            path: fullPath,
+            size: obj.metadata?.size || null,
+            classification,
+          });
         }
       }
 
       if (objects.length < limit) {
-        hasMore = false;
-      } else {
-        offset += limit;
+        break;
       }
+      offset += limit;
     }
 
-    console.log(`  Total objects: ${objectCount}`);
+    return results;
+  }
+
+  // Scan each bucket
+  for (const bucket of buckets) {
+    console.log(`\n--- Scanning bucket: ${bucket} ---`);
+
+    const visitedPrefixes = new Set<string>();
+    const results = await scanPrefix(bucket, "", visitedPrefixes);
+
+    // Report results
+    const counts: Record<string, number> = {};
+    for (const { classification } of results) {
+      counts[classification] = (counts[classification] || 0) + 1;
+    }
+
+    console.log(`  Total objects: ${results.length}`);
+    for (const [classification, count] of Object.entries(counts)) {
+      console.log(`  ${classification}: ${count}`);
+    }
+
+    // Report possible orphans
+    const orphans = results.filter((r) => r.classification === "possible_orphan");
+    if (orphans.length > 0) {
+      console.log(`  Possible orphans (${orphans.length}):`);
+      for (const orphan of orphans.slice(0, 10)) {
+        console.log(`    - ${orphan.path} (${orphan.size || "unknown"} bytes)`);
+      }
+      if (orphans.length > 10) {
+        console.log(`    ... and ${orphans.length - 10} more`);
+      }
+    }
   }
 
   console.log("\nNote: This is a READ-ONLY audit. No objects were deleted.");
