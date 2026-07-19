@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
  * Legacy Storage Migration CLI - Production Safe
+ *
+ * Dry-run by default. Execute mode requires --execute --confirm-production.
  */
 
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
-import * as tus from "tus-js-client";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../api/queries/connection";
 import {
@@ -18,6 +18,7 @@ import {
   governanceUploads,
   smpDocuments,
   legacyStorageMigrationLedger,
+  storageUploadIntents,
   type LegacyStorageMigrationState,
 } from "../db/schema";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "../api/supabase-storage";
@@ -61,7 +62,6 @@ const LEGACY_COLUMNS: Record<StorageFileSource, string> = {
 };
 
 const WORKER_ID = randomUUID();
-let UPLOAD_URL_CACHE: string | null = null;
 
 interface MigrationOptions {
   execute: boolean;
@@ -71,6 +71,8 @@ interface MigrationOptions {
   limit?: number;
   batchSize?: number;
 }
+
+type ProcessingResult = { success: boolean; state?: string; error?: string; skipped?: boolean };
 
 // ============================================================================
 // CLI
@@ -131,7 +133,7 @@ Options:
   --sources <list>       Comma-separated sources
   --ids <list>           Comma-separated record IDs
   --limit <n>            Maximum records to process
-  --batch-size <n>       Records per batch
+  --batch-size <n>       Records per batch (default: 1)
   --orphan-audit         Run orphan audit (read-only)
   --help, -h            Show this help
 `);
@@ -159,6 +161,7 @@ async function fetchEligibleRecords(
     .from(table)
     .where(and(
       sql`length(${sql.raw(legacyColumn)}) > 0`,
+      sql`storage_path IS NULL`,
       recordIds?.length ? inArray(table.id, recordIds) : undefined
     ));
 
@@ -193,20 +196,11 @@ async function getSourceFingerprint(source: StorageFileSource, recordId: number)
   return { length: rows[0].length, hash: rows[0].hash };
 }
 
-async function checkSourceNotMigrated(source: StorageFileSource, recordId: number) {
-  const table = SOURCE_TABLES[source];
-  const rows = await db.select({ storagePath: sql<string | null>`storage_path` })
-    .from(table)
-    .where(eq(table.id, recordId))
-    .limit(1);
-  return rows[0]?.storagePath === null;
-}
-
 // ============================================================================
-// LEASE
+// LEASE MANAGEMENT
 // ============================================================================
 
-async function acquireLeaseWithValidation(
+async function acquireLease(
   source: StorageFileSource,
   recordId: number,
   bucket: string,
@@ -221,7 +215,7 @@ async function acquireLeaseWithValidation(
   const now = new Date();
   const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
 
-  // Insert ledger row
+  // Insert ledger row if not exists
   try {
     await db.insert(legacyStorageMigrationLedger).values({
       source, recordId, bucket, storagePath,
@@ -231,16 +225,14 @@ async function acquireLeaseWithValidation(
       state: "inventoried",
       leaseOwner: null, leaseExpiresAt: null,
     }).onConflictDoNothing();
-  } catch { /* ignore */ }
+  } catch { }
 
-  // Validate existing ledger
+  // Validate existing ledger matches
   const existing = await db.select({
     bucket: legacyStorageMigrationLedger.bucket,
     storagePath: legacyStorageMigrationLedger.storagePath,
     expectedSize: legacyStorageMigrationLedger.expectedSize,
     legacySha256: legacyStorageMigrationLedger.legacySha256,
-    leaseOwner: legacyStorageMigrationLedger.leaseOwner,
-    leaseExpiresAt: legacyStorageMigrationLedger.leaseExpiresAt,
   })
     .from(legacyStorageMigrationLedger)
     .where(and(
@@ -257,7 +249,7 @@ async function acquireLeaseWithValidation(
     }
   }
 
-  // Acquire lease
+  // Acquire lease atomically
   const result = await db.update(legacyStorageMigrationLedger)
     .set({
       leaseOwner: WORKER_ID,
@@ -275,7 +267,7 @@ async function acquireLeaseWithValidation(
   return { acquired: result.length > 0 };
 }
 
-async function renewLeaseWithOwnerCheck(source: StorageFileSource, recordId: number, execute: boolean) {
+async function renewLease(source: StorageFileSource, recordId: number, execute: boolean): Promise<boolean> {
   if (!execute) return true;
   const now = new Date();
   const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
@@ -290,7 +282,7 @@ async function renewLeaseWithOwnerCheck(source: StorageFileSource, recordId: num
   return result.length > 0;
 }
 
-async function releaseLeaseWithOwnerCheck(source: StorageFileSource, recordId: number, execute: boolean) {
+async function releaseLease(source: StorageFileSource, recordId: number, execute: boolean) {
   if (!execute) return;
   await db.update(legacyStorageMigrationLedger)
     .set({ leaseOwner: null, leaseExpiresAt: null, leaseHeartbeatAt: null, updatedAt: new Date() })
@@ -302,10 +294,10 @@ async function releaseLeaseWithOwnerCheck(source: StorageFileSource, recordId: n
 }
 
 // ============================================================================
-// STATE TRANSITION
+// STATE TRANSITIONS
 // ============================================================================
 
-async function atomicStateTransition(
+async function transitionState(
   source: StorageFileSource,
   recordId: number,
   expectedState: string,
@@ -338,9 +330,8 @@ async function atomicStateTransition(
     .returning({ id: legacyStorageMigrationLedger.id });
 
   if (result.length === 0) {
-    throw new Error(`State transition failed: expected ${expectedState} with owner ${WORKER_ID}`);
+    throw new Error(`State transition failed: expected ${expectedState}`);
   }
-
   return { success: true };
 }
 
@@ -355,41 +346,64 @@ async function transactionalMetadataCommit(
   path: string,
   size: number,
   mimeType: string,
+  fingerprint: { length: number; hash: string },
   execute: boolean
-) {
-  if (!execute) return;
+): Promise<{ success: boolean; error?: string }> {
+  if (!execute) return { success: true };
 
-  await db.transaction(async (tx) => {
-    const table = SOURCE_TABLES[source];
-    const updates: Record<string, unknown> = {
-      storageProvider: "supabase",
-      storageBucket: bucket,
-      storagePath: path,
-      storageSize: size,
-      storageMimeType: mimeType,
-      storageUploadedAt: new Date(),
-    };
-    // NO updatedAt for governance tables
-    if (source !== "governance_files" && source !== "governance_uploads") {
-      updates.updatedAt = new Date();
-    }
-    await tx.update(table).set(updates).where(eq(table.id, recordId));
+  try {
+    await db.transaction(async (tx) => {
+      // Verify fingerprint still matches
+      const table = SOURCE_TABLES[source];
+      const legacyColumn = LEGACY_COLUMNS[source];
+      const currentFp = await tx.select({
+        length: sql<number>`length(${sql.raw(legacyColumn)})`,
+        hash: sql<string>`md5(${sql.raw(legacyColumn)})`,
+        storagePath: sql<string | null>`storage_path`,
+      })
+        .from(table)
+        .where(eq(table.id, recordId))
+        .limit(1);
 
-    const now = new Date();
-    const ledgerResult = await tx.update(legacyStorageMigrationLedger)
-      .set({ state: "metadata_committed", metadataCommittedAt: now, updatedAt: now })
-      .where(and(
-        eq(legacyStorageMigrationLedger.source, source),
-        eq(legacyStorageMigrationLedger.recordId, recordId),
-        eq(legacyStorageMigrationLedger.state, "object_verified"),
-        eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
-      ))
-      .returning({ id: legacyStorageMigrationLedger.id });
+      if (!currentFp[0]) throw new Error("Record not found");
+      if (currentFp[0].storagePath !== null) throw new Error("Already migrated");
+      if (currentFp[0].length !== fingerprint.length) throw new Error("Fingerprint length changed");
+      if (currentFp[0].hash !== fingerprint.hash) throw new Error("Fingerprint hash changed");
 
-    if (ledgerResult.length === 0) {
-      throw new Error("Ledger transition failed");
-    }
-  });
+      // Update source - NO updatedAt for governance tables
+      const updates: Record<string, unknown> = {
+        storageProvider: "supabase",
+        storageBucket: bucket,
+        storagePath: path,
+        storageSize: size,
+        storageMimeType: mimeType,
+        storageUploadedAt: new Date(),
+      };
+      if (source !== "governance_files" && source !== "governance_uploads") {
+        updates.updatedAt = new Date();
+      }
+
+      const sourceResult = await tx.update(table).set(updates).where(eq(table.id, recordId)).returning({ id: table.id });
+      if (sourceResult.length !== 1) throw new Error("Source update failed");
+
+      // Update ledger
+      const now = new Date();
+      const ledgerResult = await tx.update(legacyStorageMigrationLedger)
+        .set({ state: "metadata_committed", metadataCommittedAt: now, updatedAt: now })
+        .where(and(
+          eq(legacyStorageMigrationLedger.source, source),
+          eq(legacyStorageMigrationLedger.recordId, recordId),
+          eq(legacyStorageMigrationLedger.state, "object_verified"),
+          eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
+        ))
+        .returning({ id: legacyStorageMigrationLedger.id });
+
+      if (ledgerResult.length === 0) throw new Error("Ledger transition failed");
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: sanitizeError(err) };
+  }
 }
 
 async function transactionalRollback(
@@ -399,69 +413,54 @@ async function transactionalRollback(
   path: string,
   execute: boolean
 ) {
-  if (!execute) return;
+  if (!execute) return { success: true };
 
-  await db.transaction(async (tx) => {
-    const table = SOURCE_TABLES[source];
-    const updates: Record<string, unknown> = {
-      storageProvider: null,
-      storageBucket: null,
-      storagePath: null,
-      storageSize: null,
-      storageMimeType: null,
-      storageUploadedAt: null,
-    };
-    if (source !== "governance_files" && source !== "governance_uploads") {
-      updates.updatedAt = new Date();
-    }
-    await tx.update(table).set(updates).where(and(
-      eq(table.id, recordId),
-      eq(sql`storage_bucket`, bucket),
-      eq(sql`storage_path`, path)
-    ));
+  try {
+    await db.transaction(async (tx) => {
+      const table = SOURCE_TABLES[source];
 
-    const now = new Date();
-    await tx.update(legacyStorageMigrationLedger)
-      .set({ state: "rolled_back", rollbackAt: now, updatedAt: now })
-      .where(and(
-        eq(legacyStorageMigrationLedger.source, source),
-        eq(legacyStorageMigrationLedger.recordId, recordId),
-        eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID),
-        eq(legacyStorageMigrationLedger.bucket, bucket),
-        eq(legacyStorageMigrationLedger.storagePath, path)
+      // Clear metadata only if matches exact bucket/path
+      const updates: Record<string, unknown> = {
+        storageProvider: null,
+        storageBucket: null,
+        storagePath: null,
+        storageSize: null,
+        storageMimeType: null,
+        storageUploadedAt: null,
+      };
+      if (source !== "governance_files" && source !== "governance_uploads") {
+        updates.updatedAt = new Date();
+      }
+
+      await tx.update(table).set(updates).where(and(
+        eq(table.id, recordId),
+        eq(sql`storage_bucket`, bucket),
+        eq(sql`storage_path`, path)
       ));
-  });
-}
 
-// ============================================================================
-// TUS UPLOAD
-// ============================================================================
-
-class FileStreamSource {
-  private filePath: string;
-  private fileSize: number;
-  private mimeType: string;
-  public name: string;
-  public size: number;
-  public type: string;
-
-  constructor(filePath: string, fileSize: number, mimeType: string, name: string) {
-    this.filePath = filePath;
-    this.fileSize = fileSize;
-    this.mimeType = mimeType;
-    this.name = name;
-    this.size = fileSize;
-    this.type = mimeType;
-  }
-
-  slice(start: number, end: number): { stream: () => ReturnType<typeof createReadStream> } {
-    return {
-      stream: () => createReadStream(this.filePath, { start, end: end - 1 }),
-    };
+      // Update ledger
+      const now = new Date();
+      await tx.update(legacyStorageMigrationLedger)
+        .set({ state: "rolled_back", rollbackAt: now, updatedAt: now })
+        .where(and(
+          eq(legacyStorageMigrationLedger.source, source),
+          eq(legacyStorageMigrationLedger.recordId, recordId),
+          eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID),
+          eq(legacyStorageMigrationLedger.bucket, bucket),
+          eq(legacyStorageMigrationLedger.storagePath, path)
+        ));
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: sanitizeError(err) };
   }
 }
 
-async function uploadWithTusResumable(
+// ============================================================================
+// TUS UPLOAD (STANDARDS-COMPLIANT)
+// ============================================================================
+
+async function uploadWithTus(
   supabase: SupabaseClient,
   bucket: string,
   path: string,
@@ -470,14 +469,15 @@ async function uploadWithTusResumable(
   fileSize: number,
   source: StorageFileSource,
   recordId: number,
-  execute: boolean
-) {
+  execute: boolean,
+  onHeartbeat: () => Promise<void>
+): Promise<void> {
   if (!execute) return;
 
   const config = getSupabaseStorageConfig();
   const tusEndpoint = `${config.directStorageUrl}/storage/v1/upload/resumable`;
 
-  // Get existing upload URL
+  // Get existing upload URL for resume
   const existing = await db.select({ tusUploadUrl: legacyStorageMigrationLedger.tusUploadUrl })
     .from(legacyStorageMigrationLedger)
     .where(and(
@@ -488,9 +488,15 @@ async function uploadWithTusResumable(
   const existingUrl = existing[0]?.tusUploadUrl;
 
   return new Promise<void>((resolve, reject) => {
-    const fileSource = new FileStreamSource(tempFilePath, fileSize, mimeType, path.split("/").pop() || "file");
-    
-    const upload = new tus.Upload(fileSource as unknown as File, {
+    // Create a minimal file-like object using the actual file
+    const fileLike = {
+      name: path.split("/").pop() || "file",
+      size: fileSize,
+      type: mimeType,
+    };
+
+    // Use tus-js-client with custom file reader for Node.js streams
+    const upload = new tus.Upload(fileLike as File, {
       endpoint: tusEndpoint,
       retryDelays: [0, 1000, 3000, 5000, 10000],
       chunkSize: TUS_CHUNK_SIZE_BYTES,
@@ -504,9 +510,11 @@ async function uploadWithTusResumable(
         contentType: mimeType,
         cacheControl: "3600",
       },
+      // Custom chunk read function for Node.js file streams
+      chunkSizeBytes: TUS_CHUNK_SIZE_BYTES,
       onBeforeRequest: async (req) => {
-        if (upload.url && upload.url !== existingUrl && upload.url !== UPLOAD_URL_CACHE) {
-          UPLOAD_URL_CACHE = upload.url;
+        // Persist upload URL for resume
+        if (upload.url && upload.url !== existingUrl) {
           await db.update(legacyStorageMigrationLedger)
             .set({ tusUploadUrl: upload.url, updatedAt: new Date() })
             .where(and(
@@ -515,17 +523,33 @@ async function uploadWithTusResumable(
               eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
             ));
         }
+        // Heartbeat before each chunk
+        await onHeartbeat();
       },
       onError: (err) => reject(err),
       onSuccess: async () => {
+        // Clear upload URL on success
         await db.update(legacyStorageMigrationLedger)
           .set({ tusUploadUrl: null, updatedAt: new Date() })
           .where(and(
             eq(legacyStorageMigrationLedger.source, source),
             eq(legacyStorageMigrationLedger.recordId, recordId)
           ));
-        UPLOAD_URL_CACHE = null;
         resolve();
+      },
+      // Use native file stream for reading chunks
+      fileReader: {
+        open: () => Promise.resolve(),
+        close: () => Promise.resolve(),
+        read: (start: number, end: number) => {
+          return new Promise((res, rej) => {
+            const stream = createReadStream(tempFilePath, { start, end: end - 1 });
+            const chunks: Buffer[] = [];
+            stream.on("data", (c) => chunks.push(c));
+            stream.on("end", () => res(Buffer.concat(chunks)));
+            stream.on("error", rej);
+          });
+        },
       },
     });
 
@@ -534,7 +558,82 @@ async function uploadWithTusResumable(
 }
 
 // ============================================================================
-// WORKFLOW
+// DECODE WITH HEARTBEAT
+// ============================================================================
+
+async function decodeWithHeartbeat(
+  source: StorageFileSource,
+  recordId: number,
+  record: { id: number; fileName: string | null; fileType: string | null; legacyDataLength: number },
+  tempFilePath: string,
+  execute: boolean,
+  onProgress: (decodedSize: number) => void
+): Promise<{ size: number; sha256: string; mimeType: string }> {
+  const prefixChunk = await fetchBase64Chunk(source, recordId, 1, 100);
+  const { mimeType: dataUrlMime, headerLength } = parseDataUrlHeader(prefixChunk);
+  const detectedMime = inferMimeType(record.fileName || "unnamed", dataUrlMime, record.fileType);
+  const base64Start = headerLength + 1;
+
+  const { createWriteStream } = await import("node:fs");
+  const writeStream = createWriteStream(tempFilePath);
+
+  const hash = createHash("sha256");
+  let decodedSize = 0;
+  let carryOver = "";
+  let lastHeartbeat = Date.now();
+
+  const decodePromise = new Promise<void>((res, rej) => {
+    writeStream.on("finish", res);
+    writeStream.on("error", rej);
+  });
+
+  for (let sqlOffset = base64Start; sqlOffset <= record.legacyDataLength; sqlOffset += BASE64_CHUNK_SIZE) {
+    // Heartbeat check every 10 chunks
+    if ((sqlOffset - base64Start) / BASE64_CHUNK_SIZE % 10 === 0) {
+      const now = Date.now();
+      if (now - lastHeartbeat > HEARTBEAT_INTERVAL_MS) {
+        const renewed = await renewLease(source, recordId, execute);
+        if (!renewed && execute) throw new Error("Lost lease during decode");
+        lastHeartbeat = now;
+      }
+    }
+
+    const chunk = await fetchBase64Chunk(source, recordId, sqlOffset, BASE64_CHUNK_SIZE);
+    let fullChunk = carryOver + chunk;
+    const remainder = fullChunk.length % 4;
+
+    if (remainder !== 0 && sqlOffset + BASE64_CHUNK_SIZE <= record.legacyDataLength) {
+      carryOver = fullChunk.slice(-remainder);
+      fullChunk = fullChunk.slice(0, -remainder);
+    } else {
+      carryOver = "";
+    }
+
+    if (fullChunk.length === 0) continue;
+    if (!/^[A-Za-z0-9+/]*=?=?=?$/.test(fullChunk)) throw new Error("Invalid Base64");
+
+    const buffer = Buffer.from(fullChunk, "base64");
+    writeStream.write(buffer);
+    hash.update(buffer);
+    decodedSize += buffer.length;
+    onProgress(decodedSize);
+  }
+
+  if (carryOver) {
+    const buffer = Buffer.from(carryOver, "base64");
+    writeStream.write(buffer);
+    hash.update(buffer);
+    decodedSize += buffer.length;
+  }
+
+  writeStream.end();
+  await decodePromise;
+
+  return { size: decodedSize, sha256: hash.digest("hex"), mimeType: detectedMime };
+}
+
+// ============================================================================
+// MIGRATION WORKFLOW
 // ============================================================================
 
 async function processRecord(
@@ -543,7 +642,7 @@ async function processRecord(
   supabase: SupabaseClient,
   options: MigrationOptions,
   baseUrl: string
-) {
+): Promise<ProcessingResult> {
   const { execute } = options;
   const filename = record.fileName || "unnamed";
   const bucket = SOURCE_BUCKETS[source];
@@ -554,81 +653,33 @@ async function processRecord(
   let leaseAcquired = false;
 
   try {
-    // Verify not migrated
-    const notMigrated = await checkSourceNotMigrated(source, record.id);
-    if (!notMigrated) return { success: false, skipped: true, error: "Already migrated" };
-
-    // Get fingerprint
+    // Step 1: Get initial fingerprint
     const initialFingerprint = await getSourceFingerprint(source, record.id);
     if (!initialFingerprint) return { success: false, error: "Source not found" };
     if (initialFingerprint.length !== record.legacyDataLength) {
-      return { success: false, error: "Source changed (length)" };
+      return { success: false, error: "Source changed (length mismatch)" };
     }
 
-    // Decode to temp file
+    // Step 2: Decode to temp file with heartbeat (BEFORE lease for dry-run safety)
     await mkdir(tempDir, { mode: 0o700, recursive: true });
-
-    const prefixChunk = await fetchBase64Chunk(source, record.id, 1, 100);
-    const { mimeType: dataUrlMime, headerLength } = parseDataUrlHeader(prefixChunk);
-    const detectedMime = inferMimeType(filename, dataUrlMime, record.fileType);
-    const base64Start = headerLength + 1;
-
-    // Decode chunks
-    const hash = createHash("sha256");
-    let decodedSize = 0;
-    let carryOver = "";
-    const { createWriteStream } = await import("node:fs");
-    const writeStream = createWriteStream(tempFilePath);
-
-    const decodePromise = new Promise<void>((res, rej) => {
-      writeStream.on("finish", res);
-      writeStream.on("error", rej);
-    });
-
-    for (let sqlOffset = base64Start; sqlOffset <= record.legacyDataLength; sqlOffset += BASE64_CHUNK_SIZE) {
-      const chunk = await fetchBase64Chunk(source, record.id, sqlOffset, BASE64_CHUNK_SIZE);
-      let fullChunk = carryOver + chunk;
-      const remainder = fullChunk.length % 4;
-      
-      if (remainder !== 0 && sqlOffset + BASE64_CHUNK_SIZE <= record.legacyDataLength) {
-        carryOver = fullChunk.slice(-remainder);
-        fullChunk = fullChunk.slice(0, -remainder);
-      } else {
-        carryOver = "";
-      }
-
-      if (fullChunk.length === 0) continue;
-      if (!/^[A-Za-z0-9+/]*=?=?=?$/.test(fullChunk)) {
-        throw new Error("Invalid Base64");
-      }
-
-      const buffer = Buffer.from(fullChunk, "base64");
-      writeStream.write(buffer);
-      hash.update(buffer);
-      decodedSize += buffer.length;
-    }
-
-    if (carryOver) {
-      const buffer = Buffer.from(carryOver, "base64");
-      writeStream.write(buffer);
-      hash.update(buffer);
-      decodedSize += buffer.length;
-    }
-
-    writeStream.end();
-    await decodePromise;
-
-    const legacySha256 = hash.digest("hex");
-
-    // ACQUIRE LEASE before any state changes
-    const leaseResult = await acquireLeaseWithValidation(
-      source, record.id, bucket, path, decodedSize, legacySha256, detectedMime, execute
+    const decoded = await decodeWithHeartbeat(
+      source, record.id, record, tempFilePath, execute,
+      (size) => { /* progress */ }
     );
-    if (leaseResult.conflict) return { success: false, state: "conflict", error: leaseResult.conflict };
-    if (!leaseResult.acquired) return { success: false, skipped: true, error: "Could not acquire lease" };
+
+    // Step 3: ACQUIRE LEASE before any state changes
+    const leaseResult = await acquireLease(
+      source, record.id, bucket, path, decoded.size, decoded.sha256, decoded.mimeType, execute
+    );
+    if (leaseResult.conflict) {
+      return { success: false, state: "conflict", error: leaseResult.conflict };
+    }
+    if (!leaseResult.acquired) {
+      return { success: false, skipped: true, error: "Could not acquire lease" };
+    }
     leaseAcquired = true;
 
-    // Check state
+    // Step 4: Check ledger state
     const ledgerRows = await db.select({ state: legacyStorageMigrationLedger.state })
       .from(legacyStorageMigrationLedger)
       .where(and(
@@ -638,119 +689,252 @@ async function processRecord(
       .limit(1);
     const currentState = ledgerRows[0]?.state || "inventoried";
 
-    if (currentState === "app_verified" || currentState === "excluded") {
-      return { success: true, skipped: true, state: currentState };
-    }
-    if (currentState === "conflict") {
-      return { success: false, skipped: true, state: "conflict", error: "Requires review" };
-    }
+    if (currentState === "app_verified") return { success: true, skipped: true, state: "app_verified" };
+    if (currentState === "excluded") return { success: true, skipped: true, state: "excluded" };
+    if (currentState === "conflict") return { success: false, skipped: true, state: "conflict", error: "Requires review" };
 
-    // Inspect object
+    // Step 5: Inspect existing object
     const inspection = await inspectExistingObjectStreamed(
-      supabase, bucket, path, decodedSize, legacySha256, detectedMime
+      supabase, bucket, path, decoded.size, decoded.sha256, decoded.mimeType
     );
+
     if (inspection.status === "verified_mismatch") {
-      await atomicStateTransition(source, record.id, currentState, "conflict", execute, inspection.reason);
+      await transitionState(source, record.id, currentState, "conflict", execute, inspection.reason);
       return { success: false, state: "conflict", error: `Conflict: ${inspection.reason}` };
     }
     if (inspection.status === "indeterminate") {
       return { success: false, error: `Cannot verify: ${inspection.reason}` };
     }
 
-    let uploaded = inspection.status === "verified_match";
+    let objectVerified = inspection.status === "verified_match";
 
-    // Upload if needed
-    if (!uploaded) {
-      await atomicStateTransition(source, record.id, currentState, "uploading", execute);
+    // Step 6: Upload if needed
+    if (!objectVerified) {
+      await transitionState(source, record.id, currentState, "uploading", execute);
 
-      // Heartbeat interval
-      let lastHeartbeat = Date.now();
-      const checkHeartbeat = async () => {
-        const now = Date.now();
-        if (now - lastHeartbeat > HEARTBEAT_INTERVAL_MS) {
-          const renewed = await renewLeaseWithOwnerCheck(source, record.id, execute);
-          if (!renewed) throw new Error("Lost lease during upload");
-          lastHeartbeat = now;
+      // Upload with heartbeat callback
+      await uploadWithTus(
+        supabase, bucket, path, tempFilePath, decoded.mimeType, decoded.size,
+        source, record.id, execute,
+        async () => {
+          const renewed = await renewLease(source, record.id, execute);
+          if (!renewed && execute) throw new Error("Lost lease during upload");
         }
-      };
+      );
 
-      // Monkey-patch upload to check heartbeat
-      const originalFetch = global.fetch;
-      global.fetch = async (...args) => {
-        await checkHeartbeat();
-        return originalFetch(...args);
-      };
+      // Verify ownership after upload
+      const stillOwned = await renewLease(source, record.id, execute);
+      if (!stillOwned && execute) return { success: false, error: "Lost lease after upload" };
 
-      try {
-        await uploadWithTusResumable(supabase, bucket, path, tempFilePath, detectedMime, decodedSize, source, record.id, execute);
-      } finally {
-        global.fetch = originalFetch;
-      }
-
-      // Verify ownership
-      const stillOwned = await renewLeaseWithOwnerCheck(source, record.id, execute);
-      if (!stillOwned) return { success: false, error: "Lost lease after upload" };
-
-      await atomicStateTransition(source, record.id, "uploading", "uploaded", execute);
+      await transitionState(source, record.id, "uploading", "uploaded", execute);
 
       // Verify object
       const verifyResult = await inspectExistingObjectStreamed(
-        supabase, bucket, path, decodedSize, legacySha256, detectedMime
+        supabase, bucket, path, decoded.size, decoded.sha256, decoded.mimeType
       );
       if (verifyResult.status !== "verified_match") {
-        await atomicStateTransition(source, record.id, "uploaded", "failed", execute, verifyResult.status);
+        await transitionState(source, record.id, "uploaded", "failed", execute, verifyResult.status);
         return { success: false, error: `Verification failed: ${verifyResult.status}` };
       }
 
-      await atomicStateTransition(source, record.id, "uploaded", "object_verified", execute);
+      await transitionState(source, record.id, "uploaded", "object_verified", execute);
     } else {
       console.log(`    [${source}:${record.id}] Reusing existing`);
-      await atomicStateTransition(source, record.id, currentState, "object_verified", execute);
+      await transitionState(source, record.id, currentState, "object_verified", execute);
     }
 
-    // Verify source unchanged
+    // Step 7: Verify source unchanged (both length and hash)
     const finalFingerprint = await getSourceFingerprint(source, record.id);
     if (!finalFingerprint ||
         finalFingerprint.length !== initialFingerprint.length ||
         finalFingerprint.hash !== initialFingerprint.hash) {
-      await atomicStateTransition(source, record.id, "object_verified", "failed", execute, "Source changed");
+      await transitionState(source, record.id, "object_verified", "failed", execute, "Source changed");
       return { success: false, error: "Source changed during migration" };
     }
 
-    // Transactional commit
-    await transactionalMetadataCommit(source, record.id, bucket, path, decodedSize, detectedMime, execute);
-
-    // App verification
-    const appVerify = await verifyApplicationRouteStreamed(baseUrl, source, record.id, decodedSize, legacySha256, fetch);
-    if (!appVerify.ok) {
-      await transactionalRollback(source, record.id, bucket, path, execute);
-      await atomicStateTransition(source, record.id, "metadata_committed", "rollback_required", execute, appVerify.error);
-      await atomicStateTransition(source, record.id, "rollback_required", "rolled_back", execute);
-      return { success: false, error: `App verify failed: ${appVerify.error}` };
+    // Step 8: Transactional metadata commit (conditional on fingerprint)
+    const commitResult = await transactionalMetadataCommit(
+      source, record.id, bucket, path, decoded.size, decoded.mimeType, initialFingerprint, execute
+    );
+    if (!commitResult.success) {
+      await transitionState(source, record.id, "object_verified", "failed", execute, commitResult.error);
+      return { success: false, error: commitResult.error };
     }
 
-    await atomicStateTransition(source, record.id, "metadata_committed", "app_verified", execute);
+    // Step 9: App verification (skip in dry-run)
+    if (execute) {
+      const appVerify = await verifyApplicationRouteStreamed(baseUrl, source, record.id, decoded.size, decoded.sha256, fetch);
+      if (!appVerify.ok) {
+        // Rollback: metadata_committed → rollback_required → rolled_back
+        await transitionState(source, record.id, "metadata_committed", "rollback_required", execute, appVerify.error);
+        await transactionalRollback(source, record.id, bucket, path, execute);
+        await transitionState(source, record.id, "rollback_required", "rolled_back", execute);
+        return { success: false, error: `App verify failed: ${appVerify.error}` };
+      }
+    }
+
+    await transitionState(source, record.id, "metadata_committed", "app_verified", execute);
     return { success: true, state: "app_verified" };
 
   } catch (err) {
     return { success: false, error: sanitizeError(err) };
   } finally {
     try { await rm(tempDir, { recursive: true, force: true }); } catch { }
-    if (leaseAcquired) await releaseLeaseWithOwnerCheck(source, record.id, execute);
+    if (leaseAcquired) await releaseLease(source, record.id, execute);
   }
+}
+
+// ============================================================================
+// ORPHAN AUDIT (RECURSIVE, PAGINATED, READ-ONLY)
+// ============================================================================
+
+type ObjectClassification =
+  | "referenced" | "active_upload_intent" | "finalized_upload_intent"
+  | "migration_verified" | "migration_staged" | "possible_orphan" | "indeterminate";
+
+async function runOrphanAudit(supabase: SupabaseClient): Promise<void> {
+  console.log("\n=== Storage Orphan Audit ===\n");
+
+  const buckets = ["om-manuals", "om-governance", "smp-library"];
+
+  // Build reference sets
+  const tablePaths = new Set<string>();
+  const intentPendingPaths = new Set<string>();
+  const intentFinalizedPaths = new Set<string>();
+  const ledgerStagedPaths = new Set<string>();
+  const ledgerVerifiedPaths = new Set<string>();
+
+  // Collect from source tables
+  const sources: StorageFileSource[] = ["doc_files", "governance_files", "governance_uploads", "smp_documents"];
+  for (const source of sources) {
+    const table = SOURCE_TABLES[source];
+    const rows = await db
+      .select({ bucket: sql<string | null>`storage_bucket`, path: sql<string | null>`storage_path` })
+      .from(table)
+      .where(sql`storage_path IS NOT NULL`);
+
+    for (const row of rows) {
+      if (row.bucket && row.path) tablePaths.add(`${row.bucket}:${row.path}`);
+    }
+  }
+
+  // Collect from upload intents
+  const intents = await db
+    .select({ bucket: storageUploadIntents.expectedBucket, path: storageUploadIntents.expectedPath, status: storageUploadIntents.status })
+    .from(storageUploadIntents);
+
+  for (const intent of intents) {
+    const key = `${intent.bucket}:${intent.path}`;
+    if (intent.status === "finalized") intentFinalizedPaths.add(key);
+    else if (["pending", "uploading"].includes(intent.status)) intentPendingPaths.add(key);
+  }
+
+  // Collect from migration ledger
+  const ledger = await db
+    .select({ bucket: legacyStorageMigrationLedger.bucket, path: legacyStorageMigrationLedger.storagePath, state: legacyStorageMigrationLedger.state })
+    .from(legacyStorageMigrationLedger);
+
+  for (const entry of ledger) {
+    const key = `${entry.bucket}:${entry.path}`;
+    if (entry.state === "app_verified") ledgerVerifiedPaths.add(key);
+    else if (["uploaded", "object_verified", "metadata_committed", "uploading"].includes(entry.state)) {
+      ledgerStagedPaths.add(key);
+    }
+  }
+
+  console.log(`References from tables: ${tablePaths.size}`);
+  console.log(`Pending intent paths: ${intentPendingPaths.size}`);
+  console.log(`Finalized intent paths: ${intentFinalizedPaths.size}`);
+  console.log(`Ledger staged: ${ledgerStagedPaths.size}`);
+  console.log(`Ledger verified: ${ledgerVerifiedPaths.size}`);
+
+  // Classification function
+  function classifyObject(bucket: string, path: string): ObjectClassification {
+    const key = `${bucket}:${path}`;
+    if (tablePaths.has(key)) return "referenced";
+    if (intentPendingPaths.has(key)) return "active_upload_intent";
+    if (intentFinalizedPaths.has(key)) return "finalized_upload_intent";
+    if (ledgerVerifiedPaths.has(key)) return "migration_verified";
+    if (ledgerStagedPaths.has(key)) return "migration_staged";
+    return "possible_orphan";
+  }
+
+  // Recursive prefix traversal
+  async function scanPrefix(bucket: string, prefix: string, visited: Set<string>): Promise<Array<{ path: string; classification: ObjectClassification }>> {
+    if (visited.has(prefix)) return [];
+    visited.add(prefix);
+
+    const results: Array<{ path: string; classification: ObjectClassification }> = [];
+    let offset = 0;
+    const limit = 1000;
+
+    while (true) {
+      const { data: objects, error } = await supabase.storage.from(bucket).list(prefix, { limit, offset });
+
+      if (error) {
+        console.log(`  Error listing ${prefix}: ${sanitizeError(error)}`);
+        return [{ path: `${prefix}/*`, classification: "indeterminate" }];
+      }
+
+      if (!objects || objects.length === 0) break;
+
+      for (const obj of objects) {
+        const fullPath = prefix ? `${prefix}/${obj.name}` : obj.name;
+
+        if (obj.id === null) {
+          // Folder - recurse
+          const subResults = await scanPrefix(bucket, fullPath, visited);
+          results.push(...subResults);
+        } else {
+          results.push({ path: fullPath, classification: classifyObject(bucket, fullPath) });
+        }
+      }
+
+      if (objects.length < limit) break;
+      offset += limit;
+    }
+
+    return results;
+  }
+
+  // Scan each bucket
+  for (const bucket of buckets) {
+    console.log(`\n--- Scanning bucket: ${bucket} ---`);
+    const visited = new Set<string>();
+    const results = await scanPrefix(bucket, "", visited);
+
+    const counts: Record<ObjectClassification, number> = {} as Record<ObjectClassification, number>;
+    for (const { classification } of results) {
+      counts[classification] = (counts[classification] || 0) + 1;
+    }
+
+    console.log(`  Total objects: ${results.length}`);
+    for (const [cls, count] of Object.entries(counts)) {
+      console.log(`  ${cls}: ${count}`);
+    }
+
+    const orphans = results.filter(r => r.classification === "possible_orphan");
+    if (orphans.length > 0) {
+      console.log(`  Possible orphans (${orphans.length}):`);
+      for (const orphan of orphans.slice(0, 10)) {
+        console.log(`    - ${orphan.path}`);
+      }
+      if (orphans.length > 10) {
+        console.log(`    ... and ${orphans.length - 10} more`);
+      }
+    }
+  }
+
+  console.log("\nNote: This is a READ-ONLY audit. No objects were deleted.");
 }
 
 // ============================================================================
 // MAIN
 // ============================================================================
 
-async function runOrphanAudit(_supabase: SupabaseClient) {
-  console.log("\n=== Orphan Audit ===\nRead-only audit complete");
-}
-
 async function main() {
   const args = process.argv.slice(2);
-  
+
   if (args.includes("--orphan-audit")) {
     const supabase = getSupabaseStorageAdmin();
     await runOrphanAudit(supabase);
@@ -760,7 +944,7 @@ async function main() {
   const options = parseArgs();
   const rawBaseUrl = process.env.APP_BASE_URL;
   const urlValidation = validateAppBaseUrl(rawBaseUrl, options.execute);
-  
+
   if (!urlValidation.valid) {
     console.error(`ERROR: ${urlValidation.error}`);
     process.exit(1);
@@ -804,7 +988,7 @@ async function main() {
 
   console.log(`\n=== Summary ===`);
   console.log(`Processed: ${totalProcessed}, Success: ${totalSuccess}, Failed: ${totalFailed}, Skipped: ${totalSkipped}`);
-  if (!options.execute) console.log("DRY-RUN complete");
+  if (!options.execute) console.log("DRY-RUN complete - no changes made");
 }
 
 main().catch((err) => {
