@@ -2,7 +2,8 @@
 -- Tracks migration of Base64/file_url legacy data to Supabase Storage
 -- Keyed by (source, record_id) for idempotency
 
-CREATE TYPE migration_state AS ENUM (
+-- Project-specific state enum for migration lifecycle
+CREATE TYPE legacy_storage_migration_state AS ENUM (
   'inventoried',
   'uploading',
   'uploaded',
@@ -16,6 +17,7 @@ CREATE TYPE migration_state AS ENUM (
   'excluded'
 );
 
+-- Migration ledger table with resumable state tracking
 CREATE TABLE legacy_storage_migration_ledger (
   id SERIAL PRIMARY KEY,
   source VARCHAR(50) NOT NULL,
@@ -26,7 +28,7 @@ CREATE TABLE legacy_storage_migration_ledger (
   expected_size BIGINT NOT NULL,
   legacy_sha256 VARCHAR(64) NOT NULL,
   detected_mime_type VARCHAR(255) NOT NULL,
-  state migration_state NOT NULL DEFAULT 'inventoried',
+  state legacy_storage_migration_state NOT NULL DEFAULT 'inventoried',
   attempt_count INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   object_verified_at TIMESTAMPTZ,
@@ -36,14 +38,15 @@ CREATE TABLE legacy_storage_migration_ledger (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   
+  -- Unique constraint for idempotency
   UNIQUE (source, record_id)
 );
 
+-- Performance indexes
 CREATE INDEX legacy_migration_ledger_state_idx ON legacy_storage_migration_ledger(state);
 CREATE INDEX legacy_migration_ledger_source_idx ON legacy_storage_migration_ledger(source);
 CREATE INDEX legacy_migration_ledger_updated_idx ON legacy_storage_migration_ledger(updated_at);
 
--- Prevent concurrent migration workers on the same record
-CREATE UNIQUE INDEX legacy_migration_ledger_lock_idx 
-ON legacy_storage_migration_ledger(source, record_id) 
-WHERE state IN ('uploading', 'metadata_committed');
+-- Advisory lock helper for worker exclusion
+-- Use pg_try_advisory_lock(hashtextextended(source || ':' || record_id::text, 0))
+-- to ensure only one worker processes a given record at a time

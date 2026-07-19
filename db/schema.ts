@@ -465,7 +465,7 @@ export type PresentationFile = typeof presentationFiles.$inferSelect;
 export type InsertPresentationFile = typeof presentationFiles.$inferInsert;
 
 /* ─── Legacy Storage Migration Ledger ─── */
-export const migrationStateEnum = [
+export const legacyStorageMigrationStateEnum = [
   "inventoried",
   "uploading",
   "uploaded",
@@ -479,7 +479,7 @@ export const migrationStateEnum = [
   "excluded",
 ] as const;
 
-export type MigrationState = (typeof migrationStateEnum)[number];
+export type LegacyStorageMigrationState = (typeof legacyStorageMigrationStateEnum)[number];
 
 export const legacyStorageMigrationLedger = pgTable("legacy_storage_migration_ledger", {
   id: serial("id").primaryKey(),
