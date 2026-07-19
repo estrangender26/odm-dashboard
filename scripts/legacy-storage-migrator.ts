@@ -198,7 +198,7 @@ async function fetchBase64Chunk(
   const legacyColumn = LEGACY_COLUMNS[source];
 
   const result = await ctx.db
-    .select({ chunk: sql<string>`substring(${sql.raw(legacyColumn)} from ${start} for ${length})` })
+    .select({ chunk: sql<string>`substr(${sql.raw(legacyColumn)}, ${start}, ${length})` })
     .from(table)
     .where(eq(table.id, recordId))
     .limit(1);
