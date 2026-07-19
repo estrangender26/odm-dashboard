@@ -117,7 +117,10 @@ export function getDb() {
 
   _db = drizzle(client, { schema });
   console.log("[DB] Connected!");
-  void logConnectionTest(client, databaseUrl);
+  // Skip connection test logging for migrator to avoid exposing connection info
+  if (!process.env.LEGACY_MIGRATOR_MODE) {
+    void logConnectionTest(client, databaseUrl);
+  }
 
   const shouldRunMigrations = shouldRunMigrationsOnStartup();
   if (shouldRunMigrations) {
