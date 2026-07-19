@@ -463,3 +463,49 @@ export const presentationFiles = pgTable("presentation_files", {
 
 export type PresentationFile = typeof presentationFiles.$inferSelect;
 export type InsertPresentationFile = typeof presentationFiles.$inferInsert;
+
+/* ─── Legacy Storage Migration Ledger ─── */
+export const migrationStateEnum = [
+  "inventoried",
+  "uploading",
+  "uploaded",
+  "object_verified",
+  "metadata_committed",
+  "app_verified",
+  "rollback_required",
+  "rolled_back",
+  "conflict",
+  "failed",
+  "excluded",
+] as const;
+
+export type MigrationState = (typeof migrationStateEnum)[number];
+
+export const legacyStorageMigrationLedger = pgTable("legacy_storage_migration_ledger", {
+  id: serial("id").primaryKey(),
+  source: varchar("source", { length: 50 }).notNull(),
+  recordId: integer("record_id").notNull(),
+  bucket: varchar("bucket", { length: 100 }).notNull(),
+  storagePath: text("storage_path").notNull(),
+  originalFilename: varchar("original_filename", { length: 255 }).notNull(),
+  expectedSize: bigint("expected_size", { mode: "number" }).notNull(),
+  legacySha256: varchar("legacy_sha256", { length: 64 }).notNull(),
+  detectedMimeType: varchar("detected_mime_type", { length: 255 }).notNull(),
+  state: varchar("state", { length: 32 }).notNull().default("inventoried"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  objectVerifiedAt: timestamp("object_verified_at", { withTimezone: true }),
+  metadataCommittedAt: timestamp("metadata_committed_at", { withTimezone: true }),
+  appVerifiedAt: timestamp("app_verified_at", { withTimezone: true }),
+  rollbackAt: timestamp("rollback_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  unique("legacy_migration_ledger_source_record_unique").on(table.source, table.recordId),
+  index("legacy_migration_ledger_state_idx").on(table.state),
+  index("legacy_migration_ledger_source_idx").on(table.source),
+  index("legacy_migration_ledger_updated_idx").on(table.updatedAt),
+]);
+
+export type LegacyStorageMigrationLedger = typeof legacyStorageMigrationLedger.$inferSelect;
+export type InsertLegacyStorageMigrationLedger = typeof legacyStorageMigrationLedger.$inferInsert;
