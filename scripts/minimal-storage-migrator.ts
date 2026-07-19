@@ -12,7 +12,7 @@ import { writeFile, mkdir, readFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { db } from "../api/queries/connection";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, isNull } from "drizzle-orm";
 import { governanceUploads, docFiles, governanceFiles } from "../db/schema";
 
 // ============================================================================
@@ -259,12 +259,15 @@ async function getRecord(source: Source, id: number): Promise<MigrationRecord | 
   const table = SOURCE_TABLES[source];
   const column = source === "doc_files" ? "file_data" : "file_url";
   
+  // governance_uploads has no file_type column; return NULL for it
+  const fileTypeColumn = source === "governance_uploads" ? "NULL" : "file_type";
+  
   const result = await db
     .select({
       id: sql<number>`id`,
       fileName: sql<string | null>`file_name`,
-      fileUrl: sql<string | null>`${sql.raw(column)}`,
-      fileType: sql<string | null>`file_type`,
+      // NEVER select full file_url/file_data - only length is queried
+      fileType: sql<string | null>`${sql.raw(fileTypeColumn)}`,
       storagePath: sql<string | null>`storage_path`,
       legacyDataLength: sql<number>`COALESCE(length(${sql.raw(column)}), 0)`,
     })
@@ -277,7 +280,7 @@ async function getRecord(source: Source, id: number): Promise<MigrationRecord | 
   return {
     id: result[0].id,
     fileName: result[0].fileName,
-    fileUrl: result[0].fileUrl,
+    fileUrl: null, // Never expose full Base64
     fileType: result[0].fileType,
     storagePath: result[0].storagePath,
     legacyDataLength: result[0].legacyDataLength,
@@ -308,7 +311,7 @@ async function commitMetadata(
     })
     .where(and(
       eq(sql`id`, id),
-      eq(sql`storage_path`, sql`NULL`),
+      isNull(sql`storage_path`),
       eq(sql`length(${sql.raw(column)})`, fingerprint.length),
       eq(sql`md5(${sql.raw(column)})`, fingerprint.hash)
     ))
@@ -554,7 +557,7 @@ async function main() {
         .from(table)
         .where(and(
           sql`${sql.raw(column)} IS NOT NULL`,
-          sql`storage_path IS NULL`,
+          isNull(sql`storage_path`),
           sql`id != 31`
         ))
         .limit(options.limit || 10000);
