@@ -266,12 +266,22 @@ async function verifyApplicationRoute(
   id: number
 ): Promise<boolean> {
   try {
-    const response = await fetch(`${baseUrl}/api/migrated-file/${source}/${id}`, {
-      method: "HEAD",
+    // Use redirect: manual to capture the 302 redirect URL
+    const response = await fetch(`${baseUrl}/api/storage/files/${source}/${id}/view`, {
+      method: "GET",
+      redirect: "manual",
       signal: AbortSignal.timeout(30000),
     });
-    return response.status === 200;
-  } catch {
+    
+    // Require HTTP 302 with nonempty Location header
+    if (response.status !== 302) {
+      return false;
+    }
+    
+    const location = response.headers.get("Location");
+    return location != null && location.length > 0;
+  } catch (error) {
+    // Sanitize any network errors
     return false;
   }
 }
