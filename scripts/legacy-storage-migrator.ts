@@ -7,7 +7,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, rm, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, and, inArray, sql } from "drizzle-orm";
@@ -438,27 +438,40 @@ async function transactionalRollback(
         eq(sql`storage_path`, path)
       ));
 
-      // Update ledger
-      const now = new Date();
-      await tx.update(legacyStorageMigrationLedger)
-        .set({ state: "rolled_back", rollbackAt: now, updatedAt: now })
-        .where(and(
-          eq(legacyStorageMigrationLedger.source, source),
-          eq(legacyStorageMigrationLedger.recordId, recordId),
-          eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID),
-          eq(legacyStorageMigrationLedger.bucket, bucket),
-          eq(legacyStorageMigrationLedger.storagePath, path)
-        ));
-    });
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: sanitizeError(err) };
-  }
+// ============================================================================
+// TUS UPLOAD (STANDARDS-COMPLIANT WITH DOCUMENTED PUBLIC API)
+// ============================================================================
+
+/** tus-js-client FileSource interface for Node.js file handles */
+interface FileSource {
+  size: number;
+  slice(start: number, end: number): Promise<{ value: Buffer; done: boolean }>;
+  close(): Promise<void>;
 }
 
-// ============================================================================
-// TUS UPLOAD (STANDARDS-COMPLIANT)
-// ============================================================================
+/** tus-js-client FileReader interface */
+interface FileReader {
+  openFile(input: unknown, chunkSize: number): Promise<FileSource>;
+}
+
+function createNodeFileReader(tempFilePath: string, fileSize: number): FileReader {
+  return {
+    openFile: async (): Promise<FileSource> => {
+      const fd = await open(tempFilePath, "r");
+      return {
+        size: fileSize,
+        slice: async (start: number, end: number) => {
+          const length = Math.min(end - start, fileSize - start);
+          if (length <= 0) return { value: Buffer.alloc(0), done: true };
+          const buffer = Buffer.alloc(length);
+          await fd.read(buffer, 0, length, start);
+          return { value: buffer, done: end >= fileSize };
+        },
+        close: async () => fd.close(),
+      };
+    },
+  };
+}
 
 async function uploadWithTus(
   supabase: SupabaseClient,
@@ -477,7 +490,6 @@ async function uploadWithTus(
   const config = getSupabaseStorageConfig();
   const tusEndpoint = `${config.directStorageUrl}/storage/v1/upload/resumable`;
 
-  // Get existing upload URL for resume
   const existing = await db.select({ tusUploadUrl: legacyStorageMigrationLedger.tusUploadUrl })
     .from(legacyStorageMigrationLedger)
     .where(and(
@@ -487,16 +499,10 @@ async function uploadWithTus(
     .limit(1);
   const existingUrl = existing[0]?.tusUploadUrl;
 
-  return new Promise<void>((resolve, reject) => {
-    // Create a minimal file-like object using the actual file
-    const fileLike = {
-      name: path.split("/").pop() || "file",
-      size: fileSize,
-      type: mimeType,
-    };
+  const fileReader = createNodeFileReader(tempFilePath, fileSize);
 
-    // Use tus-js-client with custom file reader for Node.js streams
-    const upload = new tus.Upload(fileLike as File, {
+  return new Promise<void>((resolve, reject) => {
+    const upload = new tus.Upload(null as unknown as File, {
       endpoint: tusEndpoint,
       retryDelays: [0, 1000, 3000, 5000, 10000],
       chunkSize: TUS_CHUNK_SIZE_BYTES,
@@ -510,10 +516,10 @@ async function uploadWithTus(
         contentType: mimeType,
         cacheControl: "3600",
       },
-      // Custom chunk read function for Node.js file streams
-      chunkSizeBytes: TUS_CHUNK_SIZE_BYTES,
-      onBeforeRequest: async (req) => {
-        // Persist upload URL for resume
+      fileReader,
+      uploadSize: fileSize,
+      onBeforeRequest: async () => {
+        await onHeartbeat();
         if (upload.url && upload.url !== existingUrl) {
           await db.update(legacyStorageMigrationLedger)
             .set({ tusUploadUrl: upload.url, updatedAt: new Date() })
@@ -523,12 +529,9 @@ async function uploadWithTus(
               eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
             ));
         }
-        // Heartbeat before each chunk
-        await onHeartbeat();
       },
       onError: (err) => reject(err),
       onSuccess: async () => {
-        // Clear upload URL on success
         await db.update(legacyStorageMigrationLedger)
           .set({ tusUploadUrl: null, updatedAt: new Date() })
           .where(and(
@@ -537,29 +540,11 @@ async function uploadWithTus(
           ));
         resolve();
       },
-      // Use native file stream for reading chunks
-      fileReader: {
-        open: () => Promise.resolve(),
-        close: () => Promise.resolve(),
-        read: (start: number, end: number) => {
-          return new Promise((res, rej) => {
-            const stream = createReadStream(tempFilePath, { start, end: end - 1 });
-            const chunks: Buffer[] = [];
-            stream.on("data", (c) => chunks.push(c));
-            stream.on("end", () => res(Buffer.concat(chunks)));
-            stream.on("error", rej);
-          });
-        },
-      },
     });
 
     upload.start();
   });
 }
-
-// ============================================================================
-// DECODE WITH HEARTBEAT
-// ============================================================================
 
 async function decodeWithHeartbeat(
   source: StorageFileSource,
@@ -660,16 +645,10 @@ async function processRecord(
       return { success: false, error: "Source changed (length mismatch)" };
     }
 
-    // Step 2: Decode to temp file with heartbeat (BEFORE lease for dry-run safety)
+    // Step 2: ACQUIRE LEASE before decoding (no heartbeat before acquisition)
     await mkdir(tempDir, { mode: 0o700, recursive: true });
-    const decoded = await decodeWithHeartbeat(
-      source, record.id, record, tempFilePath, execute,
-      (size) => { /* progress */ }
-    );
-
-    // Step 3: ACQUIRE LEASE before any state changes
     const leaseResult = await acquireLease(
-      source, record.id, bucket, path, decoded.size, decoded.sha256, decoded.mimeType, execute
+      source, record.id, bucket, path, 0, "", "application/octet-stream", execute
     );
     if (leaseResult.conflict) {
       return { success: false, state: "conflict", error: leaseResult.conflict };
@@ -678,7 +657,27 @@ async function processRecord(
       return { success: false, skipped: true, error: "Could not acquire lease" };
     }
     leaseAcquired = true;
+    // Step 3: Decode AFTER lease acquisition (heartbeat OK now)
+    const decoded = await decodeWithHeartbeat(
+      source, record.id, record, tempFilePath, execute,
+      (size) => { /* progress */ }
+    );
 
+    // Update ledger with actual decoded values
+    if (execute) {
+      await db.update(legacyStorageMigrationLedger)
+        .set({
+          expectedSize: decoded.size,
+          legacySha256: decoded.sha256,
+          detectedMimeType: decoded.mimeType,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(legacyStorageMigrationLedger.source, source),
+          eq(legacyStorageMigrationLedger.recordId, record.id),
+          eq(legacyStorageMigrationLedger.leaseOwner, WORKER_ID)
+        ));
+    }
     // Step 4: Check ledger state
     const ledgerRows = await db.select({ state: legacyStorageMigrationLedger.state })
       .from(legacyStorageMigrationLedger)

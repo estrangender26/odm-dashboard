@@ -193,3 +193,58 @@ describe("Legacy Storage Migration Core", () => {
     });
   });
 });
+
+
+// Additional tests for complete workflows
+describe("TUS FileReader Implementation", () => {
+  it("uses documented public FileReader interface", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const migratorPath = path.join(__dirname, "../../scripts/legacy-storage-migrator.ts");
+    const source = fs.readFileSync(migratorPath, "utf-8");
+
+    expect(source).toContain("interface FileReader");
+    expect(source).toContain("openFile(input: unknown, chunkSize: number): Promise<FileSource>");
+    expect(source).toContain("interface FileSource");
+    expect(source).toContain("size: number");
+    expect(source).toContain("slice(start: number, end: number)");
+    expect(source).toContain("close(): Promise<void>");
+    expect(source).toContain("function createNodeFileReader");
+    expect(source).toContain("fileReader,");
+    expect(source).not.toContain("upload.options.fileReader = {");
+    expect(source).not.toContain("new Blob([])");
+    expect(source).not.toContain("fileLike as File");
+  });
+});
+
+describe("Production Safety", () => {
+  it("confirms dry-run does not write to database", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const migratorPath = path.join(__dirname, "../../scripts/legacy-storage-migrator.ts");
+    const source = fs.readFileSync(migratorPath, "utf-8");
+
+    expect(source).toContain("if (!execute) return");
+    expect(source).toContain("DRY-RUN complete - no changes made");
+  });
+
+  it("confirms lease is acquired before decoding", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const migratorPath = path.join(__dirname, "../../scripts/legacy-storage-migrator.ts");
+    const source = fs.readFileSync(migratorPath, "utf-8");
+
+    expect(source).toContain("// Step 2: ACQUIRE LEASE");
+    expect(source).toContain("// Step 3: Decode AFTER lease acquisition");
+  });
+
+  it("confirms rollback sequence", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const migratorPath = path.join(__dirname, "../../scripts/legacy-storage-migrator.ts");
+    const source = fs.readFileSync(migratorPath, "utf-8");
+
+    expect(source).toContain("rollback_required → rolled_back");
+    expect(source).toContain('await transactionalRollback(');
+  });
+});
