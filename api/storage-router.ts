@@ -157,6 +157,25 @@ export type RateLimitDbExecutor = {
 };
 
 // Internal implementation with injectable executor for testing
+function validateDecimalString(value: number, minValue: number, paramName: string): string {
+  // Reject NaN, Infinity, fractional numbers, and unsafe integers
+  // Check NaN first (NaN is not equal to itself)
+  if (value !== value) { // NaN check
+    throw new Error(`Invalid ${paramName}: NaN not allowed`);
+  }
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid ${paramName}: must be a finite number`);
+  }
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`Invalid ${paramName}: must be a safe integer`);
+  }
+  if (value < minValue) {
+    throw new Error(`Invalid ${paramName}: below minimum ${minValue}`);
+  }
+  // Convert to decimal string (no exponential notation)
+  return value.toString(10);
+}
+
 export async function checkRateLimitWithExecutor(
   deps: {
     clientId: string;
@@ -167,26 +186,35 @@ export async function checkRateLimitWithExecutor(
   }
 ): Promise<RateLimitResult> {
   const { clientId, isTrusted, declaredBytes, db, now = new Date() } = deps;
-  
+
   const windowStart = new Date(now);
   windowStart.setMinutes(0, 0, 0);
-  
+
+  // Convert to wire-safe ISO string for postgres.js
+  const windowStartIso = windowStart.toISOString();
+
+  // Compute rate limits once
   const limits = getRateLimitForClient({ isTrusted });
-  
+
+  // Validate and convert numeric parameters to decimal strings for wire safety
+  const declaredBytesStr = validateDecimalString(declaredBytes, 0, "declaredBytes");
+  const maxIntentsStr = validateDecimalString(limits.maxIntents, 1, "maxIntents");
+  const maxBytesStr = validateDecimalString(limits.maxBytes, 1, "maxBytes");
+
   // Atomic upsert that returns empty on over-limit
-  // Explicit bigint cast for total_bytes to ensure correct PostgreSQL type handling
+  // All parameters are wire-safe strings with explicit PostgreSQL casts
   let result: any[];
   try {
     result = await db.execute(sql`
-      INSERT INTO upload_rate_limits 
+      INSERT INTO upload_rate_limits
         (client_identifier, window_start, intent_count, total_bytes)
-      VALUES (${clientId}, ${windowStart}, 1, ${declaredBytes}::bigint)
-      ON CONFLICT (client_identifier, window_start) 
-      DO UPDATE SET 
+      VALUES (${clientId}, ${windowStartIso}::timestamptz, 1, ${declaredBytesStr}::bigint)
+      ON CONFLICT (client_identifier, window_start)
+      DO UPDATE SET
         intent_count = upload_rate_limits.intent_count + 1,
-        total_bytes = upload_rate_limits.total_bytes + ${declaredBytes}::bigint
-      WHERE upload_rate_limits.intent_count < ${limits.maxIntents}
-        AND upload_rate_limits.total_bytes + ${declaredBytes}::bigint <= ${limits.maxBytes}::bigint
+        total_bytes = upload_rate_limits.total_bytes + ${declaredBytesStr}::bigint
+      WHERE upload_rate_limits.intent_count < ${maxIntentsStr}::integer
+        AND upload_rate_limits.total_bytes + ${declaredBytesStr}::bigint <= ${maxBytesStr}::bigint
       RETURNING intent_count, total_bytes
     `);
   } catch (dbError: any) {
@@ -205,10 +233,10 @@ export async function checkRateLimitWithExecutor(
     // Try to determine if this is actually a rate limit or a system error
     try {
       const existing = await db.execute(sql`
-        SELECT intent_count, total_bytes 
-        FROM upload_rate_limits 
-        WHERE client_identifier = ${clientId} 
-        AND window_start = ${windowStart}
+        SELECT intent_count, total_bytes
+        FROM upload_rate_limits
+        WHERE client_identifier = ${clientId}
+        AND window_start = ${windowStartIso}::timestamptz
       `);
       
       if (existing.length > 0) {
