@@ -107,7 +107,7 @@ async function fetchBase64Chunk(
   length: number
 ): Promise<string> {
   const table = SOURCE_TABLES[source];
-  const column = source === "doc_files" ? "file_data" : "file_url";
+  const column = source === "governance_uploads" ? "file_url" : "file_data";
   
   const result = await db
     .select({
@@ -295,7 +295,7 @@ async function getSourceFingerprint(
   id: number
 ): Promise<{ length: number; hash: string } | null> {
   const table = SOURCE_TABLES[source];
-  const column = source === "doc_files" ? "file_data" : "file_url";
+  const column = source === "governance_uploads" ? "file_url" : "file_data";
   
   const result = await db
     .select({
@@ -311,7 +311,7 @@ async function getSourceFingerprint(
 
 async function getRecord(source: Source, id: number): Promise<MigrationRecord | null> {
   const table = SOURCE_TABLES[source];
-  const column = source === "doc_files" ? "file_data" : "file_url";
+  const column = source === "governance_uploads" ? "file_url" : "file_data";
   
   // governance_uploads has no file_type column; return NULL for it
   const fileTypeColumn = source === "governance_uploads" ? "NULL" : "file_type";
@@ -351,7 +351,7 @@ async function commitMetadata(
   fingerprint: { length: number; hash: string }
 ): Promise<boolean> {
   const table = SOURCE_TABLES[source];
-  const column = source === "doc_files" ? "file_data" : "file_url";
+  const column = source === "governance_uploads" ? "file_url" : "file_data";
   
   const result = await db
     .update(table)
@@ -607,7 +607,7 @@ async function main() {
     } else {
       // Query all unmigrated records (excluding SMP ID 31)
       const table = SOURCE_TABLES[source];
-      const column = source === "doc_files" ? "file_data" : "file_url";
+      const column = source === "governance_uploads" ? "file_url" : "file_data";
       
       const records = await db
         .select({ id: sql<number>`id` })
