@@ -370,7 +370,7 @@ describe("Governance storage upload client behavior", () => {
   });
 
   it("successful finalize clears the in-memory token", async () => {
-    const vm1 = setupVM();
+    const { window, fetchCalls, deferredResolves, localStorageData, localStorageCalls } = setupVM();
 
     const authResponse = {
       intentId: "intent-cleanup-xyz",
@@ -387,50 +387,79 @@ describe("Governance storage upload client behavior", () => {
     const file = { name: "test.pdf", type: "application/pdf", size: 1024, lastModified: Date.now() };
     const target = { facilitySlug: "test-fac", milestoneId: 123 };
 
-    // First upload - complete
-    vm1.window.uploadGovernanceFileWithRollback(file, target, vi.fn(), vi.fn(), null);
+    // First upload - start but don't await
+    window.uploadGovernanceFileWithRollback(file, target, vi.fn(), vi.fn(), null);
 
+    // Wait for config and resolve
     await new Promise(r => setTimeout(r, 50));
-    resolveFetch(vm1.deferredResolves, "/api/storage/config", {
+    expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
+    resolveFetch(deferredResolves, "/api/storage/config", {
       ok: true,
       json: () => Promise.resolve({ flags: { global: true, governance: true } }),
       status: 200,
     });
 
+    // Wait for authorize and resolve
     await new Promise(r => setTimeout(r, 50));
-    resolveFetch(vm1.deferredResolves, "/api/storage/uploads/authorize", {
+    expect(fetchCalls.some(c => c.url === "/api/storage/uploads/authorize")).toBe(true);
+    resolveFetch(deferredResolves, "/api/storage/uploads/authorize", {
       ok: true,
       json: () => Promise.resolve(authResponse),
       status: 200,
     });
 
+    // Wait for TUS success and finalize call
     await new Promise(r => setTimeout(r, 200));
+    expect(fetchCalls.some(c => c.url === "/api/storage/uploads/finalize")).toBe(true);
 
-    // Verify localStorage saved
-    expect(vm1.localStorageCalls.some(c => c.method === "setItem")).toBe(true);
+    // setItem was called before finalize - check localStorage calls now
+    const setItemCalls = localStorageCalls.filter(c => c.method === "setItem");
+    expect(setItemCalls.length).toBeGreaterThan(0);
+    const lastSetItem = setItemCalls[setItemCalls.length - 1];
+    const resumeKey = lastSetItem.args[0];
+    const cachedAuthWithoutToken = JSON.parse(lastSetItem.args[1]);
 
-    // Create fresh VM (simulates page refresh) with same localStorage
-    const vm2 = setupVM();
-    vm1.localStorageData.forEach((value, key) => {
-      vm2.localStorageData.set(key, value);
+    // Verify localStorage saved intentId but no capabilityToken
+    expect(cachedAuthWithoutToken.intentId).toBe("intent-cleanup-xyz");
+    expect(cachedAuthWithoutToken.capabilityToken).toBeUndefined();
+
+    // Resolve finalize to trigger token cleanup
+    resolveFetch(deferredResolves, "/api/storage/uploads/finalize", {
+      ok: true,
+      json: () => Promise.resolve({ success: true }),
+      status: 200,
     });
 
-    // Second upload - should NOT resume
-    vm2.window.uploadGovernanceFileWithRollback(file, target, vi.fn(), vi.fn(), null);
+    // Wait for localStorage removeItem to be called (finalize clears the cache)
+    await new Promise(r => setTimeout(r, 100));
+    expect(localStorageCalls.some(c => c.method === "removeItem")).toBe(true);
 
+    // Clear fetch tracking for second upload
+    fetchCalls.length = 0;
+    deferredResolves.clear();
+
+    // Manually reinsert cached authorization (simulating page refresh with stored auth)
+    // The cached auth has NO capabilityToken since it was never stored in localStorage
+    localStorageData.set(resumeKey, JSON.stringify(cachedAuthWithoutToken));
+
+    // Second upload in SAME VM - should NOT resume because memory token was cleared
+    window.uploadGovernanceFileWithRollback(file, target, vi.fn(), vi.fn(), null);
+
+    // Wait for config and resolve
     await new Promise(r => setTimeout(r, 50));
-    resolveFetch(vm2.deferredResolves, "/api/storage/config", {
+    expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
+    resolveFetch(deferredResolves, "/api/storage/config", {
       ok: true,
       json: () => Promise.resolve({ flags: { global: true, governance: true } }),
       status: 200,
     });
 
+    // Wait for the next authorize call (not resume) - this proves memory token was cleared
     await new Promise(r => setTimeout(r, 100));
+    expect(fetchCalls.some(c => c.url === "/api/storage/uploads/authorize")).toBe(true);
 
-    const resumeCalls = vm2.fetchCalls.filter(c => c.url === "/api/storage/uploads/resume");
+    // Should NOT have called /resume because memory token was cleared by finalize
+    const resumeCalls = fetchCalls.filter(c => c.url === "/api/storage/uploads/resume");
     expect(resumeCalls.length).toBe(0);
-
-    // Should call /authorize instead
-    expect(vm2.fetchCalls.some(c => c.url === "/api/storage/uploads/authorize")).toBe(true);
   });
 });
