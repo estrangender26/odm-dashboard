@@ -15,16 +15,16 @@ type RateLimitDbExecutor = {
 };
 
 describe("checkRateLimitWithExecutor behavioral tests", () => {
-  const mockDb: RateLimitDbExecutor = {
-    execute: vi.fn(),
-  };
+  // Create a separately typed Vitest mock
+  const mockExecute = vi.fn<(query: any) => Promise<any[]>>();
+  const mockDb: RateLimitDbExecutor = { execute: mockExecute };
 
   beforeEach(() => {
     vi.resetAllMocks();
   });
 
   it("allows upload when database returns a row", async () => {
-    mockDb.execute.mockResolvedValueOnce([{ intent_count: 1, total_bytes: 157286400 }]);
+    mockExecute.mockResolvedValueOnce([{ intent_count: 1, total_bytes: 157286400 }]);
 
     const result = await checkRateLimitWithExecutor({
       clientId: "test-client",
@@ -37,7 +37,7 @@ describe("checkRateLimitWithExecutor behavioral tests", () => {
   });
 
   it("returns count limit when intent_count exceeds max", async () => {
-    mockDb.execute
+    mockExecute
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ intent_count: 10, total_bytes: 1000000 }]);
 
@@ -49,15 +49,19 @@ describe("checkRateLimitWithExecutor behavioral tests", () => {
     });
 
     expect(result.allowed).toBe(false);
+    // Narrow the union type before accessing limit
+    if (result.allowed) {
+      throw new Error("Expected rate limit rejection");
+    }
     expect(result.limit).toBe("count");
-    expect((result as any).isSystemError).toBe(false);
+    expect(result.isSystemError).toBe(false);
   });
 
   it("returns bytes limit when total_bytes would exceed max", async () => {
     // Trusted limit is 5GB (5368709120 bytes)
     // Existing: 5GB - 100MB + 1 = already near limit
     // Adding another 157MB would exceed
-    mockDb.execute
+    mockExecute
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ intent_count: 1, total_bytes: 5368709120 - 100000000 + 1 }]);
 
@@ -69,13 +73,17 @@ describe("checkRateLimitWithExecutor behavioral tests", () => {
     });
 
     expect(result.allowed).toBe(false);
+    // Narrow the union type before accessing limit
+    if (result.allowed) {
+      throw new Error("Expected rate limit rejection");
+    }
     expect(result.limit).toBe("bytes");
   });
 
   it("returns system error when database upsert fails", async () => {
     const dbError = new Error("Connection refused") as any;
     dbError.code = "ECONNREFUSED";
-    mockDb.execute.mockRejectedValueOnce(dbError);
+    mockExecute.mockRejectedValueOnce(dbError);
 
     const result = await checkRateLimitWithExecutor({
       clientId: "test-client",
@@ -85,12 +93,16 @@ describe("checkRateLimitWithExecutor behavioral tests", () => {
     });
 
     expect(result.allowed).toBe(false);
+    // Narrow the union type before accessing limit
+    if (result.allowed) {
+      throw new Error("Expected rate limit rejection");
+    }
     expect(result.limit).toBe("system");
-    expect((result as any).isSystemError).toBe(true);
+    expect(result.isSystemError).toBe(true);
   });
 
   it("returns system error when follow-up SELECT fails", async () => {
-    mockDb.execute
+    mockExecute
       .mockResolvedValueOnce([])
       .mockRejectedValueOnce(new Error("SELECT failed"));
 
@@ -102,12 +114,16 @@ describe("checkRateLimitWithExecutor behavioral tests", () => {
     });
 
     expect(result.allowed).toBe(false);
+    // Narrow the union type before accessing limit
+    if (result.allowed) {
+      throw new Error("Expected rate limit rejection");
+    }
     expect(result.limit).toBe("system");
-    expect((result as any).isSystemError).toBe(true);
+    expect(result.isSystemError).toBe(true);
   });
 
   it("uses untrusted limits when isTrusted is false", async () => {
-    mockDb.execute.mockResolvedValueOnce([{ intent_count: 1, total_bytes: 100 }]);
+    mockExecute.mockResolvedValueOnce([{ intent_count: 1, total_bytes: 100 }]);
 
     const result = await checkRateLimitWithExecutor({
       clientId: "test-client",
