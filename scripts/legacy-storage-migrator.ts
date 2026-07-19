@@ -519,7 +519,7 @@ async function decodeWithHeartbeat(
   const headerInfo = parseDataUrlHeader(firstChunk);
 
   // Determine where Base64 payload starts (1-indexed for SQL)
-  const base64Start = headerInfo.headerLength > 0 ? headerInfo.headerLength : 1;
+  const base64Start = headerInfo.headerLength > 0 ? headerInfo.headerLength + 1 : 1;
   const detectedMime = headerInfo.mimeType || inferMimeType(record.fileName || "", headerInfo.mimeType, record.fileType);
 
   const { createWriteStream } = await import("node:fs");
