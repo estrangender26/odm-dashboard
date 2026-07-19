@@ -276,23 +276,17 @@ describe("Strict Migration Orchestration Tests", () => {
       expect(exports.LEGACY_COLUMNS).toBeDefined();
     });
 
-    it("module can be imported without executing main", async () => {
-      // Check if require.main condition is present in source
-      const fs = await import("node:fs");
-      const content = fs.readFileSync("scripts/legacy-storage-migrator.ts", "utf-8");
 
-      // Verify the guard is present
-      expect(content).toContain("require.main === module");
-      expect(content).toContain("process.argv[1]?.includes('legacy-storage-migrator')");
-    });
 
-    it("main is wrapped in entry point guard", async () => {
+    it("main is wrapped in ESM-safe entry point guard", async () => {
       const fs = await import("node:fs");
       const content = fs.readFileSync("scripts/legacy-storage-migrator.ts", "utf-8");
 
       // The guard should wrap main() call
-      const guardPattern = /if \(require\.main === module \|\| process\.argv\[1\]\?\.includes\(['"]legacy-storage-migrator['"]\)\)/;
-      expect(content).toMatch(guardPattern);
+      // The guard should use ESM-safe isMainModule() check
+      expect(content).toContain("const isMainModule");
+      expect(content).toContain("import.meta.url");
+      expect(content).toContain("if (isMainModule())");
     });
   });
 
