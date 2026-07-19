@@ -415,9 +415,17 @@ export async function acquireLease(
 
   if (existing[0]) {
     const e = existing[0];
-    if (e.bucket !== bucket || e.storagePath !== storagePath ||
-        BigInt(e.expectedSize) !== BigInt(expectedSize) || e.legacySha256 !== legacySha256) {
+    // Always validate bucket and path
+    if (e.bucket !== bucket || e.storagePath !== storagePath) {
       return { acquired: false, conflict: "Ledger identity mismatch" };
+    }
+    // Only validate size/hash when caller provides actual values (not placeholders)
+    // Placeholders: expectedSize=0, legacySha256="" indicate pre-decode lease acquisition
+    const hasActualValues = expectedSize !== 0 || legacySha256 !== "";
+    if (hasActualValues) {
+      if (BigInt(e.expectedSize) !== BigInt(expectedSize) || e.legacySha256 !== legacySha256) {
+        return { acquired: false, conflict: "Ledger identity mismatch" };
+      }
     }
   }
 
