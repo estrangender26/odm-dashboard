@@ -76,6 +76,50 @@ function sanitizeError(error: unknown): string {
     .substring(0, 500);
 }
 
+
+/**
+ * Fetch Base64 payload in bounded chunks
+ */
+
+/**
+ * Fetch complete Base64 payload via bounded chunk queries
+ */
+async function fetchFullBase64(
+  source: Source,
+  id: number,
+  totalLength: number
+): Promise<string> {
+  const chunks: string[] = [];
+  const CHUNK_SIZE = 100000; // 100KB SQL chunks
+  
+  for (let offset = 0; offset < totalLength; offset += CHUNK_SIZE) {
+    const chunk = await fetchBase64Chunk(source, id, offset, CHUNK_SIZE);
+    chunks.push(chunk);
+  }
+  
+  return chunks.join("");
+}
+
+async function fetchBase64Chunk(
+  source: Source,
+  id: number,
+  offset: number,
+  length: number
+): Promise<string> {
+  const table = SOURCE_TABLES[source];
+  const column = source === "doc_files" ? "file_data" : "file_url";
+  
+  const result = await db
+    .select({
+      chunk: sql<string>`substr(${sql.raw(column)}, ${offset + 1}, ${length})`,
+    })
+    .from(table)
+    .where(eq(sql`id`, id))
+    .limit(1);
+  
+  return result[0]?.chunk || "";
+}
+
 // ============================================================================
 // PATH GENERATION (deterministic)
 // ============================================================================
@@ -344,7 +388,8 @@ async function processRecord(
     return { success: false, error: "Record not found" };
   }
   
-  if (!record.fileUrl) {
+  // Check for data by length (fileUrl is never loaded fully)
+  if (record.legacyDataLength === 0) {
     return { success: false, error: "No file_url data" };
   }
   
@@ -372,7 +417,9 @@ async function processRecord(
     await mkdir(tempDir, { recursive: true, mode: 0o700 });
     
     console.log(`  [${id}] Decoding...`);
-    const decoded = await decodeBase64Stream(record.fileUrl, tempPath);
+    // Fetch full Base64 in bounded chunks via SQL
+    const fileUrl = await fetchFullBase64(source, id, record.legacyDataLength);
+    const decoded = await decodeBase64Stream(fileUrl, tempPath);
     
     const path = generateStoragePath(source, id, record.fileName || "unnamed");
     
