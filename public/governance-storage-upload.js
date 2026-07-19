@@ -82,6 +82,11 @@
     // Check for valid resume: cached auth must exist AND memory token must be present
     var canResume=cached&&!!capabilityTokenMap[cached.intentId];
 
+    // If cached exists but memory token is missing, clear stale cache immediately
+    if(cached&&!canResume){
+      clearAuthorization(key);
+    }
+
     var authorization=(canResume?refreshAuthorization(cached).then(function(auth){
       // Resume succeeded - update localStorage and return auth
       saveAuthorization(key,auth);
