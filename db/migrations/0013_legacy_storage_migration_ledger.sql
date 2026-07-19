@@ -1,11 +1,9 @@
 -- Legacy Storage Migration Ledger
 -- Tracks migration of Base64/file_url legacy data to Supabase Storage
--- Keyed by (source, record_id) for idempotency
 
--- Project-specific state enum for migration lifecycle
 CREATE TYPE legacy_storage_migration_state AS ENUM (
   'inventoried',
-  'uploading',
+  'uploading', 
   'uploaded',
   'object_verified',
   'metadata_committed',
@@ -17,7 +15,6 @@ CREATE TYPE legacy_storage_migration_state AS ENUM (
   'excluded'
 );
 
--- Migration ledger table with resumable state tracking
 CREATE TABLE legacy_storage_migration_ledger (
   id SERIAL PRIMARY KEY,
   source VARCHAR(50) NOT NULL,
@@ -31,27 +28,24 @@ CREATE TABLE legacy_storage_migration_ledger (
   state legacy_storage_migration_state NOT NULL DEFAULT 'inventoried',
   attempt_count INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
-  -- TUS upload URL for resumable uploads (sensitive - never logged)
+  -- TUS upload URL (sensitive - never logged)
   tus_upload_url TEXT,
-  -- Worker lease for distributed locking
+  -- Worker lease with ownership
+  lease_owner UUID,
   lease_expires_at TIMESTAMPTZ,
+  lease_heartbeat_at TIMESTAMPTZ,
+  -- State timestamps
   object_verified_at TIMESTAMPTZ,
   metadata_committed_at TIMESTAMPTZ,
   app_verified_at TIMESTAMPTZ,
   rollback_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  -- Unique constraint for idempotency
+  
   UNIQUE (source, record_id)
 );
 
--- Performance indexes
 CREATE INDEX legacy_migration_ledger_state_idx ON legacy_storage_migration_ledger(state);
 CREATE INDEX legacy_migration_ledger_source_idx ON legacy_storage_migration_ledger(source);
 CREATE INDEX legacy_migration_ledger_updated_idx ON legacy_storage_migration_ledger(updated_at);
-CREATE INDEX legacy_migration_ledger_lease_idx ON legacy_storage_migration_ledger(lease_expires_at);
-
--- Worker exclusion uses PostgreSQL advisory locks with session scope
--- Use: SELECT pg_try_advisory_lock(hashtextextended('legacy:' || source || ':' || record_id::text, 0))
--- Important: These locks are session-scoped and auto-released on disconnect
+CREATE INDEX legacy_migration_ledger_lease_idx ON legacy_storage_migration_ledger(lease_expires_at) WHERE lease_expires_at IS NOT NULL;
