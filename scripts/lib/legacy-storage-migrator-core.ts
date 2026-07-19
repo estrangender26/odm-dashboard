@@ -416,7 +416,7 @@ export async function acquireLease(
   if (existing[0]) {
     const e = existing[0];
     if (e.bucket !== bucket || e.storagePath !== storagePath ||
-        Number(e.expectedSize) !== expectedSize || e.legacySha256 !== legacySha256) {
+        BigInt(e.expectedSize) !== BigInt(expectedSize) || e.legacySha256 !== legacySha256) {
       return { acquired: false, conflict: "Ledger identity mismatch" };
     }
   }
