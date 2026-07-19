@@ -30,12 +30,16 @@
       if(auth.storageEnabled!==true||!auth.intentId||!auth.endpoint||!auth.token||!auth.bucket||!auth.path||new Date(auth.expiresAt).getTime()<=Date.now()+60000){
         global.localStorage.removeItem(key);return null;
       }
+      // Note: capabilityToken is intentionally NOT persisted in localStorage
       return auth;
     }catch(_error){return null;}
   }
 
   function saveAuthorization(key,auth){
-    try{global.localStorage.setItem(key,JSON.stringify(auth));}catch(_error){}
+    // Save authorization without capabilityToken (never persist sensitive tokens)
+    var authWithoutToken=Object.assign({},auth);
+    delete authWithoutToken.capabilityToken;
+    try{global.localStorage.setItem(key,JSON.stringify(authWithoutToken));}catch(_error){}
   }
 
   function clearAuthorization(key){
@@ -43,11 +47,21 @@
   }
 
   function refreshAuthorization(auth){
-    return fetch('/api/storage/uploads/resume',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:auth.intentId})}).then(jsonResponse);
+    // Send capabilityToken for anonymous resume
+    var body={intentId:auth.intentId};
+    if(auth.capabilityToken){
+      body.capabilityToken=auth.capabilityToken;
+    }
+    return fetch('/api/storage/uploads/resume',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(jsonResponse);
   }
 
-  function abandonAuthorization(intentId){
-    return fetch('/api/storage/uploads/abandon',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:intentId})}).catch(function(){});
+  function abandonAuthorization(intentId,capabilityToken){
+    // Send capabilityToken for anonymous abandon
+    var body={intentId:intentId};
+    if(capabilityToken){
+      body.capabilityToken=capabilityToken;
+    }
+    return fetch('/api/storage/uploads/abandon',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(function(){});
   }
 
   function abortError(signal){
@@ -59,12 +73,22 @@
     if(file.size>MAX_FILE_SIZE)return Promise.reject(new Error('Maximum file size is 150 MB.'));
     var key=resumeKey(file,target);
     var cached=loadAuthorization(key);
-    var authorization=(cached?refreshAuthorization(cached).then(function(auth){saveAuthorization(key,auth);return auth;}).catch(function(){clearAuthorization(key);return null;}):Promise.resolve(null)).then(function(auth){
+    // Keep capabilityToken in memory only (not from localStorage)
+    var memoryCapabilityToken=null;
+    var authorization=(cached?refreshAuthorization(cached).then(function(auth){
+      // Store capabilityToken in memory only
+      memoryCapabilityToken=auth.capabilityToken||null;
+      saveAuthorization(key,auth);return auth;
+    }).catch(function(){clearAuthorization(key);return null;}):Promise.resolve(null)).then(function(auth){
       if(auth)return auth;
       return fetch('/api/storage/uploads/authorize',{
         method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({module:'governance',originalFilename:file.name,mimeType:file.type||'application/octet-stream',fileSize:file.size,target:target})
-      }).then(jsonResponse).then(function(newAuth){saveAuthorization(key,newAuth);return newAuth;});
+      }).then(jsonResponse).then(function(newAuth){
+        // Store capabilityToken in memory only
+        memoryCapabilityToken=newAuth.capabilityToken||null;
+        saveAuthorization(key,newAuth);return newAuth;
+      });
     });
     return authorization.then(function(auth){
       if(!global.tus||!global.tus.Upload)throw new Error('Resumable upload client is unavailable.');
@@ -81,12 +105,17 @@
           onError:fail,
           onSuccess:function(){
             cleanup();
-            fetch('/api/storage/uploads/finalize',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:auth.intentId})})
+            // Send capabilityToken for anonymous finalize
+            var finalizeBody={intentId:auth.intentId};
+            if(memoryCapabilityToken){
+              finalizeBody.capabilityToken=memoryCapabilityToken;
+            }
+            fetch('/api/storage/uploads/finalize',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(finalizeBody)})
               .then(jsonResponse).then(function(result){clearAuthorization(key);result.directStorage=true;succeed(result);}).catch(fail);
           }
         });
         function onAbort(){
-          if(settled||!signal)return;settled=true;cleanup();clearAuthorization(key);abandonAuthorization(auth.intentId);
+          if(settled||!signal)return;settled=true;cleanup();clearAuthorization(key);abandonAuthorization(auth.intentId,memoryCapabilityToken);
           Promise.resolve(upload.abort()).catch(function(){}).then(function(){reject(abortError(signal));});
         }
         if(signal)signal.addEventListener('abort',onAbort,{once:true});
