@@ -8,7 +8,8 @@
 
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import {
   docFiles,
@@ -955,7 +956,20 @@ async function main() {
 }
 
 // Only run main in actual CLI execution, not during module import (tests)
-if (require.main === module || process.argv[1]?.includes('legacy-storage-migrator')) {
+// ESM-safe detection: check if this module is the entry point using exact URL comparison
+const isMainModule = (): boolean => {
+  if (typeof process === 'undefined') return false;
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+
+  // Normalize both paths to file:// URLs for exact comparison
+  const currentUrl = import.meta.url;
+  const executedUrl = pathToFileURL(resolve(argv1)).href;
+
+  return currentUrl === executedUrl;
+};
+
+if (isMainModule()) {
   main().catch((err) => {
     console.error("Fatal error:", sanitizeError(err));
     process.exit(1);
