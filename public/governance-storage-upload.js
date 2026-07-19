@@ -78,18 +78,17 @@
     if(file.size>MAX_FILE_SIZE)return Promise.reject(new Error('Maximum file size is 150 MB.'));
     var key=resumeKey(file,target);
     var cached=loadAuthorization(key);
-    var authorization=(cached?refreshAuthorization(cached).then(function(auth){
-      // Check if we have in-memory capability token for this intent
-      var hasMemToken=!!capabilityTokenMap[auth.intentId];
-      if(!hasMemToken){
-        // No memory token - discard cached auth and reauthorize
-        clearAuthorization(key);
-        return null;
-      }
+
+    // Check for valid resume: cached auth must exist AND memory token must be present
+    var canResume=cached&&!!capabilityTokenMap[cached.intentId];
+
+    var authorization=(canResume?refreshAuthorization(cached).then(function(auth){
+      // Resume succeeded - update localStorage and return auth
       saveAuthorization(key,auth);
       return auth;
     }).catch(function(){clearAuthorization(key);return null;}):Promise.resolve(null)).then(function(auth){
       if(auth)return auth;
+      // No valid cached auth or resume failed - get fresh authorization
       return fetch('/api/storage/uploads/authorize',{
         method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({module:'governance',originalFilename:file.name,mimeType:file.type||'application/octet-stream',fileSize:file.size,target:target})
