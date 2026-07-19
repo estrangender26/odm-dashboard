@@ -100,10 +100,14 @@ export function getDb() {
   if (_db) return _db;
 
   const databaseUrl = getDatabaseUrl();
-  console.log(`[DB] DATABASE_URL fingerprint: ${getUrlFingerprint(databaseUrl)}`);
-  console.log(`[DB] Connection fingerprint: ${getConnectionFingerprint(databaseUrl)}`);
 
-  console.log("[DB] Connecting to database...");
+  // Suppress connection logs for migrator to avoid exposing URLs/hosts/ports
+  const isMigratorMode = process.env.LEGACY_MIGRATOR_MODE === "1";
+  if (!isMigratorMode) {
+    console.log(`[DB] DATABASE_URL fingerprint: ${getUrlFingerprint(databaseUrl)}`);
+    console.log(`[DB] Connection fingerprint: ${getConnectionFingerprint(databaseUrl)}`);
+    console.log("[DB] Connecting to database...");
+  }
   const client = postgres(databaseUrl, {
     ssl: "require",
     prepare: false,
@@ -116,14 +120,16 @@ export function getDb() {
   } as Parameters<typeof postgres>[1]);
 
   _db = drizzle(client, { schema });
-  console.log("[DB] Connected!");
+  if (!isMigratorMode) {
+    console.log("[DB] Connected!");
+  }
   // Skip connection test logging for migrator to avoid exposing connection info
-  if (!process.env.LEGACY_MIGRATOR_MODE) {
+  if (!isMigratorMode) {
     void logConnectionTest(client, databaseUrl);
   }
 
   const shouldRunMigrations = shouldRunMigrationsOnStartup();
-  if (shouldRunMigrations) {
+  if (shouldRunMigrations && !isMigratorMode) {
     const migrationsPath = join(process.cwd(), "db/migrations");
     _dbReady = (async () => {
       console.log("[db] migration start", { migrationsPath });
@@ -140,7 +146,9 @@ export function getDb() {
     });
   } else {
     _dbReady = Promise.resolve();
-    console.log("[db] runtime migrations skipped (RUN_DB_MIGRATIONS_ON_STARTUP is disabled)");
+    if (!isMigratorMode) {
+      console.log("[db] runtime migrations skipped (RUN_DB_MIGRATIONS_ON_STARTUP is disabled)");
+    }
   }
 
   return _db;

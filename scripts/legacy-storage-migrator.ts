@@ -203,7 +203,19 @@ async function fetchBase64Chunk(
     .where(eq(table.id, recordId))
     .limit(1);
 
-  return result[0]?.chunk || "";
+  // Extract string from Drizzle result - handle both row object and direct string
+  const row = result[0];
+  if (!row) return "";
+
+  // The chunk should be a string, but Drizzle might wrap it
+  const chunkValue = row.chunk;
+  if (typeof chunkValue === "string") {
+    return chunkValue;
+  }
+
+  // Fallback: try to stringify if it's an object representation
+  if (chunkValue == null) return "";
+  return String(chunkValue);
 }
 
 async function getSourceFingerprint(
