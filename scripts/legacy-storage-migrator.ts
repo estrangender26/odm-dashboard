@@ -901,3 +901,24 @@ main().catch((err) => {
   console.error("Fatal error:", sanitizeError(err));
   process.exit(1);
 });
+
+
+// ============================================================================
+// EXPORTS FOR TESTING
+// ============================================================================
+
+export {
+  processRecord,
+  runOrphanAudit,
+  uploadWithTus,
+  decodeWithHeartbeat,
+  getSourceFingerprint,
+  fetchEligibleRecords,
+  WORKER_ID,
+  SOURCE_TABLES,
+  SOURCE_BUCKETS,
+  LEGACY_COLUMNS,
+};
+
+export type { MigrationOptions, ProcessingResult };
+
