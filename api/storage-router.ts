@@ -27,6 +27,7 @@ import {
 } from "@contracts/upload-limits";
 import { authenticateRequest } from "./kimi/auth";
 import { env } from "./lib/env";
+import { deepEqualJson } from "./lib/json-equality";
 import { db } from "./queries/connection";
 import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-feature-flags";
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
@@ -305,7 +306,7 @@ async function verifyCapabilityForIntent(intentId: string, providedToken: string
     claims.intentId === intent.id &&
     claims.mod === intent.module &&
     claims.src === getSourceFromModule(intent.module as StorageModule) &&
-    JSON.stringify(claims.tgt) === JSON.stringify(intent.targetContext) &&
+    deepEqualJson(claims.tgt, intent.targetContext) &&
     claims.bucket === intent.expectedBucket &&
     claims.path === intent.expectedPath &&
     claims.fn === intent.originalFilename &&

@@ -4,6 +4,9 @@
   var CHUNK_SIZE=6*1024*1024;
   var RESUME_PREFIX='odm-storage-upload:';
 
+  // Module-scoped in-memory map for capability tokens (never persisted to localStorage)
+  var capabilityTokenMap={};
+
   function jsonResponse(response){
     return response.json().catch(function(){return{};}).then(function(data){
       if(!response.ok)throw new Error(data.error||('Request failed ('+response.status+').'));
@@ -27,6 +30,7 @@
     try{
       var raw=global.localStorage.getItem(key);if(!raw)return null;
       var auth=JSON.parse(raw);
+      // capabilityToken is intentionally NOT in localStorage - must be in memory
       if(auth.storageEnabled!==true||!auth.intentId||!auth.endpoint||!auth.token||!auth.bucket||!auth.path||new Date(auth.expiresAt).getTime()<=Date.now()+60000){
         global.localStorage.removeItem(key);return null;
       }
@@ -35,7 +39,12 @@
   }
 
   function saveAuthorization(key,auth){
-    try{global.localStorage.setItem(key,JSON.stringify(auth));}catch(_error){}
+    // Save authorization WITHOUT capabilityToken (never persist sensitive tokens)
+    var authWithoutToken={};
+    for(var prop in auth){
+      if(prop!=='capabilityToken')authWithoutToken[prop]=auth[prop];
+    }
+    try{global.localStorage.setItem(key,JSON.stringify(authWithoutToken));}catch(_error){}
   }
 
   function clearAuthorization(key){
@@ -43,11 +52,21 @@
   }
 
   function refreshAuthorization(auth){
-    return fetch('/api/storage/uploads/resume',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:auth.intentId})}).then(jsonResponse);
+    // Build request body with capabilityToken from in-memory map
+    var body={intentId:auth.intentId};
+    var memToken=capabilityTokenMap[auth.intentId];
+    if(memToken)body.capabilityToken=memToken;
+    return fetch('/api/storage/uploads/resume',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(jsonResponse);
   }
 
   function abandonAuthorization(intentId){
-    return fetch('/api/storage/uploads/abandon',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:intentId})}).catch(function(){});
+    // Build request body with capabilityToken from in-memory map
+    var body={intentId:intentId};
+    var memToken=capabilityTokenMap[intentId];
+    if(memToken)body.capabilityToken=memToken;
+    // Clear from memory map
+    delete capabilityTokenMap[intentId];
+    return fetch('/api/storage/uploads/abandon',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(function(){});
   }
 
   function abortError(signal){
@@ -59,12 +78,33 @@
     if(file.size>MAX_FILE_SIZE)return Promise.reject(new Error('Maximum file size is 150 MB.'));
     var key=resumeKey(file,target);
     var cached=loadAuthorization(key);
-    var authorization=(cached?refreshAuthorization(cached).then(function(auth){saveAuthorization(key,auth);return auth;}).catch(function(){clearAuthorization(key);return null;}):Promise.resolve(null)).then(function(auth){
+
+    // Check for valid resume: cached auth must exist AND memory token must be present
+    var canResume=cached&&!!capabilityTokenMap[cached.intentId];
+
+    // If cached exists but memory token is missing, clear stale cache immediately
+    if(cached&&!canResume){
+      clearAuthorization(key);
+    }
+
+    var authorization=(canResume?refreshAuthorization(cached).then(function(auth){
+      // Resume succeeded - update localStorage and return auth
+      saveAuthorization(key,auth);
+      return auth;
+    }).catch(function(){clearAuthorization(key);return null;}):Promise.resolve(null)).then(function(auth){
       if(auth)return auth;
+      // No valid cached auth or resume failed - get fresh authorization
       return fetch('/api/storage/uploads/authorize',{
         method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({module:'governance',originalFilename:file.name,mimeType:file.type||'application/octet-stream',fileSize:file.size,target:target})
-      }).then(jsonResponse).then(function(newAuth){saveAuthorization(key,newAuth);return newAuth;});
+      }).then(jsonResponse).then(function(newAuth){
+        // Store capabilityToken in memory map, NOT localStorage
+        if(newAuth.capabilityToken){
+          capabilityTokenMap[newAuth.intentId]=newAuth.capabilityToken;
+        }
+        saveAuthorization(key,newAuth);
+        return newAuth;
+      });
     });
     return authorization.then(function(auth){
       if(!global.tus||!global.tus.Upload)throw new Error('Resumable upload client is unavailable.');
@@ -81,8 +121,18 @@
           onError:fail,
           onSuccess:function(){
             cleanup();
-            fetch('/api/storage/uploads/finalize',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({intentId:auth.intentId})})
-              .then(jsonResponse).then(function(result){clearAuthorization(key);result.directStorage=true;succeed(result);}).catch(fail);
+            // Build finalize request body with capabilityToken from memory
+            var finalizeBody={intentId:auth.intentId};
+            var memToken=capabilityTokenMap[auth.intentId];
+            if(memToken)finalizeBody.capabilityToken=memToken;
+            fetch('/api/storage/uploads/finalize',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(finalizeBody)})
+              .then(jsonResponse).then(function(result){
+                clearAuthorization(key);
+                // Clear memory token after finalize
+                delete capabilityTokenMap[auth.intentId];
+                result.directStorage=true;
+                succeed(result);
+              }).catch(fail);
           }
         });
         function onAbort(){
