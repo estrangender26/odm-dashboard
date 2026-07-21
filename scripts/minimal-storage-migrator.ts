@@ -14,7 +14,7 @@ import { join } from "path";
 import { db } from "../api/queries/connection";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { governanceUploads, docFiles, governanceFiles, smpDocuments } from "../db/schema";
-import { decodePayload, MAX_DECODED_BYTES, type DecodeResult } from "./lib/payload-decoder";
+import { decodePayloadStream, type StreamDecodeResult } from "./lib/payload-decoder";
 
 // ============================================================================
 // CONFIGURATION
@@ -144,18 +144,11 @@ async function decodePayloadToFile(
   outputPath: string,
   options: { filename?: string; sourceMimeType?: string }
 ): Promise<{ size: number; sha256: string; mimeType: string }> {
-  const result = decodePayload(payload, options);
+  const result = await decodePayloadStream(payload, { ...options, tempPath: outputPath });
   
   if (!result.success) {
     throw new Error(result.error || "Decode failed");
   }
-  
-  if (!result.bytes) {
-    throw new Error("No decoded bytes");
-  }
-  
-  // Write decoded bytes to file
-  await writeFile(outputPath, result.bytes);
   
   return {
     size: result.size!,
