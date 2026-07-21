@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdir, rmdir, readFile } from "fs/promises";
-import { decodePayloadStream, setTestMaxBytes, MAX_DECODED_BYTES } from "../../scripts/lib/payload-decoder";
+import { decodePayloadStream, MAX_DECODED_BYTES } from "../../scripts/lib/payload-decoder";
 
 // Test fixtures
 const PDF_B64 = "JVBERi0xLjcK";
@@ -111,37 +111,37 @@ describe("Payload Decoder - Streaming", () => {
   it("accepts exactly at size limit", async () => {
     const tempPath = join(testDir, "test7.bin");
     // Use test override to avoid allocating 150 MiB
-    setTestMaxBytes(1000);
+    // Using maxBytes option below
     
     const data = Buffer.alloc(1000, 0x42);
     const b64 = data.toString("base64");
     
-    const result = await decodePayloadStream(b64, { filename: "test.bin", sourceMimeType: "application/octet-stream", tempPath });
+    const result = await decodePayloadStream(b64, { filename: "test.bin", sourceMimeType: "application/octet-stream", tempPath, maxBytes: 1000 });
     
     expect(result.success).toBe(true);
     expect(result.size).toBe(1000);
     
-    setTestMaxBytes(null); // Reset
+    // Reset; // Reset
   });
 
   it("rejects one byte above limit", async () => {
     const tempPath = join(testDir, "test8.bin");
-    setTestMaxBytes(1000);
+    // Using maxBytes option below
     
     const data = Buffer.alloc(1001, 0x42);
     const b64 = data.toString("base64");
     
-    const result = await decodePayloadStream(b64, { filename: "test.bin", sourceMimeType: "application/octet-stream", tempPath });
+    const result = await decodePayloadStream(b64, { filename: "test.bin", sourceMimeType: "application/octet-stream", tempPath, maxBytes: 1000 });
     
     expect(result.success).toBe(false);
     expect(result.error).toContain("exceeds maximum");
     
-    setTestMaxBytes(null);
+    // Reset;
   });
 
   it("cleans up partial file after size rejection", async () => {
     const tempPath = join(testDir, "test9.bin");
-    setTestMaxBytes(100);
+    // Using maxBytes option instead;
     
     const data = Buffer.alloc(200, 0x42);
     const b64 = data.toString("base64");
@@ -156,7 +156,7 @@ describe("Payload Decoder - Streaming", () => {
       // File deleted - expected
     }
     
-    setTestMaxBytes(null);
+    // Reset;
   });
 
   // ============================================================================

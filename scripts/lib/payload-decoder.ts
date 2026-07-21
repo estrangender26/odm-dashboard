@@ -1,12 +1,18 @@
 /**
  * Streaming Payload Decoder for Legacy Migration
+ * 
+ * Memory-safe streaming decoder with:
+ * - MIME resolution from data URL, metadata, filename, or binary signature
+ * - Cross-validation of all MIME evidence
+ * - Proper stream backpressure handling
+ * - Incremental whitespace removal (no full-string copy)
  */
 
 import { createHash } from "crypto";
 import { unlink } from "fs/promises";
-import { createWriteStream } from "fs";
+import { createWriteStream, type WriteStream } from "fs";
 
-export const MAX_DECODED_BYTES = 157286400;
+export const MAX_DECODED_BYTES = 157286400; // 150 MiB exact
 
 export interface StreamDecodeResult {
   success: boolean;
@@ -23,19 +29,24 @@ export interface DecoderOptions {
   filename?: string;
   sourceMimeType?: string;
   tempPath: string;
+  maxBytes?: number; // Override for testing
 }
 
+// Regex patterns
 const DATA_URL_REGEX = /^data:([^;,]+);base64,(.*)$/is;
 const URL_REGEX = /^https?:\/\//i;
 const STORAGE_URL_REGEX = /^storage:/i;
+const SUPABASE_URL_REGEX = /\.supabase\.co/i;
+const CANONICAL_BUCKET_PATH = /^(om-manuals|om-governance|smp-library|om-documents)\//;
 
-const SIGNATURES: Record<string, { sig: Buffer; mime: string }> = {
-  pdf: { sig: Buffer.from([0x25, 0x50, 0x44, 0x46]), mime: "application/pdf" },
-  png: { sig: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), mime: "image/png" },
-  jpeg: { sig: Buffer.from([0xff, 0xd8, 0xff]), mime: "image/jpeg" },
-  gif: { sig: Buffer.from([0x47, 0x49, 0x46, 0x38]), mime: "image/gif" },
-  zip: { sig: Buffer.from([0x50, 0x4b, 0x03, 0x04]), mime: "application/zip" },
-  msCompound: { sig: Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), mime: "application/msword" },
+// File signatures (magic numbers)
+const SIGNATURES: Record<string, { sig: Buffer; mime: string; name: string }> = {
+  pdf: { sig: Buffer.from([0x25, 0x50, 0x44, 0x46]), mime: "application/pdf", name: "PDF" },
+  png: { sig: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), mime: "image/png", name: "PNG" },
+  jpeg: { sig: Buffer.from([0xff, 0xd8, 0xff]), mime: "image/jpeg", name: "JPEG" },
+  gif: { sig: Buffer.from([0x47, 0x49, 0x46, 0x38]), mime: "image/gif", name: "GIF" },
+  zip: { sig: Buffer.from([0x50, 0x4b, 0x03, 0x04]), mime: "application/zip", name: "ZIP" },
+  msCompound: { sig: Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), mime: "application/msword", name: "MSCompound" },
 };
 
 const EXT_TO_MIME: Record<string, string> = {
@@ -53,121 +64,184 @@ const EXT_TO_MIME: Record<string, string> = {
   ".txt": "text/plain",
 };
 
-let testMaxBytes: number | null = null;
-export function setTestMaxBytes(bytes: number | null) { testMaxBytes = bytes; }
-function getMaxBytes(): number { return testMaxBytes ?? MAX_DECODED_BYTES; }
+// ============================================================================
+// MAIN ENTRY
+// ============================================================================
 
-export async function decodePayloadStream(payload: string, options: DecoderOptions): Promise<StreamDecodeResult> {
+export async function decodePayloadStream(
+  payload: string,
+  options: DecoderOptions
+): Promise<StreamDecodeResult> {
   if (!payload || payload.length === 0) {
     return { success: false, error: "Empty payload", classification: "invalid" };
   }
 
   const trimmed = payload.trim();
-  if (URL_REGEX.test(trimmed) || STORAGE_URL_REGEX.test(trimmed) || trimmed.includes("supabase.co")) {
-    return { success: false, error: "URL/reference detected", classification: "reference" };
+  
+  // Check for references first
+  if (isUrlReference(trimmed)) {
+    return {
+      success: false,
+      error: "URL/reference detected",
+      classification: "reference",
+    };
   }
 
+  // Try data URL
   const dataMatch = payload.match(DATA_URL_REGEX);
   if (dataMatch) {
     return decodeDataUrlStream(dataMatch, options);
   }
 
+  // Decode as raw Base64
   return decodeRawBase64Stream(payload, options);
 }
 
-async function decodeDataUrlStream(match: RegExpMatchArray, options: DecoderOptions): Promise<StreamDecodeResult> {
-  const mime = match[1].trim();
+// ============================================================================
+// REFERENCE DETECTION
+// ============================================================================
+
+function isUrlReference(trimmed: string): boolean {
+  return (
+    URL_REGEX.test(trimmed) ||
+    STORAGE_URL_REGEX.test(trimmed) ||
+    SUPABASE_URL_REGEX.test(trimmed) ||
+    CANONICAL_BUCKET_PATH.test(trimmed)
+  );
+}
+
+// ============================================================================
+// DATA URL DECODING
+// ============================================================================
+
+async function decodeDataUrlStream(
+  match: RegExpMatchArray,
+  options: DecoderOptions
+): Promise<StreamDecodeResult> {
+  const dataUrlMime = match[1].trim();
   const b64Content = match[2];
 
   if (!b64Content || b64Content.length === 0) {
     return { success: false, error: "Empty Base64 in data URL", classification: "invalid" };
   }
 
-  if (!isValidMime(mime)) {
-    return { success: false, error: "Invalid MIME", classification: "invalid" };
+  if (!isValidMime(dataUrlMime)) {
+    return { success: false, error: "Invalid MIME in data URL", classification: "invalid" };
   }
 
-  return streamDecodeBase64(b64Content, options, mime, "data_url");
+  return streamDecodeBase64(b64Content, options, dataUrlMime, "data_url");
 }
 
-async function decodeRawBase64Stream(payload: string, options: DecoderOptions): Promise<StreamDecodeResult> {
-  const cleaned = payload.replace(/[\s\r\n]+/g, "");
-  if (cleaned.length === 0) {
-    return { success: false, error: "Empty after cleaning", classification: "invalid" };
-  }
+// ============================================================================
+// RAW BASE64 DECODING
+// ============================================================================
 
-  const mime = resolveMime(options.sourceMimeType, options.filename);
-  if (!mime) {
-    return { success: false, error: "Cannot resolve MIME", classification: "invalid" };
-  }
-
-  return streamDecodeBase64(cleaned, options, mime, "raw_base64");
+async function decodeRawBase64Stream(
+  payload: string,
+  options: DecoderOptions
+): Promise<StreamDecodeResult> {
+  // Resolve what we can before decoding
+  const preResolvedMime = resolveMimePreDecode(options.sourceMimeType, options.filename);
+  
+  return streamDecodeBase64(payload, options, preResolvedMime, "raw_base64", true);
 }
 
-async function streamDecodeBase64(base64: string, options: DecoderOptions, declaredMime: string, classification: "data_url" | "raw_base64"): Promise<StreamDecodeResult> {
-  const maxBytes = getMaxBytes();
-  const writeStream = createWriteStream(options.tempPath);
+function resolveMimePreDecode(sourceMime?: string, filename?: string): string | null {
+  if (sourceMime && isValidMime(sourceMime)) return sourceMime;
+  if (filename) {
+    const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+    if (EXT_TO_MIME[ext]) return EXT_TO_MIME[ext];
+  }
+  return null;
+}
+
+// ============================================================================
+// STREAMING BASE64 DECODER WITH BACKPRESSURE
+// ============================================================================
+
+async function streamDecodeBase64(
+  base64: string,
+  options: DecoderOptions,
+  initialMime: string | null,
+  classification: "data_url" | "raw_base64",
+  allowSignatureFallback: boolean = false
+): Promise<StreamDecodeResult> {
+  const maxBytes = options.maxBytes ?? MAX_DECODED_BYTES;
+  const writeStream = createWriteStream(options.tempPath, { highWaterMark: 64 * 1024 });
   const hash = createHash("sha256");
+  
   let decodedSize = 0;
-  let carryOver = "";
   let firstChunk: Buffer | null = null;
   let cleanupNeeded = true;
+  let carryOver = "";
 
   try {
-    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
-      throw new Error("Invalid Base64 characters");
-    }
-    if (base64.length % 4 !== 0) {
-      throw new Error("Invalid Base64 length (not multiple of 4)");
-    }
-    const padIdx = base64.indexOf("=");
-    if (padIdx !== -1 && !/^=+$/.test(base64.slice(padIdx))) {
-      throw new Error("Invalid Base64 padding");
-    }
-
-    const CHUNK_SIZE = 4096;
+    // Process in chunks, removing whitespace incrementally
+    const CHUNK_SIZE = 4096; // Base64 chars
+    
     for (let i = 0; i < base64.length; i += CHUNK_SIZE) {
-      const chunk = base64.slice(i, i + CHUNK_SIZE);
-      const combined = carryOver + chunk;
+      // Get next chunk and remove whitespace
+      const rawChunk = base64.slice(i, i + CHUNK_SIZE);
+      const cleanChunk = rawChunk.replace(/[\s\r\n]+/g, "");
+      const combined = carryOver + cleanChunk;
+      
+      // Align to 4-char boundary
       const remainder = combined.length % 4;
       const processable = remainder === 0 ? combined : combined.slice(0, -remainder);
       carryOver = remainder === 0 ? "" : combined.slice(-remainder);
 
       if (processable.length > 0) {
+        // Validate and decode
+        validateBase64Chunk(processable);
         const buffer = Buffer.from(processable, "base64");
+        
+        // Size check
         decodedSize += buffer.length;
         if (decodedSize > maxBytes) {
-          throw new Error("Size exceeds maximum");
+          throw new Error(`Size ${decodedSize} exceeds maximum ${maxBytes}`);
         }
+
+        // Collect first chunk for signature
         if (!firstChunk && buffer.length > 0) {
           firstChunk = buffer.slice(0, Math.min(16, buffer.length));
         }
-        writeStream.write(buffer);
+
+        // Write with backpressure handling
+        await writeWithBackpressure(writeStream, buffer);
         hash.update(buffer);
       }
     }
 
+    // Process final carry-over
     if (carryOver) {
+      validateBase64Chunk(carryOver);
       const buffer = Buffer.from(carryOver, "base64");
       decodedSize += buffer.length;
       if (decodedSize > maxBytes) {
-        throw new Error("Size exceeds maximum");
+        throw new Error(`Size ${decodedSize} exceeds maximum ${maxBytes}`);
       }
-      writeStream.write(buffer);
+      await writeWithBackpressure(writeStream, buffer);
       hash.update(buffer);
       if (!firstChunk) {
         firstChunk = buffer.slice(0, Math.min(16, buffer.length));
       }
     }
 
-    await new Promise<void>((resolve, reject) => {
-      writeStream.end(() => resolve());
-      writeStream.on("error", reject);
-    });
+    // Close stream properly
+    await closeStream(writeStream);
 
+    // Detect signature and resolve final MIME
     const detectedSig = firstChunk ? detectSignature(firstChunk) : undefined;
-    if (!validateMimeSig(declaredMime, detectedSig, options.filename)) {
-      throw new Error("MIME/signature mismatch");
+    const finalMime = resolveFinalMime(initialMime, detectedSig, options.filename, allowSignatureFallback);
+    
+    if (!finalMime) {
+      throw new Error("Cannot resolve MIME type");
+    }
+
+    // Cross-validate all MIME evidence
+    const validation = validateMimeEvidence(finalMime, initialMime, detectedSig, options.filename, classification === "data_url");
+    if (!validation.valid) {
+      throw new Error(validation.error);
     }
 
     cleanupNeeded = false;
@@ -176,10 +250,11 @@ async function streamDecodeBase64(base64: string, options: DecoderOptions, decla
       tempPath: options.tempPath,
       size: decodedSize,
       sha256: hash.digest("hex"),
-      mimeType: declaredMime,
+      mimeType: finalMime,
       detectedSignature: detectedSig,
       classification,
     };
+
   } catch (error) {
     if (cleanupNeeded) {
       try {
@@ -195,13 +270,163 @@ async function streamDecodeBase64(base64: string, options: DecoderOptions, decla
   }
 }
 
-function resolveMime(sourceMime?: string, filename?: string): string | null {
-  if (sourceMime && isValidMime(sourceMime)) return sourceMime;
-  if (filename) {
-    const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
-    if (EXT_TO_MIME[ext]) return EXT_TO_MIME[ext];
+// ============================================================================
+// BACKPRESSURE HANDLING
+// ============================================================================
+
+function writeWithBackpressure(stream: WriteStream, buffer: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const canContinue = stream.write(buffer, (err) => {
+      if (err) reject(err);
+    });
+    
+    if (canContinue) {
+      resolve();
+    } else {
+      stream.once("drain", resolve);
+      stream.once("error", reject);
+    }
+  });
+}
+
+function closeStream(stream: WriteStream): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.end(() => resolve());
+    stream.on("error", reject);
+  });
+}
+
+// ============================================================================
+// BASE64 VALIDATION
+// ============================================================================
+
+function validateBase64Chunk(chunk: string): void {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(chunk)) {
+    throw new Error("Invalid Base64 characters");
   }
+  if (chunk.length % 4 !== 0) {
+    throw new Error(`Invalid Base64 length (not multiple of 4): ${chunk.length}`);
+  }
+  const padIdx = chunk.indexOf("=");
+  if (padIdx !== -1) {
+    const afterPad = chunk.slice(padIdx);
+    if (!/^=+$/.test(afterPad)) {
+      throw new Error("Invalid Base64 padding characters");
+    }
+    if (afterPad.length > 2) {
+      throw new Error("Invalid Base64 padding length");
+    }
+  }
+}
+
+// ============================================================================
+// MIME RESOLUTION AND VALIDATION
+// ============================================================================
+
+function resolveFinalMime(
+  initialMime: string | null,
+  detectedSig: string | undefined,
+  filename: string | undefined,
+  allowSignatureFallback: boolean
+): string | null {
+  // Priority 1: Initial (data URL, source metadata, or filename extension)
+  if (initialMime) return initialMime;
+  
+  // Priority 2: Signature fallback (only for raw Base64)
+  if (allowSignatureFallback && detectedSig) {
+    return SIGNATURES[detectedSig]?.mime ?? null;
+  }
+  
   return null;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  error?: string;
+}
+
+function validateMimeEvidence(
+  finalMime: string,
+  initialMime: string | null,
+  detectedSig: string | undefined,
+  filename: string | undefined,
+  isDataUrl: boolean
+): ValidationResult {
+  const evidence: string[] = [];
+  const filenameMime = filename ? EXT_TO_MIME[filename.toLowerCase().slice(filename.lastIndexOf("."))] : null;
+  
+  // Collect all evidence
+  if (isDataUrl) evidence.push(`data-url:${finalMime}`);
+  if (initialMime && initialMime !== finalMime) evidence.push(`initial:${initialMime}`);
+  if (filenameMime && filenameMime !== finalMime) evidence.push(`filename:${filenameMime}`);
+  if (detectedSig) evidence.push(`signature:${SIGNATURES[detectedSig]?.mime}`);
+  
+  // Check signature consistency
+  if (detectedSig) {
+    const sigInfo = SIGNATURES[detectedSig];
+    const expectedMimes = getExpectedMimesForSig(detectedSig, filename);
+    
+    if (!expectedMimes.includes(finalMime)) {
+      return { valid: false, error: `MIME/signature mismatch: ${finalMime} vs ${detectedSig}` };
+    }
+  }
+  
+  // Check filename consistency for data URLs
+  if (isDataUrl && filename && filenameMime && filenameMime !== finalMime) {
+    // Allow extension conflicts only if signature matches final MIME
+    if (detectedSig && SIGNATURES[detectedSig]?.mime === finalMime) {
+      // OK - signature validates the final MIME
+    } else {
+      return { valid: false, error: `MIME/filename mismatch: ${finalMime} vs ${filenameMime}` };
+    }
+  }
+  
+  // Check source metadata consistency
+  if (initialMime && initialMime !== finalMime) {
+    if (detectedSig && SIGNATURES[detectedSig]?.mime === finalMime) {
+      // OK - signature validates final MIME over metadata
+    } else {
+      return { valid: false, error: `MIME/metadata mismatch: ${finalMime} vs ${initialMime}` };
+    }
+  }
+  
+  return { valid: true };
+}
+
+function getExpectedMimesForSig(sig: string, filename?: string): string[] {
+  const expected: Record<string, string[]> = {
+    pdf: ["application/pdf"],
+    png: ["image/png"],
+    jpeg: ["image/jpeg"],
+    gif: ["image/gif"],
+    zip: [
+      "application/zip",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ],
+    msCompound: ["application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint"],
+  };
+  
+  const base = expected[sig] ?? [];
+  
+  // For ZIP-based Office files, check extension
+  if (sig === "zip" && filename) {
+    const ext = filename.toLowerCase();
+    if (ext.endsWith(".docx")) return ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+    if (ext.endsWith(".xlsx")) return ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
+    if (ext.endsWith(".pptx")) return ["application/vnd.openxmlformats-officedocument.presentationml.presentation"];
+  }
+  
+  // For legacy Office, check extension
+  if (sig === "msCompound" && filename) {
+    const ext = filename.toLowerCase();
+    if (ext.endsWith(".doc")) return ["application/msword"];
+    if (ext.endsWith(".xls")) return ["application/vnd.ms-excel"];
+    if (ext.endsWith(".ppt")) return ["application/vnd.ms-powerpoint"];
+  }
+  
+  return base;
 }
 
 function isValidMime(mime: string): boolean {
@@ -219,32 +444,4 @@ function detectSignature(bytes: Buffer): string | undefined {
     }
   }
   return undefined;
-}
-
-function validateMimeSig(mime: string, sig?: string, filename?: string): boolean {
-  if (!sig) return true;
-  const expected: Record<string, string[]> = {
-    pdf: ["application/pdf"],
-    png: ["image/png"],
-    jpeg: ["image/jpeg"],
-    gif: ["image/gif"],
-    zip: ["application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
-    msCompound: ["application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint"],
-  };
-  const valid = expected[sig];
-  if (!valid) return true;
-  if (valid.includes(mime)) return true;
-  if (sig === "zip" && filename) {
-    const ext = filename.toLowerCase();
-    if (ext.endsWith(".docx") && mime.includes("wordprocessingml")) return true;
-    if (ext.endsWith(".xlsx") && mime.includes("spreadsheetml")) return true;
-    if (ext.endsWith(".pptx") && mime.includes("presentationml")) return true;
-  }
-  if (sig === "msCompound" && filename) {
-    const ext = filename.toLowerCase();
-    if (ext.endsWith(".doc") && mime === "application/msword") return true;
-    if (ext.endsWith(".xls") && mime === "application/vnd.ms-excel") return true;
-    if (ext.endsWith(".ppt") && mime === "application/vnd.ms-powerpoint") return true;
-  }
-  return false;
 }
