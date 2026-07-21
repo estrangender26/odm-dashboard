@@ -297,23 +297,56 @@ async function streamDecodeBase64(
 
 function writeWithBackpressure(stream: WriteStream, buffer: Buffer): Promise<void> {
   return new Promise((resolve, reject) => {
+    let resolved = false;
+    
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+    
+    const cleanup = () => {
+      if (resolved) return;
+      resolved = true;
+      stream.removeListener("drain", onDrain);
+      stream.removeListener("error", onError);
+    };
+    
     const canContinue = stream.write(buffer, (err) => {
-      if (err) reject(err);
+      if (err) {
+        onError(err);
+      } else if (canContinue) {
+        resolve();
+      }
     });
     
-    if (canContinue) {
-      resolve();
+    if (!canContinue) {
+      stream.once("drain", onDrain);
+      stream.once("error", onError);
     } else {
-      stream.once("drain", resolve);
-      stream.once("error", reject);
+      // Already resolved above via write callback
     }
   });
 }
 
 function closeStream(stream: WriteStream): Promise<void> {
   return new Promise((resolve, reject) => {
-    stream.end(() => resolve());
-    stream.on("error", reject);
+    const onFinish = () => {
+      stream.removeListener("error", onError);
+      resolve();
+    };
+    const onError = (err: Error) => {
+      stream.removeListener("finish", onFinish);
+      reject(err);
+    };
+    
+    stream.once("finish", onFinish);
+    stream.once("error", onError);
+    stream.end();
   });
 }
 
