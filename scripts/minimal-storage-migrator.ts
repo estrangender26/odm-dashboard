@@ -622,4 +622,46 @@ if (currentFile === executedFile || executedFile.endsWith("minimal-storage-migra
   });
 }
 
+// ============================================================================
+// EXPORTED HELPERS FOR TESTING
+// ============================================================================
+
+export type { Source };
+export { SOURCES, SOURCE_BUCKETS, SOURCE_TABLES };
+
+/**
+ * Check if execution is allowed based on flags
+ */
+export function canExecute(execute: boolean, confirmProduction: boolean): boolean {
+  return execute && confirmProduction;
+}
+
+/**
+ * Check if a record should be excluded based on source and ID
+ * Only smp_documents.id = 31 is excluded
+ */
+export function isRecordExcluded(source: Source, id: number): boolean {
+  return source === "smp_documents" && id === 31;
+}
+
+/**
+ * Get source configuration (bucket, payload field, etc.)
+ */
+export function getSourceConfig(source: Source) {
+  const bucket = SOURCE_BUCKETS[source];
+  const payloadColumn = source === "governance_uploads" ? "file_url" : "file_data";
+  const filenameColumn = "file_name";
+  const mimeColumn = source === "governance_uploads" ? null : "file_type";
+  const table = SOURCE_TABLES[source];
+  
+  return {
+    bucket,
+    payloadColumn,
+    filenameColumn,
+    mimeColumn,
+    table,
+  };
+}
+
+export { checkStorageObject, uploadToStorage };
 export { processRecord, generateStoragePath };

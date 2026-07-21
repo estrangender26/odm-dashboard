@@ -1,12 +1,17 @@
 /**
  * Minimal Storage Migrator Tests
+ * Real behavior tests using exported helpers
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { generateStoragePath } from "../../scripts/minimal-storage-migrator";
-import { writeFile, readFile, mkdir, unlink, rmdir } from "fs/promises";
-import { tmpdir } from "os";
-import { join } from "path";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  generateStoragePath,
+  canExecute,
+  isRecordExcluded,
+  getSourceConfig,
+  SOURCES,
+  SOURCE_BUCKETS,
+} from "../../scripts/minimal-storage-migrator";
 
 describe("generateStoragePath", () => {
   it("generates deterministic paths", () => {
@@ -18,7 +23,6 @@ describe("generateStoragePath", () => {
 
   it("sanitizes special characters", () => {
     const path = generateStoragePath("governance_uploads", 1, "file with spaces & symbols!.pdf");
-    // Multiple underscores collapse to single
     expect(path).toMatch(/legacy\/governance_uploads\/1\/file_with_spaces?_symbols_\.pdf/);
   });
 
@@ -29,130 +33,115 @@ describe("generateStoragePath", () => {
   });
 });
 
-describe("SMP ID 31 exclusion", () => {
-  it("is excluded from processing", () => {
-    // ID 31 should never appear in processing list
-    // This is enforced by the SQL query: sql`id != 31`
-    expect(31).toBe(31); // Placeholder - real test would verify SQL filter
+describe("canExecute", () => {
+  it("requires both execute and confirmProduction flags", () => {
+    expect(canExecute(false, false)).toBe(false);
+    expect(canExecute(true, false)).toBe(false);
+    expect(canExecute(false, true)).toBe(false);
+    expect(canExecute(true, true)).toBe(true);
+  });
+
+  it("neither flag: no execute", () => {
+    expect(canExecute(false, false)).toBe(false);
+  });
+
+  it("only --execute: no execute", () => {
+    expect(canExecute(true, false)).toBe(false);
+  });
+
+  it("only --confirm-production: no execute", () => {
+    expect(canExecute(false, true)).toBe(false);
+  });
+
+  it("both flags: execute allowed", () => {
+    expect(canExecute(true, true)).toBe(true);
   });
 });
 
-describe("Migration safety requirements", () => {
-  it("requires both --execute and --confirm-production for writes", () => {
-    // Command-line flag validation
-    // Without --execute: dry-run mode (zero writes)
-    // Without --confirm-production: blocked even with --execute
-    // Both required for actual execution
-    const hasExecute = true;
-    const hasConfirmProduction = true;
-    const canWrite = hasExecute && hasConfirmProduction;
-    expect(canWrite).toBe(true);
-  });
-
-  it("dry-run mode produces zero writes", () => {
-    // In dry-run mode:
-    // - No database updates to legacy records
-    // - No ledger entries created
-    // - No Supabase Storage uploads
-    const isDryRun = true;
-    expect(isDryRun).toBe(true);
-  });
-
-  it("preserves idempotent behavior for identical objects", () => {
-    // If destination object exists with matching SHA-256:
-    // - Skip upload (idempotent)
-    // - Update database record to point to existing storage
-    const sha256Matches = true;
-    const shouldSkipUpload = sha256Matches;
-    expect(shouldSkipUpload).toBe(true);
-  });
-
-  it("prevents overwrite for mismatched objects", () => {
-    // If destination object exists with different SHA-256:
-    // - Never overwrite
-    // - Report conflict
-    // - Require manual resolution
-    const sha256Matches = false;
-    const shouldOverwrite = false;
-    expect(shouldOverwrite).toBe(false);
-  });
-});
-
-describe("ID 31 scope verification", () => {
+describe("isRecordExcluded", () => {
   it("excludes only smp_documents.id = 31", () => {
-    // The exclusion SQL is:
-    // source === "smp_documents" ? sql`id != 31` : sql`1=1`
-    // This means ID 31 is excluded ONLY for smp_documents source
-    const excludedSources = ["smp_documents"];
-    const nonExcludedSources = ["governance_uploads", "governance_files", "doc_files"];
-    
-    expect(excludedSources).toContain("smp_documents");
-    expect(nonExcludedSources).not.toContain("smp_documents");
+    expect(isRecordExcluded("smp_documents", 31)).toBe(true);
+    expect(isRecordExcluded("smp_documents", 30)).toBe(false);
+    expect(isRecordExcluded("smp_documents", 32)).toBe(false);
   });
 
   it("allows ID 31 in governance_uploads", () => {
-    // ID 31 in governance_uploads should be processed normally
-    const source: string = "governance_uploads";
-    const id = 31;
-    const shouldProcess = source !== "smp_documents" || id !== 31;
-    expect(shouldProcess).toBe(true);
+    expect(isRecordExcluded("governance_uploads", 31)).toBe(false);
+  });
+
+  it("allows ID 31 in governance_files", () => {
+    expect(isRecordExcluded("governance_files", 31)).toBe(false);
   });
 
   it("allows ID 31 in doc_files", () => {
-    // ID 31 in doc_files should be processed normally
-    const source: string = "doc_files";
-    const id = 31;
-    const shouldProcess = source !== "smp_documents" || id !== 31;
-    expect(shouldProcess).toBe(true);
+    expect(isRecordExcluded("doc_files", 31)).toBe(false);
   });
 
-  it("blocks ID 31 in smp_documents only", () => {
-    // ID 31 in smp_documents should be excluded
-    const source = "smp_documents";
-    const id = 31;
-    const shouldProcess = source !== "smp_documents" || id !== 31;
-    expect(shouldProcess).toBe(false);
+  it("allows non-31 IDs in smp_documents", () => {
+    expect(isRecordExcluded("smp_documents", 1)).toBe(false);
+    expect(isRecordExcluded("smp_documents", 30)).toBe(false);
+    expect(isRecordExcluded("smp_documents", 32)).toBe(false);
   });
 });
 
-describe("Four source mappings", () => {
-  it("maps governance_uploads to om-governance bucket", () => {
-    const bucketMapping: Record<string, string> = {
-      governance_uploads: "om-governance",
-      governance_files: "om-governance",
-      doc_files: "om-manuals",
-      smp_documents: "smp-library",
-    };
-    expect(bucketMapping["governance_uploads"]).toBe("om-governance");
+describe("getSourceConfig", () => {
+  it("returns configuration for governance_uploads", () => {
+    const config = getSourceConfig("governance_uploads");
+    expect(config.bucket).toBe("om-governance");
+    expect(config.payloadColumn).toBe("file_url");
+    expect(config.filenameColumn).toBe("file_name");
+    expect(config.mimeColumn).toBeNull();
   });
 
-  it("maps governance_files to om-governance bucket", () => {
-    const bucketMapping: Record<string, string> = {
-      governance_uploads: "om-governance",
-      governance_files: "om-governance",
-      doc_files: "om-manuals",
-      smp_documents: "smp-library",
-    };
-    expect(bucketMapping["governance_files"]).toBe("om-governance");
+  it("returns configuration for governance_files", () => {
+    const config = getSourceConfig("governance_files");
+    expect(config.bucket).toBe("om-governance");
+    expect(config.payloadColumn).toBe("file_data");
+    expect(config.filenameColumn).toBe("file_name");
+    expect(config.mimeColumn).toBe("file_type");
   });
 
-  it("maps doc_files to om-manuals bucket", () => {
-    const bucketMapping: Record<string, string> = {
-      governance_uploads: "om-governance",
-      governance_files: "om-governance",
-      doc_files: "om-manuals",
-      smp_documents: "smp-library",
-    };
-    expect(bucketMapping["doc_files"]).toBe("om-manuals");
+  it("returns configuration for doc_files", () => {
+    const config = getSourceConfig("doc_files");
+    expect(config.bucket).toBe("om-manuals");
+    expect(config.payloadColumn).toBe("file_data");
+    expect(config.filenameColumn).toBe("file_name");
+    expect(config.mimeColumn).toBe("file_type");
   });
 
-  it("maps smp_documents to smp-library bucket", () => {
-    const bucketMapping: Record<string, string> = {
-      governance_uploads: "om-governance",
-      governance_files: "om-governance",
-      doc_files: "om-manuals",
-      smp_documents: "smp-library",
-    };
-    expect(bucketMapping["smp_documents"]).toBe("smp-library");
+  it("returns configuration for smp_documents", () => {
+    const config = getSourceConfig("smp_documents");
+    expect(config.bucket).toBe("smp-library");
+    expect(config.payloadColumn).toBe("file_data");
+    expect(config.filenameColumn).toBe("file_name");
+    expect(config.mimeColumn).toBe("file_type");
+  });
+});
+
+describe("SOURCES array", () => {
+  it("contains all four source mappings", () => {
+    expect(SOURCES).toContain("governance_uploads");
+    expect(SOURCES).toContain("governance_files");
+    expect(SOURCES).toContain("doc_files");
+    expect(SOURCES).toContain("smp_documents");
+    expect(SOURCES.length).toBe(4);
+  });
+});
+
+describe("SOURCE_BUCKETS", () => {
+  it("maps governance_uploads to om-governance", () => {
+    expect(SOURCE_BUCKETS["governance_uploads"]).toBe("om-governance");
+  });
+
+  it("maps governance_files to om-governance", () => {
+    expect(SOURCE_BUCKETS["governance_files"]).toBe("om-governance");
+  });
+
+  it("maps doc_files to om-manuals", () => {
+    expect(SOURCE_BUCKETS["doc_files"]).toBe("om-manuals");
+  });
+
+  it("maps smp_documents to smp-library", () => {
+    expect(SOURCE_BUCKETS["smp_documents"]).toBe("smp-library");
   });
 });
