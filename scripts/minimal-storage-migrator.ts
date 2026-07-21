@@ -264,11 +264,12 @@ async function getSourceFingerprint(
 }
 
 async function getRecord(source: Source, id: number): Promise<MigrationRecord | null> {
-  const table = SOURCE_TABLES[source];
-  const column = source === "governance_uploads" ? "file_url" : "file_data";
+  const config = getSourceConfig(source);
+  const table = config.table;
+  const column = config.payloadColumn;
   
-  // governance_uploads has no file_type column; return NULL for it
-  const fileTypeColumn = source === "governance_uploads" ? "NULL" : "file_type";
+  // Use mimeColumn from config (null for governance_uploads)
+  const fileTypeColumn = config.mimeColumn || "NULL";
   
   const result = await db
     .select({
@@ -304,8 +305,9 @@ async function commitMetadata(
   mimeType: string,
   fingerprint: { length: number; hash: string }
 ): Promise<boolean> {
-  const table = SOURCE_TABLES[source];
-  const column = source === "governance_uploads" ? "file_url" : "file_data";
+  const config = getSourceConfig(source);
+  const table = config.table;
+  const column = config.payloadColumn;
   
   const result = await db
     .update(table)
@@ -527,8 +529,8 @@ async function main() {
   console.log(`Mode: ${options.execute ? "EXECUTE" : "DRY-RUN"}`);
   console.log(`Sources: ${options.sources.join(", ")}`);
   
-  if (options.execute && !options.confirmProduction) {
-    console.error("ERROR: --confirm-production required for execute mode");
+  if (!canExecute(options.execute, options.confirmProduction)) {
+    console.error("ERROR: --execute and --confirm-production required for execute mode");
     process.exit(1);
   }
   
@@ -569,7 +571,7 @@ async function main() {
         .where(and(
           sql`${sql.raw(column)} IS NOT NULL`,
           isNull(sql`storage_path`),
-          source === "smp_documents" ? sql`id != 31` : sql`1=1`
+          isRecordExcluded(source, 31) ? sql`id != 31` : sql`1=1`
         ))
         .limit(options.limit || 10000);
       
