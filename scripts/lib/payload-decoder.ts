@@ -344,10 +344,18 @@ function validateBase64Chunk(chunk: string): void {
 // MIME RESOLUTION AND VALIDATION
 // ============================================================================
 
+function isGenericSourceMime(mime: string | null): boolean {
+  // Treat application/octet-stream as unknown/generic only for source metadata
+  // Data URL with octet-stream is explicit and should be respected
+  return !mime || mime === "application/octet-stream";
+}
+
 function resolveFinalMime(evidence: MimeEvidence): string | null {
-  // BLOCKER 1: Priority resolution from separate evidence sources
+  // Priority resolution from separate evidence sources
+  // dataUrlMime is explicit from the data URL and should always be respected
   if (evidence.dataUrlMime) return evidence.dataUrlMime;
-  if (evidence.sourceMime) return evidence.sourceMime;
+  // Skip generic sourceMime (like application/octet-stream defaults)
+  if (!isGenericSourceMime(evidence.sourceMime)) return evidence.sourceMime;
   if (evidence.filenameMime) return evidence.filenameMime;
   if (evidence.signatureMime) return evidence.signatureMime;
   return null;
