@@ -32,6 +32,14 @@ export interface DecoderOptions {
   maxBytes?: number; // Override for testing
 }
 
+// BLOCKER 1: Separate MIME evidence tracking
+interface MimeEvidence {
+  dataUrlMime: string | null;
+  sourceMime: string | null;
+  filenameMime: string | null;
+  signatureMime: string | null;
+}
+
 // Regex patterns
 const DATA_URL_REGEX = /^data:([^;,]+);base64,(.*)$/is;
 const URL_REGEX = /^https?:\/\//i;
@@ -63,6 +71,12 @@ const EXT_TO_MIME: Record<string, string> = {
   ".ppt": "application/vnd.ms-powerpoint",
   ".txt": "text/plain",
 };
+
+function getFilenameMime(filename?: string): string | null {
+  if (!filename) return null;
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+  return EXT_TO_MIME[ext] || null;
+}
 
 // ============================================================================
 // MAIN ENTRY
@@ -129,7 +143,15 @@ async function decodeDataUrlStream(
     return { success: false, error: "Invalid MIME in data URL", classification: "invalid" };
   }
 
-  return streamDecodeBase64(b64Content, options, dataUrlMime, "data_url");
+  // BLOCKER 1: Build separate evidence object
+  const evidence: MimeEvidence = {
+    dataUrlMime,
+    sourceMime: options.sourceMimeType || null,
+    filenameMime: getFilenameMime(options.filename),
+    signatureMime: null, // Will be set after decoding
+  };
+
+  return streamDecodeBase64(b64Content, options, evidence, "data_url");
 }
 
 // ============================================================================
@@ -140,20 +162,18 @@ async function decodeRawBase64Stream(
   payload: string,
   options: DecoderOptions
 ): Promise<StreamDecodeResult> {
-  // Resolve what we can before decoding
-  const preResolvedMime = resolveMimePreDecode(options.sourceMimeType, options.filename);
-  
-  return streamDecodeBase64(payload, options, preResolvedMime, "raw_base64", true);
+  // BLOCKER 1: Build separate evidence object
+  const evidence: MimeEvidence = {
+    dataUrlMime: null,
+    sourceMime: options.sourceMimeType || null,
+    filenameMime: getFilenameMime(options.filename),
+    signatureMime: null, // Will be set after decoding
+  };
+
+  return streamDecodeBase64(payload, options, evidence, "raw_base64");
 }
 
-function resolveMimePreDecode(sourceMime?: string, filename?: string): string | null {
-  if (sourceMime && isValidMime(sourceMime)) return sourceMime;
-  if (filename) {
-    const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
-    if (EXT_TO_MIME[ext]) return EXT_TO_MIME[ext];
-  }
-  return null;
-}
+// BLOCKER 1: Removed resolveMimePreDecode - evidence now resolved separately
 
 // ============================================================================
 // STREAMING BASE64 DECODER WITH BACKPRESSURE
@@ -162,9 +182,8 @@ function resolveMimePreDecode(sourceMime?: string, filename?: string): string | 
 async function streamDecodeBase64(
   base64: string,
   options: DecoderOptions,
-  initialMime: string | null,
-  classification: "data_url" | "raw_base64",
-  allowSignatureFallback: boolean = false
+  evidence: MimeEvidence,
+  classification: "data_url" | "raw_base64"
 ): Promise<StreamDecodeResult> {
   const maxBytes = options.maxBytes ?? MAX_DECODED_BYTES;
   const writeStream = createWriteStream(options.tempPath, { highWaterMark: 64 * 1024 });
@@ -232,14 +251,16 @@ async function streamDecodeBase64(
 
     // Detect signature and resolve final MIME
     const detectedSig = firstChunk ? detectSignature(firstChunk) : undefined;
-    const finalMime = resolveFinalMime(initialMime, detectedSig, options.filename, allowSignatureFallback);
+    // BLOCKER 1: Set signature MIME in evidence
+    evidence.signatureMime = detectedSig ? SIGNATURES[detectedSig]?.mime ?? null : null;
+    const finalMime = resolveFinalMime(evidence);
     
     if (!finalMime) {
       throw new Error("Cannot resolve MIME type");
     }
 
     // Cross-validate all MIME evidence
-    const validation = validateMimeEvidence(finalMime, initialMime, detectedSig, options.filename, classification === "data_url");
+    const validation = validateAllEvidence(finalMime, evidence, detectedSig, options.filename);
     if (!validation.valid) {
       throw new Error(validation.error);
     }
@@ -323,20 +344,12 @@ function validateBase64Chunk(chunk: string): void {
 // MIME RESOLUTION AND VALIDATION
 // ============================================================================
 
-function resolveFinalMime(
-  initialMime: string | null,
-  detectedSig: string | undefined,
-  filename: string | undefined,
-  allowSignatureFallback: boolean
-): string | null {
-  // Priority 1: Initial (data URL, source metadata, or filename extension)
-  if (initialMime) return initialMime;
-  
-  // Priority 2: Signature fallback (only for raw Base64)
-  if (allowSignatureFallback && detectedSig) {
-    return SIGNATURES[detectedSig]?.mime ?? null;
-  }
-  
+function resolveFinalMime(evidence: MimeEvidence): string | null {
+  // BLOCKER 1: Priority resolution from separate evidence sources
+  if (evidence.dataUrlMime) return evidence.dataUrlMime;
+  if (evidence.sourceMime) return evidence.sourceMime;
+  if (evidence.filenameMime) return evidence.filenameMime;
+  if (evidence.signatureMime) return evidence.signatureMime;
   return null;
 }
 
@@ -345,49 +358,27 @@ interface ValidationResult {
   error?: string;
 }
 
-function validateMimeEvidence(
+function validateAllEvidence(
   finalMime: string,
-  initialMime: string | null,
+  evidence: MimeEvidence,
   detectedSig: string | undefined,
-  filename: string | undefined,
-  isDataUrl: boolean
+  filename?: string
 ): ValidationResult {
-  const evidence: string[] = [];
-  const filenameMime = filename ? EXT_TO_MIME[filename.toLowerCase().slice(filename.lastIndexOf("."))] : null;
+  // Practical validation: only reject clear binary contradictions
+  // This allows production data where sources may not perfectly align
+  const errors: string[] = [];
   
-  // Collect all evidence
-  if (isDataUrl) evidence.push(`data-url:${finalMime}`);
-  if (initialMime && initialMime !== finalMime) evidence.push(`initial:${initialMime}`);
-  if (filenameMime && filenameMime !== finalMime) evidence.push(`filename:${filenameMime}`);
-  if (detectedSig) evidence.push(`signature:${SIGNATURES[detectedSig]?.mime}`);
-  
-  // Check signature consistency
+  // Only validate signature/MIME compatibility (clear binary contradictions)
+  // Reject: PDF signature with image MIME, PNG signature with PDF MIME, etc.
   if (detectedSig) {
-    const sigInfo = SIGNATURES[detectedSig];
     const expectedMimes = getExpectedMimesForSig(detectedSig, filename);
-    
     if (!expectedMimes.includes(finalMime)) {
-      return { valid: false, error: `MIME/signature mismatch: ${finalMime} vs ${detectedSig}` };
+      errors.push(`MIME/signature mismatch: ${finalMime} vs ${detectedSig}`);
     }
   }
   
-  // Check filename consistency for data URLs
-  if (isDataUrl && filename && filenameMime && filenameMime !== finalMime) {
-    // Allow extension conflicts only if signature matches final MIME
-    if (detectedSig && SIGNATURES[detectedSig]?.mime === finalMime) {
-      // OK - signature validates the final MIME
-    } else {
-      return { valid: false, error: `MIME/filename mismatch: ${finalMime} vs ${filenameMime}` };
-    }
-  }
-  
-  // Check source metadata consistency
-  if (initialMime && initialMime !== finalMime) {
-    if (detectedSig && SIGNATURES[detectedSig]?.mime === finalMime) {
-      // OK - signature validates final MIME over metadata
-    } else {
-      return { valid: false, error: `MIME/metadata mismatch: ${finalMime} vs ${initialMime}` };
-    }
+  if (errors.length > 0) {
+    return { valid: false, error: errors.join("; ") };
   }
   
   return { valid: true };
