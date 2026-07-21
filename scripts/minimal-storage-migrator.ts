@@ -59,11 +59,19 @@ interface DecodedPayload {
   mimeType: string;
 }
 
+/**
+ * Tri-state verification result
+ * - unverified: true when hash verification was not performed (dry-run)
+ * - When unverified=true, matches is undefined
+ * - When unverified=false, matches indicates hash match status
+ */
 interface VerificationResult {
   exists: boolean;
-  matches: boolean;
+  unverified: boolean;
+  matches?: boolean;
   size?: number;
   sha256?: string;
+  error?: string;
 }
 
 // ============================================================================
@@ -161,6 +169,26 @@ async function decodePayloadToFile(
 // STORAGE OPERATIONS
 // ============================================================================
 
+/**
+ * Lightweight existence check - just list, no download
+ * Returns error if Storage API fails (does not treat API error as "not found")
+ */
+async function checkStorageObjectExists(
+  supabase: SupabaseClient,
+  bucket: string,
+  path: string
+): Promise<{ exists: boolean; error?: string }> {
+  const { data: listData, error: listError } = await supabase.storage.from(bucket).list(path.split("/").slice(0, -1).join("/"));
+  
+  if (listError) {
+    return { exists: false, error: `Storage list failed: ${listError.message}` };
+  }
+  
+  const fileName = path.split("/").pop();
+  const existing = listData?.find((f: any) => f.name === fileName);
+  return { exists: !!existing };
+}
+
 async function checkStorageObject(
   supabase: SupabaseClient,
   bucket: string,
@@ -168,17 +196,22 @@ async function checkStorageObject(
   expectedSize: number,
   expectedSha256: string
 ): Promise<VerificationResult> {
-  const { data: listData } = await supabase.storage.from(bucket).list(path.split("/").slice(0, -1).join("/"));
+  const { data: listData, error: listError } = await supabase.storage.from(bucket).list(path.split("/").slice(0, -1).join("/"));
+  
+  if (listError) {
+    return { exists: false, unverified: false, error: `Storage list failed: ${listError.message}` };
+  }
+  
   const fileName = path.split("/").pop();
   const existing = listData?.find((f: any) => f.name === fileName);
   
   if (!existing) {
-    return { exists: false, matches: false };
+    return { exists: false, unverified: false };
   }
   
   const { data: fileData } = await supabase.storage.from(bucket).download(path);
   if (!fileData) {
-    return { exists: true, matches: false };
+    return { exists: true, unverified: false, matches: false };
   }
   
   const buffer = Buffer.from(await fileData.arrayBuffer());
@@ -186,6 +219,7 @@ async function checkStorageObject(
   
   return {
     exists: true,
+    unverified: false,
     matches: buffer.length === expectedSize && actualSha256 === expectedSha256,
     size: buffer.length,
     sha256: actualSha256,
@@ -337,6 +371,7 @@ async function commitMetadata(
 interface ProcessOptions {
   execute: boolean;
   baseUrl: string;
+  verbose?: boolean;
 }
 
 async function processRecord(
@@ -344,9 +379,13 @@ async function processRecord(
   id: number,
   supabase: SupabaseClient,
   options: ProcessOptions
-): Promise<{ success: boolean; skipped?: boolean; error?: string; reused?: boolean }> {
-  const { execute, baseUrl } = options;
+): Promise<{ success: boolean; skipped?: boolean; error?: string; reused?: boolean; unverified?: boolean }> {
+  const { execute, baseUrl, verbose = false } = options;
   const bucket = SOURCE_BUCKETS[source];
+  
+  const log = (msg: string) => {
+    if (verbose) console.log(msg);
+  };
   
   // Step 1: Get record
   const record = await getRecord(source, id);
@@ -382,7 +421,7 @@ async function processRecord(
   try {
     await mkdir(tempDir, { recursive: true, mode: 0o700 });
     
-    console.log(`  [${id}] Decoding...`);
+    log(`  [${id}] Decoding...`);
     // Fetch full Base64 in bounded chunks via SQL
     const fileUrl = await fetchFullBase64(source, id, record.legacyDataLength);
     const decoded = await decodePayloadToFile(fileUrl, tempPath, { filename: record.fileName || undefined, sourceMimeType: record.fileType || undefined });
@@ -390,37 +429,61 @@ async function processRecord(
     const path = generateStoragePath(source, id, record.fileName || "unnamed");
     
     // Step 5: Check if object exists
-    console.log(`  [${id}] Checking Storage...`);
-    const storageCheck = await checkStorageObject(supabase, bucket, path, decoded.size, decoded.sha256);
-    
-    if (storageCheck.exists) {
-      if (!storageCheck.matches) {
-        return { success: false, error: `Object exists but mismatch: expected ${decoded.size}/${decoded.sha256}, got ${storageCheck.size}/${storageCheck.sha256}` };
+    // In dry-run, use lightweight existence check (no download)
+    // In execute mode, verify SHA-256
+    log(`  [${id}] Checking Storage...`);
+    let storageCheck: VerificationResult;
+    if (execute) {
+      storageCheck = await checkStorageObject(supabase, bucket, path, decoded.size, decoded.sha256);
+      if (storageCheck.error) {
+        return { success: false, error: `Storage check failed: ${storageCheck.error}` };
       }
-      console.log(`  [${id}] Object exists and matches, reusing`);
+    } else {
+      const existsCheck = await checkStorageObjectExists(supabase, bucket, path);
+      if (existsCheck.error) {
+        return { success: false, error: existsCheck.error };
+      }
+      // In dry-run, mark as unverified - no hash comparison performed
+      storageCheck = { exists: existsCheck.exists, unverified: true };
     }
     
-    // Step 6: Dry-run check
+    // Step 6: Handle existing object
+    if (storageCheck.exists) {
+      if (execute) {
+        // In execute mode, require hash verification
+        if (!storageCheck.matches) {
+          return { success: false, error: `Object exists but mismatch: expected ${decoded.size}/${decoded.sha256}, got ${storageCheck.size}/${storageCheck.sha256}` };
+        }
+        log(`  [${id}] Object exists and matches, reusing`);
+        return { success: true, skipped: true, reused: true };
+      } else {
+        // In dry-run, mark as unverified (no error)
+        log(`  [${id}] Object exists; verification deferred to execute mode`);
+        return { success: true, skipped: true, unverified: true } as any;
+      }
+    }
+    
+    // Step 7: Dry-run check for missing objects
     if (!execute) {
-      console.log(`  [${id}] ✓ Dry-run: would upload ${decoded.size} bytes to ${path}`);
+      log(`  [${id}] Dry-run: would upload ${decoded.size} bytes to ${path}`);
       return { success: true, skipped: true };
     }
     
     // Step 7: Upload if needed
     if (!storageCheck.exists) {
-      console.log(`  [${id}] Uploading...`);
+      log(`  [${id}] Uploading...`);
       await uploadToStorage(supabase, bucket, path, tempPath, decoded.mimeType);
     }
     
     // Step 8: Verify uploaded object
-    console.log(`  [${id}] Verifying object...`);
+    log(`  [${id}] Verifying object...`);
     const verifyCheck = await checkStorageObject(supabase, bucket, path, decoded.size, decoded.sha256);
     if (!verifyCheck.exists || !verifyCheck.matches) {
       return { success: false, error: "Upload verification failed" };
     }
     
     // Step 9: Transactional metadata commit
-    console.log(`  [${id}] Committing metadata...`);
+    log(`  [${id}] Committing metadata...`);
     const committed = await commitMetadata(source, id, bucket, path, decoded.size, decoded.mimeType, fingerprint);
     
     if (!committed) {
@@ -428,14 +491,14 @@ async function processRecord(
     }
     
     // Step 10: Application verification
-    console.log(`  [${id}] Verifying application route...`);
+    log(`  [${id}] Verifying application route...`);
     const appOk = await verifyApplicationRoute(baseUrl, source, id);
     if (!appOk) {
       return { success: false, error: "Application verification failed" };
     }
     
-    console.log(`  [${id}] ✓ Migrated successfully`);
-    return { success: true, reused: storageCheck.exists };
+    log(`  [${id}] Migrated successfully`);
+    return { success: true, reused: false };
     
   } catch (error) {
     return { success: false, error: sanitizeError(error) };
@@ -463,6 +526,7 @@ Options:
   --batch-size <n>          Records per transaction (default: 1)
   --execute                 Enable writes (default: dry-run)
   --confirm-production      Required flag for execute mode
+  --verbose                 Show detailed per-record logs
   --help                    Show this help
 
 Examples:
@@ -481,6 +545,7 @@ function parseArgs(): {
   batchSize: number;
   execute: boolean;
   confirmProduction: boolean;
+  verbose: boolean;
 } {
   const args = process.argv.slice(2);
   
@@ -508,6 +573,8 @@ function parseArgs(): {
   const batchSizeArg = getValue("--batch-size");
   const batchSize = batchSizeArg ? parseInt(batchSizeArg, 10) : 1;
   
+  const verbose = args.includes("--verbose");
+
   return {
     sources,
     ids,
@@ -515,6 +582,7 @@ function parseArgs(): {
     batchSize,
     execute: args.includes("--execute"),
     confirmProduction: args.includes("--confirm-production"),
+    verbose,
   };
 }
 
@@ -551,6 +619,18 @@ async function main() {
   let totalSuccess = 0;
   let totalFailed = 0;
   let totalSkipped = 0;
+  let totalUnverified = 0;
+  const startTime = Date.now();
+  const PROGRESS_INTERVAL = 10;
+  
+  function showProgress() {
+    const elapsed = (Date.now() - startTime) / 1000;
+    const rate = totalProcessed > 0 ? elapsed / totalProcessed : 0;
+    console.log(
+      `Progress: ${totalProcessed} processed, ${totalSuccess} success, ${totalSkipped} skipped, ${totalFailed} failed | ` +
+      `Elapsed: ${elapsed.toFixed(1)}s (~${rate.toFixed(2)}s/record)`
+    );
+  }
   
   for (const source of options.sources) {
     console.log(`\n--- Processing: ${source} ---`);
@@ -585,19 +665,40 @@ async function main() {
       const result = await processRecord(source, id, supabase, {
         execute: options.execute,
         baseUrl,
+        verbose: options.verbose,
       });
       
       totalProcessed++;
       
+      // Show progress every N records
+      if (totalProcessed % PROGRESS_INTERVAL === 0) {
+        showProgress();
+      }
+      
       if (result.success) {
         if (result.skipped) {
-          console.log(`  [${id}] ⊘ ${result.reused ? "Already migrated" : "Dry-run"}`);
+          if (result.unverified) {
+            totalUnverified++;
+            if (options.verbose) {
+              console.log(`  [${id}] Object exists (unverified)`);
+            }
+          } else if (result.reused) {
+            if (options.verbose) {
+              console.log(`  [${id}] Already migrated`);
+            }
+          } else {
+            if (options.verbose) {
+              console.log(`  [${id}] Dry-run`);
+            }
+          }
           totalSkipped++;
         } else {
           totalSuccess++;
         }
       } else {
-        console.log(`  [${id}] ✗ ${result.error}`);
+        if (options.verbose) {
+          console.log(`  [${id}] Error: ${result.error}`);
+        }
         totalFailed++;
       }
     }
@@ -605,6 +706,9 @@ async function main() {
   
   console.log("\n=== Summary ===");
   console.log(`Processed: ${totalProcessed}, Success: ${totalSuccess}, Failed: ${totalFailed}, Skipped: ${totalSkipped}`);
+  if (!options.execute && totalUnverified > 0) {
+    console.log(`Unverified (exists in storage, hash check deferred): ${totalUnverified}`);
+  }
   
   if (!options.execute) {
     console.log("DRY-RUN complete - no changes made");
@@ -674,5 +778,6 @@ export function getSourceConfig(source: Source) {
   };
 }
 
-export { checkStorageObject, uploadToStorage };
+export type { VerificationResult };
+export { checkStorageObject, checkStorageObjectExists, uploadToStorage };
 export { processRecord, generateStoragePath };
