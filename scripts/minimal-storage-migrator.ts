@@ -13,25 +13,27 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { db } from "../api/queries/connection";
 import { eq, and, sql, isNull } from "drizzle-orm";
-import { governanceUploads, docFiles, governanceFiles } from "../db/schema";
+import { governanceUploads, docFiles, governanceFiles, smpDocuments } from "../db/schema";
 
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
 
-const SOURCES = ["governance_uploads", "governance_files", "doc_files"] as const;
+const SOURCES = ["governance_uploads", "governance_files", "doc_files", "smp_documents"] as const;
 type Source = typeof SOURCES[number];
 
 const SOURCE_BUCKETS: Record<Source, string> = {
   governance_uploads: "om-governance",
   governance_files: "om-governance",
-  doc_files: "om-documents",
+  doc_files: "om-manuals",
+  smp_documents: "smp-library",
 };
 
 const SOURCE_TABLES: Record<Source, any> = {
   governance_uploads: governanceUploads,
   governance_files: governanceFiles,
   doc_files: docFiles,
+  smp_documents: smpDocuments,
 };
 
 const CHUNK_SIZE = 64 * 1024; // 64KB chunks for Base64 streaming
@@ -605,7 +607,7 @@ async function main() {
     if (options.ids) {
       idsToProcess.push(...options.ids);
     } else {
-      // Query all unmigrated records (excluding SMP ID 31)
+      // Query all unmigrated records (excluding SMP ID 31 for smp_documents source)
       const table = SOURCE_TABLES[source];
       const column = source === "governance_uploads" ? "file_url" : "file_data";
       
@@ -615,7 +617,7 @@ async function main() {
         .where(and(
           sql`${sql.raw(column)} IS NOT NULL`,
           isNull(sql`storage_path`),
-          sql`id != 31`
+          source === "smp_documents" ? sql`id != 31` : sql`1=1`
         ))
         .limit(options.limit || 10000);
       
