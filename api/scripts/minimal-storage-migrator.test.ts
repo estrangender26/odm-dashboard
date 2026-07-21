@@ -227,3 +227,53 @@ describe("Side-effect safety", () => {
     expect(shouldOverwrite).toBe(false);
   });
 });
+
+import { shouldRejectExecution } from "../../scripts/minimal-storage-migrator";
+
+describe("shouldRejectExecution regression tests", () => {
+  it("no flags => allowed as dry-run", () => {
+    // No flags: dry-run mode should be allowed
+    expect(shouldRejectExecution(false, false)).toBe(false);
+  });
+
+  it("--execute only => blocked", () => {
+    // --execute without --confirm-production should be rejected
+    expect(shouldRejectExecution(true, false)).toBe(true);
+  });
+
+  it("--confirm-production only => allowed as dry-run", () => {
+    // --confirm-production alone should not trigger execution (dry-run)
+    expect(shouldRejectExecution(false, true)).toBe(false);
+  });
+
+  it("both flags => allowed for execution", () => {
+    // Both flags present: execution allowed
+    expect(shouldRejectExecution(true, true)).toBe(false);
+  });
+});
+
+describe("Execution-mode integration", () => {
+  it("main entry-point allows dry-run with no flags", () => {
+    // When shouldRejectExecution returns false, main() proceeds
+    const execute = false;
+    const confirmProduction = false;
+    expect(shouldRejectExecution(execute, confirmProduction)).toBe(false);
+    // migrator continues in dry-run mode
+  });
+
+  it("main entry-point blocks --execute only", () => {
+    // When shouldRejectExecution returns true, main() exits with error
+    const execute = true;
+    const confirmProduction = false;
+    expect(shouldRejectExecution(execute, confirmProduction)).toBe(true);
+    // migrator would exit(1) with error
+  });
+
+  it("main entry-point allows execution with both flags", () => {
+    // When shouldRejectExecution returns false, main() proceeds
+    const execute = true;
+    const confirmProduction = true;
+    expect(shouldRejectExecution(execute, confirmProduction)).toBe(false);
+    // migrator continues in execute mode
+  });
+});

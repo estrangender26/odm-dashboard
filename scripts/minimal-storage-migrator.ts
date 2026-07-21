@@ -529,8 +529,8 @@ async function main() {
   console.log(`Mode: ${options.execute ? "EXECUTE" : "DRY-RUN"}`);
   console.log(`Sources: ${options.sources.join(", ")}`);
   
-  if (!canExecute(options.execute, options.confirmProduction)) {
-    console.error("ERROR: --execute and --confirm-production required for execute mode");
+  if (shouldRejectExecution(options.execute, options.confirmProduction)) {
+    console.error("ERROR: --confirm-production required for execute mode");
     process.exit(1);
   }
   
@@ -636,6 +636,15 @@ export { SOURCES, SOURCE_BUCKETS, SOURCE_TABLES };
  */
 export function canExecute(execute: boolean, confirmProduction: boolean): boolean {
   return execute && confirmProduction;
+}
+
+/**
+ * Check if execution should be rejected based on flags
+ * Returns true only when --execute is present but --confirm-production is not
+ * This allows dry-run (no flags or --confirm-production only) but blocks partial execution flags
+ */
+export function shouldRejectExecution(execute: boolean, confirmProduction: boolean): boolean {
+  return execute && !canExecute(execute, confirmProduction);
 }
 
 /**
