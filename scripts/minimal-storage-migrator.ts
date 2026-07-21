@@ -14,7 +14,7 @@ import { join } from "path";
 import { db } from "../api/queries/connection";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { governanceUploads, docFiles, governanceFiles, smpDocuments } from "../db/schema";
-import { decodePayloadStream, type StreamDecodeResult } from "./lib/payload-decoder";
+import { decodePayload, MAX_DECODED_BYTES, type DecodeResult } from "./lib/payload-decoder";
 
 // ============================================================================
 // CONFIGURATION
@@ -144,11 +144,18 @@ async function decodePayloadToFile(
   outputPath: string,
   options: { filename?: string; sourceMimeType?: string }
 ): Promise<{ size: number; sha256: string; mimeType: string }> {
-  const result = await decodePayloadStream(payload, { ...options, tempPath: outputPath });
+  const result = decodePayload(payload, options);
   
   if (!result.success) {
     throw new Error(result.error || "Decode failed");
   }
+  
+  if (!result.bytes) {
+    throw new Error("No decoded bytes");
+  }
+  
+  // Write decoded bytes to file
+  await writeFile(outputPath, result.bytes);
   
   return {
     size: result.size!,
@@ -264,12 +271,11 @@ async function getSourceFingerprint(
 }
 
 async function getRecord(source: Source, id: number): Promise<MigrationRecord | null> {
-  const config = getSourceConfig(source);
-  const table = config.table;
-  const column = config.payloadColumn;
+  const table = SOURCE_TABLES[source];
+  const column = source === "governance_uploads" ? "file_url" : "file_data";
   
-  // Use mimeColumn from config (null for governance_uploads)
-  const fileTypeColumn = config.mimeColumn || "NULL";
+  // governance_uploads has no file_type column; return NULL for it
+  const fileTypeColumn = source === "governance_uploads" ? "NULL" : "file_type";
   
   const result = await db
     .select({
@@ -305,9 +311,8 @@ async function commitMetadata(
   mimeType: string,
   fingerprint: { length: number; hash: string }
 ): Promise<boolean> {
-  const config = getSourceConfig(source);
-  const table = config.table;
-  const column = config.payloadColumn;
+  const table = SOURCE_TABLES[source];
+  const column = source === "governance_uploads" ? "file_url" : "file_data";
   
   const result = await db
     .update(table)
@@ -529,7 +534,7 @@ async function main() {
   console.log(`Mode: ${options.execute ? "EXECUTE" : "DRY-RUN"}`);
   console.log(`Sources: ${options.sources.join(", ")}`);
   
-  if (shouldRejectExecution(options.execute, options.confirmProduction)) {
+  if (options.execute && !options.confirmProduction) {
     console.error("ERROR: --confirm-production required for execute mode");
     process.exit(1);
   }
@@ -571,7 +576,7 @@ async function main() {
         .where(and(
           sql`${sql.raw(column)} IS NOT NULL`,
           isNull(sql`storage_path`),
-          isRecordExcluded(source, 31) ? sql`id != 31` : sql`1=1`
+          source === "smp_documents" ? sql`id != 31` : sql`1=1`
         ))
         .limit(options.limit || 10000);
       
@@ -624,55 +629,4 @@ if (currentFile === executedFile || executedFile.endsWith("minimal-storage-migra
   });
 }
 
-// ============================================================================
-// EXPORTED HELPERS FOR TESTING
-// ============================================================================
-
-export type { Source };
-export { SOURCES, SOURCE_BUCKETS, SOURCE_TABLES };
-
-/**
- * Check if execution is allowed based on flags
- */
-export function canExecute(execute: boolean, confirmProduction: boolean): boolean {
-  return execute && confirmProduction;
-}
-
-/**
- * Check if execution should be rejected based on flags
- * Returns true only when --execute is present but --confirm-production is not
- * This allows dry-run (no flags or --confirm-production only) but blocks partial execution flags
- */
-export function shouldRejectExecution(execute: boolean, confirmProduction: boolean): boolean {
-  return execute && !canExecute(execute, confirmProduction);
-}
-
-/**
- * Check if a record should be excluded based on source and ID
- * Only smp_documents.id = 31 is excluded
- */
-export function isRecordExcluded(source: Source, id: number): boolean {
-  return source === "smp_documents" && id === 31;
-}
-
-/**
- * Get source configuration (bucket, payload field, etc.)
- */
-export function getSourceConfig(source: Source) {
-  const bucket = SOURCE_BUCKETS[source];
-  const payloadColumn = source === "governance_uploads" ? "file_url" : "file_data";
-  const filenameColumn = "file_name";
-  const mimeColumn = source === "governance_uploads" ? null : "file_type";
-  const table = SOURCE_TABLES[source];
-  
-  return {
-    bucket,
-    payloadColumn,
-    filenameColumn,
-    mimeColumn,
-    table,
-  };
-}
-
-export { checkStorageObject, uploadToStorage };
 export { processRecord, generateStoragePath };

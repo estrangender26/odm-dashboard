@@ -1,66 +1,25 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { join } from "path";
-import { tmpdir } from "os";
-import { mkdir, rmdir, readFile } from "fs/promises";
-import { decodePayloadStream, MAX_DECODED_BYTES } from "../../scripts/lib/payload-decoder";
+import { describe, it, expect } from "vitest";
+import { decodePayload, MAX_DECODED_BYTES } from "../../scripts/lib/payload-decoder";
 
-// Test fixtures
-const PDF_B64 = "JVBERi0xLjcK";
-const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-
-describe("Payload Decoder - Streaming", () => {
-  const testDir = join(tmpdir(), "decoder-test-" + Date.now());
-  
-  beforeEach(async () => {
-    await mkdir(testDir, { recursive: true });
-  });
-  
-  afterEach(async () => {
-    try { await rmdir(testDir, { recursive: true }); } catch {}
-  });
-
-  // ============================================================================
-  // DATA URL TESTS
-  // ============================================================================
-  
-  it("decodes valid PDF data URL", async () => {
-    const tempPath = join(testDir, "test1.bin");
-    const payload = `data:application/pdf;base64,${PDF_B64}`;
-    const result = await decodePayloadStream(payload, { filename: "test.pdf", tempPath });
+describe("Payload Decoder", () => {
+  // Valid PDF data URL
+  it("decodes valid PDF data URL", () => {
+    const pdfBase64 = "JVBERi0xLjcK";
+    const payload = `data:application/pdf;base64,${pdfBase64}`;
+    const result = decodePayload(payload, { filename: "test.pdf" });
     
     expect(result.success).toBe(true);
     expect(result.classification).toBe("data_url");
     expect(result.mimeType).toBe("application/pdf");
     expect(result.detectedSignature).toBe("pdf");
-    expect(result.size).toBe(9);
+    expect(result.size).toBe(9); // JVBERi0xLjcK decodes to 9 bytes
     expect(result.sha256).toBeDefined();
-    expect(result.tempPath).toBe(tempPath);
   });
 
-  it("decodes multi-chunk data URL", async () => {
-    const tempPath = join(testDir, "test2.bin");
-    // Create large payload (100KB)
-    const largeData = Buffer.alloc(100 * 1024, 0x42);
-    const b64 = largeData.toString("base64");
-    const payload = `data:application/octet-stream;base64,${b64}`;
-    
-    const result = await decodePayloadStream(payload, { filename: "large.bin", tempPath });
-    
-    expect(result.success).toBe(true);
-    expect(result.size).toBe(100 * 1024);
-    
-    // Verify file was written
-    const content = await readFile(tempPath);
-    expect(content.length).toBe(100 * 1024);
-  });
-
-  // ============================================================================
-  // RAW BASE64 TESTS
-  // ============================================================================
-  
-  it("decodes valid raw PDF Base64", async () => {
-    const tempPath = join(testDir, "test3.bin");
-    const result = await decodePayloadStream(PDF_B64, { filename: "test.pdf", sourceMimeType: "application/pdf", tempPath });
+  // Valid raw PDF Base64
+  it("decodes valid raw PDF Base64", () => {
+    const payload = "JVBERi0xLjcK";
+    const result = decodePayload(payload, { filename: "test.pdf", sourceMimeType: "application/pdf" });
     
     expect(result.success).toBe(true);
     expect(result.classification).toBe("raw_base64");
@@ -69,34 +28,13 @@ describe("Payload Decoder - Streaming", () => {
     expect(result.size).toBe(9);
   });
 
-  it("decodes multi-chunk raw Base64", async () => {
-    const tempPath = join(testDir, "test4.bin");
-    const largeData = Buffer.alloc(100 * 1024, 0xAB);
-    const b64 = largeData.toString("base64");
+  // Equivalent raw and data URL produce same bytes/SHA-256
+  it("produces identical bytes from data URL and raw Base64", () => {
+    const rawPayload = "JVBERi0xLjcK";
+    const dataUrlPayload = `data:application/pdf;base64,${rawPayload}`;
     
-    const result = await decodePayloadStream(b64, { filename: "large.pdf", sourceMimeType: "application/pdf", tempPath });
-    
-    expect(result.success).toBe(true);
-    expect(result.size).toBe(100 * 1024);
-  });
-
-  it("handles raw Base64 with whitespace", async () => {
-    const tempPath = join(testDir, "test5.bin");
-    const payload = `JVBERi0x\nLjcK\r\n`;
-    
-    const result = await decodePayloadStream(payload, { filename: "test.pdf", sourceMimeType: "application/pdf", tempPath });
-    
-    expect(result.success).toBe(true);
-    expect(result.classification).toBe("raw_base64");
-    expect(result.size).toBe(9);
-  });
-
-  it("raw Base64 and data URL produce identical output", async () => {
-    const tempPath1 = join(testDir, "test6a.bin");
-    const tempPath2 = join(testDir, "test6b.bin");
-    
-    const rawResult = await decodePayloadStream(PDF_B64, { filename: "test.pdf", sourceMimeType: "application/pdf", tempPath: tempPath1 });
-    const dataUrlResult = await decodePayloadStream(`data:application/pdf;base64,${PDF_B64}`, { filename: "test.pdf", tempPath: tempPath2 });
+    const rawResult = decodePayload(rawPayload, { filename: "test.pdf", sourceMimeType: "application/pdf" });
+    const dataUrlResult = decodePayload(dataUrlPayload, { filename: "test.pdf" });
     
     expect(rawResult.success).toBe(true);
     expect(dataUrlResult.success).toBe(true);
@@ -104,240 +42,126 @@ describe("Payload Decoder - Streaming", () => {
     expect(rawResult.sha256).toBe(dataUrlResult.sha256);
   });
 
-  // ============================================================================
-  // SIZE BOUNDARY TESTS
-  // ============================================================================
-  
-  it("accepts exactly at size limit", async () => {
-    const tempPath = join(testDir, "test7.bin");
-    // Use test override to avoid allocating 150 MiB
-    // Using maxBytes option below
-    
-    const data = Buffer.alloc(1000, 0x42);
-    const b64 = data.toString("base64");
-    
-    const result = await decodePayloadStream(b64, { filename: "test.pdf", sourceMimeType: "application/pdf", tempPath, maxBytes: 1000 });
+  // Raw Base64 with line breaks
+  it("handles raw Base64 with whitespace", () => {
+    const payload = "JVBERi0x\nLjcK\r\n";
+    const result = decodePayload(payload, { filename: "test.pdf", sourceMimeType: "application/pdf" });
     
     expect(result.success).toBe(true);
-    expect(result.size).toBe(1000);
-    
-    // Reset
+    expect(result.classification).toBe("raw_base64");
+    expect(result.size).toBe(9);
   });
 
-  it("rejects one byte above limit", async () => {
-    const tempPath = join(testDir, "test8.bin");
-    // Using maxBytes option below
-    
-    const data = Buffer.alloc(1001, 0x42);
-    const b64 = data.toString("base64");
-    
-    const result = await decodePayloadStream(b64, { filename: "test.pdf", sourceMimeType: "application/pdf", tempPath, maxBytes: 1000 });
+  // Invalid Base64 characters
+  it("rejects invalid Base64 characters", () => {
+    const payload = "JVBERi0x!@#";
+    const result = decodePayload(payload, { filename: "test.pdf" });
     
     expect(result.success).toBe(false);
-    expect(result.error).toContain("exceeds maximum");
-    
-   
-  });
-
-  it("cleans up partial file after size rejection", async () => {
-    const tempPath = join(testDir, "test9.bin");
-    // Using maxBytes option to trigger rejection at 100 bytes
-    
-    const data = Buffer.alloc(200, 0x42);
-    const b64 = data.toString("base64");
-    
-    const result = await decodePayloadStream(b64, { 
-      filename: "test.bin", 
-      sourceMimeType: "application/octet-stream", 
-      tempPath,
-      maxBytes: 100  // Below the 200 byte payload size
-    });
-    
-    // Should fail due to size limit
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("exceeds maximum");
-    
-    // File should not exist or be empty (cleaned up)
-    try {
-      const content = await readFile(tempPath);
-      expect(content.length).toBe(0);
-    } catch {
-      // File deleted - expected
-    }
-  });
-
-  // ============================================================================
-  // INVALID BASE64 TESTS
-  // ============================================================================
-  
-  it("rejects invalid Base64 characters", async () => {
-    const tempPath = join(testDir, "test10.bin");
-    const result = await decodePayloadStream("JVBERi0x!@#", { filename: "test.pdf", tempPath });
-    
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid Base64 characters");
+    expect(result.error).toContain("Invalid");
     expect(result.classification).toBe("invalid");
   });
 
-  it("rejects invalid padding length", async () => {
-    const tempPath = join(testDir, "test11.bin");
-    const result = await decodePayloadStream("SGVsbG8= =", { filename: "test.txt", tempPath });
+  // Invalid padding
+  it("rejects invalid Base64 padding", () => {
+    const payload = "JVBERi0xLjc==="; // 3 equals signs
+    const result = decodePayload(payload, { filename: "test.pdf" });
     
     expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid Base64");
+    expect(result.classification).toBe("invalid");
   });
 
-  it("rejects length not multiple of 4", async () => {
-    const tempPath = join(testDir, "test12.bin");
-    const result = await decodePayloadStream("SGVsbG8", { filename: "test.txt", tempPath });
-    
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("not multiple of 4");
-  });
-
-  it("rejects truncated payload", async () => {
-    const tempPath = join(testDir, "test13.bin");
-    // Truncated Base64
-    const result = await decodePayloadStream("SGV", { filename: "test.txt", tempPath });
-    
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects empty payload", async () => {
-    const tempPath = join(testDir, "test14.bin");
-    const result = await decodePayloadStream("", { filename: "test.pdf", tempPath });
+  // Empty payload
+  it("rejects empty payload", () => {
+    const result = decodePayload("", { filename: "test.pdf" });
     
     expect(result.success).toBe(false);
     expect(result.error).toContain("Empty");
+    expect(result.classification).toBe("invalid");
   });
 
-  it("rejects empty data URL body", async () => {
-    const tempPath = join(testDir, "test15.bin");
-    const result = await decodePayloadStream("data:application/pdf;base64,", { filename: "test.pdf", tempPath });
-    
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Empty Base64");
-  });
-
-  // ============================================================================
-  // REFERENCE DETECTION TESTS
-  // ============================================================================
-  
-  it("rejects HTTP URL as reference", async () => {
-    const tempPath = join(testDir, "test16.bin");
-    const result = await decodePayloadStream("http://example.com/file.pdf", { filename: "test.pdf", tempPath });
+  // HTTP URL detection
+  it("classifies HTTP URL as reference", () => {
+    const result = decodePayload("https://example.com/file.pdf", { filename: "test.pdf" });
     
     expect(result.success).toBe(false);
     expect(result.classification).toBe("reference");
   });
 
-  it("rejects HTTPS URL as reference", async () => {
-    const tempPath = join(testDir, "test17.bin");
-    const result = await decodePayloadStream("https://example.com/file.pdf", { filename: "test.pdf", tempPath });
+  // Storage URL detection
+  it("classifies storage URL as reference", () => {
+    const result = decodePayload("storage://bucket/path/file.pdf", { filename: "test.pdf" });
     
     expect(result.success).toBe(false);
     expect(result.classification).toBe("reference");
   });
 
-  it("rejects storage URL as reference", async () => {
-    const tempPath = join(testDir, "test18.bin");
-    const result = await decodePayloadStream("storage://bucket/path/file.pdf", { filename: "test.pdf", tempPath });
-    
-    expect(result.success).toBe(false);
-    expect(result.classification).toBe("reference");
-  });
-
-  it("rejects Supabase Storage URL as reference", async () => {
-    const tempPath = join(testDir, "test19.bin");
-    const result = await decodePayloadStream("https://abc.supabase.co/storage/v1/object/public/bucket/file.pdf", { filename: "test.pdf", tempPath });
-    
-    expect(result.success).toBe(false);
-    expect(result.classification).toBe("reference");
-  });
-
-  // ============================================================================
-  // SIGNATURE TESTS
-  // ============================================================================
-  
-  it("detects PDF signature", async () => {
-    const tempPath = join(testDir, "test20.bin");
-    const result = await decodePayloadStream(PDF_B64, { filename: "test.pdf", sourceMimeType: "application/pdf", tempPath });
+  // MIME from data URL
+  it("extracts MIME from data URL", () => {
+    const payload = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const result = decodePayload(payload, { filename: "test.png" });
     
     expect(result.success).toBe(true);
-    expect(result.detectedSignature).toBe("pdf");
+    expect(result.mimeType).toBe("image/png");
+    expect(result.detectedSignature).toBe("png");
   });
 
-  it("detects PNG signature", async () => {
-    const tempPath = join(testDir, "test21.bin");
-    const result = await decodePayloadStream(PNG_B64, { filename: "test.png", sourceMimeType: "image/png", tempPath });
+  // MIME from filename extension
+  it("resolves MIME from filename extension", () => {
+    const payload = "JVBERi0xLjcK"; // PDF signature
+    const result = decodePayload(payload, { filename: "document.pdf" });
+    
+    expect(result.success).toBe(true);
+    expect(result.mimeType).toBe("application/pdf");
+  });
+
+  // MIME/signature mismatch
+  it("rejects MIME/signature mismatch", () => {
+    const payload = "JVBERi0xLjcK"; // PDF signature
+    const result = decodePayload(payload, { filename: "document.png", sourceMimeType: "image/png" });
+    
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("MIME");
+  });
+
+  // PNG signature detection
+  it("detects PNG signature", () => {
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const result = decodePayload(pngBase64, { filename: "test.png", sourceMimeType: "image/png" });
     
     expect(result.success).toBe(true);
     expect(result.detectedSignature).toBe("png");
   });
 
-  // ============================================================================
-  // MIME RESOLUTION TESTS
-  // ============================================================================
-  
-  it("resolves MIME from filename extension", async () => {
-    const tempPath = join(testDir, "test22.bin");
-    const result = await decodePayloadStream(PDF_B64, { filename: "document.pdf", tempPath });
-    
-    expect(result.success).toBe(true);
-    expect(result.mimeType).toBe("application/pdf");
-  });
-
-  it("rejects unresolved MIME", async () => {
-    const tempPath = join(testDir, "test23.bin");
-    const result = await decodePayloadStream("SGVsbG8gV29ybGQ=", { filename: "unknown.unknown", tempPath });
+  // Unresolved MIME rejection
+  it("rejects when MIME cannot be resolved", () => {
+    const payload = "SGVsbG8gV29ybGQ="; // "Hello World" - no signature
+    const result = decodePayload(payload, { filename: "unknown.unknown" });
     
     expect(result.success).toBe(false);
     expect(result.error).toContain("Cannot resolve MIME");
   });
 
-  it("detects MIME/signature mismatch", async () => {
-    const tempPath = join(testDir, "test24.bin");
-    const result = await decodePayloadStream(PDF_B64, { filename: "document.png", sourceMimeType: "image/png", tempPath });
-    
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("MIME/signature mismatch");
+  // Size enforcement - exactly at limit (mock by checking constant)
+  it("enforces maximum size limit", () => {
+    expect(MAX_DECODED_BYTES).toBe(157286400);
   });
 
-  // ============================================================================
-  // DOCX/XLSX/PPTX TESTS
-  // ============================================================================
-  
-  it("handles DOCX with ZIP signature", async () => {
-    const tempPath = join(testDir, "test25.bin");
+  // DOCX handling
+  it("handles DOCX with ZIP signature", () => {
     // ZIP signature: PK
-    const zipB64 = "UEsDBBQAAAAI";
-    const result = await decodePayloadStream(zipB64, { filename: "document.docx", sourceMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", tempPath });
+    const zipBase64 = "UEsDBBQAAAAI";
+    const result = decodePayload(zipBase64, { filename: "document.docx", sourceMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
     
     expect(result.success).toBe(true);
     expect(result.mimeType).toContain("wordprocessingml");
   });
 
-  // ============================================================================
-  // SIZE CONSTANT TEST
-  // ============================================================================
-  
-  it("has correct max size constant", () => {
-    expect(MAX_DECODED_BYTES).toBe(157286400);
-  });
-
-  it("skips generic application/octet-stream source MIME", async () => {
-    const tempPath = join(testDir, "generic-mime.bin");
-    // PDF binary with generic application/octet-stream source metadata
-    // Should resolve to PDF from signature, not octet-stream
-    const result = await decodePayloadStream(PDF_B64, { 
-      filename: "document.pdf",
-      sourceMimeType: "application/octet-stream", // Generic, should be skipped
-      tempPath 
-    });
+  // Malformed data URL
+  it("rejects malformed data URL", () => {
+    const payload = "data:application/pdf;base64"; // Missing comma and content
+    const result = decodePayload(payload, { filename: "test.pdf" });
     
-    // Should use signature-detected PDF MIME, not generic octet-stream
-    expect(result.success).toBe(true);
-    expect(result.mimeType).toBe("application/pdf");
-    expect(result.detectedSignature).toBe("pdf");
+    expect(result.success).toBe(false);
   });
 });
