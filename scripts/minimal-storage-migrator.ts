@@ -14,6 +14,7 @@ import { join } from "path";
 import { db } from "../api/queries/connection";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { governanceUploads, docFiles, governanceFiles, smpDocuments } from "../db/schema";
+import { decodePayloadStream, type StreamDecodeResult } from "./lib/payload-decoder";
 
 // ============================================================================
 // CONFIGURATION
@@ -138,71 +139,22 @@ function generateStoragePath(source: Source, id: number, filename: string): stri
 // BASE64 DECODING (bounded chunks)
 // ============================================================================
 
-async function decodeBase64Stream(
-  fileUrl: string,
+async function decodePayloadToFile(
+  payload: string,
   outputPath: string,
-  onProgress?: (bytes: number) => void
+  options: { filename?: string; sourceMimeType?: string }
 ): Promise<{ size: number; sha256: string; mimeType: string }> {
-  // Extract data URL components
-  const commaIndex = fileUrl.indexOf(",");
-  if (commaIndex === -1) {
-    throw new Error("Invalid data URL: no comma separator");
+  const result = await decodePayloadStream(payload, { ...options, tempPath: outputPath });
+  
+  if (!result.success) {
+    throw new Error(result.error || "Decode failed");
   }
   
-  const header = fileUrl.substring(0, commaIndex);
-  const payload = fileUrl.substring(commaIndex + 1);
-  
-  // Parse MIME type from header
-  const mimeMatch = header.match(/data:([^;]+)/);
-  const mimeType = mimeMatch?.[1] ?? "application/octet-stream";
-  
-  // Validate Base64 characters only
-  const invalidMatch = payload.match(/[^A-Za-z0-9+/=\s]/);
-  if (invalidMatch) {
-    throw new Error(`Invalid Base64 character: ${invalidMatch[0]}`);
-  }
-  
-  // Decode in bounded chunks
-  const hash = createHash("sha256");
-  let decodedSize = 0;
-  let carryOver = "";
-  
-  const writeStream = await import("fs");
-  const fd = await writeFile(outputPath, ""); // Create/truncate
-  
-  for (let i = 0; i < payload.length; i += CHUNK_SIZE) {
-    const chunk = payload.slice(i, i + CHUNK_SIZE);
-    const combined = carryOver + chunk;
-    
-    // Extract complete 4-char groups
-    const remainder = combined.length % 4;
-    const processable = remainder === 0 ? combined : combined.slice(0, -remainder);
-    carryOver = remainder === 0 ? "" : combined.slice(-remainder);
-    
-    if (processable.length > 0) {
-      const buffer = Buffer.from(processable, "base64");
-      await writeFile(outputPath, buffer, { flag: "a" });
-      hash.update(buffer);
-      decodedSize += buffer.length;
-      
-      if (onProgress) {
-        onProgress(decodedSize);
-      }
-    }
-  }
-  
-  // Process final carry-over
-  if (carryOver) {
-    if (!/^[A-Za-z0-9+/]*=?=?$/.test(carryOver)) {
-      throw new Error("Invalid Base64 in final chunk");
-    }
-    const buffer = Buffer.from(carryOver, "base64");
-    await writeFile(outputPath, buffer, { flag: "a" });
-    hash.update(buffer);
-    decodedSize += buffer.length;
-  }
-  
-  return { size: decodedSize, sha256: hash.digest("hex"), mimeType };
+  return {
+    size: result.size!,
+    sha256: result.sha256!,
+    mimeType: result.mimeType!,
+  };
 }
 
 // ============================================================================
@@ -312,11 +264,12 @@ async function getSourceFingerprint(
 }
 
 async function getRecord(source: Source, id: number): Promise<MigrationRecord | null> {
-  const table = SOURCE_TABLES[source];
-  const column = source === "governance_uploads" ? "file_url" : "file_data";
+  const config = getSourceConfig(source);
+  const table = config.table;
+  const column = config.payloadColumn;
   
-  // governance_uploads has no file_type column; return NULL for it
-  const fileTypeColumn = source === "governance_uploads" ? "NULL" : "file_type";
+  // Use mimeColumn from config (null for governance_uploads)
+  const fileTypeColumn = config.mimeColumn || "NULL";
   
   const result = await db
     .select({
@@ -352,8 +305,9 @@ async function commitMetadata(
   mimeType: string,
   fingerprint: { length: number; hash: string }
 ): Promise<boolean> {
-  const table = SOURCE_TABLES[source];
-  const column = source === "governance_uploads" ? "file_url" : "file_data";
+  const config = getSourceConfig(source);
+  const table = config.table;
+  const column = config.payloadColumn;
   
   const result = await db
     .update(table)
@@ -431,7 +385,7 @@ async function processRecord(
     console.log(`  [${id}] Decoding...`);
     // Fetch full Base64 in bounded chunks via SQL
     const fileUrl = await fetchFullBase64(source, id, record.legacyDataLength);
-    const decoded = await decodeBase64Stream(fileUrl, tempPath);
+    const decoded = await decodePayloadToFile(fileUrl, tempPath, { filename: record.fileName || undefined, sourceMimeType: record.fileType || undefined });
     
     const path = generateStoragePath(source, id, record.fileName || "unnamed");
     
@@ -575,7 +529,7 @@ async function main() {
   console.log(`Mode: ${options.execute ? "EXECUTE" : "DRY-RUN"}`);
   console.log(`Sources: ${options.sources.join(", ")}`);
   
-  if (options.execute && !options.confirmProduction) {
+  if (shouldRejectExecution(options.execute, options.confirmProduction)) {
     console.error("ERROR: --confirm-production required for execute mode");
     process.exit(1);
   }
@@ -617,7 +571,7 @@ async function main() {
         .where(and(
           sql`${sql.raw(column)} IS NOT NULL`,
           isNull(sql`storage_path`),
-          source === "smp_documents" ? sql`id != 31` : sql`1=1`
+          isRecordExcluded(source, 31) ? sql`id != 31` : sql`1=1`
         ))
         .limit(options.limit || 10000);
       
@@ -670,4 +624,55 @@ if (currentFile === executedFile || executedFile.endsWith("minimal-storage-migra
   });
 }
 
-export { processRecord, decodeBase64Stream, generateStoragePath };
+// ============================================================================
+// EXPORTED HELPERS FOR TESTING
+// ============================================================================
+
+export type { Source };
+export { SOURCES, SOURCE_BUCKETS, SOURCE_TABLES };
+
+/**
+ * Check if execution is allowed based on flags
+ */
+export function canExecute(execute: boolean, confirmProduction: boolean): boolean {
+  return execute && confirmProduction;
+}
+
+/**
+ * Check if execution should be rejected based on flags
+ * Returns true only when --execute is present but --confirm-production is not
+ * This allows dry-run (no flags or --confirm-production only) but blocks partial execution flags
+ */
+export function shouldRejectExecution(execute: boolean, confirmProduction: boolean): boolean {
+  return execute && !canExecute(execute, confirmProduction);
+}
+
+/**
+ * Check if a record should be excluded based on source and ID
+ * Only smp_documents.id = 31 is excluded
+ */
+export function isRecordExcluded(source: Source, id: number): boolean {
+  return source === "smp_documents" && id === 31;
+}
+
+/**
+ * Get source configuration (bucket, payload field, etc.)
+ */
+export function getSourceConfig(source: Source) {
+  const bucket = SOURCE_BUCKETS[source];
+  const payloadColumn = source === "governance_uploads" ? "file_url" : "file_data";
+  const filenameColumn = "file_name";
+  const mimeColumn = source === "governance_uploads" ? null : "file_type";
+  const table = SOURCE_TABLES[source];
+  
+  return {
+    bucket,
+    payloadColumn,
+    filenameColumn,
+    mimeColumn,
+    table,
+  };
+}
+
+export { checkStorageObject, uploadToStorage };
+export { processRecord, generateStoragePath };
