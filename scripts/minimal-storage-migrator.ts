@@ -14,6 +14,7 @@ import { join } from "path";
 import { db } from "../api/queries/connection";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { governanceUploads, docFiles, governanceFiles, smpDocuments } from "../db/schema";
+import { decodePayload, MAX_DECODED_BYTES, type DecodeResult } from "./lib/payload-decoder";
 
 // ============================================================================
 // CONFIGURATION
@@ -138,71 +139,29 @@ function generateStoragePath(source: Source, id: number, filename: string): stri
 // BASE64 DECODING (bounded chunks)
 // ============================================================================
 
-async function decodeBase64Stream(
-  fileUrl: string,
+async function decodePayloadToFile(
+  payload: string,
   outputPath: string,
-  onProgress?: (bytes: number) => void
+  options: { filename?: string; sourceMimeType?: string }
 ): Promise<{ size: number; sha256: string; mimeType: string }> {
-  // Extract data URL components
-  const commaIndex = fileUrl.indexOf(",");
-  if (commaIndex === -1) {
-    throw new Error("Invalid data URL: no comma separator");
+  const result = decodePayload(payload, options);
+  
+  if (!result.success) {
+    throw new Error(result.error || "Decode failed");
   }
   
-  const header = fileUrl.substring(0, commaIndex);
-  const payload = fileUrl.substring(commaIndex + 1);
-  
-  // Parse MIME type from header
-  const mimeMatch = header.match(/data:([^;]+)/);
-  const mimeType = mimeMatch?.[1] ?? "application/octet-stream";
-  
-  // Validate Base64 characters only
-  const invalidMatch = payload.match(/[^A-Za-z0-9+/=\s]/);
-  if (invalidMatch) {
-    throw new Error(`Invalid Base64 character: ${invalidMatch[0]}`);
+  if (!result.bytes) {
+    throw new Error("No decoded bytes");
   }
   
-  // Decode in bounded chunks
-  const hash = createHash("sha256");
-  let decodedSize = 0;
-  let carryOver = "";
+  // Write decoded bytes to file
+  await writeFile(outputPath, result.bytes);
   
-  const writeStream = await import("fs");
-  const fd = await writeFile(outputPath, ""); // Create/truncate
-  
-  for (let i = 0; i < payload.length; i += CHUNK_SIZE) {
-    const chunk = payload.slice(i, i + CHUNK_SIZE);
-    const combined = carryOver + chunk;
-    
-    // Extract complete 4-char groups
-    const remainder = combined.length % 4;
-    const processable = remainder === 0 ? combined : combined.slice(0, -remainder);
-    carryOver = remainder === 0 ? "" : combined.slice(-remainder);
-    
-    if (processable.length > 0) {
-      const buffer = Buffer.from(processable, "base64");
-      await writeFile(outputPath, buffer, { flag: "a" });
-      hash.update(buffer);
-      decodedSize += buffer.length;
-      
-      if (onProgress) {
-        onProgress(decodedSize);
-      }
-    }
-  }
-  
-  // Process final carry-over
-  if (carryOver) {
-    if (!/^[A-Za-z0-9+/]*=?=?$/.test(carryOver)) {
-      throw new Error("Invalid Base64 in final chunk");
-    }
-    const buffer = Buffer.from(carryOver, "base64");
-    await writeFile(outputPath, buffer, { flag: "a" });
-    hash.update(buffer);
-    decodedSize += buffer.length;
-  }
-  
-  return { size: decodedSize, sha256: hash.digest("hex"), mimeType };
+  return {
+    size: result.size!,
+    sha256: result.sha256!,
+    mimeType: result.mimeType!,
+  };
 }
 
 // ============================================================================
@@ -431,7 +390,7 @@ async function processRecord(
     console.log(`  [${id}] Decoding...`);
     // Fetch full Base64 in bounded chunks via SQL
     const fileUrl = await fetchFullBase64(source, id, record.legacyDataLength);
-    const decoded = await decodeBase64Stream(fileUrl, tempPath);
+    const decoded = await decodePayloadToFile(fileUrl, tempPath, { filename: record.fileName || undefined, sourceMimeType: record.fileType || undefined });
     
     const path = generateStoragePath(source, id, record.fileName || "unnamed");
     
@@ -670,4 +629,4 @@ if (currentFile === executedFile || executedFile.endsWith("minimal-storage-migra
   });
 }
 
-export { processRecord, decodeBase64Stream, generateStoragePath };
+export { processRecord, generateStoragePath };
