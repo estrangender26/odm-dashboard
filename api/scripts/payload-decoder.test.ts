@@ -74,7 +74,7 @@ describe("Payload Decoder - Streaming", () => {
     const largeData = Buffer.alloc(100 * 1024, 0xAB);
     const b64 = largeData.toString("base64");
     
-    const result = await decodePayloadStream(b64, { filename: "large.bin", sourceMimeType: "application/octet-stream", tempPath });
+    const result = await decodePayloadStream(b64, { filename: "large.pdf", sourceMimeType: "application/pdf", tempPath });
     
     expect(result.success).toBe(true);
     expect(result.size).toBe(100 * 1024);
@@ -116,12 +116,12 @@ describe("Payload Decoder - Streaming", () => {
     const data = Buffer.alloc(1000, 0x42);
     const b64 = data.toString("base64");
     
-    const result = await decodePayloadStream(b64, { filename: "test.bin", sourceMimeType: "application/octet-stream", tempPath, maxBytes: 1000 });
+    const result = await decodePayloadStream(b64, { filename: "test.pdf", sourceMimeType: "application/pdf", tempPath, maxBytes: 1000 });
     
     expect(result.success).toBe(true);
     expect(result.size).toBe(1000);
     
-    // Reset; // Reset
+    // Reset
   });
 
   it("rejects one byte above limit", async () => {
@@ -131,12 +131,12 @@ describe("Payload Decoder - Streaming", () => {
     const data = Buffer.alloc(1001, 0x42);
     const b64 = data.toString("base64");
     
-    const result = await decodePayloadStream(b64, { filename: "test.bin", sourceMimeType: "application/octet-stream", tempPath, maxBytes: 1000 });
+    const result = await decodePayloadStream(b64, { filename: "test.pdf", sourceMimeType: "application/pdf", tempPath, maxBytes: 1000 });
     
     expect(result.success).toBe(false);
     expect(result.error).toContain("exceeds maximum");
     
-    // Reset;
+   
   });
 
   it("cleans up partial file after size rejection", async () => {
@@ -157,7 +157,7 @@ describe("Payload Decoder - Streaming", () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("exceeds maximum");
     
-    // File should not exist (cleaned up) or be empty
+    // File should not exist or be empty (cleaned up)
     try {
       const content = await readFile(tempPath);
       expect(content.length).toBe(0);
@@ -323,5 +323,21 @@ describe("Payload Decoder - Streaming", () => {
   
   it("has correct max size constant", () => {
     expect(MAX_DECODED_BYTES).toBe(157286400);
+  });
+
+  it("skips generic application/octet-stream source MIME", async () => {
+    const tempPath = join(testDir, "generic-mime.bin");
+    // PDF binary with generic application/octet-stream source metadata
+    // Should resolve to PDF from signature, not octet-stream
+    const result = await decodePayloadStream(PDF_B64, { 
+      filename: "document.pdf",
+      sourceMimeType: "application/octet-stream", // Generic, should be skipped
+      tempPath 
+    });
+    
+    // Should use signature-detected PDF MIME, not generic octet-stream
+    expect(result.success).toBe(true);
+    expect(result.mimeType).toBe("application/pdf");
+    expect(result.detectedSignature).toBe("pdf");
   });
 });
