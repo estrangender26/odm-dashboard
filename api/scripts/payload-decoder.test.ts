@@ -141,22 +141,29 @@ describe("Payload Decoder - Streaming", () => {
 
   it("cleans up partial file after size rejection", async () => {
     const tempPath = join(testDir, "test9.bin");
-    // Using maxBytes option instead;
+    // Using maxBytes option to trigger rejection at 100 bytes
     
     const data = Buffer.alloc(200, 0x42);
     const b64 = data.toString("base64");
     
-    await decodePayloadStream(b64, { filename: "test.bin", sourceMimeType: "application/octet-stream", tempPath });
+    const result = await decodePayloadStream(b64, { 
+      filename: "test.bin", 
+      sourceMimeType: "application/octet-stream", 
+      tempPath,
+      maxBytes: 100  // Below the 200 byte payload size
+    });
     
-    // File should not exist or be empty
+    // Should fail due to size limit
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("exceeds maximum");
+    
+    // File should not exist (cleaned up) or be empty
     try {
       const content = await readFile(tempPath);
       expect(content.length).toBe(0);
     } catch {
       // File deleted - expected
     }
-    
-    // Reset;
   });
 
   // ============================================================================
