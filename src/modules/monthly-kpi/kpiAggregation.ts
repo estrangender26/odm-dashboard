@@ -449,6 +449,36 @@ function budgetSpendYtdRecords(records: PersistedMonthlyKpiRecord[]) {
   return records.filter((record) => Number(record.reporting_month) <= latestActualMonth);
 }
 
+function kpiSpecificYtdRecords(
+  key: MonthlyKpiKey,
+  records: PersistedMonthlyKpiRecord[],
+  selectedMonth?: number
+) {
+  // Determine the latest month with valid source data for this KPI,
+  // but never exceed the selectedMonth (common cutoff for all KPIs).
+  // selectedMonth is the absolute upper bound from the dropdown.
+  if (key === "budgetSpend") {
+    const budgetRecords = budgetSpendYtdRecords(records);
+    if (selectedMonth === undefined) return budgetRecords;
+    return budgetRecords.filter((record) => Number(record.reporting_month) <= selectedMonth);
+  }
+
+  const latestMonthWithData = records.reduce((latestMonth, record) => {
+    if (hasRawInputForKpi(key, record)) {
+      return Math.max(latestMonth, Number(record.reporting_month));
+    }
+    return latestMonth;
+  }, 0);
+
+  // Common cutoff: never exceed selectedMonth
+  const effectiveLatestMonth = selectedMonth !== undefined
+    ? Math.min(latestMonthWithData, selectedMonth)
+    : latestMonthWithData;
+
+  if (effectiveLatestMonth === 0) return records;
+  return records.filter((record) => Number(record.reporting_month) <= effectiveLatestMonth);
+}
+
 function hasSubmittedBudgetActualSpend(record: PersistedMonthlyKpiRecord) {
   return (normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend")) !== null;
 }
@@ -513,7 +543,7 @@ function aggregateRecordsForBusinessUnit(
       if (YTD_KEYS.includes(key)) {
         const hasRawInputs = records.some((record) => hasRawInputForKpi(key, record));
         if (hasRawInputs) {
-          const ytdRecords = key === "budgetSpend" ? budgetSpendYtdRecords(records) : records;
+          const ytdRecords = kpiSpecificYtdRecords(key, records, undefined);
           aggregate[key] = computeYtdKpiValue(key, ytdRecords);
           return;
         }
@@ -530,8 +560,10 @@ function aggregateRecordsForBusinessUnit(
 
     if (MONTHLY_ONLY_KEYS.includes(key)) {
       // Running average of monthly KPI values up to the selected month.
+      // All KPIs use the same common cutoff (selectedMonth).
+      const kpiRecords = kpiSpecificYtdRecords(key, records, selectedMonth);
       const values: number[] = [];
-      periodRecords.forEach((record) => {
+      kpiRecords.forEach((record) => {
         if (hasRawInputForKpi(key, record)) {
           const computed = computeMonthlyKpiValue(key, record);
           if (computed !== null) values.push(computed);
@@ -545,9 +577,12 @@ function aggregateRecordsForBusinessUnit(
     }
 
     if (YTD_KEYS.includes(key)) {
-      const hasRawInputs = periodRecords.some((record) => hasRawInputForKpi(key, record));
+      // All KPIs use the same common cutoff (selectedMonth).
+      // KPI-specific logic only handles null/zero within the bounded set.
+      const kpiRecords = kpiSpecificYtdRecords(key, records, selectedMonth);
+      const hasRawInputs = kpiRecords.some((record) => hasRawInputForKpi(key, record));
       if (hasRawInputs) {
-        aggregate[key] = computeYtdKpiValue(key, periodRecords);
+        aggregate[key] = computeYtdKpiValue(key, kpiRecords);
       } else {
         // Fall back to the selected month's stored computed value when raw inputs are unavailable.
         const monthRecord = selectedMonthRecord(records, selectedMonth);

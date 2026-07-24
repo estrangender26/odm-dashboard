@@ -473,3 +473,157 @@ describe("aggregateMonthlyKpiRecords", () => {
     expect(result.portfolioMonthlyAverages[2].budgetSpend).toBeCloseTo((250 / 200) * 100, 2);
   });
 });
+
+// Common cutoff tests - All KPIs use the same selectedMonth as absolute upper bound
+describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", () => {
+  const amdEzBase = {
+    business_unit: "AMD-EZ",
+    reporting_year: 2026,
+    reporting_month: 1,
+    pm_compliance: null,
+    budget_spend: null,
+    pm_cm_work_order_ratio: null,
+    pm_cm_cost_ratio: null,
+    mttr_days: null,
+    facility_uptime: null,
+  };
+
+  it("excludes June for all KPIs when selectedMonth is May (5)", () => {
+    // Full year has Jan-June data for all KPIs
+    // But when selectedMonth=5, ALL KPIs should only use Jan-May
+    const records = [
+      // January - May
+      { ...amdEzBase, reporting_month: 1, pm_compliance: 100, pm_orders_completed_on_time: 100, total_pm_orders: 100, budget_spend: 90, actual_spend: 90, budget: 100, pm_work_orders: 10, cm_work_orders: 5, pm_cost: 1000, cm_cost: 500, mttr_days: 5, total_downtime: 10, number_of_repairs: 2, facility_uptime: 99, facility_operating_time: 100, facility_downtime: 1 },
+      { ...amdEzBase, reporting_month: 2, pm_compliance: 98, pm_orders_completed_on_time: 98, total_pm_orders: 100, budget_spend: 95, actual_spend: 95, budget: 100, pm_work_orders: 12, cm_work_orders: 4, pm_cost: 1100, cm_cost: 450, mttr_days: 4, total_downtime: 8, number_of_repairs: 2, facility_uptime: 98, facility_operating_time: 100, facility_downtime: 2 },
+      { ...amdEzBase, reporting_month: 3, pm_compliance: 97, pm_orders_completed_on_time: 97, total_pm_orders: 100, budget_spend: 92, actual_spend: 92, budget: 100, pm_work_orders: 11, cm_work_orders: 6, pm_cost: 1050, cm_cost: 550, mttr_days: 6, total_downtime: 12, number_of_repairs: 2, facility_uptime: 99, facility_operating_time: 100, facility_downtime: 1 },
+      { ...amdEzBase, reporting_month: 4, pm_compliance: 99, pm_orders_completed_on_time: 99, total_pm_orders: 100, budget_spend: 98, actual_spend: 98, budget: 100, pm_work_orders: 13, cm_work_orders: 3, pm_cost: 1200, cm_cost: 400, mttr_days: 3, total_downtime: 6, number_of_repairs: 2, facility_uptime: 100, facility_operating_time: 100, facility_downtime: 0 },
+      { ...amdEzBase, reporting_month: 5, pm_compliance: 96, pm_orders_completed_on_time: 96, total_pm_orders: 100, budget_spend: 94, actual_spend: 94, budget: 100, pm_work_orders: 9, cm_work_orders: 7, pm_cost: 950, cm_cost: 600, mttr_days: 7, total_downtime: 14, number_of_repairs: 2, facility_uptime: 98, facility_operating_time: 100, facility_downtime: 2 },
+      // June - should be excluded when selectedMonth=5
+      { ...amdEzBase, reporting_month: 6, pm_compliance: 95, pm_orders_completed_on_time: 95, total_pm_orders: 100, budget_spend: 91, actual_spend: 91, budget: 100, pm_work_orders: 14, cm_work_orders: 5, pm_cost: 1300, cm_cost: 500, mttr_days: 4, total_downtime: 8, number_of_repairs: 2, facility_uptime: 100, facility_operating_time: 100, facility_downtime: 0 },
+    ];
+
+    // selectedMonth = 5 (May selected in dropdown)
+    const result = aggregateMonthlyKpiRecords(records, 2026, 5);
+    const amdEz = result.byBusinessUnitMap["AMD-EZ"];
+
+    // All KPIs should only use Jan-May data, NOT June
+    // PM Compliance: average of Jan-May [100, 98, 97, 99, 96] = 98.0
+    expect(amdEz.pmCompliance).toBeCloseTo(98.0, 1);
+
+    // Budget Spend: cumulative Jan-May (90+95+92+98+94) / 500 * 100 = 93.8
+    expect(amdEz.budgetSpend).toBeCloseTo(93.8, 1);
+
+    // PM:CM WO: cumulative Jan-May (55/80) * 100 = 68.75
+    expect(amdEz.pmCmWorkOrderRatio).toBeCloseTo((55/80)*100, 1);
+
+    // PM:CM Cost: cumulative Jan-May (5300/3050) wait no... (5300/8300) * 100 = 63.86
+    // PM = 1000+1100+1050+1200+950 = 5300
+    // CM = 500+450+550+400+600 = 2500
+    // Total = 7800, PM ratio = 5300/7800 * 100 = 67.95
+    expect(amdEz.pmCmCostRatio).toBeCloseTo((5300/7800)*100, 1);
+
+    // MTTR: cumulative Jan-May downtime/repairs = 50/10 = 5.0
+    expect(amdEz.mttrDays).toBeCloseTo(5.0, 1);
+
+    // Facility Uptime: average of Jan-May [99, 98, 99, 100, 98] = 98.8
+    expect(amdEz.facilityUptime).toBeCloseTo(98.8, 1);
+  });
+
+  it("includes June for all KPIs when selectedMonth is June (6)", () => {
+    const records = [
+      // January - June (all months have data)
+      { ...amdEzBase, reporting_month: 1, pm_compliance: 100, pm_orders_completed_on_time: 100, total_pm_orders: 100, budget_spend: 90, actual_spend: 90, budget: 100, pm_work_orders: 10, cm_work_orders: 5, pm_cost: 1000, cm_cost: 500, mttr_days: 5, total_downtime: 10, number_of_repairs: 2, facility_uptime: 99, facility_operating_time: 100, facility_downtime: 1 },
+      { ...amdEzBase, reporting_month: 2, pm_compliance: 98, pm_orders_completed_on_time: 98, total_pm_orders: 100, budget_spend: 95, actual_spend: 95, budget: 100, pm_work_orders: 12, cm_work_orders: 4, pm_cost: 1100, cm_cost: 450, mttr_days: 4, total_downtime: 8, number_of_repairs: 2, facility_uptime: 98, facility_operating_time: 100, facility_downtime: 2 },
+      { ...amdEzBase, reporting_month: 3, pm_compliance: 97, pm_orders_completed_on_time: 97, total_pm_orders: 100, budget_spend: 92, actual_spend: 92, budget: 100, pm_work_orders: 11, cm_work_orders: 6, pm_cost: 1050, cm_cost: 550, mttr_days: 6, total_downtime: 12, number_of_repairs: 2, facility_uptime: 99, facility_operating_time: 100, facility_downtime: 1 },
+      { ...amdEzBase, reporting_month: 4, pm_compliance: 99, pm_orders_completed_on_time: 99, total_pm_orders: 100, budget_spend: 98, actual_spend: 98, budget: 100, pm_work_orders: 13, cm_work_orders: 3, pm_cost: 1200, cm_cost: 400, mttr_days: 3, total_downtime: 6, number_of_repairs: 2, facility_uptime: 100, facility_operating_time: 100, facility_downtime: 0 },
+      { ...amdEzBase, reporting_month: 5, pm_compliance: 96, pm_orders_completed_on_time: 96, total_pm_orders: 100, budget_spend: 94, actual_spend: 94, budget: 100, pm_work_orders: 9, cm_work_orders: 7, pm_cost: 950, cm_cost: 600, mttr_days: 7, total_downtime: 14, number_of_repairs: 2, facility_uptime: 98, facility_operating_time: 100, facility_downtime: 2 },
+      { ...amdEzBase, reporting_month: 6, pm_compliance: 95, pm_orders_completed_on_time: 95, total_pm_orders: 100, budget_spend: 91, actual_spend: 91, budget: 100, pm_work_orders: 14, cm_work_orders: 5, pm_cost: 1300, cm_cost: 500, mttr_days: 4, total_downtime: 8, number_of_repairs: 2, facility_uptime: 100, facility_operating_time: 100, facility_downtime: 0 },
+    ];
+
+    // selectedMonth = 6 (June selected in dropdown)
+    const result = aggregateMonthlyKpiRecords(records, 2026, 6);
+    const amdEz = result.byBusinessUnitMap["AMD-EZ"];
+
+    // All KPIs should include Jan-June data
+    // PM Compliance: average of [100, 98, 97, 99, 96, 95] = 97.5
+    expect(amdEz.pmCompliance).toBeCloseTo(97.5, 1);
+
+    // Budget Spend: cumulative (90+95+92+98+94+91) / 600 * 100 = 560/600 * 100 = 93.33
+    expect(amdEz.budgetSpend).toBeCloseTo((560/600)*100, 1);
+
+    // PM:CM WO: cumulative (69/99) * 100 = 69.697
+    expect(amdEz.pmCmWorkOrderRatio).toBeCloseTo((69/99)*100, 1);
+
+    // MTTR: cumulative (58/12) = 4.833
+    expect(amdEz.mttrDays).toBeCloseTo(58/12, 1);
+
+    // Facility Uptime: average of [99, 98, 99, 100, 98, 100] = 99.0
+    expect(amdEz.facilityUptime).toBeCloseTo(99.0, 1);
+  });
+
+  it("preserves Budget Spend cutoff behavior with numeric zero inside selected period", () => {
+    // Test that explicit zero actual_spend is treated as valid data
+    // but still respects selectedMonth as upper bound
+    const records = [
+      { ...amdEzBase, reporting_month: 1, budget_spend: 50, actual_spend: 50, budget: 100 },
+      { ...amdEzBase, reporting_month: 2, budget_spend: 0, actual_spend: 0, budget: 100 },
+      { ...amdEzBase, reporting_month: 3, budget_spend: 60, actual_spend: 60, budget: 100 },
+      { ...amdEzBase, reporting_month: 4, budget_spend: 70, actual_spend: 70, budget: 100 },
+    ];
+
+    // selectedMonth = 2 - should only include Jan-Feb
+    const result = aggregateMonthlyKpiRecords(records, 2026, 2);
+    const amdEz = result.byBusinessUnitMap["AMD-EZ"];
+
+    // Budget Spend should include January and February (zero is valid)
+    // (50+0) / 200 * 100 = 25
+    // Should NOT include March even though it has data (selectedMonth=2)
+    expect(amdEz.budgetSpend).toBeCloseTo(25, 1);
+  });
+
+  it("handles blank values within selected period without extending cutoff", () => {
+    // June has PM Compliance but no Budget Spend
+    // When selectedMonth=6, June PM Compliance should be included
+    // But June Budget Spend should be null (blank)
+    const records = [
+      { ...amdEzBase, reporting_month: 1, pm_compliance: 100, pm_orders_completed_on_time: 100, total_pm_orders: 100, budget_spend: 90, actual_spend: 90, budget: 100 },
+      { ...amdEzBase, reporting_month: 2, pm_compliance: 98, pm_orders_completed_on_time: 98, total_pm_orders: 100, budget_spend: 95, actual_spend: 95, budget: 100 },
+      { ...amdEzBase, reporting_month: 3, pm_compliance: 97, pm_orders_completed_on_time: 97, total_pm_orders: 100, budget_spend: 92, actual_spend: 92, budget: 100 },
+      { ...amdEzBase, reporting_month: 4, pm_compliance: 99, pm_orders_completed_on_time: 99, total_pm_orders: 100, budget_spend: 98, actual_spend: 98, budget: 100 },
+      { ...amdEzBase, reporting_month: 5, pm_compliance: 96, pm_orders_completed_on_time: 96, total_pm_orders: 100, budget_spend: 94, actual_spend: 94, budget: 100 },
+      // June has PM Compliance but NO Budget Spend
+      { ...amdEzBase, reporting_month: 6, pm_compliance: 95, pm_orders_completed_on_time: 95, total_pm_orders: 100, budget_spend: null, actual_spend: null, budget: null },
+    ];
+
+    // selectedMonth = 6 (June selected)
+    const result = aggregateMonthlyKpiRecords(records, 2026, 6);
+    const amdEz = result.byBusinessUnitMap["AMD-EZ"];
+
+    // PM Compliance includes June (has data): average of 6 months = 97.5
+    expect(amdEz.pmCompliance).toBeCloseTo(97.5, 1);
+
+    // Budget Spend should be cumulative through May only (June is blank)
+    // (90+95+92+98+94) / 500 * 100 = 93.8
+    expect(amdEz.budgetSpend).toBeCloseTo(93.8, 1);
+  });
+
+  it("does not independently exceed selectedMonth for any KPI", () => {
+    // Even if a KPI has valid data in month 10, selectedMonth=6 means stop at June
+    const records = [
+      { ...amdEzBase, reporting_month: 1, pm_compliance: 100, pm_orders_completed_on_time: 100, total_pm_orders: 100, budget_spend: 90, actual_spend: 90, budget: 100 },
+      { ...amdEzBase, reporting_month: 6, pm_compliance: 95, pm_orders_completed_on_time: 95, total_pm_orders: 100, budget_spend: 91, actual_spend: 91, budget: 100 },
+      { ...amdEzBase, reporting_month: 10, pm_compliance: 90, pm_orders_completed_on_time: 90, total_pm_orders: 100, budget_spend: 85, actual_spend: 85, budget: 100 },
+    ];
+
+    // selectedMonth = 6 (June selected)
+    const result = aggregateMonthlyKpiRecords(records, 2026, 6);
+    const amdEz = result.byBusinessUnitMap["AMD-EZ"];
+
+    // Both KPIs should stop at June, not include October
+    // PM Compliance: average of [100, 95] = 97.5 (only months 1 and 6)
+    expect(amdEz.pmCompliance).toBeCloseTo(97.5, 1);
+
+    // Budget Spend: cumulative (90+91) / 200 * 100 = 90.5
+    expect(amdEz.budgetSpend).toBeCloseTo(90.5, 1);
+  });
+});
