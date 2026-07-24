@@ -627,3 +627,83 @@ describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", (
     expect(amdEz.budgetSpend).toBeCloseTo(90.5, 1);
   });
 });
+
+// PM:CM Cost discrepancy investigation tests
+describe("PM:CM Cost card vs trend consistency", () => {
+  const larcBase = {
+    business_unit: "LARC",
+    reporting_year: 2026,
+    reporting_month: 1,
+    pm_compliance: null,
+    budget_spend: null,
+    pm_cm_work_order_ratio: null,
+    pm_cm_cost_ratio: null,
+    mttr_days: null,
+    facility_uptime: null,
+  };
+
+  it("KPI card and trend series should produce identical PM:CM Cost values", () => {
+    // Scenario: Jan-Apr have complete PM/CM Cost data, May has PM Cost only, June has neither
+    // This simulates the production case where PM:CM Cost data is incomplete for later months
+    const records = [
+      // Jan-Apr: complete PM/CM Cost data
+      { ...larcBase, reporting_month: 1, pm_cost: 1000, cm_cost: 500 },
+      { ...larcBase, reporting_month: 2, pm_cost: 1200, cm_cost: 600 },
+      { ...larcBase, reporting_month: 3, pm_cost: 1100, cm_cost: 550 },
+      { ...larcBase, reporting_month: 4, pm_cost: 1300, cm_cost: 650 },
+      // May: PM Cost only (CM Cost blank) - should not be included in PM:CM Cost calculation
+      { ...larcBase, reporting_month: 5, pm_cost: 1400, cm_cost: null },
+      // June: neither PM nor CM Cost
+      { ...larcBase, reporting_month: 6, pm_cost: null, cm_cost: null },
+    ];
+
+    // Test with selectedMonth=6 (June)
+    const result = aggregateMonthlyKpiRecords(records, 2026, 6);
+    const larc = result.byBusinessUnitMap["LARC"];
+
+    // KPI card value should be cumulative through April (last complete month)
+    // PM Total = 1000+1200+1100+1300 = 4600
+    // CM Total = 500+600+550+650 = 2300
+    // PM:CM Cost % = 4600 / (4600+2300) * 100 = 66.67%
+    const expectedPmTotal = 4600;
+    const expectedCmTotal = 2300;
+    const expectedRatio = (expectedPmTotal / (expectedPmTotal + expectedCmTotal)) * 100;
+
+    // Check KPI card value
+    expect(larc.pmCmCostRatio).toBeCloseTo(expectedRatio, 2);
+
+    // Trend series for April should match KPI card
+    // April trend uses records Jan-Apr
+    const aprilTrendValue = result.portfolioMonthlyAverages[4].pmCmCostRatio;
+
+    // Both should be the same: cumulative through April
+    expect(aprilTrendValue).toBeCloseTo(expectedRatio, 2);
+    expect(larc.pmCmCostRatio).toBeCloseTo(aprilTrendValue ?? 0, 2);
+  });
+
+  it("should exclude months with incomplete PM:CM Cost data from cumulative calculation", () => {
+    // Month 1: PM=1000, CM=500
+    // Month 2: PM=1200, CM=600
+    // Month 3: PM=1100, CM=null (incomplete)
+    // Month 4: PM=1300, CM=650
+    const records = [
+      { ...larcBase, reporting_month: 1, pm_cost: 1000, cm_cost: 500 },
+      { ...larcBase, reporting_month: 2, pm_cost: 1200, cm_cost: 600 },
+      { ...larcBase, reporting_month: 3, pm_cost: 1100, cm_cost: null },
+      { ...larcBase, reporting_month: 4, pm_cost: 1300, cm_cost: 650 },
+    ];
+
+    const result = aggregateMonthlyKpiRecords(records, 2026, 4);
+    const larc = result.byBusinessUnitMap["LARC"];
+
+    // Should only include months 1, 2, and 4 (month 3 has null cm_cost)
+    // PM Total = 1000+1200+1300 = 3500
+    // CM Total = 500+600+650 = 1750
+    // Ratio = 3500 / 5250 * 100 = 66.67%
+    const expectedPmTotal = 3500;
+    const expectedCmTotal = 1750;
+    const expectedRatio = (expectedPmTotal / (expectedPmTotal + expectedCmTotal)) * 100;
+
+    expect(larc.pmCmCostRatio).toBeCloseTo(expectedRatio, 2);
+  });
+});

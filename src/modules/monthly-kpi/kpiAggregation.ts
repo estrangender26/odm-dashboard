@@ -476,6 +476,19 @@ function kpiSpecificYtdRecords(
     : latestMonthWithData;
 
   if (effectiveLatestMonth === 0) return records;
+
+  // For YTD cumulative KPIs (PM:CM Cost, PM:CM WO, MTTR), we must filter to only
+  // include records that have valid input data for this KPI. Otherwise, months
+  // with incomplete data (e.g., PM Cost present but CM Cost null) would skew
+  // the cumulative calculation.
+  if (YTD_KEYS.includes(key)) {
+    return records.filter((record) => {
+      const month = Number(record.reporting_month);
+      // Must be within the effective date range AND have valid input for this KPI
+      return month <= effectiveLatestMonth && hasRawInputForKpi(key, record);
+    });
+  }
+
   return records.filter((record) => Number(record.reporting_month) <= effectiveLatestMonth);
 }
 
@@ -698,9 +711,12 @@ export function aggregateMonthlyKpiRecords(
         }
         if (YTD_KEYS.includes(key)) {
           // Cumulative/YTD value up to this month.
-          const hasRawInputs = periodRecords.some((record) => hasRawInputForKpi(key, record));
+          // Use kpiSpecificYtdRecords to ensure consistency with KPI card calculations.
+          // This ensures proper handling of incomplete data (e.g., months with only partial inputs).
+          const kpiRecords = kpiSpecificYtdRecords(key, yearlyRecords, month);
+          const hasRawInputs = kpiRecords.some((record) => hasRawInputForKpi(key, record));
           if (hasRawInputs) {
-            monthValues[key] = key === "mttrDays" ? mttrWeightedValue(periodRecords) : computeYtdKpiValue(key, periodRecords);
+            monthValues[key] = key === "mttrDays" ? mttrWeightedValue(kpiRecords) : computeYtdKpiValue(key, kpiRecords);
           } else {
             monthValues[key] = averageKpiValues(
               monthlyRecords.filter((record) => hasImportedKpiValue(record, key)).map((record) => record[sourceFieldByKpiKey[key]])
