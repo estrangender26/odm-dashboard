@@ -1764,6 +1764,31 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
   }
 });
 
+// GET /api/governance/presentation-data - fetch data for presentation generator
+app.get("/api/governance/presentation-data", async (c) => {
+  try {
+    const reportingDateParam = c.req.query("reporting_date");
+    const reportingDateStr = reportingDateParam || new Date().toISOString().split("T")[0];
+    const reportingDate = new Date(`${reportingDateStr}T00:00:00Z`);
+    
+    console.log("[GOV-PRESENTATION] Fetching data for", reportingDateStr);
+    
+    const { fetchGovernanceDataForPresentation } = await import("../src/modules/presentation-center/governanceData.server");
+    const { facilities, summary } = await fetchGovernanceDataForPresentation(reportingDate);
+    
+    console.log(`[GOV-PRESENTATION] Found ${facilities.length} facilities`);
+    
+    return c.json({
+      reportingDate: reportingDateStr,
+      facilities,
+      summary,
+    });
+  } catch (e: any) {
+    console.error("[GOV-PRESENTATION] ERROR:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 logBootStage("registering presentation files routes");
 app.route("/api/presentation-files", presentationFilesRouter);
 
