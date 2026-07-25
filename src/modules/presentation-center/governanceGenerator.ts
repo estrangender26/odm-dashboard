@@ -5,6 +5,7 @@ import type {
   DeckGenerationContext,
   GeneratedPresentation,
 } from "./types";
+import { trpcClient } from "@/lib/trpc-client";
 import {
   buildGovernanceReport,
   GOVERNANCE_SOURCE_LABEL,
@@ -745,9 +746,13 @@ export async function generateGovernancePresentation(
     } else if (options?.useTestFixture) {
       facilities = createDeterministicTestFixture();
     } else {
-      // Data should be fetched by caller and passed via options.facilities
-      // For browser compatibility, we don't import the server-only module here
-      facilities = [];
+      // Fetch data via tRPC from production database
+      console.log("[GovernanceGenerator] Fetching live data via tRPC...");
+      const response = await trpcClient.governance.presentationData.query({ 
+        reportingDate: reportingDate.toISOString().split("T")[0] 
+      });
+      facilities = response.facilities;
+      console.log(`[GovernanceGenerator] Fetched ${facilities.length} facilities`);
     }
     
     // Handle empty state
