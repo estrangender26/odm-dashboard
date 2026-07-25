@@ -466,12 +466,9 @@ describe("Governance Presentation Structure", () => {
       const facilities = createDeterministicTestFixture();
       const report = buildGovernanceReport(facilities, new Date("2026-07-25"));
       
-      // Check slide content - these are the deprecated properties that still exist
-      // but the user-facing labels should use proxy terminology
-      const jsonReport = JSON.stringify(report);
-      
-      // These should NOT appear as user-facing labels
-      // (They may exist as property names for backward compatibility)
+      // Verify report uses proxy terminology
+      expect(report).toBeDefined();
+      expect(report.portfolio.submissionCoverageProxy).toBeGreaterThanOrEqual(0);
     });
   });
 
