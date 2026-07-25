@@ -13,6 +13,7 @@ import {
   type FacilityPresentationSummary,
   type FacilityGovernanceData,
 } from "./governanceTypes";
+import { DATA_QUALITY_DISCLOSURE } from "./governanceTypes";
 
 type PresentationSlide = Parameters<typeof createPresentation>[0][number];
 type PresentationElement = PresentationSlide["elements"][number];
@@ -219,6 +220,40 @@ function buildSlide1ExecutiveDashboard(report: GovernancePresentationReport): Pr
       Array(tableHeader.length).fill(true),
       ...tableRows.map(() => [true, false, false, false, false, false, false, true]),
     ],
+  });
+  
+  // Data quality disclosure
+  elements.push({
+    type: "text",
+    x: 0.5,
+    y: 6.8,
+    w: 12.5,
+    h: 0.5,
+    text: DATA_QUALITY_DISCLOSURE,
+    fontSize: 8,
+    color: COLORS.mutedText,
+  });
+  
+  // Data quality indicator
+  elements.push({
+    type: "shape",
+    x: 0.5,
+    y: 7.0,
+    w: 0.2,
+    h: 0.15,
+    fill: "#f59e0b", // Amber for proxy metrics
+  });
+  
+  elements.push({
+    type: "text",
+    text: "DATA QUALITY: PROXY METRICS",
+    x: 0.8,
+    y: 6.95,
+    w: 5,
+    h: 0.25,
+    fontSize: 9,
+    color: "#f59e0b",
+    bold: true,
   });
   
   slides.push({
@@ -690,6 +725,18 @@ function buildSlide3DeliverablesAndActions(report: GovernancePresentationReport)
       color: COLORS.mutedText,
     });
   }
+  
+  // Data quality disclosure in footer
+  elements.push({
+    type: "text",
+    x: 0.5,
+    y: 7.2,
+    w: 12.5,
+    h: 0.3,
+    text: DATA_QUALITY_DISCLOSURE,
+    fontSize: 8,
+    color: COLORS.mutedText,
+  });
   
   slides.push({
     elements,
