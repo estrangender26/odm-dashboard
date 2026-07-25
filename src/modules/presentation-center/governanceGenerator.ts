@@ -348,11 +348,11 @@ function buildSlide1ExecutiveDashboard(report: GovernancePresentationReport): Pr
     h: Math.max(1.5, finalRows.length * 0.35 + 0.5),
     fontSize: 10,
     cellFills: [
-      Array(tableHeader.length).fill(COLORS.navy + "20"),
+      Array(tableHeader.length).fill(COLORS.paleNavy),
       ...finalRows.map((row) => 
-        Array(tableHeader.length).fill(row[row.length - 1] === "RED" ? COLORS.danger + "20" : 
-                                       row[row.length - 1] === "AMBER" ? COLORS.warning + "20" : 
-                                       row[row.length - 1] === "GREEN" ? COLORS.success + "20" : undefined)
+        Array(tableHeader.length).fill(row[row.length - 1] === "RED" ? COLORS.paleRed : 
+                                       row[row.length - 1] === "AMBER" ? COLORS.paleYellow : 
+                                       row[row.length - 1] === "GREEN" ? COLORS.paleGreen : undefined)
       ),
     ],
   });
@@ -545,7 +545,7 @@ function buildSlide3DeliverablesAndActions(report: GovernancePresentationReport)
   const elements: PresentationElement[] = [
     {
       type: "text",
-      text: "Deliverable Compliance & Executive Actions",
+      text: "Submission Coverage Proxy Deliverable Compliance & Executive Actions Executive Actions",
       x: 0.5,
       y: 0.7,
       w: 9,
@@ -588,7 +588,7 @@ function buildSlide3DeliverablesAndActions(report: GovernancePresentationReport)
     h: Math.max(1.5, finalCategoryRows.length * 0.35 + 0.5),
     fontSize: 10,
     cellFills: [
-      Array(categoryHeader.length).fill(COLORS.navy + "20"),
+      Array(categoryHeader.length).fill(COLORS.paleNavy),
       ...finalCategoryRows.map(() => Array(categoryHeader.length).fill(undefined)),
     ],
   });
@@ -625,7 +625,7 @@ function buildSlide3DeliverablesAndActions(report: GovernancePresentationReport)
     h: Math.max(1.5, finalActionRows.length * 0.35 + 0.5),
     fontSize: 9,
     cellFills: [
-      Array(actionHeader.length).fill(COLORS.navy + "20"),
+      Array(actionHeader.length).fill(COLORS.paleNavy),
       ...finalActionRows.map(() => Array(actionHeader.length).fill(undefined)),
     ],
     cellBold: [

@@ -4,12 +4,18 @@
  * This module provides database access functions for the Governance
  * presentation generator. This file should only be imported by server-side code.
  * 
+ * Query Structure (optimized to avoid N+1):
+ * - 1 query for all facilities
+ * - 1 query for all milestone states (filtered by facility slugs)
+ * - 1 query for all uploads (filtered by facility slugs)
+ * - In-memory grouping by facility
+ * 
  * @server-only
  */
 
 import { db } from "@db/connection";
 import { governanceFacilities, governanceMilestoneState, governanceUploads } from "@db/schema";
-import { eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import {
   GOVERNANCE_MILESTONES,
   getFacilityColor,
@@ -24,6 +30,7 @@ import {
 
 // Type definitions for DB results
 interface MilestoneStateRow {
+  facilitySlug: string;
   milestoneId: string;
   pppDate: string | null;
   compDate: string | null;
@@ -32,6 +39,7 @@ interface MilestoneStateRow {
 }
 
 interface UploadRow {
+  facilitySlug: string;
   milestoneId: string;
   category: string;
   fileName: string;
@@ -42,21 +50,44 @@ interface UploadRow {
 }
 
 /**
- * Check if a date string is on or before the cutoff date
- * Uses UTC comparison to ensure timezone-safe behavior
+ * Get the cutoff datetime for filtering.
+ * The cutoff is the start of the NEXT day after the reporting date.
+ * This ensures the ENTIRE reporting date is included.
+ * 
+ * Example:
+ * - Reporting date: 2026-07-25
+ * - Cutoff: 2026-07-26T00:00:00Z
+ * - Included: 2026-07-25T00:00:00Z to 2026-07-25T23:59:59.999Z
+ * - Excluded: 2026-07-26T00:00:00Z and later
  */
-function isOnOrBefore(dateStr: string | null, cutoffDate: Date): boolean {
-  if (!dateStr) return false;
-  const date = new Date(`${dateStr}T00:00:00Z`);
-  return date.getTime() <= cutoffDate.getTime();
+function getCutoffDate(reportingDate: Date): Date {
+  // reportingDate is expected to be YYYY-MM-DDT00:00:00Z
+  // We want to include the entire day, so we add 1 day
+  const cutoff = new Date(reportingDate);
+  cutoff.setUTCDate(cutoff.getUTCDate() + 1);
+  cutoff.setUTCHours(0, 0, 0, 0);
+  return cutoff;
 }
 
 /**
- * Check if a date/time is on or before the cutoff date
+ * Check if a date string (YYYY-MM-DD) is strictly before the cutoff.
+ * The entire reporting date is included (up to but not including next day).
  */
-function isDateOnOrBefore(date: Date | null, cutoffDate: Date): boolean {
+function isDateBeforeCutoff(dateStr: string | null, reportingDate: Date): boolean {
+  if (!dateStr) return false;
+  const cutoff = getCutoffDate(reportingDate);
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  return date.getTime() < cutoff.getTime();
+}
+
+/**
+ * Check if a datetime is strictly before the cutoff.
+ * The entire reporting date is included (up to but not including next day).
+ */
+function isDateTimeBeforeCutoff(date: Date | null, reportingDate: Date): boolean {
   if (!date) return false;
-  return date.getTime() <= cutoffDate.getTime();
+  const cutoff = getCutoffDate(reportingDate);
+  return date.getTime() < cutoff.getTime();
 }
 
 /**
@@ -79,9 +110,15 @@ async function fetchFacilitiesFromDB(): Promise<GovernanceFacility[]> {
 
 /**
  * Fetch governance data from database with reporting date cutoff
- * Uses real facility data from governance_facilities table
+ * Uses optimized batch queries to avoid N+1 pattern
  * 
- * @param reportingDate - The cutoff date for filtering uploads and completions
+ * Query pattern:
+ * - 1 query for all facilities
+ * - 1 query for all milestone states (filtered by facility slugs)
+ * - 1 query for all uploads (filtered by facility slugs)
+ * - In-memory grouping by facility
+ * 
+ * @param reportingDate - The date for which to report (entire day is included)
  */
 export async function fetchGovernanceDataForPresentation(
   reportingDate: Date
@@ -89,35 +126,89 @@ export async function fetchGovernanceDataForPresentation(
   facilities: FacilityGovernanceData[];
   summary: GovernancePortfolioSummary;
 }> {
-  // Fetch facilities from database - NOT hard-coded
+  // Fetch all facilities in one query
   const dbFacilities = await fetchFacilitiesFromDB();
+  
+  if (dbFacilities.length === 0) {
+    return {
+      facilities: [],
+      summary: {
+        totalFacilities: 0,
+        totalDocuments: 0,
+        documentsByFacility: {},
+        milestonesComplete: 0,
+        milestonesTotal: 0,
+      },
+    };
+  }
+  
+  const facilitySlugs = dbFacilities.map(f => f.slug);
+  
+  // Fetch all milestone states for all facilities in one query
+  const allMilestoneStates: MilestoneStateRow[] = await db
+    .select({
+      facilitySlug: governanceMilestoneState.facilitySlug,
+      milestoneId: governanceMilestoneState.milestoneId,
+      pppDate: governanceMilestoneState.pppDate,
+      compDate: governanceMilestoneState.compDate,
+      customPct: governanceMilestoneState.customPct,
+      readyStatus: governanceMilestoneState.readyStatus,
+    })
+    .from(governanceMilestoneState)
+    .where(inArray(governanceMilestoneState.facilitySlug, facilitySlugs));
+  
+  // Group milestone states by facility
+  const milestoneStatesByFacility = new Map<string, MilestoneStateRow[]>();
+  for (const state of allMilestoneStates) {
+    const existing = milestoneStatesByFacility.get(state.facilitySlug) || [];
+    existing.push(state);
+    milestoneStatesByFacility.set(state.facilitySlug, existing);
+  }
+  
+  // Fetch all uploads for all facilities in one query
+  const allUploads: UploadRow[] = await db
+    .select({
+      facilitySlug: governanceUploads.facilitySlug,
+      milestoneId: governanceUploads.milestoneId,
+      category: governanceUploads.category,
+      fileName: governanceUploads.fileName,
+      storageMimeType: governanceUploads.storageMimeType,
+      storageSize: governanceUploads.storageSize,
+      uploadedAt: governanceUploads.uploadedAt,
+      storageBucket: governanceUploads.storageBucket,
+    })
+    .from(governanceUploads)
+    .where(inArray(governanceUploads.facilitySlug, facilitySlugs));
+  
+  // Filter uploads by reporting date cutoff and group by facility
+  const uploadsByFacility = new Map<string, UploadRow[]>();
+  for (const upload of allUploads) {
+    // Only include uploads BEFORE the cutoff (entire reporting date is included)
+    if (!isDateTimeBeforeCutoff(upload.uploadedAt, reportingDate)) {
+      continue;
+    }
+    const existing = uploadsByFacility.get(upload.facilitySlug) || [];
+    existing.push(upload);
+    uploadsByFacility.set(upload.facilitySlug, existing);
+  }
   
   const facilities: FacilityGovernanceData[] = [];
   
   for (const facilityInfo of dbFacilities) {
-    // Fetch milestone state for this facility
-    const milestoneStates: MilestoneStateRow[] = await db
-      .select({
-        milestoneId: governanceMilestoneState.milestoneId,
-        pppDate: governanceMilestoneState.pppDate,
-        compDate: governanceMilestoneState.compDate,
-        customPct: governanceMilestoneState.customPct,
-        readyStatus: governanceMilestoneState.readyStatus,
-      })
-      .from(governanceMilestoneState)
-      .where(eq(governanceMilestoneState.facilitySlug, facilityInfo.slug));
+    const milestoneStates = milestoneStatesByFacility.get(facilityInfo.slug) || [];
+    const uploads = uploadsByFacility.get(facilityInfo.slug) || [];
     
     // Get PPP start date from first milestone with pppDate
     const pppStartDate = milestoneStates.find(s => s.pppDate)?.pppDate || null;
     
     // Build milestones from canonical definitions + DB state
-    // Filter completions by reporting date
+    // Filter completions by reporting date cutoff
     const milestones: GovernanceMilestone[] = GOVERNANCE_MILESTONES.map(m => {
       const state = milestoneStates.find((s: MilestoneStateRow) => s.milestoneId === m.id);
       
       // Filter completion dates by reporting date cutoff
       const completionDate = state?.compDate || null;
-      const isCompleted = completionDate && isOnOrBefore(completionDate, reportingDate);
+      const isCompleted = completionDate && isDateBeforeCutoff(completionDate, reportingDate);
       
       // Custom progress is only valid if set and completion is on/before cutoff
       const actualProgress = state?.customPct != null && isCompleted
@@ -134,23 +225,6 @@ export async function fetchGovernanceDataForPresentation(
         status: state?.readyStatus ?? null,
       };
     });
-    
-    // Fetch uploads for document summary - filter by reporting date
-    const allUploads: UploadRow[] = await db
-      .select({
-        milestoneId: governanceUploads.milestoneId,
-        category: governanceUploads.category,
-        fileName: governanceUploads.fileName,
-        storageMimeType: governanceUploads.storageMimeType,
-        storageSize: governanceUploads.storageSize,
-        uploadedAt: governanceUploads.uploadedAt,
-        storageBucket: governanceUploads.storageBucket,
-      })
-      .from(governanceUploads)
-      .where(eq(governanceUploads.facilitySlug, facilityInfo.slug));
-    
-    // Filter uploads by reporting date cutoff
-    const uploads = allUploads.filter(u => isDateOnOrBefore(u.uploadedAt, reportingDate));
     
     // Categorize by workflow status using category field
     const byCategory: Record<string, number> = {};
