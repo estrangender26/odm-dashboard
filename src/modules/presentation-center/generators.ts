@@ -20,6 +20,9 @@ import {
   OPERATOR_DRIVEN_MAINTENANCE_SOURCE_LABEL,
 } from "./odmGenerator";
 import {
+  generateGovernancePresentation,
+} from "./governanceGenerator";
+import {
   ALL_BUSINESS_UNITS_LABEL,
   EXECUTIVE_SCORECARD_TEMPLATE,
   getPersistedMonthlyKpiScorecard,
@@ -1450,19 +1453,18 @@ const placeholderGenerators: DeckGenerator[] = [
   },
   {
     id: "om-manual-governance",
-    title: "O&M Manual Governance Deck",
+    title: "O&M Manual Governance Onboarding Progress Deck",
     description:
-      "Reserved generator for manual governance metrics, ownership, review cadence, compliance gaps, and approval workflow summaries.",
+      "Generate a three-slide executive presentation with live governance data. Uses proxy metrics (milestone-count).",
     category: "O&M Manual Governance",
-    status: "coming-soon",
+    status: "active",
     slideOutline: [
-      "Governance snapshot",
-      "Owner matrix",
-      "Review cadence",
-      "Compliance gaps",
-      "Approval actions",
+      "Executive Dashboard with KPI cards and facility summary table",
+      "S-Curve Analysis by Facility (four panels)",
+      "Submission Coverage Proxy and Executive Actions",
     ],
-    enabled: false,
+    enabled: true,
+    generate: generateGovernancePresentation,
   },
   {
     id: "post-ppp-planning",

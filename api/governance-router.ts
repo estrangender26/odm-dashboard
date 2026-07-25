@@ -195,4 +195,27 @@ export const governanceRouter = createRouter({
 
       return { success: true };
     }),
+
+  // Get presentation data for report generation
+  presentationData: publicQuery
+    .input(
+      z.object({
+        reportingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const reportingDateStr = input.reportingDate || new Date().toISOString().split("T")[0];
+      const reportingDate = new Date(`${reportingDateStr}T00:00:00Z`);
+      
+      // Import the data fetching function from the presentation center module
+      const { fetchGovernanceDataForPresentation } = await import("@/modules/presentation-center/governanceData.server");
+      
+      const { facilities, summary } = await fetchGovernanceDataForPresentation(reportingDate);
+      
+      return {
+        reportingDate: reportingDateStr,
+        facilities,
+        summary,
+      };
+    }),
 });

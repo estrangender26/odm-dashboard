@@ -9,6 +9,7 @@ import {
   MAX_UPLOAD_FILE_SIZE_BYTES,
 } from "@contracts/upload-limits";
 import { deleteFileWithVerification, shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
+import { GOVERNANCE_MILESTONES } from "@/modules/governance/governanceConfig";
 
 /* ── Banner (replaces alert) ── */
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
@@ -30,17 +31,15 @@ const FACILITIES = [
   { slug: "kaysakat", name: "KAYSAKAT Treatment Plant", short: "KAYSAKAT TP", color: "#8b5cf6" },
 ];
 
-const MSD = [
-  { id: "M1", label: "M1 - Technical Audit", offset: 0, toc: ["1","1A","1C","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["1","7"] },
-  { id: "M2", label: "M2 - Design Validation & Basis of Design", offset: 1, toc: ["1","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["2","7","8"] },
-  { id: "M3", label: "M3 - Construction Completion / O&M Transition", offset: 1, toc: ["1","1A","1B","1C","1D","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["3","6","7"] },
-  { id: "M4", label: "M4 - P1 Acceptance", offset: 1, toc: ["1","1A","1B","1C","1D","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["3","4","7","8","9"] },
-  { id: "M5", label: "M5 - P1 Defects Rectification", offset: 2, toc: ["1","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["4","5","7"] },
-  { id: "M6", label: "M6 - P2 Acceptance", offset: 2, toc: ["1","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["3","4","6","7","8","9"] },
-  { id: "M7", label: "M7 - P2 Defects Rectification", offset: 2, toc: ["1","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["3","4","5","6","7","8","9"] },
-  { id: "M8", label: "M8 - TOC Performance Certificate", offset: 2, toc: ["1","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["3","4","5","6","7","8","9"] },
-  { id: "M9", label: "M9 - Final TOC / Project Close-out", offset: 0, toc: ["1","1A","1B","1C","1D","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["1","2","3","4","5","6","7","8","9"] },
-];
+// Milestone definitions imported from shared governance configuration.
+// Both the Governance UI and presentation generator use the same canonical source.
+const MSD = GOVERNANCE_MILESTONES.map(m => ({
+  id: m.id,
+  label: m.label,
+  offset: m.id === "M1" || m.id === "M9" ? 0 : m.id === "M2" || m.id === "M3" || m.id === "M4" ? 1 : 2,
+  toc: ["1","1A","1C","2","3","4","5","6","7","8","9","10","11","12","13","14"],
+  annex: m.id === "M1" ? ["1","7"] : m.id === "M2" ? ["2","7","8"] : m.id === "M3" ? ["3","6","7"] : m.id === "M4" ? ["3","4","7","8","9"] : m.id === "M5" ? ["4","5","7"] : m.id === "M6" ? ["3","4","6","7","8","9"] : m.id === "M7" ? ["3","4","5","6","7","8","9"] : m.id === "M8" ? ["3","4","5","6","7","8","9"] : ["1","2","3","4","5","6","7","8","9"],
+}));
 
 const TOC = [
   { id: "1", label: "1. Overview" },
