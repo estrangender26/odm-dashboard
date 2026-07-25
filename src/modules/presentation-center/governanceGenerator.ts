@@ -745,8 +745,7 @@ export async function generateGovernancePresentation(
     } else if (options?.useTestFixture) {
       facilities = createDeterministicTestFixture();
     } else {
-      // Data should be fetched by caller and passed via options.facilities
-      // For browser compatibility, we don't import the server-only module here
+      console.warn("[GovernanceGenerator] No facilities data provided. The caller must fetch and supply presentation data via options.facilities.");
       facilities = [];
     }
     
