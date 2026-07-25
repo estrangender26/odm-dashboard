@@ -41,7 +41,8 @@ describe("Presentation Center Operator-Driven Maintenance generation dialog", ()
     const remainingComingSoon = deckGeneratorRegistry.filter(
       generator =>
         generator.id !== "monthly-kpi-scorecard" &&
-        generator.id !== "operator-driven-maintenance"
+        generator.id !== "operator-driven-maintenance" &&
+        generator.id !== "om-manual-governance"
     );
 
     expect(odmGenerator).toMatchObject({
