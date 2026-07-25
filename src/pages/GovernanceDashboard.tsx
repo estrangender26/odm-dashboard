@@ -30,6 +30,9 @@ const FACILITIES = [
   { slug: "kaysakat", name: "KAYSAKAT Treatment Plant", short: "KAYSAKAT TP", color: "#8b5cf6" },
 ];
 
+// NOTE: Milestone definitions below are the canonical source.
+// The presentation generator imports GOVERNANCE_MILESTONES from @/modules/governance/governanceConfig
+// which is derived from this structure.
 const MSD = [
   { id: "M1", label: "M1 - Technical Audit", offset: 0, toc: ["1","1A","1C","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["1","7"] },
   { id: "M2", label: "M2 - Design Validation & Basis of Design", offset: 1, toc: ["1","2","3","4","5","6","7","8","9","10","11","12","13","14"], annex: ["2","7","8"] },
