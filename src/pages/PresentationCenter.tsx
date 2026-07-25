@@ -51,6 +51,7 @@ import {
   replaceUploadedPresentation,
   saveGeneratedPresentations,
 } from "@/modules/presentation-center/storage";
+import { fetchGovernancePresentationData } from "@/modules/presentation-center/governanceFetch";
 import type {
   DeckGenerationContext,
   GeneratedPresentation,
@@ -571,9 +572,18 @@ export default function PresentationCenter() {
     setActiveGeneratorId(generatorId);
     toast.loading("Generating presentation…", { id: generatorId });
     try {
+      // For Governance generator, fetch data first
+      let extraOptions = {};
+      if (generatorId === "om-manual-governance") {
+        const today = new Date().toISOString().split("T")[0];
+        const response = await fetchGovernancePresentationData(today);
+        extraOptions = { facilities: response.facilities };
+      }
+      
       const deck = await generator.generate({
         generatedBy: "ODM User",
         ...generationContext,
+        ...extraOptions,
       });
       const next = mergeGeneratedPresentation(generated, deck);
       setGenerated(next);
