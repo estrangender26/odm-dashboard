@@ -1453,17 +1453,17 @@ const placeholderGenerators: DeckGenerator[] = [
   },
   {
     id: "om-manual-governance",
-    title: "O&M Manual Governance Onboarding Progress Deck",
+    title: "O&M Manual Governance Onboarding Progress Deck [PROTOTYPE]",
     description:
-      "Generate a three-slide executive presentation summarizing the onboarding progress of all four facilities with KPIs, S-curve analysis, and executive actions.",
+      "PROTOTYPE: Generate a three-slide executive presentation. Uses proxy metrics (milestone-count). Real data integration pending.",
     category: "O&M Manual Governance",
-    status: "active",
+    status: "coming-soon",
     slideOutline: [
       "Executive Dashboard with KPI cards and facility summary table",
       "S-Curve Analysis by Facility (four panels)",
       "Deliverables Compliance and Executive Actions",
     ],
-    enabled: true,
+    enabled: false,
     generate: generateGovernancePresentation,
   },
   {
