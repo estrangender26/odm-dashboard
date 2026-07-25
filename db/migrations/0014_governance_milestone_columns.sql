@@ -1,7 +1,7 @@
 -- Governance Milestone State Columns
 -- Adds missing columns required by the Governance Presentation Generator
 
-ALTER TABLE governance_milestone_state
+ALTER TABLE public.governance_milestone_state
   ADD COLUMN IF NOT EXISTS ppp_date varchar(20),
   ADD COLUMN IF NOT EXISTS comp_date varchar(20),
   ADD COLUMN IF NOT EXISTS custom_pct integer,
