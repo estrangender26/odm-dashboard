@@ -3,6 +3,11 @@
  * 
  * This module provides types and calculation functions that are safe for
  * use in both frontend and backend code. No database imports here.
+ * 
+ * NOTE: This implementation uses PROXY metrics where formal data is unavailable:
+ * - Milestone weights use equal-weight fallback (all = 1)
+ * - Workflow approval status is NOT tracked in the database
+ * - Deliverable requirements use milestone-count proxy (not a formal requirement matrix)
  */
 
 import {
@@ -13,12 +18,33 @@ import {
   getFacilityColor,
 } from "@/modules/governance/governanceConfig";
 
-// Re-export configuration items for consumers
-export { GOVERNANCE_MILESTONES, WORKFLOW_STATUS_META, DELIVERABLE_REQUIREMENT_META, getFacilityColor };
-
 export const GOVERNANCE_SOURCE_LABEL = "O&M Manual Governance";
 export const GOVERNANCE_DECK_TYPE = "Governance Onboarding Progress";
 
+// Re-export configuration items for consumers
+export { GOVERNANCE_MILESTONES, WORKFLOW_STATUS_META, DELIVERABLE_REQUIREMENT_META, getFacilityColor };
+
+/**
+ * Data quality disclosure text for generated presentations.
+ * Must be displayed prominently on slides.
+ */
+export const DATA_QUALITY_DISCLOSURE = 
+  "Submission coverage is based on a milestone-count proxy. Formal document approval workflow and a facility-specific deliverable requirement matrix are not currently available.";
+
+/**
+ * Proxy metric labels for accurate reporting.
+ * Use these instead of authoritative compliance terms.
+ */
+export const PROXY_LABELS = {
+  submissionCoverage: "Submission Coverage — Proxy",
+  requiredMilestoneSubmissions: "Required Milestone Submissions — Proxy",
+  submittedMilestoneRecords: "Submitted Milestone Records",
+  outstandingMilestoneSubmissions: "Outstanding Milestone Submissions — Proxy",
+  uploadedDocuments: "Uploaded Documents",
+  baselineProgress: "Baseline Progress",
+  actualMilestoneProgress: "Actual Milestone Progress",
+  dataQuality: "DATA QUALITY: PROXY METRICS",
+} as const;
 
 export interface GovernanceFacility {
   slug: string;
@@ -40,6 +66,11 @@ export interface GovernanceMilestone {
 export interface DocumentSummary {
   totalDocuments: number;
   byCategory: Record<string, number>;
+  /**
+   * Workflow status is NOT tracked in the database.
+   * This structure exists for future implementation.
+   * Currently all documents are shown as "pending" since we cannot determine approval state.
+   */
   byWorkflowStatus: { 
     accepted: number; 
     pendingReview: number; 
@@ -100,9 +131,22 @@ export interface PortfolioRisk {
 export interface FacilityPresentationSummary {
   facility: GovernanceFacility;
   progress: number;
+  /**
+   * @deprecated Use submissionCoverageProxy instead. 
+   * This is a proxy metric, not authoritative compliance.
+   */
   deliverablesCompliance: number;
+  /**
+   * Proxy metric: Submission coverage based on milestone count.
+   * Not authoritative deliverables compliance.
+   */
+  submissionCoverageProxy: number;
   required: number;
   submitted: number;
+  /**
+   * @deprecated Workflow approval status is not tracked.
+   * All values will be 0.
+   */
   approved: number;
   outstanding: number;
   scheduleVariance: number | null;
@@ -120,6 +164,10 @@ export interface DeliverableComplianceRow {
   category: string;
   required: number;
   submitted: number;
+  /**
+   * @deprecated Workflow approval status is not tracked.
+   * All values will be 0.
+   */
   approved: number;
   complianceRate: number;
 }
@@ -130,11 +178,32 @@ export interface GovernancePresentationReport {
   portfolio: {
     totalFacilities: number;
     overallProgress: number;
+    /**
+     * @deprecated Use submissionCoverageProxy instead.
+     * This is a proxy metric, not authoritative compliance.
+     */
     overallCompliance: number;
-    totalRequired: number;
+    /**
+     * Proxy metric: Overall submission coverage.
+     * Not authoritative compliance.
+     */
+    submissionCoverageProxy: number;
+    /**
+     * Proxy metric: Required milestone submissions.
+     * Not a formal deliverable requirement matrix.
+     */
+    requiredMilestoneSubmissionProxy: number;
     totalSubmitted: number;
+    /**
+     * @deprecated Workflow approval status is not tracked.
+     * Use totalSubmitted instead.
+     */
     totalApproved: number;
-    totalOutstanding: number;
+    /**
+     * Proxy metric: Outstanding milestone submissions.
+     * Not missing required documents.
+     */
+    outstandingMilestoneSubmissionProxy: number;
   };
   facilities: FacilityPresentationSummary[];
   deliverableCompliance: DeliverableComplianceRow[];
@@ -201,25 +270,37 @@ export function calculateFacilityProgress(
   return { actual, planned, variance, hasBaseline };
 }
 
-export function calculateDeliverablesCompliance(
+/**
+ * Calculate submission coverage proxy.
+ * 
+ * NOTE: This is a PROXY calculation. Workflow approval status is not tracked
+ * in the database, so we cannot determine actual approved deliverables.
+ * This uses milestone count as a proxy for required submissions.
+ * 
+ * Do not present this as authoritative deliverables compliance.
+ */
+export function calculateSubmissionCoverageProxy(
   docSummary: DocumentSummary,
-  requiredDeliverables: number
-): { compliance: number; required: number; submitted: number; approved: number; outstanding: number } {
-  const submitted = docSummary.totalDocuments;
-  const approved = WORKFLOW_STATUS_META.isTracked 
-    ? docSummary.byWorkflowStatus.accepted 
-    : 0;
-  const required = requiredDeliverables;
-  const outstanding = required - approved;
+  requiredMilestoneSubmissions: number
+): { 
+  submissionCoverageProxy: number; 
+  requiredMilestoneSubmissionProxy: number; 
+  submittedCount: number; 
+  outstandingMilestoneSubmissionProxy: number;
+} {
+  const submittedCount = docSummary.totalDocuments;
+  const requiredMilestoneSubmissionProxy = requiredMilestoneSubmissions;
+  const outstandingMilestoneSubmissionProxy = requiredMilestoneSubmissionProxy - submittedCount;
   
-  const compliance = required > 0 ? Math.round((approved / required) * 100) : 0;
+  const submissionCoverageProxy = requiredMilestoneSubmissionProxy > 0 
+    ? Math.round((submittedCount / requiredMilestoneSubmissionProxy) * 100) 
+    : 0;
   
   return {
-    compliance,
-    required,
-    submitted,
-    approved,
-    outstanding: Math.max(0, outstanding),
+    submissionCoverageProxy,
+    requiredMilestoneSubmissionProxy,
+    submittedCount,
+    outstandingMilestoneSubmissionProxy: Math.max(0, outstandingMilestoneSubmissionProxy),
   };
 }
 
@@ -402,7 +483,7 @@ export function buildPortfolioRisks(
   
   if (!WORKFLOW_STATUS_META.isTracked || !DELIVERABLE_REQUIREMENT_META.hasRequirementMatrix) {
     risks.push({
-      risk: "Report uses fallback data sources (see dataQuality flags)",
+      risk: "Report uses proxy data sources (see dataQuality flags)",
       impact: "low",
       mitigation: "Implement workflow status tracking and deliverable requirement matrix",
       facility: null,
@@ -412,40 +493,48 @@ export function buildPortfolioRisks(
   return risks;
 }
 
-// Build report from fetched data
+/**
+ * Build the governance report from fetched facility data.
+ * 
+ * @param facilities - Facility data fetched from database
+ * @param reportingDate - Optional reporting date (defaults to current date)
+ * @returns Complete presentation report model
+ */
 export function buildGovernanceReport(
-  facilities: FacilityGovernanceData[]
+  facilities: FacilityGovernanceData[],
+  reportingDate?: Date
 ): GovernancePresentationReport {
-  const now = new Date();
-  const reportingDate = now.toISOString().split("T")[0];
+  const now = reportingDate || new Date();
+  const reportingDateStr = now.toISOString().split("T")[0];
   
   const requiredPerFacility = GOVERNANCE_MILESTONES.length;
-  const totalRequired = facilities.length * requiredPerFacility;
+  const requiredMilestoneSubmissionProxy = facilities.length * requiredPerFacility;
   const totalSubmitted = facilities.reduce((sum, f) => sum + f.documentSummary.totalDocuments, 0);
-  const totalApproved = 0;
-  const totalOutstanding = totalRequired;
+  const outstandingMilestoneSubmissionProxy = requiredMilestoneSubmissionProxy - totalSubmitted;
+  
+  // Calculate submission coverage proxy
+  const submissionCoverageProxy = requiredMilestoneSubmissionProxy > 0
+    ? Math.round((totalSubmitted / requiredMilestoneSubmissionProxy) * 100)
+    : 0;
   
   const overallProgress = facilities.length > 0
     ? Math.round(facilities.reduce((sum, f) => sum + f.governanceMetrics.progress.actual, 0) / facilities.length)
     : 0;
   
-  const overallCompliance = totalRequired > 0
-    ? Math.round((totalApproved / totalRequired) * 100)
-    : 0;
-  
   const facilitySummaries: FacilityPresentationSummary[] = facilities.map(f => {
-    const compliance = calculateDeliverablesCompliance(f.documentSummary, requiredPerFacility);
+    const coverage = calculateSubmissionCoverageProxy(f.documentSummary, requiredPerFacility);
     const sCurveResult = generateFacilitySCurve(f.milestones, now);
     const sCurveWithForecast = calculateForecastSCurve(sCurveResult.points, now);
     
     return {
       facility: f.facility,
       progress: f.governanceMetrics.progress.actual,
-      deliverablesCompliance: compliance.compliance,
-      required: compliance.required,
-      submitted: compliance.submitted,
-      approved: compliance.approved,
-      outstanding: compliance.outstanding,
+      deliverablesCompliance: coverage.submissionCoverageProxy, // Deprecated: use submissionCoverageProxy
+      submissionCoverageProxy: coverage.submissionCoverageProxy,
+      required: coverage.requiredMilestoneSubmissionProxy,
+      submitted: coverage.submittedCount,
+      approved: 0, // Workflow status not tracked
+      outstanding: coverage.outstandingMilestoneSubmissionProxy,
       scheduleVariance: f.governanceMetrics.progress.variance,
       status: f.governanceMetrics.ragStatus,
       sCurve: sCurveWithForecast,
@@ -473,8 +562,8 @@ export function buildGovernanceReport(
       category,
       required: data.required,
       submitted: data.submitted,
-      approved: data.approved,
-      complianceRate: data.required > 0 ? Math.round((data.approved / data.required) * 100) : 0,
+      approved: 0, // Workflow status not tracked
+      complianceRate: data.required > 0 ? Math.round((data.submitted / data.required) * 100) : 0,
     }))
     .sort((a, b) => b.complianceRate - a.complianceRate);
   
@@ -482,16 +571,17 @@ export function buildGovernanceReport(
   const risks = buildPortfolioRisks(facilities);
   
   return {
-    generatedAt: now.toISOString(),
-    reportingDate,
+    generatedAt: new Date().toISOString(),
+    reportingDate: reportingDateStr,
     portfolio: {
       totalFacilities: facilities.length,
       overallProgress,
-      overallCompliance,
-      totalRequired,
+      overallCompliance: submissionCoverageProxy, // Deprecated
+      submissionCoverageProxy,
+      requiredMilestoneSubmissionProxy,
       totalSubmitted,
-      totalApproved,
-      totalOutstanding,
+      totalApproved: 0, // Deprecated: workflow status not tracked
+      outstandingMilestoneSubmissionProxy,
     },
     facilities: facilitySummaries,
     deliverableCompliance,

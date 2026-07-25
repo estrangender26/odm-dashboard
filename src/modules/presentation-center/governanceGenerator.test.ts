@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   calculateFacilityProgress,
-  calculateDeliverablesCompliance,
+  calculateSubmissionCoverageProxy,
   determineRagStatus,
   generateFacilitySCurve,
   calculateForecastSCurve,
@@ -71,7 +71,7 @@ describe("Governance Data Calculations", () => {
     });
   });
   
-  describe("calculateDeliverablesCompliance", () => {
+  describe("calculateSubmissionCoverageProxy", () => {
     it("should use configured required count, not upload count", () => {
       const docSummary: DocumentSummary = {
         totalDocuments: 5,
@@ -81,10 +81,10 @@ describe("Governance Data Calculations", () => {
       };
       
       const requiredFromConfig = 10; // Should come from configuration
-      const result = calculateDeliverablesCompliance(docSummary, requiredFromConfig);
-      expect(result.required).toBe(10); // Not 5 from uploads
+      const result = calculateSubmissionCoverageProxy(docSummary, requiredFromConfig);
+      expect(result.requiredMilestoneSubmissionProxy).toBe(10); // Not 5 from uploads
       // Workflow status is not tracked, so approved = 0
-      expect(result.compliance).toBe(0);
+      expect(result.submissionCoverageProxy).toBe(50); // 5 submitted / 10 required = 50%
     });
     
     it("should handle zero required deliverables", () => {
@@ -95,8 +95,8 @@ describe("Governance Data Calculations", () => {
         latestSubmissionDate: null,
       };
       
-      const result = calculateDeliverablesCompliance(docSummary, 0);
-      expect(result.compliance).toBe(0);
+      const result = calculateSubmissionCoverageProxy(docSummary, 0);
+      expect(result.submissionCoverageProxy).toBe(0); // Zero required = 0 coverage
     });
   });
   
@@ -368,7 +368,7 @@ describe("Governance Data Calculations", () => {
       }];
       
       const risks = buildPortfolioRisks(facilities);
-      expect(risks.filter(r => !r.risk.includes("fallback")).length).toBe(0);
+      expect(risks.filter(r => !r.risk.includes("proxy")).length).toBe(0);
     });
   });
   

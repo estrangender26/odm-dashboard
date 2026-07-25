@@ -172,10 +172,10 @@ function buildSlide1ExecutiveDashboard(report: GovernancePresentationReport): Pr
   elements.push(...buildKpiCard("Onboarding Facilities", String(report.portfolio.totalFacilities), 0.5, 1.8));
   elements.push(...buildKpiCard("Portfolio Progress", formatPercent(report.portfolio.overallProgress, 0), 3.0, 1.8));
   elements.push(...buildKpiCard("Deliverables Compliance", formatPercent(report.portfolio.overallCompliance, 0), 5.5, 1.8));
-  elements.push(...buildKpiCard("Total Required", String(report.portfolio.totalRequired), 8.0, 1.8));
+  elements.push(...buildKpiCard("Total Required", String(report.portfolio.requiredMilestoneSubmissionProxy), 8.0, 1.8));
   elements.push(...buildKpiCard("Total Approved", String(report.portfolio.totalApproved), 10.5, 1.8));
   elements.push(...buildKpiCard("Total Submitted", String(report.portfolio.totalSubmitted), 0.5, 2.9));
-  elements.push(...buildKpiCard("Outstanding", String(report.portfolio.totalOutstanding), 3.0, 2.9));
+  elements.push(...buildKpiCard("Outstanding", String(report.portfolio.outstandingMilestoneSubmissionProxy), 3.0, 2.9));
   
   const tableHeader = ["Facility", "Progress", "Compliance", "Required", "Submitted", "Approved", "Outstanding", "Status"];
   const tableRows = report.facilities.map(f => [
