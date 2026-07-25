@@ -13,6 +13,8 @@ import { eq } from "drizzle-orm";
 import {
   GOVERNANCE_MILESTONES,
   getFacilityColor,
+  calculateFacilityProgress,
+  determineRagStatus,
   type GovernanceFacility,
   type GovernanceMilestone,
   type FacilityGovernanceData,
@@ -40,6 +42,24 @@ interface UploadRow {
 }
 
 /**
+ * Check if a date string is on or before the cutoff date
+ * Uses UTC comparison to ensure timezone-safe behavior
+ */
+function isOnOrBefore(dateStr: string | null, cutoffDate: Date): boolean {
+  if (!dateStr) return false;
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  return date.getTime() <= cutoffDate.getTime();
+}
+
+/**
+ * Check if a date/time is on or before the cutoff date
+ */
+function isDateOnOrBefore(date: Date | null, cutoffDate: Date): boolean {
+  if (!date) return false;
+  return date.getTime() <= cutoffDate.getTime();
+}
+
+/**
  * Fetch facilities from database - not hard-coded
  */
 async function fetchFacilitiesFromDB(): Promise<GovernanceFacility[]> {
@@ -58,10 +78,14 @@ async function fetchFacilitiesFromDB(): Promise<GovernanceFacility[]> {
 }
 
 /**
- * Fetch governance data from database
+ * Fetch governance data from database with reporting date cutoff
  * Uses real facility data from governance_facilities table
+ * 
+ * @param reportingDate - The cutoff date for filtering uploads and completions
  */
-export async function fetchGovernanceDataFromDB(): Promise<{
+export async function fetchGovernanceDataForPresentation(
+  reportingDate: Date
+): Promise<{
   facilities: FacilityGovernanceData[];
   summary: GovernancePortfolioSummary;
 }> {
@@ -87,22 +111,32 @@ export async function fetchGovernanceDataFromDB(): Promise<{
     const pppStartDate = milestoneStates.find(s => s.pppDate)?.pppDate || null;
     
     // Build milestones from canonical definitions + DB state
+    // Filter completions by reporting date
     const milestones: GovernanceMilestone[] = GOVERNANCE_MILESTONES.map(m => {
       const state = milestoneStates.find((s: MilestoneStateRow) => s.milestoneId === m.id);
+      
+      // Filter completion dates by reporting date cutoff
+      const completionDate = state?.compDate || null;
+      const isCompleted = completionDate && isOnOrBefore(completionDate, reportingDate);
+      
+      // Custom progress is only valid if set and completion is on/before cutoff
+      const actualProgress = state?.customPct != null && isCompleted
+        ? state.customPct 
+        : (isCompleted ? 100 : null);
       
       return {
         milestoneId: m.id,
         milestoneName: m.label,
         weight: m.weight,
         plannedDate: state?.pppDate ?? null,
-        actualDate: state?.compDate ?? null,
-        actualProgress: state?.customPct ?? (state?.compDate ? 100 : null),
+        actualDate: isCompleted ? completionDate : null,
+        actualProgress,
         status: state?.readyStatus ?? null,
       };
     });
     
-    // Fetch uploads for document summary
-    const uploads: UploadRow[] = await db
+    // Fetch uploads for document summary - filter by reporting date
+    const allUploads: UploadRow[] = await db
       .select({
         milestoneId: governanceUploads.milestoneId,
         category: governanceUploads.category,
@@ -115,11 +149,17 @@ export async function fetchGovernanceDataFromDB(): Promise<{
       .from(governanceUploads)
       .where(eq(governanceUploads.facilitySlug, facilityInfo.slug));
     
+    // Filter uploads by reporting date cutoff
+    const uploads = allUploads.filter(u => isDateOnOrBefore(u.uploadedAt, reportingDate));
+    
     // Categorize by workflow status using category field
     const byCategory: Record<string, number> = {};
     uploads.forEach((u: UploadRow) => {
       byCategory[u.category] = (byCategory[u.category] || 0) + 1;
     });
+    
+    // Calculate facility progress with reporting date
+    const progress = calculateFacilityProgress(milestones, reportingDate);
     
     // Workflow status is not tracked in schema - use approximations
     const docSummary: DocumentSummary = {
@@ -141,22 +181,26 @@ export async function fetchGovernanceDataFromDB(): Promise<{
         : null,
     };
     
+    const completedMilestones = milestones.filter(m => m.actualProgress === 100).length;
+    
     facilities.push({
       facility: facilityInfo,
       pppStartDate,
       milestones,
       documentSummary: docSummary,
       governanceMetrics: {
-        governanceReadiness: 0,
-        riskLevel: "Low",
-        milestones: { complete: 0, total: milestones.length },
-        progress: { planned: null, actual: 0, variance: null },
-        ragStatus: "gray",
+        governanceReadiness: progress.actual,
+        riskLevel: progress.variance && progress.variance < -20 ? "High" : 
+                   progress.variance && progress.variance < -10 ? "Medium" : "Low",
+        milestones: { complete: completedMilestones, total: milestones.length },
+        progress,
+        ragStatus: determineRagStatus(progress.variance, GOVERNANCE_MILESTONES.length - uploads.length, false, progress.hasBaseline),
       },
     });
   }
   
   const totalDocs = facilities.reduce((sum, f) => sum + f.documentSummary.totalDocuments, 0);
+  const totalCompletedMilestones = facilities.reduce((sum, f) => sum + f.governanceMetrics.milestones.complete, 0);
   
   const summary: GovernancePortfolioSummary = {
     totalFacilities: facilities.length,
@@ -164,9 +208,20 @@ export async function fetchGovernanceDataFromDB(): Promise<{
     documentsByFacility: Object.fromEntries(
       facilities.map(f => [f.facility.slug, f.documentSummary.totalDocuments])
     ),
-    milestonesComplete: 0,
+    milestonesComplete: totalCompletedMilestones,
     milestonesTotal: facilities.length * GOVERNANCE_MILESTONES.length,
   };
   
   return { facilities, summary };
+}
+
+/**
+ * @deprecated Use fetchGovernanceDataForPresentation with reporting date
+ * Fetch governance data from database (legacy, uses current date)
+ */
+export async function fetchGovernanceDataFromDB(): Promise<{
+  facilities: FacilityGovernanceData[];
+  summary: GovernancePortfolioSummary;
+}> {
+  return fetchGovernanceDataForPresentation(new Date());
 }
