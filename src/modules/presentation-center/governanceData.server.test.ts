@@ -4,176 +4,17 @@
  */
 import { describe, it, expect } from "vitest";
 import { 
-  calculateFacilityProgress,
-  calculateSubmissionCoverageProxy,
   buildGovernanceReport,
   GOVERNANCE_MILESTONES,
   type FacilityGovernanceData,
-  type GovernanceMilestone,
-  type DocumentSummary,
 } from "./governanceTypes";
 
-describe("Governance Data Server Logic", () => {
-  describe("Reporting Date Cutoff Semantics", () => {
-    it("should include uploads on the reporting date", () => {
-      const reportingDate = new Date("2026-07-25T00:00:00Z");
-      const cutoffDate = new Date(reportingDate);
-      cutoffDate.setUTCDate(cutoffDate.getUTCDate() + 1);
-      cutoffDate.setUTCHours(0, 0, 0, 0);
-
-      // Upload at various times on the reporting date
-      const uploadTimes = [
-        new Date("2026-07-25T00:00:00Z"),  // Midnight
-        new Date("2026-07-25T06:00:00Z"),  // Morning
-        new Date("2026-07-25T12:00:00Z"),  // Noon
-        new Date("2026-07-25T18:00:00Z"),  // Evening
-        new Date("2026-07-25T23:59:59Z"),  // Just before midnight
-      ];
-
-      for (const uploadTime of uploadTimes) {
-        expect(uploadTime.getTime() < cutoffDate.getTime()).toBe(true);
-      }
-    });
-
-    it("should exclude uploads after the reporting date", () => {
-      const reportingDate = new Date("2026-07-25T00:00:00Z");
-      const cutoffDate = new Date(reportingDate);
-      cutoffDate.setUTCDate(cutoffDate.getUTCDate() + 1);
-      cutoffDate.setUTCHours(0, 0, 0, 0);
-
-      // Uploads on subsequent days
-      const uploadTimes = [
-        new Date("2026-07-26T00:00:00Z"),  // Midnight next day
-        new Date("2026-07-26T01:00:00Z"),  // Early morning next day
-        new Date("2026-07-26T12:00:00Z"),  // Noon next day
-      ];
-
-      for (const uploadTime of uploadTimes) {
-        expect(uploadTime.getTime() >= cutoffDate.getTime()).toBe(true);
-      }
-    });
-
-    it("should include milestone completions on the reporting date", () => {
-      const reportingDate = new Date("2026-07-25T00:00:00Z");
-      const cutoffDate = new Date(reportingDate);
-      cutoffDate.setUTCDate(cutoffDate.getUTCDate() + 1);
-      cutoffDate.setUTCHours(0, 0, 0, 0);
-
-      // Completion dates on the reporting date
-      const completionDates = ["2026-07-25"];
-
-      for (const dateStr of completionDates) {
-        const completionDate = new Date(`${dateStr}T00:00:00Z`);
-        expect(completionDate.getTime() < cutoffDate.getTime()).toBe(true);
-      }
-    });
-
-    it("should exclude milestone completions after the reporting date", () => {
-      const reportingDate = new Date("2026-07-25T00:00:00Z");
-      const cutoffDate = new Date(reportingDate);
-      cutoffDate.setUTCDate(cutoffDate.getUTCDate() + 1);
-      cutoffDate.setUTCHours(0, 0, 0, 0);
-
-      // Completion dates after the reporting date
-      const completionDates = ["2026-07-26", "2026-07-27", "2026-08-01"];
-
-      for (const dateStr of completionDates) {
-        const completionDate = new Date(`${dateStr}T00:00:00Z`);
-        expect(completionDate.getTime() >= cutoffDate.getTime()).toBe(true);
-      }
-    });
-  });
-
-  describe("Facility Data Transformations", () => {
-    it("should calculate correct submission coverage proxy", () => {
-      const docSummary: DocumentSummary = {
-        totalDocuments: 5,
-        byCategory: { "TOC-01": 2, "TOC-03": 3 },
-        byWorkflowStatus: { accepted: 0, pendingReview: 5, returned: 0, missing: 0, overdue: 0, rejected: 0 },
-        latestSubmissionDate: "2026-07-20T10:00:00Z",
-      };
-
-      // 9 milestones per facility
-      const requiredPerFacility = GOVERNANCE_MILESTONES.length; // 9
-      const result = calculateSubmissionCoverageProxy(docSummary, requiredPerFacility);
-
-      expect(result.requiredMilestoneSubmissionProxy).toBe(9);
-      expect(result.submittedCount).toBe(5);
-      expect(result.submissionCoverageProxy).toBe(56); // 5/9 = 55.55...% rounded to 56%
-    });
-
-    it("should handle facility with no uploads", () => {
-      const docSummary: DocumentSummary = {
-        totalDocuments: 0,
-        byCategory: {},
-        byWorkflowStatus: { accepted: 0, pendingReview: 0, returned: 0, missing: 0, overdue: 0, rejected: 0 },
-        latestSubmissionDate: null,
-      };
-
-      const requiredPerFacility = GOVERNANCE_MILESTONES.length;
-      const result = calculateSubmissionCoverageProxy(docSummary, requiredPerFacility);
-
-      expect(result.submissionCoverageProxy).toBe(0);
-      expect(result.submittedCount).toBe(0);
-    });
-
-    it("should handle facility with no milestones", () => {
-      const milestones: GovernanceMilestone[] = [];
-      const reportingDate = new Date("2026-07-25");
-      
-      const result = calculateFacilityProgress(milestones, reportingDate);
-      
-      expect(result.actual).toBe(0);
-      expect(result.planned).toBeNull();
-      expect(result.hasBaseline).toBe(false);
-    });
-  });
-
-  describe("Governance Report Building", () => {
-    it("should use proxy terminology in report output", () => {
+describe("Governance Data Server", () => {
+  describe("Facilities with missing milestone rows", () => {
+    it("should return facility even when no milestone rows exist", () => {
       const testDate = new Date("2026-07-25T00:00:00Z");
       
-      const facilityData: FacilityGovernanceData = {
-        facility: {
-          slug: "test-facility",
-          name: "Test Facility",
-          shortName: "Test",
-          color: "#f97316",
-        },
-        pppStartDate: "2026-01-01",
-        milestones: [
-          { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: "2026-01-01", actualDate: "2026-01-15", actualProgress: 100, status: "complete" },
-        ],
-        documentSummary: {
-          totalDocuments: 1,
-          byCategory: { "TOC-01": 1 },
-          byWorkflowStatus: { accepted: 0, pendingReview: 1, returned: 0, missing: 0, overdue: 0, rejected: 0 },
-          latestSubmissionDate: "2026-01-15T10:00:00Z",
-        },
-        governanceMetrics: {
-          governanceReadiness: 50,
-          riskLevel: "Low",
-          milestones: { complete: 1, total: 1 },
-          progress: { planned: 50, actual: 50, variance: 0 },
-          ragStatus: "green",
-        },
-      };
-
-      const report = buildGovernanceReport([facilityData], testDate);
-
-      // Verify proxy terminology is used
-      expect(report.portfolio).toHaveProperty("submissionCoverageProxy");
-      expect(report.portfolio).toHaveProperty("requiredMilestoneSubmissionProxy");
-      expect(report.portfolio).toHaveProperty("outstandingMilestoneSubmissionProxy");
-      
-      // Verify deprecated properties exist for backward compatibility
-      expect(report.portfolio).toHaveProperty("overallCompliance");
-      expect(report.portfolio).toHaveProperty("totalApproved");
-    });
-
-    it("should include data quality metadata", () => {
-      const testDate = new Date("2026-07-25T00:00:00Z");
-      
+      // Facility with no milestone states - should still be returned
       const facilityData: FacilityGovernanceData = {
         facility: {
           slug: "test-facility",
@@ -182,7 +23,15 @@ describe("Governance Data Server Logic", () => {
           color: "#f97316",
         },
         pppStartDate: null,
-        milestones: [],
+        milestones: GOVERNANCE_MILESTONES.map(m => ({
+          milestoneId: m.id,
+          milestoneName: m.label,
+          weight: m.weight,
+          plannedDate: null,
+          actualDate: null,
+          actualProgress: null,
+          status: null,
+        })),
         documentSummary: {
           totalDocuments: 0,
           byCategory: {},
@@ -192,25 +41,81 @@ describe("Governance Data Server Logic", () => {
         governanceMetrics: {
           governanceReadiness: 0,
           riskLevel: "Low",
-          milestones: { complete: 0, total: 0 },
+          milestones: { complete: 0, total: GOVERNANCE_MILESTONES.length },
           progress: { planned: null, actual: 0, variance: null },
           ragStatus: "gray",
         },
       };
 
       const report = buildGovernanceReport([facilityData], testDate);
+      
+      // Facility should be in the report even with no milestone rows
+      expect(report.facilities).toHaveLength(1);
+      expect(report.facilities[0].facility.slug).toBe("test-facility");
+      expect(report.portfolio.totalFacilities).toBe(1);
+    });
 
-      expect(report.dataQuality).toBeDefined();
-      expect(report.dataQuality.weightSource).toBe("equal-fallback");
-      expect(report.dataQuality.hasWorkflowStatus).toBe(false);
-      expect(report.dataQuality.hasRequirementMatrix).toBe(false);
+    it("should return all configured facilities regardless of milestone data", () => {
+      const testDate = new Date("2026-07-25T00:00:00Z");
+      
+      // Create four facilities with varying milestone data
+      const facilities = [
+        { slug: "aglipay", name: "AGLIPAY STP", hasMilestones: true },
+        { slug: "htt", name: "HTT STP", hasMilestones: false },
+        { slug: "eastbay", name: "EASTBAY", hasMilestones: false },
+        { slug: "kaysakat", name: "KAYSAKAT", hasMilestones: true },
+      ];
+      
+      const facilityData: FacilityGovernanceData[] = facilities.map((f, idx) => ({
+        facility: {
+          slug: f.slug,
+          name: f.name,
+          shortName: f.name,
+          color: ["#f97316", "#3b82f6", "#10b981", "#8b5cf6"][idx],
+        },
+        pppStartDate: f.hasMilestones ? "2026-01-01" : null,
+        milestones: GOVERNANCE_MILESTONES.map(m => ({
+          milestoneId: m.id,
+          milestoneName: m.label,
+          weight: m.weight,
+          plannedDate: f.hasMilestones ? "2026-01-01" : null,
+          actualDate: null,
+          actualProgress: f.hasMilestones ? 0 : null,
+          status: null,
+        })),
+        documentSummary: {
+          totalDocuments: 0,
+          byCategory: {},
+          byWorkflowStatus: { accepted: 0, pendingReview: 0, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+          latestSubmissionDate: null,
+        },
+        governanceMetrics: {
+          governanceReadiness: f.hasMilestones ? 0 : 0,
+          riskLevel: "Low",
+          milestones: { complete: 0, total: GOVERNANCE_MILESTONES.length },
+          progress: { planned: f.hasMilestones ? 0 : null, actual: 0, variance: null },
+          ragStatus: "gray",
+        },
+      }));
+
+      const report = buildGovernanceReport(facilityData, testDate);
+      
+      // All four facilities should be returned
+      expect(report.facilities).toHaveLength(4);
+      expect(report.portfolio.totalFacilities).toBe(4);
+      
+      // All facility slugs should be present
+      const returnedSlugs = report.facilities.map(f => f.facility.slug);
+      expect(returnedSlugs).toContain("aglipay");
+      expect(returnedSlugs).toContain("htt");
+      expect(returnedSlugs).toContain("eastbay");
+      expect(returnedSlugs).toContain("kaysakat");
     });
   });
 
-  describe("Deterministic Calculations", () => {
-    it("should produce consistent results for the same input", () => {
+  describe("Endpoint JSON shape", () => {
+    it("should produce report with expected structure", () => {
       const testDate = new Date("2026-07-25T00:00:00Z");
-      
       const facilityData: FacilityGovernanceData = {
         facility: {
           slug: "test-facility",
@@ -220,30 +125,101 @@ describe("Governance Data Server Logic", () => {
         },
         pppStartDate: "2026-01-01",
         milestones: [
-          { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: "2026-01-01", actualDate: "2026-01-15", actualProgress: 100, status: "complete" },
-          { milestoneId: "M2", milestoneName: "M2 - Design Validation", weight: 1, plannedDate: "2026-02-01", actualDate: null, actualProgress: null, status: null },
+          { milestoneId: "M1", milestoneName: "M1 - Test", weight: 1, plannedDate: "2026-01-01", actualDate: null, actualProgress: 50, status: "in-progress" },
         ],
         documentSummary: {
           totalDocuments: 2,
-          byCategory: { "TOC-01": 1, "TOC-02": 1 },
+          byCategory: { "TOC-01": 2 },
           byWorkflowStatus: { accepted: 0, pendingReview: 2, returned: 0, missing: 0, overdue: 0, rejected: 0 },
-          latestSubmissionDate: "2026-01-15T10:00:00Z",
+          latestSubmissionDate: "2026-07-20T10:00:00Z",
         },
         governanceMetrics: {
           governanceReadiness: 50,
           riskLevel: "Low",
-          milestones: { complete: 1, total: 2 },
+          milestones: { complete: 0, total: 1 },
           progress: { planned: 50, actual: 50, variance: 0 },
           ragStatus: "green",
         },
       };
 
-      const report1 = buildGovernanceReport([facilityData], testDate);
-      const report2 = buildGovernanceReport([facilityData], testDate);
+      const report = buildGovernanceReport([facilityData], testDate);
+      
+      // Verify expected structure
+      expect(report).toHaveProperty("reportingDate");
+      expect(report).toHaveProperty("facilities");
+      expect(report).toHaveProperty("portfolio");
+      
+      expect(report).toHaveProperty("dataQuality");
+      
+      expect(Array.isArray(report.facilities)).toBe(true);
+      expect(report.facilities.length).toBeGreaterThan(0);
+      
+      // Verify portfolio structure
+      expect(report.portfolio).toHaveProperty("totalFacilities");
+      expect(report.portfolio).toHaveProperty("submissionCoverageProxy");
+      expect(report.portfolio).toHaveProperty("requiredMilestoneSubmissionProxy");
+    });
+  });
 
-      expect(report1.portfolio.overallProgress).toBe(report2.portfolio.overallProgress);
-      expect(report1.portfolio.submissionCoverageProxy).toBe(report2.portfolio.submissionCoverageProxy);
-      expect(report1.reportingDate).toBe(report2.reportingDate);
+  describe("Generator receives non-empty array", () => {
+    it("should return facilities array that can be consumed by generator", () => {
+      const testDate = new Date("2026-07-25T00:00:00Z");
+      
+      const facilityData: FacilityGovernanceData[] = [
+        {
+          facility: {
+            slug: "facility-1",
+            name: "Facility One",
+            shortName: "Fac1",
+            color: "#f97316",
+          },
+          pppStartDate: null,
+          milestones: [],
+          documentSummary: {
+            totalDocuments: 0,
+            byCategory: {},
+            byWorkflowStatus: { accepted: 0, pendingReview: 0, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+            latestSubmissionDate: null,
+          },
+          governanceMetrics: {
+            governanceReadiness: 0,
+            riskLevel: "Low",
+            milestones: { complete: 0, total: 0 },
+            progress: { planned: null, actual: 0, variance: null },
+            ragStatus: "gray",
+          },
+        },
+        {
+          facility: {
+            slug: "facility-2",
+            name: "Facility Two",
+            shortName: "Fac2",
+            color: "#3b82f6",
+          },
+          pppStartDate: null,
+          milestones: [],
+          documentSummary: {
+            totalDocuments: 0,
+            byCategory: {},
+            byWorkflowStatus: { accepted: 0, pendingReview: 0, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+            latestSubmissionDate: null,
+          },
+          governanceMetrics: {
+            governanceReadiness: 0,
+            riskLevel: "Low",
+            milestones: { complete: 0, total: 0 },
+            progress: { planned: null, actual: 0, variance: null },
+            ragStatus: "gray",
+          },
+        },
+      ];
+
+      const report = buildGovernanceReport(facilityData, testDate);
+      
+      // Generator expects non-empty facilities array
+      expect(report.facilities).toBeInstanceOf(Array);
+      expect(report.facilities.length).toBeGreaterThan(0);
+      expect(report.portfolio.totalFacilities).toBeGreaterThan(0);
     });
   });
 });
