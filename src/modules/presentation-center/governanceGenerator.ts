@@ -317,27 +317,64 @@ function buildSlide1ExecutiveDashboard(report: GovernancePresentationReport): Pr
     ...getSlideHeader(report.reportingDate, 1),
   ];
   
-  // KPI Cards with proxy terminology
+  // KPI Cards with corrected terminology
+  // Check if requirement baseline is available
+  const hasRequirementBaseline = report.dataQuality.hasRequirementMatrix;
+  
   elements.push(...buildKpiCard("Onboarding Facilities", String(report.portfolio.totalFacilities), 0.5, 1.8));
   elements.push(...buildKpiCard("Portfolio Progress", formatPercent(report.portfolio.overallProgress, 0), 3.0, 1.8));
-  elements.push(...buildKpiCard("Submission Coverage Proxy", formatPercent(report.portfolio.submissionCoverageProxy, 0), 5.5, 1.8));
-  elements.push(...buildKpiCard("Required Submissions — Proxy", String(report.portfolio.requiredMilestoneSubmissionProxy), 8.0, 1.8));
+  
+  // Show appropriate coverage label based on requirement baseline availability
+  if (hasRequirementBaseline) {
+    elements.push(...buildKpiCard("Submission Coverage", formatPercent(report.portfolio.submissionCoverageProxy, 0), 5.5, 1.8));
+    elements.push(...buildKpiCard("Required Deliverables", String(report.portfolio.requiredMilestoneSubmissionProxy), 8.0, 1.8));
+  } else {
+    elements.push(...buildKpiCard("Submission Coverage", "N/A — Baseline Unavailable", 5.5, 1.8));
+    elements.push(...buildKpiCard("Required Deliverables", "Not Configured", 8.0, 1.8));
+  }
+  
   elements.push(...buildKpiCard("Total Submitted", String(report.portfolio.totalSubmitted), 0.5, 2.9));
-  elements.push(...buildKpiCard("Outstanding — Proxy", String(report.portfolio.outstandingMilestoneSubmissionProxy), 3.0, 2.9));
   
-  // Facility summary table with proxy terminology
-  const tableHeader = ["Facility", "Progress", "Coverage", "Required", "Submitted", "Outstanding", "Status"];
-  const tableRows = report.facilities.map(f => [
-    f.facility.shortName,
-    formatPercent(f.progress, 0),
-    formatPercent(f.submissionCoverageProxy, 0),
-    String(f.required),
-    String(f.submitted),
-    String(f.outstanding),
-    statusLabel(f.status, f.hasBaselineSchedule),
-  ]);
+  if (hasRequirementBaseline) {
+    elements.push(...buildKpiCard("Outstanding", String(report.portfolio.outstandingMilestoneSubmissionProxy), 3.0, 2.9));
+  } else {
+    elements.push(...buildKpiCard("Documents Awaiting Requirement Mapping", String(report.portfolio.totalUnmappedDocuments), 3.0, 2.9));
+  }
   
-  const finalRows = tableRows.length > 0 ? tableRows : [["No data", "—", "—", "—", "—", "—", "—"]];
+  // Facility summary table with corrected terminology
+  const tableHeader = hasRequirementBaseline 
+    ? ["Facility", "Progress", "Coverage", "Required", "Submitted", "Outstanding", "Status"]
+    : ["Facility", "Progress", "Coverage", "Submitted", "Unmapped", "Status"];
+    
+  const tableRows = report.facilities.map(f => {
+    if (hasRequirementBaseline) {
+      return [
+        f.facility.shortName,
+        formatPercent(f.progress, 0),
+        formatPercent(f.submissionCoverageProxy, 0),
+        String(f.required),
+        String(f.submitted),
+        String(f.outstanding),
+        statusLabel(f.status, f.hasBaselineSchedule),
+      ];
+    } else {
+      // Without requirement baseline, show unmapped instead of required/outstanding
+      return [
+        f.facility.shortName,
+        formatPercent(f.progress, 0),
+        "N/A",
+        String(f.submitted),
+        String(f.unmappedDocuments),
+        statusLabel(f.status, f.hasBaselineSchedule),
+      ];
+    }
+  });
+  
+  const finalRows = tableRows.length > 0 
+    ? tableRows 
+    : hasRequirementBaseline 
+      ? [["No data", "—", "—", "—", "—", "—", "—"]]
+      : [["No data", "—", "—", "—", "—", "—"]];
   
   elements.push({
     type: "table",

@@ -44,6 +44,14 @@ export const PROXY_LABELS = {
   baselineProgress: "Baseline Progress",
   actualMilestoneProgress: "Actual Milestone Progress",
   dataQuality: "DATA QUALITY: PROXY METRICS",
+  // New labels for corrected compliance reporting
+  documentSubmissionCompliance: "Document Submission Compliance",
+  requiredDeliverables: "Required Deliverables",
+  acceptedDeliverables: "Accepted/Approved Deliverables",
+  outstandingDeliverables: "Outstanding Deliverables",
+  unmappedDocuments: "Unmapped/Supplementary Documents",
+  requirementBaselineUnavailable: "Requirement Baseline Unavailable",
+  milestoneProgress: "Milestone Progress",
 } as const;
 
 export interface GovernanceFacility {
@@ -137,8 +145,8 @@ export interface FacilityPresentationSummary {
    */
   deliverablesCompliance: number;
   /**
-   * Proxy metric: Submission coverage based on milestone count.
-   * Not authoritative deliverables compliance.
+   * Proxy metric: Submission coverage based on requirement matrix or proxy.
+   * Capped at 100%. Not authoritative deliverables compliance.
    */
   submissionCoverageProxy: number;
   required: number;
@@ -149,6 +157,19 @@ export interface FacilityPresentationSummary {
    */
   approved: number;
   outstanding: number;
+  /**
+   * Documents that exceed the required count.
+   * May be unmapped, supplementary, or duplicates.
+   */
+  unmappedDocuments: number;
+  /**
+   * Whether a requirement baseline exists for this facility.
+   */
+  hasRequirementBaseline: boolean;
+  /**
+   * Data quality warning if applicable.
+   */
+  dataQualityWarning: string | null;
   scheduleVariance: number | null;
   status: "green" | "amber" | "red" | "gray";
   sCurve: SCurvePoint[];
@@ -169,7 +190,16 @@ export interface DeliverableComplianceRow {
    * All values will be 0.
    */
   approved: number;
+  /**
+   * Compliance rate capped at 100%.
+   * 0% indicates requirement baseline unavailable.
+   */
   complianceRate: number;
+  /**
+   * Documents not mapped to a specific requirement.
+   * May be supplementary, duplicates, or awaiting categorization.
+   */
+  unmapped?: number;
 }
 
 export interface GovernancePresentationReport {
@@ -185,12 +215,13 @@ export interface GovernancePresentationReport {
     overallCompliance: number;
     /**
      * Proxy metric: Overall submission coverage.
-     * Not authoritative compliance.
+     * Capped at 100%. Not authoritative compliance.
      */
     submissionCoverageProxy: number;
     /**
      * Proxy metric: Required milestone submissions.
      * Not a formal deliverable requirement matrix.
+     * Zero when requirement baseline is unavailable.
      */
     requiredMilestoneSubmissionProxy: number;
     totalSubmitted: number;
@@ -199,6 +230,11 @@ export interface GovernancePresentationReport {
      * Use totalSubmitted instead.
      */
     totalApproved: number;
+    /**
+     * Documents that exceed the required count or have no requirement mapping.
+     * May be supplementary, duplicates, or awaiting categorization.
+     */
+    totalUnmappedDocuments: number;
     /**
      * Proxy metric: Outstanding milestone submissions.
      * Not missing required documents.
@@ -279,28 +315,73 @@ export function calculateFacilityProgress(
  * 
  * Do not present this as authoritative deliverables compliance.
  */
+export interface RequirementMatrixResult {
+  submissionCoverageProxy: number;
+  requiredMilestoneSubmissionProxy: number;
+  submittedCount: number;
+  outstandingMilestoneSubmissionProxy: number;
+  unmappedDocuments: number;
+  hasRequirementBaseline: boolean;
+  dataQualityWarning: string | null;
+}
+
+/**
+ * Calculate submission coverage using proper requirement matrix or proxy.
+ * 
+ * CORRECTED BEHAVIOR:
+ * - If no requirement matrix exists, reports "baseline unavailable" instead of fabricated percentage
+ * - Caps coverage at 100% - excess documents reported as "unmapped/supplementary"
+ * - Does NOT use milestone count as required document count
+ */
 export function calculateSubmissionCoverageProxy(
   docSummary: DocumentSummary,
-  requiredMilestoneSubmissions: number
-): { 
-  submissionCoverageProxy: number; 
-  requiredMilestoneSubmissionProxy: number; 
-  submittedCount: number; 
-  outstandingMilestoneSubmissionProxy: number;
-} {
+  requiredDeliverables: number | null
+): RequirementMatrixResult {
   const submittedCount = docSummary.totalDocuments;
-  const requiredMilestoneSubmissionProxy = requiredMilestoneSubmissions;
-  const outstandingMilestoneSubmissionProxy = requiredMilestoneSubmissionProxy - submittedCount;
   
-  const submissionCoverageProxy = requiredMilestoneSubmissionProxy > 0 
+  // If no requirement baseline exists, report unavailable
+  if (requiredDeliverables === null || requiredDeliverables === undefined) {
+    return {
+      submissionCoverageProxy: 0,
+      requiredMilestoneSubmissionProxy: 0,
+      submittedCount,
+      outstandingMilestoneSubmissionProxy: 0,
+      unmappedDocuments: submittedCount,
+      hasRequirementBaseline: false,
+      dataQualityWarning: "Requirement baseline unavailable - cannot calculate compliance",
+    };
+  }
+  
+  const requiredMilestoneSubmissionProxy = requiredDeliverables;
+  
+  // Calculate coverage, capping at 100%
+  let submissionCoverageProxy = requiredMilestoneSubmissionProxy > 0 
     ? Math.round((submittedCount / requiredMilestoneSubmissionProxy) * 100) 
     : 0;
+  
+  // Cap at 100% - excess documents are "unmapped/supplementary"
+  submissionCoverageProxy = Math.min(submissionCoverageProxy, 100);
+  
+  // Calculate outstanding (cannot go below 0)
+  const outstandingMilestoneSubmissionProxy = Math.max(0, requiredMilestoneSubmissionProxy - submittedCount);
+  
+  // Excess documents are unmapped/supplementary
+  const unmappedDocuments = submittedCount > requiredMilestoneSubmissionProxy 
+    ? submittedCount - requiredMilestoneSubmissionProxy 
+    : 0;
+  
+  const dataQualityWarning = unmappedDocuments > 0 
+    ? `${unmappedDocuments} document(s) exceed required count - may be unmapped, supplementary, or duplicates`
+    : null;
   
   return {
     submissionCoverageProxy,
     requiredMilestoneSubmissionProxy,
     submittedCount,
-    outstandingMilestoneSubmissionProxy: Math.max(0, outstandingMilestoneSubmissionProxy),
+    outstandingMilestoneSubmissionProxy,
+    unmappedDocuments,
+    hasRequirementBaseline: true,
+    dataQualityWarning,
   };
 }
 
@@ -507,15 +588,29 @@ export function buildGovernanceReport(
   const now = reportingDate || new Date();
   const reportingDateStr = now.toISOString().split("T")[0];
   
-  const requiredPerFacility = GOVERNANCE_MILESTONES.length;
-  const requiredMilestoneSubmissionProxy = facilities.length * requiredPerFacility;
-  const totalSubmitted = facilities.reduce((sum, f) => sum + f.documentSummary.totalDocuments, 0);
-  const outstandingMilestoneSubmissionProxy = requiredMilestoneSubmissionProxy - totalSubmitted;
+  // CRITICAL: Requirement counts must come from actual requirement-matrix data
+  // GOVERNANCE_MILESTONES.length must NEVER be used as document requirement count
+  const hasRequirementMatrix = DELIVERABLE_REQUIREMENT_META.hasRequirementMatrix;
   
-  // Calculate submission coverage proxy
-  const submissionCoverageProxy = requiredMilestoneSubmissionProxy > 0
-    ? Math.round((totalSubmitted / requiredMilestoneSubmissionProxy) * 100)
-    : 0;
+  // TODO: Load actual requirement matrix data when available
+  // For now, requiredPerFacility is always null until real requirement rows are loaded
+  const requiredPerFacility = null; // Must come from actual requirement matrix, not milestones
+  
+  // Calculate totals using corrected logic
+  const totalSubmitted = facilities.reduce((sum, f) => sum + f.documentSummary.totalDocuments, 0);
+  
+  // Portfolio-level compliance only calculable with requirement matrix
+  let requiredMilestoneSubmissionProxy = 0;
+  let outstandingMilestoneSubmissionProxy = 0;
+  let submissionCoverageProxy = 0;
+  let portfolioUnmappedDocuments = 0;
+  
+  // Without actual requirement matrix data, compliance cannot be calculated
+  // All documents are "awaiting requirement mapping" until matched to requirements
+  requiredMilestoneSubmissionProxy = 0;
+  outstandingMilestoneSubmissionProxy = 0;
+  submissionCoverageProxy = 0;
+  portfolioUnmappedDocuments = totalSubmitted;
   
   const overallProgress = facilities.length > 0
     ? Math.round(facilities.reduce((sum, f) => sum + f.governanceMetrics.progress.actual, 0) / facilities.length)
@@ -535,6 +630,9 @@ export function buildGovernanceReport(
       submitted: coverage.submittedCount,
       approved: 0, // Workflow status not tracked
       outstanding: coverage.outstandingMilestoneSubmissionProxy,
+      unmappedDocuments: coverage.unmappedDocuments,
+      hasRequirementBaseline: coverage.hasRequirementBaseline,
+      dataQualityWarning: coverage.dataQualityWarning,
       scheduleVariance: f.governanceMetrics.progress.variance,
       status: f.governanceMetrics.ragStatus,
       sCurve: sCurveWithForecast,
@@ -547,24 +645,53 @@ export function buildGovernanceReport(
     };
   });
   
-  const categoryCompliance: Record<string, { required: number; submitted: number; approved: number }> = {};
+  // CORRECTED: Category compliance uses the same hasRequirementMatrix check from above
+  
+  const categoryCompliance: Record<string, { 
+    required: number; 
+    submitted: number; 
+    approved: number;
+    unmapped: number;
+  }> = {};
+  
   for (const f of facilities) {
     for (const [cat, count] of Object.entries(f.documentSummary.byCategory)) {
       if (cat === "references") continue;
-      if (!categoryCompliance[cat]) categoryCompliance[cat] = { required: 0, submitted: 0, approved: 0 };
-      categoryCompliance[cat].required += count;
+      if (!categoryCompliance[cat]) {
+        categoryCompliance[cat] = { required: 0, submitted: 0, approved: 0, unmapped: 0 };
+      }
+      // Without requirement matrix, all documents are "submitted" but "unmapped"
       categoryCompliance[cat].submitted += count;
+      categoryCompliance[cat].unmapped += count;
     }
   }
   
+  // Only calculate compliance rates if requirement matrix exists
   const deliverableCompliance: DeliverableComplianceRow[] = Object.entries(categoryCompliance)
-    .map(([category, data]) => ({
-      category,
-      required: data.required,
-      submitted: data.submitted,
-      approved: 0, // Workflow status not tracked
-      complianceRate: data.required > 0 ? Math.round((data.submitted / data.required) * 100) : 0,
-    }))
+    .map(([category, data]) => {
+      if (hasRequirementMatrix) {
+        // Normal compliance calculation
+        const complianceRate = data.required > 0 
+          ? Math.min(Math.round((data.submitted / data.required) * 100), 100) // Cap at 100%
+          : 0;
+        return {
+          category,
+          required: data.required,
+          submitted: data.submitted,
+          approved: 0, // Workflow status not tracked
+          complianceRate,
+        };
+      } else {
+        // No requirement matrix - compliance is unknown
+        return {
+          category,
+          required: 0, // Unknown
+          submitted: data.submitted,
+          approved: 0,
+          complianceRate: 0, // Cannot calculate without baseline
+        };
+      }
+    })
     .sort((a, b) => b.complianceRate - a.complianceRate);
   
   const executiveActions = buildExecutiveActions(facilities);
@@ -582,6 +709,7 @@ export function buildGovernanceReport(
       totalSubmitted,
       totalApproved: 0, // Deprecated: workflow status not tracked
       outstandingMilestoneSubmissionProxy,
+      totalUnmappedDocuments: portfolioUnmappedDocuments,
     },
     facilities: facilitySummaries,
     deliverableCompliance,
