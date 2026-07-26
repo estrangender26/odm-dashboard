@@ -12,6 +12,8 @@ import {
   GOVERNANCE_DECK_TYPE,
   DATA_QUALITY_DISCLOSURE,
   type GovernancePresentationReport,
+  type FacilityPresentationSummary,
+  type SCurvePoint,
   type FacilityGovernanceData,
 } from "./governanceTypes";
 
@@ -187,6 +189,50 @@ function formatPercent(value: number | null, decimals: number = 0): string {
   return `${value.toFixed(decimals)}%`;
 }
 
+
+
+// Calculate consolidated S-curve from all facilities
+function calculateConsolidatedSCurve(facilities: FacilityPresentationSummary[]): SCurvePoint[] {
+  if (facilities.length === 0) return [];
+  
+  const allDates = new Set<string>();
+  facilities.forEach(f => {
+    f.sCurve.forEach(p => {
+      allDates.add(p.date);
+    });
+  });
+  
+  const sortedDates = Array.from(allDates).sort();
+  
+  return sortedDates.map(date => {
+    let totalPlanned = 0;
+    let totalActual = 0;
+    let plannedCount = 0;
+    let actualCount = 0;
+    
+    facilities.forEach(f => {
+      const point = f.sCurve.find(p => p.date === date);
+      if (point) {
+        if (point.planned !== null) {
+          totalPlanned += point.planned;
+          plannedCount++;
+        }
+        if (point.actual !== null) {
+          totalActual += point.actual;
+          actualCount++;
+        }
+      }
+    });
+    
+    return {
+      date,
+      planned: plannedCount > 0 ? Math.round(totalPlanned / plannedCount) : null,
+      actual: actualCount > 0 ? Math.round(totalActual / actualCount) : null,
+      forecast: null,
+    };
+  });
+}
+
 function statusLabel(status: string, hasBaseline: boolean): string {
   if (!hasBaseline) return "NO BASELINE";
   const map: Record<string, string> = {
@@ -268,55 +314,6 @@ function buildFooter(reportingDate: string, pageNum: number, totalPages: number)
   return elements;
 }
 
-// Build executive KPI card
-function buildExecutiveKpiCard(
-  label: string,
-  value: string,
-  x: number,
-  y: number,
-  w: number = 2.8,
-  h: number = 1.2
-): PresentationElement[] {
-  const elements: PresentationElement[] = [];
-  
-  // Card border/shape
-  elements.push({
-    type: "shape",
-    x,
-    y,
-    w,
-    h,
-    fill: MASTER.kpiCard.fill,
-    line: MASTER.kpiCard.border,
-  });
-  
-  // Large value
-  elements.push({
-    type: "text",
-    text: value,
-    x: x + 0.15,
-    y: y + 0.15,
-    w: w - 0.3,
-    h: 0.6,
-    fontSize: MASTER.typography.kpiValue.fontSize,
-    bold: MASTER.typography.kpiValue.bold,
-    color: MASTER.typography.kpiValue.color,
-  });
-  
-  // Label
-  elements.push({
-    type: "text",
-    text: label,
-    x: x + 0.15,
-    y: y + 0.75,
-    w: w - 0.3,
-    h: 0.35,
-    fontSize: MASTER.typography.kpiLabel.fontSize,
-    color: MASTER.typography.kpiLabel.color,
-  });
-  
-  return elements;
-}
 
 // SLIDE 1: Title / Executive Overview
 function buildSlide1ExecutiveOverview(report: GovernancePresentationReport): PresentationSlide[] {
@@ -378,101 +375,151 @@ function buildSlide2ConsolidatedSCurve(report: GovernancePresentationReport): Pr
   const slides: PresentationSlide[] = [];
   const elements: PresentationElement[] = [];
   
-  // Navy header bar
   elements.push(...buildHeader("Governance Overview"));
   
-  // Summary text
-  elements.push({
-    type: "text",
-    text: `${report.facilities.length} facilities • Overall Progress: ${formatPercent(report.portfolio.overallProgress, 0)}`,
-    x: MASTER.content.x,
-    y: MASTER.content.y,
-    w: MASTER.content.width,
-    h: 0.4,
-    fontSize: 12,
-    color: "595959",
+  const consolidatedSCurve = calculateConsolidatedSCurve(report.facilities);
+  const lastPoint = consolidatedSCurve.length > 0 
+    ? consolidatedSCurve[consolidatedSCurve.length - 1] 
+    : { planned: null, actual: null };
+  const currentPlanned = lastPoint.planned ?? 0;
+  const currentActual = lastPoint.actual ?? 0;
+  const variance = currentActual - currentPlanned;
+  const portfolioRag = report.facilities.length > 0
+    ? report.facilities.every(f => f.status === "green") ? "green"
+      : report.facilities.some(f => f.status === "red") ? "red" : "amber"
+    : "green";
+  
+  const plannedData = consolidatedSCurve.map(p => p.planned ?? 0);
+  const actualData = consolidatedSCurve.map(p => p.actual ?? 0);
+  const dateLabels = consolidatedSCurve.map(p => {
+    const d = new Date(p.date);
+    return `${d.getMonth() + 1}/${d.getFullYear().toString().slice(2)}`;
   });
   
-  // KPI Cards in a row
-  const cardY = MASTER.content.y + 0.5;
-  const cardWidth = 2.8;
-  const cardSpacing = 0.3;
+  elements.push({
+    type: "chart",
+    chartType: "line",
+    data: [
+      { name: "Planned", labels: dateLabels, values: plannedData },
+      { name: "Actual", labels: dateLabels, values: actualData },
+    ],
+    x: MASTER.content.x,
+    y: MASTER.content.y + 0.2,
+    w: MASTER.content.width * 0.7,
+    h: 4.2,
+    colors: [MASTER.table.headerFill, MASTER.rag.green],
+    showLegend: true,
+    valAxisMax: 100,
+    catAxisLabel: true,
+  } as unknown as PresentationElement);
   
-  elements.push(...buildExecutiveKpiCard(
-    "Portfolio Milestone Progress",
-    formatPercent(report.portfolio.overallProgress, 0),
-    MASTER.content.x,
-    cardY,
-    cardWidth
-  ));
+  const summaryX = MASTER.content.x + MASTER.content.width * 0.72;
+  elements.push({
+    type: "text",
+    text: "Portfolio Summary",
+    x: summaryX,
+    y: MASTER.content.y + 0.3,
+    w: 3.3,
+    h: 0.3,
+    fontSize: 12,
+    bold: true,
+    color: MASTER.typography.title.color,
+  });
+  elements.push({
+    type: "text",
+    text: `Facilities: ${report.facilities.length}`,
+    x: summaryX,
+    y: MASTER.content.y + 0.8,
+    w: 3.3,
+    h: 0.25,
+    fontSize: 10,
+    color: "595959",
+  });
+  elements.push({
+    type: "text",
+    text: `Planned: ${currentPlanned}%`,
+    x: summaryX,
+    y: MASTER.content.y + 1.2,
+    w: 3.3,
+    h: 0.25,
+    fontSize: 10,
+    color: MASTER.table.headerFill,
+  });
+  elements.push({
+    type: "text",
+    text: `Actual: ${currentActual}%`,
+    x: summaryX,
+    y: MASTER.content.y + 1.55,
+    w: 3.3,
+    h: 0.25,
+    fontSize: 10,
+    color: MASTER.rag.green,
+  });
+  const varianceColor = variance < -10 ? MASTER.rag.red : variance < 0 ? MASTER.rag.amber : MASTER.rag.green;
+  elements.push({
+    type: "text",
+    text: `Variance: ${variance >= 0 ? '+' : ''}${variance}%`,
+    x: summaryX,
+    y: MASTER.content.y + 1.9,
+    w: 3.3,
+    h: 0.25,
+    fontSize: 10,
+    color: varianceColor,
+  });
+  elements.push({
+    type: "shape",
+    x: summaryX,
+    y: MASTER.content.y + 2.4,
+    w: 0.15,
+    h: 0.15,
+    fill: statusColor(portfolioRag),
+  });
+  elements.push({
+    type: "text",
+    text: `Status: ${statusLabel(portfolioRag, true)}`,
+    x: summaryX + 0.25,
+    y: MASTER.content.y + 2.35,
+    w: 3.0,
+    h: 0.25,
+    fontSize: 10,
+    color: "333333",
+  });
   
-  elements.push(...buildExecutiveKpiCard(
-    "Onboarding Facilities",
-    String(report.portfolio.totalFacilities),
-    MASTER.content.x + cardWidth + cardSpacing,
-    cardY,
-    cardWidth
-  ));
-  
-  elements.push(...buildExecutiveKpiCard(
-    "Approved Documents",
-    String(report.portfolio.totalSubmitted),
-    MASTER.content.x + (cardWidth + cardSpacing) * 2,
-    cardY,
-    cardWidth
-  ));
-  
-  elements.push(...buildExecutiveKpiCard(
-    "Coverage",
-    "N/A",
-    MASTER.content.x + (cardWidth + cardSpacing) * 3,
-    cardY,
-    cardWidth
-  ));
-  
-  // Executive summary table
-  const tableY = cardY + 1.8;
-  const tableHeader = ["Facility", "Milestone Progress", "Approved Docs", "Status"];
-  
+  const tableY = MASTER.content.y + 4.6;
+  const tableHeader = ["Facility", "Progress", "Status"];
   const tableRows = report.facilities.map(f => [
     f.facility.shortName,
     formatPercent(f.progress, 0),
-    String(f.submitted),
     statusLabel(f.status, f.hasBaselineSchedule),
   ]);
-  
-  const finalRows = tableRows.length > 0 ? tableRows : [["No data", "—", "—", "—"]];
-  
-  // Add RAG color coding for status column
+  const finalRows = tableRows.length > 0 ? tableRows : [["No data", "—", "—"]];
   const cellFills = [
     Array(tableHeader.length).fill(MASTER.table.headerFill),
     ...finalRows.map((row) => {
-      const status = row[3];
+      const status = row[2];
       const baseFill = "FFFFFF";
-      if (status === "DELAYED") return [baseFill, baseFill, baseFill, MASTER.rag.paleRed];
-      if (status === "AT RISK") return [baseFill, baseFill, baseFill, MASTER.rag.paleAmber];
-      if (status === "ON TRACK") return [baseFill, baseFill, baseFill, MASTER.rag.paleGreen];
+      if (status === "DELAYED") return [baseFill, baseFill, MASTER.rag.paleRed];
+      if (status === "AT RISK") return [baseFill, baseFill, MASTER.rag.paleAmber];
+      if (status === "ON TRACK") return [baseFill, baseFill, MASTER.rag.paleGreen];
       return Array(tableHeader.length).fill(baseFill);
     }),
   ];
-  
   elements.push({
     type: "table",
     rows: [tableHeader, ...finalRows],
     x: MASTER.content.x,
     y: tableY,
     w: MASTER.content.width,
-    h: Math.max(1.5, finalRows.length * 0.4 + 0.5),
-    fontSize: MASTER.table.fontSize,
+    h: Math.max(1.0, finalRows.length * 0.35 + 0.4),
+    fontSize: 10,
     cellFills,
   });
   
-  // Footer
   elements.push(...buildFooter(report.reportingDate, 2, 4));
   
   slides.push({
     elements,
-    notes: "Consolidated governance overview with KPI cards and facility summary table.",
+    notes: `Consolidated S-curve showing planned ${currentPlanned}% vs actual ${currentActual}%.`,
   });
   
   return slides;
@@ -482,22 +529,19 @@ function buildSlide3FacilitySCurves(report: GovernancePresentationReport): Prese
   const slides: PresentationSlide[] = [];
   const elements: PresentationElement[] = [];
   
-  // Navy header bar
   elements.push(...buildHeader("Facility S-Curve Analysis"));
   
-  // Create 2x2 grid for up to 4 facilities
   const facilities = report.facilities.slice(0, 4);
   const panelWidth = 5.8;
-  const panelHeight = 2.6;
-  const startY = MASTER.content.y + 0.3;
+  const panelHeight = 3.1;
+  const startY = MASTER.content.y + 0.2;
   
   facilities.forEach((f, index) => {
     const col = index % 2;
     const row = Math.floor(index / 2);
     const x = MASTER.content.x + col * (panelWidth + 0.4);
-    const y = startY + row * (panelHeight + 0.3);
+    const y = startY + row * (panelHeight + 0.15);
     
-    // Panel background
     elements.push({
       type: "shape",
       x: x,
@@ -508,178 +552,241 @@ function buildSlide3FacilitySCurves(report: GovernancePresentationReport): Prese
       line: MASTER.table.borderColor,
     });
     
-    // Facility name with RAG indicator
     const statusHex = statusColor(f.status);
     elements.push({
       type: "shape",
       x: x + 0.15,
-      y: y + 0.15,
+      y: y + 0.12,
       w: 0.12,
       h: 0.12,
       fill: statusHex,
     });
-    
     elements.push({
       type: "text",
       text: f.facility.shortName,
       x: x + 0.35,
-      y: y + 0.1,
+      y: y + 0.08,
       w: 4,
-      h: 0.3,
-      fontSize: 12,
+      h: 0.28,
+      fontSize: 11,
       bold: true,
       color: MASTER.typography.title.color,
     });
     
-    // Progress stats
-    elements.push({
-      type: "text",
-      text: `Actual: ${formatPercent(f.progress, 0)}`,
-      x: x + 0.15,
-      y: y + 0.5,
-      w: 2,
-      h: 0.25,
-      fontSize: 10,
-      color: "0C0C0C",
+    const plannedData = f.sCurve.map(p => p.planned ?? 0);
+    const actualData = f.sCurve.map(p => p.actual ?? 0);
+    const dateLabels = f.sCurve.map(p => {
+      const d = new Date(p.date);
+      return `${d.getMonth() + 1}/${d.getFullYear().toString().slice(2)}`;
     });
     
-    const variance = f.scheduleVariance;
-    const varianceText = variance !== null 
-      ? `${variance >= 0 ? '+' : ''}${variance}%` 
-      : "N/A";
-    const varianceColor = variance !== null && variance < -10 
-      ? MASTER.rag.red 
-      : variance !== null && variance < 0 
-        ? MASTER.rag.amber 
-        : "0C0C0C";
-    
     elements.push({
-      type: "text",
-      text: `Variance: ${varianceText}`,
+      type: "chart",
+      chartType: "line",
+      data: [
+        { name: "Planned", labels: dateLabels, values: plannedData },
+        { name: "Actual", labels: dateLabels, values: actualData },
+      ],
       x: x + 0.15,
-      y: y + 0.8,
-      w: 2,
-      h: 0.25,
-      fontSize: 10,
-      color: varianceColor,
-    });
+      y: y + 0.45,
+      w: panelWidth - 0.3,
+      h: 1.8,
+      colors: [MASTER.table.headerFill, MASTER.rag.green],
+      showLegend: index === 0,
+      valAxisMax: 100,
+      catAxisLabel: false,
+    } as unknown as PresentationElement);
     
-    // Mini S-curve bars (last 6 data points)
-    if (f.sCurve.length > 0) {
-      const barY = y + 1.4;
-      const barHeight = 0.4;
-      const maxBarWidth = 2.5;
-      
-      const recentPoints = f.sCurve.slice(-6);
-      const pointWidth = maxBarWidth / recentPoints.length;
-      
-      recentPoints.forEach((point, pIdx) => {
-        const barWidth = ((point.actual || 0) / 100) * pointWidth * 0.85;
-        elements.push({
-          type: "shape",
-          x: x + 0.15 + pIdx * pointWidth,
-          y: barY + (barHeight - (barHeight * (point.actual || 0) / 100)) / 2,
-          w: Math.max(0.03, barWidth),
-          h: barHeight * (point.actual || 0) / 100,
-          fill: MASTER.typography.title.color,
-        });
-      });
-    }
+    const statsY = y + 2.35;
+    const lastPoint = f.sCurve.length > 0 
+      ? f.sCurve[f.sCurve.length - 1] 
+      : { planned: null, actual: null };
+    const plannedVal = lastPoint.planned ?? 0;
+    const actualVal = lastPoint.actual ?? 0;
+    const varVal = actualVal - plannedVal;
     
-    // Documents count
     elements.push({
       type: "text",
-      text: `${f.submitted} docs approved`,
-      x: x + 3.0,
-      y: y + 0.5,
-      w: 2.5,
-      h: 0.25,
-      fontSize: 9,
-      color: "595959",
+      text: `Planned: ${plannedVal}%`,
+      x: x + 0.15,
+      y: statsY,
+      w: 1.7,
+      h: 0.2,
+      fontSize: 8,
+      color: MASTER.table.headerFill,
+    });
+    elements.push({
+      type: "text",
+      text: `Actual: ${actualVal}%`,
+      x: x + 1.85,
+      y: statsY,
+      w: 1.7,
+      h: 0.2,
+      fontSize: 8,
+      color: MASTER.rag.green,
+    });
+    const varColor = varVal < -10 ? MASTER.rag.red : varVal < 0 ? MASTER.rag.amber : MASTER.rag.green;
+    elements.push({
+      type: "text",
+      text: `Var: ${varVal >= 0 ? '+' : ''}${varVal}%`,
+      x: x + 3.55,
+      y: statsY,
+      w: 1.7,
+      h: 0.2,
+      fontSize: 8,
+      color: varColor,
+    });
+    elements.push({
+      type: "text",
+      text: statusLabel(f.status, f.hasBaselineSchedule),
+      x: x + 0.15,
+      y: statsY + 0.25,
+      w: 3,
+      h: 0.2,
+      fontSize: 8,
+      color: "666666",
     });
   });
   
-  // Footer
   elements.push(...buildFooter(report.reportingDate, 3, 4));
   
   slides.push({
     elements,
-    notes: "Four facility S-curve analysis in 2x2 grid layout.",
+    notes: "Four facility S-curve analysis with planned vs actual comparison.",
   });
   
   return slides;
 }
 
-// SLIDE 4: Deliverables / Compliance Summary
 function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): PresentationSlide[] {
   const slides: PresentationSlide[] = [];
   const elements: PresentationElement[] = [];
   
-  // Navy header bar
   elements.push(...buildHeader("Deliverables Compliance Summary"));
   
-  // Left side: Document submission by category
   elements.push({
     type: "text",
-    text: "Document Submission by Category",
+    text: "Facility Deliverables Status",
     x: MASTER.content.x,
     y: MASTER.content.y,
-    w: 5.5,
+    w: MASTER.content.width,
     h: 0.3,
     fontSize: 12,
     bold: true,
     color: "0C0C0C",
   });
   
-  const categoryHeader = ["Category", "Submitted", "Rate"];
-  const categoryRows = report.deliverableCompliance.map(row => [
-    row.category,
-    String(row.submitted),
-    formatPercent(row.complianceRate, 0),
-  ]);
+  const matrixHeader = ["Facility", "Required", "Submitted", "Approved", "Missing", "Compliance", "Status"];
+  const TOTAL_TOC_DELIVERABLES = 14;
   
-  const finalCategoryRows = categoryRows.length > 0 ? categoryRows : [["No data", "—", "—"]];
+  const matrixRows = report.facilities.map(f => {
+    const required = f.hasRequirementBaseline ? TOTAL_TOC_DELIVERABLES : 0;
+    const submitted = Math.min(f.submitted, required);
+    const approved = submitted;
+    const missing = required > 0 ? required - submitted : 0;
+    const compliance = required > 0 
+      ? `${Math.round((submitted / required) * 100)}%`
+      : "N/A";
+    const status = required > 0 
+      ? (submitted >= required ? "Complete" : submitted >= required * 0.7 ? "In Progress" : "At Risk")
+      : "Not Configured";
+    
+    return [
+      f.facility.shortName,
+      required > 0 ? String(required) : "Not configured",
+      String(submitted),
+      String(approved),
+      required > 0 ? String(missing) : "—",
+      compliance,
+      status,
+    ];
+  });
+  
+  const finalRows = matrixRows.length > 0 ? matrixRows : [["No data", "—", "—", "—", "—", "—", "—"]];
+  
+  const matrixCellFills = [
+    Array(matrixHeader.length).fill(MASTER.table.headerFill),
+    ...finalRows.map((row) => {
+      const status = row[6];
+      const baseFill = "FFFFFF";
+      if (status === "At Risk") return [...Array(6).fill(baseFill), MASTER.rag.paleRed];
+      if (status === "In Progress") return [...Array(6).fill(baseFill), MASTER.rag.paleAmber];
+      if (status === "Complete") return [...Array(6).fill(baseFill), MASTER.rag.paleGreen];
+      return Array(matrixHeader.length).fill(baseFill);
+    }),
+  ];
   
   elements.push({
     type: "table",
-    rows: [categoryHeader, ...finalCategoryRows],
+    rows: [matrixHeader, ...finalRows],
     x: MASTER.content.x,
     y: MASTER.content.y + 0.4,
-    w: 5.5,
-    h: Math.max(1.5, finalCategoryRows.length * 0.35 + 0.5),
-    fontSize: MASTER.table.fontSize,
-    
+    w: MASTER.content.width,
+    h: Math.max(1.5, finalRows.length * 0.4 + 0.5),
+    fontSize: 9,
+    cellFills: matrixCellFills,
   });
   
-  // Right side: Executive Actions
+  const catY = MASTER.content.y + 0.4 + Math.max(1.5, finalRows.length * 0.4 + 0.5) + 0.3;
+  
+  elements.push({
+    type: "text",
+    text: "Document Submission by Category",
+    x: MASTER.content.x,
+    y: catY,
+    w: 5.5,
+    h: 0.25,
+    fontSize: 11,
+    bold: true,
+    color: "0C0C0C",
+  });
+  
+  const catHeader = ["Category", "Submitted"];
+  const catRows = report.deliverableCompliance
+    .filter(row => row.submitted > 0)
+    .map(row => [row.category, String(row.submitted)]);
+  const finalCatRows = catRows.length > 0 ? catRows : [["No submissions", "—"]];
+  
+  elements.push({
+    type: "table",
+    rows: [catHeader, ...finalCatRows],
+    x: MASTER.content.x,
+    y: catY + 0.35,
+    w: 5.5,
+    h: Math.max(1.0, finalCatRows.length * 0.35 + 0.4),
+    fontSize: 9,
+    cellFills: [
+      Array(catHeader.length).fill(MASTER.table.headerFill),
+      ...finalCatRows.map(() => Array(catHeader.length).fill("FFFFFF")),
+    ],
+  });
+  
   elements.push({
     type: "text",
     text: "Executive Actions",
     x: MASTER.content.x + 6.0,
-    y: MASTER.content.y,
+    y: catY,
     w: 6,
-    h: 0.3,
-    fontSize: 12,
+    h: 0.25,
+    fontSize: 11,
     bold: true,
     color: "0C0C0C",
   });
   
   const actionHeader = ["Priority", "Facility", "Action"];
-  const actionRows = report.executiveActions.slice(0, 5).map(action => [
+  const actionRows = report.executiveActions.slice(0, 4).map(action => [
     action.priority.toUpperCase(),
     action.facility,
     action.action.length > 35 ? action.action.substring(0, 32) + "..." : action.action,
   ]);
-  
   const finalActionRows = actionRows.length > 0 ? actionRows : [["—", "—", "No critical actions"]];
   
-  // Color code priority column
   const actionCellFills = [
     Array(actionHeader.length).fill(MASTER.table.headerFill),
     ...finalActionRows.map((row) => {
       const priority = row[0];
       const baseFill = "FFFFFF";
-      if (priority === "HIGH") return [MASTER.rag.paleRed, baseFill, baseFill];
+      if (priority === "HIGH" || priority === "CRITICAL") return [MASTER.rag.paleRed, baseFill, baseFill];
       if (priority === "MEDIUM") return [MASTER.rag.paleAmber, baseFill, baseFill];
       return Array(actionHeader.length).fill(baseFill);
     }),
@@ -689,15 +796,13 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
     type: "table",
     rows: [actionHeader, ...finalActionRows],
     x: MASTER.content.x + 6.0,
-    y: MASTER.content.y + 0.4,
+    y: catY + 0.35,
     w: 6.0,
-    h: Math.max(1.5, finalActionRows.length * 0.35 + 0.5),
+    h: Math.max(1.0, finalActionRows.length * 0.35 + 0.4),
     fontSize: 9,
-    
     cellFills: actionCellFills,
   });
   
-  // Data quality disclosure
   elements.push({
     type: "text",
     x: MASTER.content.x,
@@ -709,16 +814,16 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
     color: "595959",
   });
   
-  // Footer
   elements.push(...buildFooter(report.reportingDate, 4, 4));
   
   slides.push({
     elements,
-    notes: "Deliverables compliance summary and executive actions.",
+    notes: "Deliverables compliance summary with facility matrix and executive actions.",
   });
   
   return slides;
 }
+
 export interface GovernanceGenerationOptions {
   facilities?: FacilityGovernanceData[];
   useTestFixture?: boolean;
