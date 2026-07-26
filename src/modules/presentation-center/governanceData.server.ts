@@ -17,11 +17,13 @@ import { db } from "@db/connection";
 import { governanceFacilities, governanceMilestoneState, governanceUploads } from "@db/schema";
 import { inArray } from "drizzle-orm";
 import {
+  isPersistedMilestoneComplete,
+
   GOVERNANCE_MILESTONES,
   getFacilityColor,
-  calculateFacilityProgress,
+
   determineRagStatus,
-  isMilestoneCompleteAsOf,
+
   type GovernanceFacility,
   type GovernanceMilestone,
   type FacilityGovernanceData,
@@ -195,16 +197,15 @@ export async function fetchGovernanceDataForPresentation(
     // Get PPP start date from first milestone with pppDate
     const pppStartDate = milestoneStates.find(s => s.pppDate)?.pppDate || null;
     
-    // Build milestones from canonical definitions + DB state
-    // Filter completions by reporting date cutoff
+    // Build milestones from canonical definitions + persisted DB state
     const milestones: GovernanceMilestone[] = GOVERNANCE_MILESTONES.map(m => {
       const state = milestoneStates.find((s: MilestoneStateRow) => s.milestoneId === m.id);
       
-      // Filter completion dates by reporting date cutoff
+      // Use persisted completion date - milestone is complete if compDate exists (no reporting date cutoff)
       const completionDate = state?.compDate || null;
-      const isCompleted = isMilestoneCompleteAsOf(completionDate, reportingDate.toISOString().split("T")[0]);
+      const isCompleted = isPersistedMilestoneComplete(completionDate);
       
-      // Custom progress is only valid if set and completion is on/before cutoff
+      // Custom progress is valid if set and milestone is complete
       const actualProgress = state?.customPct != null && isCompleted
         ? state.customPct 
         : (isCompleted ? 100 : null);
@@ -226,8 +227,14 @@ export async function fetchGovernanceDataForPresentation(
       byCategory[u.category] = (byCategory[u.category] || 0) + 1;
     });
     
-    // Calculate facility progress with reporting date
-    const progress = calculateFacilityProgress(milestones, reportingDate);
+    // Calculate facility progress from persisted milestone state (no reporting date cutoff)
+    const totalWeight = milestones.reduce((sum, m) => sum + m.weight, 0);
+    const completedWeight = milestones.filter(m => m.actualProgress === 100).reduce((sum, m) => sum + m.weight, 0);
+    const actual = totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : 0;
+    const hasBaseline = milestones.some(m => m.plannedDate);
+    const planned = hasBaseline ? Math.round((milestones.filter(m => m.plannedDate && new Date(m.plannedDate) <= reportingDate).reduce((sum, m) => sum + m.weight, 0) / totalWeight) * 100) : null;
+    const variance = planned !== null ? actual - planned : null;
+    const progress = { actual, planned, variance, hasBaseline };
     
     // Workflow status is not tracked in schema - use approximations
     const docSummary: DocumentSummary = {
