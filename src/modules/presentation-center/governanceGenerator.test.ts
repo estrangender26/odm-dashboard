@@ -406,9 +406,9 @@ describe("Governance Presentation Structure", () => {
       
       // Verify facility names
       const facilityNames = facilities.map(f => f.facility.shortName);
-      expect(facilityNames).toContain("Laguna");
-      expect(facilityNames).toContain("Clark");
-      expect(facilityNames).toContain("Tagum");
+      expect(facilityNames).toContain("AGLIPAY STP");
+      expect(facilityNames).toContain("HTT STP");
+      expect(facilityNames).toContain("EASTBAY PH-2 TP");
       expect(facilityNames).toContain("Estate");
     });
 
@@ -416,22 +416,22 @@ describe("Governance Presentation Structure", () => {
       const facilities = createDeterministicTestFixture();
       
       // On-schedule facility
-      const onSchedule = facilities.find(f => f.facility.slug === "facility-on-schedule");
+      const onSchedule = facilities.find(f => f.facility.slug === "aglipay");
       expect(onSchedule).toBeDefined();
       expect(onSchedule?.governanceMetrics.ragStatus).toBe("green");
       
       // Behind schedule facility
-      const behind = facilities.find(f => f.facility.slug === "facility-behind");
+      const behind = facilities.find(f => f.facility.slug === "htt");
       expect(behind).toBeDefined();
       expect(behind?.governanceMetrics.ragStatus).toBe("amber");
       
       // Insufficient forecast facility
-      const forecast = facilities.find(f => f.facility.slug === "facility-forecast");
+      const forecast = facilities.find(f => f.facility.slug === "eastbay");
       expect(forecast).toBeDefined();
       expect(forecast?.governanceMetrics.ragStatus).toBe("red");
       
       // No baseline facility
-      const noBaseline = facilities.find(f => f.facility.slug === "facility-no-baseline");
+      const noBaseline = facilities.find(f => f.facility.slug === "kaysakat");
       expect(noBaseline).toBeDefined();
       expect(noBaseline?.governanceMetrics.ragStatus).toBe("gray");
     });
