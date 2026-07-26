@@ -1,33 +1,57 @@
 {
   "templateLoaded": true,
   "templatePath": "public/templates/governance/governance-master-template.pptx",
-  "outputSlideCount": 21,
+  "blankRootPath": "public/templates/governance/governance-output-root.pptx",
+  "outputSlideCount": 4,
   "expectedSlides": 4,
   "templateSlideCount": 17,
   "slides": [
     {
       "outputSlide": 1,
+      "sourceSlideFile": "slide18.xml",
       "templateSourceSlide": 1,
       "type": "title"
     },
     {
       "outputSlide": 2,
+      "sourceSlideFile": "slide19.xml",
       "templateSourceSlide": 3,
       "type": "overview"
     },
     {
       "outputSlide": 3,
+      "sourceSlideFile": "slide20.xml",
       "templateSourceSlide": 4,
       "type": "facility"
     },
     {
       "outputSlide": 4,
+      "sourceSlideFile": "slide21.xml",
       "templateSourceSlide": 15,
       "type": "deliverables"
     }
   ],
   "programmaticMasterFallbackUsed": false,
-  "layoutCount": 24,
-  "masterCount": 2,
-  "validationPassed": false
+  "method": "blank_root_plus_source_template_with_post_processing",
+  "validationPassed": true,
+  "fixtureValues": {
+    "aglipay": {
+      "planned": 44,
+      "actual": 44
+    },
+    "htt": {
+      "planned": 44,
+      "actual": 44
+    },
+    "eastbay": {
+      "planned": 22,
+      "actual": 11
+    },
+    "kaysakat": {
+      "planned": 33,
+      "actual": 0
+    }
+  },
+  "slide4Mode": "B",
+  "hasRequirementMatrix": false
 }
