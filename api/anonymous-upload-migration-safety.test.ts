@@ -80,10 +80,6 @@ describe("anonymous upload migration safety", () => {
       expect(rollbackEntry).toBeUndefined();
     });
 
-    it("does not have any entry with idx 13", () => {
-      const entry13 = journal.entries.find((e: any) => e.idx === 13);
-      expect(entry13).toBeUndefined();
-    });
   });
 
   describe("forward migration file", () => {

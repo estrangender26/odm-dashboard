@@ -92,6 +92,27 @@
       "when": 1784100000000,
       "tag": "0012_anonymous_upload_capability",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784100000001,
+      "tag": "0013_legacy_storage_migration_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784100000002,
+      "tag": "0014_governance_milestone_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1784100000003,
+      "tag": "0015_seed_governance_facilities",
+      "breakpoints": true
     }
   ]
 }
