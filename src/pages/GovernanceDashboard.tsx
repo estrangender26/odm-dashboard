@@ -360,6 +360,29 @@ export default function GovernanceDashboard() {
     return merged;
   }, [msStateMap, pendingMilestones, checkboxSim]);
 
+
+  // DIAGNOSTIC: Log milestone completion state for debugging 4/9 vs 3/9 discrepancy
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      const diagnostic = GOVERNANCE_MILESTONES.map(m => {
+        const persisted = msStateMap[m.id]?.compDate || null;
+        const pending = pendingMilestones[m.id]?.compDate;
+        const effective = getCompDate(m.id) || null;
+        const countedCurrent = isMilestoneCompleteAsOf(effective, null);
+        return {
+          milestoneId: m.id,
+          persistedCompDate: persisted,
+          pendingCompDate: pending !== undefined ? pending : null,
+          effectiveCompDate: effective,
+          countedCurrent,
+        };
+      });
+      const completedCount = diagnostic.filter(d => d.countedCurrent).length;
+      console.table(diagnostic);
+      console.log(`[GOV DIAGNOSTIC] Completed: ${completedCount}/9`);
+    }
+  }, [msStateMap, pendingMilestones]);
+
   // Get planned date
   const getPlannedDate = (mId: string) => {
     const m = MSD.find(x => x.id === mId);
