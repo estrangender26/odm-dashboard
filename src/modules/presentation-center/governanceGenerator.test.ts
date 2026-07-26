@@ -7,11 +7,14 @@ import {
   calculateForecastSCurve,
   buildExecutiveActions,
   buildPortfolioRisks,
+  buildGovernanceReport,
+  DATA_QUALITY_DISCLOSURE,
   GOVERNANCE_MILESTONES,
   type GovernanceMilestone,
   type DocumentSummary,
   type FacilityGovernanceData,
 } from "./governanceTypes";
+import { createDeterministicTestFixture, generateGovernanceTestPresentation } from "./governanceGenerator";
 
 describe("Governance Data Calculations", () => {
   describe("calculateFacilityProgress", () => {
@@ -385,8 +388,7 @@ describe("Governance Data Calculations", () => {
   });
 });
 
-import { createDeterministicTestFixture, generateGovernanceTestPresentation } from "./governanceGenerator";
-import { DATA_QUALITY_DISCLOSURE, buildGovernanceReport } from "./governanceTypes";
+// Note: createDeterministicTestFixture and buildGovernanceReport already imported above
 
 describe("Governance Presentation Structure", () => {
   describe("Slide Structure Validation", () => {
@@ -506,6 +508,94 @@ describe("Governance Presentation Structure", () => {
       const report = buildGovernanceReport(facilities, new Date("2026-07-25"));
       
       expect(report.facilities).toHaveLength(4);
+    });
+  });
+});
+
+
+// Tests for corrected compliance logic
+describe("Governance Compliance Calculation Corrections", () => {
+  describe("calculateSubmissionCoverageProxy", () => {
+    it("should cap coverage at 100% when documents exceed required", () => {
+      const docSummary = { 
+        totalDocuments: 11, 
+        byCategory: {}, 
+        byWorkflowStatus: { accepted: 0, pendingReview: 11, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+        latestSubmissionDate: null 
+      };
+      const requiredDeliverables = 9;
+      
+      const result = calculateSubmissionCoverageProxy(docSummary, requiredDeliverables);
+      
+      expect(result.submissionCoverageProxy).toBe(100); // Capped, not 122%
+      expect(result.unmappedDocuments).toBe(2); // 11 - 9 = 2 excess
+      expect(result.hasRequirementBaseline).toBe(true);
+    });
+
+    it("should report baseline unavailable when required is null", () => {
+      const docSummary = { 
+        totalDocuments: 11, 
+        byCategory: {}, 
+        byWorkflowStatus: { accepted: 0, pendingReview: 11, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+        latestSubmissionDate: null 
+      };
+      
+      const result = calculateSubmissionCoverageProxy(docSummary, null);
+      
+      expect(result.submissionCoverageProxy).toBe(0);
+      expect(result.hasRequirementBaseline).toBe(false);
+      expect(result.dataQualityWarning).toContain("Requirement baseline unavailable");
+      expect(result.unmappedDocuments).toBe(11); // All documents are unmapped
+    });
+
+    it("should calculate correct coverage when documents are less than required", () => {
+      const docSummary = { 
+        totalDocuments: 5, 
+        byCategory: {}, 
+        byWorkflowStatus: { accepted: 0, pendingReview: 5, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+        latestSubmissionDate: null 
+      };
+      const requiredDeliverables = 9;
+      
+      const result = calculateSubmissionCoverageProxy(docSummary, requiredDeliverables);
+      
+      expect(result.submissionCoverageProxy).toBe(56); // 5/9 = 55.55% rounded to 56%
+      expect(result.unmappedDocuments).toBe(0);
+      expect(result.outstandingMilestoneSubmissionProxy).toBe(4);
+    });
+
+    it("should not use milestone count as required document count", () => {
+      const docSummary = { 
+        totalDocuments: 10, 
+        byCategory: {}, 
+        byWorkflowStatus: { accepted: 0, pendingReview: 10, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+        latestSubmissionDate: null 
+      };
+      const requiredDeliverables = 15; // Explicitly set, not derived from milestones
+      
+      const result = calculateSubmissionCoverageProxy(docSummary, requiredDeliverables);
+      
+      expect(result.requiredMilestoneSubmissionProxy).toBe(15);
+      expect(result.submissionCoverageProxy).toBe(67); // 10/15 = 66.67% rounded to 67%
+    });
+  });
+
+  describe("buildGovernanceReport without requirement matrix", () => {
+    it("should show all documents as unmapped when no requirement matrix exists", () => {
+      const facilities = createDeterministicTestFixture();
+      const report = buildGovernanceReport(facilities, new Date("2026-07-25"));
+      
+      // When hasRequirementMatrix is false
+      if (!report.dataQuality.hasRequirementMatrix) {
+        // Portfolio should show unmapped documents
+        expect(report.portfolio.totalUnmappedDocuments).toBeGreaterThan(0);
+        
+        // Each facility should have unmapped documents
+        report.facilities.forEach(f => {
+          expect(f.unmappedDocuments).toBeGreaterThanOrEqual(0);
+          expect(f.hasRequirementBaseline).toBe(false);
+        });
+      }
     });
   });
 });
