@@ -713,10 +713,10 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
     ]),
   ];
   
-  // Main matrix table
-  const matrixY = MASTER.content.y + 0.3;
-  const rowHeight = 0.35;
-  const tableHeight = Math.min(5.0, (tocRows.length + 1) * rowHeight + 0.3);
+  // Main matrix table - fixed geometry to prevent overlap
+  const matrixY = 1.10;
+  // rowHeight calculated implicitly in table rendering
+  const tableHeight = 4.65; // Fixed height for 14 TOC rows + header
   
   elements.push({
     type: "table",
@@ -725,13 +725,14 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
     y: matrixY,
     w: MASTER.content.width,
     h: tableHeight,
-    fontSize: 8, // Smaller font for 14 rows
+    fontSize: 7.5, // Reduced font for 14 rows
     cellFills,
     colW: [4.5, ...Array(facilityCount).fill(1.9)], // TOC column wider, facility columns equal
   } as unknown as PresentationElement);
   
-  // Footer summary table
-  const footerY = matrixY + tableHeight + 0.2;
+  // Footer summary table - positioned to avoid overlap
+  const summaryY = 5.85;
+  const summaryHeight = 0.78;
   const summaryHeader = ["", ...report.facilities.map(f => f.facility.shortName)];
   const summaryRows = [
     [
@@ -754,10 +755,10 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
     type: "table",
     rows: [summaryHeader, ...summaryRows],
     x: MASTER.content.x,
-    y: footerY,
+    y: summaryY,
     w: MASTER.content.width,
-    h: (summaryRows.length + 1) * 0.35,
-    fontSize: 9,
+    h: summaryHeight,
+    fontSize: 8, // Reduced font for summary
     cellFills: [
       Array(summaryHeader.length).fill(MASTER.table.headerFill),
       ...summaryRows.map(() => Array(summaryHeader.length).fill("FFFFFF")),
@@ -765,15 +766,16 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
     colW: [4.5, ...Array(facilityCount).fill(1.9)],
   } as unknown as PresentationElement);
   
-  // Footer disclosure
+  // Footer disclosure - positioned above page footer
+  const disclosureY = 6.68;
   elements.push({
     type: "text",
     x: MASTER.content.x,
-    y: 6.8,
+    y: disclosureY,
     w: MASTER.content.width,
-    h: 0.3,
+    h: 0.25,
     text: DATA_QUALITY_DISCLOSURE,
-    fontSize: 8,
+    fontSize: 7.5,
     color: "595959",
   });
   
