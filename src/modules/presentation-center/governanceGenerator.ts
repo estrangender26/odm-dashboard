@@ -1,5 +1,6 @@
 import { createPresentation } from "./pptxBuilder";
-import { MONTHLY_KPI_DECK_DESIGN } from "./monthlyKpiDeckDesign";
+
+import { GOVERNANCE_SLIDE_MASTER } from "./governanceSlideMaster";
 import { blobToDataUrl } from "./storage";
 import type {
   DeckGenerationContext,
@@ -10,7 +11,10 @@ import {
   GOVERNANCE_SOURCE_LABEL,
   GOVERNANCE_DECK_TYPE,
   DATA_QUALITY_DISCLOSURE,
+  GOVERNANCE_TOC_DELIVERABLES,
   type GovernancePresentationReport,
+  type FacilityPresentationSummary,
+  type SCurvePoint,
   type FacilityGovernanceData,
 } from "./governanceTypes";
 
@@ -18,13 +22,11 @@ type PresentationSlide = Parameters<typeof createPresentation>[0][number];
 type PresentationElement = PresentationSlide["elements"][number];
 type TextElement = Extract<PresentationElement, { type: "text" }>;
 
-const DESIGN = MONTHLY_KPI_DECK_DESIGN;
-const COLORS = DESIGN.colors;
+const MASTER = GOVERNANCE_SLIDE_MASTER;
 
 export { GOVERNANCE_SOURCE_LABEL };
 export const GOVERNANCE_DECK_TITLE = GOVERNANCE_SOURCE_LABEL;
 
-// Generate a deterministic test fixture for 4 facilities
 export function createDeterministicTestFixture(): FacilityGovernanceData[] {
   // const testDate = new Date("2026-07-25T00:00:00Z"); // Used for documentation
   const colors = ["#f97316", "#3b82f6", "#10b981", "#8b5cf6"];
@@ -32,9 +34,9 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
   // Facility 1: On-schedule (all milestones planned and progressing well)
   const facility1: FacilityGovernanceData = {
     facility: {
-      slug: "facility-on-schedule",
-      name: "Laguna Water Treatment Plant",
-      shortName: "Laguna",
+      slug: "aglipay",
+      name: "Aglipay STP",
+      shortName: "AGLIPAY STP",
       color: colors[0],
     },
     pppStartDate: "2025-01-01",
@@ -67,9 +69,9 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
   // Facility 2: Behind schedule
   const facility2: FacilityGovernanceData = {
     facility: {
-      slug: "facility-behind",
-      name: "Clark Water Reclamation Facility",
-      shortName: "Clark",
+      slug: "htt",
+      name: "HTT STP",
+      shortName: "HTT STP",
       color: colors[1],
     },
     pppStartDate: "2025-02-01",
@@ -102,9 +104,9 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
   // Facility 3: Insufficient forecast
   const facility3: FacilityGovernanceData = {
     facility: {
-      slug: "facility-forecast",
-      name: "Tagum Water Supply System",
-      shortName: "Tagum",
+      slug: "eastbay",
+      name: "Eastbay PH-2 TP",
+      shortName: "EASTBAY PH-2 TP",
       color: colors[2],
     },
     pppStartDate: "2025-03-01",
@@ -137,9 +139,9 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
   // Facility 4: No baseline schedule
   const facility4: FacilityGovernanceData = {
     facility: {
-      slug: "facility-no-baseline",
-      name: "Estate Water Supply",
-      shortName: "Estate",
+      slug: "kaysakat",
+      name: "Kaysakat TP",
+      shortName: "KAYSAKAT TP",
       color: colors[3],
     },
     pppStartDate: null,
@@ -172,556 +174,621 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
   return [facility1, facility2, facility3, facility4];
 }
 
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
 
-function formatPercent(value: number | null | undefined, digits = 1): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return "N/A";
-  return `${value.toFixed(digits)}%`;
-}
-
-function statusColor(status: string): string {
-  switch (status) {
-    case "green": return "#22c55e";
-    case "amber": return "#f59e0b";
-    case "red": return "#ef4444";
-    default: return "#9ca3af";
-  }
-}
-
-function statusLabel(status: string, hasBaseline: boolean): string {
-  if (status === "gray" || !hasBaseline) return "NO BASELINE";
-  return status.toUpperCase();
-}
-
-function getSlideHeader(reportingDate: string, pageNum: number): TextElement[] {
-  const now = new Date();
-  const timestamp = now.toLocaleString("en-US", {
+// Format helpers
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
-  
-  return [
-    {
-      type: "text",
-      text: `As of ${formatDate(reportingDate)}`,
-      x: 0.5,
-      y: 0.3,
-      w: 4,
-      h: 0.3,
-      fontSize: 11,
-      color: COLORS.mutedText,
-    },
-    {
-      type: "text",
-      text: `Generated: ${timestamp}`,
-      x: 9,
-      y: 0.3,
-      w: 3,
-      h: 0.3,
-      fontSize: 9,
-      color: COLORS.mutedText,
-      align: "r",
-    },
-    {
-      type: "text",
-      text: `${pageNum} / 3`,
-      x: 12,
-      y: 0.3,
-      w: 0.8,
-      h: 0.3,
-      fontSize: 9,
-      color: COLORS.mutedText,
-      align: "r",
-    },
-  ];
 }
 
-function buildKpiCard(
-  label: string,
-  value: string,
-  x: number,
-  y: number,
-  w: number = 2.2,
-  h: number = 0.9
-): PresentationElement[] {
-  const elements: PresentationElement[] = [];
+function formatPercent(value: number | null, decimals: number = 0): string {
+  if (value === null || value === undefined) return "N/A";
+  return `${value.toFixed(decimals)}%`;
+}
+
+
+
+// Calculate consolidated S-curve from all facilities
+function calculateConsolidatedSCurve(facilities: FacilityPresentationSummary[]): SCurvePoint[] {
+  if (facilities.length === 0) return [];
   
+  const allDates = new Set<string>();
+  facilities.forEach(f => {
+    f.sCurve.forEach(p => {
+      allDates.add(p.date);
+    });
+  });
+  
+  const sortedDates = Array.from(allDates).sort();
+  
+  return sortedDates.map(date => {
+    let totalPlanned = 0;
+    let totalActual = 0;
+    let plannedCount = 0;
+    let actualCount = 0;
+    
+    facilities.forEach(f => {
+      const point = f.sCurve.find(p => p.date === date);
+      if (point) {
+        if (point.planned !== null) {
+          totalPlanned += point.planned;
+          plannedCount++;
+        }
+        if (point.actual !== null) {
+          totalActual += point.actual;
+          actualCount++;
+        }
+      }
+    });
+    
+    return {
+      date,
+      planned: plannedCount > 0 ? Math.round(totalPlanned / plannedCount) : null,
+      actual: actualCount > 0 ? Math.round(totalActual / actualCount) : null,
+      forecast: null,
+    };
+  });
+}
+
+function statusLabel(status: string, hasBaseline: boolean): string {
+  if (!hasBaseline) return "NO BASELINE";
+  const map: Record<string, string> = {
+    green: "ON TRACK",
+    amber: "AT RISK",
+    red: "DELAYED",
+  };
+  return map[status] || status.toUpperCase();
+}
+
+function statusColor(status: string): string {
+  const map: Record<string, string> = {
+    green: MASTER.rag.green,
+    amber: MASTER.rag.amber,
+    red: MASTER.rag.red,
+  };
+  return map[status] || "808080";
+}
+
+// Build KPI PRES style header bar
+function buildHeader(title: string): TextElement[] {
+  const elements: TextElement[] = [];
+  
+  // Navy header bar (using shape as background)
   elements.push({
     type: "shape",
-    x,
-    y,
-    w,
-    h,
-    fill: COLORS.white,
-    line: COLORS.border,
-  });
+    x: MASTER.header.x,
+    y: MASTER.header.y,
+    w: MASTER.slide.width,
+    h: MASTER.header.height,
+    fill: MASTER.header.fill,
+  } as unknown as TextElement);
   
+  // Header title
   elements.push({
     type: "text",
-    text: value,
-    x: x + 0.1,
-    y: y + 0.1,
-    w: w - 0.2,
-    h: 0.4,
-    fontSize: 22,
-    bold: true,
-    color: COLORS.text,
-  });
-  
-  elements.push({
-    type: "text",
-    text: label,
-    x: x + 0.1,
-    y: y + 0.5,
-    w: w - 0.2,
-    h: 0.3,
-    fontSize: 10,
-    color: COLORS.mutedText,
+    text: title,
+    x: 0.63,
+    y: 0.23,
+    w: 10,
+    h: 0.5,
+    fontSize: MASTER.typography.slideTitle.fontSize,
+    bold: MASTER.typography.slideTitle.bold,
+    color: MASTER.header.textColor,
   });
   
   return elements;
 }
 
-function buildSlide1ExecutiveDashboard(report: GovernancePresentationReport): PresentationSlide[] {
-  const slides: PresentationSlide[] = [];
+// Build footer with source line
+function buildFooter(reportingDate: string, pageNum: number, totalPages: number): TextElement[] {
+  const elements: TextElement[] = [];
   
-  const elements: PresentationElement[] = [
-    {
-      type: "text",
-      text: "O&M Manual Governance",
-      x: 0.5,
-      y: 0.7,
-      w: 9,
-      h: 0.5,
-      fontSize: 28,
-      bold: true,
-      color: COLORS.navy,
-    },
-    {
-      type: "text",
-      text: "Executive Onboarding Progress",
-      x: 0.5,
-      y: 1.2,
-      w: 9,
-      h: 0.4,
-      fontSize: 18,
-      color: COLORS.mutedText,
-    },
-    ...getSlideHeader(report.reportingDate, 1),
-  ];
-  
-  // KPI Cards - Milestone Progress and Document Submission are separate
-  // Business rule: All uploaded documents are treated as reviewed and approved
-  
-  elements.push(...buildKpiCard("Onboarding Facilities", String(report.portfolio.totalFacilities), 0.5, 1.8));
-  elements.push(...buildKpiCard("Portfolio Milestone Progress", formatPercent(report.portfolio.overallProgress, 0), 3.0, 1.8));
-  elements.push(...buildKpiCard("Submission Coverage", "N/A", 5.5, 1.8));
-  elements.push(...buildKpiCard("Required Deliverables", "Not Configured", 8.0, 1.8));
-  elements.push(...buildKpiCard("Approved Documents", String(report.portfolio.totalSubmitted), 0.5, 2.9));
-  elements.push(...buildKpiCard("Documents Awaiting Mapping", String(report.portfolio.totalUnmappedDocuments), 3.0, 2.9));
-  
-  // Facility summary table - Milestone Progress and Documents are separate
-  // Business rule: All uploaded documents are treated as reviewed and approved
-  const tableHeader = ["Facility", "Milestone Progress", "Approved Documents", "Coverage", "Status"];
-    
-  const tableRows = report.facilities.map(f => {
-    return [
-      f.facility.shortName,
-      formatPercent(f.progress, 0),
-      String(f.submitted), // Business rule: approved = submitted
-      "N/A",
-      statusLabel(f.status, f.hasBaselineSchedule),
-    ];
-  });
-  
-  const finalRows = tableRows.length > 0 
-    ? tableRows 
-    : [["No data", "—", "—", "—", "—"]];
-  
-  elements.push({
-    type: "table",
-    rows: [tableHeader, ...finalRows],
-    x: 0.5,
-    y: 4.0,
-    w: 12.5,
-    h: Math.max(1.5, finalRows.length * 0.35 + 0.5),
-    fontSize: 10,
-    cellFills: [
-      Array(tableHeader.length).fill(COLORS.paleNavy),
-      ...finalRows.map((row) => 
-        Array(tableHeader.length).fill(row[row.length - 1] === "RED" ? COLORS.paleRed : 
-                                       row[row.length - 1] === "AMBER" ? COLORS.paleYellow : 
-                                       row[row.length - 1] === "GREEN" ? COLORS.paleGreen : undefined)
-      ),
-    ],
-  });
-  
-  // Data quality disclosure
+  // Source line
   elements.push({
     type: "text",
-    x: 0.5,
-    y: 7.2,
-    w: 12.5,
-    h: 0.3,
-    text: DATA_QUALITY_DISCLOSURE,
-    fontSize: 8,
-    color: COLORS.mutedText,
+    text: `Source: O&M Manual Governance module • ${formatDate(reportingDate)}`,
+    x: MASTER.content.x,
+    y: MASTER.footer.y,
+    w: 10,
+    h: MASTER.footer.height,
+    fontSize: MASTER.footer.fontSize,
+    color: MASTER.footer.textColor,
   });
+  
+  // Page number
+  elements.push({
+    type: "text",
+    text: `${pageNum} / ${totalPages}`,
+    x: MASTER.pageNumber.x,
+    y: MASTER.pageNumber.y,
+    w: 0.8,
+    h: MASTER.footer.height,
+    fontSize: MASTER.pageNumber.fontSize,
+    color: MASTER.pageNumber.color,
+    align: "r",
+  });
+  
+  return elements;
+}
+
+
+// SLIDE 1: Title / Executive Overview
+function buildSlide1ExecutiveOverview(report: GovernancePresentationReport): PresentationSlide[] {
+  const slides: PresentationSlide[] = [];
+  const elements: PresentationElement[] = [];
+  
+  // Title area (no header bar on title slide)
+  elements.push({
+    type: "text",
+    text: "New Facilities Onboarding",
+    x: 0.9,
+    y: 2.17,
+    w: 11,
+    h: 1.0,
+    fontSize: MASTER.typography.title.fontSize,
+    bold: MASTER.typography.title.bold,
+    color: MASTER.typography.title.color,
+  });
+  
+  // Subtitle with facility list
+  const facilityNames = report.facilities.map(f => f.facility.name).join(" • ");
+  elements.push({
+    type: "text",
+    text: facilityNames || "No facilities data",
+    x: 0.9,
+    y: 3.5,
+    w: 11,
+    h: 0.5,
+    fontSize: MASTER.typography.subtitle.fontSize,
+    color: MASTER.typography.subtitle.color,
+  });
+  
+  // Date
+  elements.push({
+    type: "text",
+    text: formatDate(report.reportingDate),
+    x: 0.9,
+    y: 5.5,
+    w: 3,
+    h: 0.4,
+    fontSize: 14,
+    color: "595959",
+  });
+  
+  // Footer (page 1)
+  elements.push(...buildFooter(report.reportingDate, 1, 4));
   
   slides.push({
     elements,
-    notes: "Executive dashboard with milestone progress and approved document counts. All uploaded documents are treated as reviewed and approved.",
+    notes: "Executive title slide with facility list and reporting date.",
+  });
+  
+  return slides;
+}
+// SLIDE 3: Four Facility S-curves
+
+// SLIDE 2: Consolidated Governance S-curve
+function buildSlide2ConsolidatedSCurve(report: GovernancePresentationReport): PresentationSlide[] {
+  const slides: PresentationSlide[] = [];
+  const elements: PresentationElement[] = [];
+  
+  elements.push(...buildHeader("Governance Overview"));
+  
+  const consolidatedSCurve = calculateConsolidatedSCurve(report.facilities);
+  const lastPoint = consolidatedSCurve.length > 0 
+    ? consolidatedSCurve[consolidatedSCurve.length - 1] 
+    : { planned: null, actual: null };
+  const currentPlanned = lastPoint.planned ?? 0;
+  const currentActual = lastPoint.actual ?? 0;
+  const variance = currentActual - currentPlanned;
+  const portfolioRag = report.facilities.length > 0
+    ? report.facilities.every(f => f.status === "green") ? "green"
+      : report.facilities.some(f => f.status === "red") ? "red" : "amber"
+    : "green";
+  
+  const plannedData = consolidatedSCurve.map(p => p.planned ?? 0);
+  const actualData = consolidatedSCurve.map(p => p.actual ?? 0);
+  const dateLabels = consolidatedSCurve.map(p => {
+    const d = new Date(p.date);
+    return `${d.getMonth() + 1}/${d.getFullYear().toString().slice(2)}`;
+  });
+  
+  elements.push({
+    type: "chart",
+    chartType: "line",
+    data: [
+      { name: "Planned", labels: dateLabels, values: plannedData },
+      { name: "Actual", labels: dateLabels, values: actualData },
+    ],
+    x: MASTER.content.x,
+    y: MASTER.content.y + 0.2,
+    w: MASTER.content.width * 0.7,
+    h: 4.2,
+    colors: [MASTER.table.headerFill, MASTER.rag.green],
+    showLegend: true,
+    valAxisMax: 100,
+    catAxisLabel: true,
+  } as unknown as PresentationElement);
+  
+  const summaryX = MASTER.content.x + MASTER.content.width * 0.72;
+  elements.push({
+    type: "text",
+    text: "Portfolio Summary",
+    x: summaryX,
+    y: MASTER.content.y + 0.3,
+    w: 3.3,
+    h: 0.3,
+    fontSize: 12,
+    bold: true,
+    color: MASTER.typography.title.color,
+  });
+  elements.push({
+    type: "text",
+    text: `Facilities: ${report.facilities.length}`,
+    x: summaryX,
+    y: MASTER.content.y + 0.8,
+    w: 3.3,
+    h: 0.25,
+    fontSize: 10,
+    color: "595959",
+  });
+  elements.push({
+    type: "text",
+    text: `Planned: ${currentPlanned}%`,
+    x: summaryX,
+    y: MASTER.content.y + 1.2,
+    w: 3.3,
+    h: 0.25,
+    fontSize: 10,
+    color: MASTER.table.headerFill,
+  });
+  elements.push({
+    type: "text",
+    text: `Actual: ${currentActual}%`,
+    x: summaryX,
+    y: MASTER.content.y + 1.55,
+    w: 3.3,
+    h: 0.25,
+    fontSize: 10,
+    color: MASTER.rag.green,
+  });
+  const varianceColor = variance < -10 ? MASTER.rag.red : variance < 0 ? MASTER.rag.amber : MASTER.rag.green;
+  elements.push({
+    type: "text",
+    text: `Variance: ${variance >= 0 ? '+' : ''}${variance}%`,
+    x: summaryX,
+    y: MASTER.content.y + 1.9,
+    w: 3.3,
+    h: 0.25,
+    fontSize: 10,
+    color: varianceColor,
+  });
+  elements.push({
+    type: "shape",
+    x: summaryX,
+    y: MASTER.content.y + 2.4,
+    w: 0.15,
+    h: 0.15,
+    fill: statusColor(portfolioRag),
+  });
+  elements.push({
+    type: "text",
+    text: `Status: ${statusLabel(portfolioRag, true)}`,
+    x: summaryX + 0.25,
+    y: MASTER.content.y + 2.35,
+    w: 3.0,
+    h: 0.25,
+    fontSize: 10,
+    color: "333333",
+  });
+  
+  const tableY = MASTER.content.y + 4.6;
+  const tableHeader = ["Facility", "Progress", "Status"];
+  const tableRows = report.facilities.map(f => [
+    f.facility.shortName,
+    formatPercent(f.progress, 0),
+    statusLabel(f.status, f.hasBaselineSchedule),
+  ]);
+  const finalRows = tableRows.length > 0 ? tableRows : [["No data", "—", "—"]];
+  const cellFills = [
+    Array(tableHeader.length).fill(MASTER.table.headerFill),
+    ...finalRows.map((row) => {
+      const status = row[2];
+      const baseFill = "FFFFFF";
+      if (status === "DELAYED") return [baseFill, baseFill, MASTER.rag.paleRed];
+      if (status === "AT RISK") return [baseFill, baseFill, MASTER.rag.paleAmber];
+      if (status === "ON TRACK") return [baseFill, baseFill, MASTER.rag.paleGreen];
+      return Array(tableHeader.length).fill(baseFill);
+    }),
+  ];
+  elements.push({
+    type: "table",
+    rows: [tableHeader, ...finalRows],
+    x: MASTER.content.x,
+    y: tableY,
+    w: MASTER.content.width,
+    h: Math.max(1.0, finalRows.length * 0.35 + 0.4),
+    fontSize: 10,
+    cellFills,
+  });
+  
+  elements.push(...buildFooter(report.reportingDate, 2, 4));
+  
+  slides.push({
+    elements,
+    notes: `Consolidated S-curve showing planned ${currentPlanned}% vs actual ${currentActual}%.`,
   });
   
   return slides;
 }
 
-function buildSlide2SCurves(report: GovernancePresentationReport): PresentationSlide[] {
+function buildSlide3FacilitySCurves(report: GovernancePresentationReport): PresentationSlide[] {
   const slides: PresentationSlide[] = [];
+  const elements: PresentationElement[] = [];
   
-  const elements: PresentationElement[] = [
-    {
-      type: "text",
-      text: "Facility S-Curve Analysis",
-      x: 0.5,
-      y: 0.7,
-      w: 9,
-      h: 0.5,
-      fontSize: 24,
-      bold: true,
-      color: COLORS.navy,
-    },
-    {
-      type: "text",
-      text: "Planned vs Actual Progress by Facility",
-      x: 0.5,
-      y: 1.2,
-      w: 9,
-      h: 0.4,
-      fontSize: 14,
-      color: COLORS.mutedText,
-    },
-    ...getSlideHeader(report.reportingDate, 2),
-  ];
+  elements.push(...buildHeader("Facility S-Curve Analysis"));
   
-  // Create 4 facility panels (2x2 grid)
   const facilities = report.facilities.slice(0, 4);
-  const panelWidth = 6.0;
-  const panelHeight = 2.8;
+  const panelWidth = 5.8;
+  const panelHeight = 3.1;
+  const startY = MASTER.content.y + 0.2;
   
   facilities.forEach((f, index) => {
     const col = index % 2;
     const row = Math.floor(index / 2);
-    const x = 0.5 + col * panelWidth;
-    const y = 1.8 + row * panelHeight;
+    const x = MASTER.content.x + col * (panelWidth + 0.4);
+    const y = startY + row * (panelHeight + 0.15);
     
-    // Panel background
     elements.push({
       type: "shape",
-      x: x + 0.1,
-      y: y + 0.1,
-      w: panelWidth - 0.2,
-      h: panelHeight - 0.2,
-      fill: COLORS.white,
-      line: COLORS.border,
+      x: x,
+      y: y,
+      w: panelWidth,
+      h: panelHeight,
+      fill: "FFFFFF",
+      line: MASTER.table.borderColor,
     });
     
-    // Facility name with status indicator
-    const statusColorHex = statusColor(f.status);
+    const statusHex = statusColor(f.status);
     elements.push({
       type: "shape",
-      x: x + 0.2,
-      y: y + 0.2,
-      w: 0.15,
-      h: 0.15,
-      fill: statusColorHex,
+      x: x + 0.15,
+      y: y + 0.12,
+      w: 0.12,
+      h: 0.12,
+      fill: statusHex,
     });
-    
     elements.push({
       type: "text",
       text: f.facility.shortName,
-      x: x + 0.4,
-      y: y + 0.15,
+      x: x + 0.35,
+      y: y + 0.08,
       w: 4,
-      h: 0.3,
-      fontSize: 12,
+      h: 0.28,
+      fontSize: 11,
       bold: true,
-      color: COLORS.text,
+      color: MASTER.typography.title.color,
     });
     
-    // Progress stats
-    elements.push({
-      type: "text",
-      text: `Actual: ${formatPercent(f.progress, 0)}`,
-      x: x + 0.4,
-      y: y + 0.5,
-      w: 2,
-      h: 0.25,
-      fontSize: 10,
-      color: COLORS.text,
+    const plannedData = f.sCurve.map(p => p.planned ?? 0);
+    const actualData = f.sCurve.map(p => p.actual ?? 0);
+    const dateLabels = f.sCurve.map(p => {
+      const d = new Date(p.date);
+      return `${d.getMonth() + 1}/${d.getFullYear().toString().slice(2)}`;
     });
     
     elements.push({
-      type: "text",
-      text: `Planned: ${f.scheduleVariance !== null ? formatPercent(f.progress + (f.scheduleVariance || 0), 0) : "N/A"}`,
-      x: x + 0.4,
-      y: y + 0.75,
-      w: 2,
-      h: 0.25,
-      fontSize: 10,
-      color: COLORS.mutedText,
-    });
+      type: "chart",
+      chartType: "line",
+      data: [
+        { name: "Planned", labels: dateLabels, values: plannedData },
+        { name: "Actual", labels: dateLabels, values: actualData },
+      ],
+      x: x + 0.15,
+      y: y + 0.45,
+      w: panelWidth - 0.3,
+      h: 1.8,
+      colors: [MASTER.table.headerFill, MASTER.rag.green],
+      showLegend: index === 0,
+      valAxisMax: 100,
+      catAxisLabel: false,
+    } as unknown as PresentationElement);
+    
+    const statsY = y + 2.35;
+    const lastPoint = f.sCurve.length > 0 
+      ? f.sCurve[f.sCurve.length - 1] 
+      : { planned: null, actual: null };
+    const plannedVal = lastPoint.planned ?? 0;
+    const actualVal = lastPoint.actual ?? 0;
+    const varVal = actualVal - plannedVal;
     
     elements.push({
       type: "text",
-      text: `Variance: ${f.scheduleVariance !== null ? (f.scheduleVariance > 0 ? "+" : "") + f.scheduleVariance + "%" : "N/A"}`,
-      x: x + 0.4,
-      y: y + 1.0,
-      w: 2,
-      h: 0.25,
-      fontSize: 10,
-      color: f.scheduleVariance !== null && f.scheduleVariance < 0 ? COLORS.danger : COLORS.text,
+      text: `Planned: ${plannedVal}%`,
+      x: x + 0.15,
+      y: statsY,
+      w: 1.7,
+      h: 0.2,
+      fontSize: 8,
+      color: MASTER.table.headerFill,
     });
-    
-    // S-Curve visualization (simplified bar chart)
-    if (f.sCurve.length > 0) {
-      const barY = y + 1.5;
-      const barHeight = 0.3;
-      const maxBarWidth = 2.0;
-      
-      // Show last 5 data points as mini bars
-      const recentPoints = f.sCurve.slice(-5);
-      const pointWidth = maxBarWidth / recentPoints.length;
-      
-      recentPoints.forEach((point, pIdx) => {
-        const barWidth = (point.actual || 0) / 100 * pointWidth * 0.8;
-        elements.push({
-          type: "shape",
-          x: x + 0.4 + pIdx * pointWidth,
-          y: barY,
-          w: Math.max(0.05, barWidth),
-          h: barHeight,
-          fill: COLORS.navy,
-        });
-      });
-    }
-    
-    // Submission coverage proxy
     elements.push({
       type: "text",
-      text: `Coverage: ${formatPercent(f.submissionCoverageProxy, 0)}`,
-      x: x + 3.0,
-      y: y + 0.5,
-      w: 2.5,
-      h: 0.25,
-      fontSize: 9,
-      color: COLORS.mutedText,
+      text: `Actual: ${actualVal}%`,
+      x: x + 1.85,
+      y: statsY,
+      w: 1.7,
+      h: 0.2,
+      fontSize: 8,
+      color: MASTER.rag.green,
     });
-    
+    const varColor = varVal < -10 ? MASTER.rag.red : varVal < 0 ? MASTER.rag.amber : MASTER.rag.green;
     elements.push({
       type: "text",
-      text: `${f.submitted} document${f.submitted !== 1 ? "s" : ""} approved`,
-      x: x + 3.0,
-      y: y + 0.75,
-      w: 2.5,
-      h: 0.25,
-      fontSize: 9,
-      color: COLORS.mutedText,
+      text: `Var: ${varVal >= 0 ? '+' : ''}${varVal}%`,
+      x: x + 3.55,
+      y: statsY,
+      w: 1.7,
+      h: 0.2,
+      fontSize: 8,
+      color: varColor,
+    });
+    elements.push({
+      type: "text",
+      text: statusLabel(f.status, f.hasBaselineSchedule),
+      x: x + 0.15,
+      y: statsY + 0.25,
+      w: 3,
+      h: 0.2,
+      fontSize: 8,
+      color: "666666",
     });
   });
   
+  elements.push(...buildFooter(report.reportingDate, 3, 4));
+  
   slides.push({
     elements,
-    notes: "S-curve analysis showing planned vs actual progress for each facility.",
+    notes: "Four facility S-curve analysis with planned vs actual comparison.",
   });
   
   return slides;
 }
 
-function buildSlide3DeliverablesAndActions(report: GovernancePresentationReport): PresentationSlide[] {
+function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): PresentationSlide[] {
   const slides: PresentationSlide[] = [];
+  const elements: PresentationElement[] = [];
   
-  const elements: PresentationElement[] = [
-    {
-      type: "text",
-      text: "Submission Coverage Proxy Deliverable Compliance & Executive Actions Executive Actions",
-      x: 0.5,
-      y: 0.7,
-      w: 9,
-      h: 0.5,
-      fontSize: 24,
-      bold: true,
-      color: COLORS.navy,
-    },
-    ...getSlideHeader(report.reportingDate, 3),
+  elements.push(...buildHeader("Deliverables Compliance Matrix"));
+  
+  // Subtitle
+  elements.push({
+    type: "text",
+    text: "Status of required O&M Manual deliverables by facility",
+    x: MASTER.content.x,
+    y: MASTER.content.y,
+    w: MASTER.content.width,
+    h: 0.25,
+    fontSize: 10,
+    color: "4b5563",
+  });
+  
+  // Build TOC × Facility matrix
+  // Header: TOC Deliverable | Facility 1 | Facility 2 | Facility 3 | Facility 4
+  const facilityCount = report.facilities.length;
+  const matrixHeader = ["TOC Deliverable", ...report.facilities.map(f => f.facility.shortName)];
+  
+  // Build rows from GOVERNANCE_TOC_DELIVERABLES
+  const tocRows: { label: string; cells: { text: string; fill: string }[] }[] = GOVERNANCE_TOC_DELIVERABLES.map(toc => {
+    const rowLabel = toc.label;
+    const facilityCells = report.facilities.map(f => {
+      const status = f.deliverableStatuses?.find(ds => ds.tocId === toc.id);
+      if (!status || status.status === "Missing") {
+        return { text: "Missing", fill: MASTER.rag.paleRed };
+      }
+      return { text: "✓ Submitted", fill: MASTER.rag.paleGreen };
+    });
+    return {
+      label: rowLabel,
+      cells: facilityCells,
+    };
+  });
+  
+  // Convert to table rows
+  const tableRows = [
+    matrixHeader,
+    ...tocRows.map(row => [row.label, ...row.cells.map(c => c.text)]),
   ];
   
-  // Document submission summary by category
-  elements.push({
-    type: "text",
-    text: "Document Submission Summary",
-    x: 0.5,
-    y: 1.7,
-    w: 5,
-    h: 0.3,
-    fontSize: 14,
-    bold: true,
-    color: COLORS.text,
-  });
+  // Build cell fills
+  const cellFills = [
+    Array(matrixHeader.length).fill(MASTER.table.headerFill),
+    ...tocRows.map(row => [
+      "FFFFFF", // TOC label column
+      ...row.cells.map(c => c.fill),
+    ]),
+  ];
   
-  const categoryHeader = ["Category", "Submitted", "Rate"];
-  const categoryRows = report.deliverableCompliance.map(row => [
-    row.category,
-    String(row.submitted),
-    formatPercent(row.complianceRate, 0),
-  ]);
-  
-  const finalCategoryRows = categoryRows.length > 0 ? categoryRows : [["No data available", "-", "-"]];
+  // Main matrix table - fixed geometry to prevent overlap
+  const matrixY = 1.10;
+  // rowHeight calculated implicitly in table rendering
+  const tableHeight = 4.65; // Fixed height for 14 TOC rows + header
   
   elements.push({
     type: "table",
-    rows: [categoryHeader, ...finalCategoryRows],
-    x: 0.5,
-    y: 2.1,
-    w: 5.5,
-    h: Math.max(1.5, finalCategoryRows.length * 0.35 + 0.5),
-    fontSize: 10,
-    cellFills: [
-      Array(categoryHeader.length).fill(COLORS.paleNavy),
-      ...finalCategoryRows.map(() => Array(categoryHeader.length).fill(undefined)),
+    rows: tableRows,
+    x: MASTER.content.x,
+    y: matrixY,
+    w: MASTER.content.width,
+    h: tableHeight,
+    fontSize: 7.5, // Reduced font for 14 rows
+    cellFills,
+    colW: [4.5, ...Array(facilityCount).fill(1.9)], // TOC column wider, facility columns equal
+  } as unknown as PresentationElement);
+  
+  // Footer summary table - positioned to avoid overlap
+  const summaryY = 5.85;
+  const summaryHeight = 0.78;
+  const summaryHeader = ["", ...report.facilities.map(f => f.facility.shortName)];
+  const summaryRows = [
+    [
+      "Submitted / Required",
+      ...report.facilities.map(f => {
+        const ds = f.deliverableSummary;
+        return ds ? `${ds.submitted} / ${ds.required}` : "—";
+      }),
     ],
-  });
-  
-  // Executive Actions
-  elements.push({
-    type: "text",
-    text: "Executive Actions",
-    x: 6.5,
-    y: 1.7,
-    w: 6,
-    h: 0.3,
-    fontSize: 14,
-    bold: true,
-    color: COLORS.text,
-  });
-  
-  const actionHeader = ["Priority", "Facility", "Action", "Due"];
-  const actionRows = report.executiveActions.slice(0, 6).map(action => [
-    action.priority.toUpperCase(),
-    action.facility,
-    action.action.length > 40 ? action.action.substring(0, 37) + "..." : action.action,
-    action.dueDate ? formatDate(action.dueDate) : "No due date",
-  ]);
-  
-  const finalActionRows = actionRows.length > 0 ? actionRows : [["-", "-", "No critical actions required", "-"]];
+    [
+      "Compliance",
+      ...report.facilities.map(f => {
+        const ds = f.deliverableSummary;
+        return ds?.compliancePercent != null ? `${ds.compliancePercent.toFixed(1)}%` : "N/A";
+      }),
+    ],
+  ];
   
   elements.push({
     type: "table",
-    rows: [actionHeader, ...finalActionRows],
-    x: 6.5,
-    y: 2.1,
-    w: 6.5,
-    h: Math.max(1.5, finalActionRows.length * 0.35 + 0.5),
-    fontSize: 9,
+    rows: [summaryHeader, ...summaryRows],
+    x: MASTER.content.x,
+    y: summaryY,
+    w: MASTER.content.width,
+    h: summaryHeight,
+    fontSize: 8, // Reduced font for summary
     cellFills: [
-      Array(actionHeader.length).fill(COLORS.paleNavy),
-      ...finalActionRows.map(() => Array(actionHeader.length).fill(undefined)),
+      Array(summaryHeader.length).fill(MASTER.table.headerFill),
+      ...summaryRows.map(() => Array(summaryHeader.length).fill("FFFFFF")),
     ],
-    cellBold: [
-      Array(actionHeader.length).fill(true),
-      ...finalActionRows.map(() => [true, false, false, false]),
-    ],
-  });
+    colW: [4.5, ...Array(facilityCount).fill(1.9)],
+  } as unknown as PresentationElement);
   
-  // Portfolio Risk Summary
-  const riskY = 5.0;
+  // Footer disclosure - positioned above page footer
+  const disclosureY = 6.68;
   elements.push({
     type: "text",
-    text: "Portfolio Risk Summary",
-    x: 0.5,
-    y: riskY,
-    w: 6,
-    h: 0.3,
-    fontSize: 14,
-    bold: true,
-    color: COLORS.text,
-  });
-  
-  if (report.risks.length > 0) {
-    report.risks.forEach((risk, idx) => {
-      const riskColor = risk.impact === "high" ? "#dc2626" : risk.impact === "medium" ? "#d97706" : "#6b7280";
-      
-      elements.push({
-        type: "shape",
-        x: 0.5,
-        y: riskY + 0.4 + idx * 0.8,
-        w: 0.2,
-        h: 0.2,
-        fill: riskColor,
-      });
-      
-      elements.push({
-        type: "text",
-        text: risk.risk,
-        x: 0.8,
-        y: riskY + 0.35 + idx * 0.8,
-        w: 5,
-        h: 0.25,
-        fontSize: 10,
-        bold: true,
-        color: COLORS.text,
-      });
-      
-      elements.push({
-        type: "text",
-        text: `Mitigation: ${risk.mitigation}`,
-        x: 0.8,
-        y: riskY + 0.6 + idx * 0.8,
-        w: 11,
-        h: 0.25,
-        fontSize: 9,
-        color: COLORS.mutedText,
-      });
-    });
-  } else {
-    elements.push({
-      type: "text",
-      text: "No critical risks identified",
-      x: 0.5,
-      y: riskY + 0.4,
-      w: 6,
-      h: 0.3,
-      fontSize: 10,
-      color: COLORS.mutedText,
-    });
-  }
-  
-  // Data quality disclosure in footer
-  elements.push({
-    type: "text",
-    x: 0.5,
-    y: 7.2,
-    w: 12.5,
-    h: 0.3,
+    x: MASTER.content.x,
+    y: disclosureY,
+    w: MASTER.content.width,
+    h: 0.25,
     text: DATA_QUALITY_DISCLOSURE,
-    fontSize: 8,
-    color: COLORS.mutedText,
+    fontSize: 7.5,
+    color: "595959",
   });
+  
+  elements.push(...buildFooter(report.reportingDate, 4, 4));
   
   slides.push({
     elements,
-    notes: "Document submission summary and executive actions based on milestone progress.",
+    notes: "TOC × Facility Deliverables Compliance Matrix with per-TOC status and footer summary.",
   });
   
   return slides;
 }
+
 
 export interface GovernanceGenerationOptions {
   facilities?: FacilityGovernanceData[];
@@ -763,10 +830,11 @@ export async function generateGovernancePresentation(
       const emptyReport = buildGovernanceReport([], reportingDate);
       
       const slides = [
-        ...buildSlide1ExecutiveDashboard(emptyReport),
-        ...buildSlide2SCurves(emptyReport),
-        ...buildSlide3DeliverablesAndActions(emptyReport),
-      ];
+    ...buildSlide1ExecutiveOverview(emptyReport),
+    ...buildSlide2ConsolidatedSCurve(emptyReport),
+    ...buildSlide3FacilitySCurves(emptyReport),
+    ...buildSlide4DeliverablesSummary(emptyReport),
+  ];
       
       const pptxBlob = await createPresentation(slides);
       const dataUrl = await blobToDataUrl(pptxBlob);
@@ -797,10 +865,11 @@ export async function generateGovernancePresentation(
     const report = buildGovernanceReport(facilities, reportingDate);
     
     const slides = [
-      ...buildSlide1ExecutiveDashboard(report),
-      ...buildSlide2SCurves(report),
-      ...buildSlide3DeliverablesAndActions(report),
-    ];
+    ...buildSlide1ExecutiveOverview(report),
+    ...buildSlide2ConsolidatedSCurve(report),
+    ...buildSlide3FacilitySCurves(report),
+    ...buildSlide4DeliverablesSummary(report),
+  ];
     
     const slideBuildTime = performance.now();
     
@@ -859,9 +928,10 @@ export async function generateGovernanceTestPresentation(): Promise<Blob> {
   const report = buildGovernanceReport(facilities, testDate);
   
   const slides = [
-    ...buildSlide1ExecutiveDashboard(report),
-    ...buildSlide2SCurves(report),
-    ...buildSlide3DeliverablesAndActions(report),
+    ...buildSlide1ExecutiveOverview(report),
+    ...buildSlide2ConsolidatedSCurve(report),
+    ...buildSlide3FacilitySCurves(report),
+    ...buildSlide4DeliverablesSummary(report),
   ];
   
   return createPresentation(slides);

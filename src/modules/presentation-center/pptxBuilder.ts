@@ -50,6 +50,24 @@ type SlideElement =
       h: number;
       max?: number;
       colors?: string[];
+    }
+  | {
+      type: "chart";
+      chartType: "line";
+      data: {
+        name: string;
+        labels: string[];
+        values: (number | null)[];
+      }[];
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      colors?: string[];
+      showLegend?: boolean;
+      title?: string;
+      valAxisMax?: number;
+      catAxisLabel?: boolean;
     };
 
 type Slide = { elements: SlideElement[]; notes?: string };
@@ -183,6 +201,50 @@ function addTable(
   });
 }
 
+function addChart(
+  slide: PptxSlide,
+  pptx: PptxPresentation,
+  element: Extract<SlideElement, { type: "chart" }>
+) {
+  const data = element.data.map(series => ({
+    name: series.name,
+    labels: series.labels,
+    values: series.values.map(v => v ?? 0),
+  }));
+  
+  const colors = element.colors || ["0070C0", "00B050"];
+  
+  slide.addChart(pptx.ChartType.line, data, {
+    x: element.x,
+    y: element.y,
+    w: element.w,
+    h: element.h,
+    showLegend: element.showLegend ?? true,
+    legendPos: "b",
+    lineDataSymbol: "circle",
+    lineDataSymbolSize: 6,
+    
+    chartColors: colors,
+    valAxisMaxVal: element.valAxisMax ?? 100,
+    valAxisMinVal: 0,
+    catAxisLabelColor: "595959",
+    catAxisLabelFontSize: 8,
+    valAxisLabelColor: "595959",
+    valAxisLabelFontSize: 8,
+    showValue: false,
+    showTitle: element.title ? true : false,
+    title: element.title || "",
+    titleFontSize: 11,
+    titleColor: "081C3D",
+    catAxisTitle: element.catAxisLabel ? "Timeline" : undefined,
+    catAxisTitleFontSize: 9,
+    catAxisTitleColor: "666666",
+    valAxisTitle: "Progress %",
+    valAxisTitleFontSize: 9,
+    valAxisTitleColor: "666666",
+  });
+}
+
 function addBars(
   slide: PptxSlide,
   pptx: PptxPresentation,
@@ -273,7 +335,8 @@ export async function createPresentation(slides: Slide[]) {
     sourceSlide.elements.forEach(element => {
       if (element.type === "text") addText(slide, element);
       else if (element.type === "shape") addShape(slide, pptx, element);
-      else if (element.type === "table") addTable(slide, element);
+      else if (element.type === "chart") addChart(slide, pptx, element);
+    else if (element.type === "table") addTable(slide, element);
       else addBars(slide, pptx, element);
     });
     if (sourceSlide.notes) slide.addNotes(cleanText(sourceSlide.notes));

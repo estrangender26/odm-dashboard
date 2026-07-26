@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-07-26T15:49:16.936Z",
+  "reportingDate": "2026-07-25",
+  "source": "deterministic-test-fixtures",
+  "facilities": [
+    {
+      "name": "AGLIPAY STP",
+      "slug": "aglipay",
+      "deliverables": {
+        "required": 14,
+        "submitted": 3,
+        "approved": 3,
+        "missing": 11,
+        "compliancePercent": 21.428571428571427,
+        "rawFileCount": 6
+      }
+    },
+    {
+      "name": "HTT STP",
+      "slug": "htt",
+      "deliverables": {
+        "required": 14,
+        "submitted": 11,
+        "approved": 11,
+        "missing": 3,
+        "compliancePercent": 78.57142857142857,
+        "rawFileCount": 22
+      }
+    },
+    {
+      "name": "EASTBAY PH-2 TP",
+      "slug": "eastbay",
+      "deliverables": {
+        "required": 14,
+        "submitted": 4,
+        "approved": 4,
+        "missing": 10,
+        "compliancePercent": 28.571428571428573,
+        "rawFileCount": 8
+      }
+    },
+    {
+      "name": "KAYSAKAT TP",
+      "slug": "kaysakat",
+      "deliverables": {
+        "required": 14,
+        "submitted": 1,
+        "approved": 1,
+        "missing": 13,
+        "compliancePercent": 7.142857142857143,
+        "rawFileCount": 2
+      }
+    }
+  ]
+}

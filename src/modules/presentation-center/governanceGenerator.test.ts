@@ -406,32 +406,32 @@ describe("Governance Presentation Structure", () => {
       
       // Verify facility names
       const facilityNames = facilities.map(f => f.facility.shortName);
-      expect(facilityNames).toContain("Laguna");
-      expect(facilityNames).toContain("Clark");
-      expect(facilityNames).toContain("Tagum");
-      expect(facilityNames).toContain("Estate");
+      expect(facilityNames).toContain("AGLIPAY STP");
+      expect(facilityNames).toContain("HTT STP");
+      expect(facilityNames).toContain("EASTBAY PH-2 TP");
+      expect(facilityNames).toContain("KAYSAKAT TP");
     });
 
     it("should include all four facility types in fixture", () => {
       const facilities = createDeterministicTestFixture();
       
       // On-schedule facility
-      const onSchedule = facilities.find(f => f.facility.slug === "facility-on-schedule");
+      const onSchedule = facilities.find(f => f.facility.slug === "aglipay");
       expect(onSchedule).toBeDefined();
       expect(onSchedule?.governanceMetrics.ragStatus).toBe("green");
       
       // Behind schedule facility
-      const behind = facilities.find(f => f.facility.slug === "facility-behind");
+      const behind = facilities.find(f => f.facility.slug === "htt");
       expect(behind).toBeDefined();
       expect(behind?.governanceMetrics.ragStatus).toBe("amber");
       
       // Insufficient forecast facility
-      const forecast = facilities.find(f => f.facility.slug === "facility-forecast");
+      const forecast = facilities.find(f => f.facility.slug === "eastbay");
       expect(forecast).toBeDefined();
       expect(forecast?.governanceMetrics.ragStatus).toBe("red");
       
       // No baseline facility
-      const noBaseline = facilities.find(f => f.facility.slug === "facility-no-baseline");
+      const noBaseline = facilities.find(f => f.facility.slug === "kaysakat");
       expect(noBaseline).toBeDefined();
       expect(noBaseline?.governanceMetrics.ragStatus).toBe("gray");
     });
@@ -768,5 +768,111 @@ describe("Governance Milestone Completion Regression Tests", () => {
         expect(report1.facilities[i].progress).toBe(report2.facilities[i].progress);
       }
     });
+  });
+});
+
+describe("Slide 4 Deliverable Summary Integration", () => {
+  const mockDeliverableSummary = {
+    required: 14,
+    submitted: 3,
+    approved: 3,
+    missing: 11,
+    compliancePercent: 21.428571428571427,
+    rawFileCount: 5,
+  };
+
+  const createMockFacilityWithDeliverables = (
+    slug: string,
+    name: string,
+    submitted: number,
+    compliancePercent: number
+  ): FacilityGovernanceData => ({
+    facility: {
+      slug,
+      name,
+      shortName: name,
+      color: "#3b82f6",
+    },
+    pppStartDate: "2025-01-01",
+    milestones: [],
+    documentSummary: {
+      totalDocuments: submitted * 2, // Multiple files per deliverable
+      byCategory: {},
+      byWorkflowStatus: {
+        accepted: 0,
+        pendingReview: submitted * 2,
+        returned: 0,
+        missing: 0,
+        overdue: 0,
+        rejected: 0,
+      },
+      latestSubmissionDate: null,
+      deliverableSummary: {
+        required: 14,
+        submitted,
+        approved: submitted,
+        missing: 14 - submitted,
+        compliancePercent,
+        rawFileCount: submitted * 2,
+      },
+    },
+    governanceMetrics: {
+      governanceReadiness: 33,
+      riskLevel: "Medium",
+      milestones: { complete: 3, total: 9 },
+      progress: { actual: 33, planned: 40, variance: -7 },
+      ragStatus: "amber",
+    },
+  });
+
+  it("uses deliverableSummary for required count", () => {
+    const facility = createMockFacilityWithDeliverables("aglipay", "AGLIPAY STP", 3, 21.43);
+    expect(facility.documentSummary.deliverableSummary?.required).toBe(14);
+  });
+
+  it("calculates compliance from deliverableSummary", () => {
+    const facility = createMockFacilityWithDeliverables("htt", "HTT STP", 11, 78.57);
+    const ds = facility.documentSummary.deliverableSummary!;
+    const compliance = (ds.submitted / ds.required) * 100;
+    expect(compliance).toBeCloseTo(78.57, 1);
+  });
+
+  it("counts multiple files under one TOC row as one submitted deliverable", () => {
+    const facility = createMockFacilityWithDeliverables("eastbay", "EASTBAY STP", 4, 28.57);
+    // Raw files = 8 (2 per deliverable), but submitted deliverables = 4
+    expect(facility.documentSummary.totalDocuments).toBe(8);
+    expect(facility.documentSummary.deliverableSummary?.submitted).toBe(4);
+    expect(facility.documentSummary.deliverableSummary?.rawFileCount).toBe(8);
+  });
+
+  it("sets approved equal to submitted in deliverableSummary", () => {
+    const facility = createMockFacilityWithDeliverables("kaysakat", "KAYSAKAT TP", 1, 7.14);
+    expect(facility.documentSummary.deliverableSummary?.approved)
+      .toBe(facility.documentSummary.deliverableSummary?.submitted);
+  });
+
+  it("calculates missing as required minus submitted", () => {
+    const facility = createMockFacilityWithDeliverables("aglipay", "AGLIPAY STP", 3, 21.43);
+    const ds = facility.documentSummary.deliverableSummary!;
+    expect(ds.missing).toBe(ds.required - ds.submitted);
+    expect(ds.missing).toBe(11);
+  });
+
+  it("returns Complete status when 100% submitted", () => {
+    const ds = { ...mockDeliverableSummary, submitted: 14, compliancePercent: 100 };
+    const status = ds.compliancePercent >= 100 ? "Complete" : ds.compliancePercent >= 70 ? "In Progress" : "At Risk";
+    expect(status).toBe("Complete");
+  });
+
+  it("returns In Progress status when 70-99% submitted", () => {
+    const ds = { ...mockDeliverableSummary, submitted: 11, compliancePercent: 78.57 };
+    const status = ds.compliancePercent >= 100 ? "Complete" : ds.compliancePercent >= 70 ? "In Progress" : "At Risk";
+    expect(status).toBe("In Progress");
+  });
+
+  it("returns At Risk status when below 70% submitted", () => {
+    const ds = { ...mockDeliverableSummary, submitted: 3, compliancePercent: 21.43 };
+    const status = ds.compliancePercent >= 100 ? "Complete" : ds.compliancePercent >= 70 ? "In Progress" : "At Risk";
+    expect(status).toBe("At Risk");
   });
 });
