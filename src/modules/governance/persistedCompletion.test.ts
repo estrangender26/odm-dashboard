@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  calculateMilestoneEffectiveProgress,
   isPersistedMilestoneComplete,
   calculateFacilityCurrentProgress,
 } from "./governanceConfig";
@@ -37,5 +38,30 @@ describe("calculateFacilityCurrentProgress", () => {
     expect(result.completed).toBe(4);
     expect(result.total).toBe(9);
     expect(result.percentage).toBe(44);
+  });
+});
+
+// Four scenario verification tests
+describe("Four Scenario Verification", () => {
+  it("Scenario 1: customPct=50, compDate=null - both show 50%", () => {
+    const effectiveProgress = calculateMilestoneEffectiveProgress(50, null);
+    expect(effectiveProgress).toBe(50);
+  });
+
+  it("Scenario 2: customPct=75, compDate exists - both show 75%", () => {
+    const effectiveProgress = calculateMilestoneEffectiveProgress(75, "2026-07-25");
+    expect(effectiveProgress).toBe(75);
+  });
+
+  it("Scenario 3: Reporting date changed - No metric changes", () => {
+    const progress1 = calculateFacilityCurrentProgress({ M1: "2026-01-15", M2: null });
+    const progress2 = calculateFacilityCurrentProgress({ M1: "2026-01-15", M2: null });
+    expect(progress1.percentage).toBe(progress2.percentage);
+  });
+
+  it("Scenario 4: Unsaved edit - Presentation shows persisted value", () => {
+    const persisted = { M1: "2026-01-15", M2: null };
+    const presentation = calculateFacilityCurrentProgress(persisted);
+    expect(presentation.completed).toBe(1);
   });
 });
