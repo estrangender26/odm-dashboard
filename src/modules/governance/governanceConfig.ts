@@ -403,3 +403,96 @@ export function isValidReportingDate(dateStr: string): boolean {
     date.getUTCDate() === day
   );
 }
+/**
+ * TOC (Table of Contents) Deliverable Definitions
+ * Source: GovernanceDashboard.tsx
+ */
+export const GOVERNANCE_TOC_DELIVERABLES = [
+  { id: "1", label: "1. Overview" },
+  { id: "1A", label: "1A. Executive Summary" },
+  { id: "1B", label: "1B. Project Overview" },
+  { id: "1C", label: "1C. Scope of Work" },
+  { id: "1D", label: "1D. Objectives" },
+  { id: "2", label: "2. Design & Engineering" },
+  { id: "3", label: "3. Construction & Commissioning" },
+  { id: "4", label: "4. Operations & Maintenance" },
+  { id: "5", label: "5. Environmental Compliance" },
+  { id: "6", label: "6. Health & Safety" },
+  { id: "7", label: "7. Quality Assurance" },
+  { id: "8", label: "8. Training & Documentation" },
+  { id: "9", label: "9. Financial Summary" },
+  { id: "10", label: "10. Risk Assessment" },
+  { id: "11", label: "11. Stakeholder Management" },
+  { id: "12", label: "12. Performance Monitoring" },
+  { id: "13", label: "13. Compliance & Permits" },
+  { id: "14", label: "14. Close-out & Handover" },
+] as const;
+
+export interface DeliverableUpload {
+  tocItem?: string | null;
+  milestoneId?: string | null;
+  fileName: string;
+}
+
+export interface MilestoneTocMapping {
+  milestoneId: string;
+  tocIds: string[];
+}
+
+export function calculateDeliverableSubmissionSummary(
+  configuredDeliverables: readonly { id: string; label: string }[],
+  uploads: DeliverableUpload[],
+  milestoneMappings: MilestoneTocMapping[]
+): {
+  required: number;
+  submitted: number;
+  approved: number;
+  missing: number;
+  compliancePercent: number | null;
+  rawFileCount: number;
+} {
+  const required = configuredDeliverables.length;
+  const rawFileCount = uploads.length;
+  
+  const deliverablesWithUploads = new Set<string>();
+  
+  for (const upload of uploads) {
+    if (upload.tocItem) {
+      deliverablesWithUploads.add(upload.tocItem);
+    }
+    
+    if (upload.milestoneId) {
+      const mapping = milestoneMappings.find(m => m.milestoneId === upload.milestoneId);
+      if (mapping) {
+        for (const tocId of mapping.tocIds) {
+          deliverablesWithUploads.add(tocId);
+        }
+      }
+    }
+  }
+  
+  const submitted = configuredDeliverables.filter(d => deliverablesWithUploads.has(d.id)).length;
+  const approved = submitted;
+  const missing = required - submitted;
+  const compliancePercent = required > 0 ? (submitted / required) * 100 : null;
+  
+  return {
+    required,
+    submitted,
+    approved,
+    missing,
+    compliancePercent,
+    rawFileCount,
+  };
+}
+
+export function getDeliverableStatus(
+  compliancePercent: number | null,
+  submitted: number,
+  required: number
+): "Complete" | "In Progress" | "At Risk" | "Not Configured" {
+  if (required === 0) return "Not Configured";
+  if (submitted >= required) return "Complete";
+  if (compliancePercent !== null && compliancePercent >= 70) return "In Progress";
+  return "At Risk";
+}

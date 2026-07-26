@@ -104,7 +104,7 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
   const facility3: FacilityGovernanceData = {
     facility: {
       slug: "eastbay",
-      name: "Tagum Water Supply System",
+      name: "Eastbay PH-2 TP",
       shortName: "EASTBAY PH-2 TP",
       color: colors[2],
     },
@@ -139,8 +139,8 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
   const facility4: FacilityGovernanceData = {
     facility: {
       slug: "kaysakat",
-      name: "Estate Water Supply",
-      shortName: "Estate",
+      name: "Kaysakat TP",
+      shortName: "KAYSAKAT TP",
       color: colors[3],
     },
     pppStartDate: null,
@@ -681,18 +681,9 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
   
   // Production-aligned deliverable counts from Deliverables tab
   // AGLIPAY STP: 3/14, HTT STP: 11/14, EASTBAY PH-2 TP: 4/14, KAYSAKAT TP: 1/14
-  const getDeliverableCounts = (facilityName: string): number => {
-    const name = facilityName.toUpperCase();
-    if (name.includes("AGLIPAY")) return 3;
-    if (name.includes("HTT")) return 11;
-    if (name.includes("EASTBAY")) return 4;
-    if (name.includes("KAYSAKAT")) return 1;
-    return 0;
-  };
-  
   const matrixRows = report.facilities.map(f => {
     const required = f.hasRequirementBaseline ? TOTAL_TOC_DELIVERABLES : 0;
-    const submitted = getDeliverableCounts(f.facility.shortName);
+    const submitted = f.submitted;
     const approved = submitted; // All uploaded docs are treated as approved
     const missing = required > 0 ? required - submitted : 0;
     const compliancePercent = required > 0 ? (submitted / required) * 100 : 0;

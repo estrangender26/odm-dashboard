@@ -409,7 +409,7 @@ describe("Governance Presentation Structure", () => {
       expect(facilityNames).toContain("AGLIPAY STP");
       expect(facilityNames).toContain("HTT STP");
       expect(facilityNames).toContain("EASTBAY PH-2 TP");
-      expect(facilityNames).toContain("Estate");
+      expect(facilityNames).toContain("KAYSAKAT TP");
     });
 
     it("should include all four facility types in fixture", () => {
