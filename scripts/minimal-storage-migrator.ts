@@ -697,4 +697,4 @@ export function getSourceConfig(source: Source) {
   };
 }
 
-export { runDryRun };
+export { runDryRun, runExecute };
