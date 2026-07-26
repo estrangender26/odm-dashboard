@@ -89,6 +89,7 @@
     "tus-js-client": "^4.3.1",
     "vaul": "^1.1.2",
     "xlsx": "^0.18.5",
+    "xml2js": "^0.6.2",
     "zod": "^4.3.5"
   },
   "devDependencies": {
@@ -97,6 +98,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "@types/xml2js": "^0.4.14",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
     "drizzle-kit": "^0.31.8",
