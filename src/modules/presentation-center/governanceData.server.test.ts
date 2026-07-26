@@ -246,4 +246,106 @@ describe("Governance Data Server Logic", () => {
       expect(report1.reportingDate).toBe(report2.reportingDate);
     });
   });
+
+  describe("Facilities Configuration", () => {
+    it("should return facility even when no milestone rows exist", () => {
+      const testDate = new Date("2026-07-25T00:00:00Z");
+      
+      const facilityData: FacilityGovernanceData = {
+        facility: {
+          slug: "test-facility",
+          name: "Test Facility",
+          shortName: "Test",
+          color: "#f97316",
+        },
+        pppStartDate: null,
+        milestones: GOVERNANCE_MILESTONES.map(m => ({
+          milestoneId: m.id,
+          milestoneName: m.label,
+          weight: m.weight,
+          plannedDate: null,
+          actualDate: null,
+          actualProgress: null,
+          status: null,
+        })),
+        documentSummary: {
+          totalDocuments: 0,
+          byCategory: {},
+          byWorkflowStatus: { accepted: 0, pendingReview: 0, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+          latestSubmissionDate: null,
+        },
+        governanceMetrics: {
+          governanceReadiness: 0,
+          riskLevel: "Low",
+          milestones: { complete: 0, total: GOVERNANCE_MILESTONES.length },
+          progress: { planned: null, actual: 0, variance: null },
+          ragStatus: "gray",
+        },
+      };
+
+      const report = buildGovernanceReport([facilityData], testDate);
+      
+      // Facility should be in the report even with no milestone rows
+      expect(report.facilities).toHaveLength(1);
+      expect(report.facilities[0].facility.slug).toBe("test-facility");
+      expect(report.portfolio.totalFacilities).toBe(1);
+    });
+
+    it("should return all configured facilities regardless of milestone data", () => {
+      const testDate = new Date("2026-07-25T00:00:00Z");
+      
+      // Create four facilities with varying milestone data
+      const facilities = [
+        { slug: "aglipay", name: "AGLIPAY STP", hasMilestones: true },
+        { slug: "htt", name: "HTT STP", hasMilestones: false },
+        { slug: "eastbay", name: "EASTBAY", hasMilestones: false },
+        { slug: "kaysakat", name: "KAYSAKAT", hasMilestones: true },
+      ];
+      
+      const facilityData: FacilityGovernanceData[] = facilities.map((f, idx) => ({
+        facility: {
+          slug: f.slug,
+          name: f.name,
+          shortName: f.name,
+          color: ["#f97316", "#3b82f6", "#10b981", "#8b5cf6"][idx],
+        },
+        pppStartDate: f.hasMilestones ? "2026-01-01" : null,
+        milestones: GOVERNANCE_MILESTONES.map(m => ({
+          milestoneId: m.id,
+          milestoneName: m.label,
+          weight: m.weight,
+          plannedDate: f.hasMilestones ? "2026-01-01" : null,
+          actualDate: null,
+          actualProgress: f.hasMilestones ? 0 : null,
+          status: null,
+        })),
+        documentSummary: {
+          totalDocuments: 0,
+          byCategory: {},
+          byWorkflowStatus: { accepted: 0, pendingReview: 0, returned: 0, missing: 0, overdue: 0, rejected: 0 },
+          latestSubmissionDate: null,
+        },
+        governanceMetrics: {
+          governanceReadiness: 0,
+          riskLevel: "Low",
+          milestones: { complete: 0, total: GOVERNANCE_MILESTONES.length },
+          progress: { planned: f.hasMilestones ? 0 : null, actual: 0, variance: null },
+          ragStatus: "gray",
+        },
+      }));
+
+      const report = buildGovernanceReport(facilityData, testDate);
+      
+      // All four facilities should be returned
+      expect(report.facilities).toHaveLength(4);
+      expect(report.portfolio.totalFacilities).toBe(4);
+      
+      // All facility slugs should be present
+      const returnedSlugs = report.facilities.map(f => f.facility.slug);
+      expect(returnedSlugs).toContain("aglipay");
+      expect(returnedSlugs).toContain("htt");
+      expect(returnedSlugs).toContain("eastbay");
+      expect(returnedSlugs).toContain("kaysakat");
+    });
+  });
 });

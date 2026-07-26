@@ -1,21 +1,29 @@
 -- Legacy Storage Migration Ledger
 -- Tracks migration of Base64/file_url legacy data to Supabase Storage
 
-CREATE TYPE legacy_storage_migration_state AS ENUM (
-  'inventoried',
-  'uploading', 
-  'uploaded',
-  'object_verified',
-  'metadata_committed',
-  'app_verified',
-  'rollback_required',
-  'rolled_back',
-  'conflict',
-  'failed',
-  'excluded'
-);
+-- Idempotent enum creation: drop and recreate only if not exists
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'legacy_storage_migration_state') THEN
+    CREATE TYPE legacy_storage_migration_state AS ENUM (
+      'inventoried',
+      'uploading', 
+      'uploaded',
+      'object_verified',
+      'metadata_committed',
+      'app_verified',
+      'rollback_required',
+      'rolled_back',
+      'conflict',
+      'failed',
+      'excluded'
+    );
+  END IF;
+END
+$$;
 
-CREATE TABLE legacy_storage_migration_ledger (
+-- Idempotent table creation
+CREATE TABLE IF NOT EXISTS legacy_storage_migration_ledger (
   id SERIAL PRIMARY KEY,
   source VARCHAR(50) NOT NULL,
   record_id INTEGER NOT NULL,
@@ -45,7 +53,8 @@ CREATE TABLE legacy_storage_migration_ledger (
   UNIQUE (source, record_id)
 );
 
-CREATE INDEX legacy_migration_ledger_state_idx ON legacy_storage_migration_ledger(state);
-CREATE INDEX legacy_migration_ledger_source_idx ON legacy_storage_migration_ledger(source);
-CREATE INDEX legacy_migration_ledger_updated_idx ON legacy_storage_migration_ledger(updated_at);
-CREATE INDEX legacy_migration_ledger_lease_idx ON legacy_storage_migration_ledger(lease_expires_at) WHERE lease_expires_at IS NOT NULL;
+-- Idempotent index creation
+CREATE INDEX IF NOT EXISTS legacy_migration_ledger_state_idx ON legacy_storage_migration_ledger(state);
+CREATE INDEX IF NOT EXISTS legacy_migration_ledger_source_idx ON legacy_storage_migration_ledger(source);
+CREATE INDEX IF NOT EXISTS legacy_migration_ledger_updated_idx ON legacy_storage_migration_ledger(updated_at);
+CREATE INDEX IF NOT EXISTS legacy_migration_ledger_lease_idx ON legacy_storage_migration_ledger(lease_expires_at) WHERE lease_expires_at IS NOT NULL;
