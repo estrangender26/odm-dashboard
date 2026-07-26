@@ -1,0 +1,33 @@
+{
+  "templateLoaded": true,
+  "templatePath": "public/templates/governance/governance-master-template.pptx",
+  "outputSlideCount": 21,
+  "expectedSlides": 4,
+  "templateSlideCount": 17,
+  "slides": [
+    {
+      "outputSlide": 1,
+      "templateSourceSlide": 1,
+      "type": "title"
+    },
+    {
+      "outputSlide": 2,
+      "templateSourceSlide": 3,
+      "type": "overview"
+    },
+    {
+      "outputSlide": 3,
+      "templateSourceSlide": 4,
+      "type": "facility"
+    },
+    {
+      "outputSlide": 4,
+      "templateSourceSlide": 15,
+      "type": "deliverables"
+    }
+  ],
+  "programmaticMasterFallbackUsed": false,
+  "layoutCount": 24,
+  "masterCount": 2,
+  "validationPassed": false
+}
