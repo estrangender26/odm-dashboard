@@ -677,16 +677,16 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
   });
   
   const matrixHeader = ["Facility", "Required", "Submitted", "Approved", "Missing", "Compliance", "Status"];
-  const TOTAL_TOC_DELIVERABLES = 14;
   
-  // Production-aligned deliverable counts from Deliverables tab
-  // AGLIPAY STP: 3/14, HTT STP: 11/14, EASTBAY PH-2 TP: 4/14, KAYSAKAT TP: 1/14
+  // Use canonical deliverable summary from shared helper
+  // This matches the Dashboard Deliverables tab calculation exactly
   const matrixRows = report.facilities.map(f => {
-    const required = f.hasRequirementBaseline ? TOTAL_TOC_DELIVERABLES : 0;
-    const submitted = f.submitted;
-    const approved = submitted; // All uploaded docs are treated as approved
-    const missing = required > 0 ? required - submitted : 0;
-    const compliancePercent = required > 0 ? (submitted / required) * 100 : 0;
+    const ds = f.deliverableSummary;
+    const required = ds?.required ?? 0;
+    const submitted = ds?.submitted ?? 0;
+    const approved = ds?.approved ?? 0; // All uploaded docs are treated as approved
+    const missing = ds?.missing ?? 0;
+    const compliancePercent = ds?.compliancePercent ?? 0;
     const compliance = required > 0 
       ? `${compliancePercent.toFixed(1)}%`
       : "N/A";

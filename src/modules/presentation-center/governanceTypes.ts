@@ -78,6 +78,15 @@ export interface GovernanceMilestone {
   status: string | null;
 }
 
+export interface DeliverableSummary {
+  required: number;
+  submitted: number;
+  approved: number;
+  missing: number;
+  compliancePercent: number | null;
+  rawFileCount: number;
+}
+
 export interface DocumentSummary {
   totalDocuments: number;
   byCategory: Record<string, number>;
@@ -95,6 +104,7 @@ export interface DocumentSummary {
     rejected: number;
   };
   latestSubmissionDate: string | null;
+  deliverableSummary?: DeliverableSummary;
 }
 
 export interface GovernanceMetrics {
@@ -156,6 +166,11 @@ export interface FacilityPresentationSummary {
    * Capped at 100%. Not authoritative deliverables compliance.
    */
   submissionCoverageProxy: number;
+  /**
+   * Canonical deliverable summary from shared helper.
+   * This is the source of truth for deliverable compliance.
+   */
+  deliverableSummary?: DeliverableSummary;
   required: number;
   submitted: number;
   /**
@@ -633,6 +648,7 @@ export function buildGovernanceReport(
       progress: f.governanceMetrics.progress.actual,
       deliverablesCompliance: coverage.submissionCoverageProxy, // Deprecated: use submissionCoverageProxy
       submissionCoverageProxy: coverage.submissionCoverageProxy,
+      deliverableSummary: f.documentSummary.deliverableSummary,
       required: coverage.requiredMilestoneSubmissionProxy,
       submitted: coverage.submittedCount,
       approved: 0, // Workflow status not tracked

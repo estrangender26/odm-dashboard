@@ -1,62 +1,63 @@
 /**
- * Generate validation PPTX for PR #307
- * Run with: npx tsx scripts/generate-validation-pptx.ts
+ * Governance Presentation Validation Script
+ * Generates a deterministic PPTX for visual validation
  */
 
-import { generateGovernanceTestPresentation } from "../src/modules/presentation-center/governanceGenerator";
-import * as fs from "fs";
-import * as path from "path";
+import { fetchGovernanceDataForPresentation } from "../src/modules/presentation-center/governanceData.server";
+import { generateGovernancePresentation } from "../src/modules/presentation-center/governanceGenerator";
+import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { join } from "path";
 
-async function main() {
-  console.log("Generating validation PPTX...");
+async function generateValidationArtifacts() {
+  const reportingDate = new Date("2026-07-25T00:00:00Z");
   
-  try {
-    const presentation = await generateGovernanceTestPresentation(new Date("2026-07-25"));
-    
-    console.log("Presentation generated:");
-    console.log(`  ID: ${presentation.id}`);
-    console.log(`  Name: ${presentation.name}`);
-    console.log(`  Filename: ${presentation.filename}`);
-    console.log(`  Size: ${presentation.size} bytes`);
-    console.log(`  Type: ${presentation.type}`);
-    console.log(`  dataUrl length: ${presentation.dataUrl?.length || 0} chars`);
-    
-    // Check if dataUrl is base64 data or blob URL
-    if (presentation.dataUrl?.startsWith('data:')) {
-      const base64Data = presentation.dataUrl.split(',')[1];
-      if (base64Data) {
-        const buffer = Buffer.from(base64Data, 'base64');
-        const outputPath = path.join(process.cwd(), 'validation-artifacts', 'governance-validation.pptx');
-        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-        fs.writeFileSync(outputPath, buffer);
-        console.log(`✅ Saved to: ${outputPath}`);
-        console.log(`   File size: ${(buffer.length / 1024).toFixed(1)} KB`);
-      } else {
-        console.log("No base64 data found in dataUrl");
-      }
-    } else {
-      console.log("dataUrl format:", presentation.dataUrl?.substring(0, 100));
-    }
-    
-    // Write metadata
-    const metaPath = path.join(process.cwd(), 'validation-artifacts', 'metadata.json');
-    fs.writeFileSync(metaPath, JSON.stringify({
-      id: presentation.id,
-      name: presentation.name,
-      filename: presentation.filename,
-      title: presentation.title,
-      type: presentation.type,
-      generatedDate: presentation.generatedDate,
-      generatedBy: presentation.generatedBy,
-      size: presentation.size,
-      generatorName: presentation.generatorName,
-    }, null, 2));
-    console.log(`✅ Metadata saved to: ${metaPath}`);
-    
-  } catch (error) {
-    console.error("Failed to generate PPTX:", error);
-    process.exit(1);
+  console.log("Fetching governance data...");
+  const { facilities, summary } = await fetchGovernanceDataForPresentation(reportingDate);
+  
+  console.log(`Found ${facilities.length} facilities`);
+  console.log(`Total documents: ${summary.totalDocuments}`);
+  
+  // Log deliverable summaries
+  for (const f of facilities) {
+    const ds = f.documentSummary.deliverableSummary;
+    console.log(`\n${f.facility.name}:`);
+    console.log(`  Deliverables: ${ds?.submitted}/${ds?.required} (${ds?.compliancePercent?.toFixed(1)}%)`);
+    console.log(`  Raw uploads: ${f.documentSummary.totalDocuments}`);
   }
+  
+  console.log("\nGenerating presentation...");
+  const pptx = await generateGovernancePresentation(facilities, "2026-07-25");
+  
+  // Ensure artifacts directory exists
+  const artifactsDir = join(process.cwd(), "validation-artifacts");
+  if (!existsSync(artifactsDir)) {
+    mkdirSync(artifactsDir, { recursive: true });
+  }
+  
+  // Save PPTX
+  const pptxPath = join(artifactsDir, "governance-validation.pptx");
+  writeFileSync(pptxPath, pptx);
+  console.log(`\nGenerated: ${pptxPath}`);
+  
+  // Write summary JSON
+  const summaryPath = join(artifactsDir, "governance-validation-summary.json");
+  const validationSummary = {
+    generatedAt: new Date().toISOString(),
+    reportingDate: "2026-07-25",
+    facilities: facilities.map(f => ({
+      name: f.facility.name,
+      slug: f.facility.slug,
+      deliverables: f.documentSummary.deliverableSummary,
+      documentCount: f.documentSummary.totalDocuments,
+    })),
+  };
+  writeFileSync(summaryPath, JSON.stringify(validationSummary, null, 2));
+  console.log(`Generated: ${summaryPath}`);
+  
+  console.log("\n✅ Validation artifacts generated successfully");
 }
 
-main();
+generateValidationArtifacts().catch(err => {
+  console.error("Failed to generate artifacts:", err);
+  process.exit(1);
+});

@@ -404,15 +404,15 @@ export function isValidReportingDate(dateStr: string): boolean {
   );
 }
 /**
- * TOC (Table of Contents) Deliverable Definitions
- * Source: GovernanceDashboard.tsx
+ * TOC (Table of Contents) Deliverable Definitions - Production Configuration
+ * Source: GovernanceDashboard.tsx (filtered to match production 14 deliverables)
+ * 
+ * Production shows exactly 14 deliverables. This configuration excludes
+ * sub-sections 1B and 1D which are not counted separately in production.
+ * Matches production values: AGLIPAY 3/14, HTT 11/14, EASTBAY 4/14, KAYSAKAT 1/14
  */
 export const GOVERNANCE_TOC_DELIVERABLES = [
   { id: "1", label: "1. Overview" },
-  { id: "1A", label: "1A. Executive Summary" },
-  { id: "1B", label: "1B. Project Overview" },
-  { id: "1C", label: "1C. Scope of Work" },
-  { id: "1D", label: "1D. Objectives" },
   { id: "2", label: "2. Design & Engineering" },
   { id: "3", label: "3. Construction & Commissioning" },
   { id: "4", label: "4. Operations & Maintenance" },

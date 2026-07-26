@@ -34,6 +34,30 @@ import {
   type DocumentSummary,
 } from "./governanceTypes";
 
+import {
+  GOVERNANCE_TOC_DELIVERABLES,
+  calculateDeliverableSubmissionSummary,
+  type DeliverableUpload,
+  type MilestoneTocMapping,
+} from "@/modules/governance/governanceConfig";
+
+/**
+ * Canonical milestone-to-TOC mappings
+ * Source: GovernanceDashboard.tsx MSD
+ * Maps each milestone to its associated TOC deliverable IDs
+ */
+const GOVERNANCE_MILESTONE_TOC_MAPPINGS: MilestoneTocMapping[] = [
+  { milestoneId: "M1", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  { milestoneId: "M2", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  { milestoneId: "M3", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  { milestoneId: "M4", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  { milestoneId: "M5", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  { milestoneId: "M6", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  { milestoneId: "M7", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  { milestoneId: "M8", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  { milestoneId: "M9", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+];
+
 // Type definitions for DB results
 interface MilestoneStateRow {
   facilitySlug: string;
@@ -47,6 +71,7 @@ interface MilestoneStateRow {
 interface UploadRow {
   facilitySlug: string;
   milestoneId: string;
+  tocItem: string | null;
   category: string;
   fileName: string;
   storageMimeType: string | null;
@@ -136,6 +161,7 @@ export async function fetchGovernanceDataForPresentation(
     .select({
       facilitySlug: governanceUploads.facilitySlug,
       milestoneId: governanceUploads.milestoneId,
+      tocItem: governanceUploads.tocItem,
       category: governanceUploads.category,
       fileName: governanceUploads.fileName,
       storageMimeType: governanceUploads.storageMimeType,
@@ -232,6 +258,21 @@ export async function fetchGovernanceDataForPresentation(
             )[0].uploadedAt?.toISOString() || null
         : null,
     };
+    
+    // Calculate deliverable submission summary using shared helper
+    // This counts deliverables (TOC items) with at least one upload,
+    // not raw file uploads
+    const deliverableUploads: DeliverableUpload[] = uploads.map(u => ({
+      tocItem: u.tocItem,
+      milestoneId: u.milestoneId,
+      fileName: u.fileName,
+    }));
+    
+    docSummary.deliverableSummary = calculateDeliverableSubmissionSummary(
+      GOVERNANCE_TOC_DELIVERABLES,
+      deliverableUploads,
+      GOVERNANCE_MILESTONE_TOC_MAPPINGS
+    );
     
     // Completed count uses persisted completion rule based on compDate
     const milestoneCompDates: Record<string, string | null | undefined> = {};
