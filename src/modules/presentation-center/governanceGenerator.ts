@@ -686,7 +686,7 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
     if (name.includes("AGLIPAY")) return 3;
     if (name.includes("HTT")) return 11;
     if (name.includes("EASTBAY")) return 4;
-    if (name.includes("KAYSAKAT")) return 5;
+    if (name.includes("KAYSAKAT")) return 1;
     return 0;
   };
   
