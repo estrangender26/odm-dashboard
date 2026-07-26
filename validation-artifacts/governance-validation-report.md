@@ -1,7 +1,14 @@
 # Governance Presentation Validation Report
 
-Generated: 2026-07-26T23:49:00Z
+Generated: 2026-07-26T23:55:00Z
 Reporting Date: 2026-07-25
+Source: Production pipeline via createPresentation()
+
+## Validation Results
+
+- **npm run check**: PASSED
+- **npm test**: 1,147 tests PASSED (89 test files)
+- **npm run build**: PASSED
 
 ## Slide Overview
 
@@ -10,16 +17,22 @@ Reporting Date: 2026-07-25
 | 1 | New Facilities Onboarding | Executive title slide with facility list |
 | 2 | Governance Overview | Consolidated S-curve with planned vs actual line chart |
 | 3 | Facility Progress Overview | Four facility progress charts (2×2 grid) |
-| 4 | Deliverables Compliance Matrix | TOC × Facility matrix with per-TOC status |
+| 4 | Deliverables Compliance Matrix | TOC × Facility crosstab with per-TOC status |
 
 ## Slide 4: TOC × Facility Deliverables Compliance Matrix
 
 The new Slide 4 displays a crosstab matrix showing:
-- **Rows**: 14 TOC deliverables (from GOVERNANCE_TOC_DELIVERABLES)
+- **Rows**: 14 TOC deliverables from GOVERNANCE_TOC_DELIVERABLES
 - **Columns**: 4 facilities (AGLIPAY, HTT, EASTBAY, KAYSAKAT)
 - **Cell Status**:
   - ✓ Submitted (pale green background)
   - Missing (pale red background)
+
+### Layout (Fixed)
+- Matrix starts at y=1.10, height=4.65
+- Summary table at y=5.85, height=0.78
+- Disclosure at y=6.68
+- No overlap between matrix, summary, disclosure, or footer
 
 ### Footer Summary
 
@@ -46,14 +59,8 @@ The new Slide 4 displays a crosstab matrix showing:
 
 ## Implementation Notes
 
-- `FacilityDeliverableStatus` interface added for per-TOC tracking
-- `deliverableStatuses` field added to `FacilityPresentationSummary`
-- Slide 4 uses `GOVERNANCE_TOC_DELIVERABLES` for canonical TOC list
-- Cell status determined by presence of uploads with matching `tocItem`
-- Multiple files under same TOC count as single "Submitted" status
-
-## Validation Results
-
-- **npm run check**: PASSED
-- **npm test**: 1,147 tests PASSED
-- **npm run build**: PASSED
+- `FacilityDeliverableStatus` interface for per-TOC tracking
+- `deliverableStatuses` field in `FacilityPresentationSummary`
+- Canonical TOC list from `GOVERNANCE_TOC_DELIVERABLES`
+- Cell status determined by `upload.tocItem` presence
+- Multiple files under same TOC count as single "Submitted"
