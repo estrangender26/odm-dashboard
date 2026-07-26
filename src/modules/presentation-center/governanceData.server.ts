@@ -45,17 +45,31 @@ import {
  * Canonical milestone-to-TOC mappings
  * Source: GovernanceDashboard.tsx MSD
  * Maps each milestone to its associated TOC deliverable IDs
+ * 
+ * NOTE: These mappings are used as fallback when tocItem is not populated.
+ * Direct tocItem is authoritative. Each milestone's deliverables are
+ * explicitly configured here to prevent counting all deliverables
+ * from any single milestone upload.
  */
 const GOVERNANCE_MILESTONE_TOC_MAPPINGS: MilestoneTocMapping[] = [
-  { milestoneId: "M1", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
-  { milestoneId: "M2", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
-  { milestoneId: "M3", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
-  { milestoneId: "M4", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
-  { milestoneId: "M5", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
-  { milestoneId: "M6", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
-  { milestoneId: "M7", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
-  { milestoneId: "M8", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
-  { milestoneId: "M9", tocIds: ["1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"] },
+  // M1: Initial technical documentation
+  { milestoneId: "M1", tocIds: ["1", "1A", "1C", "2", "13"] },
+  // M2: Design phase documentation  
+  { milestoneId: "M2", tocIds: ["1A", "1C", "2", "3", "10", "13"] },
+  // M3: Construction and commissioning
+  { milestoneId: "M3", tocIds: ["3", "4", "5", "6", "7", "8", "9", "13"] },
+  // M4: P1 Acceptance
+  { milestoneId: "M4", tocIds: ["3", "4", "5", "6", "7", "8", "9", "11", "12", "13"] },
+  // M5: P1 Defects Rectification
+  { milestoneId: "M5", tocIds: ["4", "5", "6", "7", "9", "11", "12", "13"] },
+  // M6: P2 Acceptance
+  { milestoneId: "M6", tocIds: ["3", "4", "5", "6", "7", "8", "9", "11", "12", "13"] },
+  // M7: P2 Defects Rectification
+  { milestoneId: "M7", tocIds: ["4", "5", "6", "7", "8", "9", "11", "12", "13"] },
+  // M8: TOC Performance Certificate
+  { milestoneId: "M8", tocIds: ["4", "5", "6", "7", "8", "9", "11", "12", "13", "14"] },
+  // M9: Final TOC / Project Close-out
+  { milestoneId: "M9", tocIds: ["1", "9", "11", "12", "13", "14"] },
 ];
 
 // Type definitions for DB results
