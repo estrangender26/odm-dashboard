@@ -21,6 +21,7 @@ import {
   getFacilityColor,
   calculateFacilityProgress,
   determineRagStatus,
+  isMilestoneCompleteAsOf,
   type GovernanceFacility,
   type GovernanceMilestone,
   type FacilityGovernanceData,
@@ -72,13 +73,6 @@ function getCutoffDate(reportingDate: Date): Date {
 /**
  * Check if a date string (YYYY-MM-DD) is strictly before the cutoff.
  * The entire reporting date is included (up to but not including next day).
- */
-function isDateBeforeCutoff(dateStr: string | null, reportingDate: Date): boolean {
-  if (!dateStr) return false;
-  const cutoff = getCutoffDate(reportingDate);
-  const date = new Date(`${dateStr}T00:00:00Z`);
-  return date.getTime() < cutoff.getTime();
-}
 
 /**
  * Check if a datetime is strictly before the cutoff.
@@ -208,7 +202,7 @@ export async function fetchGovernanceDataForPresentation(
       
       // Filter completion dates by reporting date cutoff
       const completionDate = state?.compDate || null;
-      const isCompleted = completionDate && isDateBeforeCutoff(completionDate, reportingDate);
+      const isCompleted = isMilestoneCompleteAsOf(completionDate, reportingDate.toISOString().split("T")[0]);
       
       // Custom progress is only valid if set and completion is on/before cutoff
       const actualProgress = state?.customPct != null && isCompleted

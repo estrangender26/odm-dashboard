@@ -204,3 +204,107 @@ export function getMilestoneById(id: string): MilestoneConfig | undefined {
 export function getTotalMilestoneWeight(): number {
   return WEIGHT_CALCULATION_META.totalWeight;
 }
+
+/**
+ * Determine if a milestone is complete as of a specific reporting date.
+ * 
+ * This function is the single source of truth for milestone completion calculations
+ * across both the Facility Dashboard and the Presentation Center.
+ * 
+ * Business Rules:
+ * - A milestone is complete if it has a non-null completion date
+ * - For "as-of" date calculations, the completion date must be BEFORE the cutoff
+ * - The cutoff is inclusive: completion on the reporting date IS counted as complete
+ *   for historical presentations (to match end-of-day semantics)
+ * 
+ * Usage:
+ * - Facility Dashboard (current view): isMilestoneCompleteAsOf(compDate, null) - includes all completed
+ * - Presentation Center (historical): isMilestoneCompleteAsOf(compDate, reportingDate) - as-of date
+ * 
+ * @param compDate - The milestone completion date (YYYY-MM-DD format or ISO string)
+ * @param reportingDate - The reporting date to check against (YYYY-MM-DD format), or null for current view
+ * @returns boolean indicating whether the milestone is complete as of the reporting date
+ */
+export function isMilestoneCompleteAsOf(
+  compDate: string | null | undefined,
+  reportingDate: string | null | undefined,
+): boolean {
+  if (!compDate) return false;
+  
+  // Current view: any completion date counts
+  if (!reportingDate) return true;
+  
+  // Parse dates at UTC midnight for consistent comparison
+  const completion = new Date(`${compDate.split('T')[0]}T00:00:00Z`);
+  const cutoff = new Date(`${reportingDate}T00:00:00Z`);
+  
+  // Completion ON the reporting date IS counted as complete (inclusive)
+  // Completion must be <= cutoff (not strictly before)
+  return completion.getTime() <= cutoff.getTime();
+}
+
+/**
+ * Calculate facility progress as of a specific reporting date.
+ * 
+ * @param milestoneCompDates - Map of milestone ID to completion date (or null if not complete)
+ * @param reportingDate - The reporting date for the calculation, or null for current progress
+ * @returns Object with completed count, total count, and percentage
+ */
+export function calculateFacilityProgressAsOf(
+  milestoneCompDates: Record<string, string | null | undefined>,
+  reportingDate: string | null | undefined,
+): { completed: number; total: number; percentage: number } {
+  const total = GOVERNANCE_MILESTONES.length;
+  let completed = 0;
+  
+  for (const milestone of GOVERNANCE_MILESTONES) {
+    const compDate = milestoneCompDates[milestone.id];
+    if (isMilestoneCompleteAsOf(compDate, reportingDate)) {
+      completed++;
+    }
+  }
+  
+  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  
+  return { completed, total, percentage };
+}
+
+/**
+ * Format a progress display string.
+ * 
+ * @param completed - Number of completed milestones
+ * @param total - Total number of milestones
+ * @returns Formatted string like "4/9" or "0/9"
+ */
+export function formatProgressDisplay(completed: number, total: number): string {
+  return `${completed}/${total}`;
+}
+
+/**
+ * Validation helper for reporting dates.
+ * Rejects calendar-invalid dates like 2026-02-30.
+ * 
+ * @param dateStr - Date string to validate (YYYY-MM-DD format)
+ * @returns boolean indicating whether the date is valid
+ */
+export function isValidReportingDate(dateStr: string): boolean {
+  // Check format
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return false;
+  }
+  
+  // Parse components
+  const [year, month, day] = dateStr.split('-').map(Number);
+  
+  // Check ranges
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > 31) return false;
+  
+  // Create date and verify it doesn't shift (rejects invalid dates like Feb 30)
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() + 1 === month &&
+    date.getUTCDate() === day
+  );
+}

@@ -11,6 +11,8 @@
  */
 
 import {
+  isMilestoneCompleteAsOf,
+  calculateFacilityProgressAsOf,
   GOVERNANCE_MILESTONES,
   WEIGHT_CALCULATION_META,
   WORKFLOW_STATUS_META,
@@ -22,7 +24,7 @@ export const GOVERNANCE_SOURCE_LABEL = "O&M Manual Governance";
 export const GOVERNANCE_DECK_TYPE = "Governance Onboarding Progress";
 
 // Re-export configuration items for consumers
-export { GOVERNANCE_MILESTONES, WORKFLOW_STATUS_META, DELIVERABLE_REQUIREMENT_META, getFacilityColor };
+export { GOVERNANCE_MILESTONES, WORKFLOW_STATUS_META, DELIVERABLE_REQUIREMENT_META, getFacilityColor, isMilestoneCompleteAsOf, calculateFacilityProgressAsOf };
 
 /**
  * Data quality disclosure text for generated presentations.

@@ -9,7 +9,7 @@ import {
   MAX_UPLOAD_FILE_SIZE_BYTES,
 } from "@contracts/upload-limits";
 import { deleteFileWithVerification, shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
-import { GOVERNANCE_MILESTONES } from "@/modules/governance/governanceConfig";
+import { GOVERNANCE_MILESTONES, isMilestoneCompleteAsOf } from "@/modules/governance/governanceConfig";
 
 /* ── Banner (replaces alert) ── */
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
@@ -359,6 +359,29 @@ export default function GovernanceDashboard() {
     }
     return merged;
   }, [msStateMap, pendingMilestones, checkboxSim]);
+
+
+  // DIAGNOSTIC: Log milestone completion state for debugging 4/9 vs 3/9 discrepancy
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      const diagnostic = GOVERNANCE_MILESTONES.map(m => {
+        const persisted = msStateMap[m.id]?.compDate || null;
+        const pending = pendingMilestones[m.id]?.compDate;
+        const effective = getCompDate(m.id) || null;
+        const countedCurrent = isMilestoneCompleteAsOf(effective, null);
+        return {
+          milestoneId: m.id,
+          persistedCompDate: persisted,
+          pendingCompDate: pending !== undefined ? pending : null,
+          effectiveCompDate: effective,
+          countedCurrent,
+        };
+      });
+      const completedCount = diagnostic.filter(d => d.countedCurrent).length;
+      console.table(diagnostic);
+      console.log(`[GOV DIAGNOSTIC] Completed: ${completedCount}/9`);
+    }
+  }, [msStateMap, pendingMilestones]);
 
   // Get planned date
   const getPlannedDate = (mId: string) => {
@@ -897,6 +920,16 @@ export default function GovernanceDashboard() {
         {activeTab === "progress" && (
           <div className="space-y-6">
             {/* S-Curve Chart */}
+            {/* Unsaved Changes Warning */}
+            {(Object.keys(pendingMilestones).length > 0 || Object.keys(checkboxSim).length > 0) && (
+              <div className="bg-amber-50 border border-amber-400 rounded-xl p-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-600 font-bold">⚠️ Preview Mode</span>
+                  <span className="text-amber-700 text-sm">— Includes unsaved milestone changes. Save before generating official reports.</span>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white border border-gray-200 rounded-xl p-5">
               <h3 className="text-lg font-bold text-gray-800 mb-4">Project S-Curve — {currentFacility.short}</h3>
               <SCurve msState={mergedStateMap} color={currentFacility.color} />
@@ -939,7 +972,7 @@ export default function GovernanceDashboard() {
                       const comp = getCompDate(m.id);
                       const pct = getCustomPct(m.id);
                       const planned = getPlannedDate(m.id);
-                      const isComplete = !!comp;
+                      const isComplete = isMilestoneCompleteAsOf(comp, null);
 
                       return (
                         <tr key={m.id} className="hover:bg-gray-50">
