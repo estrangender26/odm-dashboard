@@ -920,6 +920,16 @@ export default function GovernanceDashboard() {
         {activeTab === "progress" && (
           <div className="space-y-6">
             {/* S-Curve Chart */}
+            {/* Unsaved Changes Warning */}
+            {(Object.keys(pendingMilestones).length > 0 || Object.keys(checkboxSim).length > 0) && (
+              <div className="bg-amber-50 border border-amber-400 rounded-xl p-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-600 font-bold">⚠️ Preview Mode</span>
+                  <span className="text-amber-700 text-sm">— Includes unsaved milestone changes. Save before generating official reports.</span>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white border border-gray-200 rounded-xl p-5">
               <h3 className="text-lg font-bold text-gray-800 mb-4">Project S-Curve — {currentFacility.short}</h3>
               <SCurve msState={mergedStateMap} color={currentFacility.color} />
