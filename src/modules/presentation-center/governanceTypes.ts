@@ -29,29 +29,30 @@ export { GOVERNANCE_MILESTONES, WORKFLOW_STATUS_META, DELIVERABLE_REQUIREMENT_ME
  * Must be displayed prominently on slides.
  */
 export const DATA_QUALITY_DISCLOSURE = 
-  "Submission coverage is based on a milestone-count proxy. Formal document approval workflow and a facility-specific deliverable requirement matrix are not currently available.";
+  "All uploaded documents are treated as reviewed and approved. Requirement-based submission coverage and compliance will become available after implementation of the Deliverable Requirement Matrix.";
 
 /**
  * Proxy metric labels for accurate reporting.
  * Use these instead of authoritative compliance terms.
  */
 export const PROXY_LABELS = {
-  submissionCoverage: "Submission Coverage — Proxy",
-  requiredMilestoneSubmissions: "Required Milestone Submissions — Proxy",
-  submittedMilestoneRecords: "Submitted Milestone Records",
-  outstandingMilestoneSubmissions: "Outstanding Milestone Submissions — Proxy",
+  submissionCoverage: "Submission Coverage",
+  requiredMilestoneSubmissions: "Required Submissions",
+  submittedMilestoneRecords: "Submitted Documents",
+  outstandingMilestoneSubmissions: "Outstanding",
   uploadedDocuments: "Uploaded Documents",
   baselineProgress: "Baseline Progress",
-  actualMilestoneProgress: "Actual Milestone Progress",
-  dataQuality: "DATA QUALITY: PROXY METRICS",
-  // New labels for corrected compliance reporting
+  actualMilestoneProgress: "Milestone Progress",
+  dataQuality: "DATA QUALITY",
+  // Labels for compliance reporting
   documentSubmissionCompliance: "Document Submission Compliance",
   requiredDeliverables: "Required Deliverables",
-  acceptedDeliverables: "Accepted/Approved Deliverables",
+  acceptedDeliverables: "Approved Documents",
   outstandingDeliverables: "Outstanding Deliverables",
-  unmappedDocuments: "Unmapped/Supplementary Documents",
+  documentsAwaitingMapping: "Documents Awaiting Requirement Mapping",
   requirementBaselineUnavailable: "Requirement Baseline Unavailable",
   milestoneProgress: "Milestone Progress",
+  notConfigured: "Not Configured",
 } as const;
 
 export interface GovernanceFacility {

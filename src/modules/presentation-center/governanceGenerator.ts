@@ -317,64 +317,33 @@ function buildSlide1ExecutiveDashboard(report: GovernancePresentationReport): Pr
     ...getSlideHeader(report.reportingDate, 1),
   ];
   
-  // KPI Cards with corrected terminology
-  // Check if requirement baseline is available
-  const hasRequirementBaseline = report.dataQuality.hasRequirementMatrix;
+  // KPI Cards - Milestone Progress and Document Submission are separate
+  // Business rule: All uploaded documents are treated as reviewed and approved
   
   elements.push(...buildKpiCard("Onboarding Facilities", String(report.portfolio.totalFacilities), 0.5, 1.8));
-  elements.push(...buildKpiCard("Portfolio Progress", formatPercent(report.portfolio.overallProgress, 0), 3.0, 1.8));
+  elements.push(...buildKpiCard("Portfolio Milestone Progress", formatPercent(report.portfolio.overallProgress, 0), 3.0, 1.8));
+  elements.push(...buildKpiCard("Submission Coverage", "N/A", 5.5, 1.8));
+  elements.push(...buildKpiCard("Required Deliverables", "Not Configured", 8.0, 1.8));
+  elements.push(...buildKpiCard("Approved Documents", String(report.portfolio.totalSubmitted), 0.5, 2.9));
+  elements.push(...buildKpiCard("Documents Awaiting Mapping", String(report.portfolio.totalUnmappedDocuments), 3.0, 2.9));
   
-  // Show appropriate coverage label based on requirement baseline availability
-  if (hasRequirementBaseline) {
-    elements.push(...buildKpiCard("Submission Coverage", formatPercent(report.portfolio.submissionCoverageProxy, 0), 5.5, 1.8));
-    elements.push(...buildKpiCard("Required Deliverables", String(report.portfolio.requiredMilestoneSubmissionProxy), 8.0, 1.8));
-  } else {
-    elements.push(...buildKpiCard("Submission Coverage", "N/A — Baseline Unavailable", 5.5, 1.8));
-    elements.push(...buildKpiCard("Required Deliverables", "Not Configured", 8.0, 1.8));
-  }
-  
-  elements.push(...buildKpiCard("Total Submitted", String(report.portfolio.totalSubmitted), 0.5, 2.9));
-  
-  if (hasRequirementBaseline) {
-    elements.push(...buildKpiCard("Outstanding", String(report.portfolio.outstandingMilestoneSubmissionProxy), 3.0, 2.9));
-  } else {
-    elements.push(...buildKpiCard("Documents Awaiting Requirement Mapping", String(report.portfolio.totalUnmappedDocuments), 3.0, 2.9));
-  }
-  
-  // Facility summary table with corrected terminology
-  const tableHeader = hasRequirementBaseline 
-    ? ["Facility", "Progress", "Coverage", "Required", "Submitted", "Outstanding", "Status"]
-    : ["Facility", "Progress", "Coverage", "Submitted", "Unmapped", "Status"];
+  // Facility summary table - Milestone Progress and Documents are separate
+  // Business rule: All uploaded documents are treated as reviewed and approved
+  const tableHeader = ["Facility", "Milestone Progress", "Approved Documents", "Coverage", "Status"];
     
   const tableRows = report.facilities.map(f => {
-    if (hasRequirementBaseline) {
-      return [
-        f.facility.shortName,
-        formatPercent(f.progress, 0),
-        formatPercent(f.submissionCoverageProxy, 0),
-        String(f.required),
-        String(f.submitted),
-        String(f.outstanding),
-        statusLabel(f.status, f.hasBaselineSchedule),
-      ];
-    } else {
-      // Without requirement baseline, show unmapped instead of required/outstanding
-      return [
-        f.facility.shortName,
-        formatPercent(f.progress, 0),
-        "N/A",
-        String(f.submitted),
-        String(f.unmappedDocuments),
-        statusLabel(f.status, f.hasBaselineSchedule),
-      ];
-    }
+    return [
+      f.facility.shortName,
+      formatPercent(f.progress, 0),
+      String(f.submitted), // Business rule: approved = submitted
+      "N/A",
+      statusLabel(f.status, f.hasBaselineSchedule),
+    ];
   });
   
   const finalRows = tableRows.length > 0 
     ? tableRows 
-    : hasRequirementBaseline 
-      ? [["No data", "—", "—", "—", "—", "—", "—"]]
-      : [["No data", "—", "—", "—", "—", "—"]];
+    : [["No data", "—", "—", "—", "—"]];
   
   elements.push({
     type: "table",
@@ -408,7 +377,7 @@ function buildSlide1ExecutiveDashboard(report: GovernancePresentationReport): Pr
   
   slides.push({
     elements,
-    notes: "Executive dashboard with submission coverage proxy metrics.",
+    notes: "Executive dashboard with milestone progress and approved document counts. All uploaded documents are treated as reviewed and approved.",
   });
   
   return slides;
@@ -558,7 +527,7 @@ function buildSlide2SCurves(report: GovernancePresentationReport): PresentationS
     
     elements.push({
       type: "text",
-      text: `${f.submitted}/${f.required} submitted`,
+      text: `${f.submitted} document${f.submitted !== 1 ? "s" : ""} approved`,
       x: x + 3.0,
       y: y + 0.75,
       w: 2.5,
@@ -594,7 +563,7 @@ function buildSlide3DeliverablesAndActions(report: GovernancePresentationReport)
     ...getSlideHeader(report.reportingDate, 3),
   ];
   
-  // Deliverable compliance table with proxy terminology
+  // Document submission summary by category
   elements.push({
     type: "text",
     text: "Document Submission Summary",
@@ -748,7 +717,7 @@ function buildSlide3DeliverablesAndActions(report: GovernancePresentationReport)
   
   slides.push({
     elements,
-    notes: "Deliverables compliance status and required executive actions.",
+    notes: "Document submission summary and executive actions based on milestone progress.",
   });
   
   return slides;

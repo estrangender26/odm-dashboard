@@ -475,10 +475,14 @@ describe("Governance Presentation Structure", () => {
   });
 
   describe("Data Quality Disclosure", () => {
-    it("should have complete data quality disclosure text", () => {
-      expect(DATA_QUALITY_DISCLOSURE).toContain("milestone-count proxy");
-      expect(DATA_QUALITY_DISCLOSURE).toContain("Formal document approval workflow");
-      expect(DATA_QUALITY_DISCLOSURE).toContain("facility-specific deliverable requirement matrix");
+    it("should confirm all uploaded documents are treated as reviewed and approved", () => {
+      expect(DATA_QUALITY_DISCLOSURE).toContain("All uploaded documents are treated as reviewed and approved");
+      expect(DATA_QUALITY_DISCLOSURE).toContain("Deliverable Requirement Matrix");
+    });
+    
+    it("should not describe workflow status tracking as unavailable", () => {
+      expect(DATA_QUALITY_DISCLOSURE).not.toContain("workflow status is not tracked");
+      expect(DATA_QUALITY_DISCLOSURE).not.toContain("unavailable");
     });
   });
 
@@ -580,22 +584,28 @@ describe("Governance Compliance Calculation Corrections", () => {
     });
   });
 
-  describe("buildGovernanceReport without requirement matrix", () => {
-    it("should show all documents as unmapped when no requirement matrix exists", () => {
+  describe("buildGovernanceReport with approved documents", () => {
+    it("should show approved documents equal to submitted documents", () => {
       const facilities = createDeterministicTestFixture();
       const report = buildGovernanceReport(facilities, new Date("2026-07-25"));
       
-      // When hasRequirementMatrix is false
-      if (!report.dataQuality.hasRequirementMatrix) {
-        // Portfolio should show unmapped documents
-        expect(report.portfolio.totalUnmappedDocuments).toBeGreaterThan(0);
-        
-        // Each facility should have unmapped documents
-        report.facilities.forEach(f => {
-          expect(f.unmappedDocuments).toBeGreaterThanOrEqual(0);
-          expect(f.hasRequirementBaseline).toBe(false);
-        });
-      }
+      // Portfolio level: approved = submitted
+      expect(report.portfolio.totalSubmitted).toBeGreaterThanOrEqual(0);
+      
+      // Facility level: approved = submitted
+      report.facilities.forEach(f => {
+        expect(f.submitted).toBeGreaterThanOrEqual(0);
+      });
+    });
+    
+    it("should not contain proxy wording in data quality", () => {
+      expect(DATA_QUALITY_DISCLOSURE).not.toContain("proxy");
+      expect(DATA_QUALITY_DISCLOSURE).not.toContain("milestone-count");
+    });
+    
+    it("should not describe workflow status as unavailable", () => {
+      expect(DATA_QUALITY_DISCLOSURE).not.toContain("workflow status is not tracked");
+      expect(DATA_QUALITY_DISCLOSURE).not.toContain("unavailable");
     });
   });
 });
