@@ -469,72 +469,74 @@ async function runExecute(options: {
         await mkdir(tempDir, { recursive: true, mode: 0o700 });
         
         let decoded: { size: number; sha256: string; mimeType: string };
+        
+        // Outer try/finally to ensure tempDir cleanup
         try {
+          // Decode payload (writes to tempPath, do not delete until after upload)
           console.log(`  -> Decoding payload`);
           decoded = await decodePayload(payload, tempPath, {
             filename: candidate.fileName || undefined,
           });
           console.log(`  -> Decoded: ${decoded.size} bytes`);
-        } finally {
-          try { await rm(tempPath); } catch {}
-        }
+          // Check existing object
+          console.log(`  -> Checking Storage`);
+          const existingCheck = await checkStorageObject(supabase, bucket, targetPath, decoded.size, decoded.sha256);
         
-        // Check existing object
-        console.log(`  -> Checking Storage`);
-        const existingCheck = await checkStorageObject(supabase, bucket, targetPath, decoded.size, decoded.sha256);
-        
-        if (existingCheck.exists) {
-          if (existingCheck.matches) {
-            console.log(`  -> Object exists and matches, reusing`);
-            const committed = await commitMetadata(source, candidate.id, bucket, targetPath, decoded.size, decoded.mimeType);
-            if (committed) {
-              console.log(`  -> Metadata committed`);
-              totalSuccess++;
-              totalSkipped++;
+          if (existingCheck.exists) {
+            if (existingCheck.matches) {
+              console.log(`  -> Object exists and matches, reusing`);
+              const committed = await commitMetadata(source, candidate.id, bucket, targetPath, decoded.size, decoded.mimeType);
+              if (committed) {
+                console.log(`  -> Metadata committed`);
+                totalSuccess++;
+                totalSkipped++;
+              } else {
+                console.log(`  -> Metadata commit failed`);
+                totalFailed++;
+              }
             } else {
-              console.log(`  -> Metadata commit failed`);
+              console.log(`  -> ERROR: Object exists but SHA mismatch - not overwriting`);
               totalFailed++;
             }
-          } else {
-            console.log(`  -> ERROR: Object exists but SHA mismatch - not overwriting`);
-            totalFailed++;
+          continue;
+            continue;
           }
-          try { await rm(tempDir, { recursive: true, force: true }); } catch {}
+        
+          // Upload
+          console.log(`  -> Uploading to ${bucket}/${targetPath}`);
+          await uploadToStorage(supabase, bucket, targetPath, tempPath, decoded.mimeType);
+        
+          // Verify upload
+          console.log(`  -> Verifying upload`);
+          const verifyCheck = await checkStorageObject(supabase, bucket, targetPath, decoded.size, decoded.sha256);
+        
+          if (!verifyCheck.exists || !verifyCheck.matches) {
+            console.log(`  -> ERROR: Upload verification failed`);
+            totalFailed++;
           continue;
-        }
+            continue;
+          }
         
-        // Upload
-        console.log(`  -> Uploading to ${bucket}/${targetPath}`);
-        await uploadToStorage(supabase, bucket, targetPath, tempPath, decoded.mimeType);
+          // Commit metadata
+          console.log(`  -> Committing metadata`);
+          const committed = await commitMetadata(source, candidate.id, bucket, targetPath, decoded.size, decoded.mimeType);
         
-        // Verify upload
-        console.log(`  -> Verifying upload`);
-        const verifyCheck = await checkStorageObject(supabase, bucket, targetPath, decoded.size, decoded.sha256);
-        
-        if (!verifyCheck.exists || !verifyCheck.matches) {
-          console.log(`  -> ERROR: Upload verification failed`);
-          totalFailed++;
-          try { await rm(tempDir, { recursive: true, force: true }); } catch {}
+          if (!committed) {
+            console.log(`  -> ERROR: Metadata commit failed`);
+            totalFailed++;
           continue;
-        }
+            continue;
+          }
         
-        // Commit metadata
-        console.log(`  -> Committing metadata`);
-        const committed = await commitMetadata(source, candidate.id, bucket, targetPath, decoded.size, decoded.mimeType);
+          console.log(`  -> SUCCESS: Migrated`);
+          totalSuccess++;
+          totalBytes += decoded.size;
         
-        if (!committed) {
-          console.log(`  -> ERROR: Metadata commit failed`);
-          totalFailed++;
+        
+        } finally {
+          // Clean up tempDir after success, skip, or failure
           try { await rm(tempDir, { recursive: true, force: true }); } catch {}
-          continue;
         }
-        
-        console.log(`  -> SUCCESS: Migrated`);
-        totalSuccess++;
-        totalBytes += decoded.size;
-        
-        try { await rm(tempDir, { recursive: true, force: true }); } catch {}
-        
       } catch (error) {
         console.log(`  -> ERROR: ${sanitizeError(error)}`);
         totalFailed++;
@@ -695,4 +697,4 @@ export function getSourceConfig(source: Source) {
   };
 }
 
-export { runDryRun };
+export { runDryRun, runExecute };

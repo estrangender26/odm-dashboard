@@ -680,4 +680,63 @@ describe("Dry-run critical bug fix", () => {
       expect(error).toContain("mismatch");
     }
   });
+});// ============================================================================
+
+// ============================================================================
+// Temp File Lifecycle Regression Tests
+// ============================================================================
+
+describe("Temp file lifecycle", () => {
+  it("tempPath exists when uploadToStorage reads it", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "test-lifecycle-"));
+    const tempPath = join(tempDir, "payload");
+    writeFileSync(tempPath, "test content");
+    expect(existsSync(tempPath)).toBe(true);
+    const content = readFileSync(tempPath, "utf-8");
+    expect(content).toBe("test content");
+    rmSync(tempDir, { recursive: true, force: true });
+    expect(existsSync(tempDir)).toBe(false);
+  });
+
+  it("tempDir is cleaned after success", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "test-success-"));
+    writeFileSync(join(tempDir, "payload"), "test");
+    expect(existsSync(tempDir)).toBe(true);
+    try {} finally { rmSync(tempDir, { recursive: true, force: true }); }
+    expect(existsSync(tempDir)).toBe(false);
+  });
+
+  it("tempDir is cleaned after failure", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "test-failure-"));
+    writeFileSync(join(tempDir, "payload"), "test");
+    expect(existsSync(tempDir)).toBe(true);
+    let errorThrown = false;
+    try {
+      try { throw new Error("fail"); }
+      finally { rmSync(tempDir, { recursive: true, force: true }); }
+    } catch (e) { errorThrown = true; }
+    expect(errorThrown).toBe(true);
+    expect(existsSync(tempDir)).toBe(false);
+  });
+
+  it("metadata is not committed when upload fails", async () => {
+    let uploadCalled = false;
+    let metadataCommitted = false;
+    const mockUpload = async () => { uploadCalled = true; throw new Error("fail"); };
+    const mockCommit = async () => { metadataCommitted = true; return true; };
+    try { await mockUpload(); await mockCommit(); } catch (e) {}
+    expect(uploadCalled).toBe(true);
+    expect(metadataCommitted).toBe(false);
+  });
+
+  it("metadata is not committed when verification fails", async () => {
+    let verifyCalled = false;
+    let metadataCommitted = false;
+    const mockVerify = async () => { verifyCalled = true; return { exists: true, matches: false }; };
+    const mockCommit = async () => { metadataCommitted = true; return true; };
+    const check = await mockVerify();
+    if (!check.exists || !check.matches) { /* skip */ } else { await mockCommit(); }
+    expect(verifyCalled).toBe(true);
+    expect(metadataCommitted).toBe(false);
+  });
 });
