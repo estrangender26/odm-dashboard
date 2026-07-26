@@ -114,13 +114,23 @@ async function runDryRun(options: {
     const payloadColumn = config.payloadColumn;
     const bucket = SOURCE_BUCKETS[source];
     
-    // Query: unmigrated records with payload
-    const conditions: any[] = [
+    // Build ALL conditions first before constructing queries
+    const baseConditions: any[] = [
       sql`${sql.raw(payloadColumn)} IS NOT NULL`,
       sql`length(${sql.raw(payloadColumn)}) > 0`,
     ];
     
-    // Check already migrated vs not
+    // Add ID filter to base conditions if specified
+    if (options.ids && options.ids.length > 0) {
+      baseConditions.push(sql`id IN (${sql.join(options.ids.map(id => sql`${id}`), sql`, `)})`);
+    }
+    
+    // Add smp_documents exclusion to base conditions
+    if (isRecordExcluded(source, 31)) {
+      baseConditions.push(sql`id != 31`);
+    }
+    
+    // Construct queries with ALL conditions combined in a SINGLE .where() call
     const unmigratedQuery = db
       .select({
         id: sql<number>`id`,
@@ -129,7 +139,7 @@ async function runDryRun(options: {
       })
       .from(table)
       .where(and(
-        ...conditions,
+        ...baseConditions,
         isNull(sql`storage_path`)
       ));
     
@@ -137,22 +147,9 @@ async function runDryRun(options: {
       .select({ id: sql<number>`id` })
       .from(table)
       .where(and(
-        ...conditions,
+        ...baseConditions,
         sql`storage_path IS NOT NULL`
       ));
-    
-    // Apply ID filter if specified
-    if (options.ids && options.ids.length > 0) {
-      const idList = sql.join(options.ids.map(id => sql`${id}`), sql`, `);
-      unmigratedQuery.where(sql`id IN (${idList})`);
-      migratedQuery.where(sql`id IN (${idList})`);
-    }
-    
-    // Apply smp_documents exclusion
-    if (isRecordExcluded(source, 31)) {
-      unmigratedQuery.where(sql`id != 31`);
-      migratedQuery.where(sql`id != 31`);
-    }
     
     // Execute queries
     const [unmigrated, migrated] = await Promise.all([
@@ -332,7 +329,7 @@ export async function checkStorageObject(
   }
 }
 
-async function uploadToStorage(
+export async function uploadToStorage(
   supabase: SupabaseClient,
   bucket: string,
   path: string,
@@ -350,7 +347,7 @@ async function uploadToStorage(
   }
 }
 
-async function commitMetadata(
+export async function commitMetadata(
   source: Source,
   id: number,
   bucket: string,
@@ -411,6 +408,7 @@ async function runExecute(options: {
     const payloadColumn = config.payloadColumn;
     const bucket = SOURCE_BUCKETS[source];
     
+    // Build ALL conditions first
     const conditions: any[] = [
       sql`${sql.raw(payloadColumn)} IS NOT NULL`,
       sql`length(${sql.raw(payloadColumn)}) > 0`,
@@ -421,20 +419,23 @@ async function runExecute(options: {
       conditions.push(sql`id != 31`);
     }
     
-    let query = db
+    // Add ID filter to conditions BEFORE constructing the query
+    if (options.ids && options.ids.length > 0) {
+      conditions.push(sql`id IN (${sql.join(options.ids.map(id => sql`${id}`), sql`, `)})`);
+    }
+    
+    // Single .where() call with all conditions
+    const candidates = await db
       .select({
         id: sql<number>`id`,
         fileName: sql<string | null>`file_name`,
         payloadLength: sql<number>`length(${sql.raw(payloadColumn)})`,
       })
       .from(table)
-      .where(and(...conditions));
+      .where(and(...conditions))
+      .limit(options.limit || 10000);
     
-    if (options.ids && options.ids.length > 0) {
-      query = query.where(sql`id IN (${sql.join(options.ids.map(id => sql`${id}`), sql`, `)})`);
-    }
     
-    const candidates = await query.limit(options.limit || 10000);
     
     console.log(`Found ${candidates.length} candidate records\n`);
     
