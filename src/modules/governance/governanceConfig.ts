@@ -250,6 +250,101 @@ export function isMilestoneCompleteAsOf(
  * @param reportingDate - The reporting date for the calculation, or null for current progress
  * @returns Object with completed count, total count, and percentage
  */
+
+/**
+ * Determine if a milestone is complete based on persisted database state.
+ * 
+ * This function is the business rule for current persisted completion.
+ * A milestone is complete when its completion date is populated in the database.
+ * 
+ * This is used by the Presentation Center to match the Facility Dashboard's
+ * saved progress values. Unlike isMilestoneCompleteAsOf(), this does NOT apply
+ * a reporting date cutoff - it simply checks if the milestone has been marked
+ * complete in the persisted database state.
+ * 
+ * @param compDate - The persisted completion date from the database
+ * @returns boolean indicating whether the milestone is complete
+ */
+
+/**
+ * Calculate effective progress for a single milestone.
+ * 
+ * This implements the canonical Dashboard rule:
+ * - customPct takes precedence if set (even without compDate)
+ * - if no customPct but compDate exists, progress is 100%
+ * - if neither, progress is 0%
+ * 
+ * Formula: customPct ?? (compDate ? 100 : 0)
+ * 
+ * @param customPct - Custom progress percentage (0-100) or null/undefined
+ * @param compDate - Completion date string or null/undefined
+ * @returns Effective progress percentage (0-100)
+ */
+export function calculateMilestoneEffectiveProgress(
+  customPct: number | null | undefined,
+  compDate: string | null | undefined,
+): number {
+  return customPct ?? (compDate ? 100 : 0);
+}
+
+/**
+ * Calculate aggregate facility progress from milestone effective progress values.
+ * 
+ * Uses equal weighting (current fallback). Each milestone contributes
+ * its effectiveProgress / totalMilestones to the aggregate.
+ * 
+ * @param milestoneProgress - Map of milestone ID to effective progress (0-100)
+ * @returns Aggregate progress percentage (0-100)
+ */
+export function calculateAggregateProgress(
+  milestoneProgress: Record<string, number>,
+): number {
+  const total = GOVERNANCE_MILESTONES.length;
+  if (total === 0) return 0;
+  
+  const sum = GOVERNANCE_MILESTONES.reduce(
+    (acc, m) => acc + (milestoneProgress[m.id] ?? 0),
+    0,
+  );
+  
+  return Math.round(sum / total);
+}
+
+export function isPersistedMilestoneComplete(
+  compDate: string | null | undefined,
+): boolean {
+  return !!compDate;
+}
+
+/**
+ * Calculate facility progress based on current persisted database state.
+ * 
+ * This function mirrors how the Facility Dashboard shows saved progress.
+ * It counts milestones as complete if they have a persisted completion date,
+ * regardless of any reporting date. This ensures the Presentation Center
+ * matches the Dashboard's saved values.
+ *
+ * @param milestoneCompDates - Map of milestone ID to persisted completion date
+ * @returns Object with completed count, total count, and percentage
+ */
+export function calculateFacilityCurrentProgress(
+  milestoneCompDates: Record<string, string | null | undefined>,
+): { completed: number; total: number; percentage: number } {
+  const total = GOVERNANCE_MILESTONES.length;
+  let completed = 0;
+  
+  for (const milestone of GOVERNANCE_MILESTONES) {
+    const compDate = milestoneCompDates[milestone.id];
+    if (isPersistedMilestoneComplete(compDate)) {
+      completed++;
+    }
+  }
+  
+  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  
+  return { completed, total, percentage };
+}
+
 export function calculateFacilityProgressAsOf(
   milestoneCompDates: Record<string, string | null | undefined>,
   reportingDate: string | null | undefined,
