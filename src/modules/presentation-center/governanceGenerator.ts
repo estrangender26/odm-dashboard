@@ -728,7 +728,7 @@ export interface GovernanceGenerationOptions {
  * Uses live data from the database with reporting date filtering
  */
 export async function generateGovernancePresentation(
-  context: DeckGenerationContext,
+  context: DeckGenerationContext & { facilities?: FacilityGovernanceData[] },
   options?: GovernanceGenerationOptions
 ): Promise<GeneratedPresentation> {
   const startTime = performance.now();
@@ -739,13 +739,15 @@ export async function generateGovernancePresentation(
     
     let facilities: FacilityGovernanceData[];
     
-    // Use passed facilities, test fixture, or empty array
-    if (options?.facilities) {
+    // Use passed facilities from context (PresentationCenter passes here), options, or empty array
+    if (context.facilities) {
+      facilities = context.facilities;
+    } else if (options?.facilities) {
       facilities = options.facilities;
     } else if (options?.useTestFixture) {
       facilities = createDeterministicTestFixture();
     } else {
-      console.warn("[GovernanceGenerator] No facilities data provided. The caller must fetch and supply presentation data via options.facilities.");
+      console.warn("[GovernanceGenerator] No facilities data provided. The caller must fetch and supply presentation data via context.facilities or options.facilities.");
       facilities = [];
     }
     
