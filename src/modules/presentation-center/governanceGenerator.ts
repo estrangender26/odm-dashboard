@@ -11,6 +11,7 @@ import {
   GOVERNANCE_SOURCE_LABEL,
   GOVERNANCE_DECK_TYPE,
   DATA_QUALITY_DISCLOSURE,
+  GOVERNANCE_TOC_DELIVERABLES,
   type GovernancePresentationReport,
   type FacilityPresentationSummary,
   type SCurvePoint,
@@ -662,151 +663,109 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
   const slides: PresentationSlide[] = [];
   const elements: PresentationElement[] = [];
   
-  elements.push(...buildHeader("Deliverables Compliance Summary"));
+  elements.push(...buildHeader("Deliverables Compliance Matrix"));
   
+  // Subtitle
   elements.push({
     type: "text",
-    text: "Facility Deliverables Status",
+    text: "Status of required O&M Manual deliverables by facility",
     x: MASTER.content.x,
     y: MASTER.content.y,
     w: MASTER.content.width,
-    h: 0.3,
-    fontSize: 12,
-    bold: true,
-    color: "0C0C0C",
+    h: 0.25,
+    fontSize: 10,
+    color: "4b5563",
   });
   
-  const matrixHeader = ["Facility", "Required", "Submitted", "Approved", "Missing", "Compliance", "Status"];
+  // Build TOC × Facility matrix
+  // Header: TOC Deliverable | Facility 1 | Facility 2 | Facility 3 | Facility 4
+  const facilityCount = report.facilities.length;
+  const matrixHeader = ["TOC Deliverable", ...report.facilities.map(f => f.facility.shortName)];
   
-  // Use canonical deliverable summary from shared helper
-  // This matches the Dashboard Deliverables tab calculation exactly
-  const matrixRows = report.facilities.map(f => {
-    const ds = f.deliverableSummary;
-    const required = ds?.required ?? 0;
-    const submitted = ds?.submitted ?? 0;
-    const approved = ds?.approved ?? 0; // All uploaded docs are treated as approved
-    const missing = ds?.missing ?? 0;
-    const compliancePercent = ds?.compliancePercent ?? 0;
-    const compliance = required > 0 
-      ? `${compliancePercent.toFixed(1)}%`
-      : "N/A";
-    // Status: Complete (100%), In Progress (70-99%), At Risk (<70%), Not Configured
-    const status = required > 0 
-      ? (submitted >= required ? "Complete" : compliancePercent >= 70 ? "In Progress" : "At Risk")
-      : "Not Configured";
-    
-    return [
-      f.facility.shortName,
-      required > 0 ? String(required) : "Not configured",
-      String(submitted),
-      String(approved),
-      required > 0 ? String(missing) : "—",
-      compliance,
-      status,
-    ];
+  // Build rows from GOVERNANCE_TOC_DELIVERABLES
+  const tocRows: { label: string; cells: { text: string; fill: string }[] }[] = GOVERNANCE_TOC_DELIVERABLES.map(toc => {
+    const rowLabel = toc.label;
+    const facilityCells = report.facilities.map(f => {
+      const status = f.deliverableStatuses?.find(ds => ds.tocId === toc.id);
+      if (!status || status.status === "Missing") {
+        return { text: "Missing", fill: MASTER.rag.paleRed };
+      }
+      return { text: "✓ Submitted", fill: MASTER.rag.paleGreen };
+    });
+    return {
+      label: rowLabel,
+      cells: facilityCells,
+    };
   });
   
-  const finalRows = matrixRows.length > 0 ? matrixRows : [["No data", "—", "—", "—", "—", "—", "—"]];
+  // Convert to table rows
+  const tableRows = [
+    matrixHeader,
+    ...tocRows.map(row => [row.label, ...row.cells.map(c => c.text)]),
+  ];
   
-  const matrixCellFills = [
+  // Build cell fills
+  const cellFills = [
     Array(matrixHeader.length).fill(MASTER.table.headerFill),
-    ...finalRows.map((row) => {
-      const status = row[6];
-      const baseFill = "FFFFFF";
-      if (status === "At Risk") return [...Array(6).fill(baseFill), MASTER.rag.paleRed];
-      if (status === "In Progress") return [...Array(6).fill(baseFill), MASTER.rag.paleAmber];
-      if (status === "Complete") return [...Array(6).fill(baseFill), MASTER.rag.paleGreen];
-      return Array(matrixHeader.length).fill(baseFill);
-    }),
+    ...tocRows.map(row => [
+      "FFFFFF", // TOC label column
+      ...row.cells.map(c => c.fill),
+    ]),
+  ];
+  
+  // Main matrix table
+  const matrixY = MASTER.content.y + 0.3;
+  const rowHeight = 0.35;
+  const tableHeight = Math.min(5.0, (tocRows.length + 1) * rowHeight + 0.3);
+  
+  elements.push({
+    type: "table",
+    rows: tableRows,
+    x: MASTER.content.x,
+    y: matrixY,
+    w: MASTER.content.width,
+    h: tableHeight,
+    fontSize: 8, // Smaller font for 14 rows
+    cellFills,
+    colW: [4.5, ...Array(facilityCount).fill(1.9)], // TOC column wider, facility columns equal
+  } as unknown as PresentationElement);
+  
+  // Footer summary table
+  const footerY = matrixY + tableHeight + 0.2;
+  const summaryHeader = ["", ...report.facilities.map(f => f.facility.shortName)];
+  const summaryRows = [
+    [
+      "Submitted / Required",
+      ...report.facilities.map(f => {
+        const ds = f.deliverableSummary;
+        return ds ? `${ds.submitted} / ${ds.required}` : "—";
+      }),
+    ],
+    [
+      "Compliance",
+      ...report.facilities.map(f => {
+        const ds = f.deliverableSummary;
+        return ds?.compliancePercent != null ? `${ds.compliancePercent.toFixed(1)}%` : "N/A";
+      }),
+    ],
   ];
   
   elements.push({
     type: "table",
-    rows: [matrixHeader, ...finalRows],
+    rows: [summaryHeader, ...summaryRows],
     x: MASTER.content.x,
-    y: MASTER.content.y + 0.4,
+    y: footerY,
     w: MASTER.content.width,
-    h: Math.max(1.5, finalRows.length * 0.4 + 0.5),
-    fontSize: 9,
-    cellFills: matrixCellFills,
-  });
-  
-  const catY = MASTER.content.y + 0.4 + Math.max(1.5, finalRows.length * 0.4 + 0.5) + 0.3;
-  
-  elements.push({
-    type: "text",
-    text: "Document Submission by Category",
-    x: MASTER.content.x,
-    y: catY,
-    w: 5.5,
-    h: 0.25,
-    fontSize: 11,
-    bold: true,
-    color: "0C0C0C",
-  });
-  
-  const catHeader = ["Category", "Submitted"];
-  const catRows = report.deliverableCompliance
-    .filter(row => row.submitted > 0)
-    .map(row => [row.category, String(row.submitted)]);
-  const finalCatRows = catRows.length > 0 ? catRows : [["No submissions", "—"]];
-  
-  elements.push({
-    type: "table",
-    rows: [catHeader, ...finalCatRows],
-    x: MASTER.content.x,
-    y: catY + 0.35,
-    w: 5.5,
-    h: Math.max(1.0, finalCatRows.length * 0.35 + 0.4),
+    h: (summaryRows.length + 1) * 0.35,
     fontSize: 9,
     cellFills: [
-      Array(catHeader.length).fill(MASTER.table.headerFill),
-      ...finalCatRows.map(() => Array(catHeader.length).fill("FFFFFF")),
+      Array(summaryHeader.length).fill(MASTER.table.headerFill),
+      ...summaryRows.map(() => Array(summaryHeader.length).fill("FFFFFF")),
     ],
-  });
+    colW: [4.5, ...Array(facilityCount).fill(1.9)],
+  } as unknown as PresentationElement);
   
-  elements.push({
-    type: "text",
-    text: "Executive Actions",
-    x: MASTER.content.x + 6.0,
-    y: catY,
-    w: 6,
-    h: 0.25,
-    fontSize: 11,
-    bold: true,
-    color: "0C0C0C",
-  });
-  
-  const actionHeader = ["Priority", "Facility", "Action"];
-  const actionRows = report.executiveActions.slice(0, 4).map(action => [
-    action.priority.toUpperCase(),
-    action.facility,
-    action.action.length > 35 ? action.action.substring(0, 32) + "..." : action.action,
-  ]);
-  const finalActionRows = actionRows.length > 0 ? actionRows : [["—", "—", "No critical actions"]];
-  
-  const actionCellFills = [
-    Array(actionHeader.length).fill(MASTER.table.headerFill),
-    ...finalActionRows.map((row) => {
-      const priority = row[0];
-      const baseFill = "FFFFFF";
-      if (priority === "HIGH" || priority === "CRITICAL") return [MASTER.rag.paleRed, baseFill, baseFill];
-      if (priority === "MEDIUM") return [MASTER.rag.paleAmber, baseFill, baseFill];
-      return Array(actionHeader.length).fill(baseFill);
-    }),
-  ];
-  
-  elements.push({
-    type: "table",
-    rows: [actionHeader, ...finalActionRows],
-    x: MASTER.content.x + 6.0,
-    y: catY + 0.35,
-    w: 6.0,
-    h: Math.max(1.0, finalActionRows.length * 0.35 + 0.4),
-    fontSize: 9,
-    cellFills: actionCellFills,
-  });
-  
+  // Footer disclosure
   elements.push({
     type: "text",
     x: MASTER.content.x,
@@ -822,11 +781,12 @@ function buildSlide4DeliverablesSummary(report: GovernancePresentationReport): P
   
   slides.push({
     elements,
-    notes: "Deliverables compliance summary with facility matrix and executive actions.",
+    notes: "TOC × Facility Deliverables Compliance Matrix with per-TOC status and footer summary.",
   });
   
   return slides;
 }
+
 
 export interface GovernanceGenerationOptions {
   facilities?: FacilityGovernanceData[];

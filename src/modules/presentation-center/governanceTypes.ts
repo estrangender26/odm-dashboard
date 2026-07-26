@@ -18,6 +18,7 @@ import {
   isMilestoneCompleteAsOf,
   calculateFacilityProgressAsOf,
   GOVERNANCE_MILESTONES,
+  GOVERNANCE_TOC_DELIVERABLES,
   WEIGHT_CALCULATION_META,
   WORKFLOW_STATUS_META,
   DELIVERABLE_REQUIREMENT_META,
@@ -28,7 +29,7 @@ export const GOVERNANCE_SOURCE_LABEL = "O&M Manual Governance";
 export const GOVERNANCE_DECK_TYPE = "Governance Onboarding Progress";
 
 // Re-export configuration items for consumers
-export { GOVERNANCE_MILESTONES, WORKFLOW_STATUS_META, DELIVERABLE_REQUIREMENT_META, getFacilityColor, isMilestoneCompleteAsOf, calculateFacilityProgressAsOf, isPersistedMilestoneComplete, calculateFacilityCurrentProgress, calculateMilestoneEffectiveProgress, calculateAggregateProgress };
+export { GOVERNANCE_MILESTONES, GOVERNANCE_TOC_DELIVERABLES, WORKFLOW_STATUS_META, DELIVERABLE_REQUIREMENT_META, getFacilityColor, isMilestoneCompleteAsOf, calculateFacilityProgressAsOf, isPersistedMilestoneComplete, calculateFacilityCurrentProgress, calculateMilestoneEffectiveProgress, calculateAggregateProgress };
 
 /**
  * Data quality disclosure text for generated presentations.
@@ -84,6 +85,17 @@ export interface DeliverableSummary {
   approved: number;
   missing: number;
   compliancePercent: number | null;
+  rawFileCount: number;
+}
+
+/**
+ * Per-TOC deliverable status for a facility
+ * Used for the TOC × Facility Deliverables Compliance Matrix
+ */
+export interface FacilityDeliverableStatus {
+  tocId: string;
+  tocLabel: string;
+  status: "Submitted" | "Missing" | "Not Required";
   rawFileCount: number;
 }
 
@@ -171,6 +183,11 @@ export interface FacilityPresentationSummary {
    * This is the source of truth for deliverable compliance.
    */
   deliverableSummary?: DeliverableSummary;
+  /**
+   * Per-TOC deliverable statuses for this facility.
+   * Used for the TOC × Facility Deliverables Compliance Matrix.
+   */
+  deliverableStatuses?: FacilityDeliverableStatus[];
   required: number;
   submitted: number;
   /**
@@ -405,6 +422,36 @@ export function calculateSubmissionCoverageProxy(
     hasRequirementBaseline: true,
     dataQualityWarning,
   };
+}
+
+/**
+ * Calculate per-TOC deliverable statuses for a facility
+ * Used for the TOC × Facility Deliverables Compliance Matrix
+ * 
+ * @param uploads - Array of uploads with tocItem
+ * @returns Array of FacilityDeliverableStatus for each TOC item
+ */
+export function calculateFacilityDeliverableStatuses(
+  uploads: { tocItem?: string | null; fileName: string }[]
+): FacilityDeliverableStatus[] {
+  // Count uploads per TOC item
+  const uploadsByToc = new Map<string, number>();
+  for (const upload of uploads) {
+    if (upload.tocItem) {
+      uploadsByToc.set(upload.tocItem, (uploadsByToc.get(upload.tocItem) || 0) + 1);
+    }
+  }
+  
+  // Build status for each configured TOC deliverable
+  return GOVERNANCE_TOC_DELIVERABLES.map(toc => {
+    const rawFileCount = uploadsByToc.get(toc.id) || 0;
+    return {
+      tocId: toc.id,
+      tocLabel: toc.label,
+      status: rawFileCount > 0 ? "Submitted" : "Missing",
+      rawFileCount,
+    };
+  });
 }
 
 export function determineRagStatus(
@@ -643,12 +690,20 @@ export function buildGovernanceReport(
     const sCurveResult = generateFacilitySCurve(f.milestones, now);
     const sCurveWithForecast = calculateForecastSCurve(sCurveResult.points, now);
     
+    // Calculate per-TOC deliverable statuses
+    const deliverableStatuses = calculateFacilityDeliverableStatuses(
+      Object.entries(f.documentSummary.byCategory).flatMap(([cat, count]) => 
+        Array(count).fill({ tocItem: cat.startsWith("TOC-") ? cat.replace("TOC-", "") : null, fileName: "" })
+      )
+    );
+    
     return {
       facility: f.facility,
       progress: f.governanceMetrics.progress.actual,
       deliverablesCompliance: coverage.submissionCoverageProxy, // Deprecated: use submissionCoverageProxy
       submissionCoverageProxy: coverage.submissionCoverageProxy,
       deliverableSummary: f.documentSummary.deliverableSummary,
+      deliverableStatuses,
       required: coverage.requiredMilestoneSubmissionProxy,
       submitted: coverage.submittedCount,
       approved: 0, // Workflow status not tracked
