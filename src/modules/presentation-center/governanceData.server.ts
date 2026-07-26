@@ -52,41 +52,6 @@ interface UploadRow {
   uploadedAt: Date | null;
   storageBucket: string | null;
 }
-
-/**
- * Get the cutoff datetime for filtering.
- * The cutoff is the start of the NEXT day after the reporting date.
- * This ensures the ENTIRE reporting date is included.
- * 
- * Example:
- * - Reporting date: 2026-07-25
- * - Cutoff: 2026-07-26T00:00:00Z
- * - Included: 2026-07-25T00:00:00Z to 2026-07-25T23:59:59.999Z
- * - Excluded: 2026-07-26T00:00:00Z and later
- */
-function getCutoffDate(reportingDate: Date): Date {
-  // reportingDate is expected to be YYYY-MM-DDT00:00:00Z
-  // We want to include the entire day, so we add 1 day
-  const cutoff = new Date(reportingDate);
-  cutoff.setUTCDate(cutoff.getUTCDate() + 1);
-  cutoff.setUTCHours(0, 0, 0, 0);
-  return cutoff;
-}
-
-/**
- * Check if a date string (YYYY-MM-DD) is strictly before the cutoff.
- * The entire reporting date is included (up to but not including next day).
-
-/**
- * Check if a datetime is strictly before the cutoff.
- * The entire reporting date is included (up to but not including next day).
- */
-function isDateTimeBeforeCutoff(date: Date | null, reportingDate: Date): boolean {
-  if (!date) return false;
-  const cutoff = getCutoffDate(reportingDate);
-  return date.getTime() < cutoff.getTime();
-}
-
 /**
  * Fetch facilities from database - not hard-coded
  */
@@ -124,6 +89,8 @@ export async function fetchGovernanceDataForPresentation(
   summary: GovernancePortfolioSummary;
 }> {
   // Fetch all facilities in one query
+  // Reporting date is metadata only - does not affect calculations
+  void reportingDate;
   const dbFacilities = await fetchFacilitiesFromDB();
   
   if (dbFacilities.length === 0) {
@@ -177,13 +144,10 @@ export async function fetchGovernanceDataForPresentation(
     .from(governanceUploads)
     .where(inArray(governanceUploads.facilitySlug, facilitySlugs));
   
-  // Filter uploads by reporting date cutoff and group by facility
+
+  // Group uploads by facility (no reporting date filter - all persisted uploads included)
   const uploadsByFacility = new Map<string, UploadRow[]>();
   for (const upload of allUploads) {
-    // Only include uploads BEFORE the cutoff (entire reporting date is included)
-    if (!isDateTimeBeforeCutoff(upload.uploadedAt, reportingDate)) {
-      continue;
-    }
     const existing = uploadsByFacility.get(upload.facilitySlug) || [];
     existing.push(upload);
     uploadsByFacility.set(upload.facilitySlug, existing);
