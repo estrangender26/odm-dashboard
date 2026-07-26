@@ -2,19 +2,20 @@
 /**
  * Minimal Serial Storage Migrator
  * 
- * Single-worker, deterministic, idempotent migration without leases or ledger.
- * Rerun-safe: verifies/reuses existing objects, stops on mismatch.
+ * Safe legacy Base64 migration to Supabase Storage.
+ * Dry-run: Fast metadata-only inspection
+ * Execute: Serial processing with verification
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { createHash } from "crypto";
-import { writeFile, mkdir, readFile, unlink } from "fs/promises";
+import { mkdir, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { db } from "../api/queries/connection";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { governanceUploads, docFiles, governanceFiles, smpDocuments } from "../db/schema";
-import { decodePayloadStream, type StreamDecodeResult } from "./lib/payload-decoder";
+import { decodePayloadStream } from "./lib/payload-decoder";
 
 // ============================================================================
 // CONFIGURATION
@@ -37,26 +38,14 @@ const SOURCE_TABLES: Record<Source, any> = {
   smp_documents: smpDocuments,
 };
 
-const CHUNK_SIZE = 64 * 1024; // 64KB chunks for Base64 streaming
-
 // ============================================================================
 // TYPES
 // ============================================================================
 
-interface MigrationRecord {
+interface DryRunRecord {
   id: number;
   fileName: string | null;
-  fileUrl: string | null;
-  fileType: string | null;
-  storagePath: string | null;
-  legacyDataLength: number; // encoded length
-}
-
-interface DecodedPayload {
-  tempPath: string;
-  size: number;
-  sha256: string;
-  mimeType: string;
+  payloadLength: number;
 }
 
 /**
@@ -65,7 +54,7 @@ interface DecodedPayload {
  * - When unverified=true, matches is undefined
  * - When unverified=false, matches indicates hash match status
  */
-interface VerificationResult {
+export interface VerificationResult {
   exists: boolean;
   unverified: boolean;
   matches?: boolean;
@@ -87,55 +76,11 @@ function sanitizeError(error: unknown): string {
     .substring(0, 500);
 }
 
-
-/**
- * Fetch Base64 payload in bounded chunks
- */
-
-/**
- * Fetch complete Base64 payload via bounded chunk queries
- */
-async function fetchFullBase64(
-  source: Source,
-  id: number,
-  totalLength: number
-): Promise<string> {
-  const chunks: string[] = [];
-  const CHUNK_SIZE = 100000; // 100KB SQL chunks
-  
-  for (let offset = 0; offset < totalLength; offset += CHUNK_SIZE) {
-    const chunk = await fetchBase64Chunk(source, id, offset, CHUNK_SIZE);
-    chunks.push(chunk);
-  }
-  
-  return chunks.join("");
-}
-
-async function fetchBase64Chunk(
-  source: Source,
-  id: number,
-  offset: number,
-  length: number
-): Promise<string> {
-  const table = SOURCE_TABLES[source];
-  const column = source === "governance_uploads" ? "file_url" : "file_data";
-  
-  const result = await db
-    .select({
-      chunk: sql<string>`substr(${sql.raw(column)}, ${offset + 1}, ${length})`,
-    })
-    .from(table)
-    .where(eq(sql`id`, id))
-    .limit(1);
-  
-  return result[0]?.chunk || "";
-}
-
 // ============================================================================
 // PATH GENERATION (deterministic)
 // ============================================================================
 
-function generateStoragePath(source: Source, id: number, filename: string): string {
+export function generateStoragePath(source: Source, id: number, filename: string): string {
   const safeName = filename
     .replace(/[^a-zA-Z0-9._-]/g, "_")
     .replace(/_+/g, "_")
@@ -144,15 +89,165 @@ function generateStoragePath(source: Source, id: number, filename: string): stri
 }
 
 // ============================================================================
-// BASE64 DECODING (bounded chunks)
+// DRY-RUN: Fast metadata-only inspection
 // ============================================================================
 
-async function decodePayloadToFile(
-  payload: string,
-  outputPath: string,
-  options: { filename?: string; sourceMimeType?: string }
-): Promise<{ size: number; sha256: string; mimeType: string }> {
-  const result = await decodePayloadStream(payload, { ...options, tempPath: outputPath });
+async function runDryRun(options: {
+  sources: Source[];
+  ids: number[] | null;
+  limit: number | null;
+}): Promise<void> {
+  console.log("=== Minimal Storage Migrator ===");
+  console.log("Mode: DRY-RUN");
+  console.log(`Sources: ${options.sources.join(", ")}`);
+  console.log("");
+  
+  let totalWouldMigrate = 0;
+  let totalAlreadyMigrated = 0;
+  let totalBytes = 0;
+  
+  for (const source of options.sources) {
+    console.log(`--- Processing: ${source} ---`);
+    
+    const config = getSourceConfig(source);
+    const table = config.table;
+    const payloadColumn = config.payloadColumn;
+    const bucket = SOURCE_BUCKETS[source];
+    
+    // Query: unmigrated records with payload
+    const conditions: any[] = [
+      sql`${sql.raw(payloadColumn)} IS NOT NULL`,
+      sql`length(${sql.raw(payloadColumn)}) > 0`,
+    ];
+    
+    // Check already migrated vs not
+    const unmigratedQuery = db
+      .select({
+        id: sql<number>`id`,
+        fileName: sql<string | null>`file_name`,
+        payloadLength: sql<number>`length(${sql.raw(payloadColumn)})`,
+      })
+      .from(table)
+      .where(and(
+        ...conditions,
+        isNull(sql`storage_path`)
+      ));
+    
+    const migratedQuery = db
+      .select({ id: sql<number>`id` })
+      .from(table)
+      .where(and(
+        ...conditions,
+        sql`storage_path IS NOT NULL`
+      ));
+    
+    // Apply ID filter if specified
+    if (options.ids && options.ids.length > 0) {
+      const idList = sql.join(options.ids.map(id => sql`${id}`), sql`, `);
+      unmigratedQuery.where(sql`id IN (${idList})`);
+      migratedQuery.where(sql`id IN (${idList})`);
+    }
+    
+    // Apply smp_documents exclusion
+    if (isRecordExcluded(source, 31)) {
+      unmigratedQuery.where(sql`id != 31`);
+      migratedQuery.where(sql`id != 31`);
+    }
+    
+    // Execute queries
+    const [unmigrated, migrated] = await Promise.all([
+      unmigratedQuery.limit(options.limit || 10000),
+      migratedQuery
+    ]);
+    
+    // Report already migrated
+    for (const record of migrated) {
+      totalAlreadyMigrated++;
+      const targetPath = generateStoragePath(source, record.id, "unknown");
+      console.log(
+        `[${source}] ID=${record.id} | ` +
+        `File="unknown" | ` +
+        `Length=N/A | ` +
+        `Bucket=${bucket} | ` +
+        `Path=${targetPath} | ` +
+        `Status=ALREADY_MIGRATED`
+      );
+    }
+    
+    // Report candidates
+    for (const record of unmigrated) {
+      totalWouldMigrate++;
+      totalBytes += record.payloadLength;
+      const targetPath = generateStoragePath(source, record.id, record.fileName || "unnamed");
+      
+      console.log(
+        `[${source}] ID=${record.id} | ` +
+        `File="${record.fileName || "unnamed"}" | ` +
+        `Length=${record.payloadLength} bytes | ` +
+        `Bucket=${bucket} | ` +
+        `Path=${targetPath} | ` +
+        `Status=WOULD_MIGRATE`
+      );
+    }
+    
+    console.log("");
+  }
+  
+  console.log("=== Summary ===");
+  console.log(`Total candidates: ${totalWouldMigrate + totalAlreadyMigrated}`);
+  console.log(`Would migrate: ${totalWouldMigrate} (${formatBytes(totalBytes)})`);
+  console.log(`Already migrated: ${totalAlreadyMigrated}`);
+  console.log("DRY-RUN complete - no changes made");
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+// ============================================================================
+// EXECUTE MODE: Full migration with verification
+// ============================================================================
+
+async function getSourceFingerprint(
+  source: Source,
+  id: number
+): Promise<{ length: number; hash: string } | null> {
+  const config = getSourceConfig(source);
+  const table = config.table;
+  const column = config.payloadColumn;
+  
+  const result = await db
+    .select({
+      length: sql<number>`length(${sql.raw(column)})`,
+      hash: sql<string>`md5(${sql.raw(column)})`,
+    })
+    .from(table)
+    .where(eq(sql`id`, id))
+    .limit(1);
+  
+  return result[0] || null;
+}
+
+async function fetchFullBase64(source: Source, id: number): Promise<string> {
+  const config = getSourceConfig(source);
+  const column = config.payloadColumn;
+  const table = config.table;
+  
+  const result = await db
+    .select({ data: sql<string>`${sql.raw(column)}` })
+    .from(table)
+    .where(eq(sql`id`, id))
+    .limit(1);
+  
+  return result[0]?.data || "";
+}
+
+async function decodePayload(payload: string, tempPath: string, options: { filename?: string; sourceMimeType?: string }): Promise<{ size: number; sha256: string; mimeType: string }> {
+  const result = await decodePayloadStream(payload, { ...options, tempPath });
   
   if (!result.success) {
     throw new Error(result.error || "Decode failed");
@@ -165,65 +260,76 @@ async function decodePayloadToFile(
   };
 }
 
-// ============================================================================
-// STORAGE OPERATIONS
-// ============================================================================
 
-/**
- * Lightweight existence check - just list, no download
- * Returns error if Storage API fails (does not treat API error as "not found")
- */
-async function checkStorageObjectExists(
+// Lightweight existence check (no download/verify)
+export async function checkStorageObjectExists(
   supabase: SupabaseClient,
   bucket: string,
   path: string
 ): Promise<{ exists: boolean; error?: string }> {
-  const { data: listData, error: listError } = await supabase.storage.from(bucket).list(path.split("/").slice(0, -1).join("/"));
-  
-  if (listError) {
-    return { exists: false, error: `Storage list failed: ${listError.message}` };
+  try {
+    const { data: listData, error: listError } = await supabase.storage.from(bucket).list(path.split("/").slice(0, -1).join("/"));
+    
+    if (listError) {
+      return { exists: false, error: `Storage list failed: ${listError.message}` };
+    }
+    
+    const fileName = path.split("/").pop();
+    const existing = listData?.find((f: any) => f.name === fileName);
+    
+    return { exists: !!existing };
+  } catch (error) {
+    return { exists: false, error: sanitizeError(error) };
   }
-  
-  const fileName = path.split("/").pop();
-  const existing = listData?.find((f: any) => f.name === fileName);
-  return { exists: !!existing };
 }
 
-async function checkStorageObject(
+export async function checkStorageObject(
   supabase: SupabaseClient,
   bucket: string,
   path: string,
   expectedSize: number,
   expectedSha256: string
 ): Promise<VerificationResult> {
-  const { data: listData, error: listError } = await supabase.storage.from(bucket).list(path.split("/").slice(0, -1).join("/"));
-  
-  if (listError) {
-    return { exists: false, unverified: false, error: `Storage list failed: ${listError.message}` };
+  try {
+    // First check if object exists via list (cheaper than download)
+    const { data: listData, error: listError } = await supabase.storage.from(bucket).list(path.split("/").slice(0, -1).join("/"));
+    
+    if (listError) {
+      return { exists: false, unverified: false, matches: false, error: `Storage list failed: ${listError.message}` };
+    }
+    
+    const fileName = path.split("/").pop();
+    const existing = listData?.find((f: any) => f.name === fileName);
+    
+    if (!existing) {
+      return { exists: false, unverified: false, matches: false };
+    }
+    
+    // Object exists, now download and verify
+    const { data: fileData, error: downloadError } = await supabase.storage.from(bucket).download(path);
+    
+    if (downloadError) {
+      return { exists: true, unverified: false, matches: false, error: downloadError.message };
+    }
+    
+    if (!fileData) {
+      return { exists: true, unverified: false, matches: false };
+    }
+    
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+    const actualSha256 = createHash("sha256").update(buffer).digest("hex");
+    const matches = buffer.length === expectedSize && actualSha256 === expectedSha256;
+    
+    return {
+      exists: true,
+      unverified: false,
+      matches,
+      size: buffer.length,
+      sha256: actualSha256,
+    };
+  } catch (error) {
+    return { exists: false, unverified: false, matches: false, error: sanitizeError(error) };
   }
-  
-  const fileName = path.split("/").pop();
-  const existing = listData?.find((f: any) => f.name === fileName);
-  
-  if (!existing) {
-    return { exists: false, unverified: false };
-  }
-  
-  const { data: fileData } = await supabase.storage.from(bucket).download(path);
-  if (!fileData) {
-    return { exists: true, unverified: false, matches: false };
-  }
-  
-  const buffer = Buffer.from(await fileData.arrayBuffer());
-  const actualSha256 = createHash("sha256").update(buffer).digest("hex");
-  
-  return {
-    exists: true,
-    unverified: false,
-    matches: buffer.length === expectedSize && actualSha256 === expectedSha256,
-    size: buffer.length,
-    sha256: actualSha256,
-  };
 }
 
 async function uploadToStorage(
@@ -244,104 +350,16 @@ async function uploadToStorage(
   }
 }
 
-// ============================================================================
-// APPLICATION VERIFICATION
-// ============================================================================
-
-async function verifyApplicationRoute(
-  baseUrl: string,
-  source: Source,
-  id: number
-): Promise<boolean> {
-  try {
-    // Use redirect: manual to capture the 302 redirect URL
-    const response = await fetch(`${baseUrl}/api/storage/files/${source}/${id}/view`, {
-      method: "GET",
-      redirect: "manual",
-      signal: AbortSignal.timeout(30000),
-    });
-    
-    // Require HTTP 302 with nonempty Location header
-    if (response.status !== 302) {
-      return false;
-    }
-    
-    const location = response.headers.get("Location");
-    return location != null && location.length > 0;
-  } catch (error) {
-    // Sanitize any network errors
-    return false;
-  }
-}
-
-// ============================================================================
-// DATABASE OPERATIONS
-// ============================================================================
-
-async function getSourceFingerprint(
-  source: Source,
-  id: number
-): Promise<{ length: number; hash: string } | null> {
-  const table = SOURCE_TABLES[source];
-  const column = source === "governance_uploads" ? "file_url" : "file_data";
-  
-  const result = await db
-    .select({
-      length: sql<number>`length(${sql.raw(column)})`,
-      hash: sql<string>`md5(${sql.raw(column)})`,
-    })
-    .from(table)
-    .where(eq(sql`id`, id))
-    .limit(1);
-  
-  return result[0] || null;
-}
-
-async function getRecord(source: Source, id: number): Promise<MigrationRecord | null> {
-  const config = getSourceConfig(source);
-  const table = config.table;
-  const column = config.payloadColumn;
-  
-  // Use mimeColumn from config (null for governance_uploads)
-  const fileTypeColumn = config.mimeColumn || "NULL";
-  
-  const result = await db
-    .select({
-      id: sql<number>`id`,
-      fileName: sql<string | null>`file_name`,
-      // NEVER select full file_url/file_data - only length is queried
-      fileType: sql<string | null>`${sql.raw(fileTypeColumn)}`,
-      storagePath: sql<string | null>`storage_path`,
-      legacyDataLength: sql<number>`COALESCE(length(${sql.raw(column)}), 0)`,
-    })
-    .from(table)
-    .where(eq(sql`id`, id))
-    .limit(1);
-  
-  if (!result[0]) return null;
-  
-  return {
-    id: result[0].id,
-    fileName: result[0].fileName,
-    fileUrl: null, // Never expose full Base64
-    fileType: result[0].fileType,
-    storagePath: result[0].storagePath,
-    legacyDataLength: result[0].legacyDataLength,
-  };
-}
-
 async function commitMetadata(
   source: Source,
   id: number,
   bucket: string,
   path: string,
   size: number,
-  mimeType: string,
-  fingerprint: { length: number; hash: string }
+  mimeType: string
 ): Promise<boolean> {
   const config = getSourceConfig(source);
   const table = config.table;
-  const column = config.payloadColumn;
   
   const result = await db
     .update(table)
@@ -355,158 +373,186 @@ async function commitMetadata(
     })
     .where(and(
       eq(sql`id`, id),
-      isNull(sql`storage_path`),
-      eq(sql`length(${sql.raw(column)})`, fingerprint.length),
-      eq(sql`md5(${sql.raw(column)})`, fingerprint.hash)
+      isNull(sql`storage_path`)
     ))
     .returning({ id: sql`id` });
   
   return result.length === 1;
 }
 
-// ============================================================================
-// MAIN MIGRATION WORKFLOW
-// ============================================================================
-
-interface ProcessOptions {
-  execute: boolean;
-  baseUrl: string;
-  verbose?: boolean;
-}
-
-async function processRecord(
-  source: Source,
-  id: number,
-  supabase: SupabaseClient,
-  options: ProcessOptions
-): Promise<{ success: boolean; skipped?: boolean; error?: string; reused?: boolean; unverified?: boolean }> {
-  const { execute, baseUrl, verbose = false } = options;
-  const bucket = SOURCE_BUCKETS[source];
+async function runExecute(options: {
+  sources: Source[];
+  ids: number[] | null;
+  limit: number | null;
+  supabaseUrl: string;
+  supabaseKey: string;
+}): Promise<void> {
+  console.log("=== Minimal Storage Migrator ===");
+  console.log("Mode: EXECUTE");
+  console.log(`Sources: ${options.sources.join(", ")}`);
+  console.log("");
   
-  const log = (msg: string) => {
-    if (verbose) console.log(msg);
-  };
+  const supabase = createClient(options.supabaseUrl, options.supabaseKey);
   
-  // Step 1: Get record
-  const record = await getRecord(source, id);
-  if (!record) {
-    return { success: false, error: "Record not found" };
-  }
+  let totalProcessed = 0;
+  let totalSuccess = 0;
+  let totalFailed = 0;
+  let totalSkipped = 0;
+  let totalBytes = 0;
   
-  // Check for data by length (fileUrl is never loaded fully)
-  if (record.legacyDataLength === 0) {
-    return { success: false, error: "No file_url data" };
-  }
+  const startTime = Date.now();
   
-  // Step 2: Already migrated?
-  if (record.storagePath) {
-    return { success: true, skipped: true, reused: true };
-  }
-  
-  // Step 3: Get fingerprint before decoding
-  const fingerprint = await getSourceFingerprint(source, id);
-  if (!fingerprint) {
-    return { success: false, error: "Cannot fingerprint source" };
-  }
-  
-  // Verify fingerprint matches record expectation
-  if (fingerprint.length !== record.legacyDataLength) {
-    return { success: false, error: "Source changed during migration" };
-  }
-  
-  // Step 4: Decode to temp file
-  const tempDir = join(tmpdir(), `odm-migrate-${Date.now()}`);
-  const tempPath = join(tempDir, "payload");
-  
-  try {
-    await mkdir(tempDir, { recursive: true, mode: 0o700 });
+  for (const source of options.sources) {
+    console.log(`\n--- Processing: ${source} ---`);
     
-    log(`  [${id}] Decoding...`);
-    // Fetch full Base64 in bounded chunks via SQL
-    const fileUrl = await fetchFullBase64(source, id, record.legacyDataLength);
-    const decoded = await decodePayloadToFile(fileUrl, tempPath, { filename: record.fileName || undefined, sourceMimeType: record.fileType || undefined });
+    // Get candidates (same query as dry-run)
+    const config = getSourceConfig(source);
+    const table = config.table;
+    const payloadColumn = config.payloadColumn;
+    const bucket = SOURCE_BUCKETS[source];
     
-    const path = generateStoragePath(source, id, record.fileName || "unnamed");
+    const conditions: any[] = [
+      sql`${sql.raw(payloadColumn)} IS NOT NULL`,
+      sql`length(${sql.raw(payloadColumn)}) > 0`,
+      isNull(sql`storage_path`),
+    ];
     
-    // Step 5: Check if object exists
-    // In dry-run, use lightweight existence check (no download)
-    // In execute mode, verify SHA-256
-    log(`  [${id}] Checking Storage...`);
-    let storageCheck: VerificationResult;
-    if (execute) {
-      storageCheck = await checkStorageObject(supabase, bucket, path, decoded.size, decoded.sha256);
-      if (storageCheck.error) {
-        return { success: false, error: `Storage check failed: ${storageCheck.error}` };
-      }
-    } else {
-      const existsCheck = await checkStorageObjectExists(supabase, bucket, path);
-      if (existsCheck.error) {
-        return { success: false, error: existsCheck.error };
-      }
-      // In dry-run, mark as unverified - no hash comparison performed
-      storageCheck = { exists: existsCheck.exists, unverified: true };
+    if (isRecordExcluded(source, 31)) {
+      conditions.push(sql`id != 31`);
     }
     
-    // Step 6: Handle existing object
-    if (storageCheck.exists) {
-      if (execute) {
-        // In execute mode, require hash verification
-        if (!storageCheck.matches) {
-          return { success: false, error: `Object exists but mismatch: expected ${decoded.size}/${decoded.sha256}, got ${storageCheck.size}/${storageCheck.sha256}` };
+    let query = db
+      .select({
+        id: sql<number>`id`,
+        fileName: sql<string | null>`file_name`,
+        payloadLength: sql<number>`length(${sql.raw(payloadColumn)})`,
+      })
+      .from(table)
+      .where(and(...conditions));
+    
+    if (options.ids && options.ids.length > 0) {
+      query = query.where(sql`id IN (${sql.join(options.ids.map(id => sql`${id}`), sql`, `)})`);
+    }
+    
+    const candidates = await query.limit(options.limit || 10000);
+    
+    console.log(`Found ${candidates.length} candidate records\n`);
+    
+    for (const candidate of candidates) {
+      totalProcessed++;
+      console.log(`[${source}] ID=${candidate.id} - Starting processing`);
+      
+      try {
+        const targetPath = generateStoragePath(source, candidate.id, candidate.fileName || "unnamed");
+        
+        // Get fingerprint (execute mode only)
+        console.log(`  -> Getting fingerprint`);
+        const fingerprint = await getSourceFingerprint(source, candidate.id);
+        if (!fingerprint) {
+          console.log(`  -> ERROR: Cannot get fingerprint`);
+          totalFailed++;
+          continue;
         }
-        log(`  [${id}] Object exists and matches, reusing`);
-        return { success: true, skipped: true, reused: true };
-      } else {
-        // In dry-run, mark as unverified (no error)
-        log(`  [${id}] Object exists; verification deferred to execute mode`);
-        return { success: true, skipped: true, unverified: true } as any;
+        
+        if (fingerprint.length !== candidate.payloadLength) {
+          console.log(`  -> ERROR: Source changed during migration`);
+          totalFailed++;
+          continue;
+        }
+        
+        // Fetch and decode
+        console.log(`  -> Fetching payload (${candidate.payloadLength} bytes)`);
+        const payload = await fetchFullBase64(source, candidate.id);
+        
+        const tempDir = join(tmpdir(), `odm-migrate-${Date.now()}-${candidate.id}`);
+        const tempPath = join(tempDir, "payload");
+        await mkdir(tempDir, { recursive: true, mode: 0o700 });
+        
+        let decoded: { size: number; sha256: string; mimeType: string };
+        try {
+          console.log(`  -> Decoding payload`);
+          decoded = await decodePayload(payload, tempPath, {
+            filename: candidate.fileName || undefined,
+          });
+          console.log(`  -> Decoded: ${decoded.size} bytes`);
+        } finally {
+          try { await rm(tempPath); } catch {}
+        }
+        
+        // Check existing object
+        console.log(`  -> Checking Storage`);
+        const existingCheck = await checkStorageObject(supabase, bucket, targetPath, decoded.size, decoded.sha256);
+        
+        if (existingCheck.exists) {
+          if (existingCheck.matches) {
+            console.log(`  -> Object exists and matches, reusing`);
+            const committed = await commitMetadata(source, candidate.id, bucket, targetPath, decoded.size, decoded.mimeType);
+            if (committed) {
+              console.log(`  -> Metadata committed`);
+              totalSuccess++;
+              totalSkipped++;
+            } else {
+              console.log(`  -> Metadata commit failed`);
+              totalFailed++;
+            }
+          } else {
+            console.log(`  -> ERROR: Object exists but SHA mismatch - not overwriting`);
+            totalFailed++;
+          }
+          try { await rm(tempDir, { recursive: true, force: true }); } catch {}
+          continue;
+        }
+        
+        // Upload
+        console.log(`  -> Uploading to ${bucket}/${targetPath}`);
+        await uploadToStorage(supabase, bucket, targetPath, tempPath, decoded.mimeType);
+        
+        // Verify upload
+        console.log(`  -> Verifying upload`);
+        const verifyCheck = await checkStorageObject(supabase, bucket, targetPath, decoded.size, decoded.sha256);
+        
+        if (!verifyCheck.exists || !verifyCheck.matches) {
+          console.log(`  -> ERROR: Upload verification failed`);
+          totalFailed++;
+          try { await rm(tempDir, { recursive: true, force: true }); } catch {}
+          continue;
+        }
+        
+        // Commit metadata
+        console.log(`  -> Committing metadata`);
+        const committed = await commitMetadata(source, candidate.id, bucket, targetPath, decoded.size, decoded.mimeType);
+        
+        if (!committed) {
+          console.log(`  -> ERROR: Metadata commit failed`);
+          totalFailed++;
+          try { await rm(tempDir, { recursive: true, force: true }); } catch {}
+          continue;
+        }
+        
+        console.log(`  -> SUCCESS: Migrated`);
+        totalSuccess++;
+        totalBytes += decoded.size;
+        
+        try { await rm(tempDir, { recursive: true, force: true }); } catch {}
+        
+      } catch (error) {
+        console.log(`  -> ERROR: ${sanitizeError(error)}`);
+        totalFailed++;
       }
     }
-    
-    // Step 7: Dry-run check for missing objects
-    if (!execute) {
-      log(`  [${id}] Dry-run: would upload ${decoded.size} bytes to ${path}`);
-      return { success: true, skipped: true };
-    }
-    
-    // Step 7: Upload if needed
-    if (!storageCheck.exists) {
-      log(`  [${id}] Uploading...`);
-      await uploadToStorage(supabase, bucket, path, tempPath, decoded.mimeType);
-    }
-    
-    // Step 8: Verify uploaded object
-    log(`  [${id}] Verifying object...`);
-    const verifyCheck = await checkStorageObject(supabase, bucket, path, decoded.size, decoded.sha256);
-    if (!verifyCheck.exists || !verifyCheck.matches) {
-      return { success: false, error: "Upload verification failed" };
-    }
-    
-    // Step 9: Transactional metadata commit
-    log(`  [${id}] Committing metadata...`);
-    const committed = await commitMetadata(source, id, bucket, path, decoded.size, decoded.mimeType, fingerprint);
-    
-    if (!committed) {
-      return { success: false, error: "Metadata commit failed (concurrent change detected)" };
-    }
-    
-    // Step 10: Application verification
-    log(`  [${id}] Verifying application route...`);
-    const appOk = await verifyApplicationRoute(baseUrl, source, id);
-    if (!appOk) {
-      return { success: false, error: "Application verification failed" };
-    }
-    
-    log(`  [${id}] Migrated successfully`);
-    return { success: true, reused: false };
-    
-  } catch (error) {
-    return { success: false, error: sanitizeError(error) };
-  } finally {
-    // Cleanup
-    try { await unlink(tempPath); } catch {}
-    try { await unlink(tempDir); } catch {}
   }
+  
+  const elapsed = (Date.now() - startTime) / 1000;
+  
+  console.log("\n=== Summary ===");
+  console.log(`Processed: ${totalProcessed}`);
+  console.log(`Success: ${totalSuccess}`);
+  console.log(`Failed: ${totalFailed}`);
+  console.log(`Skipped: ${totalSkipped}`);
+  console.log(`Total bytes migrated: ${formatBytes(totalBytes)}`);
+  console.log(`Elapsed time: ${elapsed.toFixed(1)}s`);
+  
+  process.exit(totalFailed > 0 ? 1 : 0);
 }
 
 // ============================================================================
@@ -520,21 +566,16 @@ Minimal Storage Migrator
 Usage: npx tsx scripts/minimal-storage-migrator.ts [options]
 
 Options:
-  --sources <list>          Comma-separated sources (default: all)
-  --ids <list>              Comma-separated record IDs to process
-  --limit <n>               Max records per source (default: unlimited)
-  --batch-size <n>          Records per transaction (default: 1)
-  --execute                 Enable writes (default: dry-run)
-  --confirm-production      Required flag for execute mode
-  --verbose                 Show detailed per-record logs
+  --sources <list>          Comma-separated sources
+  --ids <list>              Comma-separated record IDs
+  --limit <n>               Maximum records to process
+  --execute                 Enable writes
+  --confirm-production      Required for execute mode
   --help                    Show this help
 
 Examples:
-  # Dry run
-  npx tsx scripts/minimal-storage-migrator.ts --sources governance_uploads --ids 7 --limit 1
-
-  # Execute (requires both flags)
-  npx tsx scripts/minimal-storage-migrator.ts --sources governance_uploads --ids 7 --execute --confirm-production
+  npx tsx scripts/minimal-storage-migrator.ts --sources doc_files --limit 10
+  npx tsx scripts/minimal-storage-migrator.ts --sources doc_files --ids 1,2,3 --execute --confirm-production
 `);
 }
 
@@ -542,10 +583,8 @@ function parseArgs(): {
   sources: Source[];
   ids: number[] | null;
   limit: number | null;
-  batchSize: number;
   execute: boolean;
   confirmProduction: boolean;
-  verbose: boolean;
 } {
   const args = process.argv.slice(2);
   
@@ -570,19 +609,12 @@ function parseArgs(): {
   const limitArg = getValue("--limit");
   const limit = limitArg ? parseInt(limitArg, 10) : null;
   
-  const batchSizeArg = getValue("--batch-size");
-  const batchSize = batchSizeArg ? parseInt(batchSizeArg, 10) : 1;
-  
-  const verbose = args.includes("--verbose");
-
   return {
     sources,
     ids,
     limit,
-    batchSize,
     execute: args.includes("--execute"),
     confirmProduction: args.includes("--confirm-production"),
-    verbose,
   };
 }
 
@@ -593,131 +625,37 @@ function parseArgs(): {
 async function main() {
   const options = parseArgs();
   
-  console.log("=== Minimal Storage Migrator ===");
-  console.log(`Mode: ${options.execute ? "EXECUTE" : "DRY-RUN"}`);
-  console.log(`Sources: ${options.sources.join(", ")}`);
-  
-  if (shouldRejectExecution(options.execute, options.confirmProduction)) {
+  if (options.execute && !options.confirmProduction) {
     console.error("ERROR: --confirm-production required for execute mode");
     process.exit(1);
   }
   
-  // Initialize Supabase
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  
-  if (!supabaseUrl || !supabaseKey) {
-    console.error("ERROR: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required");
-    process.exit(1);
-  }
-  
-  const supabase = createClient(supabaseUrl, supabaseKey);
-  const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
-  
-  // Process records
-  let totalProcessed = 0;
-  let totalSuccess = 0;
-  let totalFailed = 0;
-  let totalSkipped = 0;
-  let totalUnverified = 0;
-  const startTime = Date.now();
-  const PROGRESS_INTERVAL = 10;
-  
-  function showProgress() {
-    const elapsed = (Date.now() - startTime) / 1000;
-    const rate = totalProcessed > 0 ? elapsed / totalProcessed : 0;
-    console.log(
-      `Progress: ${totalProcessed} processed, ${totalSuccess} success, ${totalSkipped} skipped, ${totalFailed} failed | ` +
-      `Elapsed: ${elapsed.toFixed(1)}s (~${rate.toFixed(2)}s/record)`
-    );
-  }
-  
-  for (const source of options.sources) {
-    console.log(`\n--- Processing: ${source} ---`);
+  if (options.execute) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     
-    // Get IDs to process
-    const idsToProcess: number[] = [];
-    
-    if (options.ids) {
-      idsToProcess.push(...options.ids);
-    } else {
-      // Query all unmigrated records (excluding SMP ID 31 for smp_documents source)
-      const table = SOURCE_TABLES[source];
-      const column = source === "governance_uploads" ? "file_url" : "file_data";
-      
-      const records = await db
-        .select({ id: sql<number>`id` })
-        .from(table)
-        .where(and(
-          sql`${sql.raw(column)} IS NOT NULL`,
-          isNull(sql`storage_path`),
-          isRecordExcluded(source, 31) ? sql`id != 31` : sql`1=1`
-        ))
-        .limit(options.limit || 10000);
-      
-      idsToProcess.push(...records.map(r => r.id));
+    if (!supabaseUrl || !supabaseKey) {
+      console.error("ERROR: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required");
+      process.exit(1);
     }
     
-    console.log(`Found ${idsToProcess.length} records`);
-    
-    // Process each record serially
-    for (const id of idsToProcess) {
-      const result = await processRecord(source, id, supabase, {
-        execute: options.execute,
-        baseUrl,
-        verbose: options.verbose,
-      });
-      
-      totalProcessed++;
-      
-      // Show progress every N records
-      if (totalProcessed % PROGRESS_INTERVAL === 0) {
-        showProgress();
-      }
-      
-      if (result.success) {
-        if (result.skipped) {
-          if (result.unverified) {
-            totalUnverified++;
-            if (options.verbose) {
-              console.log(`  [${id}] Object exists (unverified)`);
-            }
-          } else if (result.reused) {
-            if (options.verbose) {
-              console.log(`  [${id}] Already migrated`);
-            }
-          } else {
-            if (options.verbose) {
-              console.log(`  [${id}] Dry-run`);
-            }
-          }
-          totalSkipped++;
-        } else {
-          totalSuccess++;
-        }
-      } else {
-        if (options.verbose) {
-          console.log(`  [${id}] Error: ${result.error}`);
-        }
-        totalFailed++;
-      }
-    }
+    await runExecute({
+      sources: options.sources,
+      ids: options.ids,
+      limit: options.limit,
+      supabaseUrl,
+      supabaseKey,
+    });
+  } else {
+    await runDryRun({
+      sources: options.sources,
+      ids: options.ids,
+      limit: options.limit,
+    });
+    process.exit(0);
   }
-  
-  console.log("\n=== Summary ===");
-  console.log(`Processed: ${totalProcessed}, Success: ${totalSuccess}, Failed: ${totalFailed}, Skipped: ${totalSkipped}`);
-  if (!options.execute && totalUnverified > 0) {
-    console.log(`Unverified (exists in storage, hash check deferred): ${totalUnverified}`);
-  }
-  
-  if (!options.execute) {
-    console.log("DRY-RUN complete - no changes made");
-  }
-  
-  process.exit(totalFailed > 0 ? 1 : 0);
 }
 
-// ESM-safe entry point
 const currentFile = new URL(import.meta.url).pathname;
 const executedFile = process.argv[1] ? new URL(`file://${process.argv[1]}`).pathname : "";
 
@@ -729,55 +667,32 @@ if (currentFile === executedFile || executedFile.endsWith("minimal-storage-migra
 }
 
 // ============================================================================
-// EXPORTED HELPERS FOR TESTING
+// EXPORTS
 // ============================================================================
 
 export type { Source };
 export { SOURCES, SOURCE_BUCKETS, SOURCE_TABLES };
 
-/**
- * Check if execution is allowed based on flags
- */
 export function canExecute(execute: boolean, confirmProduction: boolean): boolean {
   return execute && confirmProduction;
 }
 
-/**
- * Check if execution should be rejected based on flags
- * Returns true only when --execute is present but --confirm-production is not
- * This allows dry-run (no flags or --confirm-production only) but blocks partial execution flags
- */
 export function shouldRejectExecution(execute: boolean, confirmProduction: boolean): boolean {
   return execute && !canExecute(execute, confirmProduction);
 }
 
-/**
- * Check if a record should be excluded based on source and ID
- * Only smp_documents.id = 31 is excluded
- */
 export function isRecordExcluded(source: Source, id: number): boolean {
   return source === "smp_documents" && id === 31;
 }
 
-/**
- * Get source configuration (bucket, payload field, etc.)
- */
 export function getSourceConfig(source: Source) {
-  const bucket = SOURCE_BUCKETS[source];
-  const payloadColumn = source === "governance_uploads" ? "file_url" : "file_data";
-  const filenameColumn = "file_name";
-  const mimeColumn = source === "governance_uploads" ? null : "file_type";
-  const table = SOURCE_TABLES[source];
-  
   return {
-    bucket,
-    payloadColumn,
-    filenameColumn,
-    mimeColumn,
-    table,
+    bucket: SOURCE_BUCKETS[source],
+    payloadColumn: source === "governance_uploads" ? "file_url" : "file_data",
+    filenameColumn: "file_name",
+    mimeColumn: source === "governance_uploads" ? null : "file_type",
+    table: SOURCE_TABLES[source],
   };
 }
 
-export type { VerificationResult };
-export { checkStorageObject, checkStorageObjectExists, uploadToStorage };
-export { processRecord, generateStoragePath };
+export { runDryRun };
