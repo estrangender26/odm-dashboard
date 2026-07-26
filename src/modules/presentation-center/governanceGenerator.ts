@@ -17,6 +17,9 @@ import {
   type SCurvePoint,
   type FacilityGovernanceData,
 } from "./governanceTypes";
+import {
+  getSCurveValueAtReportingDate,
+} from "./governanceTemplateGenerator";
 
 type PresentationSlide = Parameters<typeof createPresentation>[0][number];
 type PresentationElement = PresentationSlide["elements"][number];
@@ -193,7 +196,7 @@ function formatPercent(value: number | null, decimals: number = 0): string {
 
 
 // Calculate consolidated S-curve from all facilities
-function calculateConsolidatedSCurve(facilities: FacilityPresentationSummary[]): SCurvePoint[] {
+function calculateConsolidatedSCurveLocal(facilities: FacilityPresentationSummary[]): SCurvePoint[] {
   if (facilities.length === 0) return [];
   
   const allDates = new Set<string>();
@@ -378,12 +381,10 @@ function buildSlide2ConsolidatedSCurve(report: GovernancePresentationReport): Pr
   
   elements.push(...buildHeader("Governance Overview"));
   
-  const consolidatedSCurve = calculateConsolidatedSCurve(report.facilities);
-  const lastPoint = consolidatedSCurve.length > 0 
-    ? consolidatedSCurve[consolidatedSCurve.length - 1] 
-    : { planned: null, actual: null };
-  const currentPlanned = lastPoint.planned ?? 0;
-  const currentActual = lastPoint.actual ?? 0;
+  const reportingDateObj = new Date(report.reportingDate);
+  const consolidatedSCurve = calculateConsolidatedSCurveLocal(report.facilities);
+  const currentPlanned = getSCurveValueAtReportingDate(consolidatedSCurve, reportingDateObj, "planned") ?? 0;
+  const currentActual = getSCurveValueAtReportingDate(consolidatedSCurve, reportingDateObj, "actual") ?? 0;
   const variance = currentActual - currentPlanned;
   const portfolioRag = report.facilities.length > 0
     ? report.facilities.every(f => f.status === "green") ? "green"
@@ -526,7 +527,7 @@ function buildSlide2ConsolidatedSCurve(report: GovernancePresentationReport): Pr
   return slides;
 }
 
-function buildSlide3FacilitySCurves(report: GovernancePresentationReport): PresentationSlide[] {
+function buildSlide3FacilitySCurves(report: GovernancePresentationReport, reportingDate: Date): PresentationSlide[] {
   const slides: PresentationSlide[] = [];
   const elements: PresentationElement[] = [];
   
@@ -599,11 +600,8 @@ function buildSlide3FacilitySCurves(report: GovernancePresentationReport): Prese
     } as unknown as PresentationElement);
     
     const statsY = y + 2.35;
-    const lastPoint = f.sCurve.length > 0 
-      ? f.sCurve[f.sCurve.length - 1] 
-      : { planned: null, actual: null };
-    const plannedVal = lastPoint.planned ?? 0;
-    const actualVal = lastPoint.actual ?? 0;
+    const plannedVal = getSCurveValueAtReportingDate(f.sCurve, reportingDate, "planned") ?? 0;
+    const actualVal = getSCurveValueAtReportingDate(f.sCurve, reportingDate, "actual") ?? 0;
     const varVal = actualVal - plannedVal;
     
     elements.push({
@@ -832,7 +830,7 @@ export async function generateGovernancePresentation(
       const slides = [
     ...buildSlide1ExecutiveOverview(emptyReport),
     ...buildSlide2ConsolidatedSCurve(emptyReport),
-    ...buildSlide3FacilitySCurves(emptyReport),
+    ...buildSlide3FacilitySCurves(emptyReport, new Date(emptyReport.reportingDate)),
     ...buildSlide4DeliverablesSummary(emptyReport),
   ];
       
@@ -867,7 +865,7 @@ export async function generateGovernancePresentation(
     const slides = [
     ...buildSlide1ExecutiveOverview(report),
     ...buildSlide2ConsolidatedSCurve(report),
-    ...buildSlide3FacilitySCurves(report),
+    ...buildSlide3FacilitySCurves(report, new Date(report.reportingDate)),
     ...buildSlide4DeliverablesSummary(report),
   ];
     
@@ -930,7 +928,7 @@ export async function generateGovernanceTestPresentation(): Promise<Blob> {
   const slides = [
     ...buildSlide1ExecutiveOverview(report),
     ...buildSlide2ConsolidatedSCurve(report),
-    ...buildSlide3FacilitySCurves(report),
+    ...buildSlide3FacilitySCurves(report, new Date(report.reportingDate)),
     ...buildSlide4DeliverablesSummary(report),
   ];
   
