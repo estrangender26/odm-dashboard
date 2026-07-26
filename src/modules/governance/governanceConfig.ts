@@ -265,6 +265,51 @@ export function isMilestoneCompleteAsOf(
  * @param compDate - The persisted completion date from the database
  * @returns boolean indicating whether the milestone is complete
  */
+
+/**
+ * Calculate effective progress for a single milestone.
+ * 
+ * This implements the canonical Dashboard rule:
+ * - customPct takes precedence if set (even without compDate)
+ * - if no customPct but compDate exists, progress is 100%
+ * - if neither, progress is 0%
+ * 
+ * Formula: customPct ?? (compDate ? 100 : 0)
+ * 
+ * @param customPct - Custom progress percentage (0-100) or null/undefined
+ * @param compDate - Completion date string or null/undefined
+ * @returns Effective progress percentage (0-100)
+ */
+export function calculateMilestoneEffectiveProgress(
+  customPct: number | null | undefined,
+  compDate: string | null | undefined,
+): number {
+  return customPct ?? (compDate ? 100 : 0);
+}
+
+/**
+ * Calculate aggregate facility progress from milestone effective progress values.
+ * 
+ * Uses equal weighting (current fallback). Each milestone contributes
+ * its effectiveProgress / totalMilestones to the aggregate.
+ * 
+ * @param milestoneProgress - Map of milestone ID to effective progress (0-100)
+ * @returns Aggregate progress percentage (0-100)
+ */
+export function calculateAggregateProgress(
+  milestoneProgress: Record<string, number>,
+): number {
+  const total = GOVERNANCE_MILESTONES.length;
+  if (total === 0) return 0;
+  
+  const sum = GOVERNANCE_MILESTONES.reduce(
+    (acc, m) => acc + (milestoneProgress[m.id] ?? 0),
+    0,
+  );
+  
+  return Math.round(sum / total);
+}
+
 export function isPersistedMilestoneComplete(
   compDate: string | null | undefined,
 ): boolean {

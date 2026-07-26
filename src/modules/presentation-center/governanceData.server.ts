@@ -18,6 +18,7 @@ import { governanceFacilities, governanceMilestoneState, governanceUploads } fro
 import { inArray } from "drizzle-orm";
 import {
   isPersistedMilestoneComplete,
+  calculateMilestoneEffectiveProgress,
 
   GOVERNANCE_MILESTONES,
   getFacilityColor,
@@ -205,10 +206,9 @@ export async function fetchGovernanceDataForPresentation(
       const completionDate = state?.compDate || null;
       const isCompleted = isPersistedMilestoneComplete(completionDate);
       
-      // Custom progress is valid if set and milestone is complete
-      const actualProgress = state?.customPct != null && isCompleted
-        ? state.customPct 
-        : (isCompleted ? 100 : null);
+      // Effective progress uses Dashboard rule: customPct ?? (compDate ? 100 : 0)
+      const effectiveProgress = calculateMilestoneEffectiveProgress(state?.customPct, state?.compDate);
+      const actualProgress = effectiveProgress;
       
       return {
         milestoneId: m.id,
@@ -229,10 +229,10 @@ export async function fetchGovernanceDataForPresentation(
     
     // Calculate facility progress from persisted milestone state (no reporting date cutoff)
     const totalWeight = milestones.reduce((sum, m) => sum + m.weight, 0);
-    const completedWeight = milestones.filter(m => m.actualProgress === 100).reduce((sum, m) => sum + m.weight, 0);
-    const actual = totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : 0;
+    const weightedProgressSum = milestones.reduce((sum, m) => sum + (m.actualProgress ?? 0) * m.weight, 0);
+    const actual = totalWeight > 0 ? Math.round(weightedProgressSum / totalWeight) : 0;
     const hasBaseline = milestones.some(m => m.plannedDate);
-    const planned = hasBaseline ? Math.round((milestones.filter(m => m.plannedDate && new Date(m.plannedDate) <= reportingDate).reduce((sum, m) => sum + m.weight, 0) / totalWeight) * 100) : null;
+    const planned = hasBaseline ? Math.round((milestones.filter(m => m.plannedDate).reduce((sum, m) => sum + m.weight, 0) / totalWeight) * 100) : null;
     const variance = planned !== null ? actual - planned : null;
     const progress = { actual, planned, variance, hasBaseline };
     
