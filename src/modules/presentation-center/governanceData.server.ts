@@ -19,6 +19,8 @@ import { inArray } from "drizzle-orm";
 import {
   isPersistedMilestoneComplete,
   calculateMilestoneEffectiveProgress,
+  calculateAggregateProgress,
+  calculateFacilityCurrentProgress,
 
   GOVERNANCE_MILESTONES,
   getFacilityColor,
@@ -191,12 +193,23 @@ export async function fetchGovernanceDataForPresentation(
       byCategory[u.category] = (byCategory[u.category] || 0) + 1;
     });
     
-    // Calculate facility progress from persisted milestone state (no reporting date cutoff)
-    const totalWeight = milestones.reduce((sum, m) => sum + m.weight, 0);
-    const weightedProgressSum = milestones.reduce((sum, m) => sum + (m.actualProgress ?? 0) * m.weight, 0);
-    const actual = totalWeight > 0 ? Math.round(weightedProgressSum / totalWeight) : 0;
+    // Build milestone progress map for aggregate calculation
+    const milestoneProgress: Record<string, number> = {};
+    for (const m of milestones) {
+      milestoneProgress[m.milestoneId] = m.actualProgress ?? 0;
+    }
+    
+    // Use shared aggregate helper for actual progress (includes partial completion)
+    const actual = calculateAggregateProgress(milestoneProgress);
+    
+    // Planned progress: milestones whose planned date has passed (using current date)
+    const today = new Date();
+    const totalWeight = GOVERNANCE_MILESTONES.reduce((sum, m) => sum + m.weight, 0);
+    const plannedWeight = milestones
+      .filter(m => m.plannedDate && new Date(m.plannedDate) <= today)
+      .reduce((sum, m) => sum + m.weight, 0);
     const hasBaseline = milestones.some(m => m.plannedDate);
-    const planned = hasBaseline ? Math.round((milestones.filter(m => m.plannedDate).reduce((sum, m) => sum + m.weight, 0) / totalWeight) * 100) : null;
+    const planned = hasBaseline && totalWeight > 0 ? Math.round((plannedWeight / totalWeight) * 100) : null;
     const variance = planned !== null ? actual - planned : null;
     const progress = { actual, planned, variance, hasBaseline };
     
@@ -220,7 +233,13 @@ export async function fetchGovernanceDataForPresentation(
         : null,
     };
     
-    const completedMilestones = milestones.filter(m => m.actualProgress === 100).length;
+    // Completed count uses persisted completion rule based on compDate
+    const milestoneCompDates: Record<string, string | null | undefined> = {};
+    for (const state of milestoneStates) {
+      milestoneCompDates[state.milestoneId] = state.compDate;
+    }
+    const currentProgress = calculateFacilityCurrentProgress(milestoneCompDates);
+    const completedMilestones = currentProgress.completed;
     
     facilities.push({
       facility: facilityInfo,
