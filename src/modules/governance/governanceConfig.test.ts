@@ -61,9 +61,9 @@ describe("isMilestoneCompleteAsOf", () => {
     expect(isMilestoneCompleteAsOf("2025-01-01", null)).toBe(true);
   });
 
-  it("should exclude milestones completed ON the reporting date (end-of-day semantics)", () => {
-    // A milestone completed on 2026-07-25 is NOT complete as-of 2026-07-25
-    expect(isMilestoneCompleteAsOf("2026-07-25", "2026-07-25")).toBe(false);
+  it("should INCLUDE milestones completed ON the reporting date (inclusive semantics)", () => {
+    // A milestone completed on 2026-07-25 IS complete as-of 2026-07-25
+    expect(isMilestoneCompleteAsOf("2026-07-25", "2026-07-25")).toBe(true);
   });
 
   it("should include milestones completed BEFORE the reporting date", () => {
@@ -79,8 +79,8 @@ describe("isMilestoneCompleteAsOf", () => {
 
   it("should handle ISO datetime strings by extracting date portion", () => {
     expect(isMilestoneCompleteAsOf("2026-07-24T14:30:00Z", "2026-07-25")).toBe(true);
-    expect(isMilestoneCompleteAsOf("2026-07-25T00:00:00Z", "2026-07-25")).toBe(false);
-    expect(isMilestoneCompleteAsOf("2026-07-25T23:59:59Z", "2026-07-25")).toBe(false);
+    expect(isMilestoneCompleteAsOf("2026-07-25T00:00:00Z", "2026-07-25")).toBe(true);
+    expect(isMilestoneCompleteAsOf("2026-07-25T23:59:59Z", "2026-07-25")).toBe(true);
   });
 });
 
@@ -109,7 +109,7 @@ describe("calculateFacilityProgressAsOf", () => {
       M1: "2026-07-20",  // before cutoff - counts
       M2: "2026-07-21",  // before cutoff - counts
       M3: "2026-07-24",  // before cutoff - counts
-      M4: "2026-07-25",  // ON cutoff - does NOT count
+      M4: "2026-07-25",  // ON cutoff - DOES count (inclusive semantics)
       M5: "2026-07-26",  // after cutoff - does NOT count
       M6: null,
       M7: null,
@@ -118,9 +118,9 @@ describe("calculateFacilityProgressAsOf", () => {
     };
     
     const result = calculateFacilityProgressAsOf(milestones, "2026-07-25");
-    expect(result.completed).toBe(3); // M1, M2, M3 only
+    expect(result.completed).toBe(4); // M1, M2, M3, M4 (M4 completed ON reporting date counts)
     expect(result.total).toBe(9);
-    expect(result.percentage).toBe(33);
+    expect(result.percentage).toBe(44);
   });
 
   it("should handle empty milestone data", () => {
@@ -167,12 +167,12 @@ describe("calculateFacilityProgressAsOf", () => {
   });
 
   it("should demonstrate AGLIPAY/HTT discrepancy scenario", () => {
-    // Scenario: M1-M3 complete before 2026-07-25, M4 complete on/after 2026-07-25
+    // Scenario: M1-M4 complete before or on 2026-07-25 - all count with inclusive semantics
     const milestones = {
       M1: "2026-07-20",
       M2: "2026-07-21",
       M3: "2026-07-22",
-      M4: "2026-07-25", // Completed ON reporting date - excluded from historical
+      M4: "2026-07-25", // Completed ON reporting date - INCLUDED in historical
       M5: null,
       M6: null,
       M7: null,
@@ -184,9 +184,9 @@ describe("calculateFacilityProgressAsOf", () => {
     const currentResult = calculateFacilityProgressAsOf(milestones, null);
     expect(currentResult.completed).toBe(4);
     
-    // Historical view (Presentation Center as-of 2026-07-25): 3/9 complete
+    // Historical view (Presentation Center as-of 2026-07-25): 4/9 complete (M4 counts)
     const historicalResult = calculateFacilityProgressAsOf(milestones, "2026-07-25");
-    expect(historicalResult.completed).toBe(3);
+    expect(historicalResult.completed).toBe(4);
   });
 });
 

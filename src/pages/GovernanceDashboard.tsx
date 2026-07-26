@@ -9,7 +9,7 @@ import {
   MAX_UPLOAD_FILE_SIZE_BYTES,
 } from "@contracts/upload-limits";
 import { deleteFileWithVerification, shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
-import { GOVERNANCE_MILESTONES } from "@/modules/governance/governanceConfig";
+import { GOVERNANCE_MILESTONES, isMilestoneCompleteAsOf } from "@/modules/governance/governanceConfig";
 
 /* ── Banner (replaces alert) ── */
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
@@ -939,7 +939,7 @@ export default function GovernanceDashboard() {
                       const comp = getCompDate(m.id);
                       const pct = getCustomPct(m.id);
                       const planned = getPlannedDate(m.id);
-                      const isComplete = !!comp;
+                      const isComplete = isMilestoneCompleteAsOf(comp, null);
 
                       return (
                         <tr key={m.id} className="hover:bg-gray-50">

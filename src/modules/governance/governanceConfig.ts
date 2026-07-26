@@ -214,7 +214,7 @@ export function getTotalMilestoneWeight(): number {
  * Business Rules:
  * - A milestone is complete if it has a non-null completion date
  * - For "as-of" date calculations, the completion date must be BEFORE the cutoff
- * - The cutoff is exclusive: completion on the reporting date is NOT counted as complete
+ * - The cutoff is inclusive: completion on the reporting date IS counted as complete
  *   for historical presentations (to match end-of-day semantics)
  * 
  * Usage:
@@ -238,9 +238,9 @@ export function isMilestoneCompleteAsOf(
   const completion = new Date(`${compDate.split('T')[0]}T00:00:00Z`);
   const cutoff = new Date(`${reportingDate}T00:00:00Z`);
   
-  // Completion must be strictly before the cutoff (end-of-day semantics)
-  // A milestone completed on 2026-07-25 is NOT complete as-of 2026-07-25
-  return completion.getTime() < cutoff.getTime();
+  // Completion ON the reporting date IS counted as complete (inclusive)
+  // Completion must be <= cutoff (not strictly before)
+  return completion.getTime() <= cutoff.getTime();
 }
 
 /**
