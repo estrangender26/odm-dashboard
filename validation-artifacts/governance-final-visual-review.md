@@ -1,185 +1,124 @@
 # Final Visual Acceptance Review
 
-**Date:** 2026-07-27T08:45:00Z  
 **File:** `validation-artifacts/governance-final-validation.pptx`  
-**Commit:** `3292852f6008327bd4c81354f8ea36426ef7655d`
+**Commit:** `ab8b872fea681b5286cb3ba06b2274020c61ce48`  
+**Date:** 2026-07-27
 
 ---
 
-## Important Notice
-
-**Visual Rendering Status:** ❌ **NOT POSSIBLE**
-
-**Reason:** The current environment lacks functioning Microsoft PowerPoint or LibreOffice Impress capabilities. The `soffice` binary available returns "Error: source file could not be loaded" when attempting to open the PPTX.
-
-**Review Method Used:** Open XML content inspection only.
-
-**Limitation:** Open XML inspection can verify text content and basic structure, but CANNOT verify:
-- Visual layout and alignment
-- Object positioning and overlap
-- Clipping or overflow
-- Chart/table rendering quality
-- Color consistency and branding
-- Font rendering
+## STATUS: READY FOR MANUAL POWERPOINT REVIEW
 
 ---
 
-## Slide-by-Slide Content Inspection
+## Validation Summary
 
-### Slide 1 (Source: Template Slide 1)
-**Title Slide - "New Facilities Onboarding"**
-
-**Text Content Verified:**
-- ✅ Title: "New Facilities Onboarding"
-- ✅ Facility names: "Aglipay STP • HTT STP • Eastbay PH-2 TP • Kaysakat"
-- ✅ Date: "24 July, 2026"
-
-**XML Structure:**
-- 3 shapes detected
-- No placeholder text (Lorem Ipsum, etc.)
-
-**Visual Status:** ❓ **CANNOT VERIFY**
-- Cannot confirm title positioning
-- Cannot confirm facility list formatting
-- Cannot confirm date placement
-- Cannot confirm branding/footer
+| Validation Type | Status |
+|-----------------|--------|
+| Structural (Open XML) | ✅ PASSED |
+| Content (Text/Values) | ✅ PASSED |
+| Visual (Layout/Branding) | ⏳ PENDING |
 
 ---
 
-### Slide 2 (Source: Template Slide 3)
-**Overview Slide**
+## Structural Validation Results
 
-**Text Content Verified:**
-- ✅ Header: "Overview"
-- ✅ Text: "Aglipay and HTT are aligned; Eastbay and Kaysakat are behind plan..."
-- ✅ Table headers detected: Facility, PPP start, Ready, Risk, Milestones, Plan, Actual, Variance, RAG
-
-**XML Structure:**
-- 3 shapes detected
-- 50 text elements (indicates table content)
-- All four facility names present
-
-**Visual Status:** ❓ **CANNOT VERIFY**
-- Cannot confirm table borders
-- Cannot confirm row heights
-- Cannot confirm text wrapping
-- Cannot confirm alignment
+- ✅ Exactly 4 slides in package
+- ✅ `presentation.xml` contains 4 slide IDs
+- ✅ `presentation.xml.rels` contains 4 slide relationships
+- ✅ No orphaned slide files
+- ✅ All relationship targets exist
 
 ---
 
-### Slide 3 (Source: Template Slide 4)
-**Facility S-Curve Analysis**
+## Content Validation Results
 
-**Text Content Verified:**
-- ✅ Header: "Aglipay and HTT remain aligned at 44%"
-- ✅ Facility: "AGLIPAY STP" with "50% readiness • 4/9 milestones • 0% variance"
-- ✅ Facility: "HTT STP" with "50% readiness • 4/9 milestones • 0% variance"
-- ✅ Source line: "Source: O&M Manual Governance module • 20 Jul 2026"
+### Slide 4 (Deliverables)
 
-**XML Structure:**
-- 10 shapes detected
-- 44% values present
-
-**Visual Status:** ❓ **CANNOT VERIFY**
-- Cannot confirm S-curve chart rendering
-- Cannot confirm facility panel layout
-- Cannot confirm percentage display
+| Check | Status |
+|-------|--------|
+| Title "Deliverables Documents Summary" | ✅ PRESENT |
+| "Facility" header | ✅ PRESENT |
+| "Documents" header | ✅ PRESENT |
+| "N/A" compliance | ✅ PRESENT |
+| "Reliability KPI Scorecard" | ✅ ABSENT |
+| "AMD/EZ" | ✅ ABSENT |
+| Generic 14-item matrix | ✅ ABSENT |
+| Fabricated percentages | ✅ ABSENT |
 
 ---
 
-### Slide 4 (Source: Template Slide 15)
-**Deliverables Slide**
+## What Has Been Verified
 
-**Text Content Verified:**
-- ⚠️ Template header: "Reliability KPI Scorecard – AMD/EZ"
-- ⚠️ Table headers: Month, Compliance, Budget, Spend, PM:CM Ratio, etc.
-- ⚠️ This is the **source template slide content**, not Mode B deliverables
+✅ **Structure:** The PPTX contains exactly 4 slides with valid Open XML structure.
 
-**Note:** The implementation clones template slide 15 as the deliverables slide, but does not inject Mode B content. The slide currently shows the template's KPI Scorecard content.
+✅ **Content:** Slide 4 has been modified from the source template to show:
+- New title: "Deliverables Documents Summary"
+- Mode B compliance (N/A)
+- No AMD/EZ KPI content
+- No generic requirement matrix
 
-**XML Structure:**
-- 2 shapes detected
-- 85 text elements (indicates table content)
-
-**Visual Status:** ❓ **CANNOT VERIFY**
-- Cannot confirm table structure
-- Cannot confirm Mode B content injection
-- Cannot confirm N/A compliance display
+✅ **Fixture Values:** July 2026 values are correct:
+- Aglipay: 44% planned, 44% actual
+- HTT: 44% planned, 44% actual
+- Eastbay: 22% planned, 11% actual
+- Kaysakat: 33% planned, 0% actual
 
 ---
 
-## Critical Finding
+## What Needs Manual Verification
 
-### Slide 4 Content Issue
+⏳ **Layout:** Title positioning, object alignment, spacing
 
-**Status:** ⚠️ **REQUIRES ATTENTION**
+⏳ **Visual:** Branding, colours, fonts, footer placement
 
-The generated Slide 4 contains the **source template's KPI Scorecard content** ("Reliability KPI Scorecard – AMD/EZ") rather than Mode B deliverables data.
+⏳ **Rendering:** Charts, tables, text wrapping, clipping
 
-**Expected Mode B Content:**
-- Document submission counts
-- Compliance: N/A
-- Disclosure: "Formal compliance percentages are unavailable..."
-
-**Actual Content:**
-- Template's KPI Scorecard table
-- AMD/EZ facility data
-
-**Recommendation:** Before merge, verify if:
-1. Mode B content injection is working correctly, OR
-2. The template slide content is acceptable for this implementation phase
+⏳ **Quality:** No overlapping objects, no off-slide content
 
 ---
 
-## Summary
+## Next Steps
 
-| Slide | Content Inspection | Visual Verification | Status |
-|-------|---------------------|---------------------|--------|
-| 1 | ✅ Text verified | ❌ Cannot verify | UNKNOWN |
-| 2 | ✅ Text verified | ❌ Cannot verify | UNKNOWN |
-| 3 | ✅ Text verified | ❌ Cannot verify | UNKNOWN |
-| 4 | ⚠️ Template content | ❌ Cannot verify | NEEDS REVIEW |
-
----
-
-## Final Verdict
-
-**FINAL STATUS: DO NOT MERGE - VISUAL VALIDATION INCOMPLETE**
-
-**Reasons:**
-
-1. **Visual rendering impossible:** Cannot verify layout, alignment, overlap, clipping, or branding visually
-2. **Slide 4 content issue:** Contains source template KPI Scorecard content, not Mode B deliverables
-3. **Environment limitation:** Local LibreOffice/soffice non-functional
+1. **Open** `validation-artifacts/governance-final-validation.pptx` in Microsoft PowerPoint
+2. **Use** `governance-manual-powerpoint-review.md` checklist
+3. **Record** findings for each slide
+4. **Mark** overall status as APPROVED or DO NOT MERGE
+5. **Submit** review results
 
 ---
 
-## Recommended Actions
+## File Information
 
-### Before Merge:
-
-1. **Open PPTX in PowerPoint/LibreOffice** on a system with working presentation software
-2. **Verify Slide 4 content** - should show Mode B deliverables, not KPI Scorecard
-3. **Check all slides for:**
-   - Layout alignment
-   - No overlapping elements
-   - No clipped text
-   - Proper branding
-   - Footer and page numbers
-
-### Alternative:
-
-If visual validation cannot be performed, the PR should include a note that:
-- Open XML structure is validated (4 slides, correct references)
-- Content injection has been verified at the text level
-- Visual layout verification is pending environment setup
+| Property | Value |
+|----------|-------|
+| Path | `validation-artifacts/governance-final-validation.pptx` |
+| Size | 52,614,361 bytes (50.2 MB) |
+| SHA-256 | `e34831f9aff451b78a65c1aa8cc05e07d4342b625ec529d3e6578c47ca9111d6` |
+| Modified | 2026-07-27 08:55:06 |
+| Slides | 4 |
 
 ---
 
-## Generated Files
+## Validation Artifacts
 
-- `validation-artifacts/governance-final-validation.pptx` (50 MB)
-- `validation-artifacts/governance-openxml-validation.md` (Structure validated ✅)
-- `validation-artifacts/governance-final-visual-review.md` (This file)
+| File | Description |
+|------|-------------|
+| `governance-final-validation.pptx` | Generated presentation (pending visual review) |
+| `governance-template-validation.json` | Structural validation report |
+| `governance-openxml-validation.md` | Open XML structure validation |
+| `governance-manual-powerpoint-review.md` | Manual review checklist |
+| `governance-final-visual-review.md` | This file |
 
-**No PNG screenshots were generated** due to environment limitations.
+---
+
+## Important Notes
+
+- ⚠️ **Do not merge** until visual review is completed
+- ⚠️ **Do not edit** the PPTX file during review
+- ⚠️ **Record all findings** in the manual review checklist
+- ✅ **Structural and content validation** passed programmatically
+- ⏳ **Visual quality** must be verified by human reviewer
+
+---
+
+**End of Report**
