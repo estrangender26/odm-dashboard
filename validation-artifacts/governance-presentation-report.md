@@ -1,16 +1,16 @@
 # Governance Presentation Validation Report
 
-Generated: 2026-07-27T02:03:34.089Z
+Generated: 2026-07-27T02:40:58.160Z
 
 ## Git Information
 
 - **Branch**: codex/governance-template-repair
-- **Commit**: d3c6a39f335fb3a38d5d759bdfc3c82bcb24443b
-- **Short Commit**: d3c6a39
+- **Commit**: 9ad191e20d741bdd951fc7770fdf7fa3b53859d7
+- **Short Commit**: 9ad191e
 
 ## Generation Metadata
 
-- **Timestamp**: 2026-07-27T02:03:32.437Z
+- **Timestamp**: 2026-07-27T02:40:56.386Z
 - **Reporting Date**: 2026-07-25
 - **PR**: #308
 
