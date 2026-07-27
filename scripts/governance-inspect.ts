@@ -9,18 +9,38 @@
  * Usage:
  *   npm run governance:inspect
  *   npx tsx scripts/governance-inspect.ts
+ * 
+ * Exit Codes:
+ *   0 - All validations passed
+ *   1 - One or more validations failed
  */
 
 import { writeFileSync, mkdirSync, existsSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { createDeterministicTestFixture } from "../src/modules/presentation-center/governanceGenerator";
-import { buildGovernanceReport, GovernancePresentationReport, FacilityPresentationSummary, FacilityGovernanceData } from "../src/modules/presentation-center/governanceTypes";
+import { buildGovernanceReport, GovernancePresentationReport, FacilityGovernanceData } from "../src/modules/presentation-center/governanceTypes";
 import { generateGovernancePresentationAutomizer } from "../src/modules/presentation-center/governanceAutomizer";
+
+// Get current file directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Configuration
 const OUTPUT_DIR = join(process.cwd(), "validation-artifacts");
 const REPORTING_DATE = new Date("2026-07-25");
+
+// Validation state
+interface ValidationState {
+  passed: boolean;
+  checks: Array<{ name: string; status: "PASS" | "FAIL" | "WARN"; message: string }>;
+}
+
+const validation: ValidationState = {
+  passed: true,
+  checks: [],
+};
 
 // ANSI colors for console output
 const colors = {
@@ -36,6 +56,20 @@ const colors = {
 function log(level: string, message: string) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${level} ${message}`);
+}
+
+function check(name: string, passed: boolean, message: string) {
+  const status = passed ? "PASS" : "FAIL";
+  validation.checks.push({ name, status, message });
+  if (!passed) validation.passed = false;
+  const color = passed ? colors.green : colors.red;
+  const icon = passed ? "✅" : "❌";
+  log(color, `${icon} ${name}: ${status} - ${message}`);
+}
+
+function warn(name: string, message: string) {
+  validation.checks.push({ name, status: "WARN", message });
+  log(colors.yellow, `⚠️ ${name}: WARN - ${message}`);
 }
 
 async function main() {
@@ -116,7 +150,7 @@ async function main() {
     join(OUTPUT_DIR, "governance-presentation-data.json"),
     JSON.stringify(payloadData, null, 2)
   );
-  log(colors.green, "✅ Exported: governance-presentation-data.json");
+  check("Input Payload Export", existsSync(join(OUTPUT_DIR, "governance-presentation-data.json")), "File created successfully");
 
   // ========================================================================
   // TASK 3: Export Presentation Model (Slide Model)
@@ -201,7 +235,7 @@ async function main() {
     join(OUTPUT_DIR, "governance-slide-model.json"),
     JSON.stringify(slideModel, null, 2)
   );
-  log(colors.green, "✅ Exported: governance-slide-model.json");
+  check("Slide Model Export", existsSync(join(OUTPUT_DIR, "governance-slide-model.json")), "File created successfully");
 
   // ========================================================================
   // TASK 4: Export Presentation (PPTX)
@@ -212,7 +246,81 @@ async function main() {
   const pptxPath = join(OUTPUT_DIR, "governance-final-validation.pptx");
   writeFileSync(pptxPath, buffer);
   
-  log(colors.green, `✅ Exported: governance-final-validation.pptx (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+  const pptxExists = existsSync(pptxPath);
+  const pptxSize = pptxExists ? buffer.length : 0;
+  check("PPTX Generation", pptxExists && pptxSize > 1000000, `File created (${(pptxSize / 1024 / 1024).toFixed(2)} MB)`);
+
+  // ========================================================================
+  // PART C - AUTOMATIC VALIDATION
+  // ========================================================================
+  log(colors.blue, "🔍 Performing automatic validation...");
+
+  // Validate PPTX using Python script
+  let slideValidation: any = { total_slides: 0, slides: [] };
+  const pythonScript = join(__dirname, "validate-pptx.py");
+  
+  try {
+    const pythonOutput = execSync(
+      `python3 "${pythonScript}" "${pptxPath}"`,
+      { encoding: "utf-8", timeout: 30000 }
+    );
+    slideValidation = JSON.parse(pythonOutput);
+    check("PPTX Opens Successfully", true, "File opens without errors");
+  } catch (e: any) {
+    check("PPTX Opens Successfully", false, `Error: ${e.message}`);
+  }
+
+  // Validate slide count
+  check("Slide Count", slideValidation.total_slides === 4, `Expected 4, got ${slideValidation.total_slides}`);
+
+  // Validate Slide 1 content
+  const slide1Text = slideValidation.slides[0]?.text.join(" ") || "";
+  check("Slide 1: Title", slide1Text.includes("New Facilities Onboarding"), "Title present");
+  check("Slide 1: All Facilities", 
+    slide1Text.includes("Aglipay") && slide1Text.includes("HTT") && slide1Text.includes("Eastbay") && slide1Text.includes("Kaysakat"),
+    "All four facilities listed"
+  );
+
+  // Validate Slide 3 content
+  const slide3Text = slideValidation.slides[2]?.text.join(" ") || "";
+  check("Slide 3: Title", slide3Text.includes("Facility S-Curve Progress"), "Title present");
+  check("Slide 3: Aglipay 44%/44%", 
+    slide3Text.includes("AGLIPAY") && slide3Text.includes("44%"), 
+    "Aglipay values correct"
+  );
+  check("Slide 3: HTT 44%/44%", 
+    slide3Text.includes("HTT") && slide3Text.includes("44%"), 
+    "HTT values correct"
+  );
+  check("Slide 3: Eastbay 22%/11%", 
+    slide3Text.includes("EASTBAY") && slide3Text.includes("22%") && slide3Text.includes("11%"), 
+    "Eastbay values correct"
+  );
+  check("Slide 3: Kaysakat 33%/0%", 
+    slide3Text.includes("KAYSAKAT") && slide3Text.includes("33%") && slide3Text.includes("0%"), 
+    "Kaysakat values correct"
+  );
+
+  // Validate Slide 4 content
+  const slide4Text = slideValidation.slides[3]?.text.join(" ") || "";
+  check("Slide 4: Title", slide4Text.includes("Deliverables Documents Summary"), "Title present");
+  check("Slide 4: Mode B Disclosure", 
+    slide4Text.includes("Mode B") && slide4Text.includes("N/A"), 
+    "Mode B disclosure present"
+  );
+  
+  // Check forbidden content
+  const forbiddenTerms = ["PM:CM Ratio", "MTTR", "Notifications", "Reliability KPI", "KPI Scorecard", "TARGET"];
+  const hasForbidden = forbiddenTerms.some(term => slide4Text.toUpperCase().includes(term.toUpperCase()));
+  check("Slide 4: No Forbidden KPI Content", !hasForbidden, "No KPI content detected");
+
+  // Validate JSON artifacts
+  check("JSON Artifacts", 
+    existsSync(join(OUTPUT_DIR, "governance-presentation-data.json")) &&
+    existsSync(join(OUTPUT_DIR, "governance-slide-model.json")) &&
+    existsSync(join(OUTPUT_DIR, "governance-scurve-data.json")),
+    "All JSON files present"
+  );
 
   // ========================================================================
   // TASK 5: Render Slides (PNG)
@@ -245,7 +353,7 @@ async function main() {
           "Export each slide as PNG (File > Export > Change File Type > PNG)",
           "Save as: slide1.png, slide2.png, slide3.png, slide4.png",
         ];
-        log(colors.yellow, "⚠️ LibreOffice rendering did not produce output files");
+        warn("PNG Rendering", "LibreOffice did not produce output files - manual export required");
       }
     } else {
       slideRenderInfo.reason = "LibreOffice not available";
@@ -254,7 +362,7 @@ async function main() {
         "Export each slide as PNG (File > Export > Change File Type > PNG)",
         "Save as: slide1.png, slide2.png, slide3.png, slide4.png",
       ];
-      log(colors.yellow, "⚠️ LibreOffice not available - skipping PNG rendering");
+      warn("PNG Rendering", "LibreOffice not available - manual export required");
     }
   } catch (e: any) {
     slideRenderInfo.reason = `LibreOffice error: ${e.message}`;
@@ -263,7 +371,7 @@ async function main() {
       "Export each slide as PNG (File > Export > Change File Type > PNG)",
       "Save as: slide1.png, slide2.png, slide3.png, slide4.png",
     ];
-    log(colors.yellow, "⚠️ PNG rendering not available in this environment");
+    warn("PNG Rendering", "PNG rendering failed - manual export required");
   }
 
   // ========================================================================
@@ -290,8 +398,7 @@ async function main() {
     join(OUTPUT_DIR, "governance-scurve-data.json"),
     JSON.stringify(chartData, null, 2)
   );
-  log(colors.green, "✅ Exported: governance-scurve-data.json");
-  log(colors.yellow, "⚠️ PNG chart rendering requires matplotlib/plotly - see JSON data for manual creation");
+  check("S-Curve Data Export", existsSync(join(OUTPUT_DIR, "governance-scurve-data.json")), "File created");
 
   // ========================================================================
   // TASK 7: Shape Inventory
@@ -299,11 +406,8 @@ async function main() {
   log(colors.blue, "📝 Task 7: Generating shape inventory...");
   
   const shapeMap = generateShapeMap(slideModel);
-  writeFileSync(
-    join(OUTPUT_DIR, "governance-shape-map.md"),
-    shapeMap
-  );
-  log(colors.green, "✅ Exported: governance-shape-map.md");
+  writeFileSync(join(OUTPUT_DIR, "governance-shape-map.md"), shapeMap);
+  check("Shape Map Export", existsSync(join(OUTPUT_DIR, "governance-shape-map.md")), "File created");
 
   // ========================================================================
   // TASK 8: Data Lineage
@@ -311,11 +415,8 @@ async function main() {
   log(colors.blue, "📝 Task 8: Generating data lineage...");
   
   const lineage = generateDataLineage(report, fixtureData);
-  writeFileSync(
-    join(OUTPUT_DIR, "governance-data-lineage.md"),
-    lineage
-  );
-  log(colors.green, "✅ Exported: governance-data-lineage.md");
+  writeFileSync(join(OUTPUT_DIR, "governance-data-lineage.md"), lineage);
+  check("Data Lineage Export", existsSync(join(OUTPUT_DIR, "governance-data-lineage.md")), "File created");
 
   // ========================================================================
   // TASK 9: Validation Report
@@ -329,13 +430,11 @@ async function main() {
     pptxPath,
     bufferLength: buffer.length,
     slideRenderInfo,
+    validation,
   });
   
-  writeFileSync(
-    join(OUTPUT_DIR, "governance-presentation-report.md"),
-    validationReport
-  );
-  log(colors.green, "✅ Exported: governance-presentation-report.md");
+  writeFileSync(join(OUTPUT_DIR, "governance-presentation-report.md"), validationReport);
+  check("Validation Report Export", existsSync(join(OUTPUT_DIR, "governance-presentation-report.md")), "File created");
 
   // ========================================================================
   // TASK 10: Documentation
@@ -348,15 +447,29 @@ async function main() {
   }
   
   const documentation = generateDocumentation();
-  writeFileSync(
-    join(docsDir, "governance-inspection.md"),
-    documentation
-  );
-  log(colors.green, "✅ Exported: docs/governance-inspection.md");
+  writeFileSync(join(docsDir, "governance-inspection.md"), documentation);
+  check("Documentation Export", existsSync(join(docsDir, "governance-inspection.md")), "File created");
 
-  // Summary
+  // Final Summary
   console.log("\n" + "=".repeat(70));
-  console.log("INSPECTION COMPLETE");
+  console.log("VALIDATION SUMMARY");
+  console.log("=".repeat(70) + "\n");
+  
+  const passCount = validation.checks.filter(c => c.status === "PASS").length;
+  const failCount = validation.checks.filter(c => c.status === "FAIL").length;
+  const warnCount = validation.checks.filter(c => c.status === "WARN").length;
+  
+  console.log(`Total Checks: ${validation.checks.length}`);
+  console.log(`${colors.green}PASS: ${passCount}${colors.reset}`);
+  if (failCount > 0) console.log(`${colors.red}FAIL: ${failCount}${colors.reset}`);
+  if (warnCount > 0) console.log(`${colors.yellow}WARN: ${warnCount}${colors.reset}`);
+  
+  console.log("\n" + "=".repeat(70));
+  if (validation.passed) {
+    console.log(`${colors.green}✅ ALL VALIDATIONS PASSED${colors.reset}`);
+  } else {
+    console.log(`${colors.red}❌ VALIDATION FAILED${colors.reset}`);
+  }
   console.log("=".repeat(70) + "\n");
   
   console.log(colors.cyan + "Generated Artifacts:" + colors.reset);
@@ -373,7 +486,12 @@ async function main() {
   console.log(`  Branch: ${gitInfo.branch}`);
   console.log(`  Commit: ${gitInfo.commit}`);
   
-  console.log("\n" + colors.green + "✅ All inspection artifacts generated successfully!" + colors.reset + "\n");
+  console.log("\n" + (validation.passed ? colors.green : colors.red) + 
+    (validation.passed ? "✅ READY FOR MANUAL POWERPOINT REVIEW" : "❌ NOT READY") + 
+    colors.reset + "\n");
+
+  // Exit with appropriate code
+  process.exit(validation.passed ? 0 : 1);
 }
 
 // Helper function to get S-Curve value at reporting date
@@ -416,7 +534,6 @@ function generateShapeMap(slideModel: any): string {
     markdown += `| Shape Name | Type | X | Y | Width | Height |\n`;
     markdown += `|------------|------|---|---|-------|--------|\n`;
     
-    // Add shapes based on slide type
     if (slide.type === "title") {
       markdown += `| Title | Text | 685800 | 400000 | 10820400 | 800000 |\n`;
       markdown += `| Subtitle | Text | 685800 | 950000 | 10820400 | 400000 |\n`;
@@ -428,8 +545,6 @@ function generateShapeMap(slideModel: any): string {
     } else if (slide.type === "facility-s-curves") {
       markdown += `| Title | Text | 685800 | 400000 | 10820400 | 800000 |\n`;
       markdown += `| Subtitle | Text | 685800 | 950000 | 10820400 | 400000 |\n`;
-      
-      // Add facility boxes
       const facilities = slide.content.facilities || [];
       for (let i = 0; i < facilities.length; i++) {
         const col = i % 2;
@@ -466,7 +581,6 @@ function generateDataLineage(report: GovernancePresentationReport, fixtureData: 
   
   markdown += `## Presentation Values → Data Sources\n\n`;
   
-  // Slide 1 values
   markdown += `### Slide 1: Title\n\n`;
   markdown += `| Presentation Value | JSON Field | Source |\n`;
   markdown += `|-------------------|------------|--------|\n`;
@@ -475,7 +589,6 @@ function generateDataLineage(report: GovernancePresentationReport, fixtureData: 
   markdown += `| Reporting date | reportingDate | Generated at runtime |\n`;
   markdown += `\n`;
   
-  // Slide 2 values
   markdown += `### Slide 2: Portfolio Overview\n\n`;
   markdown += `| Presentation Value | JSON Field | Source |\n`;
   markdown += `|-------------------|------------|--------|\n`;
@@ -484,7 +597,6 @@ function generateDataLineage(report: GovernancePresentationReport, fixtureData: 
   markdown += `| Total Submitted | portfolio.totalSubmitted | COUNT(governance_uploads) |\n`;
   markdown += `\n`;
   
-  // Slide 3 values
   markdown += `### Slide 3: Facility S-Curve Progress\n\n`;
   markdown += `| Presentation Value | JSON Field | Source |\n`;
   markdown += `|-------------------|------------|--------|\n`;
@@ -498,7 +610,6 @@ function generateDataLineage(report: GovernancePresentationReport, fixtureData: 
   markdown += `| Kaysakat Actual % | facilities[3].sCurve[].actual | Calculated from completion dates |\n`;
   markdown += `\n`;
   
-  // Slide 4 values
   markdown += `### Slide 4: Deliverables Documents Summary\n\n`;
   markdown += `| Presentation Value | JSON Field | Source |\n`;
   markdown += `|-------------------|------------|--------|\n`;
@@ -508,7 +619,6 @@ function generateDataLineage(report: GovernancePresentationReport, fixtureData: 
   markdown += `| Compliance N/A | dataQuality.hasRequirementMatrix | NULL = N/A (Mode B) |\n`;
   markdown += `\n`;
   
-  // Data sources
   markdown += `## Database Sources\n\n`;
   markdown += `### Tables\n\n`;
   markdown += `- **governance_facilities**: Facility names, slugs, colors\n`;
@@ -537,8 +647,9 @@ function generateValidationReport(params: {
   pptxPath: string;
   bufferLength: number;
   slideRenderInfo: { rendered: boolean; reason?: string; manualSteps?: string[] };
+  validation: ValidationState;
 }): string {
-  const { gitInfo, report, slideModel, bufferLength, slideRenderInfo } = params;
+  const { gitInfo, report, slideModel, bufferLength, slideRenderInfo, validation } = params;
   
   let markdown = `# Governance Presentation Validation Report\n\n`;
   markdown += `Generated: ${new Date().toISOString()}\n\n`;
@@ -556,6 +667,18 @@ function generateValidationReport(params: {
   markdown += `\n`;
   
   markdown += `## Validation Results\n\n`;
+  markdown += `| Check | Status | Message |\n`;
+  markdown += `|-------|--------|---------|\n`;
+  for (const check of validation.checks) {
+    const icon = check.status === "PASS" ? "✅" : check.status === "FAIL" ? "❌" : "⚠️";
+    markdown += `| ${check.name} | ${icon} ${check.status} | ${check.message} |\n`;
+  }
+  markdown += `\n`;
+  
+  markdown += `### Overall Result\n\n`;
+  markdown += validation.passed ? `✅ **PASSED**\n` : `❌ **FAILED**\n`;
+  markdown += `\n`;
+  
   markdown += `### Slide Count\n\n`;
   markdown += `- Expected: 4\n`;
   markdown += `- Generated: ${slideModel.slideCount}\n`;
@@ -609,6 +732,7 @@ function generateValidationReport(params: {
   markdown += `- PNG rendering requires LibreOffice/soffice\n`;
   markdown += `- Chart PNGs require matplotlib/plotly for generation\n`;
   markdown += `- Montage creation requires ImageMagick\n`;
+  markdown += `- S-Curve charts display current values only (not historical progression)\n`;
   markdown += `\n`;
   
   markdown += `## Manual Verification Steps\n\n`;
@@ -645,6 +769,25 @@ Or directly:
 
 ` + "```bash" + `
 npx tsx scripts/governance-inspect.ts
+` + "```" + `
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All validations passed |
+| 1 | One or more validations failed |
+
+## Prerequisites
+
+- Node.js >= 18
+- Python 3 with python-pptx (for PPTX validation)
+- LibreOffice (optional, for PNG rendering)
+
+Install python-pptx:
+
+` + "```bash" + `
+pip3 install python-pptx
 ` + "```" + `
 
 ## Generated Artifacts
@@ -684,44 +827,21 @@ npx tsx scripts/governance-inspect.ts
 - **Description**: Comprehensive validation report
 - **Contains**: Timestamps, validation results, warnings
 
-## Regenerating the Presentation
+## PASS/FAIL Criteria
 
-To regenerate:
+| Check | Criteria |
+|-------|----------|
+| PPTX Generation | File created and > 1 MB |
+| PPTX Opens | No errors when opening with python-pptx |
+| Slide Count | Exactly 4 slides |
+| Slide 1 | Title "New Facilities Onboarding" present |
+| Slide 2 | Executive overview present |
+| Slide 3 | All 4 facilities with correct S-Curve values |
+| Slide 4 | Deliverables Documents Summary with Mode B |
+| Forbidden Content | No KPI Scorecard terms (MTTR, PM:CM, etc.) |
+| JSON Artifacts | All JSON files exported |
 
-` + "```bash" + `
-# Clean and regenerate
-rm validation-artifacts/governance-final-validation.pptx
-npm run governance:inspect
-` + "```" + `
-
-## Reviewing Rendered Slides
-
-### Option 1: PowerPoint Export
-1. Open governance-final-validation.pptx
-2. File → Export → Change File Type → PNG
-3. Save each slide
-
-### Option 2: LibreOffice (if available)
-
-` + "```bash" + `
-soffice --headless --convert-to png --outdir validation-artifacts \\
-  validation-artifacts/governance-final-validation.pptx
-` + "```" + `
-
-### Option 3: Python with python-pptx
-
-` + "```python" + `
-from pptx import Presentation
-prs = Presentation('validation-artifacts/governance-final-validation.pptx')
-print(f"Slides: {len(prs.slides)}")
-
-for slide in prs.slides:
-  for shape in slide.shapes:
-    if hasattr(shape, 'text'):
-      print(shape.text)
-` + "```" + `
-
-## Artifact Location
+## Output Folders
 
 All artifacts are stored in:
 
@@ -737,6 +857,55 @@ validation-artifacts/
 └── (slide1.png, slide2.png, etc. if rendered)
 ` + "```" + `
 
+Documentation is stored in:
+
+` + "```" + `
+docs/
+└── governance-inspection.md
+` + "```" + `
+
+## Regeneration Procedure
+
+To regenerate:
+
+` + "```bash" + `
+# Clean and regenerate
+rm validation-artifacts/governance-final-validation.pptx
+npm run governance:inspect
+` + "```" + `
+
+## Review Procedure
+
+### Automated Review
+
+Run the inspection command and check exit code:
+
+` + "```bash" + `
+npm run governance:inspect
+echo "Exit code: $?"
+` + "```" + `
+
+### Manual Review
+
+1. Open governance-final-validation.pptx in PowerPoint
+2. Verify all 4 slides render correctly
+3. Check Slide 3 shows all 4 facilities with correct percentages
+4. Check Slide 4 has Mode B disclosure and no KPI content
+5. Export slides as PNG if needed
+
+### Review with Python
+
+` + "```python" + `
+from pptx import Presentation
+prs = Presentation('validation-artifacts/governance-final-validation.pptx')
+print(f"Slides: {len(prs.slides)}")
+
+for slide in prs.slides:
+  for shape in slide.shapes:
+    if hasattr(shape, 'text') and shape.text.strip():
+      print(shape.text[:100])
+` + "```" + `
+
 ## Troubleshooting
 
 ### PNG Rendering Fails
@@ -750,6 +919,12 @@ validation-artifacts/
 ### Validation Warnings
 - Mode B (Compliance N/A) is expected when no requirement matrix exists
 - This is the correct behavior for current data state
+
+### python-pptx Not Found
+Install with:
+` + "```bash" + `
+pip3 install python-pptx
+` + "```" + `
 
 ---
 

@@ -1,20 +1,47 @@
 # Governance Presentation Validation Report
 
-Generated: 2026-07-27T01:46:16.577Z
+Generated: 2026-07-27T02:03:34.089Z
 
 ## Git Information
 
 - **Branch**: codex/governance-template-repair
-- **Commit**: b8ec25d6038b994aabd5571fa4f8a7dc0da03120
-- **Short Commit**: b8ec25d
+- **Commit**: d3c6a39f335fb3a38d5d759bdfc3c82bcb24443b
+- **Short Commit**: d3c6a39
 
 ## Generation Metadata
 
-- **Timestamp**: 2026-07-27T01:46:15.037Z
+- **Timestamp**: 2026-07-27T02:03:32.437Z
 - **Reporting Date**: 2026-07-25
 - **PR**: #308
 
 ## Validation Results
+
+| Check | Status | Message |
+|-------|--------|---------|
+| Input Payload Export | ✅ PASS | File created successfully |
+| Slide Model Export | ✅ PASS | File created successfully |
+| PPTX Generation | ✅ PASS | File created (50.07 MB) |
+| PPTX Opens Successfully | ✅ PASS | File opens without errors |
+| Slide Count | ✅ PASS | Expected 4, got 4 |
+| Slide 1: Title | ✅ PASS | Title present |
+| Slide 1: All Facilities | ✅ PASS | All four facilities listed |
+| Slide 3: Title | ✅ PASS | Title present |
+| Slide 3: Aglipay 44%/44% | ✅ PASS | Aglipay values correct |
+| Slide 3: HTT 44%/44% | ✅ PASS | HTT values correct |
+| Slide 3: Eastbay 22%/11% | ✅ PASS | Eastbay values correct |
+| Slide 3: Kaysakat 33%/0% | ✅ PASS | Kaysakat values correct |
+| Slide 4: Title | ✅ PASS | Title present |
+| Slide 4: Mode B Disclosure | ✅ PASS | Mode B disclosure present |
+| Slide 4: No Forbidden KPI Content | ✅ PASS | No KPI content detected |
+| JSON Artifacts | ✅ PASS | All JSON files present |
+| PNG Rendering | ⚠️ WARN | LibreOffice did not produce output files - manual export required |
+| S-Curve Data Export | ✅ PASS | File created |
+| Shape Map Export | ✅ PASS | File created |
+| Data Lineage Export | ✅ PASS | File created |
+
+### Overall Result
+
+✅ **PASSED**
 
 ### Slide Count
 
@@ -64,6 +91,7 @@ Generated: 2026-07-27T01:46:16.577Z
 - PNG rendering requires LibreOffice/soffice
 - Chart PNGs require matplotlib/plotly for generation
 - Montage creation requires ImageMagick
+- S-Curve charts display current values only (not historical progression)
 
 ## Manual Verification Steps
 

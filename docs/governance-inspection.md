@@ -18,6 +18,25 @@ Or directly:
 npx tsx scripts/governance-inspect.ts
 ```
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All validations passed |
+| 1 | One or more validations failed |
+
+## Prerequisites
+
+- Node.js >= 18
+- Python 3 with python-pptx (for PPTX validation)
+- LibreOffice (optional, for PNG rendering)
+
+Install python-pptx:
+
+```bash
+pip3 install python-pptx
+```
+
 ## Generated Artifacts
 
 ### Input Payload
@@ -55,44 +74,21 @@ npx tsx scripts/governance-inspect.ts
 - **Description**: Comprehensive validation report
 - **Contains**: Timestamps, validation results, warnings
 
-## Regenerating the Presentation
+## PASS/FAIL Criteria
 
-To regenerate:
+| Check | Criteria |
+|-------|----------|
+| PPTX Generation | File created and > 1 MB |
+| PPTX Opens | No errors when opening with python-pptx |
+| Slide Count | Exactly 4 slides |
+| Slide 1 | Title "New Facilities Onboarding" present |
+| Slide 2 | Executive overview present |
+| Slide 3 | All 4 facilities with correct S-Curve values |
+| Slide 4 | Deliverables Documents Summary with Mode B |
+| Forbidden Content | No KPI Scorecard terms (MTTR, PM:CM, etc.) |
+| JSON Artifacts | All JSON files exported |
 
-```bash
-# Clean and regenerate
-rm validation-artifacts/governance-final-validation.pptx
-npm run governance:inspect
-```
-
-## Reviewing Rendered Slides
-
-### Option 1: PowerPoint Export
-1. Open governance-final-validation.pptx
-2. File → Export → Change File Type → PNG
-3. Save each slide
-
-### Option 2: LibreOffice (if available)
-
-```bash
-soffice --headless --convert-to png --outdir validation-artifacts \
-  validation-artifacts/governance-final-validation.pptx
-```
-
-### Option 3: Python with python-pptx
-
-```python
-from pptx import Presentation
-prs = Presentation('validation-artifacts/governance-final-validation.pptx')
-print(f"Slides: {len(prs.slides)}")
-
-for slide in prs.slides:
-  for shape in slide.shapes:
-    if hasattr(shape, 'text'):
-      print(shape.text)
-```
-
-## Artifact Location
+## Output Folders
 
 All artifacts are stored in:
 
@@ -108,6 +104,55 @@ validation-artifacts/
 └── (slide1.png, slide2.png, etc. if rendered)
 ```
 
+Documentation is stored in:
+
+```
+docs/
+└── governance-inspection.md
+```
+
+## Regeneration Procedure
+
+To regenerate:
+
+```bash
+# Clean and regenerate
+rm validation-artifacts/governance-final-validation.pptx
+npm run governance:inspect
+```
+
+## Review Procedure
+
+### Automated Review
+
+Run the inspection command and check exit code:
+
+```bash
+npm run governance:inspect
+echo "Exit code: $?"
+```
+
+### Manual Review
+
+1. Open governance-final-validation.pptx in PowerPoint
+2. Verify all 4 slides render correctly
+3. Check Slide 3 shows all 4 facilities with correct percentages
+4. Check Slide 4 has Mode B disclosure and no KPI content
+5. Export slides as PNG if needed
+
+### Review with Python
+
+```python
+from pptx import Presentation
+prs = Presentation('validation-artifacts/governance-final-validation.pptx')
+print(f"Slides: {len(prs.slides)}")
+
+for slide in prs.slides:
+  for shape in slide.shapes:
+    if hasattr(shape, 'text') and shape.text.strip():
+      print(shape.text[:100])
+```
+
 ## Troubleshooting
 
 ### PNG Rendering Fails
@@ -121,6 +166,12 @@ validation-artifacts/
 ### Validation Warnings
 - Mode B (Compliance N/A) is expected when no requirement matrix exists
 - This is the correct behavior for current data state
+
+### python-pptx Not Found
+Install with:
+```bash
+pip3 install python-pptx
+```
 
 ---
 
