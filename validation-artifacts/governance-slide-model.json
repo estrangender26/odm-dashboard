@@ -1,0 +1,145 @@
+{
+  "generatedAt": "2026-07-30T05:59:24.783Z",
+  "slideCount": 4,
+  "slides": [
+    {
+      "slideNumber": 1,
+      "type": "title",
+      "title": "New Facilities Onboarding",
+      "subtitle": "AGLIPAY STP • HTT STP • EASTBAY PH-2 TP • KAYSAKAT TP",
+      "reportingDate": "2026-07-25",
+      "content": {
+        "facilities": [
+          "AGLIPAY STP",
+          "HTT STP",
+          "EASTBAY PH-2 TP",
+          "KAYSAKAT TP"
+        ],
+        "reportingPeriod": "2026-07-25"
+      }
+    },
+    {
+      "slideNumber": 2,
+      "type": "overview",
+      "title": "Portfolio Overview",
+      "content": {
+        "totalFacilities": 4,
+        "overallProgress": 38,
+        "totalSubmitted": 16,
+        "facilities": [
+          {
+            "name": "AGLIPAY STP",
+            "progress": 75,
+            "status": "green",
+            "hasBaselineSchedule": true
+          },
+          {
+            "name": "HTT STP",
+            "progress": 45,
+            "status": "amber",
+            "hasBaselineSchedule": true
+          },
+          {
+            "name": "EASTBAY PH-2 TP",
+            "progress": 30,
+            "status": "red",
+            "hasBaselineSchedule": true
+          },
+          {
+            "name": "KAYSAKAT TP",
+            "progress": 0,
+            "status": "gray",
+            "hasBaselineSchedule": true
+          }
+        ]
+      }
+    },
+    {
+      "slideNumber": 3,
+      "type": "facility-s-curves",
+      "title": "Facility S-Curve Progress",
+      "subtitle": "July 2026 Reporting Period",
+      "content": {
+        "facilities": [
+          {
+            "name": "AGLIPAY STP",
+            "color": "#f97316",
+            "planned": null,
+            "actual": null,
+            "sCurve": []
+          },
+          {
+            "name": "HTT STP",
+            "color": "#3b82f6",
+            "planned": null,
+            "actual": null,
+            "sCurve": []
+          },
+          {
+            "name": "EASTBAY PH-2 TP",
+            "color": "#10b981",
+            "planned": null,
+            "actual": null,
+            "sCurve": []
+          },
+          {
+            "name": "KAYSAKAT TP",
+            "color": "#8b5cf6",
+            "planned": null,
+            "actual": null,
+            "sCurve": []
+          }
+        ]
+      }
+    },
+    {
+      "slideNumber": 4,
+      "type": "deliverables-summary",
+      "title": "Deliverables Documents Summary",
+      "subtitle": "Compliance: N/A — Mode B (Requirement matrix not yet available)",
+      "content": {
+        "mode": "Mode B",
+        "compliance": "N/A",
+        "facilities": [
+          {
+            "name": "AGLIPAY STP",
+            "submitted": 8,
+            "required": 0,
+            "outstanding": 0,
+            "hasRequirementBaseline": false,
+            "status": "Good",
+            "notes": "8 documents pending review"
+          },
+          {
+            "name": "HTT STP",
+            "submitted": 5,
+            "required": 0,
+            "outstanding": 0,
+            "hasRequirementBaseline": false,
+            "status": "Partial",
+            "notes": "5 documents pending review"
+          },
+          {
+            "name": "EASTBAY PH-2 TP",
+            "submitted": 3,
+            "required": 0,
+            "outstanding": 0,
+            "hasRequirementBaseline": false,
+            "status": "Partial",
+            "notes": "3 documents pending review"
+          },
+          {
+            "name": "KAYSAKAT TP",
+            "submitted": 0,
+            "required": 0,
+            "outstanding": 0,
+            "hasRequirementBaseline": false,
+            "status": "None",
+            "notes": "No submissions"
+          }
+        ],
+        "totalDocuments": 16
+      }
+    }
+  ]
+}

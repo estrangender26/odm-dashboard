@@ -449,13 +449,38 @@ export function dataUrlToBlob(dataUrl: string) {
   return new Blob([bytes], { type: mime });
 }
 
-export function blobToDataUrl(blob: Blob) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
+export async function blobToDataUrl(blob: Blob): Promise<string> {
+  // Check if FileReader is available (browser environment)
+  if (
+    typeof FileReader !== "undefined" &&
+    typeof window !== "undefined"
+  ) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Node.js fallback: convert to base64 manually
+  const buffer = Buffer.from(await blob.arrayBuffer());
+  const mimeType = blob.type || "application/octet-stream";
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
+/**
+ * Convert a Blob to a Buffer (Node.js optimized)
+ */
+export async function blobToBuffer(blob: Blob): Promise<Buffer> {
+  return Buffer.from(await blob.arrayBuffer());
+}
+
+/**
+ * Convert a Blob to a Uint8Array (works in both browser and Node)
+ */
+export async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 export function downloadDataUrl(dataUrl: string, fileName: string) {

@@ -17,6 +17,9 @@ import {
   type SCurvePoint,
   type FacilityGovernanceData,
 } from "./governanceTypes";
+import {
+  getSCurveValueAtReportingDate,
+} from "./governanceTemplateGenerator";
 
 type PresentationSlide = Parameters<typeof createPresentation>[0][number];
 type PresentationElement = PresentationSlide["elements"][number];
@@ -41,15 +44,17 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
     },
     pppStartDate: "2025-01-01",
     milestones: [
+      // 44% planned, 44% actual at 2026-07-25 (4/9 milestones)
       { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: "2025-02-01", actualDate: "2025-01-28", actualProgress: 100, status: "complete" },
       { milestoneId: "M2", milestoneName: "M2 - Design Validation", weight: 1, plannedDate: "2025-04-01", actualDate: "2025-03-30", actualProgress: 100, status: "complete" },
-      { milestoneId: "M3", milestoneName: "M3 - Construction Completion", weight: 1, plannedDate: "2025-08-01", actualDate: "2025-08-05", actualProgress: 100, status: "complete" },
-      { milestoneId: "M4", milestoneName: "M4 - P1 Acceptance", weight: 1, plannedDate: "2025-10-01", actualDate: null, actualProgress: 75, status: "in-progress" },
-      { milestoneId: "M5", milestoneName: "M5 - P1 Defects", weight: 1, plannedDate: "2025-12-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M6", milestoneName: "M6 - P2 Acceptance", weight: 1, plannedDate: "2026-03-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M7", milestoneName: "M7 - P2 Defects", weight: 1, plannedDate: "2026-05-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M8", milestoneName: "M8 - TOC Certificate", weight: 1, plannedDate: "2026-07-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M9", milestoneName: "M9 - Final TOC", weight: 1, plannedDate: "2026-09-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M3", milestoneName: "M3 - Construction Completion", weight: 1, plannedDate: "2025-06-01", actualDate: "2025-05-28", actualProgress: 100, status: "complete" },
+      { milestoneId: "M4", milestoneName: "M4 - P1 Acceptance", weight: 1, plannedDate: "2025-08-01", actualDate: "2025-07-25", actualProgress: 100, status: "complete" },
+      // M5-M9 after reporting date
+      { milestoneId: "M5", milestoneName: "M5 - P1 Defects", weight: 1, plannedDate: "2026-08-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M6", milestoneName: "M6 - P2 Acceptance", weight: 1, plannedDate: "2026-09-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M7", milestoneName: "M7 - P2 Defects", weight: 1, plannedDate: "2026-10-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M8", milestoneName: "M8 - TOC Certificate", weight: 1, plannedDate: "2026-11-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M9", milestoneName: "M9 - Final TOC", weight: 1, plannedDate: "2026-12-01", actualDate: null, actualProgress: null, status: null },
     ],
     documentSummary: {
       totalDocuments: 8,
@@ -76,15 +81,17 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
     },
     pppStartDate: "2025-02-01",
     milestones: [
-      { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: "2025-03-01", actualDate: "2025-03-15", actualProgress: 100, status: "complete" },
-      { milestoneId: "M2", milestoneName: "M2 - Design Validation", weight: 1, plannedDate: "2025-05-01", actualDate: "2025-06-10", actualProgress: 100, status: "complete" },
-      { milestoneId: "M3", milestoneName: "M3 - Construction Completion", weight: 1, plannedDate: "2025-09-01", actualDate: null, actualProgress: 60, status: "in-progress" },
-      { milestoneId: "M4", milestoneName: "M4 - P1 Acceptance", weight: 1, plannedDate: "2025-11-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M5", milestoneName: "M5 - P1 Defects", weight: 1, plannedDate: "2026-01-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M6", milestoneName: "M6 - P2 Acceptance", weight: 1, plannedDate: "2026-04-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M7", milestoneName: "M7 - P2 Defects", weight: 1, plannedDate: "2026-06-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M8", milestoneName: "M8 - TOC Certificate", weight: 1, plannedDate: "2026-08-01", actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M9", milestoneName: "M9 - Final TOC", weight: 1, plannedDate: "2026-10-01", actualDate: null, actualProgress: null, status: null },
+      // 44% planned, 44% actual at 2026-07-25 (4/9 milestones)
+      { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: "2025-02-15", actualDate: "2025-02-10", actualProgress: 100, status: "complete" },
+      { milestoneId: "M2", milestoneName: "M2 - Design Validation", weight: 1, plannedDate: "2025-04-15", actualDate: "2025-04-10", actualProgress: 100, status: "complete" },
+      { milestoneId: "M3", milestoneName: "M3 - Construction Completion", weight: 1, plannedDate: "2025-06-15", actualDate: "2025-06-10", actualProgress: 100, status: "complete" },
+      { milestoneId: "M4", milestoneName: "M4 - P1 Acceptance", weight: 1, plannedDate: "2025-08-15", actualDate: "2025-08-10", actualProgress: 100, status: "complete" },
+      // M5-M9 after reporting date
+      { milestoneId: "M5", milestoneName: "M5 - P1 Defects", weight: 1, plannedDate: "2026-08-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M6", milestoneName: "M6 - P2 Acceptance", weight: 1, plannedDate: "2026-09-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M7", milestoneName: "M7 - P2 Defects", weight: 1, plannedDate: "2026-10-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M8", milestoneName: "M8 - TOC Certificate", weight: 1, plannedDate: "2026-11-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M9", milestoneName: "M9 - Final TOC", weight: 1, plannedDate: "2026-12-01", actualDate: null, actualProgress: null, status: null },
     ],
     documentSummary: {
       totalDocuments: 5,
@@ -111,15 +118,17 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
     },
     pppStartDate: "2025-03-01",
     milestones: [
-      { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: "2025-04-01", actualDate: "2025-04-05", actualProgress: 100, status: "complete" },
-      { milestoneId: "M2", milestoneName: "M2 - Design Validation", weight: 1, plannedDate: "2025-06-01", actualDate: null, actualProgress: 80, status: "in-progress" },
-      { milestoneId: "M3", milestoneName: "M3 - Construction Completion", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M4", milestoneName: "M4 - P1 Acceptance", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M5", milestoneName: "M5 - P1 Defects", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M6", milestoneName: "M6 - P2 Acceptance", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M7", milestoneName: "M7 - P2 Defects", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M8", milestoneName: "M8 - TOC Certificate", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M9", milestoneName: "M9 - Final TOC", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
+      // 22% planned, 11% actual at 2026-07-25 (2/9 planned, 1/9 actual)
+      { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: "2025-03-01", actualDate: "2025-03-05", actualProgress: 100, status: "complete" },
+      { milestoneId: "M2", milestoneName: "M2 - Design Validation", weight: 1, plannedDate: "2025-05-01", actualDate: null, actualProgress: null, status: null },
+      // M3-M9 after reporting date or null
+      { milestoneId: "M3", milestoneName: "M3 - Construction Completion", weight: 1, plannedDate: "2026-08-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M4", milestoneName: "M4 - P1 Acceptance", weight: 1, plannedDate: "2026-09-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M5", milestoneName: "M5 - P1 Defects", weight: 1, plannedDate: "2026-10-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M6", milestoneName: "M6 - P2 Acceptance", weight: 1, plannedDate: "2026-11-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M7", milestoneName: "M7 - P2 Defects", weight: 1, plannedDate: "2026-12-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M8", milestoneName: "M8 - TOC Certificate", weight: 1, plannedDate: "2027-01-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M9", milestoneName: "M9 - Final TOC", weight: 1, plannedDate: "2027-02-01", actualDate: null, actualProgress: null, status: null },
     ],
     documentSummary: {
       totalDocuments: 3,
@@ -146,15 +155,17 @@ export function createDeterministicTestFixture(): FacilityGovernanceData[] {
     },
     pppStartDate: null,
     milestones: [
-      { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M2", milestoneName: "M2 - Design Validation", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M3", milestoneName: "M3 - Construction Completion", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M4", milestoneName: "M4 - P1 Acceptance", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M5", milestoneName: "M5 - P1 Defects", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M6", milestoneName: "M6 - P2 Acceptance", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M7", milestoneName: "M7 - P2 Defects", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M8", milestoneName: "M8 - TOC Certificate", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
-      { milestoneId: "M9", milestoneName: "M9 - Final TOC", weight: 1, plannedDate: null, actualDate: null, actualProgress: null, status: null },
+      // 33% planned, 0% actual at 2026-07-25 (3/9 planned, 0/9 actual)
+      { milestoneId: "M1", milestoneName: "M1 - Technical Audit", weight: 1, plannedDate: "2025-04-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M2", milestoneName: "M2 - Design Validation", weight: 1, plannedDate: "2025-06-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M3", milestoneName: "M3 - Construction Completion", weight: 1, plannedDate: "2025-08-01", actualDate: null, actualProgress: null, status: null },
+      // M4-M9 after reporting date
+      { milestoneId: "M4", milestoneName: "M4 - P1 Acceptance", weight: 1, plannedDate: "2026-08-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M5", milestoneName: "M5 - P1 Defects", weight: 1, plannedDate: "2026-09-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M6", milestoneName: "M6 - P2 Acceptance", weight: 1, plannedDate: "2026-10-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M7", milestoneName: "M7 - P2 Defects", weight: 1, plannedDate: "2026-11-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M8", milestoneName: "M8 - TOC Certificate", weight: 1, plannedDate: "2026-12-01", actualDate: null, actualProgress: null, status: null },
+      { milestoneId: "M9", milestoneName: "M9 - Final TOC", weight: 1, plannedDate: "2027-01-01", actualDate: null, actualProgress: null, status: null },
     ],
     documentSummary: {
       totalDocuments: 0,
@@ -193,7 +204,7 @@ function formatPercent(value: number | null, decimals: number = 0): string {
 
 
 // Calculate consolidated S-curve from all facilities
-function calculateConsolidatedSCurve(facilities: FacilityPresentationSummary[]): SCurvePoint[] {
+function calculateConsolidatedSCurveLocal(facilities: FacilityPresentationSummary[]): SCurvePoint[] {
   if (facilities.length === 0) return [];
   
   const allDates = new Set<string>();
@@ -378,12 +389,10 @@ function buildSlide2ConsolidatedSCurve(report: GovernancePresentationReport): Pr
   
   elements.push(...buildHeader("Governance Overview"));
   
-  const consolidatedSCurve = calculateConsolidatedSCurve(report.facilities);
-  const lastPoint = consolidatedSCurve.length > 0 
-    ? consolidatedSCurve[consolidatedSCurve.length - 1] 
-    : { planned: null, actual: null };
-  const currentPlanned = lastPoint.planned ?? 0;
-  const currentActual = lastPoint.actual ?? 0;
+  const reportingDateObj = new Date(report.reportingDate);
+  const consolidatedSCurve = calculateConsolidatedSCurveLocal(report.facilities);
+  const currentPlanned = getSCurveValueAtReportingDate(consolidatedSCurve, reportingDateObj, "planned") ?? 0;
+  const currentActual = getSCurveValueAtReportingDate(consolidatedSCurve, reportingDateObj, "actual") ?? 0;
   const variance = currentActual - currentPlanned;
   const portfolioRag = report.facilities.length > 0
     ? report.facilities.every(f => f.status === "green") ? "green"
@@ -526,7 +535,7 @@ function buildSlide2ConsolidatedSCurve(report: GovernancePresentationReport): Pr
   return slides;
 }
 
-function buildSlide3FacilitySCurves(report: GovernancePresentationReport): PresentationSlide[] {
+function buildSlide3FacilitySCurves(report: GovernancePresentationReport, reportingDate: Date): PresentationSlide[] {
   const slides: PresentationSlide[] = [];
   const elements: PresentationElement[] = [];
   
@@ -599,11 +608,8 @@ function buildSlide3FacilitySCurves(report: GovernancePresentationReport): Prese
     } as unknown as PresentationElement);
     
     const statsY = y + 2.35;
-    const lastPoint = f.sCurve.length > 0 
-      ? f.sCurve[f.sCurve.length - 1] 
-      : { planned: null, actual: null };
-    const plannedVal = lastPoint.planned ?? 0;
-    const actualVal = lastPoint.actual ?? 0;
+    const plannedVal = getSCurveValueAtReportingDate(f.sCurve, reportingDate, "planned") ?? 0;
+    const actualVal = getSCurveValueAtReportingDate(f.sCurve, reportingDate, "actual") ?? 0;
     const varVal = actualVal - plannedVal;
     
     elements.push({
@@ -832,7 +838,7 @@ export async function generateGovernancePresentation(
       const slides = [
     ...buildSlide1ExecutiveOverview(emptyReport),
     ...buildSlide2ConsolidatedSCurve(emptyReport),
-    ...buildSlide3FacilitySCurves(emptyReport),
+    ...buildSlide3FacilitySCurves(emptyReport, new Date(emptyReport.reportingDate)),
     ...buildSlide4DeliverablesSummary(emptyReport),
   ];
       
@@ -867,7 +873,7 @@ export async function generateGovernancePresentation(
     const slides = [
     ...buildSlide1ExecutiveOverview(report),
     ...buildSlide2ConsolidatedSCurve(report),
-    ...buildSlide3FacilitySCurves(report),
+    ...buildSlide3FacilitySCurves(report, new Date(report.reportingDate)),
     ...buildSlide4DeliverablesSummary(report),
   ];
     
@@ -930,7 +936,7 @@ export async function generateGovernanceTestPresentation(): Promise<Blob> {
   const slides = [
     ...buildSlide1ExecutiveOverview(report),
     ...buildSlide2ConsolidatedSCurve(report),
-    ...buildSlide3FacilitySCurves(report),
+    ...buildSlide3FacilitySCurves(report, new Date(report.reportingDate)),
     ...buildSlide4DeliverablesSummary(report),
   ];
   

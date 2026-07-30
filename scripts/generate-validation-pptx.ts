@@ -1,63 +1,110 @@
+#!/usr/bin/env node
 /**
- * Governance Presentation Validation Script
- * Generates a deterministic PPTX for visual validation
+ * Generate final validation PPTX for PR #308
+ * 
+ * Usage: npx tsx scripts/generate-validation-pptx.ts
  */
 
-import { fetchGovernanceDataForPresentation } from "../src/modules/presentation-center/governanceData.server";
-import { generateGovernancePresentation } from "../src/modules/presentation-center/governanceGenerator";
 import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
+import {
+  createDeterministicTestFixture,
+} from "../src/modules/presentation-center/governanceGenerator";
+import { buildGovernanceReport } from "../src/modules/presentation-center/governanceTypes";
+import { getSCurveValueAtReportingDate } from "../src/modules/presentation-center/governanceTemplateGenerator";
+import { generateGovernancePresentationAutomizer } from "../src/modules/presentation-center/governanceAutomizer";
 
-async function generateValidationArtifacts() {
-  const reportingDate = new Date("2026-07-25T00:00:00Z");
+const OUTPUT_DIR = join(process.cwd(), "validation-artifacts");
+const REPORTING_DATE = new Date("2026-07-25T00:00:00Z");
+
+async function main() {
+  console.log("=== GOVERNANCE VALIDATION GENERATOR ===\n");
   
-  console.log("Fetching governance data...");
-  const { facilities, summary } = await fetchGovernanceDataForPresentation(reportingDate);
+  // Ensure output directory exists
+  if (!existsSync(OUTPUT_DIR)) {
+    mkdirSync(OUTPUT_DIR, { recursive: true });
+  }
+
+  // Create fixture
+  console.log("1. Creating deterministic fixture...");
+  const facilities = createDeterministicTestFixture();
+  console.log(`   Facilities: ${facilities.length}`);
   
-  console.log(`Found ${facilities.length} facilities`);
-  console.log(`Total documents: ${summary.totalDocuments}`);
+  // Build report
+  console.log("\n2. Building governance report...");
+  const report = buildGovernanceReport(facilities, REPORTING_DATE);
+  console.log(`   Reporting Date: ${report.reportingDate}`);
   
-  // Log deliverable summaries
-  for (const f of facilities) {
-    const ds = f.documentSummary.deliverableSummary;
-    console.log(`\n${f.facility.name}:`);
-    console.log(`  Deliverables: ${ds?.submitted}/${ds?.required} (${ds?.compliancePercent?.toFixed(1)}%)`);
-    console.log(`  Raw uploads: ${f.documentSummary.totalDocuments}`);
+  // Verify fixture values
+  console.log("\n3. Verifying fixture values at 2026-07-25:");
+  let allCorrect = true;
+  
+  const expected = [
+    { slug: "aglipay", name: "AGLIPAY STP", planned: 44, actual: 44 },
+    { slug: "htt", name: "HTT STP", planned: 44, actual: 44 },
+    { slug: "eastbay", name: "EASTBAY PH-2 TP", planned: 22, actual: 11 },
+    { slug: "kaysakat", name: "KAYSAKAT TP", planned: 33, actual: 0 },
+  ];
+  
+  for (const exp of expected) {
+    const f = report.facilities.find(fac => fac.facility.slug === exp.slug);
+    const planned = getSCurveValueAtReportingDate(f!.sCurve, REPORTING_DATE, "planned");
+    const actual = getSCurveValueAtReportingDate(f!.sCurve, REPORTING_DATE, "actual");
+    
+    const plannedOk = planned === exp.planned;
+    const actualOk = actual === exp.actual;
+    
+    console.log(`   ${exp.name}:`);
+    console.log(`     Planned: ${planned}% (expected ${exp.planned}%) ${plannedOk ? "✓" : "✗"}`);
+    console.log(`     Actual: ${actual}% (expected ${exp.actual}%) ${actualOk ? "✓" : "✗"}`);
+    
+    if (!plannedOk || !actualOk) allCorrect = false;
   }
   
-  console.log("\nGenerating presentation...");
-  const pptx = await generateGovernancePresentation(facilities, "2026-07-25");
-  
-  // Ensure artifacts directory exists
-  const artifactsDir = join(process.cwd(), "validation-artifacts");
-  if (!existsSync(artifactsDir)) {
-    mkdirSync(artifactsDir, { recursive: true });
+  if (!allCorrect) {
+    console.error("\n❌ Fixture values are incorrect!");
+    process.exitCode = 1;
+    return;
   }
   
-  // Save PPTX
-  const pptxPath = join(artifactsDir, "governance-validation.pptx");
-  writeFileSync(pptxPath, pptx);
-  console.log(`\nGenerated: ${pptxPath}`);
+  console.log("\n✅ All fixture values correct!");
   
-  // Write summary JSON
-  const summaryPath = join(artifactsDir, "governance-validation-summary.json");
-  const validationSummary = {
-    generatedAt: new Date().toISOString(),
-    reportingDate: "2026-07-25",
-    facilities: facilities.map(f => ({
-      name: f.facility.name,
-      slug: f.facility.slug,
-      deliverables: f.documentSummary.deliverableSummary,
-      documentCount: f.documentSummary.totalDocuments,
-    })),
-  };
-  writeFileSync(summaryPath, JSON.stringify(validationSummary, null, 2));
-  console.log(`Generated: ${summaryPath}`);
+  // Check Slide 4 mode
+  console.log("\n4. Verifying Slide 4 Mode B:");
+  const hasRequirementMatrix = report.facilities.some(f => f.hasRequirementBaseline);
+  console.log(`   Has Requirement Matrix: ${hasRequirementMatrix}`);
+  console.log(`   Mode: ${hasRequirementMatrix ? "A" : "B"} ✓`);
   
-  console.log("\n✅ Validation artifacts generated successfully");
+  // Generate presentation using template
+  console.log("\n5. Generating presentation from template...");
+  try {
+    const buffer = await generateGovernancePresentationAutomizer(report);
+    
+    const outputPath = join(OUTPUT_DIR, "governance-final-validation.pptx");
+    writeFileSync(outputPath, buffer);
+    
+    console.log(`   ✅ Presentation saved: ${outputPath}`);
+    console.log(`   Size: ${(buffer.length / 1024).toFixed(2)} KB`);
+    
+    // Verify file exists
+    if (!existsSync(outputPath)) {
+      console.error("   ❌ File was not created!");
+      process.exitCode = 1;
+      return;
+    }
+    
+    console.log("\n=== VALIDATION COMPLETE ===");
+    console.log("Output:");
+    console.log(`  ${outputPath}`);
+    
+  } catch (error) {
+    console.error("\n❌ Failed to generate presentation:");
+    console.error(error);
+    process.exitCode = 1;
+  }
 }
 
-generateValidationArtifacts().catch(err => {
-  console.error("Failed to generate artifacts:", err);
-  process.exit(1);
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
 });

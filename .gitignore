@@ -43,3 +43,4 @@ coverage/
 
 # Generated dry-run reports
 reports/
+tmp/*.pptx

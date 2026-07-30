@@ -1789,6 +1789,33 @@ app.get("/api/governance/presentation-data", async (c) => {
   }
 });
 
+// GET /api/governance/presentation-v3 - generate V3 presentation
+app.get("/api/governance/presentation-v3", async (c) => {
+  try {
+    const reportingDateParam = c.req.query("reporting_date");
+    const reportingDateStr = reportingDateParam || new Date().toISOString().split("T")[0];
+    const reportingDate = new Date(`${reportingDateStr}T00:00:00Z`);
+    
+    console.log("[GOV-V3] Generating presentation for", reportingDateStr);
+    
+    const { generateGovernanceV3 } = await import("../src/modules/governance-v3/index.server");
+    const { blob } = await generateGovernanceV3({ reportingDate });
+    
+    // Return as arraybuffer for binary response
+    const arrayBuffer = await blob.arrayBuffer();
+    return new Response(arrayBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "Content-Disposition": `attachment; filename="Onboarding-Status-${reportingDateStr}.pptx"`,
+      },
+    });
+  } catch (e: any) {
+    console.error("[GOV-V3] ERROR:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 logBootStage("registering presentation files routes");
 app.route("/api/presentation-files", presentationFilesRouter);
 

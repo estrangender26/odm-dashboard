@@ -1,0 +1,38 @@
+[
+  {
+    "facility": "AGLIPAY STP",
+    "color": "#f97316",
+    "sCurve": [],
+    "currentValues": {
+      "planned": null,
+      "actual": null
+    }
+  },
+  {
+    "facility": "HTT STP",
+    "color": "#3b82f6",
+    "sCurve": [],
+    "currentValues": {
+      "planned": null,
+      "actual": null
+    }
+  },
+  {
+    "facility": "EASTBAY PH-2 TP",
+    "color": "#10b981",
+    "sCurve": [],
+    "currentValues": {
+      "planned": null,
+      "actual": null
+    }
+  },
+  {
+    "facility": "KAYSAKAT TP",
+    "color": "#8b5cf6",
+    "sCurve": [],
+    "currentValues": {
+      "planned": null,
+      "actual": null
+    }
+  }
+]

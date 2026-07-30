@@ -1,0 +1,671 @@
+{
+  "generatedAt": "2026-07-30T07:22:50.929Z",
+  "reportingDate": "2026-07-25",
+  "facilities": [
+    {
+      "slug": "aglipay",
+      "name": "AGLIPAY Sewage Treatment Plant",
+      "shortName": "AGLIPAY STP",
+      "color": "#f97316",
+      "pppStartDate": "2025-03-13",
+      "currentPhase": "PPP",
+      "phaseStatus": "PPP ACTIVE",
+      "milestones": [
+        {
+          "code": "M1",
+          "name": "T&C check sheets complete",
+          "phase": "PRE-PPP",
+          "status": "achieved_ahead",
+          "plannedDate": "2026-03-13",
+          "actualDate": "2025-09-01"
+        },
+        {
+          "code": "M2",
+          "name": "Wet/dry commissioning passed",
+          "phase": "PRE-PPP",
+          "status": "achieved",
+          "actualDate": "2025-11-01"
+        },
+        {
+          "code": "M3",
+          "name": "Defects and punchlist closed",
+          "phase": "PRE-PPP",
+          "status": "achieved",
+          "actualDate": "2026-02-01"
+        },
+        {
+          "code": "M4",
+          "name": "PM task lists in SAP-PM",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M5",
+          "name": "PM/PdM execution started",
+          "phase": "PPP",
+          "status": "achieved",
+          "actualDate": "2026-09-01"
+        },
+        {
+          "code": "M6",
+          "name": "Training completed",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M7",
+          "name": "Plan refined using PPP learnings",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M8",
+          "name": "Contracts and SLAs activated",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M9",
+          "name": "BAU governance established",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        }
+      ],
+      "executiveObservation": "Execution started; 1/3 PPP milestones on track."
+    },
+    {
+      "slug": "htt",
+      "name": "HTT Sewage Treatment Plant",
+      "shortName": "HTT STP",
+      "color": "#3b82f6",
+      "pppStartDate": "2025-03-13",
+      "currentPhase": "PPP",
+      "phaseStatus": "PPP ACTIVE",
+      "milestones": [
+        {
+          "code": "M1",
+          "name": "T&C check sheets complete",
+          "phase": "PRE-PPP",
+          "status": "achieved_ahead",
+          "plannedDate": "2026-03-13",
+          "actualDate": "2025-09-13"
+        },
+        {
+          "code": "M2",
+          "name": "Wet/dry commissioning passed",
+          "phase": "PRE-PPP",
+          "status": "achieved",
+          "actualDate": "2025-11-01"
+        },
+        {
+          "code": "M3",
+          "name": "Defects and punchlist closed",
+          "phase": "PRE-PPP",
+          "status": "achieved",
+          "actualDate": "2026-02-01"
+        },
+        {
+          "code": "M4",
+          "name": "PM task lists in SAP-PM",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M5",
+          "name": "PM/PdM execution started",
+          "phase": "PPP",
+          "status": "achieved",
+          "actualDate": "2026-09-13"
+        },
+        {
+          "code": "M6",
+          "name": "Training completed",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M7",
+          "name": "Plan refined using PPP learnings",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M8",
+          "name": "Contracts and SLAs activated",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M9",
+          "name": "BAU governance established",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        }
+      ],
+      "executiveObservation": "Execution started; 1/3 PPP milestones on track."
+    },
+    {
+      "slug": "eastbay",
+      "name": "EASTBAY Phase 2 Treatment Plant",
+      "shortName": "EASTBAY PH-2 TP",
+      "color": "#10b981",
+      "pppStartDate": "2026-09-01",
+      "currentPhase": "PPP",
+      "phaseStatus": "PPP ACTIVE",
+      "milestones": [
+        {
+          "code": "M1",
+          "name": "T&C check sheets complete",
+          "phase": "PRE-PPP",
+          "status": "achieved_ahead",
+          "plannedDate": "2026-09-01",
+          "actualDate": "2026-03-01"
+        },
+        {
+          "code": "M2",
+          "name": "Wet/dry commissioning passed",
+          "phase": "PRE-PPP",
+          "status": "achieved",
+          "actualDate": "2026-05-01"
+        },
+        {
+          "code": "M3",
+          "name": "Defects and punchlist closed",
+          "phase": "PRE-PPP",
+          "status": "achieved",
+          "actualDate": "2026-08-01"
+        },
+        {
+          "code": "M4",
+          "name": "PM task lists in SAP-PM",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M5",
+          "name": "PM/PdM execution started",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M6",
+          "name": "Training completed",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M7",
+          "name": "Plan refined using PPP learnings",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M8",
+          "name": "Contracts and SLAs activated",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M9",
+          "name": "BAU governance established",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        }
+      ],
+      "executiveObservation": "Execution started; 0/3 PPP milestones on track."
+    },
+    {
+      "slug": "kaysakat",
+      "name": "KAYSAKAT Treatment Plant",
+      "shortName": "KAYSAKAT TP",
+      "color": "#8b5cf6",
+      "pppStartDate": "2026-09-01",
+      "currentPhase": "PRE-PPP",
+      "phaseStatus": "PRE-PPP • RECOVERY",
+      "milestones": [
+        {
+          "code": "M1",
+          "name": "T&C check sheets complete",
+          "phase": "PRE-PPP",
+          "status": "achieved_ahead",
+          "plannedDate": "2026-09-01",
+          "actualDate": "2026-01-30"
+        },
+        {
+          "code": "M2",
+          "name": "Wet/dry commissioning passed",
+          "phase": "PRE-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M3",
+          "name": "Defects and punchlist closed",
+          "phase": "PRE-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M4",
+          "name": "PM task lists in SAP-PM",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M5",
+          "name": "PM/PdM execution started",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M6",
+          "name": "Training completed",
+          "phase": "PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M7",
+          "name": "Plan refined using PPP learnings",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M8",
+          "name": "Contracts and SLAs activated",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        },
+        {
+          "code": "M9",
+          "name": "BAU governance established",
+          "phase": "POST-PPP",
+          "status": "upcoming"
+        }
+      ],
+      "executiveObservation": "KAYSAKAT TP is progressing through PRE-PPP phase."
+    }
+  ],
+  "facilityDocumentation": [
+    {
+      "facilitySlug": "aglipay",
+      "facilityName": "AGLIPAY STP",
+      "submissions": [
+        {
+          "tocId": "1",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "1A",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "1C",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "2",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "3",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "4",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "5",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "6",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "7",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "8",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "9",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "10",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "11",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "12",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "13",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "14",
+          "submitted": false,
+          "documentCount": 0
+        }
+      ],
+      "submittedCount": 0,
+      "requiredCount": 16,
+      "compliancePercent": 0
+    },
+    {
+      "facilitySlug": "htt",
+      "facilityName": "HTT STP",
+      "submissions": [
+        {
+          "tocId": "1",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "1A",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "1C",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "2",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "3",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "4",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "5",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "6",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "7",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "8",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "9",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "10",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "11",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "12",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "13",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "14",
+          "submitted": false,
+          "documentCount": 0
+        }
+      ],
+      "submittedCount": 0,
+      "requiredCount": 16,
+      "compliancePercent": 0
+    },
+    {
+      "facilitySlug": "eastbay",
+      "facilityName": "EASTBAY PH-2 TP",
+      "submissions": [
+        {
+          "tocId": "1",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "1A",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "1C",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "2",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "3",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "4",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "5",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "6",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "7",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "8",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "9",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "10",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "11",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "12",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "13",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "14",
+          "submitted": false,
+          "documentCount": 0
+        }
+      ],
+      "submittedCount": 0,
+      "requiredCount": 16,
+      "compliancePercent": 0
+    },
+    {
+      "facilitySlug": "kaysakat",
+      "facilityName": "KAYSAKAT TP",
+      "submissions": [
+        {
+          "tocId": "1",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "1A",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "1C",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "2",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "3",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "4",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "5",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "6",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "7",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "8",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "9",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "10",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "11",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "12",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "13",
+          "submitted": false,
+          "documentCount": 0
+        },
+        {
+          "tocId": "14",
+          "submitted": false,
+          "documentCount": 0
+        }
+      ],
+      "submittedCount": 0,
+      "requiredCount": 16,
+      "compliancePercent": 0
+    }
+  ],
+  "summary": {
+    "totalFacilities": 4,
+    "facilitiesInPrePpp": 1,
+    "facilitiesInPpp": 3,
+    "facilitiesInPostPpp": 0,
+    "gateReadyCount": 0,
+    "recoveryCount": 1,
+    "totalDocumentsSubmitted": 0,
+    "totalDocumentsRequired": 64,
+    "portfolioCompliancePercent": 0
+  },
+  "executive": {
+    "headline": "KAYSAKAT must close Pre-PPP milestones",
+    "subtitle": "Milestone progress versus the sequence planned from each facility's PPP start date",
+    "nextGateAction": "KAYSAKAT: Complete commissioning check sheets before gate.",
+    "timelineSubtitle": "Calendar-based phase timeline | July 25, 2026",
+    "gateImplication": "KAYSAKAT must complete Pre-PPP before Sep PPP start.",
+    "documentationHeadline": "Documentation readiness is 0%; significant gaps remain",
+    "documentationSubtitle": "Final acceptance requires a fully compliant O&M Manual under the Standard Governance Framework",
+    "portfolioObservation": "KAYSAKAT TP requires acceleration.",
+    "facilityObservations": {
+      "aglipay": "AGLIPAY STP is critical path.",
+      "htt": "HTT STP is critical path.",
+      "eastbay": "EASTBAY PH-2 TP is critical path.",
+      "kaysakat": "KAYSAKAT TP is critical path."
+    }
+  }
+}

@@ -1,0 +1,581 @@
+{
+  "generatedAt": "2026-07-30T05:59:24.783Z",
+  "reportingDate": "2026-07-25",
+  "reportingPeriod": {
+    "start": "2025-02-01",
+    "end": "2026-07-25T00:00:00.000Z"
+  },
+  "portfolio": {
+    "totalFacilities": 4,
+    "overallProgress": 38,
+    "overallCompliance": 0,
+    "submissionCoverageProxy": 0,
+    "requiredMilestoneSubmissionProxy": 0,
+    "totalSubmitted": 16,
+    "totalApproved": 0,
+    "outstandingMilestoneSubmissionProxy": 0,
+    "totalUnmappedDocuments": 16
+  },
+  "facilities": [
+    {
+      "facility": {
+        "slug": "aglipay",
+        "name": "Aglipay STP",
+        "shortName": "AGLIPAY STP",
+        "color": "#f97316"
+      },
+      "pppStartDate": "2025-01-01",
+      "milestones": [
+        {
+          "milestoneId": "M1",
+          "milestoneName": "M1 - Technical Audit",
+          "weight": 1,
+          "plannedDate": "2025-02-01",
+          "actualDate": "2025-01-28",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M2",
+          "milestoneName": "M2 - Design Validation",
+          "weight": 1,
+          "plannedDate": "2025-04-01",
+          "actualDate": "2025-03-30",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M3",
+          "milestoneName": "M3 - Construction Completion",
+          "weight": 1,
+          "plannedDate": "2025-06-01",
+          "actualDate": "2025-05-28",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M4",
+          "milestoneName": "M4 - P1 Acceptance",
+          "weight": 1,
+          "plannedDate": "2025-08-01",
+          "actualDate": "2025-07-25",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M5",
+          "milestoneName": "M5 - P1 Defects",
+          "weight": 1,
+          "plannedDate": "2026-08-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M6",
+          "milestoneName": "M6 - P2 Acceptance",
+          "weight": 1,
+          "plannedDate": "2026-09-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M7",
+          "milestoneName": "M7 - P2 Defects",
+          "weight": 1,
+          "plannedDate": "2026-10-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M8",
+          "milestoneName": "M8 - TOC Certificate",
+          "weight": 1,
+          "plannedDate": "2026-11-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M9",
+          "milestoneName": "M9 - Final TOC",
+          "weight": 1,
+          "plannedDate": "2026-12-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        }
+      ],
+      "documentSummary": {
+        "totalDocuments": 8,
+        "byCategory": {
+          "TOC-01": 2,
+          "TOC-03": 2,
+          "TOC-04": 2,
+          "TOC-08": 2
+        },
+        "byWorkflowStatus": {
+          "accepted": 0,
+          "pendingReview": 8,
+          "returned": 0,
+          "missing": 0,
+          "overdue": 0,
+          "rejected": 0
+        },
+        "latestSubmissionDate": "2026-07-20T10:00:00Z"
+      },
+      "governanceMetrics": {
+        "governanceReadiness": 75,
+        "riskLevel": "Low",
+        "milestones": {
+          "complete": 3,
+          "total": 9
+        },
+        "progress": {
+          "planned": 78,
+          "actual": 75,
+          "variance": -3
+        },
+        "ragStatus": "green"
+      }
+    },
+    {
+      "facility": {
+        "slug": "htt",
+        "name": "HTT STP",
+        "shortName": "HTT STP",
+        "color": "#3b82f6"
+      },
+      "pppStartDate": "2025-02-01",
+      "milestones": [
+        {
+          "milestoneId": "M1",
+          "milestoneName": "M1 - Technical Audit",
+          "weight": 1,
+          "plannedDate": "2025-02-15",
+          "actualDate": "2025-02-10",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M2",
+          "milestoneName": "M2 - Design Validation",
+          "weight": 1,
+          "plannedDate": "2025-04-15",
+          "actualDate": "2025-04-10",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M3",
+          "milestoneName": "M3 - Construction Completion",
+          "weight": 1,
+          "plannedDate": "2025-06-15",
+          "actualDate": "2025-06-10",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M4",
+          "milestoneName": "M4 - P1 Acceptance",
+          "weight": 1,
+          "plannedDate": "2025-08-15",
+          "actualDate": "2025-08-10",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M5",
+          "milestoneName": "M5 - P1 Defects",
+          "weight": 1,
+          "plannedDate": "2026-08-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M6",
+          "milestoneName": "M6 - P2 Acceptance",
+          "weight": 1,
+          "plannedDate": "2026-09-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M7",
+          "milestoneName": "M7 - P2 Defects",
+          "weight": 1,
+          "plannedDate": "2026-10-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M8",
+          "milestoneName": "M8 - TOC Certificate",
+          "weight": 1,
+          "plannedDate": "2026-11-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M9",
+          "milestoneName": "M9 - Final TOC",
+          "weight": 1,
+          "plannedDate": "2026-12-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        }
+      ],
+      "documentSummary": {
+        "totalDocuments": 5,
+        "byCategory": {
+          "TOC-01": 2,
+          "TOC-03": 2,
+          "TOC-04": 1
+        },
+        "byWorkflowStatus": {
+          "accepted": 0,
+          "pendingReview": 5,
+          "returned": 0,
+          "missing": 0,
+          "overdue": 0,
+          "rejected": 0
+        },
+        "latestSubmissionDate": "2026-07-18T14:30:00Z"
+      },
+      "governanceMetrics": {
+        "governanceReadiness": 45,
+        "riskLevel": "Medium",
+        "milestones": {
+          "complete": 2,
+          "total": 9
+        },
+        "progress": {
+          "planned": 67,
+          "actual": 45,
+          "variance": -22
+        },
+        "ragStatus": "amber"
+      }
+    },
+    {
+      "facility": {
+        "slug": "eastbay",
+        "name": "Eastbay PH-2 TP",
+        "shortName": "EASTBAY PH-2 TP",
+        "color": "#10b981"
+      },
+      "pppStartDate": "2025-03-01",
+      "milestones": [
+        {
+          "milestoneId": "M1",
+          "milestoneName": "M1 - Technical Audit",
+          "weight": 1,
+          "plannedDate": "2025-03-01",
+          "actualDate": "2025-03-05",
+          "actualProgress": 100,
+          "status": "complete"
+        },
+        {
+          "milestoneId": "M2",
+          "milestoneName": "M2 - Design Validation",
+          "weight": 1,
+          "plannedDate": "2025-05-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M3",
+          "milestoneName": "M3 - Construction Completion",
+          "weight": 1,
+          "plannedDate": "2026-08-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M4",
+          "milestoneName": "M4 - P1 Acceptance",
+          "weight": 1,
+          "plannedDate": "2026-09-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M5",
+          "milestoneName": "M5 - P1 Defects",
+          "weight": 1,
+          "plannedDate": "2026-10-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M6",
+          "milestoneName": "M6 - P2 Acceptance",
+          "weight": 1,
+          "plannedDate": "2026-11-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M7",
+          "milestoneName": "M7 - P2 Defects",
+          "weight": 1,
+          "plannedDate": "2026-12-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M8",
+          "milestoneName": "M8 - TOC Certificate",
+          "weight": 1,
+          "plannedDate": "2027-01-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M9",
+          "milestoneName": "M9 - Final TOC",
+          "weight": 1,
+          "plannedDate": "2027-02-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        }
+      ],
+      "documentSummary": {
+        "totalDocuments": 3,
+        "byCategory": {
+          "TOC-01": 1,
+          "TOC-02": 1,
+          "TOC-03": 1
+        },
+        "byWorkflowStatus": {
+          "accepted": 0,
+          "pendingReview": 3,
+          "returned": 0,
+          "missing": 0,
+          "overdue": 0,
+          "rejected": 0
+        },
+        "latestSubmissionDate": "2026-07-15T09:00:00Z"
+      },
+      "governanceMetrics": {
+        "governanceReadiness": 30,
+        "riskLevel": "High",
+        "milestones": {
+          "complete": 1,
+          "total": 9
+        },
+        "progress": {
+          "planned": null,
+          "actual": 30,
+          "variance": null
+        },
+        "ragStatus": "red"
+      }
+    },
+    {
+      "facility": {
+        "slug": "kaysakat",
+        "name": "Kaysakat TP",
+        "shortName": "KAYSAKAT TP",
+        "color": "#8b5cf6"
+      },
+      "pppStartDate": null,
+      "milestones": [
+        {
+          "milestoneId": "M1",
+          "milestoneName": "M1 - Technical Audit",
+          "weight": 1,
+          "plannedDate": "2025-04-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M2",
+          "milestoneName": "M2 - Design Validation",
+          "weight": 1,
+          "plannedDate": "2025-06-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M3",
+          "milestoneName": "M3 - Construction Completion",
+          "weight": 1,
+          "plannedDate": "2025-08-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M4",
+          "milestoneName": "M4 - P1 Acceptance",
+          "weight": 1,
+          "plannedDate": "2026-08-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M5",
+          "milestoneName": "M5 - P1 Defects",
+          "weight": 1,
+          "plannedDate": "2026-09-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M6",
+          "milestoneName": "M6 - P2 Acceptance",
+          "weight": 1,
+          "plannedDate": "2026-10-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M7",
+          "milestoneName": "M7 - P2 Defects",
+          "weight": 1,
+          "plannedDate": "2026-11-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M8",
+          "milestoneName": "M8 - TOC Certificate",
+          "weight": 1,
+          "plannedDate": "2026-12-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        },
+        {
+          "milestoneId": "M9",
+          "milestoneName": "M9 - Final TOC",
+          "weight": 1,
+          "plannedDate": "2027-01-01",
+          "actualDate": null,
+          "actualProgress": null,
+          "status": null
+        }
+      ],
+      "documentSummary": {
+        "totalDocuments": 0,
+        "byCategory": {},
+        "byWorkflowStatus": {
+          "accepted": 0,
+          "pendingReview": 0,
+          "returned": 0,
+          "missing": 0,
+          "overdue": 0,
+          "rejected": 0
+        },
+        "latestSubmissionDate": null
+      },
+      "governanceMetrics": {
+        "governanceReadiness": 0,
+        "riskLevel": "High",
+        "milestones": {
+          "complete": 0,
+          "total": 9
+        },
+        "progress": {
+          "planned": null,
+          "actual": 0,
+          "variance": null
+        },
+        "ragStatus": "gray"
+      }
+    }
+  ],
+  "deliverableCompliance": [
+    {
+      "category": "TOC-01",
+      "required": 0,
+      "submitted": 5,
+      "approved": 0,
+      "complianceRate": 0
+    },
+    {
+      "category": "TOC-03",
+      "required": 0,
+      "submitted": 5,
+      "approved": 0,
+      "complianceRate": 0
+    },
+    {
+      "category": "TOC-04",
+      "required": 0,
+      "submitted": 3,
+      "approved": 0,
+      "complianceRate": 0
+    },
+    {
+      "category": "TOC-08",
+      "required": 0,
+      "submitted": 2,
+      "approved": 0,
+      "complianceRate": 0
+    },
+    {
+      "category": "TOC-02",
+      "required": 0,
+      "submitted": 1,
+      "approved": 0,
+      "complianceRate": 0
+    }
+  ],
+  "executiveActions": [
+    {
+      "facility": "HTT STP",
+      "action": "Address significant schedule variance (-22%)",
+      "priority": "critical",
+      "dueDate": null,
+      "owner": null
+    }
+  ],
+  "risks": [
+    {
+      "risk": "1 facility(ies) materially behind schedule",
+      "impact": "high",
+      "mitigation": "Expedite document submissions and milestone completion",
+      "facility": "EASTBAY PH-2 TP"
+    },
+    {
+      "risk": "Insufficient baseline schedule data",
+      "impact": "medium",
+      "mitigation": "Establish project baselines for accurate tracking",
+      "facility": "EASTBAY PH-2 TP, KAYSAKAT TP"
+    },
+    {
+      "risk": "Report uses proxy data sources (see dataQuality flags)",
+      "impact": "low",
+      "mitigation": "Implement workflow status tracking and deliverable requirement matrix",
+      "facility": null
+    }
+  ],
+  "dataQuality": {
+    "weightSource": "equal-fallback",
+    "hasWorkflowStatus": false,
+    "hasRequirementMatrix": false
+  }
+}

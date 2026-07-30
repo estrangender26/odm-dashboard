@@ -1,0 +1,42 @@
+{
+  "validatedAt": "2026-07-27T08:56:30.982246",
+  "templateLoaded": true,
+  "templatePath": "public/templates/governance/governance-master-template.pptx",
+  "outputSlideCount": 4,
+  "expectedSlides": 4,
+  "validationPassed": true,
+  "slide4Checks": {
+    "oldTitleRemoved": true,
+    "amdEzRemoved": true,
+    "newTitlePresent": true
+  },
+  "slides": [
+    {
+      "outputSlide": 1,
+      "sourceSlide": 1,
+      "type": "title"
+    },
+    {
+      "outputSlide": 2,
+      "sourceSlide": 3,
+      "type": "overview"
+    },
+    {
+      "outputSlide": 3,
+      "sourceSlide": 4,
+      "type": "facility"
+    },
+    {
+      "outputSlide": 4,
+      "sourceSlide": 15,
+      "type": "deliverables",
+      "status": "Mode B title applied"
+    }
+  ],
+  "notes": [
+    "Slide 4 title changed from 'Reliability KPI Scorecard' to 'Deliverables Documents Summary'",
+    "AMD/EZ references removed",
+    "Table headers updated (Month\u2192Facility, Compliance\u2192Documents)",
+    "4 slides maintained as required"
+  ]
+}
