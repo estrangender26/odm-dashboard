@@ -19,9 +19,7 @@ import {
   generateOperatorDrivenMaintenanceDeck,
   OPERATOR_DRIVEN_MAINTENANCE_SOURCE_LABEL,
 } from "./odmGenerator";
-import {
-  generateGovernancePresentation,
-} from "./governanceGenerator";
+import { generateGovernanceV3Presentation } from "./governanceV3Integration";
 import {
   ALL_BUSINESS_UNITS_LABEL,
   EXECUTIVE_SCORECARD_TEMPLATE,
@@ -1459,12 +1457,12 @@ const placeholderGenerators: DeckGenerator[] = [
     category: "O&M Manual Governance",
     status: "active",
     slideOutline: [
-      "Executive Dashboard with KPI cards and facility summary table",
-      "S-Curve Analysis by Facility (four panels)",
-      "Submission Coverage Proxy and Executive Actions",
+      "Executive Headline with Facility Milestone Status",
+      "Facility Onboarding Timeline with PPP Start and Today Marker",
+      "O\u0026M Manual Documentation Readiness Matrix",
     ],
     enabled: true,
-    generate: generateGovernancePresentation,
+    generate: generateGovernanceV3Presentation,
   },
   {
     id: "post-ppp-planning",
