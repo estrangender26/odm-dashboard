@@ -92,10 +92,10 @@ function createSlide1(data: GovernanceV3Presentation): Slide {
       let symbol = "";
       let color = "";
       switch (m.status) {
-        case "achieved": symbol = "[OK]"; color = hexColor(MANILA_WATER_COLORS.navy); break;
-        case "achieved_ahead": symbol = "[AHEAD]"; color = hexColor(MANILA_WATER_COLORS.green); break;
-        case "gap": symbol = "[GAP]"; color = hexColor(MANILA_WATER_COLORS.red); break;
-        case "upcoming": symbol = "[UP]"; color = hexColor(MANILA_WATER_COLORS.textGray); break;
+        case "achieved": symbol = "✓"; color = hexColor(MANILA_WATER_COLORS.navy); break;
+        case "achieved_ahead": symbol = "✓"; color = hexColor(MANILA_WATER_COLORS.green); break;
+        case "gap": symbol = "!"; color = hexColor(MANILA_WATER_COLORS.red); break;
+        case "upcoming": symbol = "○"; color = hexColor(MANILA_WATER_COLORS.textGray); break;
       }
       elements.push({ type: "text", text: symbol, x: x, y: facilityY + 0.2, w: 0.8, h: 0.3, fontSize: 8, bold: true, color: color, align: "ctr", fontFace: "Arial" });
     });
@@ -108,10 +108,10 @@ function createSlide1(data: GovernanceV3Presentation): Slide {
   // Legend
   const legendY = 6.0;
   const legendItems = [
-    { symbol: "[OK]", text: "Achieved as planned", color: hexColor(MANILA_WATER_COLORS.navy) },
-    { symbol: "[GAP]", text: "Planned by now—still open", color: hexColor(MANILA_WATER_COLORS.red) },
-    { symbol: "[AHEAD]", text: "Achieved ahead of plan", color: hexColor(MANILA_WATER_COLORS.green) },
-    { symbol: "[UP]", text: "Upcoming milestone", color: hexColor(MANILA_WATER_COLORS.textGray) },
+    { symbol: "✓", text: "Achieved as planned", color: hexColor(MANILA_WATER_COLORS.navy) },
+    { symbol: "!", text: "Planned by now—still open", color: hexColor(MANILA_WATER_COLORS.red) },
+    { symbol: "✓", text: "Achieved ahead of plan", color: hexColor(MANILA_WATER_COLORS.green) },
+    { symbol: "○", text: "Upcoming milestone", color: hexColor(MANILA_WATER_COLORS.textGray) },
   ];
   let legendX = 0.7;
   legendItems.forEach((item) => {
@@ -195,7 +195,7 @@ function createSlide3(data: GovernanceV3Presentation): Slide {
   // Title
   elements.push({ type: "text", text: data.executive.documentationHeadline, x: 0.6, y: 0.3, w: 12, h: 0.5, fontSize: 28, bold: true, color: hexColor(MANILA_WATER_COLORS.navy), fontFace: "Arial" });
   elements.push({ type: "text", text: data.executive.documentationSubtitle, x: 0.7, y: 0.8, w: 11, h: 0.3, fontSize: 12, color: hexColor(MANILA_WATER_COLORS.textGray), fontFace: "Arial" });
-  elements.push({ type: "text", text: "[OK] Submitted = at least one uploaded document for the TOC row    |    — Missing = no document uploaded", x: 0.6, y: 1.1, w: 11, h: 0.2, fontSize: 9, color: hexColor(MANILA_WATER_COLORS.textGray), fontFace: "Arial" });
+  elements.push({ type: "text", text: "✓ Submitted = at least one uploaded document for the TOC row    |    — Missing = no document uploaded", x: 0.6, y: 1.1, w: 11, h: 0.2, fontSize: 9, color: hexColor(MANILA_WATER_COLORS.textGray), fontFace: "Arial" });
   
   // Documentation matrix table
   const tableRows: string[][] = [];
@@ -206,7 +206,7 @@ function createSlide3(data: GovernanceV3Presentation): Slide {
     const row = [tocId];
     data.facilityDocumentation.forEach((doc) => {
       const submission = doc.submissions.find(s => s.tocId === tocId);
-      row.push(submission?.submitted ? "[OK]" : "—");
+      row.push(submission?.submitted ? "✓" : "—");
     });
     tableRows.push(row);
   });
