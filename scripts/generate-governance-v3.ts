@@ -3,7 +3,7 @@
  * Generates the Manila Water branded 3-slide presentation
  */
 
-import { generateGovernanceV3 } from "../src/modules/governance-v3";
+import { generateGovernanceV3 } from "../src/modules/governance-v3/index.server";
 import * as fs from "fs";
 import * as path from "path";
 
