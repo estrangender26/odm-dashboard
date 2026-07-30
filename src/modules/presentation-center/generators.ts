@@ -23,6 +23,9 @@ import {
   generateGovernancePresentation,
 } from "./governanceGenerator";
 import {
+  generateGovernanceV3Presentation,
+} from "@/modules/governance-v3/generator";
+import {
   ALL_BUSINESS_UNITS_LABEL,
   EXECUTIVE_SCORECARD_TEMPLATE,
   getPersistedMonthlyKpiScorecard,
@@ -1434,7 +1437,71 @@ export async function generateMonthlyKpiDeck(
   };
 }
 
+
+/**
+ * Generate Governance V3 presentation (Manila Water template)
+ */
+async function generateGovernanceV3Deck(
+  context: DeckGenerationContext
+): Promise<GeneratedPresentation> {
+  const { generatedBy } = context;
+  
+  // Fetch V3 data from API
+  const today = new Date().toISOString().split("T")[0];
+  const response = await fetch(`/api/governance/presentation-v3?reporting_date=${encodeURIComponent(today)}`);
+  
+  if (!response.ok) {
+    throw new Error(`Failed to fetch V3 governance data: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  
+  if (!data || !data.facilities) {
+    throw new Error("Invalid V3 governance data response");
+  }
+  
+  // Generate the presentation
+  const blob = await generateGovernanceV3Presentation(data);
+  
+  // Convert to data URL
+  const dataUrl = await blobToDataUrl(blob);
+  
+  const generatedAt = new Date().toISOString();
+  const name = `O&M Governance Onboarding Progress - ${data.reportingDate}.pptx`;
+  
+  return {
+    id: `gov-v3-${Date.now()}`,
+    name,
+    type: "pptx",
+    generatedDate: generatedAt,
+    generatedBy: generatedBy || "ODM User",
+    size: blob.size,
+    dataUrl,
+    generatorId: "om-manual-governance-v3",
+    generatorName: "O&M Manual Governance V3 Deck",
+    category: "O&M Manual Governance",
+    dateFrom: data.reportingDate,
+    filename: name,
+    generatedAt,
+  };
+}
+
 const placeholderGenerators: DeckGenerator[] = [
+  {
+    id: "om-manual-governance-v3",
+    title: "O&M Manual Governance V3 Deck",
+    description:
+      "Generate a three-slide executive presentation matching the Manila Water template exactly. Uses live governance data.",
+    category: "O&M Manual Governance",
+    status: "active",
+    slideOutline: [
+      "Executive Dashboard with milestone matrix and status symbols",
+      "Calendar-based phase timeline with PPP markers",
+      "Documentation readiness matrix with compliance summary",
+    ],
+    enabled: true,
+    generate: generateGovernanceV3Deck,
+  },
   {
     id: "om-manual-library",
     title: "O&M Manual Library Deck",
