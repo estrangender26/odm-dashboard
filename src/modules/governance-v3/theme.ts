@@ -1,6 +1,7 @@
 /**
  * Manila Water Theme Specification
  * Extracted from Onboarding Status.pptx
+ * EXECUTIVE POLISH: Minimum 12pt body text
  */
 
 // Color Palette - exact hex values from reference
@@ -40,26 +41,26 @@ export const SLIDE_DIMENSIONS = {
   height: 7.5,
 } as const;
 
-// Font Configuration - exact sizes from reference
+// Font Configuration - EXECUTIVE: Minimum 12pt for body content
 export const FONTS = {
   slideTitle: { size: 28, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
-  slideSubtitle: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
-  phaseHeader: { size: 11, bold: true, color: MANILA_WATER_COLORS.white, face: "Arial" },
-  milestoneCode: { size: 10, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
-  milestoneName: { size: 9, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
-  facilityName: { size: 11, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
-  facilityPhase: { size: 9, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
-  facilityDetail: { size: 8, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  slideSubtitle: { size: 14, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  phaseHeader: { size: 12, bold: true, color: MANILA_WATER_COLORS.white, face: "Arial" },
+  milestoneCode: { size: 12, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
+  milestoneName: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  facilityName: { size: 13, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
+  facilityPhase: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  facilityDetail: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   statusSymbol: { size: 14, bold: true, face: "Arial" },
-  observation: { size: 10, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
-  legend: { size: 10, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
-  calloutLabel: { size: 10, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
-  calloutText: { size: 11, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
-  tableHeader: { size: 10, bold: true, color: MANILA_WATER_COLORS.white, face: "Arial" },
-  tableCell: { size: 9, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
-  sourceNote: { size: 8, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
-  portfolioPercent: { size: 36, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
-  portfolioLabel: { size: 11, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  observation: { size: 12, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
+  legend: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  calloutLabel: { size: 12, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
+  calloutText: { size: 13, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
+  tableHeader: { size: 12, bold: true, color: MANILA_WATER_COLORS.white, face: "Arial" },
+  tableCell: { size: 12, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
+  sourceNote: { size: 10, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  portfolioPercent: { size: 48, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
+  portfolioLabel: { size: 14, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
 } as const;
 
 // Layout Spacing - exact from reference
@@ -79,17 +80,17 @@ export const LAYOUT = {
 export const PHASES = {
   PRE_PPP: { 
     label: "PRE-PPP", 
-    description: "Commissioning readiness",
+    description: "Commissioning",
     color: MANILA_WATER_COLORS.cyan,
   },
   PPP: { 
     label: "PPP", 
-    description: "Execution and capability",
+    description: "Execution",
     color: MANILA_WATER_COLORS.navy,
   },
   POST_PPP: { 
     label: "POST-PPP", 
-    description: "Sustainment and BAU",
+    description: "Sustainment",
     color: MANILA_WATER_COLORS.green,
   },
 } as const;
@@ -98,7 +99,7 @@ export const PHASES = {
 export const MILESTONES = {
   M1: { name: "T&C Complete", phase: "PRE-PPP" },
   M2: { name: "Commissioning", phase: "PRE-PPP" },
-  M3: { name: "Punchlist Closed", phase: "PRE-PPP" },
+  M3: { name: "Punchlist", phase: "PRE-PPP" },
   M4: { name: "PM Setup", phase: "PPP" },
   M5: { name: "PM Execution", phase: "PPP" },
   M6: { name: "Training", phase: "PPP" },

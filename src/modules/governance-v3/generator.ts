@@ -39,6 +39,7 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   pptx.addSlide();
   
   const { facilities, executive, reportingDate } = data;
+  const reportingDateObj = new Date(reportingDate);
   
   // Title
   pptx.addText({
@@ -51,8 +52,7 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   });
   
   // Subtitle
-  const today = new Date(reportingDate);
-  const formattedDate = today.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const formattedDate = reportingDateObj.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   pptx.addText({
     x: 0.52, y: 0.62, w: 11.56, h: 0.25,
     text: `${executive.subtitle} | ${formattedDate}`,
@@ -69,13 +69,11 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   
   const phases = [PHASES.PRE_PPP, PHASES.PPP, PHASES.POST_PPP];
   phases.forEach((phase, i) => {
-    // Phase band background
     pptx.addShape({
       x: phaseStartX[i], y: phaseBandY, w: phaseBandWidth, h: phaseBandHeight,
       fillColor: phase.color,
     });
     
-    // Phase label
     pptx.addText({
       x: phaseStartX[i], y: phaseBandY, w: phaseBandWidth, h: phaseBandHeight,
       text: `${phase.label}  •  ${phase.description}`,
@@ -94,8 +92,6 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   
   Object.entries(MILESTONES).forEach(([code, definition], i) => {
     const x = MILESTONE_X_POSITIONS[i];
-    
-    // Milestone code (M1, M2, etc.)
     const phaseColor = definition.phase === "PRE-PPP" ? "397DA4" : 
                        definition.phase === "PPP" ? "00A9C5" : "169873";
     
@@ -109,9 +105,9 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       align: "center",
     });
     
-    // Milestone name - single line for executive clarity
+    // Milestone name - single line, no wrapping
     pptx.addText({
-      x: x - 0.05, y: milestoneNameY, w: 0.95, h: 0.35,
+      x: x - 0.05, y: milestoneNameY, w: 0.95, h: 0.25,
       text: definition.name,
       fontSize: FONTS.milestoneName.size,
       color: MANILA_WATER_COLORS.textDark,
@@ -126,7 +122,12 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   const facilityRowHeight = 0.88;
   
   facilities.forEach((facility) => {
-    // Row background (alternating)
+    // Check if PPP start is in the future
+    const pppStart = new Date(facility.pppStartDate);
+    const isFuturePpp = pppStart > reportingDateObj;
+    const effectiveStatus = isFuturePpp ? "PRE-PPP • IN PROGRESS" : facility.phaseStatus;
+    
+    // Row background
     const rowBg = facilityY % 1.76 > 1.0 ? MANILA_WATER_COLORS.rowBlue : undefined;
     if (rowBg) {
       pptx.addShape({
@@ -135,8 +136,9 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       });
     }
     
-    // Phase indicator column
-    const phaseColor = facility.currentPhase === "PRE-PPP" ? MANILA_WATER_COLORS.cyan :
+    // Phase indicator
+    const phaseColor = isFuturePpp ? MANILA_WATER_COLORS.cyan :
+                       facility.currentPhase === "PRE-PPP" ? MANILA_WATER_COLORS.cyan :
                        facility.currentPhase === "PPP" ? MANILA_WATER_COLORS.cyan :
                        MANILA_WATER_COLORS.green;
     
@@ -156,12 +158,12 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     });
     
     // Phase status
-    const phaseStatusColor = facility.phaseStatus.includes("RECOVERY") ? MANILA_WATER_COLORS.red :
-                              facility.phaseStatus.includes("PPP") ? MANILA_WATER_COLORS.cyan :
+    const phaseStatusColor = effectiveStatus.includes("RECOVERY") ? MANILA_WATER_COLORS.red :
+                              effectiveStatus.includes("PPP") ? MANILA_WATER_COLORS.cyan :
                               "397DA4";
     pptx.addText({
       x: 0.65, y: facilityY + 0.21, w: 2.19, h: 0.18,
-      text: facility.phaseStatus,
+      text: effectiveStatus,
       fontSize: FONTS.facilityPhase.size,
       color: phaseStatusColor,
       fontFace: FONTS.facilityPhase.face,
@@ -182,7 +184,6 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       const x = MILESTONE_X_POSITIONS[i];
       const status = STATUS_SYMBOLS[milestone.status];
       
-      // Status circle background
       if (status.bgColor) {
         pptx.addShape({
           x: x + 0.35, y: facilityY + 0.22, w: 0.23, h: 0.25,
@@ -190,7 +191,6 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
         });
       }
       
-      // Status symbol
       if (status.symbol) {
         pptx.addText({
           x: x + 0.35, y: facilityY + 0.22, w: 0.23, h: 0.25,
@@ -219,7 +219,7 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     facilityY += facilityRowHeight;
   });
   
-  // Executive Legend - Compact graphical indicators
+  // Executive Legend
   const legendY = 6.0;
   const legendItems = [
     { symbol: "✓", color: "169873", label: "Completed" },
@@ -230,7 +230,6 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   
   let legendX = 2.82;
   legendItems.forEach((item) => {
-    // Symbol background
     const bgColor = item.label === "Completed" ? "169873" : 
                     item.label === "Ahead" ? "007DA7" : 
                     item.label === "Delayed" ? "FDECEF" : "EEF2F5";
@@ -239,12 +238,11 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       fillColor: bgColor,
     });
     
-    // Symbol
     const symbolColor = item.label === "Delayed" ? MANILA_WATER_COLORS.red : MANILA_WATER_COLORS.white;
     pptx.addText({
       x: legendX, y: legendY + 0.02, w: 0.20, h: 0.20,
       text: item.symbol,
-      fontSize: 10,
+      fontSize: 11,
       bold: true,
       color: symbolColor,
       fontFace: "Arial",
@@ -252,7 +250,6 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       valign: "middle",
     });
     
-    // Label
     pptx.addText({
       x: legendX + 0.25, y: legendY, w: 1.0, h: 0.25,
       text: item.label,
@@ -288,17 +285,18 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   });
 }
 
+
 /**
  * Slide 2: Current PPP Position by Facility
  * Executive timeline showing progress from PPP Start to Today
  */
 function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): void {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   pptx.addSlide();
   
-  const { facilities, reportingDate } = data;
+  const { facilities, executive, reportingDate } = data;
+  const reportingDateObj = new Date(reportingDate);
   
-  // Title - Executive focus
+  // Title
   pptx.addText({
     x: 0.50, y: 0.19, w: 12.33, h: 0.44,
     text: "Current PPP Position by Facility",
@@ -309,8 +307,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   });
   
   // Subtitle
-  const today = new Date(reportingDate);
-  const formattedDate = today.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
+  const formattedDate = reportingDateObj.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
   pptx.addText({
     x: 0.52, y: 0.62, w: 11.56, h: 0.25,
     text: `PPP Progress from Start Date to Today | ${formattedDate}`,
@@ -338,7 +335,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     pptx.addText({
       x: x, y: phaseHeaderY + 0.02, w: 1.30, h: 0.27,
       text: phase.label,
-      fontSize: 11,
+      fontSize: 12,
       bold: true,
       color: phase.textColor,
       fontFace: "Arial",
@@ -349,7 +346,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     pptx.addText({
       x: x + 1.35, y: phaseHeaderY + 0.04, w: 1.80, h: 0.27,
       text: phase.desc,
-      fontSize: 9,
+      fontSize: 12,
       color: MANILA_WATER_COLORS.textDark,
       fontFace: "Arial",
       valign: "middle",
@@ -357,7 +354,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   });
   
   // Timeline axis
-  const timelineY = 5.8;
+  const timelineY = 5.5;
   const tickXStart = 2.38;
   const tickXSpacing = 1.61;
   const ticks = ["JUL 2025", "JAN 2026", "JUL 2026", "JAN 2027", "JUL 2027", "JAN 2028", "MAY 2028"];
@@ -371,17 +368,15 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   ticks.forEach((tick, i) => {
     const x = tickXStart + i * tickXSpacing;
     
-    // Tick mark
     pptx.addShape({
       x: x, y: timelineY - 0.05, w: 0.02, h: 0.12,
       fillColor: MANILA_WATER_COLORS.textGray,
     });
     
-    // Tick label
     pptx.addText({
       x: x - 0.44, y: timelineY + 0.08, w: 0.88, h: 0.19,
       text: tick,
-      fontSize: 8,
+      fontSize: 11,
       color: MANILA_WATER_COLORS.textGray,
       fontFace: "Arial",
       align: "center",
@@ -389,22 +384,48 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     });
   });
   
-  // TODAY marker - prominent red indicator
+  // TODAY marker
   const todayX = tickXStart + 2 * tickXSpacing; // Position at JUL 2026
   pptx.addShape({
-    x: todayX - 0.05, y: 1.5, w: 0.10, h: 4.4,
+    x: todayX - 0.02, y: 1.5, w: 0.04, h: 4.0,
     fillColor: MANILA_WATER_COLORS.red,
   });
   
-  const todayLabel = `TODAY ${today.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase()}`;
+  const todayLabel = `TODAY ${reportingDateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase()}`;
   pptx.addText({
-    x: todayX - 0.50, y: 1.5, w: 1.0, h: 0.22,
+    x: todayX - 0.60, y: 1.5, w: 1.2, h: 0.22,
     text: todayLabel,
-    fontSize: 9,
+    fontSize: 11,
     bold: true,
     color: MANILA_WATER_COLORS.red,
     fontFace: "Arial",
     align: "center",
+  });
+  
+  // Legend for timeline
+  const legendY = 1.55;
+  pptx.addShape({
+    x: 10.5, y: legendY, w: 0.25, h: 0.15,
+    fillColor: MANILA_WATER_COLORS.cyan,
+  });
+  pptx.addText({
+    x: 10.8, y: legendY, w: 2.0, h: 0.15,
+    text: "= PPP Period",
+    fontSize: 11,
+    color: MANILA_WATER_COLORS.textGray,
+    fontFace: "Arial",
+  });
+  
+  pptx.addShape({
+    x: 10.5, y: legendY + 0.20, w: 0.25, h: 0.15,
+    fillColor: MANILA_WATER_COLORS.navyDark,
+  });
+  pptx.addText({
+    x: 10.8, y: legendY + 0.20, w: 2.0, h: 0.15,
+    text: "= PPP Start",
+    fontSize: 11,
+    color: MANILA_WATER_COLORS.textGray,
+    fontFace: "Arial",
   });
   
   // Facility timeline rows
@@ -412,7 +433,10 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   const facilityRowHeight = 0.95;
   
   facilities.forEach((facility) => {
-    // Timeline bar background (light gray)
+    const pppDate = new Date(facility.pppStartDate);
+    const isFuturePpp = pppDate > reportingDateObj;
+    
+    // Timeline bar background
     pptx.addShape({
       x: tickXStart, y: facilityY + 0.25, w: tickXSpacing * 6, h: 0.15,
       fillColor: "EEF2F5",
@@ -428,62 +452,89 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       fontFace: FONTS.facilityName.face,
     });
     
-    // PPP Start marker
-    const pppDate = new Date(facility.pppStartDate);
-    const monthsSince2025 = (pppDate.getFullYear() - 2025) * 12 + pppDate.getMonth();
-    const pppOffset = Math.max(0, monthsSince2025 - 6) / 6; // Approximate positioning
-    const pppX = tickXStart + pppOffset * tickXSpacing;
-    
     // PPP Start label
     const pppFormatted = pppDate.toLocaleDateString("en-US", { month: "short", year: "numeric" }).toUpperCase();
     pptx.addText({
       x: 0.50, y: facilityY + 0.28, w: 2.19, h: 0.20,
       text: `PPP: ${pppFormatted}`,
-      fontSize: 9,
+      fontSize: 12,
       color: MANILA_WATER_COLORS.textGray,
       fontFace: "Arial",
     });
     
-    // PPP Start marker (triangle)
+    // Calculate X position based on date
+    // Base: July 2025 = tickXStart, then each 6 months = tickXSpacing
+    const monthsSinceJuly2025 = (pppDate.getFullYear() - 2025) * 12 + (pppDate.getMonth() - 6);
+    const pppX = tickXStart + (monthsSinceJuly2025 / 6) * tickXSpacing;
+    const clampedPppX = Math.max(tickXStart, Math.min(pppX, tickXStart + tickXSpacing * 6));
+    
+    // PPP Start marker (triangle shape simulation with rect)
     pptx.addShape({
-      x: pppX - 0.08, y: facilityY + 0.22, w: 0.16, h: 0.20,
+      x: clampedPppX - 0.08, y: facilityY + 0.20, w: 0.16, h: 0.25,
       fillColor: MANILA_WATER_COLORS.navyDark,
     });
     
-    // Progress bar from PPP Start to Today
-    const progressWidth = todayX - pppX;
-    if (progressWidth > 0) {
-      const progressColor = facility.phaseStatus.includes("RECOVERY") ? MANILA_WATER_COLORS.red :
-                            facility.phaseStatus.includes("PPP") ? MANILA_WATER_COLORS.cyan :
-                            MANILA_WATER_COLORS.green;
+    // Draw PPP period bar (from PPP start to PPP end - 12 months later)
+    const pppEnd = new Date(pppDate);
+    pppEnd.setMonth(pppEnd.getMonth() + 12);
+    const monthsDuration = 12;
+    const barWidth = (monthsDuration / 6) * tickXSpacing;
+    
+    // Only show bar up to today if PPP has started, or just planned bar if future
+    if (!isFuturePpp) {
+      // Progress bar from PPP start to today (or full year if completed)
+      const endX = Math.min(todayX, clampedPppX + barWidth);
+      const progressWidth = endX - clampedPppX;
       
+      if (progressWidth > 0) {
+        const progressColor = facility.phaseStatus.includes("RECOVERY") ? MANILA_WATER_COLORS.red :
+                              facility.phaseStatus.includes("PPP") ? MANILA_WATER_COLORS.cyan :
+                              MANILA_WATER_COLORS.green;
+        
+        pptx.addShape({
+          x: clampedPppX, y: facilityY + 0.25, w: progressWidth, h: 0.15,
+          fillColor: progressColor,
+        });
+      }
+      
+      // Status label
+      const statusColor = facility.phaseStatus.includes("RECOVERY") ? MANILA_WATER_COLORS.red :
+                          facility.phaseStatus.includes("PPP") ? MANILA_WATER_COLORS.cyan :
+                          "397DA4";
+      pptx.addText({
+        x: todayX + 0.15, y: facilityY + 0.20, w: 2.50, h: 0.25,
+        text: facility.phaseStatus,
+        fontSize: 12,
+        bold: true,
+        color: statusColor,
+        fontFace: "Arial",
+      });
+    } else {
+      // Future PPP - show planned period as outline/faded
       pptx.addShape({
-        x: pppX, y: facilityY + 0.25, w: progressWidth, h: 0.15,
-        fillColor: progressColor,
+        x: clampedPppX, y: facilityY + 0.25, w: barWidth, h: 0.15,
+        fillColor: "D3DEE8",
+      });
+      
+      // Status label for future
+      pptx.addText({
+        x: todayX + 0.15, y: facilityY + 0.20, w: 2.50, h: 0.25,
+        text: "PRE-PPP IN PROGRESS",
+        fontSize: 12,
+        bold: true,
+        color: "397DA4",
+        fontFace: "Arial",
       });
     }
     
-    // Current status label
-    const statusColor = facility.phaseStatus.includes("RECOVERY") ? MANILA_WATER_COLORS.red :
-                        facility.phaseStatus.includes("PPP") ? MANILA_WATER_COLORS.cyan :
-                        "397DA4";
-    pptx.addText({
-      x: todayX + 0.15, y: facilityY + 0.20, w: 2.50, h: 0.25,
-      text: facility.phaseStatus,
-      fontSize: 9,
-      bold: true,
-      color: statusColor,
-      fontFace: "Arial",
-    });
-    
-    // Milestone count indicator
+    // Milestone count
     const completedMilestones = facility.milestones.filter(m => 
       m.status === "achieved" || m.status === "achieved_ahead"
     ).length;
     pptx.addText({
       x: todayX + 0.15, y: facilityY + 0.45, w: 2.50, h: 0.20,
       text: `${completedMilestones}/9 milestones`,
-      fontSize: 8,
+      fontSize: 11,
       color: MANILA_WATER_COLORS.textGray,
       fontFace: "Arial",
     });
@@ -491,10 +542,25 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     facilityY += facilityRowHeight;
   });
   
+  // Executive implication at bottom
+  pptx.addShape({
+    x: 0.50, y: 6.5, w: 12.33, h: 0.40,
+    fillColor: MANILA_WATER_COLORS.rowBlue,
+    lineColor: MANILA_WATER_COLORS.border,
+  });
+  
+  pptx.addText({
+    x: 0.65, y: 6.55, w: 12.0, h: 0.35,
+    text: executive.gateImplication,
+    fontSize: 12,
+    color: MANILA_WATER_COLORS.textDark,
+    fontFace: "Arial",
+  });
+  
   // Source note
   pptx.addText({
     x: 0.60, y: 7.05, w: 7.00, h: 0.18,
-    text: `Sources: O&M Manual Governance module`,
+    text: "Sources: O&M Manual Governance module",
     fontSize: FONTS.sourceNote.size,
     color: MANILA_WATER_COLORS.textGray,
     fontFace: FONTS.sourceNote.face,
@@ -504,7 +570,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
 
 /**
  * Slide 3: Documentation Readiness
- * Portfolio compliance as primary visual focus
+ * Portfolio compliance as primary visual focus - FIXED LAYOUT
  */
 function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): void {
   pptx.addSlide();
@@ -531,32 +597,31 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   });
   
   // Source note
-  const today = new Date();
   pptx.addText({
     x: 0.60, y: 7.05, w: 7.00, h: 0.18,
-    text: `Sources: O&M Manual Governance module • IOM dated ${today.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" })}`,
+    text: `Sources: O&M Manual Governance module`,
     fontSize: FONTS.sourceNote.size,
     color: MANILA_WATER_COLORS.textGray,
     fontFace: FONTS.sourceNote.face,
   });
   
-  // Portfolio Readiness - PRIMARY VISUAL FOCUS (large left side)
-  const portfolioX = 0.56;
-  const portfolioY = 1.2;
-  const portfolioWidth = 4.5;
-  const portfolioHeight = 2.8;
+  // LEFT SIDE: Portfolio Readiness (primary focus) + Facility Compliance
+  const leftPanelX = 0.56;
+  const leftPanelWidth = 4.2;
   
-  // Portfolio box with prominence
+  // Portfolio Readiness box
+  const portfolioY = 1.1;
+  const portfolioHeight = 2.4;
+  
   pptx.addShape({
-    x: portfolioX, y: portfolioY, w: portfolioWidth, h: portfolioHeight,
+    x: leftPanelX, y: portfolioY, w: leftPanelWidth, h: portfolioHeight,
     fillColor: MANILA_WATER_COLORS.rowBlue,
     lineColor: MANILA_WATER_COLORS.navy,
     lineWidth: 2,
   });
   
-  // PORTFOLIO READINESS label
   pptx.addText({
-    x: portfolioX + 0.2, y: portfolioY + 0.2, w: portfolioWidth - 0.4, h: 0.35,
+    x: leftPanelX + 0.15, y: portfolioY + 0.15, w: leftPanelWidth - 0.3, h: 0.30,
     text: "PORTFOLIO READINESS",
     fontSize: FONTS.portfolioLabel.size,
     bold: true,
@@ -564,9 +629,8 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     fontFace: "Arial",
   });
   
-  // Large percentage
   pptx.addText({
-    x: portfolioX, y: portfolioY + 0.6, w: portfolioWidth, h: 1.2,
+    x: leftPanelX, y: portfolioY + 0.55, w: leftPanelWidth, h: 1.0,
     text: `${summary.portfolioCompliancePercent}%`,
     fontSize: FONTS.portfolioPercent.size,
     bold: FONTS.portfolioPercent.bold,
@@ -576,111 +640,50 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     valign: "middle",
   });
   
-  // Submitted count
   pptx.addText({
-    x: portfolioX, y: portfolioY + 1.9, w: portfolioWidth, h: 0.35,
+    x: leftPanelX, y: portfolioY + 1.6, w: leftPanelWidth, h: 0.30,
     text: `${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} Deliverables Complete`,
-    fontSize: 11,
+    fontSize: 13,
     color: MANILA_WATER_COLORS.textGray,
     fontFace: "Arial",
     align: "center",
   });
   
-  // Legend
+  // Legend below portfolio
   pptx.addText({
-    x: portfolioX, y: portfolioY + 2.4, w: portfolioWidth, h: 0.25,
+    x: leftPanelX + 0.2, y: portfolioY + 2.0, w: leftPanelWidth - 0.4, h: 0.25,
     text: "✓ Submitted    |    — Missing",
-    fontSize: 9,
+    fontSize: 12,
     color: MANILA_WATER_COLORS.textGray,
     fontFace: "Arial",
     align: "center",
   });
   
-  // TOC Matrix table - reduced visual dominance (right side, smaller)
-  const tableX = 5.5;
-  const tableY = 1.2;
-  const tableWidth = 7.3;
+  // Facility Compliance section (moved below portfolio, not overlapping)
+  const complianceY = portfolioY + portfolioHeight + 0.25;
   
-  // Legend above table
   pptx.addText({
-    x: tableX, y: tableY - 0.3, w: tableWidth, h: 0.25,
-    text: "Governance TOC Submission Matrix",
-    fontSize: 10,
-    bold: true,
-    color: MANILA_WATER_COLORS.navy,
-    fontFace: "Arial",
-  });
-  
-  const tableRows: Array<Array<{ text: string; options?: Record<string, string | number | boolean | undefined> }>> = [];
-  
-  // Header row
-  const headerRow = [
-    { text: "TOC", options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center" } },
-    ...facilities.map(f => ({ 
-      text: f.shortName.toUpperCase().replace(" SEWAGE TREATMENT PLANT", "").replace(" TREATMENT PLANT", "").substring(0, 8), 
-      options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center" } 
-    })),
-  ];
-  tableRows.push(headerRow);
-  
-  // TOC rows - show first 8 only for cleaner view
-  GOVERNANCE_TOC_ITEMS.slice(0, 8).forEach(tocId => {
-    const row = [
-      { text: tocId, options: { align: "center", bold: true } },
-      ...facilities.map(f => {
-        const doc = facilityDocumentation.find(d => d.facilitySlug === f.slug);
-        const submitted = doc?.submissions.find(s => s.tocId === tocId)?.submitted ?? false;
-        return { 
-          text: submitted ? "✓" : "—", 
-          options: { 
-            align: "center",
-            color: submitted ? MANILA_WATER_COLORS.green : MANILA_WATER_COLORS.textGray,
-            bold: submitted,
-          } 
-        };
-      }),
-    ];
-    tableRows.push(row);
-  });
-  
-  // Calculate column widths
-  const colWidth = 1.2;
-  const colWidths = [0.7, ...facilities.map(() => colWidth)];
-  
-  pptx.addTable({
-    x: tableX, y: tableY, w: tableWidth, h: 3.5,
-    rows: tableRows,
-    colWidths: colWidths,
-    fontSize: 10,
-    borderColor: MANILA_WATER_COLORS.border,
-    headerFill: MANILA_WATER_COLORS.navy,
-  });
-  
-  // Facility compliance boxes (below portfolio, right side)
-  const boxX = 5.5;
-  let boxY = 4.8;
-  const boxWidth = 1.75;
-  const boxHeight = 0.60;
-  
-  // Header for facility compliance
-  pptx.addText({
-    x: boxX, y: boxY - 0.35, w: 4.0, h: 0.25,
+    x: leftPanelX, y: complianceY, w: leftPanelWidth, h: 0.25,
     text: "Facility Compliance",
-    fontSize: 10,
+    fontSize: 13,
     bold: true,
     color: MANILA_WATER_COLORS.navy,
     fontFace: "Arial",
   });
   
   // Facility boxes - 2x2 grid
+  const boxWidth = 1.95;
+  const boxHeight = 0.60;
+  const boxSpacing = 0.08;
+  
   facilityDocumentation.forEach((doc, index) => {
     const facility = facilities.find(f => f.slug === doc.facilitySlug);
     if (!facility) return;
     
     const col = index % 2;
     const row = Math.floor(index / 2);
-    const x = boxX + col * (boxWidth + 0.1);
-    const y = boxY + row * (boxHeight + 0.1);
+    const x = leftPanelX + col * (boxWidth + boxSpacing);
+    const y = complianceY + 0.35 + row * (boxHeight + boxSpacing);
     
     const color = doc.compliancePercent >= 70 ? MANILA_WATER_COLORS.rowGreen :
                   doc.compliancePercent >= 40 ? MANILA_WATER_COLORS.rowBlue :
@@ -692,48 +695,123 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       lineColor: MANILA_WATER_COLORS.border,
     });
     
+    // Facility short name (truncated)
+    const shortFacilityName = facility.shortName
+      .replace(" Sewage Treatment Plant", "")
+      .replace(" Treatment Plant", "")
+      .substring(0, 10);
+    
     pptx.addText({
-      x: x + 0.08, y: y + 0.06, w: boxWidth - 0.16, h: 0.18,
-      text: facility.shortName.toUpperCase().replace(" SEWAGE TREATMENT PLANT", "").substring(0, 12),
-      fontSize: 8,
+      x: x + 0.08, y: y + 0.06, w: boxWidth - 0.16, h: 0.20,
+      text: shortFacilityName.toUpperCase(),
+      fontSize: 10,
       bold: true,
       color: MANILA_WATER_COLORS.navy,
       fontFace: "Arial",
     });
     
     pptx.addText({
-      x: x + 0.08, y: y + 0.28, w: boxWidth - 0.16, h: 0.22,
+      x: x + 0.08, y: y + 0.30, w: boxWidth - 0.16, h: 0.22,
       text: `${doc.compliancePercent}%`,
-      fontSize: 14,
+      fontSize: 16,
       bold: true,
       color: MANILA_WATER_COLORS.navy,
       fontFace: "Arial",
     });
   });
   
-  // Executive Observation box - full width below
+  // RIGHT SIDE: TOC Matrix (smaller, showing actual data)
+  const tableX = 5.2;
+  const tableY = 1.1;
+  const tableWidth = 7.6;
+  
+  pptx.addText({
+    x: tableX, y: tableY - 0.05, w: tableWidth, h: 0.25,
+    text: "Governance TOC Submission Matrix",
+    fontSize: 13,
+    bold: true,
+    color: MANILA_WATER_COLORS.navy,
+    fontFace: "Arial",
+  });
+  
+  const tableRows: Array<Array<{ text: string; options?: Record<string, string | number | boolean | undefined> }>> = [];
+  
+  // Header row
+  const headerRow = [
+    { text: "TOC", options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center" } },
+    ...facilities.map(f => ({ 
+      text: f.shortName
+        .replace(" Sewage Treatment Plant", "")
+        .replace(" Treatment Plant", "")
+        .substring(0, 6), 
+      options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center" } 
+    })),
+  ];
+  tableRows.push(headerRow);
+  
+  // TOC rows - show first 10 items with actual data
+  GOVERNANCE_TOC_ITEMS.slice(0, 10).forEach(tocId => {
+    const row = [
+      { text: tocId, options: { align: "center", bold: true } },
+      ...facilities.map(f => {
+        const doc = facilityDocumentation.find(d => d.facilitySlug === f.slug);
+        const submission = doc?.submissions.find(s => s.tocId === tocId);
+        const submitted = submission?.submitted ?? false;
+        // const docCount = submission?.documentCount ?? 0;
+        
+        // Show checkmark if submitted, dash if not
+        // Show partial indicator if some documents exist
+        let symbol = submitted ? "✓" : "—";
+        let color = submitted ? MANILA_WATER_COLORS.green : MANILA_WATER_COLORS.textGray;
+        
+        return { 
+          text: symbol, 
+          options: { 
+            align: "center",
+            color: color,
+            bold: submitted,
+          } 
+        };
+      }),
+    ];
+    tableRows.push(row);
+  });
+  
+  const colWidth = 1.15;
+  const colWidths = [0.7, ...facilities.map(() => colWidth)];
+  
+  pptx.addTable({
+    x: tableX, y: tableY + 0.25, w: tableWidth, h: 4.0,
+    rows: tableRows,
+    colWidths: colWidths,
+    fontSize: 12,
+    borderColor: MANILA_WATER_COLORS.border,
+    headerFill: MANILA_WATER_COLORS.navy,
+  });
+  
+  // Executive Observation box - FULL WIDTH at bottom
   const obsY = 6.0;
   const obsWidth = 12.3;
   
   pptx.addShape({
-    x: portfolioX, y: obsY, w: obsWidth, h: 0.85,
+    x: leftPanelX, y: obsY, w: obsWidth, h: 0.90,
     fillColor: MANILA_WATER_COLORS.rowBlue,
     lineColor: MANILA_WATER_COLORS.border,
   });
   
   pptx.addText({
-    x: portfolioX + 0.12, y: obsY + 0.08, w: obsWidth - 0.24, h: 0.20,
+    x: leftPanelX + 0.12, y: obsY + 0.10, w: obsWidth - 0.24, h: 0.22,
     text: "EXECUTIVE OBSERVATION",
-    fontSize: 9,
+    fontSize: 12,
     bold: true,
     color: MANILA_WATER_COLORS.navy,
     fontFace: "Arial",
   });
   
   pptx.addText({
-    x: portfolioX + 0.12, y: obsY + 0.32, w: obsWidth - 0.24, h: 0.45,
+    x: leftPanelX + 0.12, y: obsY + 0.35, w: obsWidth - 0.24, h: 0.50,
     text: executive.portfolioObservation,
-    fontSize: 10,
+    fontSize: 12,
     color: MANILA_WATER_COLORS.textDark,
     fontFace: "Arial",
   });
