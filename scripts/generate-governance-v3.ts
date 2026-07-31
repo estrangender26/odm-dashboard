@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { fetchGovernanceV3Data } from "../src/modules/governance-v3/adapter.server";
 import { generateGovernanceV3Presentation } from "../src/modules/governance-v3/generator";
 import { writeFileSync } from "fs";
@@ -31,7 +32,7 @@ async function main() {
     console.log("\nGenerating presentation...");
     const blob = await generateGovernanceV3Presentation(data);
     
-    const outputPath = `./tmp/governance-v3-${data.reportingDate}.pptx`;
+    const outputPath = "./OM-Governance-Onboarding-Progress-TEST.pptx";
     const arrayBuffer = await blob.arrayBuffer();
     writeFileSync(outputPath, Buffer.from(arrayBuffer));
     

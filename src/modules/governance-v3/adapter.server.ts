@@ -23,7 +23,7 @@ import type {
   PhaseType,
   FacilityPhaseStatus,
 } from "./types";
-import { MILESTONES, GOVERNANCE_TOC_ITEMS, getFacilityColor } from "./theme";
+import { MILESTONES, GOVERNANCE_TOC_ITEMS, PRESENTATION_FACILITIES, getFacilityColor } from "./theme";
 import { generateExecutiveContent } from "./executive";
 
 /**
@@ -114,10 +114,10 @@ function determinePhaseStatus(
 }
 
 /**
- * Fetch all facilities from database
+ * Fetch the four canonical presentation facilities in fixed order.
  */
-async function fetchFacilitiesFromDB() {
-  return await db
+async function fetchPresentationFacilities() {
+  const rows = await db
     .select({
       id: governanceFacilities.id,
       slug: governanceFacilities.slug,
@@ -125,8 +125,24 @@ async function fetchFacilitiesFromDB() {
       shortName: governanceFacilities.shortName,
     })
     .from(governanceFacilities)
-    .orderBy(governanceFacilities.name);
+    .where(inArray(governanceFacilities.slug, [...PRESENTATION_FACILITIES]));
+
+  const bySlug = new Map(rows.map(f => [f.slug, f]));
+
+  // Map back to canonical order
+  const ordered: typeof rows = [];
+  for (const slug of PRESENTATION_FACILITIES) {
+    const facility = bySlug.get(slug);
+    if (!facility) {
+      throw new Error(
+        `[PRESENTATION SCOPE] Required facility "${slug}" is missing from governance_facilities. The Governance V3 deck requires exactly: ${PRESENTATION_FACILITIES.join(", ")}.`
+      );
+    }
+    ordered.push(facility);
+  }
+  return ordered;
 }
+
 
 /**
  * Fetch milestone states for all facilities
@@ -231,6 +247,20 @@ function determineCurrentPhase(milestones: MilestoneData[]): PhaseType {
 }
 
 /**
+ * Normalize raw TOC identifiers from upload evidence to the canonical format.
+ */
+function normalizeEvidenceToc(rawToc: string | null): string | null {
+  if (!rawToc) return null;
+  let normalized = rawToc.replace(/^TOC-/i, "");
+  normalized = normalized.replace(/^0+(\d)/, "$1");
+  if (/^[A-Za-z]\d+$/.test(normalized)) {
+    const match = normalized.match(/\d+/);
+    if (match) normalized = match[0];
+  }
+  return normalized;
+}
+
+/**
  * Calculate documentation compliance for a facility.
  *
  * Source of truth: governance_deliverable_status.
@@ -253,7 +283,7 @@ function calculateFacilityDocumentation(
   // Evidence count per approved TOC item (uploads are evidence only)
   const documentCounts = new Map<string, number>();
   for (const upload of facilityUploads) {
-    const normalized = upload.tocItem?.replace(/^TOC-/i, "").replace(/^0+(\d)/, "$1");
+    const normalized = normalizeEvidenceToc(upload.tocItem);
     if (normalized && approvedTocItems.has(normalized)) {
       documentCounts.set(normalized, (documentCounts.get(normalized) || 0) + 1);
     }
@@ -287,15 +317,20 @@ export async function fetchGovernanceV3Data(
   const effectiveDate = reportingDate || new Date();
   const dateStr = effectiveDate.toISOString().split("T")[0];
 
-  const dbFacilities = await fetchFacilitiesFromDB();
+  const dbFacilities = await fetchPresentationFacilities();
   const facilitySlugs = dbFacilities.map(f => f.slug);
 
   const milestoneStates = await fetchMilestoneStates(facilitySlugs);
   const deliverableStatuses = await fetchDeliverableStatuses(facilitySlugs);
   const uploads = await fetchUploads(facilitySlugs);
 
-  // Build facility data
-  const facilities: FacilityData[] = dbFacilities.map((dbFacility, index) => {
+  // Build facility data in canonical order
+  const facilityBySlug = new Map(dbFacilities.map(f => [f.slug, f]));
+  const facilities: FacilityData[] = PRESENTATION_FACILITIES.map((slug, index) => {
+    const dbFacility = facilityBySlug.get(slug);
+    if (!dbFacility) {
+      throw new Error(`[DATA INTEGRITY] Facility "${slug}" missing from database results.`);
+    }
     const milestones = buildMilestones(dbFacility.slug, milestoneStates, effectiveDate);
     const currentPhase = determineCurrentPhase(milestones);
     const phaseStatus = determinePhaseStatus(milestones, currentPhase);
@@ -314,12 +349,17 @@ export async function fetchGovernanceV3Data(
   });
 
   // Calculate documentation for each facility from canonical status table
-  const facilityDocumentation = dbFacilities.map(dbFacility =>
-    calculateFacilityDocumentation(dbFacility.slug, dbFacility.name, deliverableStatuses, uploads)
-  );
+  const orderedDocumentation = PRESENTATION_FACILITIES.map((slug) => {
+    const dbFacility = facilityBySlug.get(slug);
+    if (!dbFacility) {
+      throw new Error(`[DATA INTEGRITY] Facility "${slug}" missing from database results.`);
+    }
+    const doc = calculateFacilityDocumentation(dbFacility.slug, dbFacility.name, deliverableStatuses, uploads);
+    return doc;
+  });
 
-  const totalDocumentsSubmitted = facilityDocumentation.reduce((sum, d) => sum + d.submittedCount, 0);
-  const totalDocumentsRequired = facilityDocumentation.reduce((sum, d) => sum + d.requiredCount, 0);
+  const totalDocumentsSubmitted = orderedDocumentation.reduce((sum, d) => sum + d.submittedCount, 0);
+  const totalDocumentsRequired = orderedDocumentation.reduce((sum, d) => sum + d.requiredCount, 0);
   const portfolioCompliancePercent = totalDocumentsRequired > 0
     ? Math.round((totalDocumentsSubmitted / totalDocumentsRequired) * 100)
     : 0;
@@ -336,7 +376,7 @@ export async function fetchGovernanceV3Data(
     portfolioCompliancePercent,
   };
 
-  const executive = generateExecutiveContent(facilities, summaryInput, facilityDocumentation, effectiveDate);
+  const executive = generateExecutiveContent(facilities, summaryInput, orderedDocumentation, effectiveDate);
 
   facilities.forEach(f => {
     f.executiveObservation = executive.facilityObservations[f.slug] || "";
@@ -344,8 +384,8 @@ export async function fetchGovernanceV3Data(
 
   const summary: PortfolioSummary = { ...summaryInput };
 
-  // Canonical reconciliation: portfolio approved must equal visible matrix checkmarks.
-  const visibleMatrixApproved = facilityDocumentation.reduce(
+  // Structural reconciliation: portfolio approved must equal visible matrix approved checkmarks.
+  const visibleMatrixApproved = orderedDocumentation.reduce(
     (sum, d) => sum + d.submissions.filter(s => s.submitted).length,
     0
   );
@@ -355,17 +395,38 @@ export async function fetchGovernanceV3Data(
     );
   }
 
-  if (summary.totalDocumentsSubmitted !== 19 || summary.totalDocumentsRequired !== 56 || summary.portfolioCompliancePercent !== 34) {
+  // Structural guards: every selected facility must have exactly 14 canonical cells.
+  for (const doc of orderedDocumentation) {
+    if (doc.submissions.length !== GOVERNANCE_TOC_ITEMS.length) {
+      throw new Error(
+        `[DATA INTEGRITY] Facility ${doc.facilitySlug} has ${doc.submissions.length} TOC cells instead of ${GOVERNANCE_TOC_ITEMS.length}.`
+      );
+    }
+  }
+
+  // Required count must be facilities × 14.
+  const expectedRequired = facilities.length * GOVERNANCE_TOC_ITEMS.length;
+  if (summary.totalDocumentsRequired !== expectedRequired) {
     throw new Error(
-      `[BASELINE] Approved baseline mismatch: expected 19 approved / 56 required / 34%, got ${summary.totalDocumentsSubmitted} / ${summary.totalDocumentsRequired} / ${summary.portfolioCompliancePercent}%. Verify governance_deliverable_status seed.`
+      `[DATA INTEGRITY] Required count (${summary.totalDocumentsRequired}) does not match ${facilities.length} facilities × ${GOVERNANCE_TOC_ITEMS.length} deliverables (${expectedRequired}).`
     );
   }
+
+  // Align returned facility arrays to canonical order
+  const facilitiesBySlug = new Map(facilities.map(f => [f.slug, f]));
+  const orderedFacilities = PRESENTATION_FACILITIES.map(slug => {
+    const facility = facilitiesBySlug.get(slug);
+    if (!facility) {
+      throw new Error(`[DATA INTEGRITY] Facility "${slug}" missing from generated facilities.`);
+    }
+    return facility;
+  });
 
   return {
     generatedAt: new Date().toISOString(),
     reportingDate: dateStr,
-    facilities,
-    facilityDocumentation,
+    facilities: orderedFacilities,
+    facilityDocumentation: orderedDocumentation,
     summary,
     executive,
   };

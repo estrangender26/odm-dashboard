@@ -118,6 +118,16 @@ export const GOVERNANCE_TOC_ITEMS = [
   "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
 ] as const;
 
+/**
+ * Canonical presentation facility slugs and order for the Governance V3 deck.
+ */
+export const PRESENTATION_FACILITIES = [
+  "aglipay",
+  "htt",
+  "eastbay",
+  "kaysakat",
+] as const;
+
 // Timeline Configuration
 export const TIMELINE = {
   y: 5.6,

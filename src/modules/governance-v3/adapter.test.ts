@@ -6,9 +6,9 @@ import "dotenv/config";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { fetchGovernanceV3Data } from "./adapter.server";
 import { db } from "@db/connection";
-import { governanceUploads, governanceDeliverableStatus } from "@db/schema";
+import { governanceUploads, governanceDeliverableStatus, governanceFacilities } from "@db/schema";
 import { GOVERNANCE_TOC_ITEMS } from "./theme";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 
 // Approved 19/56 fixture: every facility × TOC cell.
 const APPROVED_FIXTURE: Record<string, string[]> = {
@@ -178,10 +178,170 @@ describe("Status table seed", () => {
     expect(missing.length).toBe(37);
   });
 
-  it("is idempotent — rerunning seed does not change counts", async () => {
-    // The migration uses ON CONFLICT DO UPDATE; running it twice should be safe.
-    // We verify the counts remain stable after a second logical application.
-    const first = await db.select({ count: sql<number>`count(*)::int` }).from(governanceDeliverableStatus);
-    expect(first[0].count).toBe(56);
+  it("does not reset a manually changed status when reapplied", async () => {
+    // Change an existing approved row to submitted
+    const target = await db
+      .select()
+      .from(governanceDeliverableStatus)
+      .where(and(
+        eq(governanceDeliverableStatus.facilitySlug, "kaysakat"),
+        eq(governanceDeliverableStatus.tocItem, "1")
+      ))
+      .limit(1);
+    expect(target[0].status).toBe("approved");
+
+    await db
+      .update(governanceDeliverableStatus)
+      .set({ status: "submitted" })
+      .where(eq(governanceDeliverableStatus.id, target[0].id));
+
+    try {
+      // Re-run the seed SQL via the same migration statement
+      await db.execute(sql`
+        INSERT INTO "governance_deliverable_status" ("facility_slug", "toc_item", "status")
+        VALUES ('kaysakat', '1', 'approved')
+        ON CONFLICT ("facility_slug", "toc_item") DO NOTHING
+      `);
+
+      const afterReSeed = await db
+        .select()
+        .from(governanceDeliverableStatus)
+        .where(eq(governanceDeliverableStatus.id, target[0].id));
+      expect(afterReSeed[0].status).toBe("submitted");
+    } finally {
+      // Restore baseline for other tests
+      await db
+        .update(governanceDeliverableStatus)
+        .set({ status: "approved" })
+        .where(eq(governanceDeliverableStatus.id, target[0].id));
+    }
+  });
+});
+
+describe("Presentation facility scope", () => {
+  it("selects only the four canonical facilities in order", async () => {
+    const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+    expect(data.facilities.map(f => f.slug)).toEqual(["aglipay", "htt", "eastbay", "kaysakat"]);
+    expect(data.facilityDocumentation.map(d => d.facilitySlug)).toEqual(["aglipay", "htt", "eastbay", "kaysakat"]);
+  });
+
+  it("every selected facility has exactly 14 canonical cells", async () => {
+    const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+    for (const doc of data.facilityDocumentation) {
+      expect(doc.submissions.length).toBe(14);
+      expect(doc.requiredCount).toBe(14);
+    }
+  });
+
+  it("ignores an unrelated fifth facility without changing the 56-cell presentation", async () => {
+    // Insert a temporary unrelated facility and one status row
+    const otherSlug = "zz_other_test_facility";
+    const inserted = await db
+      .insert(governanceFacilities)
+      .values({ slug: otherSlug, name: "ZZ Other Test Facility", shortName: "ZZ OTHER" })
+      .returning({ id: governanceFacilities.id });
+    const otherStatus = await db
+      .insert(governanceDeliverableStatus)
+      .values({ facilitySlug: otherSlug, tocItem: "1", status: "approved" })
+      .returning({ id: governanceDeliverableStatus.id });
+
+    try {
+      const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+      expect(data.summary.totalDocumentsRequired).toBe(56);
+      expect(data.summary.totalDocumentsSubmitted).toBe(19);
+      expect(data.facilities.map(f => f.slug)).not.toContain(otherSlug);
+    } finally {
+      await db.delete(governanceDeliverableStatus).where(eq(governanceDeliverableStatus.id, otherStatus[0].id));
+      await db.delete(governanceFacilities).where(eq(governanceFacilities.id, inserted[0].id));
+    }
+  });
+});
+
+describe("Governance progress can change after deployment", () => {
+  it("renders 20/56 and 36% when one missing cell becomes approved", async () => {
+    // Promote aglipay TOC 5 from missing to approved
+    await db
+      .update(governanceDeliverableStatus)
+      .set({ status: "approved" })
+      .where(and(
+        eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
+        eq(governanceDeliverableStatus.tocItem, "5")
+      ));
+
+    try {
+      const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+      expect(data.summary.totalDocumentsSubmitted).toBe(20);
+      expect(data.summary.totalDocumentsRequired).toBe(56);
+      expect(data.summary.portfolioCompliancePercent).toBe(36);
+    } finally {
+      await db
+        .update(governanceDeliverableStatus)
+        .set({ status: "missing" })
+        .where(and(
+          eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
+          eq(governanceDeliverableStatus.tocItem, "5")
+        ));
+    }
+  });
+
+  it("renders 18/56 and 32% when one approved cell becomes missing", async () => {
+    // Demote htt TOC 11 from approved to missing
+    await db
+      .update(governanceDeliverableStatus)
+      .set({ status: "missing" })
+      .where(and(
+        eq(governanceDeliverableStatus.facilitySlug, "htt"),
+        eq(governanceDeliverableStatus.tocItem, "11")
+      ));
+
+    try {
+      const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+      expect(data.summary.totalDocumentsSubmitted).toBe(18);
+      expect(data.summary.totalDocumentsRequired).toBe(56);
+      expect(data.summary.portfolioCompliancePercent).toBe(32);
+    } finally {
+      await db
+        .update(governanceDeliverableStatus)
+        .set({ status: "approved" })
+        .where(and(
+          eq(governanceDeliverableStatus.facilitySlug, "htt"),
+          eq(governanceDeliverableStatus.tocItem, "11")
+        ));
+    }
+  });
+});
+
+describe("Status validation", () => {
+  it("does not count submitted, missing or not_required as approved", async () => {
+    // Temporarily set aglipay TOC 1 to each non-approved status and verify counts
+    const original = await db
+      .select()
+      .from(governanceDeliverableStatus)
+      .where(and(
+        eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
+        eq(governanceDeliverableStatus.tocItem, "1")
+      ));
+    const originalStatus = original[0].status;
+
+    for (const status of ["submitted", "missing", "not_required"] as const) {
+      await db
+        .update(governanceDeliverableStatus)
+        .set({ status })
+        .where(and(
+          eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
+          eq(governanceDeliverableStatus.tocItem, "1")
+        ));
+
+      const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+      expect(data.summary.totalDocumentsSubmitted).toBe(18);
+    }
+
+    await db
+      .update(governanceDeliverableStatus)
+      .set({ status: originalStatus })
+      .where(and(
+        eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
+        eq(governanceDeliverableStatus.tocItem, "1")
+      ));
   });
 });

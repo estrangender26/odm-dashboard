@@ -66,7 +66,7 @@ export function generateExecutiveContent(
   const docHeadline = `Documentation readiness is ${portfolioPct}%; ${portfolioPct >= 50 ? 'portfolio is on track' : 'significant gaps remain'}`;
   
   // Slide 3: Tightened Portfolio Observation
-  const laggard = facilityDocs.sort((a, b) => a.compliancePercent - b.compliancePercent)[0];
+  const laggard = [...facilityDocs].sort((a, b) => a.compliancePercent - b.compliancePercent)[0];
   
   let portfolioObservation = "Documentation submission ongoing across all facilities.";
   if (laggard && laggard.compliancePercent === 0) {

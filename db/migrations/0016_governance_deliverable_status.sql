@@ -83,6 +83,4 @@ VALUES
   ('kaysakat', '12', 'missing'),
   ('kaysakat', '13', 'missing'),
   ('kaysakat', '14', 'missing')
-ON CONFLICT ("facility_slug", "toc_item") DO UPDATE SET
-  "status" = EXCLUDED."status",
-  "updated_at" = now();
+ON CONFLICT ("facility_slug", "toc_item") DO NOTHING;
