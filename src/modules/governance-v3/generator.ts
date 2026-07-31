@@ -606,6 +606,10 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
  * Slide 3: Documentation Readiness
  * FIXED: TOC matrix shows actual data
  */
+/**
+ * Slide 3: Documentation Readiness
+ * FIXED: Shows all 16 TOC items in split matrix layout
+ */
 function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): void {
   pptx.addSlide();
   
@@ -708,7 +712,7 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   // Facility boxes - 2x2 grid
   const boxWidth = 1.95;
   const boxHeight = 0.60;
-  const boxSpacing = 0.08;
+  const boxSpacing = 0.06;
   
   facilityDocumentation.forEach((doc, index) => {
     const facility = facilities.find(f => f.slug === doc.facilitySlug);
@@ -731,16 +735,17 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       lineColor: MANILA_WATER_COLORS.border,
     });
     
-    // Facility short name
-    const shortFacilityName = facility.shortName
-      .replace(" Sewage Treatment Plant", "")
-      .replace(" Treatment Plant", "")
-      .substring(0, 10);
+    // Facility full name mapping
+    const facilityLabel = facility.shortName === "AGLIPAY Sewage Treatment Plant" ? "AGLIPAY STP" :
+      facility.shortName === "HTT Sewage Treatment Plant" ? "HTT STP" :
+      facility.shortName === "EASTBAY Phase 2 Treatment Plant" ? "EASTBAY PH-2 TP" :
+      facility.shortName === "KAYSAKAT Treatment Plant" ? "KAYSAKAT TP" :
+      facility.shortName;
     
     pptx.addText({
-      x: x + 0.08, y: y + 0.06, w: boxWidth - 0.16, h: 0.20,
-      text: shortFacilityName.toUpperCase(),
-      fontSize: 10,
+      x: x + 0.06, y: y + 0.06, w: boxWidth - 0.12, h: 0.20,
+      text: facilityLabel.toUpperCase(),
+      fontSize: 9,
       bold: true,
       color: MANILA_WATER_COLORS.navy,
       fontFace: "Arial",
@@ -756,13 +761,12 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     });
   });
   
-  // RIGHT SIDE: TOC Matrix
-  const tableX = 5.2;
+  // RIGHT SIDE: Split TOC Matrix (two tables side by side)
   const tableY = 1.1;
-  const tableWidth = 7.6;
+  const tableX = 5.2;
   
   pptx.addText({
-    x: tableX, y: tableY - 0.05, w: tableWidth, h: 0.25,
+    x: tableX, y: tableY - 0.05, w: 7.6, h: 0.25,
     text: "Governance TOC Submission Matrix",
     fontSize: 13,
     bold: true,
@@ -770,22 +774,23 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     fontFace: "Arial",
   });
   
-  const tableRows: Array<Array<{ text: string; options?: Record<string, string | number | boolean | undefined> }>> = [];
+  // Build first matrix (TOC 1-8)
+  const tableRows1: Array<Array<{ text: string; options?: Record<string, any> }>> = [];
   
-  // Header row with complete facility names
-  const headerRow = [
+  const headerRow1 = [
     { text: "TOC", options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center" } },
     ...facilities.map(f => ({ 
       text: f.shortName
-        .replace(" Sewage Treatment Plant", "")
-        .replace(" Treatment Plant", ""), 
-      options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center", fontSize: 10 } 
+        .replace(" Sewage Treatment Plant", " STP")
+        .replace(" Treatment Plant", " TP")
+        .replace(" Phase 2", " PH-2"), 
+      options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center", fontSize: 9 } 
     })),
   ];
-  tableRows.push(headerRow);
+  tableRows1.push(headerRow1);
   
-  // TOC rows with actual data
-  GOVERNANCE_TOC_ITEMS.slice(0, 10).forEach(tocId => {
+  // First 8 TOC items
+  GOVERNANCE_TOC_ITEMS.slice(0, 8).forEach(tocId => {
     const row = [
       { text: tocId, options: { align: "center", bold: true } },
       ...facilities.map(f => {
@@ -803,17 +808,65 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
         };
       }),
     ];
-    tableRows.push(row);
+    tableRows1.push(row);
   });
   
-  // Calculate column widths - wider for facility names
-  const colWidths = [0.7, ...facilities.map(() => 1.6)];
+  // Build second matrix (TOC 9-16)
+  const tableRows2: Array<Array<{ text: string; options?: Record<string, any> }>> = [];
   
+  const headerRow2 = [
+    { text: "TOC", options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center" } },
+    ...facilities.map(f => ({ 
+      text: f.shortName
+        .replace(" Sewage Treatment Plant", " STP")
+        .replace(" Treatment Plant", " TP")
+        .replace(" Phase 2", " PH-2"), 
+      options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center", fontSize: 9 } 
+    })),
+  ];
+  tableRows2.push(headerRow2);
+  
+  // Remaining 8 TOC items (9-16)
+  GOVERNANCE_TOC_ITEMS.slice(8).forEach(tocId => {
+    const row = [
+      { text: tocId, options: { align: "center", bold: true } },
+      ...facilities.map(f => {
+        const doc = facilityDocumentation.find(d => d.facilitySlug === f.slug);
+        const submission = doc?.submissions.find(s => s.tocId === tocId);
+        const submitted = submission?.submitted ?? false;
+        
+        return { 
+          text: submitted ? "✓" : "—", 
+          options: { 
+            align: "center",
+            color: submitted ? MANILA_WATER_COLORS.green : MANILA_WATER_COLORS.textGray,
+            bold: submitted,
+          } 
+        };
+      }),
+    ];
+    tableRows2.push(row);
+  });
+  
+  // Column widths for compact tables
+  const colWidths = [0.55, ...facilities.map(() => 1.15)];
+  
+  // First table (left)
   pptx.addTable({
-    x: tableX, y: tableY + 0.25, w: tableWidth, h: 4.0,
-    rows: tableRows,
+    x: tableX, y: tableY + 0.25, w: 3.4, h: 3.2,
+    rows: tableRows1,
     colWidths: colWidths,
-    fontSize: 12,
+    fontSize: 11,
+    borderColor: MANILA_WATER_COLORS.border,
+    headerFill: MANILA_WATER_COLORS.navy,
+  });
+  
+  // Second table (right) - positioned next to first
+  pptx.addTable({
+    x: tableX + 3.6, y: tableY + 0.25, w: 3.4, h: 3.2,
+    rows: tableRows2,
+    colWidths: colWidths,
+    fontSize: 11,
     borderColor: MANILA_WATER_COLORS.border,
     headerFill: MANILA_WATER_COLORS.navy,
   });
@@ -837,6 +890,7 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     fontFace: "Arial",
   });
   
+  // Use the executive observation from data
   pptx.addText({
     x: leftPanelX + 0.12, y: obsY + 0.35, w: obsWidth - 0.24, h: 0.50,
     text: executive.portfolioObservation,
@@ -846,9 +900,7 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   });
 }
 
-/**
- * Generate complete Governance V3 presentation
- */
+
 export async function generateGovernanceV3Presentation(
   data: GovernanceV3Presentation
 ): Promise<Blob> {
