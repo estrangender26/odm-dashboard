@@ -1791,7 +1791,7 @@ app.get("/api/governance/presentation-data", async (c) => {
 
 
 
-// GET /api/governance/presentation-v3 - fetch V3 presentation data
+// GET /api/governance/presentation-v3-data - fetch V3 presentation model data (JSON)
 app.get("/api/governance/presentation-v3", async (c) => {
   try {
     const reportingDateParam = c.req.query("reporting_date");

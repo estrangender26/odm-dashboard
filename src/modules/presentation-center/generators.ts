@@ -1524,13 +1524,13 @@ const placeholderGenerators: DeckGenerator[] = [
     description:
       "Generate a three-slide executive presentation with live governance data. Uses proxy metrics (milestone-count).",
     category: "O&M Manual Governance",
-    status: "active",
+    status: "coming-soon",
     slideOutline: [
       "Executive Dashboard with KPI cards and facility summary table",
       "S-Curve Analysis by Facility (four panels)",
       "Submission Coverage Proxy and Executive Actions",
     ],
-    enabled: true,
+    enabled: false,
     generate: generateGovernancePresentation,
   },
   {

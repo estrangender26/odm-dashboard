@@ -23,13 +23,18 @@ import type {
 import { MILESTONES, GOVERNANCE_TOC_ITEMS, getFacilityColor } from "./theme";
 import { generateExecutiveContent } from "./executive";
 
-// PPP start dates hardcoded per specification
-const PPP_START_DATES: Record<string, string> = {
-  aglipay: "2025-03-13",
-  htt: "2025-03-13",
-  eastbay: "2026-09-01",
-  kaysakat: "2026-09-01",
-};
+/**
+ * Derive PPP start date from milestone states
+ * Returns the earliest pppDate found for the facility, or null if none exists
+ */
+function derivePppStartDate(facilitySlug: string, states: MilestoneStateRow[]): string | null {
+  const facilityStates = states.filter(s => s.facilitySlug === facilitySlug);
+  const dates = facilityStates
+    .map(s => s.pppDate)
+    .filter((d): d is string => d !== null && d !== undefined)
+    .sort();
+  return dates.length > 0 ? dates[0] : null;
+}
 
 // Milestone code mapping from DB to presentation model
 const DB_MILESTONE_CODES = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9"] as const;
@@ -284,7 +289,7 @@ export async function fetchGovernanceV3Data(
       name: dbFacility.name,
       shortName: dbFacility.shortName || dbFacility.name,
       color: getFacilityColor(index),
-      pppStartDate: PPP_START_DATES[dbFacility.slug] || "2026-01-01",
+      pppStartDate: derivePppStartDate(dbFacility.slug, milestoneStates) || "2026-01-01",
       currentPhase,
       phaseStatus,
       milestones,

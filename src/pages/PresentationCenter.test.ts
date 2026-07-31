@@ -34,7 +34,7 @@ describe("Presentation Center Monthly KPI generation dialog", () => {
 });
 
 describe("Presentation Center Operator-Driven Maintenance generation dialog", () => {
-  it("activates only the ODM generator among reserved future generators", () => {
+  it("activates the ODM and Governance V3 generators among reserved future generators", () => {
     const odmGenerator = deckGeneratorRegistry.find(
       generator => generator.id === "operator-driven-maintenance"
     );
@@ -42,7 +42,7 @@ describe("Presentation Center Operator-Driven Maintenance generation dialog", ()
       generator =>
         generator.id !== "monthly-kpi-scorecard" &&
         generator.id !== "operator-driven-maintenance" &&
-        generator.id !== "om-manual-governance"
+        generator.id !== "om-manual-governance-v3"
     );
 
     expect(odmGenerator).toMatchObject({
@@ -51,6 +51,22 @@ describe("Presentation Center Operator-Driven Maintenance generation dialog", ()
       title: "Operator Driven Maintenance Deck",
     });
     expect(typeof odmGenerator?.generate).toBe("function");
+
+    // Verify Governance V3 generator is active and properly configured
+    const governanceV3Generator = deckGeneratorRegistry.find(
+      generator => generator.id === "om-manual-governance-v3"
+    );
+    expect(governanceV3Generator).toMatchObject({
+      status: "active",
+      enabled: true,
+      title: "O&M Manual Governance V3 Deck",
+    });
+    expect(typeof governanceV3Generator?.generate).toBe("function");
+
+    // Verify all generator IDs are unique
+    const allIds = deckGeneratorRegistry.map(g => g.id);
+    const uniqueIds = [...new Set(allIds)];
+    expect(allIds.length).toBe(uniqueIds.length);
     expect(remainingComingSoon.every(generator => !generator.enabled)).toBe(true);
     expect(
       remainingComingSoon.every(generator => generator.status === "coming-soon")
