@@ -46,18 +46,20 @@ export const FONTS = {
   slideSubtitle: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   phaseHeader: { size: 11, bold: true, color: MANILA_WATER_COLORS.white, face: "Arial" },
   milestoneCode: { size: 10, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
-  milestoneName: { size: 8, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  milestoneName: { size: 9, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   facilityName: { size: 11, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
   facilityPhase: { size: 9, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   facilityDetail: { size: 8, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   statusSymbol: { size: 14, bold: true, face: "Arial" },
-  observation: { size: 9, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
-  legend: { size: 9, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  observation: { size: 10, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
+  legend: { size: 10, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   calloutLabel: { size: 10, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
   calloutText: { size: 11, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
   tableHeader: { size: 10, bold: true, color: MANILA_WATER_COLORS.white, face: "Arial" },
   tableCell: { size: 9, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
   sourceNote: { size: 8, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  portfolioPercent: { size: 36, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
+  portfolioLabel: { size: 11, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
 } as const;
 
 // Layout Spacing - exact from reference
@@ -92,17 +94,17 @@ export const PHASES = {
   },
 } as const;
 
-// Milestone Definitions - exact from reference
+// Milestone Definitions - Executive concise labels
 export const MILESTONES = {
-  M1: { name: "T&C check sheets complete", phase: "PRE-PPP" },
-  M2: { name: "Wet/dry commissioning passed", phase: "PRE-PPP" },
-  M3: { name: "Defects and punchlist closed", phase: "PRE-PPP" },
-  M4: { name: "PM task lists in SAP-PM", phase: "PPP" },
-  M5: { name: "PM/PdM execution started", phase: "PPP" },
-  M6: { name: "Training completed", phase: "PPP" },
-  M7: { name: "Plan refined using PPP learnings", phase: "POST-PPP" },
-  M8: { name: "Contracts and SLAs activated", phase: "POST-PPP" },
-  M9: { name: "BAU governance established", phase: "POST-PPP" },
+  M1: { name: "T&C Complete", phase: "PRE-PPP" },
+  M2: { name: "Commissioning", phase: "PRE-PPP" },
+  M3: { name: "Punchlist Closed", phase: "PRE-PPP" },
+  M4: { name: "PM Setup", phase: "PPP" },
+  M5: { name: "PM Execution", phase: "PPP" },
+  M6: { name: "Training", phase: "PPP" },
+  M7: { name: "Optimization", phase: "POST-PPP" },
+  M8: { name: "SLA Active", phase: "POST-PPP" },
+  M9: { name: "BAU Ready", phase: "POST-PPP" },
 } as const;
 
 export type MilestoneCode = keyof typeof MILESTONES;

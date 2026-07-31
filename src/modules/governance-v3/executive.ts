@@ -33,17 +33,22 @@ export function generateExecutiveContent(
     headline = `${pppActive[0].shortName} is in PPP execution`;
   }
   
-  // Slide 1: Next Gate
-  let nextGateAction = "All facilities progressing through governance milestones";
+  // Slide 1: Next Gate - improved with actionable status
+  let nextGateAction = "Status: On Schedule";
   if (recovery.length > 0) {
     const names = recovery.map(f => f.shortName.split(" ")[0]).join(" and ");
-    nextGateAction = `${names}: Complete commissioning check sheets before gate.`;
+    // Find next incomplete milestone for recovery facilities
+    const recoveryFacility = recovery[0];
+    const incompleteMilestones = recoveryFacility.milestones.filter(m => 
+      m.status !== "achieved" && m.status !== "achieved_ahead"
+    );
+    const nextMilestone = incompleteMilestones[0];
+    const nextMilestoneName = nextMilestone ? getShortMilestoneName(nextMilestone.code) : "Pre-PPP milestones";
+    nextGateAction = `${names}: Next Gate → ${nextMilestoneName} | Status: Behind Plan`;
   } else if (gateReady.length > 0) {
     const names = gateReady.map(f => f.shortName.split(" ")[0]).join(" and ");
-    const dates = [...new Set(gateReady.map(f => 
-      new Date(f.pppStartDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-    ))].join(" and ");
-    nextGateAction = `${names} reach PPP on ${dates}`;
+    const pppDate = new Date(gateReady[0].pppStartDate).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    nextGateAction = `${names}: PPP Start ${pppDate} | Status: Ready for PPP`;
   }
   
   // Slide 2: Gate Implication
@@ -72,19 +77,22 @@ export function generateExecutiveContent(
     docHeadline = `Documentation readiness is ${portfolioPct}%; significant gaps remain`;
   }
   
-  // Slide 3: Portfolio Observation
+  // Slide 3: Portfolio Observation - data-driven risk explanation
   const sorted = [...facilityDocs].sort((a, b) => b.compliancePercent - a.compliancePercent);
   const leader = sorted[0];
   const laggard = sorted[sorted.length - 1];
   
+  // Generate data-driven observation with risk context
   let portfolioObservation = "Documentation submission ongoing across all facilities.";
   if (leader && laggard && leader !== laggard) {
     const parts: string[] = [];
     if (leader.compliancePercent >= 60) {
-      parts.push(`${leader.facilityName} leads at ${leader.compliancePercent}%.`);
+      parts.push(`${leader.facilityName} leads at ${leader.compliancePercent}% with ${leader.submittedCount} of ${leader.requiredCount} deliverables complete.`);
     }
-    if (laggard.compliancePercent <= 30) {
-      parts.push(`${laggard.facilityName} requires acceleration.`);
+    if (laggard.compliancePercent <= 20) {
+      parts.push(`${laggard.facilityName} currently has ${laggard.submittedCount === 0 ? 'no' : laggard.submittedCount} approved governance deliverables and represents the highest onboarding risk.`);
+    } else if (laggard.compliancePercent <= 40) {
+      parts.push(`${laggard.facilityName} requires acceleration with only ${laggard.compliancePercent}% completion.`);
     }
     if (parts.length > 0) {
       portfolioObservation = parts.join(" ");
@@ -116,4 +124,20 @@ export function generateExecutiveContent(
     portfolioObservation,
     facilityObservations,
   };
+}
+
+// Helper function to get short milestone names
+function getShortMilestoneName(code: string): string {
+  const names: Record<string, string> = {
+    M1: "T&C Complete",
+    M2: "Commissioning",
+    M3: "Punchlist Closed",
+    M4: "PM Setup",
+    M5: "PM Execution",
+    M6: "Training",
+    M7: "Optimization",
+    M8: "SLA Active",
+    M9: "BAU Ready",
+  };
+  return names[code] || code;
 }
