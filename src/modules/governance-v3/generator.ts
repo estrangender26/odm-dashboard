@@ -18,12 +18,12 @@ import type {
   MilestoneStatus,
 } from "./types";
 
-// Status symbol configuration - executive compact style
+// Status symbol configuration with requested legend labels
 const STATUS_SYMBOLS: Record<MilestoneStatus, { symbol: string; color: string; bgColor: string; label: string }> = {
-  achieved: { symbol: "✓", color: MANILA_WATER_COLORS.white, bgColor: "169873", label: "Done" },
+  achieved: { symbol: "✓", color: MANILA_WATER_COLORS.white, bgColor: "169873", label: "Completed" },
   achieved_ahead: { symbol: "✓", color: MANILA_WATER_COLORS.white, bgColor: "007DA7", label: "Ahead" },
-  gap: { symbol: "⚠", color: MANILA_WATER_COLORS.red, bgColor: "FDECEF", label: "Risk" },
-  upcoming: { symbol: "○", color: MANILA_WATER_COLORS.textGray, bgColor: "EEF2F5", label: "Next" },
+  gap: { symbol: "⚠", color: MANILA_WATER_COLORS.red, bgColor: "FDECEF", label: "Delayed" },
+  upcoming: { symbol: "○", color: MANILA_WATER_COLORS.textGray, bgColor: "EEF2F5", label: "Upcoming" },
 };
 
 // Format date as "DD MMM YYYY"
@@ -51,15 +51,10 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     fontFace: FONTS.slideTitle.face,
   });
   
-  // Subtitle - shows the facility breakdown
-  const formattedDate = reportingDateObj.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-  const subtitleText = executive.subtitle.includes("Milestone progress") 
-    ? `${formattedDate} | ${executive.subtitle}`
-    : `${formattedDate} | ${executive.subtitle}`;
-  
+  // Subtitle with facility breakdown and date
   pptx.addText({
     x: 0.52, y: 0.62, w: 11.56, h: 0.25,
-    text: subtitleText,
+    text: executive.subtitle,
     fontSize: FONTS.slideSubtitle.size,
     color: MANILA_WATER_COLORS.textGray,
     fontFace: FONTS.slideSubtitle.face,
@@ -111,7 +106,7 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     
     // Milestone name - no wrapping
     pptx.addText({
-      x: x - 0.05, y: milestoneNameY, w: 1.0, h: 0.22,
+      x: x - 0.05, y: milestoneNameY, w: 1.0, h: 0.25,
       text: definition.name,
       fontSize: FONTS.milestoneName.size,
       color: MANILA_WATER_COLORS.textDark,
@@ -123,7 +118,7 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   
   // Facility rows - INCREASED HEIGHT to prevent overlap
   let facilityY = 2.45;
-  const facilityRowHeight = 1.05; // Increased from 0.88
+  const facilityRowHeight = 1.1;
   
   facilities.forEach((facility) => {
     const pppStart = new Date(facility.pppStartDate);
@@ -131,7 +126,7 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     const effectiveStatus = isFuturePpp ? "PRE-PPP • IN PROGRESS" : facility.phaseStatus;
     
     // Row background
-    const rowBg = facilityY % 2.1 > 1.0 ? MANILA_WATER_COLORS.rowBlue : undefined;
+    const rowBg = facilityY % 2.2 > 1.0 ? MANILA_WATER_COLORS.rowBlue : undefined;
     if (rowBg) {
       pptx.addShape({
         x: 0.50, y: facilityY - 0.1, w: 12.33, h: facilityRowHeight,
@@ -211,7 +206,7 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     // Executive observation - positioned to not overlap
     if (facility.executiveObservation) {
       pptx.addText({
-        x: 2.82, y: facilityY + 0.65, w: 9.72, h: 0.35,
+        x: 2.82, y: facilityY + 0.65, w: 9.72, h: 0.40,
         text: facility.executiveObservation,
         fontSize: FONTS.observation.size,
         color: MANILA_WATER_COLORS.textDark,
@@ -222,26 +217,26 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     facilityY += facilityRowHeight;
   });
   
-  // Executive Legend - single line items
-  const legendY = 6.65;
+  // Executive Legend - single line items with requested labels
+  const legendY = 6.6;
   const legendItems = [
-    { symbol: "✓", color: "169873", label: "Done" },
+    { symbol: "✓", color: "169873", label: "Completed" },
     { symbol: "✓", color: "007DA7", label: "Ahead" },
-    { symbol: "⚠", color: MANILA_WATER_COLORS.red, label: "Risk" },
-    { symbol: "○", color: MANILA_WATER_COLORS.textGray, label: "Next" },
+    { symbol: "⚠", color: MANILA_WATER_COLORS.red, label: "Delayed" },
+    { symbol: "○", color: MANILA_WATER_COLORS.textGray, label: "Upcoming" },
   ];
   
   let legendX = 2.82;
   legendItems.forEach((item) => {
-    const bgColor = item.label === "Done" ? "169873" : 
+    const bgColor = item.label === "Completed" ? "169873" : 
                     item.label === "Ahead" ? "007DA7" : 
-                    item.label === "Risk" ? "FDECEF" : "EEF2F5";
+                    item.label === "Delayed" ? "FDECEF" : "EEF2F5";
     pptx.addShape({
       x: legendX, y: legendY + 0.02, w: 0.20, h: 0.20,
       fillColor: bgColor,
     });
     
-    const symbolColor = item.label === "Risk" ? MANILA_WATER_COLORS.red : MANILA_WATER_COLORS.white;
+    const symbolColor = item.label === "Delayed" ? MANILA_WATER_COLORS.red : MANILA_WATER_COLORS.white;
     pptx.addText({
       x: legendX, y: legendY + 0.02, w: 0.20, h: 0.20,
       text: item.symbol,
@@ -254,14 +249,14 @@ function generateSlide1(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     });
     
     pptx.addText({
-      x: legendX + 0.25, y: legendY, w: 0.7, h: 0.25,
+      x: legendX + 0.25, y: legendY, w: 1.1, h: 0.25,
       text: item.label,
       fontSize: FONTS.legend.size,
       color: MANILA_WATER_COLORS.textGray,
       fontFace: FONTS.legend.face,
     });
     
-    legendX += 1.3;
+    legendX += 1.6;
   });
   
   // Next Gate section
@@ -386,16 +381,17 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     });
   });
   
-  // TODAY marker - with spacing
+  // TODAY marker with spacing
   const todayX = tickXStart + 2 * tickXSpacing;
   pptx.addShape({
     x: todayX - 0.02, y: 1.6, w: 0.04, h: 4.0,
     fillColor: MANILA_WATER_COLORS.red,
   });
   
-  const todayLabel = `TODAY ${reportingDateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase()}`;
+  // TODAY label with proper spacing
+  const todayLabel = "TODAY\n31 JUL 2026";
   pptx.addText({
-    x: todayX - 0.70, y: 1.6, w: 1.4, h: 0.22,
+    x: todayX - 0.80, y: 1.55, w: 1.6, h: 0.50,
     text: todayLabel,
     fontSize: 11,
     bold: true,
@@ -404,11 +400,10 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     align: "center",
   });
   
-  // Legend - moved closer to chart and enlarged
+  // Legend - moved closer to chart with 12pt text
   const legendY = 2.0;
   const legendX = 10.8;
   
-  // Legend background box
   pptx.addShape({
     x: legendX - 0.1, y: legendY - 0.05, w: 2.3, h: 0.65,
     fillColor: "F4F7F9",
@@ -418,7 +413,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   pptx.addText({
     x: legendX, y: legendY - 0.02, w: 2.0, h: 0.18,
     text: "Legend",
-    fontSize: 11,
+    fontSize: 12,
     bold: true,
     color: MANILA_WATER_COLORS.navy,
     fontFace: "Arial",
@@ -432,7 +427,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   pptx.addText({
     x: legendX + 0.40, y: legendY + 0.18, w: 1.8, h: 0.18,
     text: "= PPP Period",
-    fontSize: 11,
+    fontSize: 12,
     color: MANILA_WATER_COLORS.textDark,
     fontFace: "Arial",
   });
@@ -445,7 +440,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   pptx.addText({
     x: legendX + 0.40, y: legendY + 0.38, w: 1.8, h: 0.18,
     text: "= PPP Start",
-    fontSize: 11,
+    fontSize: 12,
     color: MANILA_WATER_COLORS.textDark,
     fontFace: "Arial",
   });
@@ -484,12 +479,12 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       fontFace: "Arial",
     });
     
-    // Calculate X position
+    // Calculate positions
     const monthsSinceJuly2025 = (pppDate.getFullYear() - 2025) * 12 + (pppDate.getMonth() - 6);
     const pppX = tickXStart + (monthsSinceJuly2025 / 6) * tickXSpacing;
     const clampedPppX = Math.max(tickXStart, Math.min(pppX, tickXStart + tickXSpacing * 6));
     
-    // PPP End position (12 months later)
+    // PPP End (12 months later)
     const pppEndDate = new Date(pppDate);
     pppEndDate.setMonth(pppEndDate.getMonth() + 12);
     const endMonthsSinceJuly2025 = (pppEndDate.getFullYear() - 2025) * 12 + (pppEndDate.getMonth() - 6);
@@ -502,7 +497,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       fillColor: MANILA_WATER_COLORS.navyDark,
     });
     
-    // PPP End marker (small triangle)
+    // PPP End marker
     pptx.addShape({
       x: clampedPppEndX - 0.08, y: facilityY + 0.20, w: 0.16, h: 0.25,
       fillColor: MANILA_WATER_COLORS.navyDark,
@@ -510,7 +505,6 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     
     // Draw PPP period bar
     if (!isFuturePpp) {
-      // Progress bar from PPP start to today (or full year if completed)
       const endX = Math.min(todayX, clampedPppEndX);
       const progressWidth = endX - clampedPppX;
       
@@ -525,12 +519,12 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
         });
       }
       
-      // Show full planned period (lighter)
+      // Remaining planned period
       const plannedWidth = clampedPppEndX - endX;
       if (plannedWidth > 0) {
         pptx.addShape({
           x: endX, y: facilityY + 0.25, w: plannedWidth, h: 0.15,
-          fillColor: "A8D5E5", // Lighter cyan for remaining planned period
+          fillColor: "A8D5E5",
         });
       }
       
@@ -552,7 +546,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
       if (plannedWidth > 0) {
         pptx.addShape({
           x: clampedPppX, y: facilityY + 0.25, w: plannedWidth, h: 0.15,
-          fillColor: "D3DEE8", // Gray for future planned period
+          fillColor: "D3DEE8",
         });
       }
       
@@ -610,7 +604,7 @@ function generateSlide2(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
 
 /**
  * Slide 3: Documentation Readiness
- * FIXED: TOC matrix shows actual data, headers not truncated, traffic-light colors
+ * FIXED: TOC matrix shows actual data
  */
 function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): void {
   pptx.addSlide();
@@ -711,7 +705,7 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     fontFace: "Arial",
   });
   
-  // Facility boxes - 2x2 grid with traffic-light colors
+  // Facility boxes - 2x2 grid
   const boxWidth = 1.95;
   const boxHeight = 0.60;
   const boxSpacing = 0.08;
@@ -725,9 +719,9 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
     const x = leftPanelX + col * (boxWidth + boxSpacing);
     const y = complianceY + 0.35 + row * (boxHeight + boxSpacing);
     
-    // Traffic-light colors based on thresholds
+    // Traffic-light colors
     const color = doc.compliancePercent === 0 ? MANILA_WATER_COLORS.rowRed :
-                  doc.compliancePercent < 30 ? "FFF6DF" : // amber/yellow
+                  doc.compliancePercent < 30 ? "FFF6DF" :
                   doc.compliancePercent < 70 ? MANILA_WATER_COLORS.rowBlue :
                   MANILA_WATER_COLORS.rowGreen;
     
@@ -778,20 +772,19 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   
   const tableRows: Array<Array<{ text: string; options?: Record<string, string | number | boolean | undefined> }>> = [];
   
-  // Header row - use smaller font to prevent truncation
+  // Header row with complete facility names
   const headerRow = [
     { text: "TOC", options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center" } },
     ...facilities.map(f => ({ 
       text: f.shortName
-        .replace(" Sewage Treatment Plant", " STP")
-        .replace(" Treatment Plant", " TP")
-        .substring(0, 10), 
+        .replace(" Sewage Treatment Plant", "")
+        .replace(" Treatment Plant", ""), 
       options: { bold: true, color: "FFFFFF", fill: MANILA_WATER_COLORS.navy, align: "center", fontSize: 10 } 
     })),
   ];
   tableRows.push(headerRow);
   
-  // TOC rows - show first 10 items with ACTUAL data
+  // TOC rows with actual data
   GOVERNANCE_TOC_ITEMS.slice(0, 10).forEach(tocId => {
     const row = [
       { text: tocId, options: { align: "center", bold: true } },
@@ -814,7 +807,7 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   });
   
   // Calculate column widths - wider for facility names
-  const colWidths = [0.7, ...facilities.map(() => 1.4)];
+  const colWidths = [0.7, ...facilities.map(() => 1.6)];
   
   pptx.addTable({
     x: tableX, y: tableY + 0.25, w: tableWidth, h: 4.0,
