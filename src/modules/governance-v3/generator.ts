@@ -690,7 +690,7 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   // Legend below portfolio
   pptx.addText({
     x: leftPanelX + 0.2, y: portfolioY + 2.0, w: leftPanelWidth - 0.4, h: 0.25,
-    text: "✓ Submitted    |    — Missing",
+    text: "✓ Approved    |    — Missing",
     fontSize: 11,
     color: MANILA_WATER_COLORS.textGray,
     fontFace: "Arial",
@@ -789,8 +789,8 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   ];
   tableRows1.push(headerRow1);
   
-  // First 8 TOC items
-  GOVERNANCE_TOC_ITEMS.slice(0, 8).forEach(tocId => {
+  // First 7 TOC items
+  GOVERNANCE_TOC_ITEMS.slice(0, 7).forEach(tocId => {
     const row = [
       { text: tocId, options: { align: "center", bold: true } },
       ...facilities.map(f => {
@@ -826,8 +826,8 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   ];
   tableRows2.push(headerRow2);
   
-  // Remaining 8 TOC items (9-16)
-  GOVERNANCE_TOC_ITEMS.slice(8).forEach(tocId => {
+  // Remaining 7 TOC items (8-14)
+  GOVERNANCE_TOC_ITEMS.slice(7).forEach(tocId => {
     const row = [
       { text: tocId, options: { align: "center", bold: true } },
       ...facilities.map(f => {
@@ -853,7 +853,7 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   
   // First table (left)
   pptx.addTable({
-    x: tableX, y: tableY + 0.25, w: 3.4, h: 3.2,
+    x: tableX, y: tableY + 0.25, w: 3.4, h: 2.95,
     rows: tableRows1,
     colWidths: colWidths,
     fontSize: 11,
@@ -863,7 +863,7 @@ function generateSlide3(pptx: GovernancePPTX, data: GovernanceV3Presentation): v
   
   // Second table (right) - positioned next to first
   pptx.addTable({
-    x: tableX + 3.6, y: tableY + 0.25, w: 3.4, h: 3.2,
+    x: tableX + 3.6, y: tableY + 0.25, w: 3.4, h: 2.95,
     rows: tableRows2,
     colWidths: colWidths,
     fontSize: 11,

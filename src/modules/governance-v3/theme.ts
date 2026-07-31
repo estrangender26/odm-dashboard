@@ -115,7 +115,7 @@ export const MILESTONE_X_POSITIONS = [2.75, 3.85, 4.95, 6.05, 7.15, 8.25, 9.35, 
 
 // TOC Items for Documentation Matrix
 export const GOVERNANCE_TOC_ITEMS = [
-  "1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
 ] as const;
 
 // Timeline Configuration

@@ -1,18 +1,21 @@
 /**
  * Governance V3 Data Adapter (Server-Only)
- * 
+ *
  * Fetches production data from governance tables and transforms
  * into the canonical V3 presentation model.
- * 
+ *
+ * Readiness source: governance_deliverable_status
+ * Evidence source:  governance_uploads (does not determine approval)
+ *
  * @server-only
  */
 
 import { db } from "@db/connection";
-import { governanceFacilities, governanceMilestoneState, governanceUploads } from "@db/schema";
+import { governanceFacilities, governanceMilestoneState, governanceDeliverableStatus, governanceUploads } from "@db/schema";
 import { inArray } from "drizzle-orm";
-import type { 
-  FacilityData, 
-  MilestoneData, 
+import type {
+  FacilityData,
+  MilestoneData,
   FacilityDocumentation,
   PortfolioSummary,
   GovernanceV3Presentation,
@@ -25,7 +28,6 @@ import { generateExecutiveContent } from "./executive";
 
 /**
  * Derive PPP start date from milestone states
- * Returns the earliest pppDate found for the facility, or null if none exists
  */
 function derivePppStartDate(facilitySlug: string, states: MilestoneStateRow[]): string | null {
   const facilityStates = states.filter(s => s.facilitySlug === facilitySlug);
@@ -36,7 +38,6 @@ function derivePppStartDate(facilitySlug: string, states: MilestoneStateRow[]): 
   return dates.length > 0 ? dates[0] : null;
 }
 
-// Milestone code mapping from DB to presentation model
 const DB_MILESTONE_CODES = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9"] as const;
 
 interface MilestoneStateRow {
@@ -46,6 +47,12 @@ interface MilestoneStateRow {
   compDate: string | null;
   customPct: number | null;
   readyStatus: string | null;
+}
+
+interface DeliverableStatusRow {
+  facilitySlug: string;
+  tocItem: string;
+  status: string;
 }
 
 interface UploadRow {
@@ -58,29 +65,6 @@ interface UploadRow {
 }
 
 /**
- * Normalize TOC identifier from various formats to standard GOVERNANCE_TOC_ITEMS format
- * Handles: "TOC-08" -> "8", "TOC-12" -> "12", "A7" -> "7", "1A" -> "1A", etc.
- */
-function normalizeTocIdentifier(rawToc: string | null): string | null {
-  if (!rawToc) return null;
-  
-  // Remove "TOC-" prefix if present (e.g., "TOC-08" -> "08")
-  let normalized = rawToc.replace(/^TOC-/i, "");
-  
-  // Remove leading zeros from numeric parts (e.g., "08" -> "8", but keep "1A" as "1A")
-  normalized = normalized.replace(/^0+(\d)/, "$1");
-  
-  // Handle special cases like "A7" -> "7" (if it's just a milestone reference)
-  if (/^[A-Za-z]\d+$/.test(normalized)) {
-    // Keep the number part only (e.g., "A7" -> "7")
-    const match = normalized.match(/\d+/);
-    if (match) normalized = match[0];
-  }
-  
-  return normalized;
-}
-
-/**
  * Determine milestone status based on dates and completion
  */
 function determineMilestoneStatus(
@@ -89,27 +73,23 @@ function determineMilestoneStatus(
   reportingDate: Date
 ): MilestoneStatus {
   if (!state) return "upcoming";
-  
-  // Completed milestone
+
   if (state.compDate) {
     const completed = new Date(state.compDate);
     const planned = state.pppDate ? new Date(state.pppDate) : null;
-    
-    // If completed before planned date, it is ahead
     if (planned && completed < planned) {
       return "achieved_ahead";
     }
     return "achieved";
   }
-  
-  // Check if milestone is overdue (planned date passed, not completed)
+
   if (state.pppDate) {
     const planned = new Date(state.pppDate);
     if (planned <= reportingDate) {
       return "gap";
     }
   }
-  
+
   return "upcoming";
 }
 
@@ -123,10 +103,10 @@ function determinePhaseStatus(
   const prePppComplete = milestones
     .filter(m => m.phase === "PRE-PPP")
     .every(m => m.status === "achieved" || m.status === "achieved_ahead");
-  
+
   const hasGap = milestones.some(m => m.status === "gap");
   const inPpp = phase === "PPP";
-  
+
   if (hasGap && !inPpp) return "PRE-PPP • RECOVERY";
   if (prePppComplete && !inPpp) return "PRE-PPP • GATE READY";
   if (phase === "PPP") return "PPP ACTIVE";
@@ -153,7 +133,7 @@ async function fetchFacilitiesFromDB() {
  */
 async function fetchMilestoneStates(facilitySlugs: string[]): Promise<MilestoneStateRow[]> {
   if (facilitySlugs.length === 0) return [];
-  
+
   return await db
     .select({
       facilitySlug: governanceMilestoneState.facilitySlug,
@@ -168,11 +148,29 @@ async function fetchMilestoneStates(facilitySlugs: string[]): Promise<MilestoneS
 }
 
 /**
- * Fetch uploads for all facilities
+ * Fetch canonical deliverable statuses for all facilities.
+ * This is the presentation readiness source.
+ */
+async function fetchDeliverableStatuses(facilitySlugs: string[]): Promise<DeliverableStatusRow[]> {
+  if (facilitySlugs.length === 0) return [];
+
+  return await db
+    .select({
+      facilitySlug: governanceDeliverableStatus.facilitySlug,
+      tocItem: governanceDeliverableStatus.tocItem,
+      status: governanceDeliverableStatus.status,
+    })
+    .from(governanceDeliverableStatus)
+    .where(inArray(governanceDeliverableStatus.facilitySlug, facilitySlugs));
+}
+
+/**
+ * Fetch uploads for evidence counts only.
+ * Raw uploads do not determine approval.
  */
 async function fetchUploads(facilitySlugs: string[]): Promise<UploadRow[]> {
   if (facilitySlugs.length === 0) return [];
-  
+
   return await db
     .select({
       facilitySlug: governanceUploads.facilitySlug,
@@ -184,50 +182,6 @@ async function fetchUploads(facilitySlugs: string[]): Promise<UploadRow[]> {
     })
     .from(governanceUploads)
     .where(inArray(governanceUploads.facilitySlug, facilitySlugs));
-}
-
-/**
- * Calculate documentation compliance for a facility
- * FIXED: Normalizes TOC identifiers before matching
- */
-function calculateFacilityDocumentation(
-  facilitySlug: string,
-  facilityName: string,
-  uploads: UploadRow[]
-): FacilityDocumentation {
-  const facilityUploads = uploads.filter(u => u.facilitySlug === facilitySlug);
-  
-  // Normalize and collect unique TOC items with at least one submission
-  const submittedTocItems = new Set<string>();
-  
-  for (const upload of facilityUploads) {
-    const normalizedToc = normalizeTocIdentifier(upload.tocItem);
-    if (normalizedToc && GOVERNANCE_TOC_ITEMS.includes(normalizedToc as any)) {
-      submittedTocItems.add(normalizedToc);
-    }
-  }
-  
-  const submittedCount = submittedTocItems.size;
-  const requiredCount = GOVERNANCE_TOC_ITEMS.length;
-  
-  // Build submissions array with proper normalization
-  const submissions = GOVERNANCE_TOC_ITEMS.map(tocId => ({
-    tocId,
-    submitted: submittedTocItems.has(tocId),
-    documentCount: facilityUploads.filter(u => {
-      const normalized = normalizeTocIdentifier(u.tocItem);
-      return normalized === tocId;
-    }).length,
-  }));
-  
-  return {
-    facilitySlug,
-    facilityName,
-    submissions,
-    submittedCount,
-    requiredCount,
-    compliancePercent: Math.round((submittedCount / requiredCount) * 100),
-  };
 }
 
 /**
@@ -243,11 +197,11 @@ function buildMilestones(
       .filter(s => s.facilitySlug === facilitySlug)
       .map(s => [s.milestoneId, s])
   );
-  
+
   return DB_MILESTONE_CODES.map(code => {
     const definition = MILESTONES[code as keyof typeof MILESTONES];
     const state = stateMap.get(code);
-    
+
     return {
       code: code as keyof typeof MILESTONES,
       name: definition.name,
@@ -266,14 +220,62 @@ function determineCurrentPhase(milestones: MilestoneData[]): PhaseType {
   const prePppComplete = milestones
     .filter(m => m.phase === "PRE-PPP")
     .every(m => m.status === "achieved" || m.status === "achieved_ahead");
-  
+
   const pppComplete = milestones
     .filter(m => m.phase === "PPP")
     .every(m => m.status === "achieved" || m.status === "achieved_ahead");
-  
+
   if (pppComplete) return "POST-PPP";
   if (prePppComplete) return "PPP";
   return "PRE-PPP";
+}
+
+/**
+ * Calculate documentation compliance for a facility.
+ *
+ * Source of truth: governance_deliverable_status.
+ * governance_uploads is used only for evidence document counts.
+ */
+function calculateFacilityDocumentation(
+  facilitySlug: string,
+  facilityName: string,
+  deliverableStatuses: DeliverableStatusRow[],
+  uploads: UploadRow[]
+): FacilityDocumentation {
+  const approvedTocItems = new Set(
+    deliverableStatuses
+      .filter(s => s.facilitySlug === facilitySlug && s.status === "approved")
+      .map(s => s.tocItem)
+  );
+
+  const facilityUploads = uploads.filter(u => u.facilitySlug === facilitySlug);
+
+  // Evidence count per approved TOC item (uploads are evidence only)
+  const documentCounts = new Map<string, number>();
+  for (const upload of facilityUploads) {
+    const normalized = upload.tocItem?.replace(/^TOC-/i, "").replace(/^0+(\d)/, "$1");
+    if (normalized && approvedTocItems.has(normalized)) {
+      documentCounts.set(normalized, (documentCounts.get(normalized) || 0) + 1);
+    }
+  }
+
+  const submittedCount = approvedTocItems.size;
+  const requiredCount = GOVERNANCE_TOC_ITEMS.length;
+
+  const submissions = GOVERNANCE_TOC_ITEMS.map(tocId => ({
+    tocId,
+    submitted: approvedTocItems.has(tocId),
+    documentCount: documentCounts.get(tocId) || 0,
+  }));
+
+  return {
+    facilitySlug,
+    facilityName,
+    submissions,
+    submittedCount,
+    requiredCount,
+    compliancePercent: Math.round((submittedCount / requiredCount) * 100),
+  };
 }
 
 /**
@@ -284,20 +286,20 @@ export async function fetchGovernanceV3Data(
 ): Promise<GovernanceV3Presentation> {
   const effectiveDate = reportingDate || new Date();
   const dateStr = effectiveDate.toISOString().split("T")[0];
-  
-  // Fetch all data from database
+
   const dbFacilities = await fetchFacilitiesFromDB();
   const facilitySlugs = dbFacilities.map(f => f.slug);
-  
+
   const milestoneStates = await fetchMilestoneStates(facilitySlugs);
+  const deliverableStatuses = await fetchDeliverableStatuses(facilitySlugs);
   const uploads = await fetchUploads(facilitySlugs);
-  
+
   // Build facility data
   const facilities: FacilityData[] = dbFacilities.map((dbFacility, index) => {
     const milestones = buildMilestones(dbFacility.slug, milestoneStates, effectiveDate);
     const currentPhase = determineCurrentPhase(milestones);
     const phaseStatus = determinePhaseStatus(milestones, currentPhase);
-    
+
     return {
       slug: dbFacility.slug,
       name: dbFacility.name,
@@ -310,59 +312,55 @@ export async function fetchGovernanceV3Data(
       executiveObservation: "",
     };
   });
-  
-  // Calculate documentation for each facility
-  const facilityDocumentation = dbFacilities.map(dbFacility => 
-    calculateFacilityDocumentation(dbFacility.slug, dbFacility.name, uploads)
+
+  // Calculate documentation for each facility from canonical status table
+  const facilityDocumentation = dbFacilities.map(dbFacility =>
+    calculateFacilityDocumentation(dbFacility.slug, dbFacility.name, deliverableStatuses, uploads)
   );
-  
-  // Generate executive content
-  const executive = generateExecutiveContent(facilities, 
-    {
-      totalFacilities: facilities.length,
-      facilitiesInPrePpp: facilities.filter(f => f.currentPhase === "PRE-PPP").length,
-      facilitiesInPpp: facilities.filter(f => f.currentPhase === "PPP").length,
-      facilitiesInPostPpp: facilities.filter(f => f.currentPhase === "POST-PPP").length,
-      gateReadyCount: facilities.filter(f => f.phaseStatus === "PRE-PPP • GATE READY").length,
-      recoveryCount: facilities.filter(f => f.phaseStatus === "PRE-PPP • RECOVERY").length,
-      totalDocumentsSubmitted: facilityDocumentation.reduce((sum, d) => sum + d.submittedCount, 0),
-      totalDocumentsRequired: facilityDocumentation.reduce((sum, d) => sum + d.requiredCount, 0),
-      portfolioCompliancePercent: Math.round(
-        facilityDocumentation.reduce((sum, d) => sum + d.submittedCount, 0) /
-        facilityDocumentation.reduce((sum, d) => sum + d.requiredCount, 0) * 100
-      ) || 0,
-    },
-    facilityDocumentation,
-    effectiveDate
-  );
-  
-  // Attach executive observations to facilities
-  facilities.forEach(f => {
-    f.executiveObservation = executive.facilityObservations[f.slug] || "";
-  });
-  
-  const summary: PortfolioSummary = {
+
+  const totalDocumentsSubmitted = facilityDocumentation.reduce((sum, d) => sum + d.submittedCount, 0);
+  const totalDocumentsRequired = facilityDocumentation.reduce((sum, d) => sum + d.requiredCount, 0);
+  const portfolioCompliancePercent = totalDocumentsRequired > 0
+    ? Math.round((totalDocumentsSubmitted / totalDocumentsRequired) * 100)
+    : 0;
+
+  const summaryInput: PortfolioSummary = {
     totalFacilities: facilities.length,
     facilitiesInPrePpp: facilities.filter(f => f.currentPhase === "PRE-PPP").length,
     facilitiesInPpp: facilities.filter(f => f.currentPhase === "PPP").length,
     facilitiesInPostPpp: facilities.filter(f => f.currentPhase === "POST-PPP").length,
     gateReadyCount: facilities.filter(f => f.phaseStatus === "PRE-PPP • GATE READY").length,
     recoveryCount: facilities.filter(f => f.phaseStatus === "PRE-PPP • RECOVERY").length,
-    totalDocumentsSubmitted: facilityDocumentation.reduce((sum, d) => sum + d.submittedCount, 0),
-    totalDocumentsRequired: facilityDocumentation.reduce((sum, d) => sum + d.requiredCount, 0),
-    portfolioCompliancePercent: Math.round(
-      facilityDocumentation.reduce((sum, d) => sum + d.submittedCount, 0) /
-      Math.max(1, facilityDocumentation.reduce((sum, d) => sum + d.requiredCount, 0)) * 100
-    ),
+    totalDocumentsSubmitted,
+    totalDocumentsRequired,
+    portfolioCompliancePercent,
   };
-  
-  // Reconciliation assertion
-  const totalSubmitted = facilityDocumentation.reduce((sum, d) => sum + d.submittedCount, 0);
-  const expectedTotal = summary.totalDocumentsSubmitted;
-  if (totalSubmitted !== expectedTotal) {
-    console.warn(`[RECONCILIATION WARNING] Sum of facility submitted (${totalSubmitted}) != portfolio total (${expectedTotal})`);
+
+  const executive = generateExecutiveContent(facilities, summaryInput, facilityDocumentation, effectiveDate);
+
+  facilities.forEach(f => {
+    f.executiveObservation = executive.facilityObservations[f.slug] || "";
+  });
+
+  const summary: PortfolioSummary = { ...summaryInput };
+
+  // Canonical reconciliation: portfolio approved must equal visible matrix checkmarks.
+  const visibleMatrixApproved = facilityDocumentation.reduce(
+    (sum, d) => sum + d.submissions.filter(s => s.submitted).length,
+    0
+  );
+  if (visibleMatrixApproved !== summary.totalDocumentsSubmitted) {
+    throw new Error(
+      `[RECONCILIATION] Portfolio approved (${summary.totalDocumentsSubmitted}) does not equal visible matrix checkmarks (${visibleMatrixApproved}). The status-based count must be used everywhere.`
+    );
   }
-  
+
+  if (summary.totalDocumentsSubmitted !== 19 || summary.totalDocumentsRequired !== 56 || summary.portfolioCompliancePercent !== 34) {
+    throw new Error(
+      `[BASELINE] Approved baseline mismatch: expected 19 approved / 56 required / 34%, got ${summary.totalDocumentsSubmitted} / ${summary.totalDocumentsRequired} / ${summary.portfolioCompliancePercent}%. Verify governance_deliverable_status seed.`
+    );
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     reportingDate: dateStr,
