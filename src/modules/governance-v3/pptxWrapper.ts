@@ -3,7 +3,7 @@
  */
 import pptxgenjs from "pptxgenjs";
 const PptxGenConstructor = typeof pptxgenjs === "function" ? pptxgenjs : (pptxgenjs as unknown as { default: typeof pptxgenjs }).default;
-export function hexColor(hex: string): string { return hex.startsWith("FF") ? hex.slice(2) : hex; }
+export function hexColor(hex: string): string { return hex.startsWith("FF") && hex.length > 6 ? hex.slice(2) : hex; }
 export interface ExactPosition { x: number; y: number; w: number; h: number; }
 export interface TextOptions extends ExactPosition { text: string; fontSize?: number; fontFace?: string; bold?: boolean; color?: string; align?: "left" | "center" | "right"; valign?: "top" | "middle" | "bottom"; }
 export interface ShapeOptions extends ExactPosition { fillColor?: string; lineColor?: string; lineWidth?: number; }
