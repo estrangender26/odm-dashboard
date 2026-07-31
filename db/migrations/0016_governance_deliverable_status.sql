@@ -19,26 +19,26 @@ CREATE TABLE IF NOT EXISTS "governance_deliverable_status" (
 --> statement-breakpoint
 
 -- Seed all 56 facility × TOC rows for the approved 19/56 baseline.
--- AGLIPAY: 3 approved (1, 3, 4)
--- HTT: 11 approved (1,2,3,4,5,6,7,8,9,10,11)
--- EASTBAY: 4 approved (1,2,3,4)
--- KAYSAKAT: 1 approved (1)
+-- AGLIPAY: 3 approved (8, 11, 12)
+-- HTT: 11 approved (1,2,3,4,5,6,7,8,10,11,12)
+-- EASTBAY: 4 approved (2,7,8,12)
+-- KAYSAKAT: 1 approved (8)
 -- Remaining 37 rows: missing
 
 INSERT INTO "governance_deliverable_status" ("facility_slug", "toc_item", "status")
 VALUES
-  ('aglipay', '1', 'approved'),
+  ('aglipay', '1', 'missing'),
   ('aglipay', '2', 'missing'),
-  ('aglipay', '3', 'approved'),
-  ('aglipay', '4', 'approved'),
+  ('aglipay', '3', 'missing'),
+  ('aglipay', '4', 'missing'),
   ('aglipay', '5', 'missing'),
   ('aglipay', '6', 'missing'),
   ('aglipay', '7', 'missing'),
-  ('aglipay', '8', 'missing'),
+  ('aglipay', '8', 'approved'),
   ('aglipay', '9', 'missing'),
   ('aglipay', '10', 'missing'),
-  ('aglipay', '11', 'missing'),
-  ('aglipay', '12', 'missing'),
+  ('aglipay', '11', 'approved'),
+  ('aglipay', '12', 'approved'),
   ('aglipay', '13', 'missing'),
   ('aglipay', '14', 'missing'),
   ('htt', '1', 'approved'),
@@ -49,34 +49,34 @@ VALUES
   ('htt', '6', 'approved'),
   ('htt', '7', 'approved'),
   ('htt', '8', 'approved'),
-  ('htt', '9', 'approved'),
+  ('htt', '9', 'missing'),
   ('htt', '10', 'approved'),
   ('htt', '11', 'approved'),
-  ('htt', '12', 'missing'),
+  ('htt', '12', 'approved'),
   ('htt', '13', 'missing'),
   ('htt', '14', 'missing'),
-  ('eastbay', '1', 'approved'),
+  ('eastbay', '1', 'missing'),
   ('eastbay', '2', 'approved'),
-  ('eastbay', '3', 'approved'),
-  ('eastbay', '4', 'approved'),
+  ('eastbay', '3', 'missing'),
+  ('eastbay', '4', 'missing'),
   ('eastbay', '5', 'missing'),
   ('eastbay', '6', 'missing'),
-  ('eastbay', '7', 'missing'),
-  ('eastbay', '8', 'missing'),
+  ('eastbay', '7', 'approved'),
+  ('eastbay', '8', 'approved'),
   ('eastbay', '9', 'missing'),
   ('eastbay', '10', 'missing'),
   ('eastbay', '11', 'missing'),
-  ('eastbay', '12', 'missing'),
+  ('eastbay', '12', 'approved'),
   ('eastbay', '13', 'missing'),
   ('eastbay', '14', 'missing'),
-  ('kaysakat', '1', 'approved'),
+  ('kaysakat', '1', 'missing'),
   ('kaysakat', '2', 'missing'),
   ('kaysakat', '3', 'missing'),
   ('kaysakat', '4', 'missing'),
   ('kaysakat', '5', 'missing'),
   ('kaysakat', '6', 'missing'),
   ('kaysakat', '7', 'missing'),
-  ('kaysakat', '8', 'missing'),
+  ('kaysakat', '8', 'approved'),
   ('kaysakat', '9', 'missing'),
   ('kaysakat', '10', 'missing'),
   ('kaysakat', '11', 'missing'),

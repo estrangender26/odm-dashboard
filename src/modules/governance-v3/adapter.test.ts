@@ -12,10 +12,10 @@ import { eq, sql, and } from "drizzle-orm";
 
 // Approved 19/56 fixture: every facility × TOC cell.
 const APPROVED_FIXTURE: Record<string, string[]> = {
-  aglipay: ["1", "3", "4"],
-  htt: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"],
-  eastbay: ["1", "2", "3", "4"],
-  kaysakat: ["1"],
+  aglipay: ["8", "11", "12"],
+  htt: ["1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "12"],
+  eastbay: ["2", "7", "8", "12"],
+  kaysakat: ["8"],
 };
 
 describe("Canonical TOC model", () => {
@@ -185,7 +185,7 @@ describe("Status table seed", () => {
       .from(governanceDeliverableStatus)
       .where(and(
         eq(governanceDeliverableStatus.facilitySlug, "kaysakat"),
-        eq(governanceDeliverableStatus.tocItem, "1")
+        eq(governanceDeliverableStatus.tocItem, "8")
       ))
       .limit(1);
     expect(target[0].status).toBe("approved");
@@ -199,7 +199,7 @@ describe("Status table seed", () => {
       // Re-run the seed SQL via the same migration statement
       await db.execute(sql`
         INSERT INTO "governance_deliverable_status" ("facility_slug", "toc_item", "status")
-        VALUES ('kaysakat', '1', 'approved')
+        VALUES ('kaysakat', '8', 'approved')
         ON CONFLICT ("facility_slug", "toc_item") DO NOTHING
       `);
 
@@ -313,13 +313,13 @@ describe("Governance progress can change after deployment", () => {
 
 describe("Status validation", () => {
   it("does not count submitted, missing or not_required as approved", async () => {
-    // Temporarily set aglipay TOC 1 to each non-approved status and verify counts
+    // Temporarily set aglipay TOC 8 to each non-approved status and verify counts
     const original = await db
       .select()
       .from(governanceDeliverableStatus)
       .where(and(
         eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
-        eq(governanceDeliverableStatus.tocItem, "1")
+        eq(governanceDeliverableStatus.tocItem, "8")
       ));
     const originalStatus = original[0].status;
 
@@ -329,7 +329,7 @@ describe("Status validation", () => {
         .set({ status })
         .where(and(
           eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
-          eq(governanceDeliverableStatus.tocItem, "1")
+          eq(governanceDeliverableStatus.tocItem, "8")
         ));
 
       const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
@@ -341,7 +341,51 @@ describe("Status validation", () => {
       .set({ status: originalStatus })
       .where(and(
         eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
-        eq(governanceDeliverableStatus.tocItem, "1")
+        eq(governanceDeliverableStatus.tocItem, "8")
       ));
+  });
+});
+
+
+describe("Approved TOC cell regression", () => {
+  it("rejects the previously incorrect approved-cell mappings", () => {
+    // Historical incorrect mappings that must never return as the full set.
+    const wrongMappings: Record<string, string[]> = {
+      aglipay: ["1", "3", "4"],
+      htt: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"], // includes 9, omits 12
+      eastbay: ["1", "2", "3", "4"],
+      kaysakat: ["1"],
+    };
+
+    for (const [facility, wrongItems] of Object.entries(wrongMappings)) {
+      const expected = new Set(APPROVED_FIXTURE[facility] ?? []);
+      const wrong = new Set(wrongItems);
+      expect(wrong).not.toEqual(expected);
+    }
+  });
+
+  it("rejects specific incorrect historical cells", () => {
+    const wrongCells: Array<{ facility: string; toc: string }> = [
+      { facility: "aglipay", toc: "1" },
+      { facility: "aglipay", toc: "3" },
+      { facility: "aglipay", toc: "4" },
+      { facility: "htt", toc: "9" },
+      { facility: "eastbay", toc: "1" },
+      { facility: "eastbay", toc: "3" },
+      { facility: "eastbay", toc: "4" },
+      { facility: "kaysakat", toc: "1" },
+    ];
+
+    for (const { facility, toc } of wrongCells) {
+      expect(APPROVED_FIXTURE[facility] ?? []).not.toContain(toc);
+    }
+  });
+
+  it("rejects any approval of TOC item 9 outside HTT", () => {
+    for (const [facility, items] of Object.entries(APPROVED_FIXTURE)) {
+      if (facility !== "htt") {
+        expect(items).not.toContain("9");
+      }
+    }
   });
 });
