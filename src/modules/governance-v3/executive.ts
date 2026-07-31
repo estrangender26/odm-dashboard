@@ -31,28 +31,22 @@ export function generateExecutiveContent(
   
   const prePppFacilities = facilitiesWithCorrectedStatus.filter(f => f.effectivePhase === "PRE-PPP");
   const pppActiveFacilities = facilitiesWithCorrectedStatus.filter(f => f.effectivePhase === "PPP");
-  // postPppFacilities not used currently
-  // const postPppFacilities = facilitiesWithCorrectedStatus.filter(f => f.effectivePhase === "POST-PPP");
   const futurePppFacilities = facilitiesWithCorrectedStatus.filter(f => f.isFuturePpp);
   
-  // Slide 1: Portfolio-level headline
-  let headline = "Governance Onboarding Progress";
+  // Slide 1: Concise portfolio-level headline
+  const headline = "Portfolio PPP Status";
   
+  // Dynamic subtitle based on facility distribution
+  let subtitleDetail = "";
   if (pppActiveFacilities.length > 0 && prePppFacilities.length > 0) {
-    const pppNames = pppActiveFacilities.map(f => f.shortName.split(" ")[0]).join(" and ");
-    const prePppNames = prePppFacilities.map(f => f.shortName.split(" ")[0]).join(" and ");
-    headline = `${pppNames} in PPP execution; ${prePppNames} in pre-PPP readiness`;
-  } else if (pppActiveFacilities.length >= 2) {
-    const names = pppActiveFacilities.map(f => f.shortName.split(" ")[0]).join(" and ");
-    headline = `${names} are in PPP execution`;
-  } else if (pppActiveFacilities.length === 1) {
-    headline = `${pppActiveFacilities[0].shortName} is in PPP execution`;
+    subtitleDetail = `${pppActiveFacilities.length} in PPP execution; ${prePppFacilities.length} in pre-PPP readiness`;
+  } else if (pppActiveFacilities.length > 0) {
+    subtitleDetail = `${pppActiveFacilities.length} facility${pppActiveFacilities.length > 1 ? 'ies' : 'y'} in PPP execution`;
   } else if (prePppFacilities.length > 0) {
-    const names = prePppFacilities.map(f => f.shortName.split(" ")[0]).join(" and ");
-    headline = `${names} preparing for PPP transition`;
+    subtitleDetail = `${prePppFacilities.length} facility${prePppFacilities.length > 1 ? 'ies' : 'y'} preparing for PPP`;
   }
   
-  // Identify actual critical path facility (lowest compliance or behind milestones)
+  // Identify critical path facility
   const sortedByRisk = [...facilitiesWithCorrectedStatus].sort((a, b) => {
     const aDoc = facilityDocs.find(d => d.facilitySlug === a.slug);
     const bDoc = facilityDocs.find(d => d.facilitySlug === b.slug);
@@ -65,7 +59,6 @@ export function generateExecutiveContent(
   // Slide 1: Next Gate with specific actionable detail
   let nextGateAction = "Next Gate: Continue milestone progression | Status: On Schedule";
   
-  // Find facility with most urgent next milestone
   const facilityNeedingAttention = facilitiesWithCorrectedStatus.find(f => {
     const incompleteMs = f.milestones.filter(m => 
       m.status !== "achieved" && m.status !== "achieved_ahead"
@@ -82,7 +75,7 @@ export function generateExecutiveContent(
     const msName = getShortMilestoneName(nextMs?.code || "M1");
     
     if (criticalFacility && criticalFacility.slug === facilityNeedingAttention.slug) {
-      nextGateAction = `Next Gate: Complete ${msName} for ${shortName} | Status: Critical Path`;
+      nextGateAction = `Next Gate: ${msName} for ${shortName} | Status: Critical Path`;
     } else {
       nextGateAction = `Next Gate: ${msName} for ${shortName} | Status: On Schedule`;
     }
@@ -116,7 +109,7 @@ export function generateExecutiveContent(
     docHeadline = `Documentation readiness is ${portfolioPct}%; significant gaps remain`;
   }
   
-  // Slide 3: Portfolio Observation with data-driven risk and action
+  // Slide 3: Tightened Portfolio Observation
   const sorted = [...facilityDocs].sort((a, b) => b.compliancePercent - a.compliancePercent);
   const leader = sorted[0];
   const laggard = sorted[sorted.length - 1];
@@ -125,13 +118,11 @@ export function generateExecutiveContent(
   
   if (leader && laggard && leader !== laggard) {
     const parts: string[] = [];
+    parts.push(`Portfolio documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables).`);
     
-    // Portfolio summary first
-    parts.push(`Only ${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} required deliverables are complete.`);
-    
-    // Identify highest risk
     if (laggard.compliancePercent === 0) {
-      parts.push(`${laggard.facilityName} has no approved submissions and is the highest onboarding risk; recovery plan required.`);
+      parts.push(`${laggard.facilityName} has no approved submissions and remains the highest onboarding risk.`);
+      parts.push("A recovery plan is required before the next governance review.");
     } else if (laggard.compliancePercent <= 20) {
       parts.push(`${laggard.facilityName} requires acceleration with only ${laggard.compliancePercent}% completion.`);
     }
@@ -141,7 +132,7 @@ export function generateExecutiveContent(
     }
   }
   
-  // Facility-specific observations
+  // Facility-specific observations - shortened to one line
   const facilityObservations: Record<string, string> = {};
   for (const facility of facilitiesWithCorrectedStatus) {
     const doc = facilityDocs.find(d => d.facilitySlug === facility.slug);
@@ -149,13 +140,13 @@ export function generateExecutiveContent(
     
     if (!doc) continue;
     
-    // Generate specific observation based on phase and documentation
+    // Generate concise single-line observation
     if (doc.compliancePercent === 0 && isPppStarted) {
-      facilityObservations[facility.slug] = `${facility.shortName}: Active PPP with 0% documentation compliance - governance exception requiring immediate attention.`;
+      facilityObservations[facility.slug] = `${facility.shortName}: Active PPP with 0% documentation - governance exception.`;
     } else if (doc.compliancePercent >= 70) {
       facilityObservations[facility.slug] = `${facility.shortName} leads documentation at ${doc.compliancePercent}%.`;
     } else if (doc.compliancePercent >= 50) {
-      facilityObservations[facility.slug] = `${facility.shortName} is building momentum at ${doc.compliancePercent}%.`;
+      facilityObservations[facility.slug] = `${facility.shortName} is building momentum (${doc.compliancePercent}%).`;
     } else if (doc.compliancePercent >= 30) {
       facilityObservations[facility.slug] = `Accelerate ${facility.shortName} documentation (${doc.compliancePercent}%).`;
     } else {
@@ -165,7 +156,7 @@ export function generateExecutiveContent(
   
   return {
     headline,
-    subtitle: "Milestone progress versus the sequence planned from each facility's PPP start date",
+    subtitle: subtitleDetail || "Milestone progress versus the sequence planned from each facility's PPP start date",
     nextGateAction,
     timelineSubtitle: `Calendar-based phase timeline | ${formatDate(reportingDateObj)}`,
     gateImplication,
@@ -181,7 +172,7 @@ function getShortMilestoneName(code: string): string {
   const names: Record<string, string> = {
     M1: "T&C Complete",
     M2: "Commissioning",
-    M3: "Punchlist Closed",
+    M3: "Punchlist",
     M4: "PM Setup",
     M5: "PM Execution",
     M6: "Training",

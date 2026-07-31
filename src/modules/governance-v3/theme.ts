@@ -1,7 +1,7 @@
 /**
  * Manila Water Theme Specification
  * Extracted from Onboarding Status.pptx
- * EXECUTIVE POLISH: Minimum 12pt body text
+ * EXECUTIVE POLISH: Minimum 12pt body text, no wrapping
  */
 
 // Color Palette - exact hex values from reference
@@ -47,15 +47,15 @@ export const FONTS = {
   slideSubtitle: { size: 14, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   phaseHeader: { size: 12, bold: true, color: MANILA_WATER_COLORS.white, face: "Arial" },
   milestoneCode: { size: 12, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
-  milestoneName: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  milestoneName: { size: 11, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
   facilityName: { size: 13, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
   facilityPhase: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
-  facilityDetail: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  facilityDetail: { size: 11, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   statusSymbol: { size: 14, bold: true, face: "Arial" },
-  observation: { size: 12, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
-  legend: { size: 12, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
+  observation: { size: 11, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
+  legend: { size: 11, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
   calloutLabel: { size: 12, bold: true, color: MANILA_WATER_COLORS.navy, face: "Arial" },
-  calloutText: { size: 13, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
+  calloutText: { size: 12, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
   tableHeader: { size: 12, bold: true, color: MANILA_WATER_COLORS.white, face: "Arial" },
   tableCell: { size: 12, color: MANILA_WATER_COLORS.textDark, face: "Arial" },
   sourceNote: { size: 10, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
@@ -63,11 +63,11 @@ export const FONTS = {
   portfolioLabel: { size: 14, color: MANILA_WATER_COLORS.textGray, face: "Arial" },
 } as const;
 
-// Layout Spacing - exact from reference
+// Layout Spacing
 export const LAYOUT = {
   margin: { left: 0.5, right: 0.5, top: 0.2, bottom: 0.3 },
   header: { height: 0.8 },
-  facilityRow: { height: 0.8 },
+  facilityRow: { height: 0.95 },
   phaseBand: { y: 1.0, height: 0.4 },
   milestoneY: 1.5,
   milestoneNameY: 1.7,
@@ -95,25 +95,25 @@ export const PHASES = {
   },
 } as const;
 
-// Milestone Definitions - Executive concise labels
+// Milestone Definitions - Shortened to prevent wrapping
 export const MILESTONES = {
-  M1: { name: "T&C Complete", phase: "PRE-PPP" },
-  M2: { name: "Commissioning", phase: "PRE-PPP" },
+  M1: { name: "T&C Done", phase: "PRE-PPP" },
+  M2: { name: "Commission", phase: "PRE-PPP" },
   M3: { name: "Punchlist", phase: "PRE-PPP" },
   M4: { name: "PM Setup", phase: "PPP" },
-  M5: { name: "PM Execution", phase: "PPP" },
+  M5: { name: "PM Exec", phase: "PPP" },
   M6: { name: "Training", phase: "PPP" },
-  M7: { name: "Optimization", phase: "POST-PPP" },
-  M8: { name: "SLA Active", phase: "POST-PPP" },
-  M9: { name: "BAU Ready", phase: "POST-PPP" },
+  M7: { name: "Optimize", phase: "POST-PPP" },
+  M8: { name: "SLA", phase: "POST-PPP" },
+  M9: { name: "BAU", phase: "POST-PPP" },
 } as const;
 
 export type MilestoneCode = keyof typeof MILESTONES;
 
-// Milestone X positions - exact from reference
-export const MILESTONE_X_POSITIONS = [2.8, 3.9, 5.0, 6.1, 7.2, 8.3, 9.4, 10.5, 11.6];
+// Milestone X positions - slightly wider spacing
+export const MILESTONE_X_POSITIONS = [2.75, 3.85, 4.95, 6.05, 7.15, 8.25, 9.35, 10.45, 11.55];
 
-// TOC Items for Documentation Matrix - exact 14 sections
+// TOC Items for Documentation Matrix
 export const GOVERNANCE_TOC_ITEMS = [
   "1", "1A", "1C", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
 ] as const;
@@ -128,7 +128,6 @@ export const TIMELINE = {
 
 /**
  * Facility color rotation based on index
- * Returns consistent colors for facilities
  */
 export function getFacilityColor(index: number): string {
   const colors = [
