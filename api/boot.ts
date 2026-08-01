@@ -1789,6 +1789,59 @@ app.get("/api/governance/presentation-data", async (c) => {
   }
 });
 
+
+
+// GET /api/governance/presentation-v3-data - fetch V3 presentation model data (JSON)
+app.get("/api/governance/presentation-v3", async (c) => {
+  try {
+    const reportingDateParam = c.req.query("reporting_date");
+    const reportingDateStr = reportingDateParam || new Date().toISOString().split("T")[0];
+    const reportingDate = new Date(`${reportingDateStr}T00:00:00Z`);
+    
+    console.log("[GOV-PRESENTATION-V3] Fetching data for", reportingDateStr);
+    
+    const { fetchGovernanceV3Data } = await import("../src/modules/governance-v3/adapter.server");
+    const data = await fetchGovernanceV3Data(reportingDate);
+    
+    console.log(`[GOV-PRESENTATION-V3] Generated presentation with ${data.facilities.length} facilities`);
+    
+    return c.json(data);
+  } catch (e: any) {
+    console.error("[GOV-PRESENTATION-V3] ERROR:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// GET /api/governance/presentation-v3/generate - generate and return the V3 PPTX
+app.get("/api/governance/presentation-v3/generate", async (c) => {
+  try {
+    const reportingDateParam = c.req.query("reporting_date");
+    const reportingDateStr = reportingDateParam || new Date().toISOString().split("T")[0];
+    const reportingDate = new Date(`${reportingDateStr}T00:00:00Z`);
+
+    console.log("[GOV-PRESENTATION-V3-GENERATE] Generating deck for", reportingDateStr);
+
+    const { fetchGovernanceV3Data } = await import("../src/modules/governance-v3/adapter.server");
+    const { generateGovernanceV3Presentation } = await import("../src/modules/governance-v3/templateGenerator");
+
+    const data = await fetchGovernanceV3Data(reportingDate);
+    const blob = await generateGovernanceV3Presentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+
+    const filename = `O&M Governance Onboarding Progress - ${data.reportingDate}.pptx`;
+
+    console.log(`[GOV-PRESENTATION-V3-GENERATE] Rendered ${blob.size} byte PPTX`);
+
+    return c.body(arrayBuffer, 200, {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    });
+  } catch (e: any) {
+    console.error("[GOV-PRESENTATION-V3-GENERATE] ERROR:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 logBootStage("registering presentation files routes");
 app.route("/api/presentation-files", presentationFilesRouter);
 

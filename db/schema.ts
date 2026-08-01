@@ -170,6 +170,21 @@ export const mwEscalations = pgTable("mw_escalations", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+
+export const governanceDeliverableStatus = pgTable("governance_deliverable_status", {
+  id: serial("id").primaryKey(),
+  facilitySlug: varchar("facility_slug", { length: 50 }).notNull(),
+  tocItem: varchar("toc_item", { length: 20 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("missing"),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: varchar("approved_by", { length: 255 }),
+  evidenceUploadId: integer("evidence_upload_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("governance_deliverable_status_unique").on(table.facilitySlug, table.tocItem),
+]);
+
 export const governanceFiles = pgTable("governance_files", {
   id: serial("id").primaryKey(),
   facilitySlug: varchar("facility_slug", { length: 50 }).notNull(),

@@ -113,6 +113,13 @@
       "when": 1784100000003,
       "tag": "0015_seed_governance_facilities",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785484867564,
+      "tag": "0016_governance_deliverable_status",
+      "breakpoints": true
     }
   ]
 }

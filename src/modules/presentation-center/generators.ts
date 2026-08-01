@@ -1434,7 +1434,65 @@ export async function generateMonthlyKpiDeck(
   };
 }
 
+
+/**
+ * Generate Governance V3 presentation (Manila Water template)
+ */
+async function generateGovernanceV3Deck(
+  context: DeckGenerationContext
+): Promise<GeneratedPresentation> {
+  const { generatedBy } = context;
+
+  // The V3 deck is generated server-side from the committed template to guarantee
+  // exact PowerPoint fidelity. The browser only downloads the resulting PPTX.
+  const today = new Date().toISOString().split("T")[0];
+  const response = await fetch(
+    `/api/governance/presentation-v3/generate?reporting_date=${encodeURIComponent(today)}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to generate V3 governance deck: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const dataUrl = await blobToDataUrl(blob);
+
+  const generatedAt = new Date().toISOString();
+  const name = `O&M Governance Onboarding Progress - ${today}.pptx`;
+
+  return {
+    id: `gov-v3-${Date.now()}`,
+    name,
+    type: "pptx",
+    generatedDate: generatedAt,
+    generatedBy: generatedBy || "ODM User",
+    size: blob.size,
+    dataUrl,
+    generatorId: "om-manual-governance-v3",
+    generatorName: "O&M Manual Governance V3 Deck",
+    category: "O&M Manual Governance",
+    dateFrom: today,
+    filename: name,
+    generatedAt,
+  };
+}
+
 const placeholderGenerators: DeckGenerator[] = [
+  {
+    id: "om-manual-governance-v3",
+    title: "O&M Manual Governance V3 Deck",
+    description:
+      "Generate a three-slide executive presentation matching the Manila Water template exactly. Uses live governance data.",
+    category: "O&M Manual Governance",
+    status: "active",
+    slideOutline: [
+      "Executive Dashboard with milestone matrix and status symbols",
+      "Calendar-based phase timeline with PPP markers",
+      "Documentation readiness matrix with compliance summary",
+    ],
+    enabled: true,
+    generate: generateGovernanceV3Deck,
+  },
   {
     id: "om-manual-library",
     title: "O&M Manual Library Deck",
@@ -1457,13 +1515,13 @@ const placeholderGenerators: DeckGenerator[] = [
     description:
       "Generate a three-slide executive presentation with live governance data. Uses proxy metrics (milestone-count).",
     category: "O&M Manual Governance",
-    status: "active",
+    status: "coming-soon",
     slideOutline: [
       "Executive Dashboard with KPI cards and facility summary table",
       "S-Curve Analysis by Facility (four panels)",
       "Submission Coverage Proxy and Executive Actions",
     ],
-    enabled: true,
+    enabled: false,
     generate: generateGovernancePresentation,
   },
   {
