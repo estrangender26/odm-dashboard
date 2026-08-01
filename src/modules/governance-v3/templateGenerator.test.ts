@@ -267,4 +267,134 @@ describe("Governance V3 template generator", () => {
       expect(xml).toContain("July 31, 2026");
     }
   });
+
+
+  it("renders matrix status symbols with strong, distinct styling", async () => {
+    const blob = await generateGovernanceV3Presentation(createTestData());
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide3.xml")?.async("string");
+    expect(xml).toBeDefined();
+
+    const doc = new DOMParser().parseFromString(xml!, "text/xml");
+    const rows = doc.getElementsByTagName("a:tr");
+    let checkCount = 0;
+    let dashCount = 0;
+
+    for (let r = 1; r <= 14; r++) {
+      const cells = rows[r].getElementsByTagName("a:tc");
+      for (let c = 1; c <= 4; c++) {
+        const runs = cells[c].getElementsByTagName("a:r");
+        for (let i = 0; i < runs.length; i++) {
+          const run = runs[i];
+          const text = run.textContent ?? "";
+          const rPr = run.getElementsByTagName("a:rPr")[0];
+          if (!rPr) continue;
+          const sz = rPr.getAttribute("sz");
+          const b = rPr.getAttribute("b");
+          const fill = rPr.getElementsByTagName("a:srgbClr")[0]?.getAttribute("val");
+
+          if (text.trim() === "✓" || text.trim().startsWith("✓")) {
+            checkCount++;
+            expect(Number(sz)).toBeGreaterThanOrEqual(1200);
+            expect(b).toBe("1");
+            expect(fill).toBe("169873");
+          }
+          if (text.trim() === "—") {
+            dashCount++;
+            expect(Number(sz)).toBeGreaterThanOrEqual(1200);
+            expect(b).toBe("1");
+            expect(fill).toBe("A9A9A9");
+          }
+        }
+      }
+    }
+
+    expect(checkCount).toBe(19);
+    expect(dashCount).toBe(37);
+  });
+
+  it("keeps all slide 3 shapes within the slide canvas and does not overflow", async () => {
+    const blob = await generateGovernanceV3Presentation(createTestData());
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide3.xml")?.async("string");
+    const presentationXml = await zip.file("ppt/presentation.xml")?.async("string");
+    expect(xml).toBeDefined();
+    expect(presentationXml).toBeDefined();
+
+    const doc = new DOMParser().parseFromString(xml!, "text/xml");
+    const presDoc = new DOMParser().parseFromString(presentationXml!, "text/xml");
+    const sldSz = presDoc.getElementsByTagName("p:sldSz")[0];
+    expect(sldSz).toBeDefined();
+    const slideWidth = Number(sldSz.getAttribute("cx"));
+    const slideHeight = Number(sldSz.getAttribute("cy"));
+    expect(slideWidth).toBeGreaterThan(0);
+    expect(slideHeight).toBeGreaterThan(0);
+
+    const shapes = [...doc.getElementsByTagName("p:sp"), ...doc.getElementsByTagName("p:graphicFrame")];
+    for (const shape of shapes) {
+      const xfrm = shape.getElementsByTagName("a:xfrm")[0];
+      if (!xfrm) continue;
+      const off = xfrm.getElementsByTagName("a:off")[0];
+      const ext = xfrm.getElementsByTagName("a:ext")[0];
+      if (!off || !ext) continue;
+      const x = Number(off.getAttribute("x"));
+      const y = Number(off.getAttribute("y"));
+      const w = Number(ext.getAttribute("cx"));
+      const h = Number(ext.getAttribute("cy"));
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(x + w).toBeLessThanOrEqual(slideWidth + 1000); // small tolerance for rounding
+      expect(y + h).toBeLessThanOrEqual(slideHeight + 1000);
+    }
+  });
+
+  it("does not contain legacy proxy text or duplicated executive notes", async () => {
+    const blob = await generateGovernanceV3Presentation(createTestData());
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const allText: string[] = [];
+    for (const slide of [1, 2, 3]) {
+      const xml = await zip.file(`ppt/slides/slide${slide}.xml`)?.async("string");
+      expect(xml).toBeDefined();
+      allText.push(xml!);
+    }
+    const fullText = allText.join("\n");
+    const legacyPhrases = [
+      "ODM Dashboard Presentation",
+      "Submission Coverage N/A",
+      "Not Configured Required Deliverables",
+      "Documents Awaiting Mapping",
+      "Report uses proxy data sources",
+      "7/64",
+      "7 of 64",
+    ];
+    for (const phrase of legacyPhrases) {
+      expect(fullText).not.toContain(phrase);
+    }
+
+    const noteText = allText[2]; // slide 3 executive note
+    const observation = "Documentation submission ongoing across all facilities.";
+    const count = noteText.split(observation).length - 1;
+    expect(count).toBeLessThanOrEqual(1);
+  });
+
+  it("renders correctly when progress changes away from the 19/56 baseline", async () => {
+    const data = createTestData();
+    data.summary.totalDocumentsSubmitted = 20;
+    data.summary.portfolioCompliancePercent = 36;
+    data.facilityDocumentation.find(d => d.facilitySlug === "aglipay")!.submittedCount = 4;
+    data.facilityDocumentation.find(d => d.facilitySlug === "aglipay")!.compliancePercent = 29;
+
+    const blob = await generateGovernanceV3Presentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide3.xml")?.async("string");
+    expect(xml).toBeDefined();
+    expect(xml).toContain("20 / 56");
+    expect(xml).toContain("36%");
+    expect(xml).toContain("4 / 14");
+    expect(xml).toContain("29%");
+  });
 });
