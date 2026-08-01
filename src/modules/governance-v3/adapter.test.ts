@@ -3,12 +3,12 @@
  */
 
 import "dotenv/config";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { fetchGovernanceV3Data } from "./adapter.server";
 import { db } from "@db/connection";
 import { governanceUploads, governanceDeliverableStatus, governanceFacilities } from "@db/schema";
 import { GOVERNANCE_TOC_ITEMS } from "./theme";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, or } from "drizzle-orm";
 
 // Approved 19/56 fixture: every facility × TOC cell.
 const APPROVED_FIXTURE: Record<string, string[]> = {
@@ -386,6 +386,198 @@ describe("Approved TOC cell regression", () => {
       if (facility !== "htt") {
         expect(items).not.toContain("9");
       }
+    }
+  });
+});
+
+describe("Canonical structural guard", () => {
+  let insertedIds: number[] = [];
+
+  afterEach(async () => {
+    for (const id of insertedIds) {
+      await db.delete(governanceDeliverableStatus).where(eq(governanceDeliverableStatus.id, id));
+    }
+    insertedIds = [];
+  });
+
+  it("passes when exactly 56 canonical rows exist", async () => {
+    const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+    expect(data.summary.totalDocumentsRequired).toBe(56);
+    expect(data.facilityDocumentation).toHaveLength(4);
+  });
+
+  it("throws when one canonical row is missing", async () => {
+    // Delete aglipay TOC 8 (an approved row)
+    const target = await db
+      .select({ id: governanceDeliverableStatus.id })
+      .from(governanceDeliverableStatus)
+      .where(and(
+        eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
+        eq(governanceDeliverableStatus.tocItem, "8")
+      ))
+      .limit(1);
+
+    await db.delete(governanceDeliverableStatus).where(eq(governanceDeliverableStatus.id, target[0].id));
+    insertedIds.push(target[0].id); // track for cleanup if re-inserted, but it's deleted
+
+    await expect(fetchGovernanceV3Data(new Date("2026-07-31"))).rejects.toThrow(
+      /Missing 1 combinations.*aglipay:8/
+    );
+
+    // Restore for other tests
+    await db.insert(governanceDeliverableStatus).values({
+      facilitySlug: "aglipay",
+      tocItem: "8",
+      status: "approved",
+    });
+  });
+
+  it("throws and reports both missing rows when two canonical rows are absent", async () => {
+    const targets = await db
+      .select({ id: governanceDeliverableStatus.id, facilitySlug: governanceDeliverableStatus.facilitySlug, tocItem: governanceDeliverableStatus.tocItem })
+      .from(governanceDeliverableStatus)
+      .where(or(
+        and(eq(governanceDeliverableStatus.facilitySlug, "aglipay"), eq(governanceDeliverableStatus.tocItem, "8")),
+        and(eq(governanceDeliverableStatus.facilitySlug, "htt"), eq(governanceDeliverableStatus.tocItem, "12"))
+      ));
+
+    for (const t of targets) {
+      await db.delete(governanceDeliverableStatus).where(eq(governanceDeliverableStatus.id, t.id));
+    }
+
+    await expect(fetchGovernanceV3Data(new Date("2026-07-31"))).rejects.toThrow(
+      /Missing 2 combinations.*aglipay:8.*htt:12|Missing 2 combinations.*htt:12.*aglipay:8/
+    );
+
+    // Restore
+    for (const t of targets) {
+      await db.insert(governanceDeliverableStatus).values({
+        facilitySlug: t.facilitySlug,
+        tocItem: t.tocItem,
+        status: t.facilitySlug === "aglipay" && t.tocItem === "8" ? "approved" : "approved",
+      });
+    }
+  });
+
+  it("detects duplicate rows by direct helper invocation since the database unique constraint prevents real duplicates", async () => {
+    // Import the module to access the helper (it is not exported, so use module import and ts-ignore).
+    const mod: any = await import("./adapter.server");
+    const validate = mod.validateCanonicalDeliverableStatuses;
+    expect(validate).toBeTypeOf("function");
+    const rows = [
+      { facilitySlug: "htt", tocItem: "1", status: "approved" },
+      { facilitySlug: "htt", tocItem: "1", status: "approved" },
+    ];
+    expect(() =>
+      validate(
+        rows,
+        ["htt"],
+        ["1"]
+      )
+    ).toThrow(/Duplicate combinations.*htt:1/);
+  });
+
+  it("ignores an unrelated fifth facility", async () => {
+    const otherSlug = "zz_structural_guard_test_facility";
+    const inserted = await db
+      .insert(governanceFacilities)
+      .values({ slug: otherSlug, name: "ZZ Structural Guard Test Facility", shortName: "ZZ OTHER" })
+      .returning({ id: governanceFacilities.id });
+    const otherStatus = await db
+      .insert(governanceDeliverableStatus)
+      .values({ facilitySlug: otherSlug, tocItem: "1", status: "approved" })
+      .returning({ id: governanceDeliverableStatus.id });
+
+    try {
+      const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+      expect(data.summary.totalDocumentsRequired).toBe(56);
+      expect(data.summary.totalDocumentsSubmitted).toBe(19);
+      expect(data.facilities.map(f => f.slug)).not.toContain(otherSlug);
+    } finally {
+      await db.delete(governanceDeliverableStatus).where(eq(governanceDeliverableStatus.id, otherStatus[0].id));
+      await db.delete(governanceFacilities).where(eq(governanceFacilities.id, inserted[0].id));
+    }
+  });
+
+  it("throws when a selected facility has a noncanonical TOC row like 1A", async () => {
+    const bad = await db
+      .insert(governanceDeliverableStatus)
+      .values({
+        facilitySlug: "aglipay",
+        tocItem: "1A",
+        status: "approved",
+      })
+      .returning({ id: governanceDeliverableStatus.id });
+    insertedIds.push(bad[0].id);
+
+    await expect(fetchGovernanceV3Data(new Date("2026-07-31"))).rejects.toThrow(
+      /Noncanonical TOC rows for selected facilities.*aglipay:1A/
+    );
+  });
+
+  it("throws when a selected facility has a noncanonical TOC row like OTHER", async () => {
+    const bad = await db
+      .insert(governanceDeliverableStatus)
+      .values({
+        facilitySlug: "aglipay",
+        tocItem: "OTHER",
+        status: "approved",
+      })
+      .returning({ id: governanceDeliverableStatus.id });
+    insertedIds.push(bad[0].id);
+
+    await expect(fetchGovernanceV3Data(new Date("2026-07-31"))).rejects.toThrow(
+      /Noncanonical TOC rows for selected facilities.*aglipay:OTHER/
+    );
+  });
+
+  it("does not trigger the structural guard when only an approved status changes", async () => {
+    // Promote aglipay TOC 5 from missing to approved
+    await db
+      .update(governanceDeliverableStatus)
+      .set({ status: "approved" })
+      .where(and(
+        eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
+        eq(governanceDeliverableStatus.tocItem, "5")
+      ));
+
+    try {
+      const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+      expect(data.summary.totalDocumentsSubmitted).toBe(20);
+      expect(data.summary.totalDocumentsRequired).toBe(56);
+    } finally {
+      await db
+        .update(governanceDeliverableStatus)
+        .set({ status: "missing" })
+        .where(and(
+          eq(governanceDeliverableStatus.facilitySlug, "aglipay"),
+          eq(governanceDeliverableStatus.tocItem, "5")
+        ));
+    }
+  });
+
+  it("still renders 18/56 when one approved cell is demoted", async () => {
+    await db
+      .update(governanceDeliverableStatus)
+      .set({ status: "missing" })
+      .where(and(
+        eq(governanceDeliverableStatus.facilitySlug, "htt"),
+        eq(governanceDeliverableStatus.tocItem, "11")
+      ));
+
+    try {
+      const data = await fetchGovernanceV3Data(new Date("2026-07-31"));
+      expect(data.summary.totalDocumentsSubmitted).toBe(18);
+      expect(data.summary.totalDocumentsRequired).toBe(56);
+      expect(data.summary.portfolioCompliancePercent).toBe(32);
+    } finally {
+      await db
+        .update(governanceDeliverableStatus)
+        .set({ status: "approved" })
+        .where(and(
+          eq(governanceDeliverableStatus.facilitySlug, "htt"),
+          eq(governanceDeliverableStatus.tocItem, "11")
+        ));
     }
   });
 });

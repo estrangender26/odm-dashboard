@@ -181,6 +181,82 @@ async function fetchDeliverableStatuses(facilitySlugs: string[]): Promise<Delive
 }
 
 /**
+ * Validate that the selected presentation facilities have exactly one row
+ * for every canonical TOC item and no duplicate or noncanonical rows.
+ *
+ * Hard structural guard: an absent database row is a data-integrity failure,
+ * not a silent "missing" status. Unrelated facilities are ignored.
+ */
+export function validateCanonicalDeliverableStatuses(
+  rows: DeliverableStatusRow[],
+  expectedFacilities: readonly string[],
+  expectedTocItems: readonly string[]
+): void {
+  const expectedCount = expectedFacilities.length * expectedTocItems.length;
+
+  // Track rows that belong to selected facilities
+  const selectedRows = rows.filter(r => expectedFacilities.includes(r.facilitySlug));
+
+  // Duplicates and noncanonical TOC detection
+  const seen = new Map<string, DeliverableStatusRow[]>();
+  const noncanonical: DeliverableStatusRow[] = [];
+
+  for (const row of selectedRows) {
+    if (!expectedTocItems.includes(row.tocItem)) {
+      noncanonical.push(row);
+      continue;
+    }
+    const key = `${row.facilitySlug}-${row.tocItem}`;
+    const list = seen.get(key) ?? [];
+    list.push(row);
+    seen.set(key, list);
+  }
+
+  const duplicates = [...seen.values()].filter(list => list.length > 1);
+
+  // Missing combinations
+  const missing: Array<{ facilitySlug: string; tocItem: string }> = [];
+  for (const facility of expectedFacilities) {
+    for (const tocItem of expectedTocItems) {
+      const key = `${facility}-${tocItem}`;
+      if (!seen.has(key)) {
+        missing.push({ facilitySlug: facility, tocItem });
+      }
+    }
+  }
+
+  const actualCount = seen.size;
+
+  if (actualCount === expectedCount && duplicates.length === 0 && noncanonical.length === 0) {
+    return;
+  }
+
+  const parts: string[] = [
+    `[DATA INTEGRITY] governance_deliverable_status is incomplete or corrupted for the Governance V3 presentation.`,
+    `Expected ${expectedCount} canonical rows (${expectedFacilities.length} facilities × ${expectedTocItems.length} TOC items).`,
+    `Found ${actualCount} unique canonical rows.`,
+  ];
+
+  if (missing.length > 0) {
+    const list = missing.map(m => `${m.facilitySlug}:${m.tocItem}`).join(", ");
+    parts.push(`Missing ${missing.length} combinations: ${list}`);
+  }
+
+  if (duplicates.length > 0) {
+    const list = duplicates.map(group => `${group[0].facilitySlug}:${group[0].tocItem} (${group.length} rows)`).join(", ");
+    parts.push(`Duplicate combinations: ${list}`);
+  }
+
+  if (noncanonical.length > 0) {
+    const list = noncanonical.map(r => `${r.facilitySlug}:${r.tocItem}`).join(", ");
+    parts.push(`Noncanonical TOC rows for selected facilities: ${list}`);
+  }
+
+  throw new Error(parts.join(" "));
+}
+
+
+/**
  * Fetch uploads for evidence counts only.
  * Raw uploads do not determine approval.
  */
@@ -322,6 +398,14 @@ export async function fetchGovernanceV3Data(
 
   const milestoneStates = await fetchMilestoneStates(facilitySlugs);
   const deliverableStatuses = await fetchDeliverableStatuses(facilitySlugs);
+
+  // Hard structural guard: every selected facility must have exactly one row per canonical TOC item.
+  validateCanonicalDeliverableStatuses(
+    deliverableStatuses,
+    PRESENTATION_FACILITIES,
+    GOVERNANCE_TOC_ITEMS as unknown as readonly string[]
+  );
+
   const uploads = await fetchUploads(facilitySlugs);
 
   // Build facility data in canonical order
