@@ -33,21 +33,44 @@ export function generateExecutiveContent(
   const fullSubtitle = `2 facilities in PPP execution; 2 in pre-PPP readiness | ${formattedDate}`;
   
   // Slide 1: Next Gate
-  const activePppFacilities = facilitiesWithCorrectedStatus.filter(f => 
-    f.effectivePhase === "PPP" && !f.isFuturePpp
-  );
-  const facilityNamesNeedingAttention = activePppFacilities
-    .filter(f => {
-      const incompleteMs = f.milestones.filter(m => 
-        m.status !== "achieved" && m.status !== "achieved_ahead"
-      );
+  // Build an action-oriented next-gate statement from current milestone/phase state.
+  function buildNextGateAction(): string {
+    const activePppFacilities = facilitiesWithCorrectedStatus.filter(f => f.effectivePhase === "PPP" && !f.isFuturePpp);
+    const futurePppFacilities = facilitiesWithCorrectedStatus.filter(f => f.isFuturePpp);
+
+    // PPP facilities with incomplete planned-now milestones drive the immediate next gate.
+    const pppIncomplete = activePppFacilities.filter(f => {
+      const incompleteMs = f.milestones.filter(m => m.status === "gap" || m.status === "upcoming");
       return incompleteMs.length > 0;
-    })
-    .map(f => f.shortName.split(" ")[0]);
-  
-  const nextGateAction = facilityNamesNeedingAttention.length > 0
-    ? `Next Gate: PM Setup for ${facilityNamesNeedingAttention.join(" and ")} | Status: On Schedule`
-    : "Next Gate: Continue milestone progression | Status: On Schedule";
+    });
+
+    if (pppIncomplete.length > 0) {
+      const names = pppIncomplete.map(f => f.shortName.split(" ")[0]).join(" and ");
+      const incompleteCodes = [...new Set(pppIncomplete.flatMap(f => f.milestones.filter(m => m.status === "gap" || m.status === "upcoming").map(m => m.code)))];
+      const task = incompleteCodes.includes("M4") || incompleteCodes.includes("M5")
+        ? "complete SAP-PM task list setup"
+        : incompleteCodes.includes("M1") || incompleteCodes.includes("M2") || incompleteCodes.includes("M3")
+        ? "close remaining commissioning and defect milestones"
+        : "complete outstanding PPP setup milestones";
+      return `Next gate: ${task} for ${names} before the next review.`;
+    }
+
+    // Future-PPP facilities drive the pre-PPP readiness gate.
+    if (futurePppFacilities.length > 0) {
+      const names = futurePppFacilities.map(f => f.shortName.split(" ")[0]).join(" and ");
+      const pppMonths = [...new Set(futurePppFacilities.map(f =>
+        new Date(f.pppStartDate).toLocaleDateString("en-US", { month: "long" })
+      ))].join(" and ");
+      const anyRecovery = futurePppFacilities.some(f => f.phaseStatus.includes("RECOVERY"));
+      const task = anyRecovery
+        ? "close remaining Pre-PPP readiness gaps"
+        : "finalise Pre-PPP commissioning readiness";
+      return `Next gate: ${task} for ${names} before the ${pppMonths} 2026 PPP start.`;
+    }
+
+    return "Next gate: Continue milestone progression and maintain BAU governance.";
+  }
+  const nextGateAction = buildNextGateAction();
   
   // Slide 2: Gate Implication
   const futurePppFacilities = facilitiesWithCorrectedStatus.filter(f => f.isFuturePpp);
@@ -73,23 +96,29 @@ export function generateExecutiveContent(
     portfolioObservation = `Portfolio documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables). ${laggard.facilityName} has no approved TOC deliverables and remains the highest onboarding risk. A recovery plan is required before the next governance review.`;
   }
   
-  // Facility-specific observations - concise single line as requested
+  // Facility-specific observations - tier-based, data-driven executive wording
+  function buildFacilityObservation(facility: typeof facilitiesWithCorrectedStatus[0], doc: FacilityDocumentation): string {
+    const shortName = facility.shortName.split(" ")[0];
+    const pct = doc.compliancePercent;
+    const phaseLabel = facility.effectivePhase === "PPP" ? "Active PPP" : "Pre-PPP readiness";
+    let implication: string;
+    if (pct >= 75) {
+      implication = "Leads portfolio readiness. Focus remaining effort on closing final acceptance, as-built, or handover gaps.";
+    } else if (pct >= 30) {
+      implication = "Progressing but still requires focused documentation closure.";
+    } else if (pct >= 10) {
+      implication = "Requires accelerated documentation recovery before the next gate.";
+    } else {
+      implication = "Early-stage readiness; immediate completion of core governance documentation is required.";
+    }
+    return `${shortName}: ${phaseLabel} with ${pct}% documentation compliance; ${implication}`;
+  }
+
   const facilityObservations: Record<string, string> = {};
   for (const facility of facilitiesWithCorrectedStatus) {
     const doc = facilityDocs.find(d => d.facilitySlug === facility.slug);
     if (!doc) continue;
-    
-    const shortName = facility.shortName.split(" ")[0];
-    
-    if (shortName === "AGLIPAY") {
-      facilityObservations[facility.slug] = `${shortName}: Active PPP with ${doc.compliancePercent}% documentation compliance; immediate recovery required.`;
-    } else if (shortName === "HTT") {
-      facilityObservations[facility.slug] = `${shortName}: Active PPP with ${doc.compliancePercent}% documentation compliance.`;
-    } else if (shortName === "EASTBAY") {
-      facilityObservations[facility.slug] = `${shortName}: Pre-PPP readiness at ${doc.compliancePercent}% documentation compliance.`;
-    } else if (shortName === "KAYSAKAT") {
-      facilityObservations[facility.slug] = `${shortName}: Pre-PPP readiness at ${doc.compliancePercent}% documentation compliance.`;
-    }
+    facilityObservations[facility.slug] = buildFacilityObservation(facility, doc);
   }
   
   return {
