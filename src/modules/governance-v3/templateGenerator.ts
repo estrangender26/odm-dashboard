@@ -140,8 +140,12 @@ function setShapeText(shape: XmlElement, text: string): void {
     throw new Error(`Shape "${getShapeName(shape)}" has no txBody.`);
   }
   const paragraphs = txBody.getElementsByTagName("a:p");
-  for (let i = 0; i < paragraphs.length; i++) {
-    setTextInParagraph(paragraphs[i], text);
+  if (paragraphs.length === 0) return;
+  // Replace only the first paragraph and remove extra paragraphs so multi-
+  // paragraph placeholder text (e.g. executive note) is not duplicated.
+  setTextInParagraph(paragraphs[0], text);
+  while (paragraphs.length > 1) {
+    txBody.removeChild(paragraphs[1]);
   }
 }
 
@@ -426,7 +430,7 @@ function updateSlide3(doc: XmlDocument, data: GovernanceV3Presentation): void {
       const submitted = submission?.submitted ?? false;
       setCellText(
         cells[facilityIndex + 1],
-        submitted ? "✓ Submitted" : "— Missing"
+        submitted ? "✓" : "—"
       );
     }
   }

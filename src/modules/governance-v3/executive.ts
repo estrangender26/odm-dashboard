@@ -82,7 +82,7 @@ export function generateExecutiveContent(
     const shortName = facility.shortName.split(" ")[0];
     
     if (shortName === "AGLIPAY") {
-      facilityObservations[facility.slug] = `${shortName}: Active PPP with 0% documentation compliance; immediate recovery required.`;
+      facilityObservations[facility.slug] = `${shortName}: Active PPP with ${doc.compliancePercent}% documentation compliance; immediate recovery required.`;
     } else if (shortName === "HTT") {
       facilityObservations[facility.slug] = `${shortName}: Active PPP with ${doc.compliancePercent}% documentation compliance.`;
     } else if (shortName === "EASTBAY") {
