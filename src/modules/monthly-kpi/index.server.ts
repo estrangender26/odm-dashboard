@@ -4,4 +4,4 @@
  */
 
 export { fetchMonthlyKpiPresentationData } from "./adapter.server";
-export { generateMonthlyKpiPresentation } from "./templateGenerator";
+export { generateMonthlyKpiPresentation } from "@/modules/executive-presentations/generators/monthlyKpiGenerator";

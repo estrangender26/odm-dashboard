@@ -7,4 +7,4 @@
 
 export * from "./index";
 export { fetchGovernanceV3Data } from "./adapter.server";
-export { generateGovernanceV3Presentation } from "./templateGenerator";
+export { generateGovernanceV3Presentation } from "@/modules/executive-presentations/generators/governanceGenerator";
