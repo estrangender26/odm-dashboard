@@ -183,7 +183,8 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(matrix[1][0]).toBe("PM Compliance");
   });
 
-  it("has no font smaller than 12pt", async () => {
+  it("has no font smaller than 12 pt", async () => {
+    // Executive presentations must have a minimum font size of 12 pt.
     const blob = await generateMonthlyKpiPresentation(createTestData());
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);

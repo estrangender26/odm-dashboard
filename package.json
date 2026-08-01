@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && rm -rf dist/templates && mkdir -p dist/templates && cp -R src/modules/governance-v3/templates/* dist/templates/ && cp -R src/modules/monthly-kpi/templates/* dist/templates/",
+    "build": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && rm -rf dist/templates && mkdir -p dist/templates && cp -R src/modules/executive-presentations/templates/* dist/templates/",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "NODE_ENV=production node dist/boot.js",
