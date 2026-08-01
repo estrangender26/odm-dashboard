@@ -1393,6 +1393,51 @@ export function buildMonthlyKpiTemplateSlides(
     : individualTemplateSlides(dataset);
 }
 
+/**
+ * Generate Monthly KPI Executive Scorecard (template-based server-side PPTX)
+ */
+async function generateMonthlyKpiExecutiveScorecard(
+  context: DeckGenerationContext
+): Promise<GeneratedPresentation> {
+  const request = requireMonthlyKpiContext(context);
+  const params = new URLSearchParams();
+  params.set("reporting_year", String(request.reportingYear));
+  params.set("reporting_month", String(request.reportingMonth));
+  if (request.businessUnit && request.businessUnit !== ALL_BUSINESS_UNITS_LABEL) {
+    params.set("business_unit", request.businessUnit);
+  }
+
+  const response = await fetch(`/api/monthly-kpi/presentation/generate?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Failed to generate Monthly KPI Executive Scorecard: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const dataUrl = await blobToDataUrl(blob);
+  const generatedAt = new Date().toISOString();
+  const monthName = MONTH_NAMES[request.reportingMonth - 1] ?? String(request.reportingMonth);
+  const name = `Monthly KPI Executive Scorecard - ${monthName} ${request.reportingYear}.pptx`;
+
+  return {
+    id: `monthly-kpi-executive-${Date.now()}`,
+    name,
+    type: "pptx",
+    generatedDate: generatedAt,
+    generatedBy: context.generatedBy || "ODM User",
+    size: blob.size,
+    dataUrl,
+    generatorId: "monthly-kpi-executive-scorecard",
+    generatorName: "Monthly KPI Executive Scorecard",
+    category: "Monthly KPI Scorecard",
+    reportingYear: request.reportingYear,
+    reportingMonth: request.reportingMonth,
+    businessUnit: request.businessUnit,
+    template: EXECUTIVE_SCORECARD_TEMPLATE,
+    filename: name,
+    generatedAt,
+  };
+}
+
 export async function generateMonthlyKpiDeck(
   context: DeckGenerationContext
 ): Promise<GeneratedPresentation> {
@@ -1607,6 +1652,21 @@ const placeholderGenerators: DeckGenerator[] = [
 ];
 
 export const deckGeneratorRegistry: DeckGenerator[] = [
+  {
+    id: "monthly-kpi-executive-scorecard",
+    title: "Monthly KPI Executive Scorecard",
+    description:
+      "Generate a three-slide executive scorecard from persisted Monthly KPI records using the approved template-based PowerPoint pipeline.",
+    category: "Monthly KPI Scorecard",
+    status: "active",
+    slideOutline: [
+      "Monthly Reliability KPI Scorecard, East Zone",
+      "Reliability KPI Scorecard – All BUs",
+      "Three actions / Maintenance KPI issues matrix",
+    ],
+    enabled: true,
+    generate: generateMonthlyKpiExecutiveScorecard,
+  },
   {
     id: "monthly-kpi-scorecard",
     title: "Monthly KPI Scorecard Deck",

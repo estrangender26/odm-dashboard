@@ -1842,6 +1842,43 @@ app.get("/api/governance/presentation-v3/generate", async (c) => {
   }
 });
 
+
+// GET /api/monthly-kpi/presentation/generate - generate and return the Monthly KPI scorecard PPTX
+app.get("/api/monthly-kpi/presentation/generate", async (c) => {
+  try {
+    const reportingYearParam = c.req.query("reporting_year");
+    const reportingMonthParam = c.req.query("reporting_month");
+    const businessUnitParam = c.req.query("business_unit");
+
+    const reportingYear = reportingYearParam ? Number(reportingYearParam) : new Date().getFullYear();
+    const reportingMonth = reportingMonthParam ? Number(reportingMonthParam) : new Date().getMonth() + 1;
+
+    if (!Number.isInteger(reportingYear) || !Number.isInteger(reportingMonth) || reportingMonth < 1 || reportingMonth > 12) {
+      return c.json({ error: "reporting_year and a valid reporting_month (1-12) are required" }, 400);
+    }
+
+    console.log("[MONTHLY-KPI-PRESENTATION-GENERATE] Generating deck for", reportingYear, reportingMonth);
+
+    const { fetchMonthlyKpiPresentationData } = await import("../src/modules/monthly-kpi/adapter.server");
+    const { generateMonthlyKpiPresentation } = await import("../src/modules/monthly-kpi/templateGenerator");
+
+    const data = await fetchMonthlyKpiPresentationData(reportingYear, reportingMonth, businessUnitParam);
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+
+    const filename = `Monthly KPI Executive Scorecard - ${data.reportingMonthLabel}.pptx`;
+
+    console.log(`[MONTHLY-KPI-PRESENTATION-GENERATE] Rendered ${blob.size} byte PPTX`);
+
+    return c.body(arrayBuffer, 200, {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    });
+  } catch (e: any) {
+    console.error("[MONTHLY-KPI-PRESENTATION-GENERATE] ERROR:", e.message);
+    return c.json({ error: e.message }, 500);
+  }
+});
 logBootStage("registering presentation files routes");
 app.route("/api/presentation-files", presentationFilesRouter);
 

@@ -38,11 +38,14 @@ describe("Presentation Center Operator-Driven Maintenance generation dialog", ()
     const odmGenerator = deckGeneratorRegistry.find(
       generator => generator.id === "operator-driven-maintenance"
     );
+    const activeGeneratorIds = [
+      "monthly-kpi-scorecard",
+      "monthly-kpi-executive-scorecard",
+      "operator-driven-maintenance",
+      "om-manual-governance-v3",
+    ];
     const remainingComingSoon = deckGeneratorRegistry.filter(
-      generator =>
-        generator.id !== "monthly-kpi-scorecard" &&
-        generator.id !== "operator-driven-maintenance" &&
-        generator.id !== "om-manual-governance-v3"
+      generator => !activeGeneratorIds.includes(generator.id)
     );
 
     expect(odmGenerator).toMatchObject({
