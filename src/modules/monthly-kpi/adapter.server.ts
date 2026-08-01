@@ -197,17 +197,10 @@ function buildScorecard(
 
 function buildExecutiveReadout(
   selectedBu: BusinessUnitScorecard,
-  allBus: BusinessUnitScorecard[],
+  _allBus: BusinessUnitScorecard[],
   portfolioYtd: Record<ScorecardKpiKey, MonthlyKpiValue>,
   reportingMonthLabel: string
 ): MonthlyKpiExecutiveReadout {
-  const pmPassed = allBus.filter(
-    (bu) => isPresentNumber(bu.ytd.pmCompliance.value) && bu.ytd.pmCompliance.value >= 95
-  ).length;
-  const uptimePassed = allBus.filter(
-    (bu) => isPresentNumber(bu.ytd.facilityUptime.value) && bu.ytd.facilityUptime.value >= 99.97
-  ).length;
-
   const slide1Observation =
     `${selectedBu.businessUnit} YTD performance: ` +
     `PM compliance ${selectedBu.ytd.pmCompliance.formatted}, ` +
@@ -217,14 +210,22 @@ function buildExecutiveReadout(
 
   const portfolioPm = portfolioYtd.pmCompliance.formatted;
   const portfolioUptime = portfolioYtd.facilityUptime.formatted;
+  // Keep the executive summary to a concise maximum of two lines so it does
+  // not overlap the legend or table in the All-BU slide.
   const slide2Observation =
-    `${pmPassed} of ${allBus.length} business units are meeting PM compliance target. ` +
-    `${uptimePassed} of ${allBus.length} are meeting facility uptime target. ` +
-    `Portfolio YTD PM compliance ${portfolioPm}, facility uptime ${portfolioUptime}. ` +
-    "Recovery priorities are driven by BU-level PM compliance and budget control gaps.";
+    `Portfolio PM compliance is ${portfolioPm}, while facility uptime is ${portfolioUptime}. ` +
+    "Priority recovery is required for BU-level PM compliance, budget control and missing submissions.";
 
-  const allActions = allBus.flatMap((bu) => bu.actionItems);
-  const slide3Actions = allActions.slice(0, 3);
+  // Slide 3 action cards are deliberately aligned with the color-coded issue
+  // categories in the issues matrix:
+  //   PM RECOVERY (red)     — confirmed performance gaps
+  //   DATA CLOSURE (yellow) — missing KPI submissions
+  //   VALIDATION (blue)     — provisional or questionable metrics
+  const slide3Actions = [
+    "Recover EWG and TWCI against BU-level PM and uptime targets.",
+    "Close missing Budget Spend, PM:CM Cost, MTTR and WAWA/JVC submissions.",
+    "Confirm MTTR scope and validate CWC's 307:1 work-order ratio.",
+  ];
 
   const dataNote =
     `Data note: RAG uses unrounded YTD values. *MTTR remains provisional where validation is pending. ` +

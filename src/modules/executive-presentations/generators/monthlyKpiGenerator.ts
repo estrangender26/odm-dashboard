@@ -1,14 +1,10 @@
 /**
  * Monthly KPI Executive Scorecard generator.
  *
- * Replaces text and tables inside the committed MonthlyKpiExecutive.pptx
- * template using the shared Executive Presentation Framework.
- *
- * Recovery changes:
- * - Template headers are preserved from the approved deck instead of being
- *   overwritten, which avoids collapsing multi-paragraph header cells and
- *   keeps the generated deck visually identical to the approved template.
- * - Table data cells are still replaced with the persisted KPI values.
+ * Replaces only dynamic values inside the committed MonthlyKpiExecutive.pptx
+ * template using the shared Executive Presentation Framework. Shape geometry,
+ * body properties, paragraph properties, run properties, autofit settings,
+ * masters, layouts, themes, and notes are preserved.
  */
 
 import {
@@ -21,6 +17,7 @@ import {
   loadSlideXml,
   resolveExecutiveTemplatePath,
   saveSlideXml,
+  setCellFill,
   setCellText,
   setShapeText,
   type XmlDocument,
@@ -43,6 +40,18 @@ const TABLE_METRICS: ScorecardKpiKey[] = [
   "facilityUptime",
 ];
 
+// Slide 3 issue-matrix row order in the approved template. Facility Uptime
+// appears before MTTR, so we map by row label rather than by TABLE_METRICS
+// order to avoid putting MTTR days into the Facility Uptime row.
+const ISSUE_TABLE_METRICS: ScorecardKpiKey[] = [
+  "pmCompliance",
+  "budgetSpend",
+  "pmCmWorkOrderRatio",
+  "pmCmCostRatio",
+  "facilityUptime",
+  "mttrDays",
+];
+
 // Template slide 2/3 columns after the KPI/row-label column.
 const TEMPLATE_BU_COLUMNS = [
   "AMD-EZ",
@@ -53,6 +62,21 @@ const TEMPLATE_BU_COLUMNS = [
   "EWG",
   "WAWA/JVC",
 ];
+
+// Color palette for the Slide 3 issues matrix and action cards. These hex
+// values match the legend swatches in the approved Monthly KPI template.
+const ISSUE_COLORS = {
+  critical: "FAD7D7", // red / critical performance gap
+  warning: "FFF0C7",  // yellow / KPI or operational gap
+  data: "DDE6F0",     // blue-gray / data or scope gap
+  neutral: "EEF0F2",  // light neutral / no material issue
+} as const;
+
+type IssueClassification =
+  | { category: "critical"; text: string; fill: string }
+  | { category: "warning"; text: string; fill: string }
+  | { category: "data"; text: string; fill: string }
+  | { category: "neutral"; text: string; fill: string };
 
 function isPresentNumber(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -104,15 +128,12 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   }
 
   // Monthly rows Jan-Jul (rows 1-7). Headers and row labels are preserved
-  // from the approved template to avoid corrupting multi-paragraph header
-  // formatting; only the data values are replaced.
+  // from the approved template; only the data values are replaced.
   for (let i = 0; i < 7; i++) {
     const row = rows[i + 1];
     const cells = getCells(row);
     const trend = selectedBu.monthlyTrend[i];
     if (!trend) {
-      if (cells.length > 0) setCellText(cells[0], "");
-      for (let j = 1; j < cells.length; j++) setCellText(cells[j], "");
       continue;
     }
     for (let m = 0; m < TABLE_METRICS.length; m++) {
@@ -133,9 +154,18 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     );
   }
 
+  // Executive observation and MTTR methodology note live in separate shapes.
   const readoutShape = findShapeByName(doc, "Executive Readout");
   if (readoutShape) {
     setShapeText(readoutShape, data.executive.slide1Observation);
+  }
+
+  const mttrNoteShape = findShapeByName(doc, "TextBox 1");
+  if (mttrNoteShape) {
+    setShapeText(
+      mttrNoteShape,
+      "MTTR calculation methodology is being realigned. Indicative MTTR remains provisional pending validation."
+    );
   }
 }
 
@@ -201,24 +231,66 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   }
 }
 
-function buildIssueCellText(
+/**
+ * Classify a BU/KPI cell for the Slide 3 issues matrix.
+ *
+ * Rules:
+ * - Critical (red): actual performance shortfall — danger status with data.
+ * - Warning (yellow): near-target or warning status.
+ * - Data gap (blue-gray): no data, provisional MTTR, or questionable metric.
+ * - Neutral (light): success / acceptable.
+ */
+function classifyIssueCell(
   bu: BusinessUnitScorecard | undefined,
   key: ScorecardKpiKey
-): string {
-  if (!bu) return "";
+): IssueClassification {
+  if (!bu) {
+    return { category: "neutral", text: "", fill: ISSUE_COLORS.neutral };
+  }
   const value = bu.ytd[key];
-  if (!isPresentNumber(value.value)) return "No data submitted.";
-  if (value.status === "success") return "";
-  if (value.status === "warning") {
-    return `${value.formatted}; requires monitoring and recovery validation.`;
+
+  if (!isPresentNumber(value.value)) {
+    return { category: "data", text: "No data", fill: ISSUE_COLORS.data };
   }
-  if (value.status === "danger") {
-    return `${value.formatted}; below benchmark, recovery plan required.`;
-  }
+
   if (key === "mttrDays") {
-    return `${value.formatted}; provisional pending validation.`;
+    return {
+      category: "data",
+      text: `${value.formatted} — Provisional`,
+      fill: ISSUE_COLORS.data,
+    };
   }
-  return `${value.formatted}; review drivers.`;
+
+  // CWC PM:CM WO 99.7% (307:1) is flagged as a questionable ratio that needs
+  // validation, not a clean pass.
+  if (key === "pmCmWorkOrderRatio" && bu.businessUnit === "CWC") {
+    const raw = value.value;
+    if (raw >= 99) {
+      return {
+        category: "data",
+        text: `${value.formatted} — Validation pending`,
+        fill: ISSUE_COLORS.data,
+      };
+    }
+  }
+
+  if (value.status === "danger") {
+    return {
+      category: "critical",
+      text: `${value.formatted} — Recovery required`,
+      fill: ISSUE_COLORS.critical,
+    };
+  }
+
+  if (value.status === "warning") {
+    return {
+      category: "warning",
+      text: `${value.formatted} — Monitor`,
+      fill: ISSUE_COLORS.warning,
+    };
+  }
+
+  return { category: "neutral", text: "", fill: ISSUE_COLORS.neutral };
 }
 
 function updateSlide3(doc: XmlDocument, data: MonthlyKpiPresentation): void {
@@ -251,34 +323,45 @@ function updateSlide3(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   }
 
   // Rows 1-6. The header row and KPI column labels are preserved from the
-  // approved template; only the per-BU issue cells are replaced.
-  for (let i = 0; i < TABLE_METRICS.length; i++) {
-    const key = TABLE_METRICS[i];
+  // approved template; only the per-BU issue cells are replaced. We use the
+  // row order from the template, not TABLE_METRICS order.
+  for (let i = 0; i < ISSUE_TABLE_METRICS.length; i++) {
+    const key = ISSUE_TABLE_METRICS[i];
     const row = rows[i + 1];
     const cells = getCells(row);
     for (let c = 0; c < TEMPLATE_BU_COLUMNS.length; c++) {
       const buName = TEMPLATE_BU_COLUMNS[c];
       const bu = data.buScorecards.find((b) => b.businessUnit === buName);
-      setCellText(cells[c + 1], buildIssueCellText(bu, key));
+      const issue = classifyIssueCell(bu, key);
+      const cell = cells[c + 1];
+      setCellText(cell, issue.text);
+      setCellFill(cell, issue.fill);
     }
   }
 
-  // Action shapes
+  // Action statements belong in the dedicated text shapes, not the background
+  // action-card shapes. Labels are preserved from the template.
   const actions = data.executive.slide3Actions;
-  const actionShapeNames = [
-    "PM RECOVERY Action",
-    "DATA CLOSURE Action",
-    "VALIDATION Action",
+  const actionTextShapeNames = [
+    "PM RECOVERY Text",
+    "DATA CLOSURE Text",
+    "VALIDATION Text",
   ];
-  for (let i = 0; i < actionShapeNames.length; i++) {
-    const shape = findShapeByName(doc, actionShapeNames[i]);
+  for (let i = 0; i < actionTextShapeNames.length; i++) {
+    const shape = findShapeByName(doc, actionTextShapeNames[i]);
     if (shape) {
-      setShapeText(
-        shape,
-        actions[i] ?? "Continue monthly KPI monitoring and validation."
-      );
+      const text = actions[i] ?? "Continue monthly KPI monitoring and validation.";
+      // Keep action statements to at most two lines by truncating with an
+      // ellipsis if the adapter supplies a longer string.
+      setShapeText(shape, truncateActionText(text));
     }
   }
+}
+
+function truncateActionText(text: string): string {
+  const maxChars = 110;
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars).trim() + "…";
 }
 
 export async function generateMonthlyKpiPresentation(
