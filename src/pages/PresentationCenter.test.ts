@@ -14,7 +14,7 @@ describe("Presentation Center Monthly KPI generation dialog", () => {
   it("opens the configuration modal from the Monthly KPI Generate button", () => {
     const buttonHandler = presentationCenterSource.slice(
       presentationCenterSource.indexOf(
-        "generator.id === monthlyKpiGeneratorId"
+        "isMonthlyKpiGenerator(generator.id)"
       ),
       presentationCenterSource.indexOf("disabled={isActive}")
     );
@@ -79,7 +79,7 @@ describe("Presentation Center Operator-Driven Maintenance generation dialog", ()
   it("opens the ODM configuration modal from the Generate button", () => {
     const buttonHandler = presentationCenterSource.slice(
       presentationCenterSource.indexOf(
-        "generator.id === monthlyKpiGeneratorId"
+        "isMonthlyKpiGenerator(generator.id)"
       ),
       presentationCenterSource.indexOf("disabled={isActive}")
     );

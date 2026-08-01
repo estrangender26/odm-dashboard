@@ -3,6 +3,12 @@
  *
  * Replaces text and tables inside the committed MonthlyKpiExecutive.pptx
  * template using the shared Executive Presentation Framework.
+ *
+ * Recovery changes:
+ * - Template headers are preserved from the approved deck instead of being
+ *   overwritten, which avoids collapsing multi-paragraph header cells and
+ *   keeps the generated deck visually identical to the approved template.
+ * - Table data cells are still replaced with the persisted KPI values.
  */
 
 import {
@@ -10,7 +16,6 @@ import {
   findShapeByName,
   generatePptxBlob,
   getCells,
-  getShapeParagraphs,
   getTableRows,
   loadPptxTemplate,
   loadSlideXml,
@@ -36,20 +41,6 @@ const TABLE_METRICS: ScorecardKpiKey[] = [
   "pmCmCostRatio",
   "mttrDays",
   "facilityUptime",
-];
-
-const TABLE_METRIC_LABELS: Record<ScorecardKpiKey, string> = {
-  pmCompliance: "PM Compliance",
-  budgetSpend: "Budget Spend",
-  pmCmWorkOrderRatio: "PM:CM Ratio(# of WO's)",
-  pmCmCostRatio: "PM:CM Ratio(Cost)",
-  mttrDays: "MTTR*(days)",
-  facilityUptime: "Facility Uptime",
-};
-
-const MONTH_LABELS_SHORT = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
 // Template slide 2/3 columns after the KPI/row-label column.
@@ -112,16 +103,9 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     );
   }
 
-  // Header
-  const headerCells = getCells(rows[0]);
-  if (headerCells.length >= 7) {
-    setCellText(headerCells[0], "Month");
-    for (let i = 0; i < TABLE_METRICS.length; i++) {
-      setCellText(headerCells[i + 1], TABLE_METRIC_LABELS[TABLE_METRICS[i]]);
-    }
-  }
-
-  // Monthly rows Jan-Jul (rows 1-7)
+  // Monthly rows Jan-Jul (rows 1-7). Headers and row labels are preserved
+  // from the approved template to avoid corrupting multi-paragraph header
+  // formatting; only the data values are replaced.
   for (let i = 0; i < 7; i++) {
     const row = rows[i + 1];
     const cells = getCells(row);
@@ -131,7 +115,6 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
       for (let j = 1; j < cells.length; j++) setCellText(cells[j], "");
       continue;
     }
-    setCellText(cells[0], MONTH_LABELS_SHORT[trend.month - 1] ?? trend.monthLabel);
     for (let m = 0; m < TABLE_METRICS.length; m++) {
       setCellText(
         cells[m + 1],
@@ -143,20 +126,11 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   // YTD row
   const ytdRow = rows[8];
   const ytdCells = getCells(ytdRow);
-  setCellText(ytdCells[0], "YTD");
   for (let m = 0; m < TABLE_METRICS.length; m++) {
     setCellText(
       ytdCells[m + 1],
       formatMonthlyValue(TABLE_METRICS[m], selectedBu.ytd[TABLE_METRICS[m]])
     );
-  }
-
-  // TARGET row - keep static, ensure correct text
-  const targetRow = rows[9];
-  const targetCells = getCells(targetRow);
-  const firstText = getShapeParagraphs(targetCells[0])[0]?.textContent ?? "";
-  if (firstText !== "TARGET") {
-    setCellText(targetCells[0], "TARGET");
   }
 
   const readoutShape = findShapeByName(doc, "Executive Readout");
@@ -172,7 +146,10 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   }
   const subtitleShape = findShapeByName(doc, "Slide Subtitle");
   if (subtitleShape) {
-    setShapeText(subtitleShape, `KPI Scorecard – All BUs | ${data.reportingMonthLabel}`);
+    setShapeText(
+      subtitleShape,
+      `KPI Scorecard – All BUs | ${data.reportingMonthLabel}`
+    );
   }
 
   const tableFrame = findGraphicFrameByName(doc, "All Business Units KPI Scorecard");
@@ -188,22 +165,13 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     );
   }
 
-  // Header
-  const headerCells = getCells(rows[0]);
-  if (headerCells.length >= 7) {
-    setCellText(headerCells[0], "Business Unit");
-    for (let i = 0; i < TABLE_METRICS.length; i++) {
-      setCellText(headerCells[i + 1], TABLE_METRIC_LABELS[TABLE_METRICS[i]]);
-    }
-  }
-
-  // BU rows 1-7
+  // BU rows 1-7. Headers and row labels are preserved from the approved
+  // template; only data values are replaced.
   for (let i = 0; i < TEMPLATE_BU_COLUMNS.length; i++) {
     const row = rows[i + 1];
     const cells = getCells(row);
     const buName = TEMPLATE_BU_COLUMNS[i];
     const bu = data.buScorecards.find((b) => b.businessUnit === buName);
-    setCellText(cells[0], buName);
     for (let m = 0; m < TABLE_METRICS.length; m++) {
       const key = TABLE_METRICS[m];
       const value =
@@ -215,20 +183,11 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   // YTD (ALL BUs) row
   const portfolioRow = rows[8];
   const portfolioCells = getCells(portfolioRow);
-  setCellText(portfolioCells[0], "YTD (ALL BUs)");
   for (let m = 0; m < TABLE_METRICS.length; m++) {
     setCellText(
       portfolioCells[m + 1],
       data.portfolioYtd[TABLE_METRICS[m]].formatted
     );
-  }
-
-  // TARGET row
-  const targetRow = rows[9];
-  const targetCells = getCells(targetRow);
-  const firstText = getShapeParagraphs(targetCells[0])[0]?.textContent ?? "";
-  if (firstText !== "TARGET") {
-    setCellText(targetCells[0], "TARGET");
   }
 
   const readoutShape = findShapeByName(doc, "Executive Readout");
@@ -265,11 +224,17 @@ function buildIssueCellText(
 function updateSlide3(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   const titleShape = findShapeByName(doc, "Issues Title");
   if (titleShape) {
-    setShapeText(titleShape, "Three actions must be completed before the next review");
+    setShapeText(
+      titleShape,
+      "Three actions must be completed before the next review"
+    );
   }
   const subtitleShape = findShapeByName(doc, "Issues Subtitle");
   if (subtitleShape) {
-    setShapeText(subtitleShape, `Maintenance KPI issues matrix | ${data.reportingMonthLabel}`);
+    setShapeText(
+      subtitleShape,
+      `Maintenance KPI issues matrix | ${data.reportingMonthLabel}`
+    );
   }
 
   const tableFrame = findGraphicFrameByName(doc, "Executive KPI Issues Matrix");
@@ -285,30 +250,12 @@ function updateSlide3(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     );
   }
 
-  // Header
-  const headerCells = getCells(rows[0]);
-  if (headerCells.length >= 8) {
-    setCellText(headerCells[0], "KPI");
-    for (let i = 0; i < TEMPLATE_BU_COLUMNS.length; i++) {
-      setCellText(headerCells[i + 1], TEMPLATE_BU_COLUMNS[i]);
-    }
-  }
-
-  const issueMetricLabels: Record<ScorecardKpiKey, string> = {
-    pmCompliance: "PM Compliance",
-    budgetSpend: "Budget Spend",
-    pmCmWorkOrderRatio: "PM:CM Ratio(WO)",
-    pmCmCostRatio: "PM:CM Ratio(Cost)",
-    facilityUptime: "Facility Uptime",
-    mttrDays: "MTTR",
-  };
-
-  // Rows 1-6
+  // Rows 1-6. The header row and KPI column labels are preserved from the
+  // approved template; only the per-BU issue cells are replaced.
   for (let i = 0; i < TABLE_METRICS.length; i++) {
     const key = TABLE_METRICS[i];
     const row = rows[i + 1];
     const cells = getCells(row);
-    setCellText(cells[0], issueMetricLabels[key]);
     for (let c = 0; c < TEMPLATE_BU_COLUMNS.length; c++) {
       const buName = TEMPLATE_BU_COLUMNS[c];
       const bu = data.buScorecards.find((b) => b.businessUnit === buName);

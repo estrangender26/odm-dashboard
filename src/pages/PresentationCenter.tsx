@@ -77,7 +77,12 @@ const categoryOptions: PresentationCategory[] = [
 
 type SortKey = "newest" | "oldest" | "name" | "size" | "category";
 
-const monthlyKpiGeneratorId = "monthly-kpi-scorecard";
+const monthlyKpiGeneratorId = "monthly-kpi-executive-scorecard";
+
+function isMonthlyKpiGenerator(id: string): boolean {
+  return id === monthlyKpiGeneratorId || id === "monthly-kpi-scorecard";
+}
+
 const operatorDrivenMaintenanceGeneratorId = "operator-driven-maintenance";
 
 const emptyMonthlyKpiOptions: MonthlyKpiAvailableOptions = {
@@ -457,7 +462,7 @@ export default function PresentationCenter() {
       if (options.years.length === 0 || options.months.length === 0) {
         setMonthlyKpiSelection(defaultMonthlyKpiSelection);
         setMonthlyKpiOptionsError(
-          "No persisted Monthly KPI records are available for presentation generation."
+          "No Monthly KPI data available for the selected reporting period."
         );
         return;
       }
@@ -990,8 +995,8 @@ export default function PresentationCenter() {
                     </span>
                     <button
 	                      onClick={() =>
-	                        generator.id === monthlyKpiGeneratorId
-	                          ? void openMonthlyKpiDialog(generator.id)
+	                        isMonthlyKpiGenerator(generator.id)
+                          ? void openMonthlyKpiDialog(generator.id)
 	                          : generator.id ===
 	                              operatorDrivenMaintenanceGeneratorId
 	                            ? void openOdmDialog(generator.id)
