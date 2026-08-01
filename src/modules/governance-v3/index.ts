@@ -3,8 +3,6 @@
  * Browser-safe exports (no server-only code)
  */
 
-export { GovernancePPTX } from "./pptxWrapper";
-export { generateGovernanceV3Presentation } from "./generator";
 export { generateExecutiveContent } from "./executive";
 
 export type {

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\"",
+    "build": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && cp -R src/modules/governance-v3/templates dist/templates",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "NODE_ENV=production node dist/boot.js",
@@ -16,7 +16,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "tasks:duplicate-cleanup:dry-run": "node --import tsx scripts/tasks-duplicate-cleanup-dry-run.ts",
-    "build:auto-push": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && bash scripts/auto-push.sh \"Build auto-push\""
+    "build:auto-push": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && cp -R src/modules/governance-v3/templates dist/templates && bash scripts/auto-push.sh \"Build auto-push\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.965.0",

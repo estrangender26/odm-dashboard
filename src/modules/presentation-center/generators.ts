@@ -23,9 +23,6 @@ import {
   generateGovernancePresentation,
 } from "./governanceGenerator";
 import {
-  generateGovernanceV3Presentation,
-} from "@/modules/governance-v3/generator";
-import {
   ALL_BUSINESS_UNITS_LABEL,
   EXECUTIVE_SCORECARD_TEMPLATE,
   getPersistedMonthlyKpiScorecard,
@@ -1445,30 +1442,24 @@ async function generateGovernanceV3Deck(
   context: DeckGenerationContext
 ): Promise<GeneratedPresentation> {
   const { generatedBy } = context;
-  
-  // Fetch V3 data from API
+
+  // The V3 deck is generated server-side from the committed template to guarantee
+  // exact PowerPoint fidelity. The browser only downloads the resulting PPTX.
   const today = new Date().toISOString().split("T")[0];
-  const response = await fetch(`/api/governance/presentation-v3?reporting_date=${encodeURIComponent(today)}`);
-  
+  const response = await fetch(
+    `/api/governance/presentation-v3/generate?reporting_date=${encodeURIComponent(today)}`
+  );
+
   if (!response.ok) {
-    throw new Error(`Failed to fetch V3 governance data: ${response.status}`);
+    throw new Error(`Failed to generate V3 governance deck: ${response.status}`);
   }
-  
-  const data = await response.json();
-  
-  if (!data || !data.facilities) {
-    throw new Error("Invalid V3 governance data response");
-  }
-  
-  // Generate the presentation
-  const blob = await generateGovernanceV3Presentation(data);
-  
-  // Convert to data URL
+
+  const blob = await response.blob();
   const dataUrl = await blobToDataUrl(blob);
-  
+
   const generatedAt = new Date().toISOString();
-  const name = `O&M Governance Onboarding Progress - ${data.reportingDate}.pptx`;
-  
+  const name = `O&M Governance Onboarding Progress - ${today}.pptx`;
+
   return {
     id: `gov-v3-${Date.now()}`,
     name,
@@ -1480,7 +1471,7 @@ async function generateGovernanceV3Deck(
     generatorId: "om-manual-governance-v3",
     generatorName: "O&M Manual Governance V3 Deck",
     category: "O&M Manual Governance",
-    dateFrom: data.reportingDate,
+    dateFrom: today,
     filename: name,
     generatedAt,
   };
