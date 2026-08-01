@@ -103,7 +103,7 @@ export function generateExecutiveContent(
     const phaseLabel = facility.effectivePhase === "PPP" ? "Active PPP" : "Pre-PPP readiness";
     let implication: string;
     if (pct >= 75) {
-      implication = "Leads portfolio readiness. Focus remaining effort on closing final acceptance, as-built, or handover gaps.";
+      implication = "Leads portfolio readiness. Focus remaining effort on closing the outstanding governance deliverables.";
     } else if (pct >= 30) {
       implication = "Progressing but still requires focused documentation closure.";
     } else if (pct >= 10) {
