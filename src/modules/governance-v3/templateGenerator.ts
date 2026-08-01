@@ -442,7 +442,7 @@ function updateSlide3(doc: XmlDocument, data: GovernanceV3Presentation): void {
       `[TEMPLATE] Totals row has ${totalsCells.length} cells, expected 5.`
     );
   }
-  setCellText(totalsCells[0], "Approved / Required");
+  setCellText(totalsCells[0], "Submitted / Required");
   for (let i = 0; i < 4; i++) {
     const slug = FACILITY_ORDER[i];
     const docItem = facilityDocumentation.find((d) => d.facilitySlug === slug);
