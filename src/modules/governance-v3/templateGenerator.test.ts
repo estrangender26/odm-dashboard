@@ -225,7 +225,7 @@ describe("Governance V3 template generator", () => {
     expect(totalSubmitted).toBe(19);
 
     const totalsRow = matrix[15];
-    expect(totalsRow[0]).toBe("Approved / Required");
+    expect(totalsRow[0]).toBe("Submitted / Required");
     expect(totalsRow[1]).toBe("3 / 14");
     expect(totalsRow[2]).toBe("11 / 14");
     expect(totalsRow[3]).toBe("4 / 14");

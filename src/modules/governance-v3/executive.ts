@@ -93,7 +93,7 @@ export function generateExecutiveContent(
   
   let portfolioObservation = "Documentation submission ongoing across all facilities.";
   if (laggard && laggard.compliancePercent === 0) {
-    portfolioObservation = `Portfolio documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables). ${laggard.facilityName} has no approved TOC deliverables and remains the highest onboarding risk. A recovery plan is required before the next governance review.`;
+    portfolioObservation = `Portfolio documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables). ${laggard.facilityName} has no submitted TOC deliverables and remains the highest onboarding risk. A recovery plan is required before the next governance review.`;
   }
   
   // Facility-specific observations - tier-based, data-driven executive wording
