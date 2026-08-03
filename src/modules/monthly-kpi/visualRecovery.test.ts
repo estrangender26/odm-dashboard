@@ -136,12 +136,19 @@ function createJulyRegressionData(): MonthlyKpiPresentation {
         facilityUptime: { value: 99.94, status: "warning", formatted: "99.94%" },
       }),
       makeBuScorecard("WAWA/JVC", {
-        pmCompliance: { value: null, status: "no-data", formatted: "No Data" },
-        budgetSpend: { value: null, status: "no-data", formatted: "No Data" },
-        pmCmWorkOrderRatio: { value: null, status: "no-data", formatted: "No Data" },
+        // Approximate July 2026 YTD values from persisted WAWAJVC records.
+        // PM Compliance averages ~77.7% -> critical (red).
+        // Budget Spend YTD is ~79% -> critical (red).
+        // PM:CM WO Ratio is ~95.8% -> success (neutral).
+        // PM:CM Cost Ratio is missing -> data gap (blue-gray).
+        // MTTR is provisional -> data gap (blue-gray).
+        // Facility Uptime is 100% -> success (neutral).
+        pmCompliance: { value: 77.67, status: "danger", formatted: "77.67%" },
+        budgetSpend: { value: 79.04, status: "danger", formatted: "79.04%" },
+        pmCmWorkOrderRatio: { value: 95.8, status: "success", formatted: "95.8% (21.0:1)" },
         pmCmCostRatio: { value: null, status: "no-data", formatted: "No Data" },
-        mttrDays: { value: null, status: "no-data", formatted: "No Data" },
-        facilityUptime: { value: null, status: "no-data", formatted: "No Data" },
+        mttrDays: { value: 8.5, status: "provisional", formatted: "8.50 days" },
+        facilityUptime: { value: 100, status: "success", formatted: "100.00%" },
       }),
     ],
     portfolioYtd: {
@@ -398,6 +405,7 @@ describe("Monthly KPI visual recovery", () => {
       "No data",
       "Provisional",
       "Validation pending",
+      "Meets target",
     ];
     for (let r = 1; r < matrix.length; r++) {
       for (let c = 1; c < matrix[r].length; c++) {
@@ -480,17 +488,94 @@ describe("Monthly KPI visual recovery", () => {
     expect(getCellFill(slide3, 3, 3)).toBe(ISSUE_COLORS.data);
   });
 
-  it("classifies WAWA/JVC missing data as data gap, not red", async () => {
+  it("populates WAWA/JVC cells from canonical scorecard with correct classification", async () => {
     const slides = await loadGeneratedSlides();
     const slide3 = slides.slide3;
     const matrix = getTableMatrix(slide3);
-    // WAWA/JVC is column 7. Check all data rows.
+    // WAWA/JVC is column 7.
+    // Row order: 1=PM Compliance, 2=Budget Spend, 3=PM:CM Ratio(WO),
+    //            4=PM:CM Ratio(Cost), 5=Facility Uptime, 6=MTTR
+    expect(matrix[1][7]).toContain("77.67%");
+    expect(matrix[1][7]).toContain("Recovery required");
+    expect(getCellFill(slide3, 1, 7)).toBe(ISSUE_COLORS.critical);
+
+    expect(matrix[2][7]).toContain("79.04%");
+    expect(matrix[2][7]).toContain("Recovery required");
+    expect(getCellFill(slide3, 2, 7)).toBe(ISSUE_COLORS.critical);
+
+    // Success/neutral cells now show the value with a consistent
+    // "Meets target" label so the matrix does not look incomplete.
+    expect(matrix[3][7]).toContain("95.8%");
+    expect(matrix[3][7]).toContain("Meets target");
+    expect(getCellFill(slide3, 3, 7)).toBe(ISSUE_COLORS.neutral);
+
+    expect(matrix[4][7]).toBe("No data");
+    expect(getCellFill(slide3, 4, 7)).toBe(ISSUE_COLORS.data);
+
+    expect(matrix[5][7]).toContain("100.00%");
+    expect(matrix[5][7]).toContain("Meets target");
+    expect(getCellFill(slide3, 5, 7)).toBe(ISSUE_COLORS.neutral);
+
+    expect(matrix[6][7]).toContain("8.50 days");
+    expect(matrix[6][7]).toContain("Provisional");
+    expect(getCellFill(slide3, 6, 7)).toBe(ISSUE_COLORS.data);
+  });
+
+  it("classifies WAWA/JVC missing data cells as data gap, not red", async () => {
+    const slides = await loadGeneratedSlides();
+    const slide3 = slides.slide3;
+    const matrix = getTableMatrix(slide3);
     for (let r = 1; r < matrix.length; r++) {
       const cell = matrix[r][7];
       if (cell === "No data") {
         expect(getCellFill(slide3, r, 7)).toBe(ISSUE_COLORS.data);
       }
     }
+  });
+
+  it("resolves WAWA/JVC from every supported database alias", async () => {
+    const { normalizeBusinessUnitLabel } = await import("./kpiAggregation");
+    expect(normalizeBusinessUnitLabel("WAWAJVC")).toBe("WAWA/JVC");
+    expect(normalizeBusinessUnitLabel("wawajvc")).toBe("WAWA/JVC");
+    expect(normalizeBusinessUnitLabel("WAWA/JVC")).toBe("WAWA/JVC");
+    expect(normalizeBusinessUnitLabel("wawa/jvc")).toBe("WAWA/JVC");
+    expect(normalizeBusinessUnitLabel("WAWA JVC")).toBe("WAWA/JVC");
+    expect(normalizeBusinessUnitLabel("WAWA-JVC")).toBe("WAWA/JVC");
+    expect(normalizeBusinessUnitLabel("WAWA_JVC")).toBe("WAWA/JVC");
+  });
+
+  it("Slide 2 and Slide 3 use the same canonical WAWA/JVC values", async () => {
+    const slides = await loadGeneratedSlides();
+    const slide2Matrix = getTableMatrix(slides.slide2);
+    const slide3Matrix = getTableMatrix(slides.slide3);
+    // WAWA/JVC is column 7 in slide 3 and row 7 in slide 2 (after header).
+    // Slide 2 rows are BU rows; slide 3 rows are KPI rows, so compare the
+    // same KPI/BU intersection by key.
+    expect(slide2Matrix[7][1]).toContain("77.67%"); // PM Compliance
+    expect(slide3Matrix[1][7]).toContain("77.67%");
+    expect(slide2Matrix[7][2]).toContain("79.04%"); // Budget Spend
+    expect(slide3Matrix[2][7]).toContain("79.04%");
+    expect(slide2Matrix[7][3]).toContain("95.8%"); // PM:CM Ratio(WO)
+    // Slide 3 now renders neutral success cells with the value and
+    // "Meets target" label for visual consistency.
+    expect(slide3Matrix[3][7]).toContain("95.8%");
+    expect(slide3Matrix[3][7]).toContain("Meets target");
+    expect(slide2Matrix[7][4]).toContain("No Data"); // PM:CM Ratio(Cost)
+    expect(slide3Matrix[4][7]).toBe("No data");
+    expect(slide2Matrix[7][6]).toContain("100.00%"); // Facility Uptime
+    expect(slide3Matrix[5][7]).toContain("100.00%");
+    expect(slide3Matrix[5][7]).toContain("Meets target");
+    expect(slide2Matrix[7][5]).toContain("8.50 days"); // MTTR
+    expect(slide3Matrix[6][7]).toContain("8.50 days");
+  });
+
+  it("throws a clear mapping error when a template column lacks a scorecard", async () => {
+    const data = createJulyRegressionData();
+    // Remove the WAWA/JVC scorecard but keep the template expecting it.
+    data.buScorecards = data.buScorecards.filter((b) => b.businessUnit !== "WAWA/JVC");
+    await expect(generateMonthlyKpiPresentation(data)).rejects.toThrow(
+      /Missing scorecard for template column "WAWA\/JVC"/
+    );
   });
 
   it("uses consistent matrix body-cell formatting", async () => {

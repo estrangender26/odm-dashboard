@@ -372,7 +372,7 @@ const monthlyKpiCanonicalBusinessUnitSql = sql`
 
 const monthlyKpiAliasPrioritySql = sql`
   CASE
-    WHEN trim(business_unit) IN ('AMD-EZ', 'Laguna Water', 'Clark Water', 'Tagum Water', 'Estate Water') THEN 0
+    WHEN trim(business_unit) IN ('AMD-EZ', 'Laguna Water', 'Clark Water', 'Tagum Water', 'Estate Water', 'WAWA/JVC') THEN 0
     ELSE 1
   END
 `;

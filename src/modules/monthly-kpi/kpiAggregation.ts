@@ -116,9 +116,21 @@ const businessUnitLabels: Record<string, string> = {
   tagum: "Tagum Water",
   "estate water": "Estate Water",
   estate: "Estate Water",
+  "wawa/jvc": "WAWA/JVC",
+  wawajvc: "WAWA/JVC",
+  "wawa jvc": "WAWA/JVC",
+  "wawa-jvc": "WAWA/JVC",
+  "wawa_jvc": "WAWA/JVC",
 };
 
-const currentBusinessUnitLabels = new Set(["AMD-EZ", "Laguna Water", "Clark Water", "Tagum Water", "Estate Water"]);
+const currentBusinessUnitLabels = new Set([
+  "AMD-EZ",
+  "Laguna Water",
+  "Clark Water",
+  "Tagum Water",
+  "Estate Water",
+  "WAWA/JVC",
+]);
 
 export function normalizeBusinessUnitLabel(value: string) {
   const normalized = String(value || "").toLowerCase().trim();
