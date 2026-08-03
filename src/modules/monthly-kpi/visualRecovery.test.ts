@@ -20,7 +20,7 @@ const ISSUE_COLORS = {
   critical: "FAD7D7",
   warning: "FFF0C7",
   data: "DDE6F0",
-  neutral: "EEF0F2",
+  neutral: "E2F0D9",
 } as const;
 
 function getCellFill(xml: string, rowIndex: number, colIndex: number): string {
