@@ -63,6 +63,27 @@ const TEMPLATE_BU_COLUMNS = [
   "WAWA/JVC",
 ];
 
+/**
+ * Resolve a template BU column to its canonical scorecard.
+ *
+ * Fail loudly when the template expects a column that the adapter did not
+ * supply. Silent mismatches used to produce blank columns (e.g. WAWA/JVC).
+ */
+function requireBuScorecard(
+  data: MonthlyKpiPresentation,
+  buName: string
+): BusinessUnitScorecard {
+  const bu = data.buScorecards.find((b) => b.businessUnit === buName);
+  if (!bu) {
+    const available = data.buScorecards.map((b) => b.businessUnit).join(", ");
+    throw new Error(
+      `[MONTHLY-KPI-TEMPLATE] Missing scorecard for template column "${buName}". ` +
+        `Available scorecards: [${available}]. Check the canonical business-unit mapping in kpiAggregation.`
+    );
+  }
+  return bu;
+}
+
 // Color palette for the Slide 3 issues matrix and action cards. These hex
 // values match the legend swatches in the approved Monthly KPI template.
 const ISSUE_COLORS = {
@@ -290,7 +311,14 @@ function classifyIssueCell(
     };
   }
 
-  return { category: "neutral", text: "", fill: ISSUE_COLORS.neutral };
+  // Success / acceptable: show the value with a short success label so
+  // the matrix is visually consistent and readers do not mistake a blank
+  // neutral cell for missing data.
+  return {
+    category: "neutral",
+    text: `${value.formatted} — Meets target`,
+    fill: ISSUE_COLORS.neutral,
+  };
 }
 
 function updateSlide3(doc: XmlDocument, data: MonthlyKpiPresentation): void {
@@ -331,7 +359,7 @@ function updateSlide3(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     const cells = getCells(row);
     for (let c = 0; c < TEMPLATE_BU_COLUMNS.length; c++) {
       const buName = TEMPLATE_BU_COLUMNS[c];
-      const bu = data.buScorecards.find((b) => b.businessUnit === buName);
+      const bu = requireBuScorecard(data, buName);
       const issue = classifyIssueCell(bu, key);
       const cell = cells[c + 1];
       setCellText(cell, issue.text);
