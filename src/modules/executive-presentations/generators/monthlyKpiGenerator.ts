@@ -90,7 +90,7 @@ const ISSUE_COLORS = {
   critical: "FAD7D7", // red / critical performance gap
   warning: "FFF0C7",  // yellow / KPI or operational gap
   data: "DDE6F0",     // blue-gray / data or scope gap
-  neutral: "EEF0F2",  // light neutral / no material issue
+  neutral: "E2F0D9",  // light green / no material issue (meets target)
 } as const;
 
 type IssueClassification =
