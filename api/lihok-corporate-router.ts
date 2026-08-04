@@ -53,14 +53,24 @@ function requireAdmin(user: User): void {
   }
 }
 
-function hasCompletedStorage(version: Partial<LihokCorporateDocumentVersion>): boolean {
+function isUniqueViolationError(error: unknown): boolean {
+  const e = error as { code?: string; cause?: { code?: string } } | undefined;
+  return e?.code === "23505" || e?.cause?.code === "23505";
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function hasCompletedStorage(version: Partial<LihokCorporateDocumentVersion>): boolean {
   return (
-    version.fileName != null &&
+    isNonEmptyString(version.fileName) &&
     version.fileSize != null &&
-    version.mimeType != null &&
-    version.storageProvider != null &&
-    version.storageBucket != null &&
-    version.storagePath != null &&
+    version.fileSize >= 0 &&
+    isNonEmptyString(version.mimeType) &&
+    isNonEmptyString(version.storageProvider) &&
+    isNonEmptyString(version.storageBucket) &&
+    isNonEmptyString(version.storagePath) &&
     version.storageUploadedAt != null
   );
 }
@@ -918,8 +928,8 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
       throw Errors.notFound("Version not found.");
     }
 
-    const version = versionRows[0];
-    const fromStatus = parseStatus(version.status);
+    const preflightVersion = versionRows[0];
+    const fromStatus = parseStatus(preflightVersion.status);
     const toStatus = parseStatus(input.status);
 
     if (toStatus === "superseded") {
@@ -927,20 +937,20 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
     }
 
     if (fromStatus === toStatus) {
-      return c.json({ version: { id: version.id, status: version.status } });
+      return c.json({ version: { id: preflightVersion.id, status: preflightVersion.status } });
     }
 
     if (!isValidStatusTransition(fromStatus, toStatus)) {
       throw Errors.badRequest(`Invalid status transition from ${fromStatus} to ${toStatus}.`);
     }
 
-    if ((toStatus === "for_review" || toStatus === "approved") && !hasCompletedStorage(version)) {
+    if ((toStatus === "for_review" || toStatus === "approved") && !hasCompletedStorage(preflightVersion)) {
       throw Errors.badRequest("A completed file upload is required before review or approval.");
     }
 
     if (toStatus === "approved") {
       requireAdmin(user);
-      if (version.uploadedBy === user.id) {
+      if (preflightVersion.uploadedBy === user.id) {
         throw Errors.forbidden("Uploaders cannot approve their own versions.");
       }
     }
@@ -948,16 +958,54 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
     const now = new Date();
 
     const updatedVersion = await db.transaction(async (tx) => {
-      const updateData: Partial<typeof lihokCorporateDocumentVersions.$inferInsert> = {
-        status: toStatus,
-        updatedAt: now,
-      };
+      // Re-read and lock the target version inside the transaction to guard against
+      // concurrent status changes and to serialize approval races.
+      const lockedRows = await tx
+        .select({
+          id: lihokCorporateDocumentVersions.id,
+          status: lihokCorporateDocumentVersions.status,
+          fileName: lihokCorporateDocumentVersions.fileName,
+          fileSize: lihokCorporateDocumentVersions.fileSize,
+          mimeType: lihokCorporateDocumentVersions.mimeType,
+          storageProvider: lihokCorporateDocumentVersions.storageProvider,
+          storageBucket: lihokCorporateDocumentVersions.storageBucket,
+          storagePath: lihokCorporateDocumentVersions.storagePath,
+          storageUploadedAt: lihokCorporateDocumentVersions.storageUploadedAt,
+          uploadedBy: lihokCorporateDocumentVersions.uploadedBy,
+        })
+        .from(lihokCorporateDocumentVersions)
+        .where(
+          and(
+            eq(lihokCorporateDocumentVersions.id, input.versionId),
+            eq(lihokCorporateDocumentVersions.documentId, input.documentId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+
+      if (!lockedRows.length) {
+        throw Errors.notFound("Version not found.");
+      }
+
+      const lockedVersion = lockedRows[0];
+      const lockedFromStatus = parseStatus(lockedVersion.status);
+
+      if (!isValidStatusTransition(lockedFromStatus, toStatus)) {
+        throw Errors.badRequest(`Invalid status transition from ${lockedFromStatus} to ${toStatus}.`);
+      }
+
+      if ((toStatus === "for_review" || toStatus === "approved") && !hasCompletedStorage(lockedVersion)) {
+        throw Errors.badRequest("A completed file upload is required before review or approval.");
+      }
 
       if (toStatus === "approved") {
-        updateData.approvedBy = user.id;
-        updateData.approvedAt = now;
+        if (lockedVersion.uploadedBy === user.id) {
+          throw Errors.forbidden("Uploaders cannot approve their own versions.");
+        }
 
-        // Supersede any previously approved version for this document.
+        // Supersede every currently approved version for this document before
+        // approving the target. This must happen first so the partial unique index
+        // on (document_id) WHERE status = 'approved' can accept the new row.
         const previousApproved = await tx
           .select({ id: lihokCorporateDocumentVersions.id })
           .from(lihokCorporateDocumentVersions)
@@ -967,10 +1015,9 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
               eq(lihokCorporateDocumentVersions.status, "approved"),
               sql`${lihokCorporateDocumentVersions.id} <> ${input.versionId}`,
             ),
-          )
-          .limit(1);
+          );
 
-        if (previousApproved.length) {
+        for (const prev of previousApproved) {
           await tx
             .update(lihokCorporateDocumentVersions)
             .set({
@@ -978,16 +1025,25 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
               supersededByVersionId: input.versionId,
               updatedAt: now,
             })
-            .where(eq(lihokCorporateDocumentVersions.id, previousApproved[0].id));
+            .where(eq(lihokCorporateDocumentVersions.id, prev.id));
 
           await logAudit(tx, {
             documentId: input.documentId,
-            versionId: previousApproved[0].id,
+            versionId: prev.id,
             action: "version.superseded",
             actor: user,
             newValue: { supersededByVersionId: input.versionId },
           });
         }
+      }
+
+      const updateData: Partial<typeof lihokCorporateDocumentVersions.$inferInsert> = {
+        status: toStatus,
+        updatedAt: now,
+      };
+      if (toStatus === "approved") {
+        updateData.approvedBy = user.id;
+        updateData.approvedAt = now;
       }
 
       const updated = await tx
@@ -1005,7 +1061,7 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
         versionId: input.versionId,
         action: "version.status_changed",
         actor: user,
-        oldValue: { status: fromStatus },
+        oldValue: { status: lockedFromStatus },
         newValue: { status: toStatus, changeNotes: input.changeNotes ?? null },
       });
 
@@ -1014,6 +1070,12 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
 
     return c.json({ version: updatedVersion });
   } catch (error) {
+    if (isUniqueViolationError(error)) {
+      return c.json(
+        { error: "An approved version already exists for this document. The previous approved version must be superseded first." },
+        409,
+      );
+    }
     const { status, body } = handleError(error);
     return c.json(body, status);
   }

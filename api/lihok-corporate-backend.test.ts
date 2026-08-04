@@ -224,6 +224,7 @@ function mockDb() {
       where: (condition: any) => { ctx._where = condition; return chain; },
       orderBy: () => chain,
       groupBy: () => chain,
+      for: () => chain,
       limit: (n: number) => { ctx._limit = n; return chain; },
       offset: (n: number) => { ctx._offset = n; return chain; },
       then: (resolve: any) => resolve(executeSelect(ctx, columns)),
@@ -297,6 +298,22 @@ function mockDb() {
       const executeUpdate = (values: Record<string, unknown>, condition: any) => {
         const rows = tableRows(table);
         const matches = evaluateWhere(condition, rows);
+
+        // Simulate the partial unique index: only one approved version per document.
+        if (name === "lihok_corporate_document_versions" && values.status === "approved") {
+          for (const row of matches) {
+            const documentId = row.documentId;
+            const conflicting = Array.from(routerMocks.versions.values()).find(
+              (v) => v.documentId === documentId && v.status === "approved" && v.id !== row.id,
+            );
+            if (conflicting) {
+              const error = new Error("duplicate key value violates unique constraint \"lihok_corporate_document_versions_approved_unique\"");
+              (error as any).code = "23505";
+              throw error;
+            }
+          }
+        }
+
         for (const row of matches) {
           Object.assign(row, values);
           if (name === "lihok_corporate_documents") {
@@ -329,7 +346,7 @@ vi.mock("./queries/connection", async () => {
   return { db, getDb: () => db };
 });
 
-import { lihokCorporateRouter } from "./lihok-corporate-router";
+import { lihokCorporateRouter, hasCompletedStorage } from "./lihok-corporate-router";
 import { db } from "./queries/connection";
 
 // ----------------------------------------------------------------------------
@@ -890,6 +907,117 @@ describe("Lihok Corporate Library backend services", () => {
       const body = (await res.json()) as { items: Array<{ versionId: number }> };
       expect(body.items.length).toBe(1);
       expect(body.items[0].versionId).toBe(1);
+    });
+  });
+
+  describe("hasCompletedStorage", () => {
+    it("accepts valid completed storage metadata", () => {
+      expect(hasCompletedStorage(withStorage())).toBe(true);
+    });
+
+    it("accepts zero-byte finalized files", () => {
+      expect(hasCompletedStorage(withStorage({ fileSize: 0 }))).toBe(true);
+    });
+
+    it("rejects empty fileName", () => {
+      expect(hasCompletedStorage(withStorage({ fileName: "" }))).toBe(false);
+    });
+
+    it("rejects whitespace-only fileName", () => {
+      expect(hasCompletedStorage(withStorage({ fileName: "   " }))).toBe(false);
+    });
+
+    it("rejects empty mimeType", () => {
+      expect(hasCompletedStorage(withStorage({ mimeType: "" }))).toBe(false);
+    });
+
+    it("rejects whitespace-only mimeType", () => {
+      expect(hasCompletedStorage(withStorage({ mimeType: "   " }))).toBe(false);
+    });
+
+    it("rejects empty storageProvider", () => {
+      expect(hasCompletedStorage(withStorage({ storageProvider: "" }))).toBe(false);
+    });
+
+    it("rejects empty storageBucket", () => {
+      expect(hasCompletedStorage(withStorage({ storageBucket: "" }))).toBe(false);
+    });
+
+    it("rejects empty storagePath", () => {
+      expect(hasCompletedStorage(withStorage({ storagePath: "" }))).toBe(false);
+    });
+
+    it("rejects negative fileSize", () => {
+      expect(hasCompletedStorage(withStorage({ fileSize: -1 }))).toBe(false);
+    });
+
+    it("rejects missing storageUploadedAt", () => {
+      expect(hasCompletedStorage(withStorage({ storageUploadedAt: undefined }))).toBe(false);
+    });
+
+    it("allows missing fileHash", () => {
+      expect(hasCompletedStorage(withStorage({ fileHash: undefined }))).toBe(true);
+    });
+  });
+
+  describe("approval uniqueness constraint", () => {
+    it("supersedes all previously approved versions, not only the first", async () => {
+      seedVersion(1, { status: "approved", uploadedBy: 2, versionNumber: "1.0", ...withStorage() });
+      seedVersion(2, { status: "approved", uploadedBy: 2, versionNumber: "2.0", ...withStorage() });
+      seedVersion(3, { status: "approved", uploadedBy: 2, versionNumber: "3.0", ...withStorage() });
+      seedVersion(4, { status: "for_review", uploadedBy: 2, versionNumber: "4.0", ...withStorage() });
+
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 4, documentId: 1, status: "approved" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(routerMocks.versions.get(1)?.status).toBe("superseded");
+      expect(routerMocks.versions.get(2)?.status).toBe("superseded");
+      expect(routerMocks.versions.get(3)?.status).toBe("superseded");
+      expect(routerMocks.versions.get(4)?.status).toBe("approved");
+    });
+
+    it("returns 409 when approval update encounters a unique-constraint race", async () => {
+      seedVersion(1, { status: "for_review", uploadedBy: 2, versionNumber: "1.0", ...withStorage() });
+
+      const error = Object.assign(new Error("duplicate key value violates unique constraint \"lihok_corporate_document_versions_approved_unique\""), { code: "23505" });
+      const dbAny = db as any;
+      const originalUpdate = dbAny.update;
+      let approveUpdateIntercepted = false;
+
+      dbAny.update = vi.fn((table: any) => {
+        const name = tableName(table);
+        const chain = originalUpdate(table);
+        return {
+          set: (values: any) => {
+            if (name === "lihok_corporate_document_versions" && values.status === "approved") {
+              approveUpdateIntercepted = true;
+              return {
+                where: () => ({
+                  returning: vi.fn(() => Promise.reject(error)),
+                  then: (_resolve: any, reject: any) => Promise.reject(error).then(undefined, reject),
+                }),
+              };
+            }
+            return chain.set(values);
+          },
+        };
+      });
+
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "approved" }),
+      });
+
+      dbAny.update = originalUpdate;
+      expect(approveUpdateIntercepted).toBe(true);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain("approved version already exists");
     });
   });
 });
