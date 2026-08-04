@@ -44,7 +44,7 @@ BEGIN
 
     IF public_id_exists THEN
       SELECT count(*) INTO dup_public_id FROM (
-        SELECT id FROM gantt_projects WHERE public_id IS NOT NULL
+        SELECT public_id FROM gantt_projects WHERE public_id IS NOT NULL
         GROUP BY public_id HAVING count(*) > 1
       ) d;
       IF dup_public_id > 0 THEN
@@ -54,7 +54,7 @@ BEGIN
 
     IF slug_exists THEN
       SELECT count(*) INTO dup_slug FROM (
-        SELECT id FROM gantt_projects WHERE slug IS NOT NULL
+        SELECT slug FROM gantt_projects WHERE slug IS NOT NULL
         GROUP BY slug HAVING count(*) > 1
       ) d;
       IF dup_slug > 0 THEN

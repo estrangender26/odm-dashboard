@@ -3,6 +3,7 @@ import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { ganttTasks, ganttDependencies, ganttProjects } from "@db/schema";
 import { eq, sql, asc, inArray, or } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 
 
 const DEP_TYPE_MAP: Record<string, string> = { "0": "FS", "1": "SS", "2": "FF", "3": "SF" };
@@ -11,6 +12,19 @@ const normalizeDependencyType = (type?: string | null) => {
   return DEP_TYPE_MAP[raw] || (["FS", "SS", "FF", "SF", "NONE"].includes(raw) ? raw : "NONE");
 };
 
+
+async function rejectSharedProjectRows() {
+  const shared = await db
+    .select({ id: ganttProjects.id })
+    .from(ganttProjects)
+    .where(eq(ganttProjects.sharingEnabled, 1));
+  if (shared.length > 0) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Shared projects must be accessed through the link-based workspace",
+    });
+  }
+}
 
 function mapGanttTaskRow(r: any, nameMap: Map<number, string>) {
   return {
@@ -90,6 +104,7 @@ export const ganttRouter = createRouter({
 
   /* ── 1. CLEAN RESET ── */
   resetGantt: publicQuery.mutation(async () => {
+    await rejectSharedProjectRows();
     /* Drop task/dependency tables only (preserve saved projects) */
     try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}
     try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
@@ -151,12 +166,16 @@ export const ganttRouter = createRouter({
   }),
 
   /* ── 2. LIST TASKS (ordered by sort_order) ── */
-  tasks: publicQuery.query(async () => selectGanttTasksForClient()),
+  tasks: publicQuery.query(async () => {
+    await rejectSharedProjectRows();
+    return selectGanttTasksForClient();
+  }),
 
   /* ── 3. LIST DEPENDENCIES ── */
   links: publicQuery
     .input(z.object({ projectId: z.number().optional() }).optional())
     .query(async ({ input }) => {
+      await rejectSharedProjectRows();
       const typeReverse: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
       let rows;
       if (input?.projectId) {
@@ -180,6 +199,7 @@ export const ganttRouter = createRouter({
   saveTask: publicQuery
     .input(z.any())
     .mutation(async ({ input }) => {
+      await rejectSharedProjectRows();
       const v = input as Record<string, any>;
       const isUpdate = !!input.id;
       const now = new Date();
@@ -330,6 +350,7 @@ export const ganttRouter = createRouter({
   deleteTask: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      await rejectSharedProjectRows();
       const taskRows = await db
         .select({ id: ganttTasks.id, parentTaskId: ganttTasks.parentTaskId })
         .from(ganttTasks);
@@ -349,6 +370,7 @@ export const ganttRouter = createRouter({
   /* ── 6. SAVE DEPENDENCY (by DB IDs — validates first) ── */
   saveLink: publicQuery
     .input(z.object({
+      expectedRevision: z.number().optional(),
       source: z.number(),
       target: z.number(),
       type: z.string().default("FS"),
@@ -356,6 +378,7 @@ export const ganttRouter = createRouter({
       projectId: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
+      await rejectSharedProjectRows();
       const predRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, input.source));
       const succRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, input.target));
       if (predRows.length === 0 || succRows.length === 0) {
@@ -385,6 +408,7 @@ export const ganttRouter = createRouter({
   /* ── 7. SAVE DEPENDENCY by UID ── */
   saveLinkByUid: publicQuery
     .input(z.object({
+      expectedRevision: z.number().optional(),
       sourceUid: z.string(),
       targetUid: z.string(),
       type: z.string().default("FS"),
@@ -392,6 +416,7 @@ export const ganttRouter = createRouter({
       projectId: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
+      await rejectSharedProjectRows();
       const predRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, input.sourceUid));
       const succRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, input.targetUid));
       if (predRows.length === 0 || succRows.length === 0) {
@@ -421,6 +446,7 @@ export const ganttRouter = createRouter({
   deleteLink: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      await rejectSharedProjectRows();
       const rows = await db.select({ target: ganttDependencies.successorTaskId }).from(ganttDependencies).where(eq(ganttDependencies.id, input.id));
       await db.delete(ganttDependencies).where(eq(ganttDependencies.id, input.id));
       if (rows[0]?.target) {
@@ -432,11 +458,13 @@ export const ganttRouter = createRouter({
   /* ── 9. BATCH SAVE DEPENDENCIES ── */
   saveLinksBatch: publicQuery
     .input(z.array(z.object({
+      expectedRevision: z.number().optional(),
       source: z.number(), target: z.number(),
       type: z.string(), lag: z.number().default(0),
       projectId: z.number().optional(),
     })))
     .mutation(async ({ input }) => {
+      await rejectSharedProjectRows();
       let count = 0;
       for (const dep of input) {
         const predExists = (await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, dep.source))).length > 0;
@@ -461,6 +489,7 @@ export const ganttRouter = createRouter({
   reorderTasks: publicQuery
     .input(z.array(z.object({ id: z.number(), sort_order: z.number() })))
     .mutation(async ({ input }) => {
+      await rejectSharedProjectRows();
       for (const item of input) {
         await db.update(ganttTasks).set({ sortOrder: item.sort_order }).where(eq(ganttTasks.id, item.id));
       }

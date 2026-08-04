@@ -258,8 +258,15 @@ export async function validateTaskParentWithCycleCheck(
   tx: PgTransaction<any, any, any>,
   projectId: number,
   taskId: number | undefined,
-  parentTaskId: number
+  parentTaskId: number,
+  skipProjectLock: boolean = false
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  // Serialize hierarchy validation for the whole project so concurrent
+  // parent updates cannot both read an inconsistent snapshot.
+  if (!skipProjectLock) {
+    await lockProject(tx, projectId);
+  }
+
   const base = await validateTaskParent(tx, projectId, taskId, parentTaskId);
   if (!base.ok) return base;
 
@@ -623,7 +630,7 @@ export const sharedGanttRouter = createRouter({
           });
         }
 
-        const parentCheck = await validateTaskParentWithCycleCheck(tx, ctx.projectId, undefined, input.task.parentTaskId ?? 0);
+        const parentCheck = await validateTaskParentWithCycleCheck(tx, ctx.projectId, undefined, input.task.parentTaskId ?? 0, true);
         if (!parentCheck.ok) {
           throw new TRPCError({ code: "BAD_REQUEST", message: parentCheck.reason });
         }
@@ -759,21 +766,40 @@ export const sharedGanttRouter = createRouter({
       ctx.actorName = input.actorName;
 
       const result = await db.transaction(async (tx) => {
-        const allTasks = await tx
-          .select()
-          .from(ganttTasks)
-          .where(eq(ganttTasks.projectId, ctx.projectId));
-        const target = allTasks.find((t) => t.id === input.taskId);
-        if (!target) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-        }
+        await lockProject(tx, ctx.projectId);
 
-        if (target.revision !== input.expectedRevision) {
+        // Atomically delete the target row only if its revision matches.
+        const deletedTargetRows = await tx
+          .delete(ganttTasks)
+          .where(
+            and(
+              eq(ganttTasks.id, input.taskId),
+              eq(ganttTasks.projectId, ctx.projectId),
+              eq(ganttTasks.revision, input.expectedRevision)
+            )
+          )
+          .returning();
+
+        if (deletedTargetRows.length === 0) {
+          // Distinguish NOT_FOUND from CONFLICT by checking whether the row exists at all.
+          const existing = await tx
+            .select({ id: ganttTasks.id, revision: ganttTasks.revision })
+            .from(ganttTasks)
+            .where(and(eq(ganttTasks.id, input.taskId), eq(ganttTasks.projectId, ctx.projectId)));
+          if (existing.length === 0) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+          }
           throw new TRPCError({
             code: "CONFLICT",
             message: "This activity was updated by another participant. Review the latest version before deleting.",
           });
         }
+
+        const target = deletedTargetRows[0];
+        const allTasks = await tx
+          .select()
+          .from(ganttTasks)
+          .where(eq(ganttTasks.projectId, ctx.projectId));
 
         const before = mapTaskRow(target);
         const idsToDelete = collectTaskAndDescendantIds(input.taskId, allTasks);
@@ -795,7 +821,8 @@ export const sharedGanttRouter = createRouter({
           .where(
             and(
               eq(ganttTasks.projectId, ctx.projectId),
-              inArray(ganttTasks.id, idsToDelete)
+              inArray(ganttTasks.id, idsToDelete),
+              sql`${ganttTasks.id} <> ${input.taskId}`
             )
           );
 

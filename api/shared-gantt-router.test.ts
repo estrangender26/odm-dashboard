@@ -319,6 +319,34 @@ run("sharedGanttRouter integration", () => {
     ).rejects.toThrow("WBS hierarchy cycle");
   });
 
+  it("serializes WBS hierarchy validation under concurrent parent updates", async () => {
+    const { created, caller } = await createProject();
+    const a = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "A" } });
+    const b = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "B" } });
+
+    // Concurrent attempts to make A a child of B and B a child of A cannot both succeed.
+    const [r1, r2] = await Promise.allSettled([
+      caller.sharedGantt.updateTask({
+        slug: created.slug!,
+        access: created.editorToken,
+        taskId: a.task.id,
+        expectedRevision: a.task.revision,
+        changes: { parentTaskId: b.task.id },
+      }),
+      caller.sharedGantt.updateTask({
+        slug: created.slug!,
+        access: created.editorToken,
+        taskId: b.task.id,
+        expectedRevision: b.task.revision,
+        changes: { parentTaskId: a.task.id },
+      }),
+    ]);
+    const succeeded = [r1, r2].filter((r) => r.status === "fulfilled").length;
+    const failed = [r1, r2].filter((r) => r.status === "rejected").length;
+    expect(succeeded).toBe(1);
+    expect(failed).toBe(1);
+  });
+
   it("enforces project task maximums under concurrent creation", async () => {
     const { created, caller } = await createProject();
     const original = process.env.GANTT_MAX_TASKS;

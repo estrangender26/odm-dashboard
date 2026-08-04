@@ -28,7 +28,7 @@
  *   - Values to the left of that are treated as possibly spoofed and ignored.
  *
  * No trusted client IP
- * --------------------
+ * ----------------------
  * If no X-Forwarded-For header exists and no other trusted header is configured,
  * the function returns `null`. Callers must decide how to handle unknown clients.
  * The rate limiter does NOT put all unknown callers into a single shared bucket;
@@ -43,27 +43,39 @@
  *   a Redis-backed limiter or a reverse-proxy limiter for cluster-wide enforcement.
  */
 
-function isPrivateOrTrustedIP(ip: string, cidrs: string[]): boolean {
-  // Very small CIDR matcher for IPv4.
-  const [addr] = ip.split("/");
-  const parts = addr.split(".").map(Number);
+function ipToUint32(ip: string): number | null {
+  const parts = ip.split(".").map(Number);
   if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
-    return false;
+    return null;
   }
+  return (
+    (parts[0] << 24) |
+    (parts[1] << 16) |
+    (parts[2] << 8) |
+    parts[3]
+  ) >>> 0;
+}
+
+function parseCidr(cidr: string): { network: number; prefix: number } | null {
+  const [net, bitsStr] = cidr.split("/");
+  if (!net || !bitsStr) return null;
+  const network = ipToUint32(net);
+  if (network === null) return null;
+  const prefix = Number(bitsStr);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return null;
+  return { network, prefix };
+}
+
+function isPrivateOrTrustedIP(ip: string, cidrs: string[]): boolean {
+  const addr = ipToUint32(ip);
+  if (addr === null) return false;
   for (const cidr of cidrs) {
-    const [net, bitsStr] = cidr.split("/");
-    const bits = Number(bitsStr);
-    if (Number.isNaN(bits)) continue;
-    const netParts = net.split(".").map(Number);
-    if (netParts.length !== 4) continue;
-    let match = true;
-    for (let i = 0; i < Math.floor(bits / 8); i++) {
-      if (parts[i] !== netParts[i]) {
-        match = false;
-        break;
-      }
+    const parsed = parseCidr(cidr);
+    if (!parsed) continue;
+    const mask = parsed.prefix === 0 ? 0 : (~((1 << (32 - parsed.prefix)) - 1)) >>> 0;
+    if ((addr & mask) === (parsed.network & mask)) {
+      return true;
     }
-    if (match) return true;
   }
   return false;
 }
@@ -94,9 +106,15 @@ export function getClientIp(req: Request): string | null {
     return ips[0] ?? null;
   }
 
+  // Validate configured CIDRs; if none are valid, fall back to leftmost.
+  const validCidrs = cidrs.filter((c) => parseCidr(c) !== null);
+  if (validCidrs.length === 0) {
+    return ips[0] ?? null;
+  }
+
   // Walk from right to left, skipping trusted proxies. Return the first untrusted IP.
   for (let i = ips.length - 1; i >= 0; i--) {
-    if (!isPrivateOrTrustedIP(ips[i], cidrs)) {
+    if (!isPrivateOrTrustedIP(ips[i], validCidrs)) {
       return ips[i];
     }
   }
@@ -104,3 +122,5 @@ export function getClientIp(req: Request): string | null {
   // All values were inside trusted ranges; fall back to leftmost as a last resort.
   return ips[0] ?? null;
 }
+
+export { ipToUint32, parseCidr };

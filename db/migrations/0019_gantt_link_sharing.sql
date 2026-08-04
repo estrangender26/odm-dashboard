@@ -4,6 +4,8 @@
 
 -- Shared-project identity and access on gantt_projects
 ALTER TABLE gantt_projects
+  DROP CONSTRAINT IF EXISTS gantt_projects_public_id_unique,
+  DROP CONSTRAINT IF EXISTS gantt_projects_slug_unique,
   ADD COLUMN IF NOT EXISTS public_id UUID,
   ADD COLUMN IF NOT EXISTS slug VARCHAR(255),
   ADD COLUMN IF NOT EXISTS edit_token_hash VARCHAR(64),
@@ -52,6 +54,8 @@ BEGIN
 END $$;
 
 ALTER TABLE gantt_projects
+  DROP CONSTRAINT IF EXISTS gantt_projects_public_id_unique,
+  DROP CONSTRAINT IF EXISTS gantt_projects_slug_unique,
   ADD CONSTRAINT gantt_projects_public_id_unique UNIQUE (public_id),
   ADD CONSTRAINT gantt_projects_slug_unique UNIQUE (slug);
 
