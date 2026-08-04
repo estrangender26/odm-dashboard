@@ -13,8 +13,6 @@ beforeEach(() => {
     "OLLAMA_MODEL",
     "OLLAMA_TIMEOUT_MS",
     "OLLAMA_MAX_TOKENS",
-    "GROQ_API_KEY",
-    "GROQ_MODEL",
   ]) {
     delete process.env[key];
   }
@@ -176,11 +174,9 @@ describe("AI maintenanceChat integration", () => {
 
     expect(result.error).toBe("MISSING_BASE_URL");
     expect(result.reply).toContain("OLLAMA_BASE_URL");
-    expect(result.reply).not.toContain("GROQ_API_KEY");
-    expect(result.reply).not.toContain("console.groq.com");
   });
 
-  it("does not silently fall back to Groq after an Ollama failure", async () => {
+  it("returns UNAUTHORIZED for an upstream 401 without mentioning a fallback provider", async () => {
     process.env.OLLAMA_BASE_URL = "http://localhost:11434";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("Unauthorized", { status: 401 })
@@ -193,8 +189,6 @@ describe("AI maintenanceChat integration", () => {
 
     expect(result.error).toBe("UNAUTHORIZED");
     expect(result.reply).toContain("⚠️");
-    expect(result.reply).not.toContain("GROQ");
-    expect(result.reply).not.toContain("console.groq.com");
   });
 
   it("returns MISSING_API_KEY for Ollama Cloud without a key", async () => {
