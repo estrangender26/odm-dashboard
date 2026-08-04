@@ -11,7 +11,7 @@ The module is temporarily hosted inside the ODM Dashboard repository, as describ
 | FR-001 | Database Foundation | ✅ Complete | — | #321 |
 | FR-002 | Storage Foundation | ✅ Complete | — | #322 |
 | FR-003 | Backend Services | ✅ Complete | `lihok-fr003-backend` | #323 |
-| FR-004 | React UI | ⬜ Not Started | — | — |
+| FR-004 | React UI | 🚧 In Progress | — | — |
 | FR-005 | Security & RLS | ⬜ Not Started | — | — |
 | FR-006 | Production Readiness | ⬜ Not Started | — | — |
 
