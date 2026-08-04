@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appRouter } from "./router";
+import { classifyAiQuery } from "./ai-router";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -25,7 +26,11 @@ afterEach(() => {
 });
 
 function createCaller() {
-  return appRouter.createCaller({ user: null });
+  return appRouter.createCaller({
+    req: new Request("http://localhost"),
+    resHeaders: new Headers(),
+    user: undefined,
+  });
 }
 
 describe("AI status endpoint", () => {
@@ -259,3 +264,84 @@ describe("AI maintenanceChat integration", () => {
     expect(JSON.stringify(body.messages)).toContain("ODM Dashboard AI");
   });
 });
+
+describe("classifyAiQuery dashboard-statistic routing", () => {
+  it("routes 'how many tasks loaded' to dashboard_data", () => {
+    expect(classifyAiQuery("USER QUESTION: How many HTT tasks are loaded?")).toBe("dashboard_data");
+  });
+
+  it("routes 'summarize this planner' to dashboard_data", () => {
+    expect(classifyAiQuery("USER QUESTION: Summarize this planner")).toBe("dashboard_data");
+  });
+
+  it("routes 'summarize this dashboard' to dashboard_data", () => {
+    expect(classifyAiQuery("USER QUESTION: Summarize this dashboard")).toBe("dashboard_data");
+  });
+
+  it("routes 'who is responsible for monthly inspections' to dashboard_data", () => {
+    expect(classifyAiQuery("USER QUESTION: Who is responsible for monthly inspections?")).toBe("dashboard_data");
+  });
+
+  it("routes 'which equipment is most susceptible' to dashboard_data", () => {
+    expect(classifyAiQuery("USER QUESTION: Which equipment is most susceptible to cavitation?")).toBe("dashboard_data");
+  });
+
+  it("routes 'show current Post-PPP ownership' to dashboard_data", () => {
+    expect(classifyAiQuery("USER QUESTION: Show current Post-PPP ownership")).toBe("dashboard_data");
+  });
+
+  it("routes 'show current planner status' to dashboard_data", () => {
+    expect(classifyAiQuery("USER QUESTION: Show current planner status")).toBe("dashboard_data");
+  });
+
+  it("still routes web-exclusive questions to current_web", () => {
+    expect(classifyAiQuery("USER QUESTION: What is the latest news today?")).toBe("current_web");
+  });
+
+  it("still routes general knowledge to general_knowledge", () => {
+    expect(classifyAiQuery("USER QUESTION: What is cavitation?")).toBe("general_knowledge");
+  });
+});
+
+describe("AI maintenanceChat dashboard-statistic integration", () => {
+  it("does not short-circuit empty-but-loaded modules as missing data", async () => {
+    process.env.OLLAMA_BASE_URL = "http://localhost:11434";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: "There are 0 tasks loaded." } }] }),
+        { status: 200 }
+      )
+    );
+
+    const caller = createCaller();
+    const result = await caller.ai.maintenanceChat({
+      message:
+        "=== DASHBOARD CONTEXT ===\nDashboard Type: maintenance\nTotal Records: 0\nUSER QUESTION: How many tasks are loaded?",
+    });
+
+    expect(result.reply).not.toBe(
+      "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data."
+    );
+    expect(result.error).toBeNull();
+    expect(
+      fetchSpy.mock.calls.filter(([url]) => String(url).includes("/v1/chat/completions"))
+    ).toHaveLength(1);
+  });
+
+  it("keeps web-search-only questions on current_web even when web search is not configured", async () => {
+    process.env.OLLAMA_BASE_URL = "http://localhost:11434";
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const caller = createCaller();
+    const result = await caller.ai.maintenanceChat({
+      message: "USER QUESTION: What is the current weather in Manila?",
+    });
+
+    expect(result.reply).toBe("I could not retrieve live web results right now.");
+    expect(result.error).toBe("WEB_SEARCH_NOT_CONFIGURED");
+    expect(
+      fetchSpy.mock.calls.filter(([url]) => String(url).includes("/v1/chat/completions"))
+    ).toHaveLength(0);
+  });
+});
+

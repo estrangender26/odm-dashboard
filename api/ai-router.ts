@@ -17,7 +17,7 @@ import {
   type OllamaClientError,
 } from "./ollama-client";
 
-const SYSTEM_PROMPT = `You are ODM Dashboard AI: a real AI assistant with dashboard grounding when relevant. Classify each request as exactly one of: general_knowledge, current_web, dashboard_data, combined_dashboard_web, or runtime_time_date. For general_knowledge questions, answer naturally using the LLM and do not require dashboard data. For current_web questions, use WEB SEARCH CONTEXT and answer naturally first, then a Sources section with source title and domain only. For dashboard_data questions, use active dashboard/module data first and format the answer with "From dashboard data:". For combined_dashboard_web questions, use both and format with "From dashboard data:", "From web search:", and "Sources:" only when the user explicitly asks to compare dashboard data with external/current knowledge. Runtime time/date questions are answered by the runtime before reaching the model. Do not return only raw titles, domains, URLs, snippets, provider names, metadata labels, or source lists as the final answer. Never output "Sources: None". Do not mention a knowledge cutoff when live web search was attempted. If search failed, say exactly "I could not retrieve live web results right now." and do not add dashboard fallback. If module data is empty or unavailable for a dashboard_data question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for task counts, KPI values, equipment names, document counts, schedule delays, ownership decisions, and Post-PPP recommendations, and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
+const SYSTEM_PROMPT = `You are ODM Dashboard AI: a real AI assistant with dashboard grounding when relevant. Classify each request as exactly one of: general_knowledge, current_web, dashboard_data, combined_dashboard_web, or runtime_time_date. For general_knowledge questions, answer naturally using the LLM and do not require dashboard data. For current_web questions, use WEB SEARCH CONTEXT and answer naturally first, then a Sources section with source title and domain only. For dashboard_data questions, use active dashboard/module data first and format the answer with "From dashboard data:". For combined_dashboard_web questions, use both and format with "From dashboard data:", "From web search:", and "Sources:" only when the user explicitly asks to compare dashboard data with external/current knowledge. Runtime time/date questions are answered by the runtime before reaching the model. Do not return only raw titles, domains, URLs, snippets, provider names, metadata labels, or source lists as the final answer. Never output "Sources: None". Do not mention a knowledge cutoff when live web search was attempted. If search failed, say exactly "I could not retrieve live web results right now." and do not add dashboard fallback. If module data is unavailable (no dashboard context provided) for a dashboard_data question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." If the dashboard context shows zero records (e.g., Total Records: 0), report the zero count truthfully; do not say the module is not loaded. Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for task counts, KPI values, equipment names, document counts, schedule delays, ownership decisions, and Post-PPP recommendations, and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
 
 const GITHUB_API = "https://api.github.com";
 const REPO_TREE_PROMPT =
@@ -51,6 +51,35 @@ const CURRENT_WEB_TERMS =
   /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|richest|wealthiest|billionaire|billionaires|net worth|ceo|chief executive|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
 const CURRENT_PPP_ONLY_PATTERN =
   /\bcurrent\s+ppp|currentpppdoer|current\s+doer|current\s+execution\s+doer\b/i;
+
+// Dashboard-statistic words that should always route to dashboard_data when a module is active.
+const DASHBOARD_STATISTIC_TERMS =
+  /\b(how many|how much|count of|number of|total|summary|summarize|summarise|overview|show|list|give me|what are|which|status of|statistics|planner status|dashboard status)\b/i;
+
+// Active-module context words. When these appear, the user is asking about the loaded module.
+const ACTIVE_MODULE_TERMS =
+  /\b(this planner|this module|this dashboard|active planner|active module|active dashboard|loaded data|loaded records|current planner|current module|these tasks|these records|current records)\b/i;
+
+// Web-search-only words that, by themselves, indicate a need for external/current information.
+// These must NOT override dashboard-statistic routing when the question is clearly about the dashboard.
+const WEB_SEARCH_EXCLUSIVE_TERMS =
+  /\b(latest news|current events|today's weather|weather forecast|stock price|market price|exchange rate|inflation rate|interest rate|breaking news|live score|recent news)\b/i;
+
+export function isDashboardStatisticQuestion(question: string): boolean {
+  // Strong dashboard-statistic intent plus a module anchor or module data term.
+  const hasStatisticIntent = DASHBOARD_STATISTIC_TERMS.test(question);
+  const hasActiveModule = ACTIVE_MODULE_TERMS.test(question);
+  const hasModuleDataTerm = MODULE_DATA_TERMS.test(question);
+
+  if (!hasStatisticIntent) return false;
+
+  // Web-search-exclusive phrase takes precedence only if the question is not anchored to dashboard data.
+  if (WEB_SEARCH_EXCLUSIVE_TERMS.test(question) && !hasActiveModule && !hasModuleDataTerm) {
+    return false;
+  }
+
+  return hasActiveModule || hasModuleDataTerm;
+}
 
 export type AiQueryClass =
   | "general_knowledge"
@@ -150,21 +179,38 @@ export function classifyAiQuery(message: string): AiQueryClass {
   const question = extractUserQuestion(message);
   if (isRuntimeTimeQuestion(question)) return "runtime_time_date";
 
+  const isDashboardStatistic = isDashboardStatisticQuestion(question);
   const needsLiveWeb =
     CURRENT_WEB_TERMS.test(question) && !CURRENT_PPP_ONLY_PATTERN.test(question);
   const isDashboardQuestion =
     EXPLICIT_DASHBOARD_ANCHOR_TERMS.test(question) ||
+    isDashboardStatistic ||
     (/\b(analy[sz]e|trend|trends|risk|high-risk|kpi|kpis|schedule|delay|delays|critical path|resource conflict|compliance|overdue|work order|task count|document count|coverage|underperform|ownership|responsible|corrective action|recommendation|milestone)\b/i.test(
       question
     ) &&
       MODULE_DATA_TERMS.test(question));
-  const explicitlyCombinesDashboardAndWeb =
-    isDashboardQuestion && (needsLiveWeb || COMBINED_COMPARE_TERMS.test(question));
 
-  if (explicitlyCombinesDashboardAndWeb) return "combined_dashboard_web";
-  if (needsLiveWeb) return "current_web";
-  if (isDashboardQuestion) return "dashboard_data";
-  return "general_knowledge";
+  const queryClass = ((): AiQueryClass => {
+    if (!isDashboardQuestion) return needsLiveWeb ? "current_web" : "general_knowledge";
+
+    // Dashboard-statistic questions ("how many tasks are loaded?", "show current planner status")
+    // are strongly anchored to the active module; words like "current" must not promote them to
+    // current_web or combined_dashboard_web.
+    if (isDashboardStatistic) return "dashboard_data";
+
+    return needsLiveWeb || COMBINED_COMPARE_TERMS.test(question)
+      ? "combined_dashboard_web"
+      : "dashboard_data";
+  })();
+
+  console.info("[ai/router] classifyAiQuery result", {
+    queryClass,
+    hasDashboardContext: /=== DASHBOARD CONTEXT ===/.test(message),
+    isDashboardStatistic,
+    webSearchConfigured: isWebSearchConfigured(),
+  });
+
+  return queryClass;
 }
 
 export function queryNeedsWebSearch(queryClass: AiQueryClass): boolean {
@@ -296,9 +342,9 @@ export function sanitizeFinalAiReply(
 }
 
 function moduleDataMissingForDashboardQuestion(message: string): boolean {
-  return /Status:\s*No data loaded|Dataset is empty|Total Records:\s*0\b/i.test(
-    message
-  );
+  // Empty-but-loaded modules (Total Records: 0) are not "missing" data.
+  // Let the LLM see the zero count and answer truthfully.
+  return /Status:\s*No data loaded|Dataset is empty/i.test(message);
 }
 
 function wantsRepositoryFileTree(message: string): boolean {
