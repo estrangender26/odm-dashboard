@@ -538,7 +538,18 @@ storageRouter.post("/uploads/finalize", async (c) => {
     }
     
     // Verify ownership
-    if (intent.requestedBy) {
+    if (intent.module === "lihok-corporate") {
+      // Corporate Library uploads are always authenticated; capability tokens are never accepted.
+      let user: User;
+      try {
+        user = await authenticateRequest(c.req.raw.headers);
+      } catch {
+        return c.json({ error: "Authentication required." }, 401);
+      }
+      if (user.id !== intent.requestedBy) {
+        return c.json({ error: "Forbidden: upload intent belongs to another user." }, 403);
+      }
+    } else if (intent.requestedBy) {
       try {
         const user = await authenticateRequest(c.req.raw.headers);
         if (user.id !== intent.requestedBy) {
@@ -751,6 +762,16 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
     const id = Number(c.req.param("id"));
     const action = c.req.param("action");
     if (!Number.isInteger(id) || !["view", "download"].includes(action)) return c.json({ error: "Invalid file request." }, 400);
+
+    // Corporate Library file access requires authentication in FR-002.
+    if (source === "lihok_corporate_document_versions") {
+      try {
+        await authenticateRequest(c.req.raw.headers);
+      } catch {
+        return c.json({ error: "Authentication required for Corporate Library files." }, 401);
+      }
+    }
+
     const record = await getStoredFileRecord(source, id);
     if (!record) return c.json({ error: "File not found." }, 404);
     if (record.storagePath && record.storageBucket) {
@@ -780,6 +801,9 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
 storageRouter.post("/files/delete/prepare", async (c) => {
   try {
     const input = z.object({ source: sourceSchema, id: z.number().int().positive() }).parse(await c.req.json());
+    if (input.source === "lihok_corporate_document_versions") {
+      return c.json({ error: "Corporate Library file deletion is not available. Controlled-document retention must use the governed archive or purge workflow." }, 403);
+    }
     const record = await getStoredFileRecord(input.source, input.id);
     if (!record) return c.json({ error: "File not found." }, 404);
     const expiresAt = Date.now() + 5 * 60_000;
@@ -802,6 +826,9 @@ storageRouter.post("/files/delete/confirm", async (c) => {
     const payload = verifyDeletePayload(confirmationToken);
     if (!payload || !payload.sessionId) return c.json({ error: "Delete confirmation is invalid or expired." }, 409);
     const source = sourceSchema.parse(payload.source);
+    if (source === "lihok_corporate_document_versions") {
+      return c.json({ error: "Corporate Library file deletion is not available. Controlled-document retention must use the governed archive or purge workflow." }, 403);
+    }
     const id = Number(payload.id);
     const record = await getStoredFileRecord(source, id);
     if (!record) return c.json({ error: "File not found." }, 404);

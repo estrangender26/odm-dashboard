@@ -106,6 +106,9 @@ export async function deleteStoredFileRecord(source: StorageFileSource, id: numb
     });
   }
   if (source === "governance_files") return db.delete(governanceFiles).where(eq(governanceFiles.id, id));
+  if (source === "lihok_corporate_document_versions") {
+    throw new Error("Corporate Library file deletion is not available. Controlled-document retention must use the governed archive or purge workflow.");
+  }
   if (source === "smp_documents") {
     return db.update(smpDocuments).set({
       fileData: null,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHmac } from "node:crypto";
 import {
   STORAGE_MODULES,
   STORAGE_BUCKET_BY_MODULE,
@@ -254,6 +255,8 @@ describe("lihok corporate storage validation", () => {
 describe("lihok corporate storage router behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    routerMocks.intents.clear();
+    routerMocks.updatedVersions.length = 0;
     routerMocks.authenticateRequest.mockRejectedValue(new Error("No auth"));
     routerMocks.createSignedUploadUrl.mockResolvedValue({
       data: { token: "signed-upload-token" },
@@ -415,7 +418,26 @@ describe("lihok corporate storage router behavior", () => {
     expect(update.uploadedBy).toBe(42);
   });
 
-  it("redirects downloads for lihok_corporate_document_versions", async () => {
+  it("rejects anonymous downloads for lihok_corporate_document_versions", async () => {
+    routerMocks.authenticateRequest.mockRejectedValue(new Error("No auth"));
+    const res = await storageRouter.request("http://localhost/files/lihok_corporate_document_versions/2/download");
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("Authentication required");
+    expect(routerMocks.createSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous views for lihok_corporate_document_versions", async () => {
+    routerMocks.authenticateRequest.mockRejectedValue(new Error("No auth"));
+    const res = await storageRouter.request("http://localhost/files/lihok_corporate_document_versions/2/view");
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("Authentication required");
+    expect(routerMocks.createSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("redirects authenticated downloads for lihok_corporate_document_versions to a signed URL", async () => {
+    routerMocks.authenticateRequest.mockResolvedValue({ id: 42 });
     routerMocks.getStoredFileRecord.mockResolvedValue({
       id: 2,
       fileName: "manual.pdf",
@@ -429,7 +451,8 @@ describe("lihok corporate storage router behavior", () => {
     expect(res.headers.get("Location")).toBe("https://signed.example.test/file");
   });
 
-  it("supports delete prepare/confirm for lihok_corporate_document_versions", async () => {
+  it("rejects delete preparation for lihok_corporate_document_versions even when authenticated", async () => {
+    routerMocks.authenticateRequest.mockResolvedValue({ id: 42 });
     routerMocks.getStoredFileRecord.mockResolvedValue({
       id: 2,
       fileName: "manual.pdf",
@@ -444,6 +467,183 @@ describe("lihok corporate storage router behavior", () => {
       body: JSON.stringify({ source: "lihok_corporate_document_versions", id: 2 }),
     });
     const prepareRes = await storageRouter.request(prepareReq);
+    expect(prepareRes.status).toBe(403);
+    const body = (await prepareRes.json()) as { error?: string };
+    expect(body.error).toContain("Corporate Library file deletion is not available");
+    expect(routerMocks.deleteStoredFileRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous delete preparation for lihok_corporate_document_versions", async () => {
+    routerMocks.authenticateRequest.mockRejectedValue(new Error("No auth"));
+    const prepareReq = new Request("http://localhost/files/delete/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "lihok_corporate_document_versions", id: 2 }),
+    });
+    const prepareRes = await storageRouter.request(prepareReq);
+    expect(prepareRes.status).toBe(403);
+    const body = (await prepareRes.json()) as { error?: string };
+    expect(body.error).toContain("Corporate Library file deletion is not available");
+  });
+
+  it("rejects delete confirmation for lihok_corporate_document_versions", async () => {
+    // Build a syntactically valid delete token for the Corporate Library source.
+    const payload = {
+      source: "lihok_corporate_document_versions",
+      id: 2,
+      sessionId: "test-session",
+      bucket: "lihok-corporate-library",
+      path: "v1/1/2/uuid-manual.pdf",
+      exp: Date.now() + 5 * 60_000,
+    };
+    const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    const signature = createHmac("sha256", "test-app-secret-for-signing-delete-payloads").update(encoded).digest("base64url");
+    const confirmationToken = `${encoded}.${signature}`;
+
+    const confirmReq = new Request("http://localhost/files/delete/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmationToken }),
+    });
+    const confirmRes = await storageRouter.request(confirmReq);
+    expect(confirmRes.status).toBe(403);
+    const body = (await confirmRes.json()) as { error?: string };
+    expect(body.error).toContain("Corporate Library file deletion is not available");
+    expect(routerMocks.deleteStoredFileRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous finalize for lihok-corporate", async () => {
+    vi.stubEnv("SUPABASE_STORAGE_UPLOADS_ENABLED", "true");
+    vi.stubEnv("SUPABASE_STORAGE_LIHOK_CORPORATE_ENABLED", "true");
+    routerMocks.authenticateRequest.mockRejectedValue(new Error("No auth"));
+
+    // Seed a pending authenticated intent
+    routerMocks.intents.set("7f42b61c-4d68-41f6-aec6-ede5ba250f17", {
+      id: "7f42b61c-4d68-41f6-aec6-ede5ba250f17",
+      module: "lihok-corporate",
+      status: "pending",
+      requestedBy: 42,
+      targetContext: { documentId: 1, versionId: 2 },
+      expectedBucket: "lihok-corporate-library",
+      expectedPath: "v1/1/2/uuid-manual.pdf",
+      expectedMimeType: "application/pdf",
+      expectedSize: 1024,
+      expiresAt: new Date(Date.now() + 3600000),
+    });
+
+    const finalizeReq = new Request("http://localhost/uploads/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intentId: "7f42b61c-4d68-41f6-aec6-ede5ba250f17" }),
+    });
+    const finalizeRes = await storageRouter.request(finalizeReq);
+    expect(finalizeRes.status).toBe(401);
+    const body = (await finalizeRes.json()) as { error?: string };
+    expect(body.error).toContain("Authentication required");
+  });
+
+  it("rejects finalize for lihok-corporate by a different authenticated user", async () => {
+    vi.stubEnv("SUPABASE_STORAGE_UPLOADS_ENABLED", "true");
+    vi.stubEnv("SUPABASE_STORAGE_LIHOK_CORPORATE_ENABLED", "true");
+    routerMocks.authenticateRequest.mockResolvedValue({ id: 99 });
+
+    routerMocks.intents.set("7f42b61c-4d68-41f6-aec6-ede5ba250f17", {
+      id: "7f42b61c-4d68-41f6-aec6-ede5ba250f17",
+      module: "lihok-corporate",
+      status: "pending",
+      requestedBy: 42,
+      targetContext: { documentId: 1, versionId: 2 },
+      expectedBucket: "lihok-corporate-library",
+      expectedPath: "v1/1/2/uuid-manual.pdf",
+      expectedMimeType: "application/pdf",
+      expectedSize: 1024,
+      expiresAt: new Date(Date.now() + 3600000),
+    });
+
+    const finalizeReq = new Request("http://localhost/uploads/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intentId: "7f42b61c-4d68-41f6-aec6-ede5ba250f17" }),
+    });
+    const finalizeRes = await storageRouter.request(finalizeReq);
+    expect(finalizeRes.status).toBe(403);
+    const body = (await finalizeRes.json()) as { error?: string };
+    expect(body.error).toContain("Forbidden");
+  });
+
+  it("rejects capability-token finalize for lihok-corporate", async () => {
+    vi.stubEnv("SUPABASE_STORAGE_UPLOADS_ENABLED", "true");
+    vi.stubEnv("SUPABASE_STORAGE_LIHOK_CORPORATE_ENABLED", "true");
+    routerMocks.authenticateRequest.mockRejectedValue(new Error("No auth"));
+
+    routerMocks.intents.set("7f42b61c-4d68-41f6-aec6-ede5ba250f17", {
+      id: "7f42b61c-4d68-41f6-aec6-ede5ba250f17",
+      module: "lihok-corporate",
+      status: "pending",
+      requestedBy: null,
+      targetContext: { documentId: 1, versionId: 2 },
+      expectedBucket: "lihok-corporate-library",
+      expectedPath: "v1/1/2/uuid-manual.pdf",
+      expectedMimeType: "application/pdf",
+      expectedSize: 1024,
+      expiresAt: new Date(Date.now() + 3600000),
+    });
+
+    const finalizeReq = new Request("http://localhost/uploads/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intentId: "7f42b61c-4d68-41f6-aec6-ede5ba250f17", capabilityToken: "fake-capability" }),
+    });
+    const finalizeRes = await storageRouter.request(finalizeReq);
+    expect(finalizeRes.status).toBe(401);
+    const body = (await finalizeRes.json()) as { error?: string };
+    expect(body.error).toContain("Authentication required");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Regression tests for legacy modules
+// ----------------------------------------------------------------------------
+
+describe("lihok corporate storage does not affect legacy modules", () => {
+  it("defensively rejects deletion of lihok_corporate_document_versions in the storage-files helper", () => {
+    const source = readFileSync("./api/storage-files.ts", "utf8");
+    expect(source).toContain('if (source === "lihok_corporate_document_versions")');
+    expect(source).toContain("Corporate Library file deletion is not available");
+  });
+
+  it("keeps legacy file downloads public and unchanged", async () => {
+    routerMocks.authenticateRequest.mockRejectedValue(new Error("No auth"));
+    routerMocks.getStoredFileRecord.mockResolvedValue({
+      id: 1,
+      fileName: "legacy.pdf",
+      storageBucket: "om-manuals",
+      storagePath: "v1/folder-1/uuid.pdf",
+      legacyData: null,
+    });
+
+    for (const action of ["view", "download"] as const) {
+      const res = await storageRouter.request(`http://localhost/files/doc_files/1/${action}`);
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe("https://signed.example.test/file");
+    }
+  });
+
+  it("keeps legacy delete prepare/confirm working", async () => {
+    routerMocks.getStoredFileRecord.mockResolvedValue({
+      id: 1,
+      fileName: "legacy.pdf",
+      storageBucket: "om-manuals",
+      storagePath: "v1/folder-1/uuid.pdf",
+      legacyData: null,
+    });
+
+    const prepareReq = new Request("http://localhost/files/delete/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "doc_files", id: 1 }),
+    });
+    const prepareRes = await storageRouter.request(prepareReq);
     expect(prepareRes.status).toBe(200);
     const { confirmationToken } = (await prepareRes.json()) as { confirmationToken: string };
     expect(confirmationToken).toBeDefined();
@@ -455,18 +655,8 @@ describe("lihok corporate storage router behavior", () => {
     });
     const confirmRes = await storageRouter.request(confirmReq);
     expect(confirmRes.status).toBe(200);
-    const confirmBody = (await confirmRes.json()) as { success?: boolean; source?: string };
-    expect(confirmBody.success).toBe(true);
-    expect(confirmBody.source).toBe("lihok_corporate_document_versions");
-    expect(routerMocks.deleteStoredFileRecord).toHaveBeenCalledWith("lihok_corporate_document_versions", 2);
   });
-});
 
-// ----------------------------------------------------------------------------
-// Regression tests for legacy modules
-// ----------------------------------------------------------------------------
-
-describe("lihok corporate storage does not affect legacy modules", () => {
   it("keeps om bucket mapping unchanged", () => {
     expect(STORAGE_BUCKET_BY_MODULE.om).toBe("om-manuals");
   });
