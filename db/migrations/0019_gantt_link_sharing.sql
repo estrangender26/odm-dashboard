@@ -4,8 +4,8 @@
 
 -- Shared-project identity and access on gantt_projects
 ALTER TABLE gantt_projects
-  ADD COLUMN IF NOT EXISTS public_id UUID UNIQUE,
-  ADD COLUMN IF NOT EXISTS slug VARCHAR(255) UNIQUE,
+  ADD COLUMN IF NOT EXISTS public_id UUID,
+  ADD COLUMN IF NOT EXISTS slug VARCHAR(255),
   ADD COLUMN IF NOT EXISTS edit_token_hash VARCHAR(64),
   ADD COLUMN IF NOT EXISTS view_token_hash VARCHAR(64),
   ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1,
@@ -16,13 +16,44 @@ ALTER TABLE gantt_projects
 
 -- Backfill public_id and slug for existing projects so they remain reachable
 -- through the legacy session path and can later be enabled for sharing.
+-- Use the unique public_id to guarantee a unique slug suffix.
 UPDATE gantt_projects
-SET public_id = gen_random_uuid(),
-    slug = regexp_replace(
+SET public_id = gen_random_uuid()
+WHERE public_id IS NULL;
+
+UPDATE gantt_projects
+SET slug = regexp_replace(
              lower(coalesce(project_name, name, 'project')),
              '[^a-z0-9]+', '-', 'g'
-           ) || '-' || substr(md5(random()::text), 1, 8)
-WHERE public_id IS NULL;
+           ) || '-' || substr(md5(public_id::text), 1, 8)
+WHERE slug IS NULL;
+
+-- Safety check: fail fast if somehow duplicates remain before adding unique constraints.
+DO $$
+DECLARE
+  dup_public_id INTEGER;
+  dup_slug INTEGER;
+BEGIN
+  SELECT count(*) INTO dup_public_id FROM (
+    SELECT public_id FROM gantt_projects WHERE public_id IS NOT NULL
+    GROUP BY public_id HAVING count(*) > 1
+  ) d;
+  IF dup_public_id > 0 THEN
+    RAISE EXCEPTION 'Migration blocked: duplicate public_id values remain after backfill (%)', dup_public_id;
+  END IF;
+
+  SELECT count(*) INTO dup_slug FROM (
+    SELECT slug FROM gantt_projects WHERE slug IS NOT NULL
+    GROUP BY slug HAVING count(*) > 1
+  ) d;
+  IF dup_slug > 0 THEN
+    RAISE EXCEPTION 'Migration blocked: duplicate slug values remain after backfill (%)', dup_slug;
+  END IF;
+END $$;
+
+ALTER TABLE gantt_projects
+  ADD CONSTRAINT gantt_projects_public_id_unique UNIQUE (public_id),
+  ADD CONSTRAINT gantt_projects_slug_unique UNIQUE (slug);
 
 -- Indexes for shared-project lookups
 CREATE INDEX IF NOT EXISTS gantt_projects_public_id_idx ON gantt_projects(public_id);

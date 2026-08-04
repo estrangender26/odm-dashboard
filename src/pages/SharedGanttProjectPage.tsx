@@ -24,6 +24,17 @@ export default function SharedGanttProjectPage() {
     return !!saved;
   });
 
+  // Capture the token once, then remove it from the visible URL to reduce shoulder-surfing
+  // and accidental sharing via copy/paste of the address bar.
+  useEffect(() => {
+    if (slug && access) {
+      const params = new URLSearchParams(searchParams);
+      params.delete("access");
+      const cleanUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  }, [slug]); // only run once on mount when slug is available
+
   const loadQuery = trpc.sharedGantt.load.useQuery(
     { slug: slug ?? "", access, sinceRevision: undefined },
     { enabled: !!slug && !!access && nameEntered }
@@ -73,6 +84,17 @@ export default function SharedGanttProjectPage() {
     if (!project) return "Shared Gantt Project";
     return project.projectName || project.name || "Untitled Project";
   }, [project]);
+
+  // Expose the full share link for intentional copy/share use.
+  const fullShareUrl = useMemo(() => {
+    if (!slug || !access) return "";
+    return `${window.location.origin}/gantt/p/${slug}?access=${access}`;
+  }, [slug, access]);
+
+  const copyLink = async () => {
+    if (!fullShareUrl) return;
+    await navigator.clipboard.writeText(fullShareUrl);
+  };
 
   if (!slug || !access) {
     return (
@@ -153,6 +175,7 @@ export default function SharedGanttProjectPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <meta name="referrer" content="no-referrer" />
       <header className="border-b bg-white px-4 py-3 shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <div className="flex items-center gap-3">
@@ -164,8 +187,15 @@ export default function SharedGanttProjectPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Joined as <strong>{displayName}</strong></span>
+          <div className="flex items-center gap-3">
+            {fullShareUrl && (
+              <Button variant="outline" size="sm" onClick={copyLink}>
+                Copy link
+              </Button>
+            )}
+            <span className="text-sm text-muted-foreground">
+              Joined as <strong>{displayName}</strong>
+            </span>
           </div>
         </div>
       </header>
@@ -210,6 +240,12 @@ export default function SharedGanttProjectPage() {
                 are disabled.
               </div>
             )}
+
+            <div className="rounded bg-slate-100 p-3 text-xs text-slate-700">
+              <strong>Security note:</strong> The access token has been removed from the address bar
+              for safety, but you can still copy the full share link above to invite others. The token is
+              stored only in memory while this page is open; reload or re-open the original link to return.
+            </div>
           </CardContent>
         </Card>
       </main>
