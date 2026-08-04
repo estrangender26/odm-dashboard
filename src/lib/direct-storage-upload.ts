@@ -39,9 +39,16 @@ export async function getStorageFeatureFlags(force = false): Promise<StorageFeat
   return flagsPromise;
 }
 
+const MODULE_FLAG_KEY: Record<StorageModule, keyof StorageFeatureFlags> = {
+  om: "om",
+  governance: "governance",
+  smp: "smp",
+  "lihok-corporate": "lihokCorporate",
+};
+
 export async function shouldUseDirectStorage(module: StorageModule) {
   const flags = await getStorageFeatureFlags(true);
-  return flags.global && flags[module];
+  return flags.global && flags[MODULE_FLAG_KEY[module]];
 }
 
 function resumeAuthorizationKey(module: StorageModule, file: File, target: UploadTarget) {

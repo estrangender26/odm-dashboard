@@ -7,7 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LegacyStorageMigrationState } from "../../db/schema";
-import type { StorageFileSource } from "@contracts/storage";
+import type { StorageFileSource } from "./legacy-storage-migrator-core";
 
 // ============================================================================
 // CORE ADAPTER INTERFACES

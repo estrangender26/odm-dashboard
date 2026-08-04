@@ -8,6 +8,8 @@ import {
   docFolders,
   governanceFacilities,
   governanceUploads,
+  lihokCorporateDocumentVersions,
+  lihokCorporateDocuments,
   smpDocuments,
   storageUploadIntents,
   type User,
@@ -40,7 +42,7 @@ const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
 
 export const storageRouter = new Hono();
 
-const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents"]);
+const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "lihok_corporate_document_versions"]);
 const authorizeSchema = z.object({
   module: z.enum(STORAGE_MODULES),
   originalFilename: z.string().trim().min(1).max(255),
@@ -120,6 +122,19 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
     if (!rows.length) throw new Error("SMP document not found.");
     return { documentId };
   }
+  if (module === "lihok-corporate") {
+    const documentId = Number(target.documentId);
+    const versionId = Number(target.versionId);
+    if (!Number.isInteger(documentId) || documentId <= 0) throw new Error("A valid corporate document is required.");
+    if (!Number.isInteger(versionId) || versionId <= 0) throw new Error("A valid corporate document version is required.");
+    const docRows = await db.select({ id: lihokCorporateDocuments.id }).from(lihokCorporateDocuments).where(eq(lihokCorporateDocuments.id, documentId)).limit(1);
+    if (!docRows.length) throw new Error("Corporate document not found.");
+    const versionRows = await db.select({ id: lihokCorporateDocumentVersions.id, documentId: lihokCorporateDocumentVersions.documentId })
+      .from(lihokCorporateDocumentVersions).where(eq(lihokCorporateDocumentVersions.id, versionId)).limit(1);
+    if (!versionRows.length) throw new Error("Corporate document version not found.");
+    if (versionRows[0].documentId !== documentId) throw new Error("Version does not belong to the specified corporate document.");
+    return { documentId, versionId };
+  }
   const facilitySlug = normalizedSegment(target.facilitySlug, "facility", 50);
   const milestoneId = normalizeGovernanceMilestoneId(target.milestoneId);
   const category = String(target.category ?? "other").trim().slice(0, 50) || "other";
@@ -132,16 +147,23 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
   return { facilitySlug, milestoneId, category, tocItem };
 }
 
-function buildObjectPath(module: StorageModule, target: Record<string, unknown>) {
+function safeObjectFilename(fileName: string) {
+  const base = fileName.split("/").pop() ?? fileName;
+  return base.replace(/[^a-zA-Z0-9._-]/g, "_").toLowerCase().slice(0, 255);
+}
+
+function buildObjectPath(module: StorageModule, target: Record<string, unknown>, originalFilename: string) {
   const id = randomUUID();
   if (module === "om") return `v1/folder-${target.folderId}/${id}`;
   if (module === "smp") return `v1/document-${target.documentId}/${id}`;
+  if (module === "lihok-corporate") return `v1/${target.documentId}/${target.versionId}/${id}-${safeObjectFilename(originalFilename)}`;
   return `v1/${target.facilitySlug}/${target.milestoneId}/${id}`;
 }
 
 function getSourceFromModule(module: StorageModule): StorageFileSource {
   if (module === "om") return "doc_files";
   if (module === "smp") return "smp_documents";
+  if (module === "lihok-corporate") return "lihok_corporate_document_versions";
   return "governance_uploads";
 }
 
@@ -346,6 +368,11 @@ storageRouter.post("/uploads/authorize", async (c) => {
     if (!isUploadFileSizeAllowed(input.fileSize)) {
       return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
     }
+
+    // Corporate Library uploads require authentication
+    if (input.module === "lihok-corporate" && !user) {
+      return c.json({ error: "Authentication required for Corporate Library uploads." }, 401);
+    }
     
     // Rate limiting for anonymous users
     if (!user) {
@@ -370,7 +397,7 @@ storageRouter.post("/uploads/authorize", async (c) => {
     
     const target = await validateTarget(input.module, input.target);
     const expectedBucket = STORAGE_BUCKET_BY_MODULE[input.module];
-    const expectedPath = buildObjectPath(input.module, target);
+    const expectedPath = buildObjectPath(input.module, target, input.originalFilename);
     const intentId = randomUUID();
     const expiresAt = new Date(Date.now() + STORAGE_UPLOAD_INTENT_TTL_MS);
     const source = getSourceFromModule(input.module);
@@ -612,6 +639,26 @@ storageRouter.post("/uploads/finalize", async (c) => {
         }).returning({ id: smpDocuments.id });
         persistedId = inserted[0].id;
         persistedSource = "smp_documents";
+      } else if (intent.module === "lihok-corporate") {
+        const versionId = Number(target.versionId);
+        const updated = await tx.update(lihokCorporateDocumentVersions).set({
+          fileName: intent.originalFilename,
+          fileSize: actualSize,
+          mimeType: actualMime,
+          storageProvider: "supabase",
+          storageBucket: intent.expectedBucket,
+          storagePath: intent.expectedPath,
+          storageEtag: info.etag,
+          storageUploadedAt: now,
+          uploadedBy: intent.requestedBy,
+          updatedAt: now,
+        }).where(and(
+          eq(lihokCorporateDocumentVersions.id, versionId),
+          eq(lihokCorporateDocumentVersions.documentId, Number(target.documentId)),
+        )).returning({ id: lihokCorporateDocumentVersions.id });
+        if (!updated.length) throw new Error("Corporate document version was not found or did not match the target document.");
+        persistedId = updated[0].id;
+        persistedSource = "lihok_corporate_document_versions";
       } else {
         const inserted = await tx.insert(governanceUploads).values({
           facilitySlug: target.facilitySlug,

@@ -32,6 +32,7 @@ const EXTENSIONS_BY_MODULE: Record<StorageModule, ReadonlySet<string>> = {
   om: new Set(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "png", "jpg", "jpeg", "gif", "svg", "webp", "txt", "csv", "json", "zip", "html", "htm", "xhtml"]),
   governance: new Set(["pdf", "doc", "docx", "xls", "xlsx", "png", "jpg", "jpeg", "zip", "rar", "txt", "csv", "ppt", "pptx"]),
   smp: new Set(["pdf"]),
+  "lihok-corporate": new Set(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "png", "jpg", "jpeg", "gif", "svg", "webp", "txt", "csv", "json", "zip", "html", "htm", "xhtml"]),
 };
 
 export function normalizeGovernanceMilestoneId(value: unknown) {
