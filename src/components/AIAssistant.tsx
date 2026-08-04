@@ -197,7 +197,7 @@ function isPureWebCurrentQuestion(message: string): boolean {
   const pureWebCurrentTerms =
     /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|richest|wealthiest|billionaire|billionaires|net worth|ceo|chief executive|weather|forecast|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
   const moduleAnchorTerms =
-    /\b(this dashboard|active dashboard|dashboard data|module data|active module|these records|loaded records|my dashboard|our dashboard)\b/i;
+    /\b(this|these|active|dashboard|module|loaded|my|our|planner|records|tasks|equipment|work orders?|maintenance|inspection|smp|post-ppp|ppp|ownership|responsible)\b/i;
 
   return pureWebCurrentTerms.test(message) && !moduleAnchorTerms.test(message);
 }
@@ -212,6 +212,18 @@ function isDataAnalysisQuestion(message: string): boolean {
   const activeModuleReference =
     /\b(this|these|active|dashboard|module|loaded|my|our)\b/i.test(message);
   if (definitionQuestion && !activeModuleReference) return false;
+
+  // Dashboard-statistic phrasing ("how many", "summarize this planner") should route
+  // to the backend when the question is anchored to the active module.
+  const dashboardStatisticIntent =
+    /\b(how many|how much|count of|number of|total|summary|summarize|summarise|overview|show|list|give me|status of|statistics|planner status|dashboard status)\b/i.test(
+      message
+    );
+  const moduleAnchor =
+    /\b(this|these|active|dashboard|module|loaded|my|our|planner|current|records|tasks|equipment|work orders?|maintenance|inspection|smp|post-ppp|ppp|ownership|responsible)\b/i.test(
+      message
+    );
+  if (dashboardStatisticIntent && moduleAnchor) return true;
 
   return /\b(analy[sz]e|analysis|trend|trends|risk|high-risk|equipment|kpi|kpis|benchmark|schedule|delay|delays|critical path|resource conflict|compliance|overdue|work order|task count|document count|folder|file|coverage|underperform|ownership|responsible|corrective action|recommendation|milestone|inspection|smp|manual)\b/i.test(
     message
@@ -979,6 +991,7 @@ export default function AIAssistant({
     { role: "user" | "assistant"; content: string }[]
   >([]);
   const [loading, setLoading] = useState(false);
+  const requestIdRef = useRef(0);
   const [odmTalkStatus, setOdmTalkStatus] = useState("");
   const [selectedThreadId, setSelectedThreadId] = useState("");
   const [listening, setListening] = useState(false);
@@ -1061,14 +1074,27 @@ export default function AIAssistant({
   };
 
   const chatMut = trpc.ai.maintenanceChat.useMutation({
-    onSuccess: res => {
+    onMutate: async () => {
+      return { requestId: requestIdRef.current };
+    },
+    onSuccess: (res, _vars, ctx) => {
+      const meta = ctx as { requestId?: number } | undefined;
+      if (meta?.requestId !== undefined && meta.requestId !== requestIdRef.current) {
+        // A newer request has already been issued; ignore this stale response.
+        return;
+      }
       setLoading(false);
       appendAssistantMessage(res.reply);
     },
-    onError: e => {
+    onError: (e, _vars, ctx) => {
+      const meta = ctx as { requestId?: number } | undefined;
+      if (meta?.requestId !== undefined && meta.requestId !== requestIdRef.current) {
+        // A newer request has already been issued; ignore this stale error.
+        return;
+      }
       setLoading(false);
       appendAssistantMessage(
-        `⚠️ Error: ${e.message}\n\nThe AI service may not be configured. Please set GROQ_API_KEY in your Render environment variables.\n\nGet a free key at: https://console.groq.com`
+        `⚠️ Error: ${e.message}\n\nThe AI service may not be configured.\n\nLocal: set OLLAMA_BASE_URL=http://localhost:11434.\nCloud: set OLLAMA_BASE_URL=https://ollama.com and OLLAMA_API_KEY to your Render secret.\n\nNever paste API keys into source code or this chat.`
       );
     },
   });
@@ -1110,7 +1136,9 @@ export default function AIAssistant({
     setInput("");
     setMessages(prev => [...prev, { role: "user", content: msg }]);
 
-    if (!hasModuleData && isDataAnalysisQuestion(msg)) {
+    // Only short-circuit when no module is active at all. Empty-but-loaded modules
+    // should still reach the backend so the LLM can answer "0 records loaded".
+    if ((contextType === "help" || data == null) && isDataAnalysisQuestion(msg)) {
       appendAssistantMessage(MODULE_DATA_NOT_LOADED_MESSAGE);
       return;
     }
@@ -1145,6 +1173,7 @@ export default function AIAssistant({
       content: m.content,
     }));
 
+    ++requestIdRef.current;
     chatMut.mutate({ message: fullMessage, history });
   };
 

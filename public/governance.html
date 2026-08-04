@@ -965,7 +965,7 @@ async function askAI(){
     var reply=data&&data.result&&data.result.data&&data.result.data.json?data.result.data.json.reply:null;
     if(reply){
       ansEl.style.display='block';
-      ansEl.innerHTML='<div style="color:#A78BFA;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🤖 AI Response</div>'+escapeHtml(reply)+'<div style="margin-top:8px;font-size:10px;color:#64748B">Powered by Groq AI</div>';
+      ansEl.innerHTML='<div style="color:#A78BFA;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🤖 AI Response</div>'+escapeHtml(reply)+'<div style="margin-top:8px;font-size:10px;color:#64748B">Powered by ODM Dashboard AI</div>';
     }else{
       ansEl.style.display='block';
       ansEl.innerHTML='<div style="color:#F87171">Error: AI temporarily unavailable</div>';

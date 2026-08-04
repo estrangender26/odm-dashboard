@@ -10,10 +10,14 @@ import {
   webSearch,
   type WebSearchResponse,
 } from "./web-search";
+import {
+  chatWithOllama,
+  checkOllamaHealth,
+  getOllamaConfig,
+  type OllamaClientError,
+} from "./ollama-client";
 
-const SYSTEM_PROMPT = `You are ODM Dashboard AI: a real AI assistant with dashboard grounding when relevant. Classify each request as exactly one of: general_knowledge, current_web, dashboard_data, combined_dashboard_web, or runtime_time_date. For general_knowledge questions, answer naturally using the LLM and do not require dashboard data. For current_web questions, use WEB SEARCH CONTEXT and answer naturally first, then a Sources section with source title and domain only. For dashboard_data questions, use active dashboard/module data first and format the answer with "From dashboard data:". For combined_dashboard_web questions, use both and format with "From dashboard data:", "From web search:", and "Sources:" only when the user explicitly asks to compare dashboard data with external/current knowledge. Runtime time/date questions are answered by the runtime before reaching the model. Do not return only raw titles, domains, URLs, snippets, provider names, metadata labels, or source lists as the final answer. Never output "Sources: None". Do not mention a knowledge cutoff when live web search was attempted. If search failed, say exactly "I could not retrieve live web results right now." and do not add dashboard fallback. If module data is empty or unavailable for a dashboard_data question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for task counts, KPI values, equipment names, document counts, schedule delays, ownership decisions, and Post-PPP recommendations, and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
-
-const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
+const SYSTEM_PROMPT = `You are ODM Dashboard AI: a real AI assistant with dashboard grounding when relevant. Classify each request as exactly one of: general_knowledge, current_web, dashboard_data, combined_dashboard_web, or runtime_time_date. For general_knowledge questions, answer naturally using the LLM and do not require dashboard data. For current_web questions, use WEB SEARCH CONTEXT and answer naturally first, then a Sources section with source title and domain only. For dashboard_data questions, use active dashboard/module data first and format the answer with "From dashboard data:". For combined_dashboard_web questions, use both and format with "From dashboard data:", "From web search:", and "Sources:" only when the user explicitly asks to compare dashboard data with external/current knowledge. Runtime time/date questions are answered by the runtime before reaching the model. Do not return only raw titles, domains, URLs, snippets, provider names, metadata labels, or source lists as the final answer. Never output "Sources: None". Do not mention a knowledge cutoff when live web search was attempted. If search failed, say exactly "I could not retrieve live web results right now." and do not add dashboard fallback. If module data is unavailable (no dashboard context provided) for a dashboard_data question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." If the dashboard context shows zero records (e.g., Total Records: 0), report the zero count truthfully; do not say the module is not loaded. Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for task counts, KPI values, equipment names, document counts, schedule delays, ownership decisions, and Post-PPP recommendations, and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
 
 const GITHUB_API = "https://api.github.com";
 const REPO_TREE_PROMPT =
@@ -47,6 +51,35 @@ const CURRENT_WEB_TERMS =
   /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|richest|wealthiest|billionaire|billionaires|net worth|ceo|chief executive|weather|forecast|time|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
 const CURRENT_PPP_ONLY_PATTERN =
   /\bcurrent\s+ppp|currentpppdoer|current\s+doer|current\s+execution\s+doer\b/i;
+
+// Dashboard-statistic words that should always route to dashboard_data when a module is active.
+const DASHBOARD_STATISTIC_TERMS =
+  /\b(how many|how much|count of|number of|total|summary|summarize|summarise|overview|show|list|give me|what are|which|status of|statistics|planner status|dashboard status)\b/i;
+
+// Active-module context words. When these appear, the user is asking about the loaded module.
+const ACTIVE_MODULE_TERMS =
+  /\b(this planner|this module|this dashboard|active planner|active module|active dashboard|loaded data|loaded records|current planner|current module|these tasks|these records|current records)\b/i;
+
+// Web-search-only words that, by themselves, indicate a need for external/current information.
+// These must NOT override dashboard-statistic routing when the question is clearly about the dashboard.
+const WEB_SEARCH_EXCLUSIVE_TERMS =
+  /\b(latest news|current events|today's weather|weather forecast|stock price|market price|exchange rate|inflation rate|interest rate|breaking news|live score|recent news)\b/i;
+
+export function isDashboardStatisticQuestion(question: string): boolean {
+  // Strong dashboard-statistic intent plus a module anchor or module data term.
+  const hasStatisticIntent = DASHBOARD_STATISTIC_TERMS.test(question);
+  const hasActiveModule = ACTIVE_MODULE_TERMS.test(question);
+  const hasModuleDataTerm = MODULE_DATA_TERMS.test(question);
+
+  if (!hasStatisticIntent) return false;
+
+  // Web-search-exclusive phrase takes precedence only if the question is not anchored to dashboard data.
+  if (WEB_SEARCH_EXCLUSIVE_TERMS.test(question) && !hasActiveModule && !hasModuleDataTerm) {
+    return false;
+  }
+
+  return hasActiveModule || hasModuleDataTerm;
+}
 
 export type AiQueryClass =
   | "general_knowledge"
@@ -146,21 +179,38 @@ export function classifyAiQuery(message: string): AiQueryClass {
   const question = extractUserQuestion(message);
   if (isRuntimeTimeQuestion(question)) return "runtime_time_date";
 
+  const isDashboardStatistic = isDashboardStatisticQuestion(question);
   const needsLiveWeb =
     CURRENT_WEB_TERMS.test(question) && !CURRENT_PPP_ONLY_PATTERN.test(question);
   const isDashboardQuestion =
     EXPLICIT_DASHBOARD_ANCHOR_TERMS.test(question) ||
+    isDashboardStatistic ||
     (/\b(analy[sz]e|trend|trends|risk|high-risk|kpi|kpis|schedule|delay|delays|critical path|resource conflict|compliance|overdue|work order|task count|document count|coverage|underperform|ownership|responsible|corrective action|recommendation|milestone)\b/i.test(
       question
     ) &&
       MODULE_DATA_TERMS.test(question));
-  const explicitlyCombinesDashboardAndWeb =
-    isDashboardQuestion && (needsLiveWeb || COMBINED_COMPARE_TERMS.test(question));
 
-  if (explicitlyCombinesDashboardAndWeb) return "combined_dashboard_web";
-  if (needsLiveWeb) return "current_web";
-  if (isDashboardQuestion) return "dashboard_data";
-  return "general_knowledge";
+  const queryClass = ((): AiQueryClass => {
+    if (!isDashboardQuestion) return needsLiveWeb ? "current_web" : "general_knowledge";
+
+    // Dashboard-statistic questions ("how many tasks are loaded?", "show current planner status")
+    // are strongly anchored to the active module; words like "current" must not promote them to
+    // current_web or combined_dashboard_web.
+    if (isDashboardStatistic) return "dashboard_data";
+
+    return needsLiveWeb || COMBINED_COMPARE_TERMS.test(question)
+      ? "combined_dashboard_web"
+      : "dashboard_data";
+  })();
+
+  console.info("[ai/router] classifyAiQuery result", {
+    queryClass,
+    hasDashboardContext: /=== DASHBOARD CONTEXT ===/.test(message),
+    isDashboardStatistic,
+    webSearchConfigured: isWebSearchConfigured(),
+  });
+
+  return queryClass;
 }
 
 export function queryNeedsWebSearch(queryClass: AiQueryClass): boolean {
@@ -292,17 +342,9 @@ export function sanitizeFinalAiReply(
 }
 
 function moduleDataMissingForDashboardQuestion(message: string): boolean {
-  return /Status:\s*No data loaded|Dataset is empty|Total Records:\s*0\b/i.test(
-    message
-  );
-}
-
-interface GroqChatCompletionResponse {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
+  // Empty-but-loaded modules (Total Records: 0) are not "missing" data.
+  // Let the LLM see the zero count and answer truthfully.
+  return /Status:\s*No data loaded|Dataset is empty/i.test(message);
 }
 
 function wantsRepositoryFileTree(message: string): boolean {
@@ -458,37 +500,35 @@ async function buildRepositoryTreeReply(): Promise<string> {
 }
 
 export const aiRouter = createRouter({
-  /* ── Debug: check AI configuration status ── */
+  /* ── Passive status: configuration only, no network calls ── */
   status: publicQuery.query(() => {
-    const key = process.env.GROQ_API_KEY;
-    const keySet = !!key;
-    const allKeys = Object.keys(process.env)
-      .filter(
-        k =>
-          !k.includes("SECRET") && !k.includes("PASS") && !k.includes("TOKEN")
-      )
-      .sort();
-    console.log(
-      "[AI DEBUG] GROQ_API_KEY present:",
-      keySet,
-      "| Key starts with:",
-      key ? key.slice(0, 8) : "undefined"
-    );
-    console.log("[AI DEBUG] Available env vars:", allKeys.join(", "));
+    const config = getOllamaConfig();
     return {
-      configured: keySet,
-      provider: "groq",
-      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      configured: config.configured,
+      provider: config.provider,
+      model: config.model,
       webSearchProvider: getWebSearchProvider(),
       webSearchConfigured: isWebSearchConfigured(),
-      envVarList: allKeys,
-      message: keySet
-        ? "AI is configured and ready"
-        : `GROQ_API_KEY not set. Available env vars: ${allKeys.join(", ")}`,
+      message: config.configured
+        ? "AI provider is configured."
+        : "AI provider is not configured. Set OLLAMA_BASE_URL to enable conversational AI.",
     };
   }),
 
-  /* ── Maintenance Expert Chat (via Groq — free, no CC) ── */
+  /* ── Active health check: bounded timeout, no full inference ── */
+  health: publicQuery.query(async () => {
+    const result = await checkOllamaHealth();
+    return {
+      configured: result.configured,
+      reachable: result.reachable,
+      authenticated: result.authenticated,
+      modelAvailable: result.modelAvailable,
+      model: result.model,
+      message: result.message,
+    };
+  }),
+
+  /* ── Maintenance Expert Chat (via Ollama OpenAI-compatible API) ── */
   maintenanceChat: publicQuery
     .input(
       z.object({
@@ -578,12 +618,12 @@ export const aiRouter = createRouter({
         }
       }
 
-      const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) {
+      const config = getOllamaConfig();
+      if (!config.baseUrl) {
         return {
           reply:
-            "⚠️ GROQ_API_KEY not set.\n\nTo activate the AI chat:\n\n1. Go to https://console.groq.com\n2. Sign up with your email\n3. Create a free API key\n4. Add GROQ_API_KEY to your Render environment variables\n\nGroq is completely free — no credit card required.",
-          error: "MISSING_API_KEY",
+            "⚠️ AI provider is not configured.\n\nLocal: set OLLAMA_BASE_URL=http://localhost:11434 (no API key needed).\nCloud: set OLLAMA_BASE_URL=https://ollama.com and set OLLAMA_API_KEY as a Render secret.\n\nDefault model is kimi-k2.7-code:cloud. Override with OLLAMA_MODEL.\n\nNever commit API keys or production URLs.",
+          error: "MISSING_BASE_URL",
         };
       }
 
@@ -599,44 +639,44 @@ export const aiRouter = createRouter({
         },
       ];
 
+      const requestStartedAt = performance.now();
       try {
-        const resp = await fetch(GROQ_API, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-            messages,
-            temperature: 0.2,
-            max_tokens: 1500,
-          }),
+        console.info("[ai/chat] maintenanceChat request started", {
+          queryClass,
+          messageChars: input.message.length,
+          historyCount: input.history?.length ?? 0,
+          webSearchConfigured: isWebSearchConfigured(),
         });
 
-        if (!resp.ok) {
-          const err = await resp.text();
-          console.error("[GROQ ERROR] Status:", resp.status, "Body:", err);
-          return {
-            reply: `AI service error (HTTP ${resp.status}). The API key may be invalid or revoked. Please generate a new key at https://console.groq.com`,
-            error: "API_ERROR",
-          };
-        }
-
-        const data = (await resp.json()) as GroqChatCompletionResponse;
-        const rawReply =
-          data.choices?.[0]?.message?.content?.trim() || "No response from AI.";
+        const result = await chatWithOllama({
+          messages,
+          temperature: 0.2,
+        });
         const reply = finalizeAiReplyForWebSearch(
-          rawReply,
+          result.reply,
           queryClass,
           successfulSearchResponse
         );
+
+        console.info("[ai/chat] maintenanceChat request completed", {
+          queryClass,
+          totalElapsedMs: Math.round(performance.now() - requestStartedAt),
+          responseChars: reply.length,
+          error: null,
+        });
+
         return { reply, error: null };
       } catch (e: unknown) {
-        console.error("AI chat error:", e);
+        const error = e as OllamaClientError;
+        console.error("[ai/chat] maintenanceChat request failed", {
+          category: error.category || "UNKNOWN",
+          totalElapsedMs: Math.round(performance.now() - requestStartedAt),
+        });
+        const category = error.category || "UNKNOWN_ERROR";
+        const userMessage = error.message || "Connection error. Please check your network and try again.";
         return {
-          reply: "Connection error. Please check your network and try again.",
-          error: "NETWORK_ERROR",
+          reply: `⚠️ ${userMessage}`,
+          error: category,
         };
       }
     }),
