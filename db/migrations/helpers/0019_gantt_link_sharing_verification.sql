@@ -45,9 +45,9 @@ UNION ALL
 
 SELECT
   'helper columns present' AS check_name,
-  CASE WHEN count(*) = 8 THEN 'PASS' ELSE 'FAIL' END AS result,
+  CASE WHEN count(*) = 9 THEN 'PASS' ELSE 'FAIL' END AS result,
   count(*) AS null_count,
-  8 AS total_rows
+  9 AS total_rows
 FROM information_schema.columns
 WHERE table_name = 'gantt_projects'
   AND column_name IN (

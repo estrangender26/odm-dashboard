@@ -16,10 +16,20 @@ import {
   hashToken,
 } from "@/modules/gantt/collaboration/accessToken";
 import { checkRateLimit } from "@/modules/gantt/collaboration/rateLimit";
+import { isValidGanttDate } from "@/modules/gantt/collaboration/dateValidation";
 
 const VALID_DEPENDENCY_TYPES = ["FS", "SS", "FF", "SF"] as const;
-const MAX_PROJECT_TASKS = 1000;
-const MAX_PROJECT_DEPENDENCIES = 2000;
+function getMaxProjectTasks(): number {
+  const env = process.env.GANTT_MAX_TASKS;
+  const n = env ? Number(env) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : 1000;
+}
+
+function getMaxProjectDependencies(): number {
+  const env = process.env.GANTT_MAX_DEPENDENCIES;
+  const n = env ? Number(env) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : 2000;
+}
 const MAX_DESCRIPTION_LENGTH = 2000;
 const MAX_NOTES_LENGTH = 5000;
 const MAX_NAME_LENGTH = 255;
@@ -30,8 +40,8 @@ const dateStringSchema = z
   .string()
   .max(20)
   .refine(
-    (v) => !v || /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(v),
-    { message: "Date must be YYYY-MM-DD or YYYY-MM-DD HH:MM" }
+    (v) => !v || isValidGanttDate(v),
+    { message: "Date must be a valid YYYY-MM-DD or YYYY-MM-DD HH:MM" }
   );
 
 const taskInputSchema = z.object({
@@ -192,6 +202,7 @@ async function bumpProjectRevision(
 
 export async function dependencyWouldCreateCycle(
   tx: PgTransaction<any, any, any>,
+  projectId: number,
   source: number,
   target: number,
   excludeId?: number
@@ -200,7 +211,8 @@ export async function dependencyWouldCreateCycle(
   if (source === target) return true;
   const deps = await tx
     .select({ id: ganttDependencies.id, source: ganttDependencies.predecessorTaskId, target: ganttDependencies.successorTaskId })
-    .from(ganttDependencies);
+    .from(ganttDependencies)
+    .where(eq(ganttDependencies.projectId, projectId));
   const successors = new Map<number, number[]>();
   for (const dep of deps) {
     if (excludeId !== undefined && dep.id === excludeId) continue;
@@ -230,7 +242,7 @@ export async function validateTaskParent(
     return { ok: false, reason: "A task cannot be its own parent" };
   }
   const parents = await tx
-    .select({ id: ganttTasks.id, projectId: ganttTasks.projectId, isParent: ganttTasks.isParent })
+    .select({ id: ganttTasks.id, projectId: ganttTasks.projectId })
     .from(ganttTasks)
     .where(eq(ganttTasks.id, parentTaskId));
   if (parents.length === 0) {
@@ -239,9 +251,24 @@ export async function validateTaskParent(
   if (parents[0].projectId !== projectId) {
     return { ok: false, reason: "Parent task belongs to a different project" };
   }
-  if (parents[0].isParent !== 1) {
-    // allow non-parent as parent? We'll permit but warn; strict mode can enforce.
-    // For now allow any existing task to keep compatibility.
+  return { ok: true };
+}
+
+export async function validateTaskParentWithCycleCheck(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  taskId: number | undefined,
+  parentTaskId: number
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const base = await validateTaskParent(tx, projectId, taskId, parentTaskId);
+  if (!base.ok) return base;
+
+  const allTasks = await tx
+    .select({ id: ganttTasks.id, parentTaskId: ganttTasks.parentTaskId })
+    .from(ganttTasks)
+    .where(eq(ganttTasks.projectId, projectId));
+  if (wbsWouldCreateCycle(allTasks, taskId, parentTaskId)) {
+    return { ok: false, reason: "Parent assignment would create a WBS hierarchy cycle" };
   }
   return { ok: true };
 }
@@ -290,6 +317,30 @@ function enforceRateLimit(req: Request, key: string, max: number, windowMs: numb
       message: `Rate limit exceeded. Retry after ${Math.ceil(result.retryAfterMs / 1000)}s.`,
     });
   }
+}
+
+async function lockProject(tx: PgTransaction<any, any, any>, projectId: number): Promise<void> {
+  await tx.execute(sql`SELECT 1 FROM gantt_projects WHERE id = ${projectId} FOR UPDATE`);
+}
+
+
+function wbsWouldCreateCycle(
+  allTasks: Array<{ id: number; parentTaskId: number | null }>,
+  taskId: number | undefined,
+  parentTaskId: number
+): boolean {
+  if (parentTaskId === 0) return false;
+  if (taskId !== undefined && parentTaskId === taskId) return true;
+  const parentById = new Map(allTasks.map((t) => [t.id, t.parentTaskId ?? 0]));
+  let current = parentTaskId;
+  const seen = new Set<number>();
+  while (current !== 0) {
+    if (seen.has(current)) break; // existing cycle elsewhere; don't pile on
+    seen.add(current);
+    if (current === taskId) return true;
+    current = parentById.get(current) ?? 0;
+  }
+  return false;
 }
 
 function mapTaskRow(r: typeof ganttTasks.$inferSelect) {
@@ -452,6 +503,7 @@ export const sharedGanttRouter = createRouter({
       requireEditor(ctx);
       ctx.actorName = input.actorName;
 
+      // Secondary parsed-payload guard (HTTP body size is enforced by middleware).
       if (JSON.stringify(input).length > MAX_REQUEST_BODY_BYTES) {
         throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Task update payload too large" });
       }
@@ -469,7 +521,7 @@ export const sharedGanttRouter = createRouter({
         const before = mapTaskRow(existing[0]);
         const merged = { ...before, ...input.changes };
 
-        const parentCheck = await validateTaskParent(tx, ctx.projectId, input.taskId, merged.parentTaskId ?? before.parentTaskId ?? 0);
+        const parentCheck = await validateTaskParentWithCycleCheck(tx, ctx.projectId, input.taskId, merged.parentTaskId ?? before.parentTaskId ?? 0);
         if (!parentCheck.ok) {
           throw new TRPCError({ code: "BAD_REQUEST", message: parentCheck.reason });
         }
@@ -556,20 +608,22 @@ export const sharedGanttRouter = createRouter({
       requireEditor(ctx);
       ctx.actorName = input.actorName;
 
+      // Secondary parsed-payload guard (HTTP body size is enforced by middleware).
       if (JSON.stringify(input).length > MAX_REQUEST_BODY_BYTES) {
         throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Task creation payload too large" });
       }
 
       const result = await db.transaction(async (tx) => {
+        await lockProject(tx, ctx.projectId);
         const currentCount = await countProjectTasks(tx, ctx.projectId);
-        if (currentCount >= MAX_PROJECT_TASKS) {
+        if (currentCount >= getMaxProjectTasks()) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `Project cannot exceed ${MAX_PROJECT_TASKS} tasks`,
+            message: `Project cannot exceed ${getMaxProjectTasks()} tasks`,
           });
         }
 
-        const parentCheck = await validateTaskParent(tx, ctx.projectId, undefined, input.task.parentTaskId ?? 0);
+        const parentCheck = await validateTaskParentWithCycleCheck(tx, ctx.projectId, undefined, input.task.parentTaskId ?? 0);
         if (!parentCheck.ok) {
           throw new TRPCError({ code: "BAD_REQUEST", message: parentCheck.reason });
         }
@@ -787,11 +841,12 @@ export const sharedGanttRouter = createRouter({
       ctx.actorName = input.actorName;
 
       const result = await db.transaction(async (tx) => {
+        await lockProject(tx, ctx.projectId);
         const depCount = await countProjectDependencies(tx, ctx.projectId);
-        if (depCount >= MAX_PROJECT_DEPENDENCIES) {
+        if (depCount >= getMaxProjectDependencies()) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `Project cannot exceed ${MAX_PROJECT_DEPENDENCIES} dependencies`,
+            message: `Project cannot exceed ${getMaxProjectDependencies()} dependencies`,
           });
         }
 
@@ -830,7 +885,7 @@ export const sharedGanttRouter = createRouter({
           throw new TRPCError({ code: "CONFLICT", message: "Dependency already exists" });
         }
 
-        if (await dependencyWouldCreateCycle(tx, input.predecessorTaskId, input.successorTaskId)) {
+        if (await dependencyWouldCreateCycle(tx, ctx.projectId, input.predecessorTaskId, input.successorTaskId)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Dependency cycle detected" });
         }
 
@@ -1065,9 +1120,8 @@ export const sharedGanttRouter = createRouter({
     )
     .mutation(async ({ input, ctx: tctx }) => {
       enforceRateLimit(tctx.req, "sharedGantt:createShared", 10, 60_000);
-      // Lightweight request-size guard
-      const payloadSize = JSON.stringify(input).length;
-      if (payloadSize > MAX_REQUEST_BODY_BYTES) {
+      // Secondary parsed-payload guard (HTTP body size is enforced by middleware).
+      if (JSON.stringify(input).length > MAX_REQUEST_BODY_BYTES) {
         throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds size limit" });
       }
 

@@ -6,6 +6,9 @@ DO $$
 DECLARE
   has_uuid BOOLEAN;
   has_pgcrypto BOOLEAN;
+  table_exists BOOLEAN;
+  public_id_exists BOOLEAN;
+  slug_exists BOOLEAN;
   dup_public_id INTEGER;
   dup_slug INTEGER;
 BEGIN
@@ -23,22 +26,41 @@ BEGIN
     RAISE EXCEPTION 'Migration blocked: gen_random_uuid() is not available. Install the pgcrypto extension first.';
   END IF;
 
-  SELECT count(*) INTO dup_public_id FROM (
-    SELECT id FROM gantt_projects WHERE public_id IS NOT NULL
-    GROUP BY public_id HAVING count(*) > 1
-  ) d;
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = current_schema() AND table_name = 'gantt_projects'
+  ) INTO table_exists;
 
-  IF dup_public_id > 0 THEN
-    RAISE EXCEPTION 'Migration blocked: gantt_projects already contains duplicate public_id values (%).', dup_public_id;
-  END IF;
+  IF table_exists THEN
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'gantt_projects' AND column_name = 'public_id'
+    ) INTO public_id_exists;
 
-  SELECT count(*) INTO dup_slug FROM (
-    SELECT id FROM gantt_projects WHERE slug IS NOT NULL
-    GROUP BY slug HAVING count(*) > 1
-  ) d;
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'gantt_projects' AND column_name = 'slug'
+    ) INTO slug_exists;
 
-  IF dup_slug > 0 THEN
-    RAISE EXCEPTION 'Migration blocked: gantt_projects already contains duplicate slug values (%).', dup_slug;
+    IF public_id_exists THEN
+      SELECT count(*) INTO dup_public_id FROM (
+        SELECT id FROM gantt_projects WHERE public_id IS NOT NULL
+        GROUP BY public_id HAVING count(*) > 1
+      ) d;
+      IF dup_public_id > 0 THEN
+        RAISE EXCEPTION 'Migration blocked: gantt_projects already contains duplicate public_id values (%).', dup_public_id;
+      END IF;
+    END IF;
+
+    IF slug_exists THEN
+      SELECT count(*) INTO dup_slug FROM (
+        SELECT id FROM gantt_projects WHERE slug IS NOT NULL
+        GROUP BY slug HAVING count(*) > 1
+      ) d;
+      IF dup_slug > 0 THEN
+        RAISE EXCEPTION 'Migration blocked: gantt_projects already contains duplicate slug values (%).', dup_slug;
+      END IF;
+    END IF;
   END IF;
 
   RAISE NOTICE 'Preflight passed: gen_random_uuid() available, no duplicate public_id/slug values.';

@@ -111,7 +111,8 @@ run("sharedGanttRouter integration", () => {
       access: created.editorToken,
       operations: { revokeEditor: true, revokeViewer: true, confirmed: true },
     });
-    await expect(caller.sharedGantt.load({ slug: created.slug!, access: created.editorToken })).rejects.toThrow("Invalid access token");
+    await expect(caller.sharedGantt.load({ slug: created.slug!, access: created.editorToken })).rejects.toThrow("sharing is not enabled");
+    await expect(caller.sharedGantt.load({ slug: created.slug!, access: created.viewToken })).rejects.toThrow("sharing is not enabled");
   });
 
   it("rejects mutation when sharing is disabled", async () => {
@@ -161,7 +162,7 @@ run("sharedGanttRouter integration", () => {
         expectedRevision: task.task.revision,
         changes: { taskName: "Stale edit" },
       })
-    ).rejects.toThrow("CONFLICT");
+    ).rejects.toThrow("updated by another participant");
   });
 
   it("allocates unique ordered project revisions for concurrent edits", async () => {
@@ -199,15 +200,16 @@ run("sharedGanttRouter integration", () => {
   it("rejects cross-project dependencies", async () => {
     const p1 = await createProject("P1");
     const p2 = await createProject("P2");
-    const t2 = await p2.caller.sharedGantt.createTask({ slug: p2.created.slug!, access: p2.created.editorToken, task: { taskName: "P2 task" } });
+    const p1Task = await p1.caller.sharedGantt.createTask({ slug: p1.created.slug!, access: p1.created.editorToken, task: { taskName: "P1 task" } });
+    const p2Task = await p2.caller.sharedGantt.createTask({ slug: p2.created.slug!, access: p2.created.editorToken, task: { taskName: "P2 task" } });
     await expect(
       p1.caller.sharedGantt.createDependency({
         slug: p1.created.slug!,
         access: p1.created.editorToken,
-        predecessorTaskId: 999999,
-        successorTaskId: t2.task.id,
+        predecessorTaskId: p2Task.task.id,
+        successorTaskId: p1Task.task.id,
       })
-    ).rejects.toThrow();
+    ).rejects.toThrow("shared project");
   });
 
   it("rejects invalid dependency type and duplicates and cycles", async () => {
@@ -252,9 +254,100 @@ run("sharedGanttRouter integration", () => {
     ).rejects.toThrow("cycle");
   });
 
+  it("does not let another project cause a false dependency cycle", async () => {
+    const p1 = await createProject("P1");
+    const p2 = await createProject("P2");
+    const p1A = await p1.caller.sharedGantt.createTask({ slug: p1.created.slug!, access: p1.created.editorToken, task: { taskName: "P1-A" } });
+    const p1B = await p1.caller.sharedGantt.createTask({ slug: p1.created.slug!, access: p1.created.editorToken, task: { taskName: "P1-B" } });
+    const p2C = await p2.caller.sharedGantt.createTask({ slug: p2.created.slug!, access: p2.created.editorToken, task: { taskName: "P2-C" } });
+    const p2D = await p2.caller.sharedGantt.createTask({ slug: p2.created.slug!, access: p2.created.editorToken, task: { taskName: "P2-D" } });
+
+    // A dependency in p2 must not affect cycle detection in p1.
+    await p2.caller.sharedGantt.createDependency({
+      slug: p2.created.slug!,
+      access: p2.created.editorToken,
+      predecessorTaskId: p2C.task.id,
+      successorTaskId: p2D.task.id,
+    });
+
+    const dep = await p1.caller.sharedGantt.createDependency({
+      slug: p1.created.slug!,
+      access: p1.created.editorToken,
+      predecessorTaskId: p1A.task.id,
+      successorTaskId: p1B.task.id,
+    });
+    expect(dep.success).toBe(true);
+
+    // The reverse in p1 should still be a cycle.
+    await expect(
+      p1.caller.sharedGantt.createDependency({
+        slug: p1.created.slug!,
+        access: p1.created.editorToken,
+        predecessorTaskId: p1B.task.id,
+        successorTaskId: p1A.task.id,
+      })
+    ).rejects.toThrow("cycle");
+  });
+
+  it("rejects direct and indirect WBS hierarchy cycles", async () => {
+    const { created, caller } = await createProject();
+    const a = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "A" } });
+
+    // Direct self-parenting.
+    await expect(
+      caller.sharedGantt.updateTask({
+        slug: created.slug!,
+        access: created.editorToken,
+        taskId: a.task.id,
+        expectedRevision: a.task.revision,
+        changes: { parentTaskId: a.task.id },
+      })
+    ).rejects.toThrow("own parent");
+
+    const b = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "B", parentTaskId: a.task.id } });
+    const c = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "C", parentTaskId: b.task.id } });
+
+    // Indirect cycle: A under C.
+    await expect(
+      caller.sharedGantt.updateTask({
+        slug: created.slug!,
+        access: created.editorToken,
+        taskId: a.task.id,
+        expectedRevision: a.task.revision + 1,
+        changes: { parentTaskId: c.task.id },
+      })
+    ).rejects.toThrow("WBS hierarchy cycle");
+  });
+
+  it("enforces project task maximums under concurrent creation", async () => {
+    const { created, caller } = await createProject();
+    const original = process.env.GANTT_MAX_TASKS;
+    process.env.GANTT_MAX_TASKS = "4";
+    try {
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }, (_, i) =>
+          caller.sharedGantt.createTask({
+            slug: created.slug!,
+            access: created.editorToken,
+            task: { taskName: `Concurrent ${i}` },
+          })
+        )
+      );
+      const succeeded = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.filter((r) => r.status === "rejected").length;
+      expect(succeeded).toBeLessThanOrEqual(4);
+      expect(succeeded + failed).toBe(6);
+      const remaining = await db.select({ count: sql<number>`count(*)::int` }).from(ganttTasks).where(eq(ganttTasks.projectId, created.projectId));
+      expect(remaining[0]?.count).toBeLessThanOrEqual(4);
+    } finally {
+      process.env.GANTT_MAX_TASKS = original;
+    }
+  });
+
   it("requires expected revision for task and dependency deletion", async () => {
     const { created, caller } = await createProject();
     const task = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "Delete me" } });
+    const other = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "Other" } });
     await expect(
       caller.sharedGantt.deleteTask({
         slug: created.slug!,
@@ -263,12 +356,12 @@ run("sharedGanttRouter integration", () => {
         expectedRevision: 999,
         confirmed: true,
       })
-    ).rejects.toThrow("CONFLICT");
+    ).rejects.toThrow("updated by another participant");
 
     const dep = await caller.sharedGantt.createDependency({
       slug: created.slug!,
       access: created.editorToken,
-      predecessorTaskId: task.task.id,
+      predecessorTaskId: other.task.id,
       successorTaskId: task.task.id,
     });
     await expect(
@@ -278,7 +371,7 @@ run("sharedGanttRouter integration", () => {
         dependencyId: dep.dependency.id,
         expectedRevision: 999,
       })
-    ).rejects.toThrow("CONFLICT");
+    ).rejects.toThrow("updated by another participant");
   });
 
   it("returns task deletion impact and prevents orphaned dependencies/hierarchy", async () => {
