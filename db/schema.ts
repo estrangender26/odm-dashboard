@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, uniqueIndex, check, doublePrecision, jsonb, uuid, date, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, uniqueIndex, check, doublePrecision, jsonb, uuid, date, boolean, numeric, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 const storageMetadataColumns = () => ({
   storageProvider: varchar("storage_provider", { length: 32 }),
@@ -227,6 +227,8 @@ export const ganttTasks = pgTable("gantt_tasks", {
   taskType: varchar("task_type", { length: 20 }).default("task"),
   isMilestone: integer("is_milestone").default(0),
   isParent: integer("is_parent").default(0),
+  revision: integer("revision").notNull().default(1),
+  updatedByName: varchar("updated_by_name", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -301,6 +303,8 @@ export const ganttDependencies = pgTable("gantt_dependencies", {
   successorTaskId: integer("successor_task_id").notNull(),
   dependencyType: varchar("dependency_type", { length: 10 }).notNull().default("FS"),
   lagDays: integer("lag_days").default(0),
+  revision: integer("revision").notNull().default(1),
+  updatedByName: varchar("updated_by_name", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -378,15 +382,75 @@ export const ganttProjects = pgTable("gantt_projects", {
   tenantId: varchar("tenant_id", { length: 255 }),
   orgId: varchar("org_id", { length: 255 }),
   sessionId: varchar("session_id", { length: 255 }),
+  publicId: uuid("public_id").unique(),
+  slug: varchar("slug", { length: 255 }).unique(),
+  editTokenHash: varchar("edit_token_hash", { length: 64 }),
+  viewTokenHash: varchar("view_token_hash", { length: 64 }),
+  revision: integer("revision").notNull().default(1),
+  dataDate: varchar("data_date", { length: 20 }),
+  defaultCalendarId: integer("default_calendar_id"),
+  sharingEnabled: integer("sharing_enabled").notNull().default(0),
+  lastScheduledAt: timestamp("last_scheduled_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("gantt_projects_name_idx").on(table.name),
   index("gantt_projects_session_idx").on(table.sessionId),
   index("gantt_projects_user_idx").on(table.userId),
+  index("gantt_projects_public_id_idx").on(table.publicId),
+  index("gantt_projects_slug_idx").on(table.slug),
+  index("gantt_projects_edit_token_idx").on(table.editTokenHash),
+  index("gantt_projects_view_token_idx").on(table.viewTokenHash),
+]);
+
+/* ── Gantt Project Audit Events ── */
+export const ganttProjectEvents = pgTable("gantt_project_events", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => ganttProjects.id, { onDelete: "cascade" }),
+  entityType: varchar("entity_type", { length: 50 }).notNull(),
+  entityId: integer("entity_id"),
+  action: varchar("action", { length: 50 }).notNull(),
+  actorName: varchar("actor_name", { length: 255 }),
+  beforeData: jsonb("before_data"),
+  afterData: jsonb("after_data"),
+  projectRevision: integer("project_revision"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("gantt_project_events_project_idx").on(table.projectId, table.createdAt),
+  index("gantt_project_events_entity_idx").on(table.projectId, table.entityType, table.entityId),
+]);
+
+/* ── Gantt Calendars ── */
+export const ganttCalendars = pgTable("gantt_calendars", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => ganttProjects.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  workingDays: integer("working_days").array().notNull().default([1, 2, 3, 4, 5]),
+  hoursPerDay: numeric("hours_per_day", { precision: 4, scale: 2 }).notNull().default("8"),
+  timezone: varchar("timezone", { length: 100 }).notNull().default("Asia/Manila"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("gantt_calendars_project_idx").on(table.projectId),
+]);
+
+/* ── Gantt Calendar Exceptions ── */
+export const ganttCalendarExceptions = pgTable("gantt_calendar_exceptions", {
+  id: serial("id").primaryKey(),
+  calendarId: integer("calendar_id").notNull().references(() => ganttCalendars.id, { onDelete: "cascade" }),
+  exceptionDate: date("exception_date").notNull(),
+  isWorking: boolean("is_working").notNull().default(false),
+  workingHours: numeric("working_hours", { precision: 4, scale: 2 }),
+  description: varchar("description", { length: 500 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("gantt_calendar_exceptions_calendar_idx").on(table.calendarId, table.exceptionDate),
+  unique("gantt_calendar_exceptions_date_unique").on(table.calendarId, table.exceptionDate),
 ]);
 
 /* ── ODM Talk AI Collaboration Hub ── */
+
 export const odmTalkThreads = pgTable("odm_talk_threads", {
   id: serial("id").primaryKey(),
   title: varchar("title", { length: 500 }).notNull(),

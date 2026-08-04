@@ -108,8 +108,9 @@ export function getDb() {
     console.log(`[DB] Connection fingerprint: ${getConnectionFingerprint(databaseUrl)}`);
     console.log("[DB] Connecting to database...");
   }
+  const sslMode = process.env.DATABASE_SSL_MODE ?? "require";
   const client = postgres(databaseUrl, {
-    ssl: "require",
+    ssl: sslMode === "disable" ? false : sslMode,
     prepare: false,
     max: 10,
     max_lifetime: 600,

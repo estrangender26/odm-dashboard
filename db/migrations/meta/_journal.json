@@ -134,6 +134,13 @@
       "when": 1791312000000,
       "tag": "0018_lihok_one_approved_version",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791312000001,
+      "tag": "0019_gantt_link_sharing",
+      "breakpoints": true
     }
   ]
 }

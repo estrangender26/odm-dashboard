@@ -8,6 +8,7 @@ import { ganttRouter } from "./gantt-router";
 import { efmRouter } from "./efm-router";
 import { documentsRouter } from "./documents-router";
 import { ganttProjectsRouter } from "./gantt-projects-router";
+import { sharedGanttRouter } from "./shared-gantt-router";
 import { aiRouter } from "./ai-router";
 import { githubRouter } from "./github-router";
 import { smpRouter } from "./smp-router";
@@ -26,6 +27,7 @@ export const appRouter = createRouter({
   efm: efmRouter,
   documents: documentsRouter,
   ganttProjects: ganttProjectsRouter,
+  sharedGantt: sharedGanttRouter,
   ai: aiRouter,
   github: githubRouter,
   smp: smpRouter,

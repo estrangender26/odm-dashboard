@@ -5,6 +5,8 @@ import Login from "./pages/Login";
 import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
 import GanttPlanner from "./pages/GanttPlanner";
+import SharedGanttProjectPage from "./pages/SharedGanttProjectPage";
+import GanttProjectLandingPage from "./pages/GanttProjectLandingPage";
 import GanttProjectsDebug from "./pages/GanttProjectsDebug";
 import ExistingFacilitiesMaintenance from "./pages/ExistingFacilitiesMaintenance";
 import SmpDashboard from "./pages/SmpDashboard";
@@ -21,7 +23,9 @@ export default function App() {
       <Route path="/equipment" element={<Dashboard />} />
       <Route path="/login" element={<Login />} />
       <Route path="/help" element={<Help />} />
+      <Route path="/gantt" element={<GanttProjectLandingPage />} />
       <Route path="/gantt-planner" element={<GanttPlanner />} />
+      <Route path="/gantt/p/:slug" element={<SharedGanttProjectPage />} />
       <Route
         path="/admin/gantt-projects-debug"
         element={<GanttProjectsDebug />}
