@@ -13,6 +13,24 @@ export interface PreviewTokenPayload {
   nonce: string;
 }
 
+export type PreviewTokenError =
+  | "missing_secret"
+  | "malformed"
+  | "invalid_signature"
+  | "action_mismatch"
+  | "slug_mismatch"
+  | "entity_mismatch"
+  | "revision_mismatch"
+  | "expired";
+
+export class PreviewTokenException extends Error {
+  code: PreviewTokenError;
+  constructor(code: PreviewTokenError, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 function base64urlEncode(buf: ArrayBuffer): string {
   return Buffer.from(buf)
     .toString("base64")
@@ -29,21 +47,31 @@ function base64urlDecode(str: string): ArrayBuffer {
   copy.set(buffer);
   return copy.buffer as ArrayBuffer;
 }
+
 function toArrayBuffer(view: ArrayBufferView): ArrayBuffer {
   return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
 }
 
-
 function getPreviewSecret(): string {
   const secret = process.env.PRIMAVERA_LITE_PREVIEW_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("PRIMAVERA_LITE_PREVIEW_SECRET is required in production");
+    if (isProductionDeployment()) {
+      throw new PreviewTokenException("missing_secret", "PRIMAVERA_LITE_PREVIEW_SECRET is required in production");
     }
     // Deterministic test-only fallback. Never use this in production.
     return "pr1-test-preview-secret-do-not-use-in-production";
   }
   return secret;
+}
+
+function isProductionDeployment(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+}
+
+export function assertPreviewSecretConfigured(): void {
+  if (isProductionDeployment() && !process.env.PRIMAVERA_LITE_PREVIEW_SECRET) {
+    throw new PreviewTokenException("missing_secret", "PRIMAVERA_LITE_PREVIEW_SECRET is required in production");
+  }
 }
 
 async function importPreviewSecret() {
@@ -63,6 +91,7 @@ export async function createPreviewToken(
   expectedRevision: number,
   entityId?: number
 ): Promise<string> {
+  assertPreviewSecretConfigured();
   const payload: PreviewTokenPayload = {
     action,
     slug,
@@ -86,40 +115,54 @@ export async function verifyPreviewToken(
   expectedRevision: number,
   entityId?: number
 ): Promise<PreviewTokenPayload> {
+  assertPreviewSecretConfigured();
+
   const [dataB64, sigB64] = token.split(".");
   if (!dataB64 || !sigB64) {
-    throw new Error("Invalid preview token format");
+    throw new PreviewTokenException("malformed", "Invalid preview token format");
   }
 
   const key = await importPreviewSecret();
-  const data = base64urlDecode(dataB64);
-  const signature = base64urlDecode(sigB64);
-  const valid = await webcrypto.subtle.verify("HMAC", key, signature, data);
+  let data: ArrayBuffer;
+  let signature: ArrayBuffer;
+  try {
+    data = base64urlDecode(dataB64);
+    signature = base64urlDecode(sigB64);
+  } catch {
+    throw new PreviewTokenException("malformed", "Invalid preview token format");
+  }
+
+  let valid = false;
+  try {
+    valid = await webcrypto.subtle.verify("HMAC", key, signature, data);
+  } catch {
+    throw new PreviewTokenException("invalid_signature", "Invalid preview token");
+  }
   if (!valid) {
-    throw new Error("Preview token signature mismatch");
+    throw new PreviewTokenException("invalid_signature", "Invalid preview token");
   }
 
   let payload: PreviewTokenPayload;
   try {
     payload = JSON.parse(new TextDecoder().decode(data));
   } catch {
-    throw new Error("Preview token payload is not valid JSON");
+    throw new PreviewTokenException("malformed", "Invalid preview token format");
   }
 
   if (payload.action !== action) {
-    throw new Error(`Preview token action mismatch: expected ${action}, got ${payload.action}`);
+    throw new PreviewTokenException("action_mismatch", "Invalid preview token");
   }
   if (payload.slug !== slug) {
-    throw new Error("Preview token slug mismatch");
+    throw new PreviewTokenException("slug_mismatch", "Invalid preview token");
   }
   if (payload.entityId !== entityId) {
-    throw new Error("Preview token entity id mismatch");
+    throw new PreviewTokenException("entity_mismatch", "Invalid preview token");
   }
   if (payload.expectedRevision !== expectedRevision) {
-    throw new Error("Preview token revision mismatch");
+    throw new PreviewTokenException("revision_mismatch", "Preview token is stale; refresh the dry-run preview");
   }
   if (payload.exp < Date.now()) {
-    throw new Error("Preview token expired");
+    throw new PreviewTokenException("expired", "Preview token has expired; refresh the dry-run preview");
   }
 
   return payload;

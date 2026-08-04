@@ -12,6 +12,7 @@ import { storageRouter } from "./storage-router";
 import { lihokCorporateRouter } from "./lihok-corporate-router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
+import { assertPreviewSecretConfigured } from "@/modules/gantt/primavera-lite/previewToken";
 import { authenticateRequest, createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import {
@@ -2035,6 +2036,15 @@ app.post("/api/governance/ai-summary", async (c) => {
 
   const port = parseInt(process.env.PORT || "3000", 10);
   const host = process.env.HOST || "0.0.0.0";
+
+
+  // Fail fast if the preview-token signing secret is not configured in production.
+  try {
+    assertPreviewSecretConfigured();
+  } catch (err) {
+    logBootError("preview-token secret preflight failed", err);
+    process.exit(1);
+  }
 
   const startupDeps = {
     ensureDatabaseReady: async () => {

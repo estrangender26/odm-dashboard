@@ -16,6 +16,7 @@ import { checkRateLimit } from "@/modules/gantt/collaboration/rateLimit";
 import {
   createPreviewToken,
   verifyPreviewToken,
+  PreviewTokenException,
 } from "@/modules/gantt/primavera-lite/previewToken";
 
 const MAX_NAME_LENGTH = 255;
@@ -261,6 +262,27 @@ async function countActiveProjectActivities(tx: PgTransaction<any, any, any>, pr
   return rows[0]?.count ?? 0;
 }
 
+
+function handlePreviewTokenError(err: unknown): never {
+  if (err instanceof PreviewTokenException) {
+    switch (err.code) {
+      case "missing_secret":
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Server configuration error" });
+      case "malformed":
+      case "invalid_signature":
+      case "action_mismatch":
+      case "slug_mismatch":
+      case "entity_mismatch":
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid preview token" });
+      case "expired":
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Preview token expired; refresh the dry-run preview" });
+      case "revision_mismatch":
+        throw new TRPCError({ code: "CONFLICT", message: "Preview token is stale; refresh the dry-run preview" });
+    }
+  }
+  throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid preview token" });
+}
+
 function mapProjectRow(project: typeof ganttProjects.$inferSelect) {
   return {
     id: project.id,
@@ -430,7 +452,7 @@ export const primaveraLiteRouter = createRouter({
         )
         .orderBy(asc(ganttActivities.id));
 
-      const events = input.sinceRevision
+      const events = input.sinceRevision !== undefined
         ? await db
             .select()
             .from(ganttProjectEvents)
@@ -551,12 +573,11 @@ export const primaveraLiteRouter = createRouter({
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireAdmin(accessCtx);
 
-      await verifyPreviewToken(
-        input.previewToken,
-        "archiveProject",
-        input.slug,
-        input.expectedRevision
-      );
+      try {
+        await verifyPreviewToken(input.previewToken, "archiveProject", input.slug, input.expectedRevision);
+      } catch (err) {
+        handlePreviewTokenError(err);
+      }
 
       const result = await db.transaction(async (tx) => {
         await lockProject(tx, accessCtx.projectId);
@@ -843,13 +864,11 @@ export const primaveraLiteRouter = createRouter({
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireEditorOrAdmin(accessCtx);
 
-      await verifyPreviewToken(
-        input.previewToken,
-        "archiveActivity",
-        input.slug,
-        input.expectedRevision,
-        input.activityId
-      );
+      try {
+        await verifyPreviewToken(input.previewToken, "archiveActivity", input.slug, input.expectedRevision, input.activityId);
+      } catch (err) {
+        handlePreviewTokenError(err);
+      }
 
       const result = await db.transaction(async (tx) => {
         await lockProject(tx, accessCtx.projectId);

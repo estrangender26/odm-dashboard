@@ -31,3 +31,21 @@ Additive migration that creates the minimal normalized schema for ODM Primavera 
 ## Safety
 
 This migration is strictly additive. No existing data is converted, renamed, or deleted.
+
+## Deployment prerequisite
+
+Before deploying the application that includes this migration, set the environment
+variable `PRIMAVERA_LITE_PREVIEW_SECRET` to a cryptographically random string of at
+least 32 bytes encoded as hex. Example generation:
+
+```bash
+openssl rand -hex 32
+```
+
+The production startup preflight (`api/boot.ts`) calls
+`assertPreviewSecretConfigured()`. If the secret is missing in a production or
+Render environment, the server refuses to start and exits with code 1, so the
+deployment fails before serving traffic.
+
+For local development and tests, a deterministic test-only fallback is used. The
+fallback is **never** used when `NODE_ENV=production` or `RENDER=true`.

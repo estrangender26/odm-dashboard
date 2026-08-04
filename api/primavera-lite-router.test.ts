@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { sql, eq, inArray } from "drizzle-orm";
 import { ganttProjects, ganttWbsNodes, ganttActivities, ganttProjectEvents } from "@db/schema";
 import { appRouter } from "./router";
@@ -38,7 +38,6 @@ function assertDisposableTestDatabase() {
 describe("primaveraLite router PR1", () => {
   beforeAll(async () => {
     assertDisposableTestDatabase();
-    // Intentionally leave unrelated rows in place. Cleanup targets only IDs created by this test.
   });
 
   afterAll(async () => {
@@ -71,15 +70,19 @@ describe("primaveraLite router PR1", () => {
     expect(rows[0].adminHash).toHaveLength(64);
   });
 
-  it("loads project with role", async () => {
-    const created = await caller.primaveraLite.createProject({ name: "PR1 Load Test" });
+  it("loads project with role and returns creation event for sinceRevision: 0", async () => {
+    const created = await caller.primaveraLite.createProject({ name: "PR1 Since Zero" });
     createdProjectIds.push(created.project.id);
     const adminToken = extractToken(created.adminLink);
 
-    const loaded = await caller.primaveraLite.load({ slug: created.project.slug, access: adminToken });
+    const loaded = await caller.primaveraLite.load({ slug: created.project.slug, access: adminToken, sinceRevision: 0 });
     expect(loaded.role).toBe("admin");
     expect(loaded.wbsNodes.length).toBe(1);
-    expect(loaded.activities.length).toBe(0);
+    expect(loaded.events.length).toBeGreaterThanOrEqual(1);
+    expect(loaded.events.some((e) => e.action === "create")).toBe(true);
+
+    const noEvents = await caller.primaveraLite.load({ slug: created.project.slug, access: adminToken });
+    expect(noEvents.events.length).toBe(0);
   });
 
   it("editor can create an activity", async () => {
@@ -147,9 +150,7 @@ describe("primaveraLite router PR1", () => {
     const archived = await caller.primaveraLite.archiveProject({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded2.revision, previewToken: dryRun.previewToken, confirmed: true });
     expect(archived.project.archivedAt).toBeTruthy();
 
-    // Viewer cannot load archived project
     await expect(caller.primaveraLite.load({ slug: freshSlug, access: extractToken(fresh.viewerLink) })).rejects.toThrow();
-    // Admin also cannot load archived project
     await expect(caller.primaveraLite.load({ slug: freshSlug, access: freshAdmin })).rejects.toThrow();
   });
 
@@ -181,7 +182,7 @@ describe("primaveraLite router PR1", () => {
     const loaded5 = await caller.primaveraLite.load({ slug: freshSlug, access: freshAdmin }).catch(() => null);
     expect(loaded5).toBeNull();
 
-    const restored = await caller.primaveraLite.restoreProject({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded4.revision + 1, confirmed: true });
+    await caller.primaveraLite.restoreProject({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded4.revision + 1, confirmed: true });
 
     const afterRestore = await caller.primaveraLite.load({ slug: freshSlug, access: freshAdmin });
     expect(afterRestore.project.archivedAt).toBeFalsy();
@@ -213,7 +214,7 @@ describe("primaveraLite router PR1", () => {
     expect(restored.project.archivedAt).toBeFalsy();
   });
 
-  it("archive execution without preview token fails", async () => {
+  it("archive execution without preview token fails with BAD_REQUEST", async () => {
     const fresh = await caller.primaveraLite.createProject({ name: "PR1 No Preview Token" });
     createdProjectIds.push(fresh.project.id);
     const freshSlug = fresh.project.slug;
@@ -221,11 +222,42 @@ describe("primaveraLite router PR1", () => {
 
     const loaded = await caller.primaveraLite.load({ slug: freshSlug, access: freshAdmin });
     await expect(
-      caller.primaveraLite.archiveProject({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded.revision, previewToken: "", confirmed: true })
-    ).rejects.toThrow();
+      caller.primaveraLite.archiveProject({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded.revision, previewToken: "no-preview", confirmed: true })
+    ).rejects.toThrow(/BAD_REQUEST|Invalid preview token/);
   });
 
-  it("preview token fails after revision changes", async () => {
+  it("malformed preview token returns controlled BAD_REQUEST", async () => {
+    const fresh = await caller.primaveraLite.createProject({ name: "PR1 Malformed Preview" });
+    createdProjectIds.push(fresh.project.id);
+    const freshSlug = fresh.project.slug;
+    const freshAdmin = extractToken(fresh.adminLink);
+
+    const loaded = await caller.primaveraLite.load({ slug: freshSlug, access: freshAdmin });
+    await expect(
+      caller.primaveraLite.archiveProject({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded.revision, previewToken: "not-a-token", confirmed: true })
+    ).rejects.toThrow(/BAD_REQUEST|Invalid preview token/);
+  });
+
+  it("expired preview token returns controlled BAD_REQUEST", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fresh = await caller.primaveraLite.createProject({ name: "PR1 Expired Preview" });
+    createdProjectIds.push(fresh.project.id);
+    const freshSlug = fresh.project.slug;
+    const freshAdmin = extractToken(fresh.adminLink);
+
+    const loaded = await caller.primaveraLite.load({ slug: freshSlug, access: freshAdmin });
+    const dryRun = await caller.primaveraLite.archiveProjectDryRun({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded.revision });
+
+    // Travel forward so the 5-minute preview token expires.
+    vi.advanceTimersByTime(6 * 60 * 1000);
+
+    await expect(
+      caller.primaveraLite.archiveProject({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded.revision, previewToken: dryRun.previewToken, confirmed: true })
+    ).rejects.toThrow(/expired|BAD_REQUEST/);
+    vi.useRealTimers();
+  }, 10_000);
+
+  it("stale preview revision returns CONFLICT", async () => {
     const fresh = await caller.primaveraLite.createProject({ name: "PR1 Preview Stale" });
     createdProjectIds.push(fresh.project.id);
     const freshSlug = fresh.project.slug;
@@ -234,12 +266,11 @@ describe("primaveraLite router PR1", () => {
     const loaded = await caller.primaveraLite.load({ slug: freshSlug, access: freshAdmin });
     const dryRun = await caller.primaveraLite.archiveProjectDryRun({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded.revision });
 
-    // Bump revision by updating project meta
     await caller.primaveraLite.updateProjectMeta({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded.revision, changes: { description: "bump" } });
 
     await expect(
       caller.primaveraLite.archiveProject({ slug: freshSlug, access: freshAdmin, expectedRevision: loaded.revision, previewToken: dryRun.previewToken, confirmed: true })
-    ).rejects.toThrow(/revision mismatch|updated by another user/);
+    ).rejects.toThrow(/Project was updated by another user|CONFLICT/);
   });
 
   it("activity update works when project revision differs from activity revision", async () => {
@@ -276,21 +307,18 @@ describe("primaveraLite router PR1", () => {
 
   it("unrelated pre-existing rows survive the test lifecycle", async () => {
     const survivor = await caller.primaveraLite.createProject({ name: "PR1 Survivor" });
-    // Use a slug that will not be targeted by cleanup. We do NOT add its id to createdProjectIds.
     const slug = survivor.project.slug;
     const adminToken = extractToken(survivor.adminLink);
 
     const loaded = await caller.primaveraLite.load({ slug, access: adminToken });
     expect(loaded.project?.name).toBe("PR1 Survivor");
 
-    // Create and clean a different test project to prove cleanup does not nuke the survivor.
     const disposable = await caller.primaveraLite.createProject({ name: "PR1 Disposable" });
     createdProjectIds.push(disposable.project.id);
     const disposableAdmin = extractToken(disposable.adminLink);
     const disposableLoaded = await caller.primaveraLite.load({ slug: disposable.project.slug, access: disposableAdmin });
     expect(disposableLoaded.project).toBeTruthy();
 
-    // Simulate the afterAll cleanup targeting only createdProjectIds.
     const trackedActivityIds = await testDb
       .select({ id: ganttActivities.id })
       .from(ganttActivities)
