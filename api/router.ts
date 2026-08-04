@@ -9,6 +9,7 @@ import { efmRouter } from "./efm-router";
 import { documentsRouter } from "./documents-router";
 import { ganttProjectsRouter } from "./gantt-projects-router";
 import { sharedGanttRouter } from "./shared-gantt-router";
+import { primaveraLiteRouter } from "./primavera-lite-router";
 import { aiRouter } from "./ai-router";
 import { githubRouter } from "./github-router";
 import { smpRouter } from "./smp-router";
@@ -28,6 +29,7 @@ export const appRouter = createRouter({
   documents: documentsRouter,
   ganttProjects: ganttProjectsRouter,
   sharedGantt: sharedGanttRouter,
+  primaveraLite: primaveraLiteRouter,
   ai: aiRouter,
   github: githubRouter,
   smp: smpRouter,

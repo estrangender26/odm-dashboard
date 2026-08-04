@@ -5,8 +5,9 @@ import Login from "./pages/Login";
 import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
 import GanttPlanner from "./pages/GanttPlanner";
-import SharedGanttProjectPage from "./pages/SharedGanttProjectPage";
-import GanttProjectLandingPage from "./pages/GanttProjectLandingPage";
+import GanttLandingPage from "./pages/GanttLandingPage";
+import GanttNewProjectPage from "./pages/GanttNewProjectPage";
+import PrimaveraLiteProjectPage from "./pages/PrimaveraLiteProjectPage";
 import GanttProjectsDebug from "./pages/GanttProjectsDebug";
 import ExistingFacilitiesMaintenance from "./pages/ExistingFacilitiesMaintenance";
 import SmpDashboard from "./pages/SmpDashboard";
@@ -23,9 +24,10 @@ export default function App() {
       <Route path="/equipment" element={<Dashboard />} />
       <Route path="/login" element={<Login />} />
       <Route path="/help" element={<Help />} />
-      <Route path="/gantt" element={<GanttProjectLandingPage />} />
+      <Route path="/gantt" element={<GanttLandingPage />} />
+      <Route path="/gantt/new" element={<GanttNewProjectPage />} />
       <Route path="/gantt-planner" element={<GanttPlanner />} />
-      <Route path="/gantt/p/:slug" element={<SharedGanttProjectPage />} />
+      <Route path="/gantt/p/:slug" element={<PrimaveraLiteProjectPage />} />
       <Route
         path="/admin/gantt-projects-debug"
         element={<GanttProjectsDebug />}
