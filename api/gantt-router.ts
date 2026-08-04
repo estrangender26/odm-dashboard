@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
 import { ganttTasks, ganttDependencies, ganttProjects } from "@db/schema";
-import { eq, sql, asc, inArray, or } from "drizzle-orm";
+import { eq, sql, asc, inArray, or, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
 
@@ -13,11 +13,66 @@ const normalizeDependencyType = (type?: string | null) => {
 };
 
 
-async function rejectSharedProjectRows() {
-  const shared = await db
+async function getSharedProjectIds(): Promise<Set<number>> {
+  const rows = await db
     .select({ id: ganttProjects.id })
     .from(ganttProjects)
     .where(eq(ganttProjects.sharingEnabled, 1));
+  return new Set(rows.map((r) => r.id));
+}
+
+function filterOutSharedTasks(
+  tasks: Array<typeof ganttTasks.$inferSelect>,
+  sharedProjectIds: Set<number>
+) {
+  return tasks.filter((t) => !t.projectId || !sharedProjectIds.has(t.projectId));
+}
+
+async function assertTaskNotShared(taskId: number) {
+  const rows = await db
+    .select({ projectId: ganttTasks.projectId })
+    .from(ganttTasks)
+    .where(eq(ganttTasks.id, taskId));
+  if (rows.length === 0) return;
+  const projectId = rows[0].projectId;
+  if (!projectId) return;
+  const shared = await db
+    .select({ id: ganttProjects.id })
+    .from(ganttProjects)
+    .where(and(eq(ganttProjects.id, projectId), eq(ganttProjects.sharingEnabled, 1)));
+  if (shared.length > 0) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Shared project tasks must be accessed through the link-based workspace",
+    });
+  }
+}
+
+async function assertDependencyNotShared(dependencyId: number) {
+  const rows = await db
+    .select({ projectId: ganttDependencies.projectId })
+    .from(ganttDependencies)
+    .where(eq(ganttDependencies.id, dependencyId));
+  if (rows.length === 0) return;
+  const projectId = rows[0].projectId;
+  if (!projectId) return;
+  const shared = await db
+    .select({ id: ganttProjects.id })
+    .from(ganttProjects)
+    .where(and(eq(ganttProjects.id, projectId), eq(ganttProjects.sharingEnabled, 1)));
+  if (shared.length > 0) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Shared project dependencies must be accessed through the link-based workspace",
+    });
+  }
+}
+
+async function assertProjectNotShared(projectId: number) {
+  const shared = await db
+    .select({ id: ganttProjects.id })
+    .from(ganttProjects)
+    .where(and(eq(ganttProjects.id, projectId), eq(ganttProjects.sharingEnabled, 1)));
   if (shared.length > 0) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -46,10 +101,12 @@ function mapGanttTaskRow(r: any, nameMap: Map<number, string>) {
 }
 
 async function selectGanttTasksForClient() {
+  const sharedProjectIds = await getSharedProjectIds();
   const rows = await db.select().from(ganttTasks).orderBy(asc(ganttTasks.sortOrder), asc(ganttTasks.id));
+  const visibleRows = filterOutSharedTasks(rows, sharedProjectIds);
   const nameMap = new Map<number, string>();
-  for (const r of rows) nameMap.set(r.id, r.taskName || `Task ${r.id}`);
-  return rows.map(r => mapGanttTaskRow(r, nameMap));
+  for (const r of visibleRows) nameMap.set(r.id, r.taskName || `Task ${r.id}`);
+  return visibleRows.map(r => mapGanttTaskRow(r, nameMap));
 }
 
 async function wouldCreateDependencyCycle(source: number, target: number) {
@@ -102,106 +159,118 @@ function collectTaskAndDescendantIds(
 
 export const ganttRouter = createRouter({
 
-  /* ── 1. CLEAN RESET ── */
-  resetGantt: publicQuery.mutation(async () => {
-    await rejectSharedProjectRows();
-    /* Drop task/dependency tables only (preserve saved projects) */
-    try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_dependencies CASCADE`)); } catch {}
-    try { await db.execute(sql.raw(`DROP TABLE IF EXISTS gantt_tasks CASCADE`)); } catch {}
-    /* Create gantt_tasks (clean — matches UI fields exactly) */
-    await db.execute(sql.raw(`
-      CREATE TABLE gantt_tasks (
-        id SERIAL PRIMARY KEY,
-        project_id INTEGER,
-        frontend_task_uid VARCHAR(64) UNIQUE,
-        task_name VARCHAR(500) NOT NULL,
-        parent_task_id INTEGER DEFAULT 0,
-        predecessor_task_id INTEGER,
-        dependency_type VARCHAR(10),
-        lag_days INTEGER DEFAULT 0,
-        wbs_level INTEGER DEFAULT 0,
-        sort_order INTEGER DEFAULT 0,
-        planned_start VARCHAR(20),
-        planned_finish VARCHAR(20),
-        planned_duration INTEGER,
-        actual_start VARCHAR(20),
-        actual_finish VARCHAR(20),
-        actual_duration INTEGER,
-        progress_percent INTEGER DEFAULT 0,
-        status VARCHAR(50),
-        owner VARCHAR(255),
-        category VARCHAR(100),
-        notes TEXT,
-        remarks TEXT,
-        task_type VARCHAR(20) DEFAULT 'task',
-        is_milestone INTEGER DEFAULT 0,
-        is_parent INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `));
-    await db.execute(sql.raw(`CREATE INDEX gantt_tasks_project_idx ON gantt_tasks(project_id)`));
-    await db.execute(sql.raw(`CREATE INDEX gantt_tasks_parent_idx ON gantt_tasks(parent_task_id)`));
-    await db.execute(sql.raw(`CREATE INDEX gantt_tasks_uid_idx ON gantt_tasks(frontend_task_uid)`));
-    await db.execute(sql.raw(`CREATE INDEX gantt_tasks_sort_idx ON gantt_tasks(sort_order)`));
+  /* ── 1. LEGACY-ONLY CLEAN RESET ── */
+  resetGantt: publicQuery
+    .input(z.object({ confirmed: z.boolean().default(false), dryRun: z.boolean().default(false) }).optional())
+    .mutation(async ({ input }) => {
+      const confirmed = input?.confirmed ?? false;
+      const dryRun = input?.dryRun ?? false;
+      const sharedProjectIds = await getSharedProjectIds();
 
-    /* Create gantt_dependencies */
-    await db.execute(sql.raw(`
-      CREATE TABLE gantt_dependencies (
-        id SERIAL PRIMARY KEY,
-        project_id INTEGER,
-        predecessor_task_id INTEGER NOT NULL,
-        successor_task_id INTEGER NOT NULL,
-        dependency_type VARCHAR(10) NOT NULL DEFAULT 'FS',
-        lag_days INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `));
-    await db.execute(sql.raw(`CREATE INDEX gantt_deps_project_idx ON gantt_dependencies(project_id)`));
-    await db.execute(sql.raw(`CREATE INDEX gantt_deps_pred_idx ON gantt_dependencies(predecessor_task_id)`));
-    await db.execute(sql.raw(`CREATE INDEX gantt_deps_succ_idx ON gantt_dependencies(successor_task_id)`));
+      const legacyTasks = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(
+        sharedProjectIds.size > 0
+          ? and(sql`${ganttTasks.projectId} IS NOT NULL`, sql`${ganttTasks.projectId}::int NOT IN (${sql.join(Array.from(sharedProjectIds))})`)
+          : sql`1=1`
+      );
+      const legacyDeps = await db.select({ id: ganttDependencies.id }).from(ganttDependencies).where(
+        sharedProjectIds.size > 0
+          ? and(sql`${ganttDependencies.projectId} IS NOT NULL`, sql`${ganttDependencies.projectId}::int NOT IN (${sql.join(Array.from(sharedProjectIds))})`)
+          : sql`1=1`
+      );
 
-    return { success: true, message: "Gantt task/dependency tables reset successfully (projects preserved)" };
-  }),
+      if (dryRun) {
+        return {
+          success: false,
+          dryRun: true,
+          wouldDelete: {
+            tasks: legacyTasks.length,
+            dependencies: legacyDeps.length,
+          },
+          message: `Dry run: would delete ${legacyTasks.length} legacy tasks and ${legacyDeps.length} legacy dependencies. Shared-project rows are preserved.`,
+        };
+      }
+
+      if (!confirmed) {
+        return {
+          success: false,
+          dryRun: false,
+          wouldDelete: {
+            tasks: legacyTasks.length,
+            dependencies: legacyDeps.length,
+          },
+          message: `This will delete ${legacyTasks.length} legacy tasks and ${legacyDeps.length} legacy dependencies. Shared-project rows will be preserved. Set confirmed: true to proceed.`,
+        };
+      }
+
+      // Scoped delete: only legacy rows, never shared-project rows or tables.
+      const taskIds = legacyTasks.map((r) => r.id);
+      const depIds = legacyDeps.map((r) => r.id);
+      if (taskIds.length > 0) {
+        await db.delete(ganttDependencies).where(
+          or(
+            inArray(ganttDependencies.predecessorTaskId, taskIds),
+            inArray(ganttDependencies.successorTaskId, taskIds)
+          )
+        );
+        await db.delete(ganttTasks).where(inArray(ganttTasks.id, taskIds));
+      }
+      if (depIds.length > 0) {
+        await db.delete(ganttDependencies).where(inArray(ganttDependencies.id, depIds));
+      }
+
+      return {
+        success: true,
+        deleted: {
+          tasks: taskIds.length,
+          dependencies: depIds.length,
+        },
+        message: `Deleted ${taskIds.length} legacy tasks and ${depIds.length} legacy dependencies. Shared-project rows preserved.`,
+      };
+    }),
 
   /* ── 2. LIST TASKS (ordered by sort_order) ── */
-  tasks: publicQuery.query(async () => {
-    await rejectSharedProjectRows();
-    return selectGanttTasksForClient();
-  }),
+  tasks: publicQuery.query(async () => selectGanttTasksForClient()),
 
   /* ── 3. LIST DEPENDENCIES ── */
   links: publicQuery
     .input(z.object({ projectId: z.number().optional() }).optional())
     .query(async ({ input }) => {
-      await rejectSharedProjectRows();
       const typeReverse: Record<string, string> = { "FS": "0", "SS": "1", "FF": "2", "SF": "3" };
+      const sharedProjectIds = await getSharedProjectIds();
       let rows;
       if (input?.projectId) {
+        await assertProjectNotShared(input.projectId);
         rows = await db.select().from(ganttDependencies).where(eq(ganttDependencies.projectId, input.projectId));
       } else {
         rows = await db.select().from(ganttDependencies);
       }
-      return rows.map(r => ({
-        id: r.id,
-        source: r.predecessorTaskId,
-        target: r.successorTaskId,
-        type: typeReverse[r.dependencyType] || r.dependencyType || "0",
-        lag: r.lagDays ?? 0,
-        projectId: r.projectId,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-      }));
+      return rows
+        .filter((r) => !r.projectId || !sharedProjectIds.has(r.projectId))
+        .map((r) => ({
+          id: r.id,
+          source: r.predecessorTaskId,
+          target: r.successorTaskId,
+          type: typeReverse[r.dependencyType] || r.dependencyType || "0",
+          lag: r.lagDays ?? 0,
+          projectId: r.projectId,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+        }));
     }),
 
   /* ── 4. SAVE TASK — partial merge for UPDATE, full for INSERT ── */
   saveTask: publicQuery
     .input(z.any())
     .mutation(async ({ input }) => {
-      await rejectSharedProjectRows();
       const v = input as Record<string, any>;
       const isUpdate = !!input.id;
+      if (isUpdate) {
+        await assertTaskNotShared(input.id);
+      }
+      const rawProjectId = v.project_id ?? v.projectId;
+      if (typeof rawProjectId === "number") {
+        await assertProjectNotShared(rawProjectId);
+      }
       const now = new Date();
 
       /* HELPER: check if a key is explicitly present in the payload */
@@ -350,7 +419,7 @@ export const ganttRouter = createRouter({
   deleteTask: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      await rejectSharedProjectRows();
+      await assertTaskNotShared(input.id);
       const taskRows = await db
         .select({ id: ganttTasks.id, parentTaskId: ganttTasks.parentTaskId })
         .from(ganttTasks);
@@ -378,7 +447,9 @@ export const ganttRouter = createRouter({
       projectId: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
-      await rejectSharedProjectRows();
+      await assertTaskNotShared(input.source);
+      await assertTaskNotShared(input.target);
+      if (input.projectId !== undefined) await assertProjectNotShared(input.projectId);
       const predRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, input.source));
       const succRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, input.target));
       if (predRows.length === 0 || succRows.length === 0) {
@@ -416,9 +487,12 @@ export const ganttRouter = createRouter({
       projectId: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
-      await rejectSharedProjectRows();
-      const predRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, input.sourceUid));
-      const succRows = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, input.targetUid));
+      const predRows = await db.select({ id: ganttTasks.id, projectId: ganttTasks.projectId }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, input.sourceUid));
+      const succRows = await db.select({ id: ganttTasks.id, projectId: ganttTasks.projectId }).from(ganttTasks).where(eq(ganttTasks.frontendTaskUid, input.targetUid));
+      for (const row of [...predRows, ...succRows]) {
+        if (row.projectId) await assertProjectNotShared(row.projectId);
+      }
+      if (input.projectId !== undefined) await assertProjectNotShared(input.projectId);
       if (predRows.length === 0 || succRows.length === 0) {
         return { id: 0, action: "skipped", reason: "UID not found" };
       }
@@ -446,7 +520,7 @@ export const ganttRouter = createRouter({
   deleteLink: publicQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      await rejectSharedProjectRows();
+      await assertDependencyNotShared(input.id);
       const rows = await db.select({ target: ganttDependencies.successorTaskId }).from(ganttDependencies).where(eq(ganttDependencies.id, input.id));
       await db.delete(ganttDependencies).where(eq(ganttDependencies.id, input.id));
       if (rows[0]?.target) {
@@ -464,9 +538,17 @@ export const ganttRouter = createRouter({
       projectId: z.number().optional(),
     })))
     .mutation(async ({ input }) => {
-      await rejectSharedProjectRows();
       let count = 0;
       for (const dep of input) {
+        try {
+          await assertTaskNotShared(dep.source);
+          await assertTaskNotShared(dep.target);
+        } catch {
+          continue;
+        }
+        if (dep.projectId !== undefined) {
+          try { await assertProjectNotShared(dep.projectId); } catch { continue; }
+        }
         const predExists = (await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, dep.source))).length > 0;
         const succExists = (await db.select({ id: ganttTasks.id }).from(ganttTasks).where(eq(ganttTasks.id, dep.target))).length > 0;
         if (!predExists || !succExists) continue;
@@ -489,8 +571,8 @@ export const ganttRouter = createRouter({
   reorderTasks: publicQuery
     .input(z.array(z.object({ id: z.number(), sort_order: z.number() })))
     .mutation(async ({ input }) => {
-      await rejectSharedProjectRows();
       for (const item of input) {
+        await assertTaskNotShared(item.id);
         await db.update(ganttTasks).set({ sortOrder: item.sort_order }).where(eq(ganttTasks.id, item.id));
       }
       const persistedOrder = await selectGanttTasksForClient();

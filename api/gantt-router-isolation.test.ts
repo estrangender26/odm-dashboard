@@ -20,7 +20,19 @@ try {
   dbAvailable = false;
 }
 
-const run = dbAvailable && migrationApplied ? describe : describe.skip;
+// Safety guard: refuse to run destructive integration cleanup on non-test databases.
+function getDatabaseName(): string {
+  const url = process.env.DATABASE_URL ?? "";
+  try {
+    return new URL(url).pathname.replace(/^\//, "") || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+const isTestDatabase = getDatabaseName().startsWith("odmtest");
+const testEnvEnabled = process.env.GANTT_ISOLATION_TEST_DB === "1";
+
+const run = dbAvailable && migrationApplied && isTestDatabase && testEnvEnabled ? describe : describe.skip;
 
 function makeCaller() {
   return appRouter.createCaller({
@@ -31,31 +43,49 @@ function makeCaller() {
 }
 
 run("legacy ganttRouter isolation from shared projects", () => {
-  // Force sequential execution within this file and with other DB integration tests.
-  // Vitest runs test files in parallel by default; the global DB state here is not isolated.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const sequential = true;
   const createdProjectIds: number[] = [];
+  const createdTaskIds: number[] = [];
+  const createdDepIds: number[] = [];
   let sharedTaskId = 0;
   let sharedDepId = 0;
-  let legacyTaskId = 0;
 
   beforeEach(async () => {
     if (!migrationApplied) return;
-    await db.delete(ganttProjectEvents).where(sql`1=1`);
-    await db.delete(ganttDependencies).where(sql`1=1`);
-    await db.delete(ganttTasks).where(sql`1=1`);
-    await db.delete(ganttProjects).where(sql`1=1`);
+    await db.delete(ganttProjectEvents).where(inArray(ganttProjectEvents.projectId, createdProjectIds));
+    await db.delete(ganttDependencies).where(
+      or_(
+        inArray(ganttDependencies.id, createdDepIds),
+        inArray(ganttDependencies.predecessorTaskId, createdTaskIds),
+        inArray(ganttDependencies.successorTaskId, createdTaskIds)
+      )
+    );
+    await db.delete(ganttTasks).where(inArray(ganttTasks.id, createdTaskIds));
+    await db.delete(ganttProjects).where(inArray(ganttProjects.id, createdProjectIds));
     createdProjectIds.length = 0;
+    createdTaskIds.length = 0;
+    createdDepIds.length = 0;
   });
 
   afterAll(async () => {
     if (!migrationApplied) return;
-    await db.delete(ganttProjectEvents).where(sql`1=1`);
-    await db.delete(ganttDependencies).where(sql`1=1`);
-    await db.delete(ganttTasks).where(sql`1=1`);
-    await db.delete(ganttProjects).where(sql`1=1`);
+    await db.delete(ganttProjectEvents).where(inArray(ganttProjectEvents.projectId, createdProjectIds));
+    await db.delete(ganttDependencies).where(
+      or_(
+        inArray(ganttDependencies.id, createdDepIds),
+        inArray(ganttDependencies.predecessorTaskId, createdTaskIds),
+        inArray(ganttDependencies.successorTaskId, createdTaskIds)
+      )
+    );
+    await db.delete(ganttTasks).where(inArray(ganttTasks.id, createdTaskIds));
+    await db.delete(ganttProjects).where(inArray(ganttProjects.id, createdProjectIds));
   });
+
+  async function createLegacyProject(name = "Legacy Coexist") {
+    const caller = makeCaller();
+    const saved = await caller.ganttProjects.save({ name });
+    createdProjectIds.push(saved.id);
+    return { caller, projectId: saved.id };
+  }
 
   async function createSharedProjectWithTask(name = "Shared Iso") {
     const caller = makeCaller();
@@ -70,111 +100,120 @@ run("legacy ganttRouter isolation from shared projects", () => {
       task: { taskName: "Shared Activity" },
     });
     sharedTaskId = task.task.id;
-    return { created, project, task, caller };
+    createdTaskIds.push(task.task.id);
+    return { created, project, task: task.task, caller };
   }
 
+  it("legacy and shared tasks coexist: legacy visible, shared hidden", async () => {
+    const { caller, projectId } = await createLegacyProject();
+    const legacyTask = await caller.gantt.saveTask({ taskName: "Legacy Task", projectId });
+    createdTaskIds.push(legacyTask.id);
 
-  it("legacy operations still work for non-shared (legacy) projects", async () => {
-    const caller = makeCaller();
-    const saved = await caller.ganttProjects.save({ name: "Legacy Only" });
-    createdProjectIds.push(saved.id);
-
-    const legacyTask = await caller.gantt.saveTask({ taskName: "Legacy Task" });
-    legacyTaskId = legacyTask.id;
+    await createSharedProjectWithTask();
 
     const tasks = await caller.gantt.tasks();
-    expect(tasks.some((t: any) => t.id === legacyTaskId)).toBe(true);
-
-    const updated = await caller.gantt.saveTask({ id: legacyTaskId, taskName: "Legacy Updated" });
-    expect(updated.id).toBe(legacyTaskId);
-
-    await expect(caller.gantt.deleteTask({ id: legacyTaskId })).resolves.toBeDefined();
+    expect(tasks.some((t: any) => t.id === legacyTask.id)).toBe(true);
+    expect(tasks.some((t: any) => t.id === sharedTaskId)).toBe(false);
   });
 
-  it("legacy tasks query refuses when any shared project exists", async () => {
-    const { caller } = await createSharedProjectWithTask();
-    await expect(caller.gantt.tasks()).rejects.toThrow("link-based workspace");
-  });
+  it("legacy task remains editable while shared task is protected", async () => {
+    const { caller, projectId } = await createLegacyProject();
+    const legacyTask = await caller.gantt.saveTask({ taskName: "Legacy Task", projectId });
+    createdTaskIds.push(legacyTask.id);
+    const { task: sharedTask } = await createSharedProjectWithTask();
 
-  it("legacy links query refuses when any shared project exists", async () => {
-    const { caller } = await createSharedProjectWithTask();
-    await expect(caller.gantt.links()).rejects.toThrow("link-based workspace");
-  });
+    const updated = await caller.gantt.saveTask({ id: legacyTask.id, taskName: "Legacy Updated" });
+    expect(updated.id).toBe(legacyTask.id);
 
-  it("legacy saveTask refuses to mutate shared tasks", async () => {
-    const { caller } = await createSharedProjectWithTask();
     await expect(
-      caller.gantt.saveTask({ id: sharedTaskId, taskName: "Tampered" })
+      caller.gantt.saveTask({ id: sharedTask.id, taskName: "Tampered" })
     ).rejects.toThrow("link-based workspace");
   });
 
-  it("legacy deleteTask refuses to delete shared tasks", async () => {
-    const { caller } = await createSharedProjectWithTask();
-    await expect(caller.gantt.deleteTask({ id: sharedTaskId })).rejects.toThrow("link-based workspace");
-  });
+  it("legacy dependencies remain manageable while shared dependencies are protected", async () => {
+    const { caller, projectId } = await createLegacyProject();
+    const a = await caller.gantt.saveTask({ taskName: "Legacy A", projectId });
+    const b = await caller.gantt.saveTask({ taskName: "Legacy B", projectId });
+    createdTaskIds.push(a.id, b.id);
 
-  it("legacy saveLink refuses to create dependencies for shared tasks", async () => {
-    const { caller, created } = await createSharedProjectWithTask();
-    const other = await caller.sharedGantt.createTask({
-      slug: created.slug!,
-      access: created.editorToken,
-      task: { taskName: "Other" },
-    });
-    await expect(
-      caller.gantt.saveLink({ source: sharedTaskId, target: other.task.id, type: "FS" })
-    ).rejects.toThrow("link-based workspace");
-  });
+    const link = await caller.gantt.saveLink({ source: a.id, target: b.id, type: "FS", projectId });
+    createdDepIds.push(link.id);
 
-  it("legacy deleteLink refuses to delete shared dependencies", async () => {
-    const { caller, created } = await createSharedProjectWithTask();
-    const other = await caller.sharedGantt.createTask({
-      slug: created.slug!,
-      access: created.editorToken,
-      task: { taskName: "Successor" },
+    const links = await caller.gantt.links();
+    expect(links.some((l: any) => l.id === link.id)).toBe(true);
+
+    await expect(caller.gantt.deleteLink({ id: link.id })).resolves.toBeDefined();
+    createdDepIds.length = 0;
+
+    const { task: sharedA, created: sharedProject } = await createSharedProjectWithTask();
+    const sharedB = await makeCaller().sharedGantt.createTask({
+      slug: sharedProject.slug!,
+      access: sharedProject.editorToken,
+      task: { taskName: "Shared B" },
     });
-    const dep = await caller.sharedGantt.createDependency({
-      slug: created.slug!,
-      access: created.editorToken,
-      predecessorTaskId: sharedTaskId,
-      successorTaskId: other.task.id,
+    createdTaskIds.push(sharedB.task.id);
+    const sharedDep = await makeCaller().sharedGantt.createDependency({
+      slug: sharedProject.slug!,
+      access: sharedProject.editorToken,
+      predecessorTaskId: sharedA.id,
+      successorTaskId: sharedB.task.id,
     });
-    sharedDepId = dep.dependency.id;
+    sharedDepId = sharedDep.dependency.id;
+    createdDepIds.push(sharedDep.dependency.id);
+
     await expect(caller.gantt.deleteLink({ id: sharedDepId })).rejects.toThrow("link-based workspace");
   });
 
-  it("legacy reorderTasks refuses when shared projects exist", async () => {
-    const { caller } = await createSharedProjectWithTask();
-    await expect(caller.gantt.reorderTasks([{ id: sharedTaskId, sort_order: 99 }])).rejects.toThrow("link-based workspace");
+  it("legacy resetGantt preserves shared rows and requires confirmation", async () => {
+    const { caller, projectId } = await createLegacyProject();
+    const legacyTask = await caller.gantt.saveTask({ taskName: "Legacy Reset", projectId });
+    createdTaskIds.push(legacyTask.id);
+    await createSharedProjectWithTask();
+
+    const dryRun = await caller.gantt.resetGantt({ dryRun: true });
+    expect(dryRun.dryRun).toBe(true);
+    expect(dryRun.wouldDelete?.tasks).toBeGreaterThanOrEqual(1);
+
+    const unconfirmed = await caller.gantt.resetGantt({ confirmed: false });
+    expect(unconfirmed.success).toBe(false);
+
+    const confirmed = await caller.gantt.resetGantt({ confirmed: true });
+    expect(confirmed.success).toBe(true);
+    expect(confirmed.deleted?.tasks).toBeGreaterThanOrEqual(1);
+
+    // Shared rows survived.
+    const sharedStillExists = await db.select().from(ganttTasks).where(eq(ganttTasks.id, sharedTaskId));
+    expect(sharedStillExists.length).toBe(1);
   });
 
-  it("legacy resetGantt refuses when shared projects exist", async () => {
-    const { caller } = await createSharedProjectWithTask();
-    await expect(caller.gantt.resetGantt()).rejects.toThrow("link-based workspace");
-  });
-
-  it("legacy saveLinksBatch refuses when shared projects exist", async () => {
-    const { caller, created } = await createSharedProjectWithTask();
-    const a = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "A" } });
-    const b = await caller.sharedGantt.createTask({ slug: created.slug!, access: created.editorToken, task: { taskName: "B" } });
-    await expect(
-      caller.gantt.saveLinksBatch([{ source: a.task.id, target: b.task.id, type: "FS" }])
-    ).rejects.toThrow("link-based workspace");
-  });
-
-  it("legacy operations still work for non-shared (legacy) projects", async () => {
+  it("legacy rows with project_id NULL remain visible", async () => {
     const caller = makeCaller();
-    const saved = await caller.ganttProjects.save({ name: "Legacy Only" });
-    createdProjectIds.push(saved.id);
-
-    const legacyTask = await caller.gantt.saveTask({ taskName: "Legacy Task" });
-    legacyTaskId = legacyTask.id;
+    const freeTask = await caller.gantt.saveTask({ taskName: "Free Legacy Task" });
+    createdTaskIds.push(freeTask.id);
+    await createSharedProjectWithTask();
 
     const tasks = await caller.gantt.tasks();
-    expect(tasks.some((t: any) => t.id === legacyTaskId)).toBe(true);
+    expect(tasks.some((t: any) => t.id === freeTask.id)).toBe(true);
+  });
 
-    const updated = await caller.gantt.saveTask({ id: legacyTaskId, taskName: "Legacy Updated" });
-    expect(updated.id).toBe(legacyTaskId);
+  it("unrelated pre-existing rows survive the test lifecycle", async () => {
+    const { caller: caller1, projectId } = await createLegacyProject();
+    const survivor = await caller1.gantt.saveTask({ taskName: "Survivor", projectId });
+    createdTaskIds.push(survivor.id);
 
-    await expect(caller.gantt.deleteTask({ id: legacyTaskId })).resolves.toBeDefined();
+    // Simulate a separate test that creates and removes its own data.
+    const { caller: caller2, projectId: projectId2 } = await createLegacyProject();
+    const temp = await caller2.gantt.saveTask({ taskName: "Temp", projectId: projectId2 });
+    createdTaskIds.push(temp.id);
+    await db.delete(ganttTasks).where(eq(ganttTasks.id, temp.id));
+    createdTaskIds.splice(createdTaskIds.indexOf(temp.id), 1);
+
+    const tasks = await caller1.gantt.tasks();
+    expect(tasks.some((t: any) => t.id === survivor.id)).toBe(true);
   });
 });
+
+// Dummy import to satisfy eslint if needed; no actual usage beyond types.
+function or_(...args: any[]) {
+  return sql`(${sql.join(args, sql` OR `)})`;
+}

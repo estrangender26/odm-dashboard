@@ -957,37 +957,41 @@ export const sharedGanttRouter = createRouter({
       ctx.actorName = input.actorName;
 
       const result = await db.transaction(async (tx) => {
-        const existing = await tx
-          .select()
-          .from(ganttDependencies)
+        await lockProject(tx, ctx.projectId);
+
+        // Atomically delete the dependency only if its revision matches.
+        const deleted = await tx
+          .delete(ganttDependencies)
           .where(
             and(
               eq(ganttDependencies.id, input.dependencyId),
-              eq(ganttDependencies.projectId, ctx.projectId)
+              eq(ganttDependencies.projectId, ctx.projectId),
+              eq(ganttDependencies.revision, input.expectedRevision)
             )
-          );
+          )
+          .returning();
 
-        if (existing.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Dependency not found" });
-        }
-
-        if (existing[0].revision !== input.expectedRevision) {
+        if (deleted.length === 0) {
+          // Distinguish NOT_FOUND from CONFLICT by checking whether the row exists.
+          const existing = await tx
+            .select({ id: ganttDependencies.id, revision: ganttDependencies.revision })
+            .from(ganttDependencies)
+            .where(
+              and(
+                eq(ganttDependencies.id, input.dependencyId),
+                eq(ganttDependencies.projectId, ctx.projectId)
+              )
+            );
+          if (existing.length === 0) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Dependency not found" });
+          }
           throw new TRPCError({
             code: "CONFLICT",
             message: "This dependency was updated by another participant. Review the latest version before deleting.",
           });
         }
 
-        const before = mapDependencyRow(existing[0]);
-        await tx
-          .delete(ganttDependencies)
-          .where(
-            and(
-              eq(ganttDependencies.id, input.dependencyId),
-              eq(ganttDependencies.projectId, ctx.projectId)
-            )
-          );
-
+        const before = mapDependencyRow(deleted[0]);
         const newRevision = await bumpProjectRevision(tx, ctx.projectId);
         ctx.projectRevision = newRevision;
         await insertEvent(tx, ctx, "dependency", "delete", input.dependencyId, before, undefined);
