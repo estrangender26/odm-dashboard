@@ -8,7 +8,7 @@ function flags(values: Record<string, string> = {}) {
 describe("Supabase Storage upload rollback flags", () => {
   it("defaults every module to the legacy path", () => {
     const value = flags();
-    expect(value).toEqual({ global: false, om: false, governance: false, smp: false });
+    expect(value).toEqual({ global: false, om: false, governance: false, smp: false, lihokCorporate: false });
     expect(isStorageUploadEnabled("om", value)).toBe(false);
     expect(isStorageUploadEnabled("governance", value)).toBe(false);
     expect(isStorageUploadEnabled("smp", value)).toBe(false);
@@ -25,10 +25,11 @@ describe("Supabase Storage upload rollback flags", () => {
     ["om", "SUPABASE_STORAGE_OM_ENABLED"],
     ["governance", "SUPABASE_STORAGE_GOVERNANCE_ENABLED"],
     ["smp", "SUPABASE_STORAGE_SMP_ENABLED"],
+    ["lihok-corporate", "SUPABASE_STORAGE_LIHOK_CORPORATE_ENABLED"],
   ] as const)("enables only %s when its module flag is enabled", (module, variable) => {
     const value = flags({ SUPABASE_STORAGE_UPLOADS_ENABLED: "on", [variable]: "yes" });
     expect(isStorageUploadEnabled(module, value)).toBe(true);
-    for (const other of ["om", "governance", "smp"] as const) {
+    for (const other of ["om", "governance", "smp", "lihok-corporate"] as const) {
       if (other !== module) expect(isStorageUploadEnabled(other, value)).toBe(false);
     }
   });
@@ -49,6 +50,7 @@ describe("Supabase Storage upload rollback flags", () => {
     ["om", "SUPABASE_STORAGE_OM_ENABLED"],
     ["governance", "SUPABASE_STORAGE_GOVERNANCE_ENABLED"],
     ["smp", "SUPABASE_STORAGE_SMP_ENABLED"],
+    ["lihok-corporate", "SUPABASE_STORAGE_LIHOK_CORPORATE_ENABLED"],
   ] as const)("returns %s uploads to legacy when its module flag is turned off", (module, variable) => {
     const enabled = flags({ SUPABASE_STORAGE_UPLOADS_ENABLED: "true", [variable]: "true" });
     expect(isStorageUploadEnabled(module, enabled)).toBe(true);
@@ -59,7 +61,7 @@ describe("Supabase Storage upload rollback flags", () => {
   it("has no database or Storage deletion side effects", () => {
     const enabled = flags({ SUPABASE_STORAGE_UPLOADS_ENABLED: "true", SUPABASE_STORAGE_OM_ENABLED: "true" });
     const disabled = flags({ SUPABASE_STORAGE_UPLOADS_ENABLED: "false", SUPABASE_STORAGE_OM_ENABLED: "true" });
-    expect(enabled).toEqual({ global: true, om: true, governance: false, smp: false });
-    expect(disabled).toEqual({ global: false, om: true, governance: false, smp: false });
+    expect(enabled).toEqual({ global: true, om: true, governance: false, smp: false, lihokCorporate: false });
+    expect(disabled).toEqual({ global: false, om: true, governance: false, smp: false, lihokCorporate: false });
   });
 });

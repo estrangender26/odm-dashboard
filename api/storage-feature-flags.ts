@@ -12,12 +12,20 @@ export function getStorageFeatureFlags(
     om: parseBooleanFlag(source.SUPABASE_STORAGE_OM_ENABLED),
     governance: parseBooleanFlag(source.SUPABASE_STORAGE_GOVERNANCE_ENABLED),
     smp: parseBooleanFlag(source.SUPABASE_STORAGE_SMP_ENABLED),
+    lihokCorporate: parseBooleanFlag(source.SUPABASE_STORAGE_LIHOK_CORPORATE_ENABLED),
   };
 }
+
+const MODULE_FLAG_KEY: Record<StorageModule, keyof StorageFeatureFlags> = {
+  om: "om",
+  governance: "governance",
+  smp: "smp",
+  "lihok-corporate": "lihokCorporate",
+};
 
 export function isStorageUploadEnabled(
   module: StorageModule,
   flags: StorageFeatureFlags = getStorageFeatureFlags(),
 ): boolean {
-  return flags.global && flags[module];
+  return flags.global && flags[MODULE_FLAG_KEY[module]];
 }
