@@ -576,7 +576,7 @@ export const aiRouter = createRouter({
       if (!config.baseUrl) {
         return {
           reply:
-            "⚠️ AI provider is not configured.\n\nTo activate the AI chat:\n\n1. Set OLLAMA_BASE_URL to your Ollama endpoint (e.g., http://localhost:11434 for local development).\n2. Optionally set OLLAMA_API_KEY if your endpoint requires authentication.\n3. Set OLLAMA_MODEL to the model name, or leave it unset to use the default (kimi-k2.7-code:cloud).\n4. Add these environment variables to your Render environment variables for production.",
+            "⚠️ AI provider is not configured.\n\nLocal: set OLLAMA_BASE_URL=http://localhost:11434 (no API key needed).\nCloud: set OLLAMA_BASE_URL=https://ollama.com and set OLLAMA_API_KEY as a Render secret.\n\nDefault model is kimi-k2.7-code:cloud. Override with OLLAMA_MODEL.\n\nNever commit API keys or production URLs.",
           error: "MISSING_BASE_URL",
         };
       }

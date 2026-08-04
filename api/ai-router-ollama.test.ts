@@ -192,6 +192,49 @@ describe("AI maintenanceChat integration", () => {
     expect(result.reply).not.toContain("console.groq.com");
   });
 
+  it("returns MISSING_API_KEY for Ollama Cloud without a key", async () => {
+    process.env.OLLAMA_BASE_URL = "https://ollama.com";
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const caller = createCaller();
+    const result = await caller.ai.maintenanceChat({
+      message: "What is cavitation?",
+    });
+
+    expect(result.error).toBe("MISSING_API_KEY");
+    expect(result.reply).toContain("⚠️");
+    expect(result.reply).toContain("OLLAMA_API_KEY");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses the native Cloud chat endpoint and payload", async () => {
+    process.env.OLLAMA_BASE_URL = "https://ollama.com";
+    process.env.OLLAMA_API_KEY = "cloud-key";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model: "kimi-k2.7-code:cloud",
+          message: { role: "assistant", content: "Cloud cavitation answer" },
+          done: true,
+        }),
+        { status: 200 }
+      )
+    );
+
+    const caller = createCaller();
+    const result = await caller.ai.maintenanceChat({ message: "What is cavitation?" });
+
+    expect(result.reply).toContain("Cloud cavitation answer");
+    expect(result.error).toBeNull();
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toBe("https://ollama.com/api/chat");
+    const body = JSON.parse(init?.body as string);
+    expect(body.model).toBe("kimi-k2.7-code:cloud");
+    expect(body.stream).toBe(false);
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer cloud-key");
+  });
+
   it("uses the configured model and preserves system prompt", async () => {
     process.env.OLLAMA_BASE_URL = "http://localhost:11434";
     process.env.OLLAMA_MODEL = "kimi-k2.7-code:cloud";

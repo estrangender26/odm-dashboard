@@ -1068,7 +1068,7 @@ export default function AIAssistant({
     onError: e => {
       setLoading(false);
       appendAssistantMessage(
-        `⚠️ Error: ${e.message}\n\nThe AI service may not be configured. Please set OLLAMA_BASE_URL (and OLLAMA_API_KEY if required) in your environment variables.\n\nFor local development, point OLLAMA_BASE_URL to your Ollama endpoint (e.g., http://localhost:11434).`
+        `⚠️ Error: ${e.message}\n\nThe AI service may not be configured.\n\nLocal: set OLLAMA_BASE_URL=http://localhost:11434.\nCloud: set OLLAMA_BASE_URL=https://ollama.com and OLLAMA_API_KEY to your Render secret.\n\nNever paste API keys into source code or this chat.`
       );
     },
   });

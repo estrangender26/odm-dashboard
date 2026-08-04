@@ -6,6 +6,8 @@ export const DEFAULT_OLLAMA_TIMEOUT_MS = 120_000;
 export const DEFAULT_OLLAMA_MAX_TOKENS = 1_500;
 
 export const OLLAMA_CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
+export const OLLAMA_NATIVE_CHAT_PATH = "/api/chat";
+export const OLLAMA_NATIVE_TAGS_PATH = "/api/tags";
 
 export type OllamaErrorCategory =
   | "MISSING_BASE_URL"
@@ -73,6 +75,26 @@ export function normalizeOllamaBaseUrl(value: string | undefined): string | unde
   return trimmed.replace(/\/+$/, "");
 }
 
+export function isLocalOllamaEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  try {
+    const url = new URL(baseUrl);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+export function isOllamaCloudEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  try {
+    const url = new URL(baseUrl);
+    return url.hostname.toLowerCase().endsWith("ollama.com");
+  } catch {
+    return false;
+  }
+}
+
 function getEnvNumber(name: string, fallback: number): number {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
@@ -84,7 +106,8 @@ function getEnvNumber(name: string, fallback: number): number {
 export function getOllamaConfig(): OllamaConfig {
   const provider = "ollama";
   const baseUrl = normalizeOllamaBaseUrl(process.env.OLLAMA_BASE_URL);
-  const apiKey = process.env.OLLAMA_API_KEY?.trim() || undefined;
+  const rawApiKey = process.env.OLLAMA_API_KEY?.trim();
+  const apiKey = rawApiKey || undefined;
   const model = process.env.OLLAMA_MODEL?.trim() || DEFAULT_OLLAMA_MODEL;
   const timeoutMs = getEnvNumber("OLLAMA_TIMEOUT_MS", DEFAULT_OLLAMA_TIMEOUT_MS);
   const maxTokens = getEnvNumber("OLLAMA_MAX_TOKENS", DEFAULT_OLLAMA_MAX_TOKENS);
@@ -100,8 +123,26 @@ export function getOllamaConfig(): OllamaConfig {
   };
 }
 
+export function requireApiKeyForCloud(config: OllamaConfig): void {
+  if (!config.baseUrl) return;
+  if (isLocalOllamaEndpoint(config.baseUrl)) return;
+  if (isOllamaCloudEndpoint(config.baseUrl) && !config.apiKey) {
+    throw new OllamaClientError(
+      "MISSING_API_KEY",
+      "AI provider authentication is required. Set OLLAMA_API_KEY for Ollama Cloud."
+    );
+  }
+}
+
 function buildChatUrl(baseUrl: string): string {
+  if (isOllamaCloudEndpoint(baseUrl)) {
+    return `${baseUrl}${OLLAMA_NATIVE_CHAT_PATH}`;
+  }
   return `${baseUrl}${OLLAMA_CHAT_COMPLETIONS_PATH}`;
+}
+
+function buildHealthUrl(baseUrl: string): string {
+  return `${baseUrl}${OLLAMA_NATIVE_TAGS_PATH}`;
 }
 
 function buildRequestHeaders(apiKey: string | undefined): Record<string, string> {
@@ -115,11 +156,26 @@ function buildRequestHeaders(apiKey: string | undefined): Record<string, string>
 }
 
 function buildRequestBody(options: OllamaChatOptions, config: OllamaConfig): Record<string, unknown> {
+  const model = options.model || config.model;
+  const messages = options.messages;
+  const temperature = typeof options.temperature === "number" ? options.temperature : 0.2;
+  const maxTokens = typeof options.maxTokens === "number" ? options.maxTokens : config.maxTokens;
+
+  if (isOllamaCloudEndpoint(config.baseUrl)) {
+    return {
+      model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    };
+  }
+
   return {
-    model: options.model || config.model,
-    messages: options.messages,
-    temperature: typeof options.temperature === "number" ? options.temperature : 0.2,
-    max_tokens: typeof options.maxTokens === "number" ? options.maxTokens : config.maxTokens,
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
   };
 }
 
@@ -140,6 +196,8 @@ export async function chatWithOllama(options: OllamaChatOptions): Promise<Ollama
       "AI provider is not configured. Set OLLAMA_BASE_URL to a reachable Ollama endpoint."
     );
   }
+
+  requireApiKeyForCloud(config);
 
   const model = options.model || config.model;
   const url = buildChatUrl(config.baseUrl);
@@ -164,18 +222,7 @@ export async function chatWithOllama(options: OllamaChatOptions): Promise<Ollama
       throw new OllamaClientError(category, publicMessage);
     }
 
-    let data: ChatCompletionResponse;
-    try {
-      data = JSON.parse(bodyText) as ChatCompletionResponse;
-    } catch {
-      console.error("[OLLAMA ERROR] Malformed JSON response from Ollama");
-      throw new OllamaClientError(
-        "MALFORMED_RESPONSE",
-        "The AI provider returned an unparseable response. Please try again."
-      );
-    }
-
-    const content = data.choices?.[0]?.message?.content;
+    const content = extractChatResponseContent(bodyText);
     if (typeof content !== "string" || content.trim().length === 0) {
       console.error("[OLLAMA ERROR] Empty assistant content");
       throw new OllamaClientError(
@@ -204,6 +251,31 @@ export async function chatWithOllama(options: OllamaChatOptions): Promise<Ollama
     );
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+function extractChatResponseContent(bodyText: string): string | undefined {
+  try {
+    const parsed = JSON.parse(bodyText) as unknown;
+
+    // Native Ollama /api/chat response format
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "message" in parsed &&
+      parsed.message &&
+      typeof parsed.message === "object" &&
+      "content" in parsed.message &&
+      typeof parsed.message.content === "string"
+    ) {
+      return parsed.message.content;
+    }
+
+    // OpenAI-compatible /v1/chat/completions response format
+    const openAiData = parsed as ChatCompletionResponse;
+    return openAiData.choices?.[0]?.message?.content ?? undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -248,12 +320,26 @@ export async function checkOllamaHealth(): Promise<OllamaHealthResult> {
     };
   }
 
+  try {
+    requireApiKeyForCloud(config);
+  } catch (error: unknown) {
+    const e = error as OllamaClientError;
+    return {
+      configured: true,
+      reachable: false,
+      authenticated: false,
+      modelAvailable: false,
+      model,
+      message: e.message,
+    };
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort("health-timeout"), HEALTH_CHECK_TIMEOUT_MS);
 
   try {
     // Lightweight /api/tags probe to verify endpoint and list models.
-    const url = `${config.baseUrl}/api/tags`;
+    const url = buildHealthUrl(config.baseUrl);
     const resp = await fetch(url, {
       method: "GET",
       headers: buildRequestHeaders(config.apiKey),
@@ -290,7 +376,7 @@ export async function checkOllamaHealth(): Promise<OllamaHealthResult> {
       model,
       message: modelAvailable
         ? "Ollama endpoint is reachable and the selected model is listed."
-        : "Ollama endpoint is reachable, but the selected model was not found in the local model list.",
+        : "Ollama endpoint is reachable, but the selected model was not found in the model list.",
     };
   } catch (error: unknown) {
     const isAuth =

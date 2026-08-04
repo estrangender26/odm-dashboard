@@ -6,8 +6,12 @@ import {
   DEFAULT_OLLAMA_MODEL,
   DEFAULT_OLLAMA_TIMEOUT_MS,
   getOllamaConfig,
+  isLocalOllamaEndpoint,
+  isOllamaCloudEndpoint,
   normalizeOllamaBaseUrl,
   OLLAMA_CHAT_COMPLETIONS_PATH,
+  OLLAMA_NATIVE_CHAT_PATH,
+  OLLAMA_NATIVE_TAGS_PATH,
   type OllamaClientError,
 } from "./ollama-client";
 
@@ -249,13 +253,13 @@ describe("Ollama client error handling", () => {
     ).rejects.toMatchObject({ category: "UPSTREAM_SERVER_ERROR" });
   });
 
-  it("throws MALFORMED_RESPONSE on invalid JSON", async () => {
+  it("throws EMPTY_RESPONSE on invalid JSON", async () => {
     process.env.OLLAMA_BASE_URL = "http://localhost:11434";
     mockFetch(new Response("not json", { status: 200 }));
 
     await expect(
       chatWithOllama({ messages: [{ role: "user", content: "Hi" }] })
-    ).rejects.toMatchObject({ category: "MALFORMED_RESPONSE" });
+    ).rejects.toMatchObject({ category: "EMPTY_RESPONSE" });
   });
 
   it("throws EMPTY_RESPONSE when choices are missing", async () => {
@@ -309,6 +313,136 @@ describe("Ollama client error handling", () => {
     expect(allLogs).not.toContain("top-secret");
     expect(allLogs).not.toContain("Bearer top-secret");
     consoleError.mockRestore();
+  });
+});
+
+describe("Ollama Cloud authentication", () => {
+  it("treats localhost and 127.0.0.1 as local", () => {
+    expect(isLocalOllamaEndpoint("http://localhost:11434")).toBe(true);
+    expect(isLocalOllamaEndpoint("http://127.0.0.1:11434")).toBe(true);
+    expect(isLocalOllamaEndpoint("http://localhost:11434/")).toBe(true);
+    expect(isLocalOllamaEndpoint("https://ollama.com")).toBe(false);
+    expect(isLocalOllamaEndpoint("http://192.168.1.10:11434")).toBe(false);
+  });
+
+  it("identifies ollama.com and subdomains as Cloud", () => {
+    expect(isOllamaCloudEndpoint("https://ollama.com")).toBe(true);
+    expect(isOllamaCloudEndpoint("https://ollama.com/")).toBe(true);
+    expect(isOllamaCloudEndpoint("http://api.ollama.com")).toBe(true);
+    expect(isOllamaCloudEndpoint("http://localhost:11434")).toBe(false);
+  });
+
+  it("allows local Ollama without an API key", async () => {
+    process.env.OLLAMA_BASE_URL = "http://localhost:11434";
+    const fetchSpy = mockFetch(
+      new Response(JSON.stringify(successfulCompletionJson("Hello local!")), { status: 200 })
+    );
+
+    const result = await chatWithOllama({ messages: [{ role: "user", content: "Hi" }] });
+
+    expect(result.reply).toBe("Hello local!");
+    const init = fetchSpy.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(init.headers.Authorization).toBeUndefined();
+  });
+
+  it("rejects Ollama Cloud without an API key before any network request", async () => {
+    process.env.OLLAMA_BASE_URL = "https://ollama.com";
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      chatWithOllama({ messages: [{ role: "user", content: "Hi" }] })
+    ).rejects.toMatchObject({ category: "MISSING_API_KEY" });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects Ollama Cloud with a whitespace-only API key", async () => {
+    process.env.OLLAMA_BASE_URL = "https://ollama.com";
+    process.env.OLLAMA_API_KEY = "   ";
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      chatWithOllama({ messages: [{ role: "user", content: "Hi" }] })
+    ).rejects.toMatchObject({ category: "MISSING_API_KEY" });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends Cloud chat request to /api/chat with stream:false", async () => {
+    process.env.OLLAMA_BASE_URL = "https://ollama.com";
+    process.env.OLLAMA_API_KEY = "cloud-key";
+    const fetchSpy = mockFetch(
+      new Response(
+        JSON.stringify({
+          model: "kimi-k2.7-code:cloud",
+          created_at: new Date().toISOString(),
+          message: { role: "assistant", content: "Hello from Cloud!" },
+          done: true,
+        }),
+        { status: 200 }
+      )
+    );
+
+    const result = await chatWithOllama({ messages: [{ role: "user", content: "Hi" }] });
+
+    expect(result.reply).toBe("Hello from Cloud!");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toBe(`https://ollama.com${OLLAMA_NATIVE_CHAT_PATH}`);
+
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer cloud-key");
+
+    const body = JSON.parse(init?.body as string);
+    expect(body.model).toBe(DEFAULT_OLLAMA_MODEL);
+    expect(body.stream).toBe(false);
+    expect(body.messages).toEqual([{ role: "user", content: "Hi" }]);
+  });
+
+  it("does not send Cloud health check without an API key", async () => {
+    process.env.OLLAMA_BASE_URL = "https://ollama.com";
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await checkOllamaHealth();
+
+    expect(result.configured).toBe(true);
+    expect(result.reachable).toBe(false);
+    expect(result.authenticated).toBe(false);
+    expect(result.message).toContain("OLLAMA_API_KEY");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends authenticated Cloud health check to /api/tags", async () => {
+    process.env.OLLAMA_BASE_URL = "https://ollama.com";
+    process.env.OLLAMA_API_KEY = "cloud-key";
+    const fetchSpy = mockFetch(
+      new Response(
+        JSON.stringify({ models: [{ name: DEFAULT_OLLAMA_MODEL }] }),
+        { status: 200 }
+      )
+    );
+
+    const result = await checkOllamaHealth();
+
+    expect(result.configured).toBe(true);
+    expect(result.reachable).toBe(true);
+    expect(result.authenticated).toBe(true);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toBe(`https://ollama.com${OLLAMA_NATIVE_TAGS_PATH}`);
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer cloud-key");
+  });
+
+  it("never sends Authorization: Bearer undefined or empty", async () => {
+    process.env.OLLAMA_BASE_URL = "https://ollama.com";
+    process.env.OLLAMA_API_KEY = "cloud-key";
+    const fetchSpy = mockFetch(
+      new Response(JSON.stringify({ message: { content: "ok" } }), { status: 200 })
+    );
+
+    await chatWithOllama({ messages: [{ role: "user", content: "Hi" }] });
+
+    const headers = (fetchSpy.mock.calls[0][1]?.headers as Record<string, string>) ?? {};
+    expect(headers.Authorization).not.toMatch(/undefined/);
+    expect(headers.Authorization).not.toMatch(/Bearer\s*$/);
   });
 });
 
