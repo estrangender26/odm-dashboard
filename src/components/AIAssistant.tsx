@@ -979,6 +979,7 @@ export default function AIAssistant({
     { role: "user" | "assistant"; content: string }[]
   >([]);
   const [loading, setLoading] = useState(false);
+  const requestIdRef = useRef(0);
   const [odmTalkStatus, setOdmTalkStatus] = useState("");
   const [selectedThreadId, setSelectedThreadId] = useState("");
   const [listening, setListening] = useState(false);
@@ -1061,11 +1062,24 @@ export default function AIAssistant({
   };
 
   const chatMut = trpc.ai.maintenanceChat.useMutation({
-    onSuccess: res => {
+    onMutate: async () => {
+      return { requestId: requestIdRef.current };
+    },
+    onSuccess: (res, _vars, ctx) => {
+      const meta = ctx as { requestId?: number } | undefined;
+      if (meta?.requestId !== undefined && meta.requestId !== requestIdRef.current) {
+        // A newer request has already been issued; ignore this stale response.
+        return;
+      }
       setLoading(false);
       appendAssistantMessage(res.reply);
     },
-    onError: e => {
+    onError: (e, _vars, ctx) => {
+      const meta = ctx as { requestId?: number } | undefined;
+      if (meta?.requestId !== undefined && meta.requestId !== requestIdRef.current) {
+        // A newer request has already been issued; ignore this stale error.
+        return;
+      }
       setLoading(false);
       appendAssistantMessage(
         `⚠️ Error: ${e.message}\n\nThe AI service may not be configured.\n\nLocal: set OLLAMA_BASE_URL=http://localhost:11434.\nCloud: set OLLAMA_BASE_URL=https://ollama.com and OLLAMA_API_KEY to your Render secret.\n\nNever paste API keys into source code or this chat.`
@@ -1145,6 +1159,7 @@ export default function AIAssistant({
       content: m.content,
     }));
 
+    ++requestIdRef.current;
     chatMut.mutate({ message: fullMessage, history });
   };
 

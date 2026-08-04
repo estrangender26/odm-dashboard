@@ -282,6 +282,32 @@ describe("Ollama client error handling", () => {
     ).rejects.toMatchObject({ category: "EMPTY_RESPONSE" });
   });
 
+  it("resolves successfully for an 18-second upstream response within the Ollama timeout", async () => {
+    process.env.OLLAMA_BASE_URL = "http://localhost:11434";
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(
+            new Response(
+              JSON.stringify({ choices: [{ message: { content: "Delayed but successful" } }] }),
+              { status: 200 }
+            )
+          );
+        }, 18_000);
+      });
+    });
+
+    const promise = chatWithOllama({ messages: [{ role: "user", content: "Hi" }] });
+    await vi.advanceTimersByTimeAsync(18_000);
+
+    const result = await promise;
+    expect(result.reply).toBe("Delayed but successful");
+
+    vi.useRealTimers();
+  });
+
   it("does not leak API keys in error messages", async () => {
     process.env.OLLAMA_BASE_URL = "http://localhost:11434";
     process.env.OLLAMA_API_KEY = "super-secret-key";

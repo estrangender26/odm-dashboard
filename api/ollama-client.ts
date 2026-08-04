@@ -205,7 +205,15 @@ export async function chatWithOllama(options: OllamaChatOptions): Promise<Ollama
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort("ollama-timeout"), timeoutMs);
 
+  const upstreamStartedAt = performance.now();
   try {
+    console.info("[ai/chat] Ollama upstream request starting", {
+      model,
+      messageCount: options.messages.length,
+      promptChars: options.messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0),
+      timeoutMs,
+    });
+
     const resp = await fetch(url, {
       method: "POST",
       headers: buildRequestHeaders(config.apiKey),
@@ -213,18 +221,30 @@ export async function chatWithOllama(options: OllamaChatOptions): Promise<Ollama
       signal: controller.signal,
     });
 
+    const upstreamElapsedMs = Math.round(performance.now() - upstreamStartedAt);
     const bodyText = await resp.text();
 
     if (!resp.ok) {
       const category = categorizeUpstreamStatus(resp.status, bodyText);
       const publicMessage = upstreamErrorMessage(category, resp.status);
-      console.error(`[OLLAMA ERROR] category=${category} status=${resp.status}`);
+      console.error("[ai/chat] Ollama upstream error", {
+        category,
+        status: resp.status,
+        upstreamElapsedMs,
+      });
       throw new OllamaClientError(category, publicMessage);
     }
 
     const content = extractChatResponseContent(bodyText);
+    const responseChars = typeof content === "string" ? content.length : 0;
+    console.info("[ai/chat] Ollama upstream response received", {
+      model,
+      upstreamElapsedMs,
+      responseChars,
+    });
+
     if (typeof content !== "string" || content.trim().length === 0) {
-      console.error("[OLLAMA ERROR] Empty assistant content");
+      console.error("[ai/chat] Empty assistant content");
       throw new OllamaClientError(
         "EMPTY_RESPONSE",
         "The AI provider returned an empty response. Please try again."
@@ -236,7 +256,10 @@ export async function chatWithOllama(options: OllamaChatOptions): Promise<Ollama
     if (error instanceof OllamaClientError) throw error;
 
     if (error instanceof DOMException && error.name === "AbortError") {
-      console.error(`[OLLAMA ERROR] Request aborted after ${timeoutMs}ms`);
+      console.error("[ai/chat] Ollama request aborted", {
+        upstreamElapsedMs: Math.round(performance.now() - upstreamStartedAt),
+        timeoutMs,
+      });
       throw new OllamaClientError(
         "TIMEOUT",
         "The AI request timed out. Try a shorter question or check the Ollama endpoint."
@@ -244,7 +267,10 @@ export async function chatWithOllama(options: OllamaChatOptions): Promise<Ollama
     }
 
     const message = error instanceof Error ? error.message : String(error || "Unknown error");
-    console.error("[OLLAMA ERROR] Network or unexpected error:", message);
+    console.error("[ai/chat] Ollama network or unexpected error", {
+      upstreamElapsedMs: Math.round(performance.now() - upstreamStartedAt),
+      message,
+    });
     throw new OllamaClientError(
       "NETWORK_ERROR",
       "Connection error. Please check the AI provider endpoint and network."

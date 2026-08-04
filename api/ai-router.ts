@@ -593,7 +593,15 @@ export const aiRouter = createRouter({
         },
       ];
 
+      const requestStartedAt = performance.now();
       try {
+        console.info("[ai/chat] maintenanceChat request started", {
+          queryClass,
+          messageChars: input.message.length,
+          historyCount: input.history?.length ?? 0,
+          webSearchConfigured: isWebSearchConfigured(),
+        });
+
         const result = await chatWithOllama({
           messages,
           temperature: 0.2,
@@ -603,10 +611,21 @@ export const aiRouter = createRouter({
           queryClass,
           successfulSearchResponse
         );
+
+        console.info("[ai/chat] maintenanceChat request completed", {
+          queryClass,
+          totalElapsedMs: Math.round(performance.now() - requestStartedAt),
+          responseChars: reply.length,
+          error: null,
+        });
+
         return { reply, error: null };
       } catch (e: unknown) {
         const error = e as OllamaClientError;
-        console.error("[AI CHAT ERROR]", error.category || "UNKNOWN", error.message);
+        console.error("[ai/chat] maintenanceChat request failed", {
+          category: error.category || "UNKNOWN",
+          totalElapsedMs: Math.round(performance.now() - requestStartedAt),
+        });
         const category = error.category || "UNKNOWN_ERROR";
         const userMessage = error.message || "Connection error. Please check your network and try again.";
         return {
