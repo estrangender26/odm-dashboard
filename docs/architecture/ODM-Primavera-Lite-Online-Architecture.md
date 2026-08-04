@@ -2,7 +2,7 @@
 
 ## Software Architecture Document
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Status:** Draft — Architecture & Implementation Plan  
 **Date:** 2026-08-04  
 **Authority:** Lihok Technologies Architecture Governance  
@@ -16,7 +16,7 @@
 
 | Attribute | Value |
 |-----------|-------|
-| Version | 1.1 |
+| Version | 1.2 |
 | Status | Draft |
 | Author | Codex (Lihok Engineering) |
 | Reviewers | TBD |
@@ -38,6 +38,7 @@ This document defines the target architecture, database schema, API design, comp
 - Database: Supabase PostgreSQL only.
 - Supabase Storage: used only for attachments, drawings, exports, imports, PDFs, and supporting documents.
 - Initial release uses token-based access only; no mandatory authenticated owner.
+- Day-level temporal precision in MVP: `date` fields and working-day durations/lags.
 - No production data deletion during architecture phase.
 - No deployment or PR creation during architecture phase.
 - Must align with [Lihok Technology Standards](./Technology-Standards.md) and [Enterprise-Architecture-v1.0](./Enterprise-Architecture-v1.0.md).
@@ -55,6 +56,10 @@ This document defines the target architecture, database schema, API design, comp
 - Replaced "unlimited" claims with measurable capacity targets and configurable limits.
 - Reconciled full-project loading with pagination, virtualization, and incremental events.
 - Strengthened WBS invariants and dependency drag semantics.
+- Defined login-free project discovery via browser-local remembered admin links (no multi-project list in MVP).
+- Selected day-level temporal precision MVP: PostgreSQL `date` fields and working-day durations/lags.
+- Added explicit backward-pass relationship rules for FS/SS/FF/SF with positive/negative lag, milestones, multiple successors, and multiple calendars.
+- Added production-schema reconciliation matrix against PR #328 / migration 0019.
 
 ---
 
@@ -233,6 +238,61 @@ App
 - `?zoom=day|week|month|quarter|year`
 - `?selectedActivityId=123`
 
+### 6.5 Login-Free Project Discovery
+
+#### MVP Approach
+
+The initial release has **no multi-project list API**. Each project is an independent security boundary. Instead, the creator stores the project's admin link locally in the browser.
+
+#### How `/gantt` Works
+
+- `/gantt` is a landing page that:
+  1. Checks `localStorage` for remembered admin links.
+  2. Renders a "My Projects" list built only from those stored links.
+  3. Provides a "Create New Project" button.
+  4. Shows a prominent warning: "Keep your admin link safe. If browser storage is cleared, you may lose access unless you saved the link elsewhere."
+
+#### How Projects Are Created
+
+- `createProject` generates:
+  - `slug` — public project identifier in URLs.
+  - `admin_token` — full-control creator token.
+  - `editor_token` — shareable editor token.
+  - `viewer_token` — shareable viewer token.
+- The response returns the raw tokens exactly once.
+- The browser stores the full admin URL in `localStorage`:
+  - `https://odm-dashboard.onrender.com/gantt/p/{slug}?access={admin_token}`
+- Editor and viewer links are shown in a share dialog and copied to the clipboard.
+
+#### How an Administrator Returns to Projects
+
+- The admin opens `/gantt` and clicks a remembered project card.
+- Alternatively, the admin pastes the admin URL directly into the address bar.
+- The client extracts `slug` and `access` from the URL and calls `load`.
+
+#### When Browser Storage Is Cleared
+
+- Remembered projects disappear from `/gantt`.
+- Access is not lost if the admin saved the admin URL elsewhere (bookmark, password manager, document).
+- There is no server-side recovery of raw tokens because only hashes are stored.
+- A future authenticated-owner migration will allow account-bound recovery.
+
+#### How Admin Links Are Copied and Recovered
+
+- On project creation, the UI shows:
+  - Admin link with a "Copy" button.
+  - Editor link.
+  - Viewer link.
+- The admin is prompted to copy the admin link to a safe location before dismissing the dialog.
+- A "Recovery" section in the share dialog re-displays the admin link if the current session knows it (i.e., it is in the address bar or localStorage).
+
+#### Why a Project Admin Token Cannot Enumerate Unrelated Projects
+
+- The admin token is hashed and stored only on its own `gantt_projects` row.
+- There is no global index of token hashes or project-to-token mapping.
+- A token only authorizes actions within its own project; the server verifies the token against the row identified by `slug`.
+- Enumerating all projects would require scanning every row and hashing guesses, which is rate-limited and computationally infeasible.
+
 ---
 
 ## 7. Backend Architecture
@@ -349,7 +409,7 @@ PR #328 already deploys `before_data` and `after_data` as `jsonb`. No migration 
 - All tables use snake_case columns; Drizzle schema maps to camelCase TypeScript fields.
 - Schedule dates use PostgreSQL `date`.
 - Timestamps use `timestamptz`.
-- Durations are stored in working minutes; display converts to days using the activity's calendar.
+- Durations and lags are stored in working days. Hours per day is metadata only; the day-level MVP does not schedule partial days or shifts.
 - All foreign keys to `gantt_projects` use `ON DELETE RESTRICT` so project deletion is never cascaded.
 - All schedule tables include `project_id` for project-scoped queries and row-level security policies.
 - `revision` is on `gantt_activities`, `gantt_dependencies`, and `gantt_projects` for optimistic locking.
@@ -393,7 +453,7 @@ Retained from PR #328 and extended; **no `tasks_data`/`links_data` columns**.
 | name | varchar(255) | |
 | working_days | integer[] | ISO day numbers [1,2,3,4,5] |
 | hours_per_day | numeric(4,2) | |
-| minutes_per_day | integer | Derived; authoritative for duration math |
+| minutes_per_day | integer | Derived from hours_per_day; not authoritative in day-level MVP |
 | timezone | varchar(100) | |
 | is_default | boolean | |
 | created_at | timestamptz | |
@@ -407,7 +467,7 @@ Retained from PR #328 and extended; **no `tasks_data`/`links_data` columns**.
 | calendar_id | integer FK → gantt_calendars | |
 | exception_date | date | |
 | is_working | boolean | |
-| working_minutes | integer | |
+| working_hours | integer | |
 | description | varchar(500) | |
 
 #### gantt_wbs_nodes
@@ -440,16 +500,16 @@ Indexes: `(project_id, parent_node_id)`, unique `(project_id, code)`, `(project_
 | activity_name | varchar(500) | |
 | activity_type | varchar(20) | task, milestone, level_of_effort |
 | calendar_id | integer FK → gantt_calendars | |
-| original_duration_minutes | integer | Working minutes |
-| remaining_duration_minutes | integer | Working minutes |
+| original_duration_days | integer | Working minutes |
+| remaining_duration_days | integer | Working minutes |
 | planned_start | date | |
 | planned_finish | date | |
 | early_start | date | CPM output |
 | early_finish | date | CPM output |
 | late_start | date | CPM output |
 | late_finish | date | CPM output |
-| total_float_minutes | integer | Working minutes |
-| free_float_minutes | integer | Working minutes |
+| total_float_days | integer | Working minutes |
+| free_float_days | integer | Working minutes |
 | actual_start | date | |
 | actual_finish | date | |
 | percent_complete | integer | 0–100 |
@@ -476,14 +536,14 @@ Indexes: `(project_id, wbs_node_id)`, `(project_id, activity_id)`, `(frontend_ac
 | predecessor_activity_id | integer FK → gantt_activities | |
 | successor_activity_id | integer FK → gantt_activities | |
 | dependency_type | varchar(10) | FS, SS, FF, SF |
-| lag_minutes | integer | Positive = lag, negative = lead |
+| lag_days | integer | Positive = lag, negative = lead |
 | revision | integer | Optimistic lock |
 | updated_by_name | varchar(255) | |
 | archived_at | timestamptz | Soft-delete |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
-Indexes: `(project_id, predecessor_activity_id)`, `(project_id, successor_activity_id)`, unique `(project_id, predecessor_activity_id, successor_activity_id, dependency_type, lag_minutes) WHERE archived_at IS NULL`.
+Indexes: `(project_id, predecessor_activity_id)`, `(project_id, successor_activity_id)`, unique `(project_id, predecessor_activity_id, successor_activity_id, dependency_type, lag_days) WHERE archived_at IS NULL`.
 
 #### gantt_baselines
 
@@ -507,7 +567,7 @@ Indexes: `(project_id, predecessor_activity_id)`, `(project_id, successor_activi
 | activity_name | varchar(500) | Snapshot |
 | planned_start | date | |
 | planned_finish | date | |
-| original_duration_minutes | integer | |
+| original_duration_days | integer | |
 | calendar_id | integer | Snapshot reference |
 
 Baseline rows are immutable snapshots. They are not linked with foreign keys to live activities, so deleting or archiving a live activity does not affect baselines.
@@ -709,10 +769,10 @@ GanttWorkspaceShell
 ```
 SchedulingEngine
 ├── CalendarService
-│   ├── workingMinutesBetween(start, finish, calendar)
-│   ├── addWorkingMinutes(date, minutes, calendar)
+│   ├── workingDaysBetween(start, finish, calendar)
+│   ├── addWorkingDays(date, minutes, calendar)
 │   ├── isWorkingDay(date, calendar)
-│   └── workingMinutesForDay(date, calendar)
+│   └── workingHoursForDay(date, calendar)
 ├── GraphService
 │   ├── buildDependencyGraph(activities, dependencies)
 │   ├── topologicalSort(graph)
@@ -731,35 +791,35 @@ SchedulingEngine
 
 ### 12.3 Dependency Relationship Rules
 
-All relationships are computed in working minutes using the successor's calendar unless otherwise noted. Positive lag adds working time; negative lag (lead) subtracts working time.
+All relationships are computed in working minutes using the successor's calendar unless otherwise noted. Positive lag adds working days; negative lag (lead) subtracts working days.
 
 #### Finish-to-Start (FS)
 
 - Successor Early Start = Predecessor Early Finish + lag minutes.
-- Predecessor Early Finish and Successor Early Start may be on different calendars; the lag is added in the successor's calendar.
-- If lag is negative (lead), Successor Early Start = Predecessor Early Finish − lead minutes, never earlier than the project start.
+- Predecessor Early Finish and Successor Early Start may be on different calendars; the lag is added as whole working days in the successor's calendar.
+- If lag is negative (lead), Successor Early Start = Predecessor Early Finish shifted backward by |lag_days| whole working days, never earlier than the project start.
 
 #### Start-to-Start (SS)
 
-- Successor Early Start = Predecessor Early Start + lag minutes.
-- If positive lag, successor starts after predecessor starts.
-- If negative lag (lead), successor starts before predecessor starts, bounded by project start.
+- Successor Early Start = Predecessor Early Start shifted forward by lag_days whole working days.
+- If positive lag, successor starts lag_days working days after predecessor starts.
+- If negative lag (lead), successor starts |lag_days| working days before predecessor starts, bounded by project start.
 
 #### Finish-to-Finish (FF)
 
-- Successor Early Finish = Predecessor Early Finish + lag minutes.
-- If positive lag, successor finishes after predecessor finishes.
-- If negative lag, successor finishes before predecessor finishes, bounded so that finish does not precede start.
+- Successor Early Finish = Predecessor Early Finish shifted forward by lag_days whole working days.
+- If positive lag, successor finishes lag_days working days after predecessor finishes.
+- If negative lag, successor finishes |lag_days| working days before predecessor finishes, bounded so that finish does not precede start.
 
 #### Start-to-Finish (SF)
 
-- Successor Early Finish = Predecessor Early Start + lag minutes.
+- Successor Early Finish = Predecessor Early Start shifted forward by lag_days whole working days.
 - Rare but supported for completeness.
 - Negative lag is bounded by project start and activity duration.
 
 ### 12.4 Milestones
 
-- Milestones have `original_duration_minutes = 0`.
+- Milestones have `original_duration_days = 0`.
 - Start milestones: `early_start = early_finish`.
 - Finish milestones: `early_start = early_finish`.
 - Milestones participate in relationships exactly like activities, using the same FS/SS/FF/SF rules with zero duration.
@@ -795,21 +855,21 @@ During forward pass, `Early Start`/`Early Finish` are forced to satisfy the cons
 ### 12.8 Negative Float
 
 - Negative float occurs when a constraint or actual date forces an activity to occur later than its late dates allow.
-- `total_float_minutes` may be negative.
+- `total_float_days` may be negative.
 - Negative float is displayed in the UI and exported; it signals a schedule conflict.
 
 ### 12.9 Data Date and Progress Scheduling
 
 - The `data_date` on the project is the cutoff for progress.
 - **Not started:** planned dates are computed normally.
-- **In progress:** actual start is recorded. Remaining duration is scheduled from the Data Date (or later). `Early Start` = max(calculated early start, Data Date) if actual start exists.
+- **In progress:** actual start is recorded. Remaining duration is scheduled from the Data Date (or later whole working day). `Early Start` = max(calculated early start, next working day on or after Data Date) if actual start exists.
 - **Completed:** actual start and actual finish are recorded; early/late dates equal actual dates; total float = 0.
 - **Out-of-sequence progress:** if actual dates violate dependency logic, the schedule still honors actual dates and computes negative float or a warning for successor logic.
 - Remaining work cannot be scheduled before the Data Date unless a global override is enabled and recorded in the audit log.
 
 ### 12.10 Server vs Client Scheduling
 
-- **Server:** Runs CPM on `runSchedule` mutation and stores results in `gantt_activities.early_start`, `late_start`, `total_float_minutes`, etc.
+- **Server:** Runs CPM on `runSchedule` mutation and stores results in `gantt_activities.early_start`, `late_start`, `total_float_days`, etc.
 - **Client:** Receives computed dates from server; renders timeline bars and critical path. Client can run a lightweight preview for drag-drop what-if scenarios without saving.
 
 ### 12.11 Baselines
@@ -900,9 +960,9 @@ Drawing a connector creates the dependency with the implied type based on the ch
 | Resource | MVP Target | Configurable Limit |
 |----------|------------|-------------------|
 | Active projects | 1,000 | `MAX_ACTIVE_PROJECTS` |
-| Activities per project | 5,000 | `MAX_ACTIVITIES_PER_PROJECT` |
-| Dependencies per project | 10,000 | `MAX_DEPENDENCIES_PER_PROJECT` |
-| WBS nodes per project | 10,000 | `MAX_WBS_NODES_PER_PROJECT` |
+| Activities per project | 2,000 | `MAX_ACTIVITIES_PER_PROJECT` |
+| Dependencies per project | 5,000 | `MAX_DEPENDENCIES_PER_PROJECT` |
+| WBS nodes per project | 5,000 | `MAX_WBS_NODES_PER_PROJECT` |
 | WBS depth | 20 levels | `MAX_WBS_DEPTH` |
 | Concurrent editors per project | 20 | `MAX_CONCURRENT_EDITORS_PER_PROJECT` |
 | Poll interval | 5 sec focused / 30 sec blurred | `POLL_INTERVAL_*` |
@@ -1195,6 +1255,7 @@ odm-dashboard
 │   ├── schema.ts                  # extended with new tables
 │   ├── migrations/
 │   │   ├── 0020_primavera_lite_shell.sql
+│   │   ├── 0020a_primavera_lite_date_type_alter.sql
 │   │   ├── 0021_primavera_lite_wbs_activities.sql
 │   │   ├── 0022_primavera_lite_dependencies.sql
 │   │   ├── 0023_primavera_lite_scheduling.sql
@@ -1447,7 +1508,131 @@ odm-dashboard
 
 ---
 
-## 27. Sign-off
+## 27. Production Schema Reconciliation Matrix
+
+This matrix compares the target ODM Primavera Lite Online schema against the deployed PR #328 / migration 0019 schema. No conversion is performed by the architecture PR.
+
+### 27.1 gantt_projects
+
+| Object | PR #328 State | Target State | Classification | Migration Action |
+|--------|---------------|--------------|----------------|------------------|
+| `id` serial PK | Existing | Unchanged | Existing unchanged | None |
+| `public_id` uuid unique | Existing | Unchanged | Existing unchanged | None |
+| `slug` varchar unique | Existing | Unchanged | Existing unchanged | None |
+| `name` varchar(255) | Existing | Unchanged | Existing unchanged | None |
+| `project_name` varchar(255) | Existing | Unchanged | Existing unchanged | None |
+| `start_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | PR 1 migration: `ALTER TABLE gantt_projects ALTER COLUMN start_date TYPE date USING start_date::date;` with validation |
+| `finish_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | Same as start_date |
+| `data_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | Same as start_date |
+| `status` varchar(50) | Existing | Unchanged | Existing unchanged | None |
+| `description` text | Existing | Unchanged | Existing unchanged | None |
+| `tasks_data` text | Existing | Removed | Future removal | Drop column in PR 12 after legacy retirement |
+| `links_data` text | Existing | Removed | Future removal | Drop column in PR 12 |
+| `created_by` varchar | Existing | Unchanged | Existing unchanged | None |
+| `updated_by` varchar | Existing | Unchanged | Existing unchanged | None |
+| `user_id` integer | Existing | Unused | Legacy retained temporarily | Left in place; not used by new module |
+| `owner_id` integer | Existing | Unused | Legacy retained temporarily | Left in place; not used by new module |
+| `tenant_id` varchar | Existing | Unchanged | Existing unchanged | None |
+| `org_id` varchar | Existing | Unchanged | Existing unchanged | None |
+| `session_id` varchar | Existing | Unused | Legacy retained temporarily | Left in place; not used by new module |
+| `public_id` index | Existing | Unchanged | Existing unchanged | None |
+| `slug` index | Existing | Unchanged | Existing unchanged | None |
+| `edit_token_hash` varchar(64) | Existing | Rename to `editor_token_hash` or keep alias | Existing requiring safe ALTER | PR 1 migration renames or documents alias; new code uses `editor_token_hash` |
+| `view_token_hash` varchar(64) | Existing | Rename to `viewer_token_hash` or keep alias | Existing requiring safe ALTER | Same as editor token |
+| `admin_token_hash` | Missing | `varchar(64)` | New object | Add column in PR 1 |
+| `revision` integer | Existing | Unchanged | Existing unchanged | None |
+| `default_calendar_id` integer | Existing | Unchanged | Existing unchanged | None |
+| `sharing_enabled` integer | Existing | Unchanged | Existing unchanged | None |
+| `last_scheduled_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 migration: `ALTER TABLE gantt_projects ALTER COLUMN last_scheduled_at TYPE timestamptz;` |
+| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 migration |
+| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 migration |
+| `archived_at` | Missing | `timestamptz` | New object | Add column in PR 1 |
+
+### 27.2 gantt_project_events
+
+| Object | PR #328 State | Target State | Classification | Migration Action |
+|--------|---------------|--------------|----------------|------------------|
+| `id` serial PK | Existing | Unchanged | Existing unchanged | None |
+| `project_id` integer FK | Existing | Unchanged | Existing unchanged | None |
+| `entity_type` varchar(50) | Existing | Unchanged | Existing unchanged | None |
+| `entity_id` integer | Existing | Unchanged | Existing unchanged | None |
+| `action` varchar(50) | Existing | Unchanged | Existing unchanged | None |
+| `actor_name` varchar(255) | Existing | Unchanged | Existing unchanged | None |
+| `before_data` jsonb | Existing | Unchanged | Existing unchanged | None (already jsonb) |
+| `after_data` jsonb | Existing | Unchanged | Existing unchanged | None (already jsonb) |
+| `project_revision` integer | Existing | Unchanged | Existing unchanged | None |
+| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 migration |
+
+### 27.3 gantt_calendars
+
+| Object | PR #328 State | Target State | Classification | Migration Action |
+|--------|---------------|--------------|----------------|------------------|
+| `id` serial PK | Existing | Unchanged | Existing unchanged | None |
+| `project_id` integer FK | Existing | Unchanged | Existing unchanged | None |
+| `name` varchar(255) | Existing | Unchanged | Existing unchanged | None |
+| `working_days` integer[] | Existing | Unchanged | Existing unchanged | None |
+| `hours_per_day` numeric(4,2) | Existing | Unchanged | Existing unchanged | None |
+| `minutes_per_day` | Missing | integer derived | New object | Add computed column or application derivation in PR 6; day-level MVP does not use it for scheduling |
+| `timezone` varchar(100) | Existing | Unchanged | Existing unchanged | None |
+| `is_default` | Missing | boolean | New object | Add column in PR 6 |
+| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 migration |
+| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 migration |
+
+### 27.4 gantt_calendar_exceptions
+
+| Object | PR #328 State | Target State | Classification | Migration Action |
+|--------|---------------|--------------|----------------|------------------|
+| `id` serial PK | Existing | Unchanged | Existing unchanged | None |
+| `calendar_id` integer FK | Existing | Unchanged | Existing unchanged | None |
+| `exception_date` date | Existing | Unchanged | Existing unchanged | None |
+| `is_working` boolean | Existing | Unchanged | Existing unchanged | None |
+| `working_hours` numeric(4,2) | Existing | Unchanged | Existing unchanged | None |
+| `description` varchar(500) | Existing | Unchanged | Existing unchanged | None |
+| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 migration |
+| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 migration |
+
+### 27.5 Existing gantt_tasks / gantt_dependencies
+
+| Object | PR #328 State | Target State | Classification | Migration Action |
+|--------|---------------|--------------|----------------|------------------|
+| `gantt_tasks` table | Existing | Legacy retained | Legacy retained temporarily | Left untouched by new module; eventually retired in PR 12 or migrated |
+| `gantt_dependencies` table | Existing | Legacy retained | Legacy retained temporarily | Left untouched by new module |
+| `revision` on `gantt_tasks` | Existing | Legacy | Legacy retained temporarily | Not used by new normalized schema |
+| `updated_by_name` on `gantt_tasks` | Existing | Legacy | Legacy retained temporarily | Not used by new normalized schema |
+
+### 27.6 New Normalized Tables
+
+| Object | PR #328 State | Target State | Classification | Migration Action |
+|--------|---------------|--------------|----------------|------------------|
+| `gantt_wbs_nodes` | Missing | New table | New object | Create in PR 2 |
+| `gantt_activities` | Missing | New table | New object | Create in PR 1 |
+| `gantt_dependencies` normalized | Existing legacy table reused? | New table or rename legacy | New object / legacy renamed | Decision required: create `gantt_activity_dependencies` or reuse `gantt_dependencies` after legacy retirement. This document recommends creating `gantt_activity_dependencies` in PR 3 to avoid collision with legacy rows. |
+| `gantt_baselines` | Missing | New table | New object | Create in PR 8 |
+| `gantt_baseline_activities` | Missing | New table | New object | Create in PR 8 |
+| `gantt_resources` | Missing | New table | New object | Create in PR 9 |
+| `gantt_activity_resources` | Missing | New table | New object | Create in PR 9 |
+
+### 27.7 Foreign Key Behavior
+
+| Current | Target | Migration Action |
+|---------|--------|------------------|
+| `ON DELETE CASCADE` on PR #328 child tables | `ON DELETE RESTRICT` for all new normalized tables | Apply in each migration that creates a new table |
+| Project deletion cascades to events/calendars | Project archival does not cascade; purge is explicit | Document in archive policy; purge migration future PR |
+
+### 27.8 Migration Safety Rules
+
+Every future migration PR that modifies the production schema must include:
+
+1. **Preflight SQL** — verify preconditions (e.g., no invalid date strings, no duplicate slugs).
+2. **Database backup** — full Supabase backup or confirmed recovery point before applying.
+3. **Forward migration SQL** — additive and reversible where possible.
+4. **Verification SQL** — confirm new columns/types/tables exist and counts are unchanged.
+5. **Rollback SQL** — restore previous types or drop added columns if needed.
+6. **No destructive conversion in PR 1** — PR 1 creates only new tables and additive columns; no legacy data is converted or deleted.
+
+---
+
+## 28. Sign-off
 
 | Role | Name | Date | Signature |
 |------|------|------|-----------|
