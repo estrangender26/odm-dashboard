@@ -21,7 +21,8 @@ import {
   type LegacyStorageMigrationState,
 } from "../db/schema";
 import { getSupabaseStorageConfig } from "../api/supabase-storage";
-import { STORAGE_BUCKET_BY_MODULE, TUS_CHUNK_SIZE_BYTES, type StorageFileSource } from "@contracts/storage";
+import { STORAGE_BUCKET_BY_MODULE, TUS_CHUNK_SIZE_BYTES } from "@contracts/storage";
+import type { StorageFileSource } from "./lib/legacy-storage-migrator-core";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
