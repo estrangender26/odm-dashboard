@@ -141,6 +141,13 @@
       "when": 1791312000001,
       "tag": "0019_gantt_link_sharing",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785874059532,
+      "tag": "0020_primavera_lite_shell",
+      "breakpoints": true
     }
   ]
 }

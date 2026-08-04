@@ -16,6 +16,15 @@ export interface ShareTokens {
   viewHash: string;
 }
 
+export interface ProjectTokens {
+  adminToken: string;
+  adminHash: string;
+  editorToken: string;
+  editorHash: string;
+  viewerToken: string;
+  viewerHash: string;
+}
+
 /** Generate a URL-safe random token and its SHA-256 hash. */
 export async function generateTokenWithHash(): Promise<{
   plaintext: string;
@@ -40,6 +49,23 @@ export async function generateShareTokens(): Promise<ShareTokens> {
     editorHash: editor.hash,
     viewToken: view.plaintext,
     viewHash: view.hash,
+  };
+}
+
+/** Generate a fresh admin + editor + viewer token triple. */
+export async function generateProjectTokens(): Promise<ProjectTokens> {
+  const [admin, editor, viewer] = await Promise.all([
+    generateTokenWithHash(),
+    generateTokenWithHash(),
+    generateTokenWithHash(),
+  ]);
+  return {
+    adminToken: admin.plaintext,
+    adminHash: admin.hash,
+    editorToken: editor.plaintext,
+    editorHash: editor.hash,
+    viewerToken: viewer.plaintext,
+    viewerHash: viewer.hash,
   };
 }
 

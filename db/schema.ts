@@ -390,7 +390,9 @@ export const ganttProjects = pgTable("gantt_projects", {
   dataDate: varchar("data_date", { length: 20 }),
   defaultCalendarId: integer("default_calendar_id"),
   sharingEnabled: integer("sharing_enabled").notNull().default(0),
+  adminTokenHash: varchar("admin_token_hash", { length: 64 }),
   lastScheduledAt: timestamp("last_scheduled_at"),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -401,6 +403,7 @@ export const ganttProjects = pgTable("gantt_projects", {
   index("gantt_projects_slug_idx").on(table.slug),
   index("gantt_projects_edit_token_idx").on(table.editTokenHash),
   index("gantt_projects_view_token_idx").on(table.viewTokenHash),
+  index("gantt_projects_admin_token_idx").on(table.adminTokenHash),
 ]);
 
 /* ── Gantt Project Audit Events ── */
@@ -447,6 +450,65 @@ export const ganttCalendarExceptions = pgTable("gantt_calendar_exceptions", {
 }, (table) => [
   index("gantt_calendar_exceptions_calendar_idx").on(table.calendarId, table.exceptionDate),
   unique("gantt_calendar_exceptions_date_unique").on(table.calendarId, table.exceptionDate),
+]);
+
+/* ── Primavera Lite WBS Nodes ── */
+export const ganttWbsNodes = pgTable("gantt_wbs_nodes", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => ganttProjects.id, { onDelete: "restrict" }),
+  parentNodeId: integer("parent_node_id").references((): AnyPgColumn => ganttWbsNodes.id, { onDelete: "restrict" }),
+  code: varchar("code", { length: 100 }).notNull(),
+  name: varchar("name", { length: 500 }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isLeaf: boolean("is_leaf").notNull().default(true),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("gantt_wbs_nodes_project_idx").on(table.projectId),
+  index("gantt_wbs_nodes_parent_idx").on(table.projectId, table.parentNodeId),
+  index("gantt_wbs_nodes_sort_idx").on(table.projectId, table.sortOrder),
+  uniqueIndex("gantt_wbs_nodes_project_code_unique")
+    .on(table.projectId, table.code)
+    .where(sql`${table.archivedAt} IS NULL`),
+]);
+
+/* ── Primavera Lite Activities ── */
+export const ganttActivities = pgTable("gantt_activities", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => ganttProjects.id, { onDelete: "restrict" }),
+  wbsNodeId: integer("wbs_node_id").notNull().references(() => ganttWbsNodes.id, { onDelete: "restrict" }),
+  frontendActivityUid: varchar("frontend_activity_uid", { length: 64 }).unique(),
+  activityId: varchar("activity_id", { length: 100 }),
+  activityName: varchar("activity_name", { length: 500 }).notNull(),
+  activityType: varchar("activity_type", { length: 20 }).notNull().default("task"),
+  calendarId: integer("calendar_id").references(() => ganttCalendars.id, { onDelete: "restrict" }),
+  originalDurationDays: integer("original_duration_days").notNull().default(0),
+  remainingDurationDays: integer("remaining_duration_days").notNull().default(0),
+  plannedStart: date("planned_start"),
+  plannedFinish: date("planned_finish"),
+  earlyStart: date("early_start"),
+  earlyFinish: date("early_finish"),
+  lateStart: date("late_start"),
+  lateFinish: date("late_finish"),
+  totalFloatDays: integer("total_float_days").notNull().default(0),
+  freeFloatDays: integer("free_float_days").notNull().default(0),
+  actualStart: date("actual_start"),
+  actualFinish: date("actual_finish"),
+  percentComplete: integer("percent_complete").notNull().default(0),
+  status: varchar("status", { length: 50 }),
+  constraintType: varchar("constraint_type", { length: 20 }),
+  constraintDate: date("constraint_date"),
+  notes: text("notes"),
+  revision: integer("revision").notNull().default(1),
+  updatedByName: varchar("updated_by_name", { length: 255 }),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("gantt_activities_project_idx").on(table.projectId),
+  index("gantt_activities_wbs_idx").on(table.projectId, table.wbsNodeId),
+  index("gantt_activities_uid_idx").on(table.frontendActivityUid),
 ]);
 
 /* ── ODM Talk AI Collaboration Hub ── */
