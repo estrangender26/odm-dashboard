@@ -13,14 +13,16 @@ import { TRPCError } from "@trpc/server";
 import { generateProjectTokens, hashToken } from "@/modules/gantt/collaboration/accessToken";
 import { isValidGanttDate } from "@/modules/gantt/collaboration/dateValidation";
 import { checkRateLimit } from "@/modules/gantt/collaboration/rateLimit";
+import {
+  createPreviewToken,
+  verifyPreviewToken,
+} from "@/modules/gantt/primavera-lite/previewToken";
 
 const MAX_NAME_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
 const MAX_NOTES_LENGTH = 5000;
 const MAX_ACTOR_NAME_LENGTH = 100;
 const MAX_ACTIVITIES_PER_PROJECT = Number(process.env.MAX_ACTIVITIES_PER_PROJECT) || 2000;
-
-
 
 const dateStringSchema = z
   .string()
@@ -56,18 +58,31 @@ const updateProjectMetaInputSchema = z.object({
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
+const archiveProjectDryRunInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
 const archiveProjectInputSchema = z.object({
   slug: slugSchema,
   access: z.string().min(1),
   expectedRevision: z.number().int().nonnegative(),
-  confirmed: z.boolean().default(false),
+  previewToken: z.string().min(1),
+  confirmed: z.boolean().refine((v) => v === true, {
+    message: "confirmed must be true",
+  }),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
 const restoreProjectInputSchema = z.object({
   slug: slugSchema,
   access: z.string().min(1),
-  confirmed: z.boolean().default(false),
+  expectedRevision: z.number().int().nonnegative(),
+  confirmed: z.boolean().refine((v) => v === true, {
+    message: "confirmed must be true",
+  }),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
@@ -105,12 +120,23 @@ const updateActivityInputSchema = z.object({
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
+const archiveActivityDryRunInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  activityId: z.number().int().positive(),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
 const archiveActivityInputSchema = z.object({
   slug: slugSchema,
   access: z.string().min(1),
   expectedRevision: z.number().int().nonnegative(),
   activityId: z.number().int().positive(),
-  confirmed: z.boolean().default(false),
+  previewToken: z.string().min(1),
+  confirmed: z.boolean().refine((v) => v === true, {
+    message: "confirmed must be true",
+  }),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
@@ -145,15 +171,6 @@ function requireEditorOrAdmin(ctx: AccessContext) {
   }
 }
 
-function requireConfirmation(confirmed: boolean) {
-  if (!confirmed) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "This action requires explicit confirmation. Set confirmed: true to proceed.",
-    });
-  }
-}
-
 async function resolveProjectAccess(
   slug: string,
   accessToken: string
@@ -166,7 +183,6 @@ async function resolveProjectAccess(
       adminTokenHash: ganttProjects.adminTokenHash,
       editTokenHash: ganttProjects.editTokenHash,
       viewTokenHash: ganttProjects.viewTokenHash,
-      archivedAt: ganttProjects.archivedAt,
     })
     .from(ganttProjects)
     .where(eq(ganttProjects.slug, slug));
@@ -383,20 +399,14 @@ export const primaveraLiteRouter = createRouter({
     .query(async ({ input }) => {
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
 
-      if (accessCtx.role !== "admin") {
-        const [projectRow] = await db
-          .select({ archivedAt: ganttProjects.archivedAt })
-          .from(ganttProjects)
-          .where(eq(ganttProjects.id, accessCtx.projectId));
-        if (projectRow?.archivedAt) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Project has been archived" });
-        }
-      }
-
       const [projectRow] = await db
         .select()
         .from(ganttProjects)
         .where(eq(ganttProjects.id, accessCtx.projectId));
+
+      if (projectRow?.archivedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project has been archived" });
+      }
 
       const wbsNodes = await db
         .select()
@@ -456,7 +466,7 @@ export const primaveraLiteRouter = createRouter({
   updateProjectMeta: publicQuery
     .input(updateProjectMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
-      enforceRateLimit(ctx.req, `primavera-update-meta:${input.slug}`, 30, 60_000);
+      enforceRateLimit(ctx.req, `primavera-update-project:${input.slug}`, 30, 60_000);
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireAdmin(accessCtx);
 
@@ -472,38 +482,29 @@ export const primaveraLiteRouter = createRouter({
           throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
         }
         if (current.archivedAt) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Archived project cannot be modified" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
         }
 
-        const updateValues: Partial<typeof ganttProjects.$inferInsert> = {};
-        if (input.changes.name !== undefined) updateValues.name = input.changes.name;
-        if (input.changes.projectName !== undefined) updateValues.projectName = input.changes.projectName;
-        if (input.changes.description !== undefined) updateValues.description = input.changes.description;
-        if (input.changes.status !== undefined) updateValues.status = input.changes.status;
-        updateValues.updatedAt = new Date();
-
-        const before = {
-          name: current.name,
-          projectName: current.projectName,
-          description: current.description,
-          status: current.status,
-        };
+        const before = mapProjectRow(current);
+        const setData: Record<string, unknown> = { updatedAt: new Date() };
+        if (input.changes.name !== undefined) {
+          setData.name = input.changes.name;
+          setData.projectName = input.changes.name;
+        }
+        if (input.changes.projectName !== undefined) setData.projectName = input.changes.projectName;
+        if (input.changes.description !== undefined) setData.description = input.changes.description;
+        if (input.changes.status !== undefined) setData.status = input.changes.status;
 
         const [updated] = await tx
           .update(ganttProjects)
-          .set(updateValues)
+          .set(setData)
           .where(eq(ganttProjects.id, accessCtx.projectId))
           .returning();
 
         const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
         accessCtx.projectRevision = newRevision;
         accessCtx.actorName = input.actorName;
-        await insertEvent(tx, accessCtx, "project", "update", accessCtx.projectId, before, {
-          name: updated.name,
-          projectName: updated.projectName,
-          description: updated.description,
-          status: updated.status,
-        });
+        await insertEvent(tx, accessCtx, "project", "update", accessCtx.projectId, before, mapProjectRow(updated));
 
         return updated;
       });
@@ -512,46 +513,34 @@ export const primaveraLiteRouter = createRouter({
     }),
 
   archiveProjectDryRun: publicQuery
-    .input(
-      z.object({
-        slug: slugSchema,
-        access: z.string().min(1),
-        expectedRevision: z.number().int().nonnegative(),
-      })
-    )
+    .input(archiveProjectDryRunInputSchema)
     .mutation(async ({ input }) => {
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireAdmin(accessCtx);
 
-      const [current] = await db
-        .select({ revision: ganttProjects.revision, archivedAt: ganttProjects.archivedAt })
-        .from(ganttProjects)
-        .where(eq(ganttProjects.id, accessCtx.projectId));
-      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-      if (current.revision !== input.expectedRevision) {
-        throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
-      }
-      if (current.archivedAt) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Project is already archived" });
-      }
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const [current] = await tx
+          .select({ revision: ganttProjects.revision, archivedAt: ganttProjects.archivedAt })
+          .from(ganttProjects)
+          .where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (current.archivedAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Project is already archived" });
+        }
+        if (current.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+        return current.revision;
+      });
 
-      const wbsCount = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(ganttWbsNodes)
-        .where(and(eq(ganttWbsNodes.projectId, accessCtx.projectId), isNull(ganttWbsNodes.archivedAt)));
-      const activityCount = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(ganttActivities)
-        .where(and(eq(ganttActivities.projectId, accessCtx.projectId), isNull(ganttActivities.archivedAt)));
+      const previewToken = await createPreviewToken("archiveProject", input.slug, result);
 
       return {
         dryRun: true,
-        wouldArchive: {
-          project: 1,
-          wbsNodes: wbsCount[0]?.count ?? 0,
-          activities: activityCount[0]?.count ?? 0,
-        },
-        message: "Set confirmed: true to archive this project and its children.",
+        wouldArchive: { project: 1 },
+        previewToken,
+        message: "Use the previewToken with confirmed: true to archive this project.",
       };
     }),
 
@@ -561,7 +550,13 @@ export const primaveraLiteRouter = createRouter({
       enforceRateLimit(ctx.req, `primavera-archive-project:${input.slug}`, 5, 60_000);
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireAdmin(accessCtx);
-      requireConfirmation(input.confirmed);
+
+      await verifyPreviewToken(
+        input.previewToken,
+        "archiveProject",
+        input.slug,
+        input.expectedRevision
+      );
 
       const result = await db.transaction(async (tx) => {
         await lockProject(tx, accessCtx.projectId);
@@ -578,17 +573,8 @@ export const primaveraLiteRouter = createRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Project is already archived" });
         }
 
-        const now = new Date();
         const before = { archivedAt: current.archivedAt };
-
-        await tx
-          .update(ganttWbsNodes)
-          .set({ archivedAt: now, updatedAt: now })
-          .where(and(eq(ganttWbsNodes.projectId, accessCtx.projectId), isNull(ganttWbsNodes.archivedAt)));
-        await tx
-          .update(ganttActivities)
-          .set({ archivedAt: now, updatedAt: now })
-          .where(and(eq(ganttActivities.projectId, accessCtx.projectId), isNull(ganttActivities.archivedAt)));
+        const now = new Date();
 
         const [updated] = await tx
           .update(ganttProjects)
@@ -615,7 +601,6 @@ export const primaveraLiteRouter = createRouter({
       enforceRateLimit(ctx.req, `primavera-restore-project:${input.slug}`, 5, 60_000);
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireAdmin(accessCtx);
-      requireConfirmation(input.confirmed);
 
       const result = await db.transaction(async (tx) => {
         await lockProject(tx, accessCtx.projectId);
@@ -628,17 +613,11 @@ export const primaveraLiteRouter = createRouter({
         if (!current.archivedAt) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Project is not archived" });
         }
+        if (current.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
 
         const before = { archivedAt: current.archivedAt };
-
-        await tx
-          .update(ganttWbsNodes)
-          .set({ archivedAt: null, updatedAt: new Date() })
-          .where(eq(ganttWbsNodes.projectId, accessCtx.projectId));
-        await tx
-          .update(ganttActivities)
-          .set({ archivedAt: null, updatedAt: new Date() })
-          .where(eq(ganttActivities.projectId, accessCtx.projectId));
 
         const [updated] = await tx
           .update(ganttProjects)
@@ -771,34 +750,25 @@ export const primaveraLiteRouter = createRouter({
               isNull(ganttActivities.archivedAt)
             )
           );
-        if (!activity) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Activity not found" });
-        }
-        if (activity.revision !== input.expectedRevision) {
-          throw new TRPCError({ code: "CONFLICT", message: "Activity was updated by another user" });
-        }
+        if (!activity) throw new TRPCError({ code: "NOT_FOUND", message: "Activity not found" });
 
         const before = mapActivityRow(activity);
-        const setData: Partial<typeof ganttActivities.$inferInsert> = {
-          updatedAt: new Date(),
-          updatedByName: input.actorName ?? "Anonymous",
-        };
         const changes = input.changes;
+        const setData: Record<string, unknown> = { updatedAt: new Date(), updatedByName: input.actorName ?? "Anonymous" };
         if (changes.activityName !== undefined) setData.activityName = changes.activityName;
-        if (changes.activityId !== undefined) setData.activityId = changes.activityId as any;
-        if (changes.activityType !== undefined) setData.activityType = changes.activityType as any;
-        if (changes.originalDurationDays !== undefined) setData.originalDurationDays = changes.originalDurationDays as any;
-        if (changes.remainingDurationDays !== undefined) setData.remainingDurationDays = changes.remainingDurationDays as any;
+        if (changes.activityId !== undefined) setData.activityId = changes.activityId;
+        if (changes.activityType !== undefined) setData.activityType = changes.activityType;
+        if (changes.originalDurationDays !== undefined) setData.originalDurationDays = changes.originalDurationDays;
+        if (changes.remainingDurationDays !== undefined) setData.remainingDurationDays = changes.remainingDurationDays;
         if (changes.plannedStart !== undefined) setData.plannedStart = changes.plannedStart;
         if (changes.plannedFinish !== undefined) setData.plannedFinish = changes.plannedFinish;
         if (changes.actualStart !== undefined) setData.actualStart = changes.actualStart;
         if (changes.actualFinish !== undefined) setData.actualFinish = changes.actualFinish;
-        if (changes.percentComplete !== undefined) setData.percentComplete = changes.percentComplete as any;
-        if (changes.status !== undefined) setData.status = changes.status as any;
-        if (changes.constraintType !== undefined) setData.constraintType = changes.constraintType as any;
+        if (changes.percentComplete !== undefined) setData.percentComplete = changes.percentComplete;
+        if (changes.status !== undefined) setData.status = changes.status;
+        if (changes.constraintType !== undefined) setData.constraintType = changes.constraintType;
         if (changes.constraintDate !== undefined) setData.constraintDate = changes.constraintDate;
-        if (changes.notes !== undefined) setData.notes = changes.notes as any;
-        setData.revision = sql`${ganttActivities.revision} + 1` as any;
+        if (changes.notes !== undefined) setData.notes = changes.notes;
 
         const [updated] = await tx
           .update(ganttActivities)
@@ -818,34 +788,51 @@ export const primaveraLiteRouter = createRouter({
     }),
 
   archiveActivityDryRun: publicQuery
-    .input(
-      z.object({
-        slug: slugSchema,
-        access: z.string().min(1),
-        expectedRevision: z.number().int().nonnegative(),
-        activityId: z.number().int().positive(),
-      })
-    )
+    .input(archiveActivityDryRunInputSchema)
     .mutation(async ({ input }) => {
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireEditorOrAdmin(accessCtx);
 
-      const [activity] = await db
-        .select({ id: ganttActivities.id, revision: ganttActivities.revision })
-        .from(ganttActivities)
-        .where(
-          and(
-            eq(ganttActivities.id, input.activityId),
-            eq(ganttActivities.projectId, accessCtx.projectId),
-            isNull(ganttActivities.archivedAt)
-          )
-        );
-      if (!activity) throw new TRPCError({ code: "NOT_FOUND", message: "Activity not found" });
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const [projectRow] = await tx
+          .select({ revision: ganttProjects.revision, archivedAt: ganttProjects.archivedAt })
+          .from(ganttProjects)
+          .where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (projectRow.archivedAt) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Archived project cannot be modified" });
+        }
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const [activity] = await tx
+          .select({ id: ganttActivities.id })
+          .from(ganttActivities)
+          .where(
+            and(
+              eq(ganttActivities.id, input.activityId),
+              eq(ganttActivities.projectId, accessCtx.projectId),
+              isNull(ganttActivities.archivedAt)
+            )
+          );
+        if (!activity) throw new TRPCError({ code: "NOT_FOUND", message: "Activity not found" });
+        return { projectRevision: projectRow.revision, activityId: activity.id };
+      });
+
+      const previewToken = await createPreviewToken(
+        "archiveActivity",
+        input.slug,
+        result.projectRevision,
+        result.activityId
+      );
 
       return {
         dryRun: true,
         wouldArchive: { activities: 1 },
-        message: "Set confirmed: true to archive this activity.",
+        previewToken,
+        message: "Use the previewToken with confirmed: true to archive this activity.",
       };
     }),
 
@@ -855,7 +842,14 @@ export const primaveraLiteRouter = createRouter({
       enforceRateLimit(ctx.req, `primavera-archive-activity:${input.slug}`, 30, 60_000);
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireEditorOrAdmin(accessCtx);
-      requireConfirmation(input.confirmed);
+
+      await verifyPreviewToken(
+        input.previewToken,
+        "archiveActivity",
+        input.slug,
+        input.expectedRevision,
+        input.activityId
+      );
 
       const result = await db.transaction(async (tx) => {
         await lockProject(tx, accessCtx.projectId);

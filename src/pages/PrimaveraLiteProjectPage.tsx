@@ -44,6 +44,12 @@ export default function PrimaveraLiteProjectPage() {
     },
   });
 
+  const archiveProjectDryRun = trpc.primaveraLite.archiveProjectDryRun.useMutation();
+  const archiveProject = trpc.primaveraLite.archiveProject.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const archiveActivityDryRun = trpc.primaveraLite.archiveActivityDryRun.useMutation();
   const archiveActivity = trpc.primaveraLite.archiveActivity.useMutation({
     onSuccess: (res) => {
       setExpectedRevision(res.revision);
@@ -51,11 +57,30 @@ export default function PrimaveraLiteProjectPage() {
     },
   });
 
-  const archiveProject = trpc.primaveraLite.archiveProject.useMutation({
-    onSuccess: () => refetch(),
-  });
-
   const { canEdit, isAdmin } = computeRolePermissions(data?.role);
+
+  const handleArchiveProject = async () => {
+    const dryRun = await archiveProjectDryRun.mutateAsync({ slug, access, expectedRevision });
+    await archiveProject.mutateAsync({
+      slug,
+      access,
+      expectedRevision,
+      previewToken: dryRun.previewToken,
+      confirmed: true,
+    });
+  };
+
+  const handleArchiveActivity = async (activityId: number) => {
+    const dryRun = await archiveActivityDryRun.mutateAsync({ slug, access, expectedRevision, activityId });
+    await archiveActivity.mutateAsync({
+      slug,
+      access,
+      expectedRevision,
+      activityId,
+      previewToken: dryRun.previewToken,
+      confirmed: true,
+    });
+  };
 
   if (isLoading) {
     return (
@@ -98,15 +123,8 @@ export default function PrimaveraLiteProjectPage() {
             {isAdmin && (
               <Button
                 variant="destructive"
-                onClick={() =>
-                  archiveProject.mutate({
-                    slug,
-                    access,
-                    expectedRevision,
-                    confirmed: true,
-                  })
-                }
-                disabled={archiveProject.isPending}
+                onClick={handleArchiveProject}
+                disabled={archiveProjectDryRun.isPending || archiveProject.isPending}
               >
                 {archiveProject.isPending ? "Archiving…" : "Archive Project"}
               </Button>
@@ -156,16 +174,8 @@ export default function PrimaveraLiteProjectPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() =>
-                            archiveActivity.mutate({
-                              slug,
-                              access,
-                              expectedRevision,
-                              activityId: activity.id,
-                              confirmed: true,
-                            })
-                          }
-                          disabled={archiveActivity.isPending}
+                          onClick={() => handleArchiveActivity(activity.id)}
+                          disabled={archiveActivityDryRun.isPending || archiveActivity.isPending}
                         >
                           Archive
                         </Button>
