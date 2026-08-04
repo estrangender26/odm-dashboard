@@ -2,7 +2,7 @@
 
 ## Software Architecture Document
 
-**Version:** 1.3  
+**Version:** 1.4  
 **Status:** Draft — Architecture & Implementation Plan  
 **Date:** 2026-08-04  
 **Authority:** Lihok Technologies Architecture Governance  
@@ -16,7 +16,7 @@
 
 | Attribute | Value |
 |-----------|-------|
-| Version | 1.3 |
+| Version | 1.4 |
 | Status | Draft |
 | Author | Codex (Lihok Engineering) |
 | Reviewers | TBD |
@@ -63,6 +63,8 @@ This document defines the target architecture, database schema, API design, comp
 - Corrected day-level temporal precision consistency across schema, API, and CPM.
 - Removed `listProjects` from MVP API in favor of browser-local remembered admin links.
 - Clarified PR 1 migration boundaries: additive only, no production type conversion or legacy modification.
+- Added authoritative Backward Pass Rules section with explicit day-level late-date propagation.
+- Resolved PR 1 / WBS schema dependency by creating a minimal `gantt_wbs_nodes` table and default root node in PR 1.
 
 ---
 
@@ -772,7 +774,6 @@ SchedulingEngine
 ├── CalendarService
 │   ├── workingDaysBetween(start, finish, calendar)
 │   ├── addWorkingDays(date, days, calendar)
-│   ├── isWorkingDay(date, calendar)
 │   └── isWorkingDay(date, calendar)
 ├── GraphService
 │   ├── buildDependencyGraph(activities, dependencies)
@@ -868,12 +869,108 @@ During forward pass, `Early Start`/`Early Finish` are forced to satisfy the cons
 - **Out-of-sequence progress:** if actual dates violate dependency logic, the schedule still honors actual dates and computes negative float or a warning for successor logic.
 - Remaining work cannot be scheduled before the Data Date unless a global override is enabled and recorded in the audit log.
 
-### 12.10 Server vs Client Scheduling
+### 12.10 Backward Pass Rules
+
+The backward pass propagates late dates from the project finish back to predecessors. All lags are in whole working days. The **earliest/tightest applicable late constraint** from all successors controls the predecessor late date.
+
+#### 12.10.1 Core Rule
+
+For each activity, compute the late date implied by **every outgoing dependency** separately. The activity's actual late date is the **minimum (earliest)** of all those values and any activity-specific late constraint.
+
+#### 12.10.2 Calendar Usage in the Backward Pass
+
+- All **successor late dates** are already expressed in the successor's calendar from the forward pass or previous backward-pass iteration.
+- When computing a predecessor late date from a successor, the **predecessor's calendar** is used to shift backward by `lag_days`.
+- If predecessor and successor use different calendars, the successor's date is treated as an anchor; the predecessor's late date is computed in the predecessor's own calendar.
+
+#### 12.10.3 Finish-to-Start (FS)
+
+- Controls predecessor **late finish**.
+- Formula: `predecessor.late_finish = previousWorkingDay(successor.late_start − lag_days, predecessor.calendar)`.
+- Positive lag: predecessor must finish earlier, allowing for the lag.
+- Negative lag (lead): predecessor may finish later than the successor start by `|lag_days|` whole working days.
+- Multiple FS successors: `predecessor.late_finish = min(value_for_each_successor)`.
+
+#### 12.10.4 Start-to-Start (SS)
+
+- Controls predecessor **late start**.
+- Formula: `predecessor.late_start = subtractWorkingDays(successor.late_start, lag_days, predecessor.calendar)`.
+- Positive lag: predecessor must start earlier.
+- Negative lag: predecessor may start later.
+- Multiple SS successors: `predecessor.late_start = min(value_for_each_successor)`.
+
+#### 12.10.5 Finish-to-Finish (FF)
+
+- Controls predecessor **late finish**.
+- Formula: `predecessor.late_finish = subtractWorkingDays(successor.late_finish, lag_days, predecessor.calendar)`.
+- Positive lag: predecessor must finish earlier.
+- Negative lag: predecessor may finish later.
+- Multiple FF successors: `predecessor.late_finish = min(value_for_each_successor)`.
+
+#### 12.10.6 Start-to-Finish (SF)
+
+- Controls predecessor **late start**.
+- Formula: `predecessor.late_start = previousWorkingDay(successor.late_finish − lag_days, predecessor.calendar)`.
+- Positive lag: predecessor must start earlier.
+- Negative lag: predecessor may start later.
+- Multiple SF successors: `predecessor.late_start = min(value_for_each_successor)`.
+
+#### 12.10.7 Combining Multiple Successors
+
+For each activity, late dates are computed separately for each outgoing dependency, then the most restrictive (minimum) late date is chosen.
+
+| Dependency Type | Controls Predecessor Late ... | Formula |
+|-----------------|------------------------------|---------|
+| FS | Finish | `min(previousWorkingDay(succ.late_start − lag_days, pred.calendar))` |
+| SS | Start | `min(subtractWorkingDays(succ.late_start, lag_days, pred.calendar))` |
+| FF | Finish | `min(subtractWorkingDays(succ.late_finish, lag_days, pred.calendar))` |
+| SF | Start | `min(previousWorkingDay(succ.late_finish − lag_days, pred.calendar))` |
+
+If an activity has no successors, its late finish equals the project finish date (or its own constraint late finish if constrained).
+
+#### 12.10.8 Milestones in the Backward Pass
+
+- Milestones have zero duration: `late_start = late_finish`.
+- Milestones participate in FS/SS/FF/SF relationships using the same rules as activities.
+- Because a milestone's late start and late finish are identical, an FS successor drives its late finish, and an SS successor drives its late start; both values collapse to the same date after applying the predecessor's calendar.
+
+#### 12.10.9 Activity-Specific Late Constraints
+
+After computing late dates from successors, apply the activity's own late constraint if it has one:
+
+| Constraint | Late-Date Effect |
+|------------|------------------|
+| FinishNoLaterThan | `late_finish = min(late_finish, constraint_date)` |
+| AsLateAsPossible | No additional bound; driven entirely by successors |
+| StartOn / FinishOn / StartNoEarlierThan | Primarily affect forward pass; may bound late dates indirectly |
+
+The final late date is the earliest of:
+1. Project finish (for open-ended activities).
+2. The most restrictive successor-driven value.
+3. Any applicable late constraint.
+
+### 12.11 Float Calculation
+
+- **Total Float** = `late_finish − early_finish` (or `late_start − early_start`). Negative values are allowed and indicate conflicts.
+- **Free Float** = earliest date a successor can start/finish minus the current activity's early finish/start, minus any lag, computed for each dependency type:
+  - FS: `free_float = min(successor.early_start − lag_days) − early_finish − 1 working day`
+  - SS: `free_float = min(successor.early_start − lag_days) − early_start`
+  - FF: `free_float = min(successor.early_finish − lag_days) − early_finish`
+  - SF: `free_float = min(successor.early_finish − lag_days) − early_start`
+- If an activity has no successors, free float = `project_finish − early_finish`.
+- Milestones have total float and free float computed identically to activities.
+
+### 12.12 Critical Path
+
+- Critical activities are those with Total Float ≤ 0 (typically = 0; negative float also marks a critical/conflict state).
+- The critical path is extracted by traversing zero-float activities from project start to project finish.
+
+### 12.13 Server vs Client Scheduling
 
 - **Server:** Runs CPM on `runSchedule` mutation and stores results in `gantt_activities.early_start`, `late_start`, `total_float_days`, etc.
 - **Client:** Receives computed dates from server; renders timeline bars and critical path. Client can run a lightweight preview for drag-drop what-if scenarios without saving.
 
-### 12.11 Baselines
+### 12.14 Baselines
 
 - `captureBaseline` copies current activity rows into `gantt_baseline_activities`.
 - Variance reports compare current `planned_start/finish/duration` to baseline snapshot.
@@ -1280,10 +1377,18 @@ odm-dashboard
 ### PR 1 — Minimal Project Shell + Normalized Schema
 
 **Scope (only these):**
-- Create `gantt_activities` table and the minimal normalized schema shell.
+- Create the minimal `gantt_wbs_nodes` table with:
+  - `id`, `project_id`, `parent_node_id`, `code`, `name`, `sort_order`, `is_leaf`, `archived_at`, timestamps.
+  - Unique project-scoped code constraint.
+- `createProject` transactionally creates:
+  - the project row;
+  - a default root WBS node (`code = "1"`, `name = project name`, `is_leaf = true`);
+  - admin/editor/viewer tokens.
 - Add `admin_token_hash` to `gantt_projects` as an additive column only.
+- Create `gantt_activities` table and the minimal normalized schema shell.
+- PR 1 activities attach to the default root WBS node created by `createProject`.
 - Create `primavera-lite-router.ts` with token-based access only:
-  - `createProject` (returns admin/editor/viewer tokens)
+  - `createProject` (returns admin/editor/viewer tokens and default root WBS node id)
   - `load`
   - `updateProjectMeta`
   - `archiveProject` (dry-run + confirmed soft-delete)
@@ -1292,7 +1397,7 @@ odm-dashboard
   - `updateActivity`
   - `archiveActivity` (dry-run + confirmed)
 - Create `GanttLandingPage` and minimal `GanttProjectPage` shells.
-- No scheduling engine, no baselines, no resources, no drag-drop timeline, no legacy retirement.
+- No scheduling engine, no baselines, no resources, no drag-drop timeline, no legacy retirement, no WBS nesting UI.
 
 **PR 1 does NOT:**
 - Convert `gantt_projects.data_date` to `date`.
@@ -1301,27 +1406,34 @@ odm-dashboard
 - Remove `tasks_data` or `links_data` columns.
 - Modify legacy `gantt_tasks` or `gantt_dependencies` tables.
 - Convert or migrate any production data.
+- Implement WBS move, nesting, ordering, or cycle detection beyond the root node.
 
 All type conversions and FK-behavior changes are deferred to a later dedicated, non-destructive migration PR with preflight, backup, verification, and rollback scripts.
 
 **Acceptance:**
 - Type check passes.
 - Router integration tests pass.
-- Can create a project with tokens and add/remove activities via API.
+- `createProject` returns admin/editor/viewer tokens and a default root WBS node id.
+- Can create an activity attached to the default root WBS node.
 - Archive returns impact preview and requires confirmation.
 
 ### PR 2 — WBS Tree
 
 **Scope:**
-- Add `gantt_wbs_nodes` CRUD and move operations.
+- Extend the minimal `gantt_wbs_nodes` table with complete CRUD, move, and ordering operations.
 - Add WBS outliner UI with expand/collapse.
 - Add indent/outdent and drag-drop reordering.
 - Prevent WBS cycles and enforce unique project-scoped codes.
+- Implement leaf-status derivation and transaction maintenance.
+- Allow activities to be created under any leaf WBS node.
+- Migrate existing root-node activities to remain valid as children of the root.
 
 **Acceptance:**
 - Up to 20 nesting levels.
 - Concurrent move tests pass.
 - Activities can attach only to leaf WBS nodes.
+- Root-node activities from PR 1 remain loadable and editable.
+- WBS code uniqueness enforced project-wide.
 
 ### PR 3 — Timeline
 
@@ -1616,7 +1728,7 @@ This matrix compares the target ODM Primavera Lite Online schema against the dep
 
 | Object | PR #328 State | Target State | Classification | Migration Action |
 |--------|---------------|--------------|----------------|------------------|
-| `gantt_wbs_nodes` | Missing | New table | New object | Create in PR 2 |
+| `gantt_wbs_nodes` | Missing | New table | New object | Create minimal table in PR 1; complete CRUD/move/ordering in PR 2 |
 | `gantt_activities` | Missing | New table | New object | Create in PR 1 |
 | `gantt_dependencies` normalized | Existing legacy table reused? | New table or rename legacy | New object / legacy renamed | Decision required: create `gantt_activity_dependencies` or reuse `gantt_dependencies` after legacy retirement. This document recommends creating `gantt_activity_dependencies` in PR 3 to avoid collision with legacy rows. |
 | `gantt_baselines` | Missing | New table | New object | Create in PR 8 |
