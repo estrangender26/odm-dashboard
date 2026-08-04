@@ -169,12 +169,12 @@ export const ganttRouter = createRouter({
 
       const legacyTasks = await db.select({ id: ganttTasks.id }).from(ganttTasks).where(
         sharedProjectIds.size > 0
-          ? and(sql`${ganttTasks.projectId} IS NOT NULL`, sql`${ganttTasks.projectId}::int NOT IN (${sql.join(Array.from(sharedProjectIds))})`)
+          ? sql`${ganttTasks.projectId} IS NULL OR ${ganttTasks.projectId}::int NOT IN (${sql.join(Array.from(sharedProjectIds))})`
           : sql`1=1`
       );
       const legacyDeps = await db.select({ id: ganttDependencies.id }).from(ganttDependencies).where(
         sharedProjectIds.size > 0
-          ? and(sql`${ganttDependencies.projectId} IS NOT NULL`, sql`${ganttDependencies.projectId}::int NOT IN (${sql.join(Array.from(sharedProjectIds))})`)
+          ? sql`${ganttDependencies.projectId} IS NULL OR ${ganttDependencies.projectId}::int NOT IN (${sql.join(Array.from(sharedProjectIds))})`
           : sql`1=1`
       );
 

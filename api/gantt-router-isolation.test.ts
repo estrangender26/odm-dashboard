@@ -164,22 +164,45 @@ run("legacy ganttRouter isolation from shared projects", () => {
     await expect(caller.gantt.deleteLink({ id: sharedDepId })).rejects.toThrow("link-based workspace");
   });
 
-  it("legacy resetGantt preserves shared rows and requires confirmation", async () => {
+  it("resetGantt includes NULL-project legacy rows and preserves shared rows", async () => {
     const { caller, projectId } = await createLegacyProject();
-    const legacyTask = await caller.gantt.saveTask({ taskName: "Legacy Reset", projectId });
-    createdTaskIds.push(legacyTask.id);
+
+    // NULL-project legacy rows
+    const nullLegacyTask = await caller.gantt.saveTask({ taskName: "NULL Legacy Task" });
+    createdTaskIds.push(nullLegacyTask.id);
+    const nullLegacyDep = await caller.gantt.saveLink({
+      source: nullLegacyTask.id,
+      target: nullLegacyTask.id,
+      type: "NONE",
+    });
+    if (nullLegacyDep.id) createdDepIds.push(nullLegacyDep.id);
+
+    // Non-shared project-linked legacy rows
+    const projectLegacyTask = await caller.gantt.saveTask({ taskName: "Project Legacy Task", projectId });
+    createdTaskIds.push(projectLegacyTask.id);
+    const projectLegacyDep = await caller.gantt.saveLink({
+      source: nullLegacyTask.id,
+      target: projectLegacyTask.id,
+      type: "FS",
+      projectId,
+    });
+    if (projectLegacyDep.id) createdDepIds.push(projectLegacyDep.id);
+
+    // Shared rows
     await createSharedProjectWithTask();
 
     const dryRun = await caller.gantt.resetGantt({ dryRun: true });
     expect(dryRun.dryRun).toBe(true);
-    expect(dryRun.wouldDelete?.tasks).toBeGreaterThanOrEqual(1);
+    expect(dryRun.wouldDelete?.tasks).toBe(2);
+    expect(dryRun.wouldDelete?.dependencies).toBeGreaterThanOrEqual(1);
 
     const unconfirmed = await caller.gantt.resetGantt({ confirmed: false });
     expect(unconfirmed.success).toBe(false);
+    expect(unconfirmed.wouldDelete?.tasks).toBe(2);
 
     const confirmed = await caller.gantt.resetGantt({ confirmed: true });
     expect(confirmed.success).toBe(true);
-    expect(confirmed.deleted?.tasks).toBeGreaterThanOrEqual(1);
+    expect(confirmed.deleted?.tasks).toBe(2);
 
     // Shared rows survived.
     const sharedStillExists = await db.select().from(ganttTasks).where(eq(ganttTasks.id, sharedTaskId));
