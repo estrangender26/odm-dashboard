@@ -6,9 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  addRememberedLink,
+  extractTokenFromUrl,
+  stripTokenPath,
+} from "@/modules/gantt/primavera-lite/pageState";
 
-
-const REMEMBERED_LINKS_KEY = "primavera-lite-admin-links";
 const DISPLAY_NAME_KEY = "primavera-lite-display-name";
 
 export default function GanttNewProjectPage() {
@@ -37,20 +40,12 @@ export default function GanttNewProjectPage() {
         viewerLink: data.viewerLink,
       });
 
-      const remembered: { slug: string; name: string; adminUrl: string; createdAt: string } = {
+      addRememberedLink(localStorage, {
         slug: data.project.slug,
         name: data.project.name,
         adminUrl: data.adminLink,
         createdAt: new Date().toISOString(),
-      };
-      try {
-        const existing = JSON.parse(localStorage.getItem(REMEMBERED_LINKS_KEY) || "[]");
-        const filtered = existing.filter((l: { slug: string }) => l.slug !== data.project.slug);
-        filtered.unshift(remembered);
-        localStorage.setItem(REMEMBERED_LINKS_KEY, JSON.stringify(filtered.slice(0, 50)));
-      } catch {
-        localStorage.setItem(REMEMBERED_LINKS_KEY, JSON.stringify([remembered]));
-      }
+      });
 
       if (window.location.search) {
         window.history.replaceState({}, "", window.location.pathname);
@@ -72,7 +67,8 @@ export default function GanttNewProjectPage() {
     navigator.clipboard.writeText(text).then(() => alert("Copied to clipboard"));
   };
 
-  const adminToken = created ? (new URL(created.adminLink).searchParams.get("access") || "") : "";
+  const adminToken = created ? extractTokenFromUrl(created.adminLink) ?? "" : "";
+  const projectPath = created ? stripTokenPath(`/gantt/p/${created.slug}`, created.slug) : "";
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -151,7 +147,7 @@ export default function GanttNewProjectPage() {
                   </div>
                 </div>
 
-                <Button className="w-full" onClick={() => navigate(`/gantt/p/${created.slug}?access=${adminToken}`)}>
+                <Button className="w-full" onClick={() => navigate(`${projectPath}?access=${adminToken}`)}>
                   Open Project
                 </Button>
               </div>

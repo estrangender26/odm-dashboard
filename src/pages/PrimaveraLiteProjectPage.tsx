@@ -6,6 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  computeRolePermissions,
+  isProjectUnavailable,
+  stripTokenPath,
+} from "@/modules/gantt/primavera-lite/pageState";
 
 export default function PrimaveraLiteProjectPage() {
   const [searchParams] = useSearchParams();
@@ -18,7 +23,7 @@ export default function PrimaveraLiteProjectPage() {
   useEffect(() => {
     if (access) {
       // Strip token from visible URL after capture, keeping it only in memory
-      window.history.replaceState({}, "", `/gantt/p/${slug}`);
+      window.history.replaceState({}, "", stripTokenPath(window.location.pathname, slug));
     }
   }, [slug, access]);
 
@@ -50,8 +55,7 @@ export default function PrimaveraLiteProjectPage() {
     onSuccess: () => refetch(),
   });
 
-  const canEdit = data?.role === "admin" || data?.role === "editor";
-  const isAdmin = data?.role === "admin";
+  const { canEdit, isAdmin } = computeRolePermissions(data?.role);
 
   if (isLoading) {
     return (
@@ -61,7 +65,7 @@ export default function PrimaveraLiteProjectPage() {
     );
   }
 
-  if (error || !data || data.project?.archivedAt) {
+  if (!data || isProjectUnavailable(data.project, error)) {
     return (
       <div className="flex min-h-screen items-center justify-center p-6">
         <Card className="max-w-md">

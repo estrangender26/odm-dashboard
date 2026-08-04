@@ -3,8 +3,7 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-
-const REMEMBERED_LINKS_KEY = "primavera-lite-admin-links";
+import { readRememberedLinks } from "@/modules/gantt/primavera-lite/pageState";
 
 type RememberedLink = {
   slug: string;
@@ -18,12 +17,7 @@ export default function GanttLandingPage() {
   const [validating, setValidating] = useState(true);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(REMEMBERED_LINKS_KEY);
-      if (raw) setLinks(JSON.parse(raw));
-    } catch {
-      // ignore corrupt storage
-    }
+    setLinks(readRememberedLinks(localStorage));
     setValidating(false);
   }, []);
 
