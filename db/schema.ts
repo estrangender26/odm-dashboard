@@ -1,4 +1,5 @@
-import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, doublePrecision, jsonb, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, serial, varchar, text, integer, bigint, timestamp, index, unique, uniqueIndex, check, doublePrecision, jsonb, uuid, date, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 const storageMetadataColumns = () => ({
   storageProvider: varchar("storage_provider", { length: 32 }),
@@ -534,3 +535,117 @@ export const legacyStorageMigrationLedger = pgTable("legacy_storage_migration_le
 
 export type LegacyStorageMigrationLedger = typeof legacyStorageMigrationLedger.$inferSelect;
 export type InsertLegacyStorageMigrationLedger = typeof legacyStorageMigrationLedger.$inferInsert;
+
+
+/* ─── Lihok Corporate Library ─── */
+export const lihokCorporateDocumentClassificationValues = [
+  "public", "internal", "confidential", "restricted"
+] as const;
+
+export const lihokCorporateDocumentStatusValues = [
+  "draft", "for_review", "approved", "superseded", "archived"
+] as const;
+
+export const lihokCorporateDocumentCategories = pgTable("lihok_corporate_document_categories", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 10 }).notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("lihok_corporate_document_categories_code_unique").on(table.code),
+  index("lihok_corporate_document_categories_sort_idx").on(table.sortOrder),
+]);
+
+export const lihokCorporateDocuments = pgTable("lihok_corporate_documents", {
+  id: serial("id").primaryKey(),
+  documentNumber: varchar("document_number", { length: 50 }).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description"),
+  categoryId: integer("category_id").notNull().references(() => lihokCorporateDocumentCategories.id, { onDelete: "restrict" }),
+  defaultClassification: varchar("default_classification", { length: 20 }).notNull().default("internal"),
+  ownerName: varchar("owner_name", { length: 255 }),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  updatedBy: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  archivedAt: timestamp("archived_at"),
+}, (table) => [
+  unique("lihok_corporate_documents_document_number_unique").on(table.documentNumber),
+  index("lihok_corporate_documents_category_idx").on(table.categoryId),
+  index("lihok_corporate_documents_classification_idx").on(table.defaultClassification),
+  index("lihok_corporate_documents_owner_idx").on(table.ownerName),
+  index("lihok_corporate_documents_archived_at_idx").on(table.archivedAt),
+  check("lihok_corporate_documents_classification_check", sql`${table.defaultClassification} IN ('public', 'internal', 'confidential', 'restricted')`),
+]);
+
+export const lihokCorporateDocumentVersions = pgTable("lihok_corporate_document_versions", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull().references(() => lihokCorporateDocuments.id, { onDelete: "restrict" }),
+  versionNumber: varchar("version_number", { length: 20 }).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description"),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  classification: varchar("classification", { length: 20 }).notNull().default("internal"),
+  ownerName: varchar("owner_name", { length: 255 }),
+  effectiveDate: date("effective_date"),
+  changeNotes: text("change_notes"),
+  fileName: varchar("file_name", { length: 255 }),
+  fileSize: bigint("file_size", { mode: "number" }),
+  mimeType: varchar("mime_type", { length: 255 }),
+  fileHash: varchar("file_hash", { length: 64 }),
+  storageProvider: varchar("storage_provider", { length: 32 }),
+  storageBucket: varchar("storage_bucket", { length: 100 }),
+  storagePath: text("storage_path"),
+  storageEtag: text("storage_etag"),
+  storageUploadedAt: timestamp("storage_uploaded_at", { withTimezone: true }),
+  uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  reviewedBy: integer("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  approvedBy: integer("approved_by").references(() => users.id, { onDelete: "set null" }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  supersededByVersionId: integer("superseded_by_version_id").references((): AnyPgColumn => lihokCorporateDocumentVersions.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("lihok_corporate_document_versions_unique").on(table.documentId, table.versionNumber),
+  uniqueIndex("lihok_corporate_document_versions_storage_unique").on(table.storageBucket, table.storagePath).where(sql`${table.storagePath} IS NOT NULL`),
+  index("lihok_corporate_document_versions_document_idx").on(table.documentId),
+  index("lihok_corporate_document_versions_status_idx").on(table.status),
+  index("lihok_corporate_document_versions_classification_idx").on(table.classification),
+  index("lihok_corporate_document_versions_owner_idx").on(table.ownerName),
+  index("lihok_corporate_document_versions_superseded_idx").on(table.supersededByVersionId),
+  index("lihok_corporate_document_versions_effective_date_idx").on(table.effectiveDate),
+  check("lihok_corporate_document_versions_status_check", sql`${table.status} IN ('draft', 'for_review', 'approved', 'superseded', 'archived')`),
+  check("lihok_corporate_document_versions_classification_check", sql`${table.classification} IN ('public', 'internal', 'confidential', 'restricted')`),
+  check("lihok_corporate_document_versions_hash_check", sql`${table.fileHash} IS NULL OR ${table.fileHash} ~ '^[a-f0-9]{64}$'`),
+  check("lihok_corporate_document_versions_no_self_supersede_check", sql`${table.supersededByVersionId} IS NULL OR ${table.supersededByVersionId} <> ${table.id}`),
+]);
+
+export const lihokCorporateDocumentAudit = pgTable("lihok_corporate_document_audit", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull().references(() => lihokCorporateDocuments.id, { onDelete: "restrict" }),
+  versionId: integer("version_id").references(() => lihokCorporateDocumentVersions.id, { onDelete: "restrict" }),
+  action: varchar("action", { length: 50 }).notNull(),
+  actorUserId: integer("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  actorName: varchar("actor_name", { length: 255 }),
+  oldValue: jsonb("old_value"),
+  newValue: jsonb("new_value"),
+  requestId: varchar("request_id", { length: 100 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("lihok_corporate_document_audit_document_idx").on(table.documentId),
+  index("lihok_corporate_document_audit_version_idx").on(table.versionId),
+  index("lihok_corporate_document_audit_action_idx").on(table.action),
+  index("lihok_corporate_document_audit_created_at_idx").on(table.createdAt),
+]);
+
+export type LihokCorporateDocumentCategory = typeof lihokCorporateDocumentCategories.$inferSelect;
+export type InsertLihokCorporateDocumentCategory = typeof lihokCorporateDocumentCategories.$inferInsert;
+export type LihokCorporateDocument = typeof lihokCorporateDocuments.$inferSelect;
+export type InsertLihokCorporateDocument = typeof lihokCorporateDocuments.$inferInsert;
+export type LihokCorporateDocumentVersion = typeof lihokCorporateDocumentVersions.$inferSelect;
+export type InsertLihokCorporateDocumentVersion = typeof lihokCorporateDocumentVersions.$inferInsert;
+export type LihokCorporateDocumentAuditEntry = typeof lihokCorporateDocumentAudit.$inferSelect;
+export type InsertLihokCorporateDocumentAuditEntry = typeof lihokCorporateDocumentAudit.$inferInsert;
