@@ -610,6 +610,7 @@ export const lihokCorporateDocumentVersions = pgTable("lihok_corporate_document_
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   unique("lihok_corporate_document_versions_unique").on(table.documentId, table.versionNumber),
+  uniqueIndex("lihok_corporate_document_versions_approved_unique").on(table.documentId).where(sql`${table.status} = 'approved'`),
   uniqueIndex("lihok_corporate_document_versions_storage_unique").on(table.storageBucket, table.storagePath).where(sql`${table.storagePath} IS NOT NULL`),
   index("lihok_corporate_document_versions_document_idx").on(table.documentId),
   index("lihok_corporate_document_versions_status_idx").on(table.status),
