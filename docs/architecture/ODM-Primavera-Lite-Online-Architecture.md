@@ -2,7 +2,7 @@
 
 ## Software Architecture Document
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Status:** Draft — Architecture & Implementation Plan  
 **Date:** 2026-08-04  
 **Authority:** Lihok Technologies Architecture Governance  
@@ -16,7 +16,7 @@
 
 | Attribute | Value |
 |-----------|-------|
-| Version | 1.2 |
+| Version | 1.3 |
 | Status | Draft |
 | Author | Codex (Lihok Engineering) |
 | Reviewers | TBD |
@@ -38,7 +38,7 @@ This document defines the target architecture, database schema, API design, comp
 - Database: Supabase PostgreSQL only.
 - Supabase Storage: used only for attachments, drawings, exports, imports, PDFs, and supporting documents.
 - Initial release uses token-based access only; no mandatory authenticated owner.
-- Day-level temporal precision in MVP: `date` fields and working-day durations/lags.
+- Day-level temporal precision in MVP: `date` fields and working-day durations/lags. No hours/minutes in schedule arithmetic.
 - No production data deletion during architecture phase.
 - No deployment or PR creation during architecture phase.
 - Must align with [Lihok Technology Standards](./Technology-Standards.md) and [Enterprise-Architecture-v1.0](./Enterprise-Architecture-v1.0.md).
@@ -60,6 +60,9 @@ This document defines the target architecture, database schema, API design, comp
 - Selected day-level temporal precision MVP: PostgreSQL `date` fields and working-day durations/lags.
 - Added explicit backward-pass relationship rules for FS/SS/FF/SF with positive/negative lag, milestones, multiple successors, and multiple calendars.
 - Added production-schema reconciliation matrix against PR #328 / migration 0019.
+- Corrected day-level temporal precision consistency across schema, API, and CPM.
+- Removed `listProjects` from MVP API in favor of browser-local remembered admin links.
+- Clarified PR 1 migration boundaries: additive only, no production type conversion or legacy modification.
 
 ---
 
@@ -189,11 +192,10 @@ Therefore, the legacy planner will be retired after the new module reaches featu
 
 | Route | Purpose | Auth |
 |-------|---------|------|
-| `/gantt` | Project landing / list | admin/creator token |
-| `/gantt/new` | Create new project | admin/creator token |
-| `/gantt/p/:slug` | Shared workspace via token | editor or viewer token |
-| `/gantt/project/:slug` | Creator/admin workspace | admin/creator token |
-| `/gantt/project/:slug/settings` | Sharing, calendars, baselines | admin/creator token |
+| `/gantt` | Public landing page using browser-local remembered admin links | none |
+| `/gantt/new` | Public project creation flow with rate limits | none |
+| `/gantt/p/:slug` | Admin/editor/viewer token workspace | admin/editor/viewer token |
+| `/gantt/p/:slug?settings=1` | Project settings, only when token role is admin | admin token |
 | `/gantt-planner` | Legacy planner (retired after parity) | Existing |
 
 ### 6.3 Page/Component Hierarchy
@@ -453,7 +455,7 @@ Retained from PR #328 and extended; **no `tasks_data`/`links_data` columns**.
 | name | varchar(255) | |
 | working_days | integer[] | ISO day numbers [1,2,3,4,5] |
 | hours_per_day | numeric(4,2) | |
-| minutes_per_day | integer | Derived from hours_per_day; not authoritative in day-level MVP |
+| minutes_per_day | integer | Display metadata only; not used in day-level MVP scheduling |
 | timezone | varchar(100) | |
 | is_default | boolean | |
 | created_at | timestamptz | |
@@ -500,16 +502,16 @@ Indexes: `(project_id, parent_node_id)`, unique `(project_id, code)`, `(project_
 | activity_name | varchar(500) | |
 | activity_type | varchar(20) | task, milestone, level_of_effort |
 | calendar_id | integer FK → gantt_calendars | |
-| original_duration_days | integer | Working minutes |
-| remaining_duration_days | integer | Working minutes |
+| original_duration_days | integer | Working days |
+| remaining_duration_days | integer | Working days |
 | planned_start | date | |
 | planned_finish | date | |
 | early_start | date | CPM output |
 | early_finish | date | CPM output |
 | late_start | date | CPM output |
 | late_finish | date | CPM output |
-| total_float_days | integer | Working minutes |
-| free_float_days | integer | Working minutes |
+| total_float_days | integer | Working days |
+| free_float_days | integer | Working days |
 | actual_start | date | |
 | actual_finish | date | |
 | percent_complete | integer | 0–100 |
@@ -620,7 +622,7 @@ These procedures require `slug + access token`.
 | `createActivity` | admin/editor | `{ slug, access, expectedRevision, wbsNodeId, activityName, ... }` | `{ activity, revision }` |
 | `updateActivity` | admin/editor | `{ slug, access, expectedRevision, activityId, changes }` | `{ activity, revision }` |
 | `archiveActivity` | admin/editor | `{ slug, access, expectedRevision, activityId, dryRun? }` | `{ impact, archivedId, revision }` |
-| `createDependency` | admin/editor | `{ slug, access, expectedRevision, pred, succ, type, lagMinutes }` | `{ dependency, revision }` |
+| `createDependency` | admin/editor | `{ slug, access, expectedRevision, pred, succ, type, lagDays }` | `{ dependency, revision }` |
 | `archiveDependency` | admin/editor | `{ slug, access, expectedRevision, dependencyId }` | `{ archivedId, revision }` |
 | `createWbsNode` | admin/editor | `{ slug, access, expectedRevision, parentNodeId, name, code }` | `{ node, revision }` |
 | `moveWbsNode` | admin/editor | `{ slug, access, expectedRevision, nodeId, newParentId, newSortOrder }` | `{ node, revision }` |
@@ -633,7 +635,6 @@ These procedures require `slug + access token`.
 | Procedure | Purpose |
 |-----------|---------|
 | `createProject` | Create a new Primavera Lite project; returns admin, editor, and viewer tokens |
-| `listProjects` | List projects accessible with the supplied admin token |
 | `archiveProject` | Soft-delete project with dry-run impact preview and confirmation |
 | `restoreProject` | Restore archived project |
 | `updateProjectMeta` | Name, description, data date, default calendar |
@@ -660,7 +661,7 @@ These procedures require `slug + access token`.
 
 - All dates exchanged as `YYYY-MM-DD` strings.
 - Server validates real calendar dates and logical ordering.
-- Durations exchanged in working minutes; UI may display days based on the relevant calendar.
+- Durations and lags exchanged in whole working days.
 
 ---
 
@@ -710,7 +711,7 @@ GanttWorkspaceShell
 ### 10.3 Reusable Primitives
 
 - `DatePicker` — strict calendar validation.
-- `DurationInput` — working minutes with calendar-aware day display.
+- `DurationInput` — whole working days.
 - `PercentInput` — 0–100.
 - `WBSCodeInput` — hierarchical code validation.
 - `DependencyTypeSelect` — FS/SS/FF/SF.
@@ -756,7 +757,7 @@ GanttWorkspaceShell
 
 ### 12.1 Responsibilities
 
-- Calendar-aware date math using working minutes.
+- Calendar-aware date math using whole working days.
 - Forward pass (early start/finish).
 - Backward pass (late start/finish).
 - Total float and free float calculation.
@@ -770,9 +771,9 @@ GanttWorkspaceShell
 SchedulingEngine
 ├── CalendarService
 │   ├── workingDaysBetween(start, finish, calendar)
-│   ├── addWorkingDays(date, minutes, calendar)
+│   ├── addWorkingDays(date, days, calendar)
 │   ├── isWorkingDay(date, calendar)
-│   └── workingHoursForDay(date, calendar)
+│   └── isWorkingDay(date, calendar)
 ├── GraphService
 │   ├── buildDependencyGraph(activities, dependencies)
 │   ├── topologicalSort(graph)
@@ -791,11 +792,11 @@ SchedulingEngine
 
 ### 12.3 Dependency Relationship Rules
 
-All relationships are computed in working minutes using the successor's calendar unless otherwise noted. Positive lag adds working days; negative lag (lead) subtracts working days.
+All relationships are computed in whole working days using the successor's calendar. Positive lag adds working days; negative lag (lead) subtracts working days.
 
 #### Finish-to-Start (FS)
 
-- Successor Early Start = Predecessor Early Finish + lag minutes.
+- Successor Early Start = next working day after Predecessor Early Finish, plus lag_days whole working days.
 - Predecessor Early Finish and Successor Early Start may be on different calendars; the lag is added as whole working days in the successor's calendar.
 - If lag is negative (lead), Successor Early Start = Predecessor Early Finish shifted backward by |lag_days| whole working days, never earlier than the project start.
 
@@ -1255,7 +1256,7 @@ odm-dashboard
 │   ├── schema.ts                  # extended with new tables
 │   ├── migrations/
 │   │   ├── 0020_primavera_lite_shell.sql
-│   │   ├── 0020a_primavera_lite_date_type_alter.sql
+│   │   ├── 0020a_primavera_lite_type_and_fk_migration.sql
 │   │   ├── 0021_primavera_lite_wbs_activities.sql
 │   │   ├── 0022_primavera_lite_dependencies.sql
 │   │   ├── 0023_primavera_lite_scheduling.sql
@@ -1279,7 +1280,8 @@ odm-dashboard
 ### PR 1 — Minimal Project Shell + Normalized Schema
 
 **Scope (only these):**
-- Create `gantt_wbs_nodes` and `gantt_activities` tables.
+- Create `gantt_activities` table and the minimal normalized schema shell.
+- Add `admin_token_hash` to `gantt_projects` as an additive column only.
 - Create `primavera-lite-router.ts` with token-based access only:
   - `createProject` (returns admin/editor/viewer tokens)
   - `load`
@@ -1291,6 +1293,16 @@ odm-dashboard
   - `archiveActivity` (dry-run + confirmed)
 - Create `GanttLandingPage` and minimal `GanttProjectPage` shells.
 - No scheduling engine, no baselines, no resources, no drag-drop timeline, no legacy retirement.
+
+**PR 1 does NOT:**
+- Convert `gantt_projects.data_date` to `date`.
+- Alter `last_scheduled_at`, `created_at`, or `updated_at` to `timestamptz`.
+- Change existing foreign-key `ON DELETE CASCADE` behavior.
+- Remove `tasks_data` or `links_data` columns.
+- Modify legacy `gantt_tasks` or `gantt_dependencies` tables.
+- Convert or migrate any production data.
+
+All type conversions and FK-behavior changes are deferred to a later dedicated, non-destructive migration PR with preflight, backup, verification, and rollback scripts.
 
 **Acceptance:**
 - Type check passes.
@@ -1338,7 +1350,7 @@ odm-dashboard
 ### PR 5 — Scheduling Engine
 
 **Scope:**
-- Calendar-aware date math using working minutes.
+- Calendar-aware date math using whole working days.
 - Forward/backward pass with explicit FS/SS/FF/SF rules.
 - Total float, free float, critical path.
 - Milestones, open ends, multiple calendars, constraints, negative float.
@@ -1521,9 +1533,9 @@ This matrix compares the target ODM Primavera Lite Online schema against the dep
 | `slug` varchar unique | Existing | Unchanged | Existing unchanged | None |
 | `name` varchar(255) | Existing | Unchanged | Existing unchanged | None |
 | `project_name` varchar(255) | Existing | Unchanged | Existing unchanged | None |
-| `start_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | PR 1 migration: `ALTER TABLE gantt_projects ALTER COLUMN start_date TYPE date USING start_date::date;` with validation |
-| `finish_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | Same as start_date |
-| `data_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | Same as start_date |
+| `start_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | Deferred to dedicated non-destructive migration PR; PR 1 leaves as varchar |
+| `finish_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | Deferred to dedicated non-destructive migration PR; PR 1 leaves as varchar |
+| `data_date` varchar(20) | Existing | `date` | Existing requiring safe ALTER | PR 1 does NOT convert; deferred to dedicated non-destructive migration PR |
 | `status` varchar(50) | Existing | Unchanged | Existing unchanged | None |
 | `description` text | Existing | Unchanged | Existing unchanged | None |
 | `tasks_data` text | Existing | Removed | Future removal | Drop column in PR 12 after legacy retirement |
@@ -1537,15 +1549,15 @@ This matrix compares the target ODM Primavera Lite Online schema against the dep
 | `session_id` varchar | Existing | Unused | Legacy retained temporarily | Left in place; not used by new module |
 | `public_id` index | Existing | Unchanged | Existing unchanged | None |
 | `slug` index | Existing | Unchanged | Existing unchanged | None |
-| `edit_token_hash` varchar(64) | Existing | Rename to `editor_token_hash` or keep alias | Existing requiring safe ALTER | PR 1 migration renames or documents alias; new code uses `editor_token_hash` |
-| `view_token_hash` varchar(64) | Existing | Rename to `viewer_token_hash` or keep alias | Existing requiring safe ALTER | Same as editor token |
+| `edit_token_hash` varchar(64) | Existing | Rename to `editor_token_hash` or keep alias | Existing requiring safe ALTER | PR 1 adds `admin_token_hash` only; token column rename deferred to dedicated migration PR |
+| `view_token_hash` varchar(64) | Existing | Rename to `viewer_token_hash` or keep alias | Existing requiring safe ALTER | PR 1 does not rename; deferred to dedicated migration PR |
 | `admin_token_hash` | Missing | `varchar(64)` | New object | Add column in PR 1 |
 | `revision` integer | Existing | Unchanged | Existing unchanged | None |
 | `default_calendar_id` integer | Existing | Unchanged | Existing unchanged | None |
 | `sharing_enabled` integer | Existing | Unchanged | Existing unchanged | None |
-| `last_scheduled_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 migration: `ALTER TABLE gantt_projects ALTER COLUMN last_scheduled_at TYPE timestamptz;` |
-| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 migration |
-| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 migration |
+| `last_scheduled_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 does NOT alter; deferred to dedicated non-destructive migration PR |
+| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 does NOT alter; deferred to dedicated non-destructive migration PR |
+| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 does NOT alter; deferred to dedicated non-destructive migration PR |
 | `archived_at` | Missing | `timestamptz` | New object | Add column in PR 1 |
 
 ### 27.2 gantt_project_events
@@ -1561,7 +1573,7 @@ This matrix compares the target ODM Primavera Lite Online schema against the dep
 | `before_data` jsonb | Existing | Unchanged | Existing unchanged | None (already jsonb) |
 | `after_data` jsonb | Existing | Unchanged | Existing unchanged | None (already jsonb) |
 | `project_revision` integer | Existing | Unchanged | Existing unchanged | None |
-| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 migration |
+| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 1 does NOT alter; deferred to dedicated non-destructive migration PR |
 
 ### 27.3 gantt_calendars
 
@@ -1572,11 +1584,11 @@ This matrix compares the target ODM Primavera Lite Online schema against the dep
 | `name` varchar(255) | Existing | Unchanged | Existing unchanged | None |
 | `working_days` integer[] | Existing | Unchanged | Existing unchanged | None |
 | `hours_per_day` numeric(4,2) | Existing | Unchanged | Existing unchanged | None |
-| `minutes_per_day` | Missing | integer derived | New object | Add computed column or application derivation in PR 6; day-level MVP does not use it for scheduling |
+| `minutes_per_day` | Missing | integer derived | Future object | Display metadata only; not used in day-level MVP scheduling; may be added in minute-level future PR |
 | `timezone` varchar(100) | Existing | Unchanged | Existing unchanged | None |
 | `is_default` | Missing | boolean | New object | Add column in PR 6 |
-| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 migration |
-| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 migration |
+| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 does NOT alter; deferred to dedicated non-destructive migration PR |
+| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 does NOT alter; deferred to dedicated non-destructive migration PR |
 
 ### 27.4 gantt_calendar_exceptions
 
@@ -1588,8 +1600,8 @@ This matrix compares the target ODM Primavera Lite Online schema against the dep
 | `is_working` boolean | Existing | Unchanged | Existing unchanged | None |
 | `working_hours` numeric(4,2) | Existing | Unchanged | Existing unchanged | None |
 | `description` varchar(500) | Existing | Unchanged | Existing unchanged | None |
-| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 migration |
-| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 migration |
+| `created_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 does NOT alter; deferred to dedicated non-destructive migration PR |
+| `updated_at` timestamp | Existing | `timestamptz` | Existing requiring safe ALTER | PR 6 does NOT alter; deferred to dedicated non-destructive migration PR |
 
 ### 27.5 Existing gantt_tasks / gantt_dependencies
 
@@ -1616,10 +1628,22 @@ This matrix compares the target ODM Primavera Lite Online schema against the dep
 
 | Current | Target | Migration Action |
 |---------|--------|------------------|
-| `ON DELETE CASCADE` on PR #328 child tables | `ON DELETE RESTRICT` for all new normalized tables | Apply in each migration that creates a new table |
+| `ON DELETE CASCADE` on PR #328 child tables | `ON DELETE RESTRICT` for all new normalized tables | Apply only when creating new tables; PR 1 does not change existing FK behavior |
 | Project deletion cascades to events/calendars | Project archival does not cascade; purge is explicit | Document in archive policy; purge migration future PR |
 
-### 27.8 Migration Safety Rules
+### 27.8 PR 1 Migration Boundaries
+
+PR 1 is strictly additive and does not modify the deployed production schema beyond adding:
+
+- `admin_token_hash` to `gantt_projects`.
+- The `gantt_activities` table and related minimal normalized shell tables.
+- No existing column types are converted.
+- No existing `ON DELETE CASCADE` behavior is changed.
+- No legacy tables (`gantt_tasks`, `gantt_dependencies`) are modified.
+- `tasks_data` and `links_data` columns remain in place.
+- No production data is converted or deleted.
+
+### 27.9 Migration Safety Rules
 
 Every future migration PR that modifies the production schema must include:
 
@@ -1628,7 +1652,7 @@ Every future migration PR that modifies the production schema must include:
 3. **Forward migration SQL** — additive and reversible where possible.
 4. **Verification SQL** — confirm new columns/types/tables exist and counts are unchanged.
 5. **Rollback SQL** — restore previous types or drop added columns if needed.
-6. **No destructive conversion in PR 1** — PR 1 creates only new tables and additive columns; no legacy data is converted or deleted.
+6. **Dedicated non-destructive migration PR** — all type conversions (`date`, `timestamptz`), token column renames, and FK-behavior changes are grouped in one PR separate from feature work.
 
 ---
 
