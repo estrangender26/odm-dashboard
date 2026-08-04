@@ -181,7 +181,7 @@
   async function askDashboardAI(question, rows, options) {
     options = options || {};
 
-    // Always try Groq AI first (via backend tRPC), fallback to rule-based
+    // Always try external AI first (via backend tRPC), fallback to rule-based
     try {
       var aiResult = await callExternalAI(question, rows, options);
       if (aiResult && aiResult.answer && aiResult.answer.length > 10) {
@@ -198,7 +198,7 @@
   }
 
   /**
-   * Phase 2: External AI via backend tRPC (Groq).
+   * Phase 2: External AI via backend tRPC (Ollama OpenAI-compatible API).
    */
   async function callExternalAI(question, rows, options) {
     // Build rich context from inspection data
@@ -323,10 +323,10 @@
       var data = await resp.json();
       var reply = data && data.result && data.result.data && data.result.data.json ? data.result.data.json.reply : null;
       if (reply) {
-        return { answer: reply, source: 'Groq AI (Llama 3.3 70B)' };
+        return { answer: reply, source: 'ODM Dashboard AI' };
       }
     } catch (e) {
-      console.error('[ODM AI] Groq error:', e);
+      console.error('[ODM AI] External AI error:', e);
     }
     // Fallback to rule-based
     return {

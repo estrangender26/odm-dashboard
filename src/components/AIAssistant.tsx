@@ -1068,7 +1068,7 @@ export default function AIAssistant({
     onError: e => {
       setLoading(false);
       appendAssistantMessage(
-        `⚠️ Error: ${e.message}\n\nThe AI service may not be configured. Please set GROQ_API_KEY in your Render environment variables.\n\nGet a free key at: https://console.groq.com`
+        `⚠️ Error: ${e.message}\n\nThe AI service may not be configured. Please set OLLAMA_BASE_URL (and OLLAMA_API_KEY if required) in your environment variables.\n\nFor local development, point OLLAMA_BASE_URL to your Ollama endpoint (e.g., http://localhost:11434).`
       );
     },
   });

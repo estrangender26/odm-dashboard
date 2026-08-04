@@ -10,10 +10,14 @@ import {
   webSearch,
   type WebSearchResponse,
 } from "./web-search";
+import {
+  chatWithOllama,
+  checkOllamaHealth,
+  getOllamaConfig,
+  type OllamaClientError,
+} from "./ollama-client";
 
 const SYSTEM_PROMPT = `You are ODM Dashboard AI: a real AI assistant with dashboard grounding when relevant. Classify each request as exactly one of: general_knowledge, current_web, dashboard_data, combined_dashboard_web, or runtime_time_date. For general_knowledge questions, answer naturally using the LLM and do not require dashboard data. For current_web questions, use WEB SEARCH CONTEXT and answer naturally first, then a Sources section with source title and domain only. For dashboard_data questions, use active dashboard/module data first and format the answer with "From dashboard data:". For combined_dashboard_web questions, use both and format with "From dashboard data:", "From web search:", and "Sources:" only when the user explicitly asks to compare dashboard data with external/current knowledge. Runtime time/date questions are answered by the runtime before reaching the model. Do not return only raw titles, domains, URLs, snippets, provider names, metadata labels, or source lists as the final answer. Never output "Sources: None". Do not mention a knowledge cutoff when live web search was attempted. If search failed, say exactly "I could not retrieve live web results right now." and do not add dashboard fallback. If module data is empty or unavailable for a dashboard_data question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module values, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, file/folder counts, records, or schedule status. Dashboard/module data is the source of truth for task counts, KPI values, equipment names, document counts, schedule delays, ownership decisions, and Post-PPP recommendations, and web search must not override it. For Post-PPP Planning, Responsible/currentPppDoer is the current PPP execution doer; Operations, AMD, and ARD are future ownership preference fields; Recommended Future Doer is derived from consensus and this ownership logic must not be changed. Give practical, field-oriented, concise recommendations grounded in the supplied module evidence. Ask clarifying questions only when essential.`;
-
-const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
 
 const GITHUB_API = "https://api.github.com";
 const REPO_TREE_PROMPT =
@@ -297,14 +301,6 @@ function moduleDataMissingForDashboardQuestion(message: string): boolean {
   );
 }
 
-interface GroqChatCompletionResponse {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
-}
-
 function wantsRepositoryFileTree(message: string): boolean {
   return REPO_TREE_PROMPT.test(message);
 }
@@ -458,37 +454,35 @@ async function buildRepositoryTreeReply(): Promise<string> {
 }
 
 export const aiRouter = createRouter({
-  /* ── Debug: check AI configuration status ── */
+  /* ── Passive status: configuration only, no network calls ── */
   status: publicQuery.query(() => {
-    const key = process.env.GROQ_API_KEY;
-    const keySet = !!key;
-    const allKeys = Object.keys(process.env)
-      .filter(
-        k =>
-          !k.includes("SECRET") && !k.includes("PASS") && !k.includes("TOKEN")
-      )
-      .sort();
-    console.log(
-      "[AI DEBUG] GROQ_API_KEY present:",
-      keySet,
-      "| Key starts with:",
-      key ? key.slice(0, 8) : "undefined"
-    );
-    console.log("[AI DEBUG] Available env vars:", allKeys.join(", "));
+    const config = getOllamaConfig();
     return {
-      configured: keySet,
-      provider: "groq",
-      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      configured: config.configured,
+      provider: config.provider,
+      model: config.model,
       webSearchProvider: getWebSearchProvider(),
       webSearchConfigured: isWebSearchConfigured(),
-      envVarList: allKeys,
-      message: keySet
-        ? "AI is configured and ready"
-        : `GROQ_API_KEY not set. Available env vars: ${allKeys.join(", ")}`,
+      message: config.configured
+        ? "AI provider is configured."
+        : "AI provider is not configured. Set OLLAMA_BASE_URL to enable conversational AI.",
     };
   }),
 
-  /* ── Maintenance Expert Chat (via Groq — free, no CC) ── */
+  /* ── Active health check: bounded timeout, no full inference ── */
+  health: publicQuery.query(async () => {
+    const result = await checkOllamaHealth();
+    return {
+      configured: result.configured,
+      reachable: result.reachable,
+      authenticated: result.authenticated,
+      modelAvailable: result.modelAvailable,
+      model: result.model,
+      message: result.message,
+    };
+  }),
+
+  /* ── Maintenance Expert Chat (via Ollama OpenAI-compatible API) ── */
   maintenanceChat: publicQuery
     .input(
       z.object({
@@ -578,12 +572,12 @@ export const aiRouter = createRouter({
         }
       }
 
-      const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) {
+      const config = getOllamaConfig();
+      if (!config.baseUrl) {
         return {
           reply:
-            "⚠️ GROQ_API_KEY not set.\n\nTo activate the AI chat:\n\n1. Go to https://console.groq.com\n2. Sign up with your email\n3. Create a free API key\n4. Add GROQ_API_KEY to your Render environment variables\n\nGroq is completely free — no credit card required.",
-          error: "MISSING_API_KEY",
+            "⚠️ AI provider is not configured.\n\nTo activate the AI chat:\n\n1. Set OLLAMA_BASE_URL to your Ollama endpoint (e.g., http://localhost:11434 for local development).\n2. Optionally set OLLAMA_API_KEY if your endpoint requires authentication.\n3. Set OLLAMA_MODEL to the model name, or leave it unset to use the default (kimi-k2.7-code:cloud).\n4. Add these environment variables to your Render environment variables for production.",
+          error: "MISSING_BASE_URL",
         };
       }
 
@@ -600,43 +594,24 @@ export const aiRouter = createRouter({
       ];
 
       try {
-        const resp = await fetch(GROQ_API, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-            messages,
-            temperature: 0.2,
-            max_tokens: 1500,
-          }),
+        const result = await chatWithOllama({
+          messages,
+          temperature: 0.2,
         });
-
-        if (!resp.ok) {
-          const err = await resp.text();
-          console.error("[GROQ ERROR] Status:", resp.status, "Body:", err);
-          return {
-            reply: `AI service error (HTTP ${resp.status}). The API key may be invalid or revoked. Please generate a new key at https://console.groq.com`,
-            error: "API_ERROR",
-          };
-        }
-
-        const data = (await resp.json()) as GroqChatCompletionResponse;
-        const rawReply =
-          data.choices?.[0]?.message?.content?.trim() || "No response from AI.";
         const reply = finalizeAiReplyForWebSearch(
-          rawReply,
+          result.reply,
           queryClass,
           successfulSearchResponse
         );
         return { reply, error: null };
       } catch (e: unknown) {
-        console.error("AI chat error:", e);
+        const error = e as OllamaClientError;
+        console.error("[AI CHAT ERROR]", error.category || "UNKNOWN", error.message);
+        const category = error.category || "UNKNOWN_ERROR";
+        const userMessage = error.message || "Connection error. Please check your network and try again.";
         return {
-          reply: "Connection error. Please check your network and try again.",
-          error: "NETWORK_ERROR",
+          reply: `⚠️ ${userMessage}`,
+          error: category,
         };
       }
     }),
