@@ -24,12 +24,15 @@ import { TRPCError } from "@trpc/server";
 type LihokStatus = (typeof lihokCorporateDocumentStatusValues)[number];
 type LihokClassification = (typeof lihokCorporateDocumentClassificationValues)[number];
 
+// Version-level status machine.
+// Supersession is never triggered manually; it happens automatically when a new
+// version is approved.
 const VALID_STATUS_TRANSITIONS: Record<LihokStatus, LihokStatus[]> = {
   draft: ["for_review", "archived"],
-  for_review: ["approved", "draft", "archived"],
-  approved: ["superseded", "archived"],
+  for_review: ["draft", "approved", "archived"],
+  approved: ["archived"],
   superseded: ["archived"],
-  archived: ["draft"],
+  archived: [],
 };
 
 // ----------------------------------------------------------------------------
@@ -44,30 +47,51 @@ async function requireUser(headers: Headers): Promise<User> {
   return authenticateRequest(headers);
 }
 
+function requireAdmin(user: User): void {
+  if (user.role !== "admin") {
+    throw Errors.forbidden("This action requires administrator privileges.");
+  }
+}
+
+function hasCompletedStorage(version: Partial<LihokCorporateDocumentVersion>): boolean {
+  return (
+    version.fileName != null &&
+    version.fileSize != null &&
+    version.mimeType != null &&
+    version.storageProvider != null &&
+    version.storageBucket != null &&
+    version.storagePath != null &&
+    version.storageUploadedAt != null
+  );
+}
+
 function parseClassification(value: string): LihokClassification {
   if (!lihokCorporateDocumentClassificationValues.includes(value as LihokClassification)) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid classification." });
+    throw Errors.badRequest("Invalid classification.");
   }
   return value as LihokClassification;
 }
 
 function parseStatus(value: string): LihokStatus {
   if (!lihokCorporateDocumentStatusValues.includes(value as LihokStatus)) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid status." });
+    throw Errors.badRequest("Invalid status.");
   }
   return value as LihokStatus;
 }
 
-async function logAudit(options: {
-  documentId: number;
-  versionId?: number | null;
-  action: string;
-  actor: User;
-  requestId?: string;
-  oldValue?: Record<string, unknown>;
-  newValue?: Record<string, unknown>;
-}) {
-  await db.insert(lihokCorporateDocumentAudit).values({
+async function logAudit(
+  tx: any,
+  options: {
+    documentId: number;
+    versionId?: number | null;
+    action: string;
+    actor: User;
+    requestId?: string;
+    oldValue?: Record<string, unknown>;
+    newValue?: Record<string, unknown>;
+  },
+) {
+  await tx.insert(lihokCorporateDocumentAudit).values({
     documentId: options.documentId,
     versionId: options.versionId ?? null,
     action: options.action,
@@ -173,10 +197,7 @@ const searchSchema = z.object({
   title: z.string().max(500).optional(),
   ownerName: z.string().max(255).optional(),
   classification: z.enum(lihokCorporateDocumentClassificationValues).optional(),
-  status: z.enum(lihokCorporateDocumentStatusValues).optional(),
   categoryId: z.coerce.number().int().positive().optional(),
-  effectiveDateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  effectiveDateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   archived: z.enum(["true", "false"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
@@ -188,20 +209,19 @@ const searchSchema = z.object({
 
 export const lihokCorporateRouter = new Hono();
 
-// Generic error handler shape
-function handleError(error: unknown): { status: 200 | 201 | 400 | 401 | 403 | 404 | 500; body: { error: string } } {
+function handleError(error: unknown): { status: 200 | 201 | 400 | 401 | 403 | 404 | 409 | 500; body: { error: string } } {
   if (error instanceof z.ZodError) {
     return { status: 400 as const, body: { error: error.issues[0]?.message ?? "Invalid input." } };
   }
   const appErr = error as AppError | undefined;
   if (appErr && appErr.tag === "app_error") {
-    return { status: appErr.status as 200 | 201 | 400 | 401 | 403 | 404 | 500, body: { error: appErr.message } };
+    return { status: appErr.status as 200 | 201 | 400 | 401 | 403 | 404 | 409 | 500, body: { error: appErr.message } };
   }
   if (error instanceof TRPCError) {
-    return { status: trpcCodeToStatus(error.code) as 200 | 201 | 400 | 401 | 403 | 404 | 500, body: { error: error.message } };
+    return { status: trpcCodeToStatus(error.code) as 200 | 201 | 400 | 401 | 403 | 404 | 409 | 500, body: { error: error.message } };
   }
-  const message = error instanceof Error ? error.message : "Request failed.";
-  return { status: 400 as const, body: { error: message } };
+  console.error("[lihok-corporate] unexpected error", error);
+  return { status: 500 as const, body: { error: "Internal server error." } };
 }
 
 function trpcCodeToStatus(code: string): number {
@@ -225,6 +245,8 @@ function trpcCodeToStatus(code: string): number {
 
 lihokCorporateRouter.get("/categories", async (c) => {
   try {
+    await requireUser(c.req.raw.headers);
+
     const rows = await db.execute(sql<{ id: number; code: string; name: string; sortOrder: number; activeDocumentCount: number }>`
       SELECT
         c.id,
@@ -252,8 +274,7 @@ lihokCorporateRouter.get("/categories", async (c) => {
 
 lihokCorporateRouter.get("/documents", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
+    await requireUser(c.req.raw.headers);
 
     const query = searchSchema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
 
@@ -337,8 +358,7 @@ lihokCorporateRouter.get("/documents", async (c) => {
 
 lihokCorporateRouter.get("/documents/:id", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
+    await requireUser(c.req.raw.headers);
 
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid document id." }, 400);
@@ -376,7 +396,6 @@ lihokCorporateRouter.get("/documents/:id", async (c) => {
 lihokCorporateRouter.post("/documents", async (c) => {
   try {
     const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
 
     const input = createDocumentSchema.parse(await c.req.json());
 
@@ -386,7 +405,7 @@ lihokCorporateRouter.post("/documents", async (c) => {
       .where(eq(lihokCorporateDocumentCategories.id, input.categoryId))
       .limit(1);
     if (!categoryRows.length) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Category not found." });
+      throw Errors.badRequest("Category not found.");
     }
 
     const existing = await db
@@ -395,33 +414,37 @@ lihokCorporateRouter.post("/documents", async (c) => {
       .where(eq(lihokCorporateDocuments.documentNumber, input.documentNumber))
       .limit(1);
     if (existing.length) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Document number already exists." });
+      throw Errors.badRequest("Document number already exists.");
     }
 
     const now = new Date();
-    const inserted = await db
-      .insert(lihokCorporateDocuments)
-      .values({
-        documentNumber: input.documentNumber,
-        title: input.title,
-        description: input.description ?? null,
-        categoryId: input.categoryId,
-        defaultClassification: input.defaultClassification,
-        ownerName: input.ownerName ?? null,
-        createdBy: user.id,
-        updatedBy: user.id,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: lihokCorporateDocuments.id });
+    const documentId = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(lihokCorporateDocuments)
+        .values({
+          documentNumber: input.documentNumber,
+          title: input.title,
+          description: input.description ?? null,
+          categoryId: input.categoryId,
+          defaultClassification: input.defaultClassification,
+          ownerName: input.ownerName ?? null,
+          createdBy: user.id,
+          updatedBy: user.id,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: lihokCorporateDocuments.id });
 
-    const documentId = inserted[0].id;
+      const newDocumentId = inserted[0].id;
 
-    await logAudit({
-      documentId,
-      action: "document.created",
-      actor: user,
-      newValue: { ...input },
+      await logAudit(tx, {
+        documentId: newDocumentId,
+        action: "document.created",
+        actor: user,
+        newValue: { ...input },
+      });
+
+      return newDocumentId;
     });
 
     return c.json({ document: { id: documentId } }, 201);
@@ -434,14 +457,13 @@ lihokCorporateRouter.post("/documents", async (c) => {
 lihokCorporateRouter.patch("/documents/:id", async (c) => {
   try {
     const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
 
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid document id." }, 400);
 
     const input = updateDocumentSchema.parse({ ...(await c.req.json()), id });
 
-    const existing = await db
+    const existingRows = await db
       .select({
         id: lihokCorporateDocuments.id,
         documentNumber: lihokCorporateDocuments.documentNumber,
@@ -450,12 +472,18 @@ lihokCorporateRouter.patch("/documents/:id", async (c) => {
         categoryId: lihokCorporateDocuments.categoryId,
         defaultClassification: lihokCorporateDocuments.defaultClassification,
         ownerName: lihokCorporateDocuments.ownerName,
+        archivedAt: lihokCorporateDocuments.archivedAt,
       })
       .from(lihokCorporateDocuments)
       .where(eq(lihokCorporateDocuments.id, id))
       .limit(1);
 
-    if (!existing.length) return c.json({ error: "Document not found." }, 404);
+    if (!existingRows.length) return c.json({ error: "Document not found." }, 404);
+    const existing = existingRows[0];
+
+    if (existing.archivedAt) {
+      throw Errors.conflict("Archived documents cannot be edited until restored.");
+    }
 
     if (input.categoryId) {
       const categoryRows = await db
@@ -464,35 +492,43 @@ lihokCorporateRouter.patch("/documents/:id", async (c) => {
         .where(eq(lihokCorporateDocumentCategories.id, input.categoryId))
         .limit(1);
       if (!categoryRows.length) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Category not found." });
+        throw Errors.badRequest("Category not found.");
       }
     }
 
-    const updateData: Partial<typeof lihokCorporateDocuments.$inferInsert> = {
-      updatedBy: user.id,
-      updatedAt: new Date(),
-    };
-    if (input.title !== undefined) updateData.title = input.title;
-    if (input.description !== undefined) updateData.description = input.description;
-    if (input.categoryId !== undefined) updateData.categoryId = input.categoryId;
-    if (input.defaultClassification !== undefined) updateData.defaultClassification = input.defaultClassification;
-    if (input.ownerName !== undefined) updateData.ownerName = input.ownerName;
+    const documentId = await db.transaction(async (tx) => {
+      const updateData: Partial<typeof lihokCorporateDocuments.$inferInsert> = {
+        updatedBy: user.id,
+        updatedAt: new Date(),
+      };
+      if (input.title !== undefined) updateData.title = input.title;
+      if (input.description !== undefined) updateData.description = input.description;
+      if (input.categoryId !== undefined) updateData.categoryId = input.categoryId;
+      if (input.defaultClassification !== undefined) updateData.defaultClassification = input.defaultClassification;
+      if (input.ownerName !== undefined) updateData.ownerName = input.ownerName;
 
-    const updated = await db
-      .update(lihokCorporateDocuments)
-      .set(updateData)
-      .where(eq(lihokCorporateDocuments.id, id))
-      .returning({ id: lihokCorporateDocuments.id });
+      const updated = await tx
+        .update(lihokCorporateDocuments)
+        .set(updateData)
+        .where(eq(lihokCorporateDocuments.id, id))
+        .returning({ id: lihokCorporateDocuments.id });
 
-    await logAudit({
-      documentId: id,
-      action: "document.updated",
-      actor: user,
-      oldValue: { ...existing[0] },
-      newValue: { ...updateData },
+      if (!updated.length) {
+        throw Errors.notFound("Document not found.");
+      }
+
+      await logAudit(tx, {
+        documentId: id,
+        action: "document.updated",
+        actor: user,
+        oldValue: { ...existing },
+        newValue: { ...updateData },
+      });
+
+      return updated[0].id;
     });
 
-    return c.json({ document: updated[0] });
+    return c.json({ document: { id: documentId } });
   } catch (error) {
     const { status, body } = handleError(error);
     return c.json(body, status);
@@ -502,35 +538,39 @@ lihokCorporateRouter.patch("/documents/:id", async (c) => {
 lihokCorporateRouter.post("/documents/:id/archive", async (c) => {
   try {
     const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
 
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid document id." }, 400);
 
-    const existing = await db
-      .select({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt })
-      .from(lihokCorporateDocuments)
-      .where(eq(lihokCorporateDocuments.id, id))
-      .limit(1);
-    if (!existing.length) return c.json({ error: "Document not found." }, 404);
-    if (existing[0].archivedAt) return c.json({ document: { id, archivedAt: existing[0].archivedAt } });
+    const documentId = await db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt })
+        .from(lihokCorporateDocuments)
+        .where(eq(lihokCorporateDocuments.id, id))
+        .limit(1);
 
-    const now = new Date();
-    const updated = await db
-      .update(lihokCorporateDocuments)
-      .set({ archivedAt: now, updatedBy: user.id, updatedAt: now })
-      .where(eq(lihokCorporateDocuments.id, id))
-      .returning({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt });
+      if (!existing.length) throw Errors.notFound("Document not found.");
+      if (existing[0].archivedAt) return { id, archivedAt: existing[0].archivedAt };
 
-    await logAudit({
-      documentId: id,
-      action: "document.archived",
-      actor: user,
-      oldValue: { archivedAt: null },
-      newValue: { archivedAt: now.toISOString() },
+      const now = new Date();
+      const updated = await tx
+        .update(lihokCorporateDocuments)
+        .set({ archivedAt: now, updatedBy: user.id, updatedAt: now })
+        .where(eq(lihokCorporateDocuments.id, id))
+        .returning({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt });
+
+      await logAudit(tx, {
+        documentId: id,
+        action: "document.archived",
+        actor: user,
+        oldValue: { archivedAt: null },
+        newValue: { archivedAt: now.toISOString() },
+      });
+
+      return updated[0];
     });
 
-    return c.json({ document: updated[0] });
+    return c.json({ document: documentId });
   } catch (error) {
     const { status, body } = handleError(error);
     return c.json(body, status);
@@ -540,35 +580,39 @@ lihokCorporateRouter.post("/documents/:id/archive", async (c) => {
 lihokCorporateRouter.post("/documents/:id/restore", async (c) => {
   try {
     const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
 
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid document id." }, 400);
 
-    const existing = await db
-      .select({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt })
-      .from(lihokCorporateDocuments)
-      .where(eq(lihokCorporateDocuments.id, id))
-      .limit(1);
-    if (!existing.length) return c.json({ error: "Document not found." }, 404);
-    if (!existing[0].archivedAt) return c.json({ document: { id, archivedAt: null } });
+    const documentId = await db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt })
+        .from(lihokCorporateDocuments)
+        .where(eq(lihokCorporateDocuments.id, id))
+        .limit(1);
 
-    const now = new Date();
-    const updated = await db
-      .update(lihokCorporateDocuments)
-      .set({ archivedAt: null, updatedBy: user.id, updatedAt: now })
-      .where(eq(lihokCorporateDocuments.id, id))
-      .returning({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt });
+      if (!existing.length) throw Errors.notFound("Document not found.");
+      if (!existing[0].archivedAt) return { id, archivedAt: null };
 
-    await logAudit({
-      documentId: id,
-      action: "document.restored",
-      actor: user,
-      oldValue: { archivedAt: existing[0].archivedAt?.toISOString() ?? null },
-      newValue: { archivedAt: null },
+      const now = new Date();
+      const updated = await tx
+        .update(lihokCorporateDocuments)
+        .set({ archivedAt: null, updatedBy: user.id, updatedAt: now })
+        .where(eq(lihokCorporateDocuments.id, id))
+        .returning({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt });
+
+      await logAudit(tx, {
+        documentId: id,
+        action: "document.restored",
+        actor: user,
+        oldValue: { archivedAt: existing[0].archivedAt?.toISOString() ?? null },
+        newValue: { archivedAt: null },
+      });
+
+      return updated[0];
     });
 
-    return c.json({ document: updated[0] });
+    return c.json({ document: documentId });
   } catch (error) {
     const { status, body } = handleError(error);
     return c.json(body, status);
@@ -581,11 +625,17 @@ lihokCorporateRouter.post("/documents/:id/restore", async (c) => {
 
 lihokCorporateRouter.get("/documents/:id/versions", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
+    await requireUser(c.req.raw.headers);
 
     const documentId = Number(c.req.param("id"));
     if (!Number.isInteger(documentId) || documentId <= 0) return c.json({ error: "Invalid document id." }, 400);
+
+    const documentRows = await db
+      .select({ id: lihokCorporateDocuments.id })
+      .from(lihokCorporateDocuments)
+      .where(eq(lihokCorporateDocuments.id, documentId))
+      .limit(1);
+    if (!documentRows.length) return c.json({ error: "Document not found." }, 404);
 
     const rows = await db
       .select({
@@ -629,8 +679,7 @@ lihokCorporateRouter.get("/documents/:id/versions", async (c) => {
 
 lihokCorporateRouter.get("/versions/:id", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
+    await requireUser(c.req.raw.headers);
 
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid version id." }, 400);
@@ -680,17 +729,19 @@ lihokCorporateRouter.get("/versions/:id", async (c) => {
 lihokCorporateRouter.post("/versions", async (c) => {
   try {
     const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
 
     const input = createVersionSchema.parse(await c.req.json());
 
     const docRows = await db
-      .select({ id: lihokCorporateDocuments.id })
+      .select({ id: lihokCorporateDocuments.id, archivedAt: lihokCorporateDocuments.archivedAt })
       .from(lihokCorporateDocuments)
       .where(eq(lihokCorporateDocuments.id, input.documentId))
       .limit(1);
     if (!docRows.length) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "Document not found." });
+      throw Errors.notFound("Document not found.");
+    }
+    if (docRows[0].archivedAt) {
+      throw Errors.conflict("Archived documents cannot receive new versions until restored.");
     }
 
     const duplicate = await db
@@ -704,34 +755,39 @@ lihokCorporateRouter.post("/versions", async (c) => {
       )
       .limit(1);
     if (duplicate.length) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Version number already exists for this document." });
+      throw Errors.badRequest("Version number already exists for this document.");
     }
 
     const now = new Date();
-    const inserted = await db
-      .insert(lihokCorporateDocumentVersions)
-      .values({
+    const versionId = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(lihokCorporateDocumentVersions)
+        .values({
+          documentId: input.documentId,
+          versionNumber: input.versionNumber,
+          title: input.title,
+          description: input.description ?? null,
+          classification: input.classification,
+          ownerName: input.ownerName ?? null,
+          effectiveDate: input.effectiveDate ?? null,
+          changeNotes: input.changeNotes ?? null,
+          uploadedBy: user.id,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: lihokCorporateDocumentVersions.id });
+
+      const newVersionId = inserted[0].id;
+
+      await logAudit(tx, {
         documentId: input.documentId,
-        versionNumber: input.versionNumber,
-        title: input.title,
-        description: input.description ?? null,
-        classification: input.classification,
-        ownerName: input.ownerName ?? null,
-        effectiveDate: input.effectiveDate ?? null,
-        changeNotes: input.changeNotes ?? null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: lihokCorporateDocumentVersions.id });
+        versionId: newVersionId,
+        action: "version.created",
+        actor: user,
+        newValue: { ...input },
+      });
 
-    const versionId = inserted[0].id;
-
-    await logAudit({
-      documentId: input.documentId,
-      versionId,
-      action: "version.created",
-      actor: user,
-      newValue: { ...input },
+      return newVersionId;
     });
 
     return c.json({ version: { id: versionId } }, 201);
@@ -744,7 +800,6 @@ lihokCorporateRouter.post("/versions", async (c) => {
 lihokCorporateRouter.patch("/versions/:id", async (c) => {
   try {
     const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
 
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid version id." }, 400);
@@ -773,43 +828,50 @@ lihokCorporateRouter.patch("/versions/:id", async (c) => {
     const existing = existingRows[0];
 
     if (existing.documentId !== input.documentId) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Version does not belong to the specified document." });
+      throw Errors.badRequest("Version does not belong to the specified document.");
     }
 
-    // Approved versions must not be destructively overwritten.
-    if (existing.status === "approved" || existing.status === "superseded") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Approved or superseded versions cannot be edited directly. Create a new version or use status transition.",
+    // Approved, superseded and archived versions are immutable.
+    if (existing.status === "approved" || existing.status === "superseded" || existing.status === "archived") {
+      throw Errors.forbidden(
+        "Approved, superseded or archived versions cannot be edited directly. Create a new version or use status transition.",
+      );
+    }
+
+    const versionId = await db.transaction(async (tx) => {
+      const updateData: Partial<typeof lihokCorporateDocumentVersions.$inferInsert> = {
+        updatedAt: new Date(),
+      };
+      if (input.title !== undefined) updateData.title = input.title;
+      if (input.description !== undefined) updateData.description = input.description;
+      if (input.classification !== undefined) updateData.classification = input.classification;
+      if (input.ownerName !== undefined) updateData.ownerName = input.ownerName;
+      if (input.effectiveDate !== undefined) updateData.effectiveDate = input.effectiveDate;
+      if (input.changeNotes !== undefined) updateData.changeNotes = input.changeNotes;
+
+      const updated = await tx
+        .update(lihokCorporateDocumentVersions)
+        .set(updateData)
+        .where(eq(lihokCorporateDocumentVersions.id, id))
+        .returning({ id: lihokCorporateDocumentVersions.id });
+
+      if (!updated.length) {
+        throw Errors.notFound("Version not found.");
+      }
+
+      await logAudit(tx, {
+        documentId: existing.documentId,
+        versionId: id,
+        action: "version.updated",
+        actor: user,
+        oldValue: { ...existing },
+        newValue: { ...updateData },
       });
-    }
 
-    const updateData: Partial<typeof lihokCorporateDocumentVersions.$inferInsert> = {
-      updatedAt: new Date(),
-    };
-    if (input.title !== undefined) updateData.title = input.title;
-    if (input.description !== undefined) updateData.description = input.description;
-    if (input.classification !== undefined) updateData.classification = input.classification;
-    if (input.ownerName !== undefined) updateData.ownerName = input.ownerName;
-    if (input.effectiveDate !== undefined) updateData.effectiveDate = input.effectiveDate;
-    if (input.changeNotes !== undefined) updateData.changeNotes = input.changeNotes;
-
-    const updated = await db
-      .update(lihokCorporateDocumentVersions)
-      .set(updateData)
-      .where(eq(lihokCorporateDocumentVersions.id, id))
-      .returning({ id: lihokCorporateDocumentVersions.id });
-
-    await logAudit({
-      documentId: existing.documentId,
-      versionId: id,
-      action: "version.updated",
-      actor: user,
-      oldValue: { ...existing },
-      newValue: { ...updateData },
+      return updated[0].id;
     });
 
-    return c.json({ version: updated[0] });
+    return c.json({ version: { id: versionId } });
   } catch (error) {
     const { status, body } = handleError(error);
     return c.json(body, status);
@@ -823,7 +885,6 @@ lihokCorporateRouter.patch("/versions/:id", async (c) => {
 lihokCorporateRouter.post("/versions/transition", async (c) => {
   try {
     const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
 
     const input = transitionStatusSchema.parse(await c.req.json());
 
@@ -833,6 +894,14 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
         documentId: lihokCorporateDocumentVersions.documentId,
         versionNumber: lihokCorporateDocumentVersions.versionNumber,
         status: lihokCorporateDocumentVersions.status,
+        fileName: lihokCorporateDocumentVersions.fileName,
+        fileSize: lihokCorporateDocumentVersions.fileSize,
+        mimeType: lihokCorporateDocumentVersions.mimeType,
+        storageProvider: lihokCorporateDocumentVersions.storageProvider,
+        storageBucket: lihokCorporateDocumentVersions.storageBucket,
+        storagePath: lihokCorporateDocumentVersions.storagePath,
+        storageUploadedAt: lihokCorporateDocumentVersions.storageUploadedAt,
+        uploadedBy: lihokCorporateDocumentVersions.uploadedBy,
         approvedAt: lihokCorporateDocumentVersions.approvedAt,
         approvedBy: lihokCorporateDocumentVersions.approvedBy,
       })
@@ -846,87 +915,104 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
       .limit(1);
 
     if (!versionRows.length) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "Version not found." });
+      throw Errors.notFound("Version not found.");
     }
 
     const version = versionRows[0];
     const fromStatus = parseStatus(version.status);
     const toStatus = parseStatus(input.status);
 
-    if (!isValidStatusTransition(fromStatus, toStatus)) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `Invalid status transition from ${fromStatus} to ${toStatus}.`,
-      });
+    if (toStatus === "superseded") {
+      throw Errors.badRequest("Supersession occurs automatically when a new version is approved.");
     }
 
-    const now = new Date();
-    const updateData: Partial<typeof lihokCorporateDocumentVersions.$inferInsert> = {
-      status: toStatus,
-      updatedAt: now,
-    };
+    if (fromStatus === toStatus) {
+      return c.json({ version: { id: version.id, status: version.status } });
+    }
+
+    if (!isValidStatusTransition(fromStatus, toStatus)) {
+      throw Errors.badRequest(`Invalid status transition from ${fromStatus} to ${toStatus}.`);
+    }
+
+    if ((toStatus === "for_review" || toStatus === "approved") && !hasCompletedStorage(version)) {
+      throw Errors.badRequest("A completed file upload is required before review or approval.");
+    }
 
     if (toStatus === "approved") {
-      updateData.approvedBy = user.id;
-      updateData.approvedAt = now;
-
-      // Supersede any previously approved version for this document.
-      const previousApproved = await db
-        .select({ id: lihokCorporateDocumentVersions.id })
-        .from(lihokCorporateDocumentVersions)
-        .where(
-          and(
-            eq(lihokCorporateDocumentVersions.documentId, input.documentId),
-            eq(lihokCorporateDocumentVersions.status, "approved"),
-            sql`${lihokCorporateDocumentVersions.id} <> ${input.versionId}`,
-          ),
-        )
-        .limit(1);
-
-      if (previousApproved.length) {
-        await db
-          .update(lihokCorporateDocumentVersions)
-          .set({
-            status: "superseded",
-            supersededByVersionId: input.versionId,
-            updatedAt: now,
-          })
-          .where(eq(lihokCorporateDocumentVersions.id, previousApproved[0].id));
-
-        await logAudit({
-          documentId: input.documentId,
-          versionId: previousApproved[0].id,
-          action: "version.superseded",
-          actor: user,
-          newValue: { supersededByVersionId: input.versionId },
-        });
+      requireAdmin(user);
+      if (version.uploadedBy === user.id) {
+        throw Errors.forbidden("Uploaders cannot approve their own versions.");
       }
     }
 
-    if (toStatus === "superseded" && !updateData.supersededByVersionId) {
-      // A manual supersede requires the caller to provide the successor version id.
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Manual supersede requires a target successor version. Use the approve transition to supersede automatically.",
+    const now = new Date();
+
+    const updatedVersion = await db.transaction(async (tx) => {
+      const updateData: Partial<typeof lihokCorporateDocumentVersions.$inferInsert> = {
+        status: toStatus,
+        updatedAt: now,
+      };
+
+      if (toStatus === "approved") {
+        updateData.approvedBy = user.id;
+        updateData.approvedAt = now;
+
+        // Supersede any previously approved version for this document.
+        const previousApproved = await tx
+          .select({ id: lihokCorporateDocumentVersions.id })
+          .from(lihokCorporateDocumentVersions)
+          .where(
+            and(
+              eq(lihokCorporateDocumentVersions.documentId, input.documentId),
+              eq(lihokCorporateDocumentVersions.status, "approved"),
+              sql`${lihokCorporateDocumentVersions.id} <> ${input.versionId}`,
+            ),
+          )
+          .limit(1);
+
+        if (previousApproved.length) {
+          await tx
+            .update(lihokCorporateDocumentVersions)
+            .set({
+              status: "superseded",
+              supersededByVersionId: input.versionId,
+              updatedAt: now,
+            })
+            .where(eq(lihokCorporateDocumentVersions.id, previousApproved[0].id));
+
+          await logAudit(tx, {
+            documentId: input.documentId,
+            versionId: previousApproved[0].id,
+            action: "version.superseded",
+            actor: user,
+            newValue: { supersededByVersionId: input.versionId },
+          });
+        }
+      }
+
+      const updated = await tx
+        .update(lihokCorporateDocumentVersions)
+        .set(updateData)
+        .where(eq(lihokCorporateDocumentVersions.id, input.versionId))
+        .returning({ id: lihokCorporateDocumentVersions.id, status: lihokCorporateDocumentVersions.status });
+
+      if (!updated.length) {
+        throw Errors.notFound("Version not found.");
+      }
+
+      await logAudit(tx, {
+        documentId: input.documentId,
+        versionId: input.versionId,
+        action: "version.status_changed",
+        actor: user,
+        oldValue: { status: fromStatus },
+        newValue: { status: toStatus, changeNotes: input.changeNotes ?? null },
       });
-    }
 
-    const updated = await db
-      .update(lihokCorporateDocumentVersions)
-      .set(updateData)
-      .where(eq(lihokCorporateDocumentVersions.id, input.versionId))
-      .returning({ id: lihokCorporateDocumentVersions.id, status: lihokCorporateDocumentVersions.status });
-
-    await logAudit({
-      documentId: input.documentId,
-      versionId: input.versionId,
-      action: "version.status_changed",
-      actor: user,
-      oldValue: { status: fromStatus },
-      newValue: { status: toStatus, changeNotes: input.changeNotes ?? null },
+      return updated[0];
     });
 
-    return c.json({ version: updated[0] });
+    return c.json({ version: updatedVersion });
   } catch (error) {
     const { status, body } = handleError(error);
     return c.json(body, status);
@@ -939,8 +1025,7 @@ lihokCorporateRouter.post("/versions/transition", async (c) => {
 
 lihokCorporateRouter.get("/documents/:id/audit", async (c) => {
   try {
-    const user = await requireUser(c.req.raw.headers);
-    if (!user) return c.json({ error: "Authentication required." }, 401);
+    await requireUser(c.req.raw.headers);
 
     const documentId = Number(c.req.param("id"));
     if (!Number.isInteger(documentId) || documentId <= 0) return c.json({ error: "Invalid document id." }, 400);

@@ -9,6 +9,7 @@ export const Errors = {
   unauthorized: (msg: string) => appError(401, msg),
   forbidden: (msg: string) => appError(403, msg),
   notFound: (msg: string) => appError(404, msg),
+  conflict: (msg: string) => appError(409, msg),
   internal: (msg: string) => appError(500, msg),
 } as const;
 

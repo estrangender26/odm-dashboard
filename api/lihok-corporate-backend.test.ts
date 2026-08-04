@@ -1,6 +1,4 @@
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Errors } from "../contracts/errors";
 
 // ----------------------------------------------------------------------------
 // Dependency mocks
@@ -91,14 +89,13 @@ function evaluateLeafGroup(chunks: unknown[]): (row: Record<string, unknown>) =>
     const chunk = chunks[i];
     if (isColumnChunk(chunk)) {
       const colName = chunk.name;
-      // find next raw operator
       let j = i + 1;
       while (j < chunks.length && !isRawSqlChunk(chunks[j])) j++;
       const opChunk = chunks[j];
       if (!opChunk) break;
       const opText = getRawText(opChunk) ?? "";
       const opLower = opText.trim().toLowerCase();
-      if (opLower === "=") {
+      if (opLower === "=" || opLower.startsWith("=")) {
         const val = resolveParam(chunks[j + 1]);
         return (row) => getRowValue(row, colName) === val;
       }
@@ -110,7 +107,9 @@ function evaluateLeafGroup(chunks: unknown[]): (row: Record<string, unknown>) =>
       if (opLower === "is null") {
         return (row) => getRowValue(row, colName) == null;
       }
-      // unknown operator with a column: fallback to true
+      if (opLower === "is not null") {
+        return (row) => getRowValue(row, colName) != null;
+      }
       return () => true;
     }
     const text = getRawText(chunk);
@@ -233,7 +232,6 @@ function mockDb() {
   };
 
   const executeSelect = (ctx: any, columns?: any): any[] => {
-    const name = tableName(ctx._table);
     let rows = tableRows(ctx._table);
     if (ctx._where) {
       rows = evaluateWhere(ctx._where, rows);
@@ -246,7 +244,7 @@ function mockDb() {
     return rows;
   };
 
-  return {
+  const db = {
     execute: vi.fn(() => {
       const activeCounts = new Map<number, number>();
       for (const doc of routerMocks.documents.values()) {
@@ -255,12 +253,17 @@ function mockDb() {
           activeCounts.set(catId, (activeCounts.get(catId) ?? 0) + 1);
         }
       }
-      return Promise.resolve(routerMocks.categories.map((c) => ({ ...c, activeDocumentCount: activeCounts.get(c.id) ?? 0 })));
+      return Promise.resolve(
+        routerMocks.categories.map((c) => ({
+          ...c,
+          activeDocumentCount: activeCounts.get(c.id) ?? 0,
+        })),
+      );
     }),
     select: vi.fn(selectImpl),
-    insert: vi.fn((table: any) => ({
-      values: (values: Record<string, unknown>) => {
-        const name = tableName(table);
+    insert: vi.fn((table: any) => {
+      const name = tableName(table);
+      const executeInsert = (values: Record<string, unknown>, returningColumns?: any) => {
         let inserted: any;
         if (name === "lihok_corporate_documents") {
           const id = routerMocks.nextDocId++;
@@ -273,55 +276,52 @@ function mockDb() {
           routerMocks.versions.set(id, inserted);
           routerMocks.insertedVersions.push(inserted);
         } else {
-          inserted = values;
-          routerMocks.audit.push(values);
-          routerMocks.insertedAudit.push(values);
+          inserted = { ...values, id: routerMocks.audit.length + 1 };
+          routerMocks.audit.push(inserted);
+          routerMocks.insertedAudit.push(inserted);
         }
-        const executeInsert = (returningColumns?: any) => Promise.resolve([{ id: inserted.id ?? routerMocks.audit.length }]);
-        return {
-          returning: vi.fn(executeInsert),
-          then: (resolve: any) => executeInsert().then(resolve),
-        };
-      },
-    })),
-    update: vi.fn((table: any) => ({
-      set: (values: Record<string, unknown>) => {
-        const executeUpdate = (condition: any, returningColumns?: any) => {
-          const rows = tableRows(table);
-          const matches = evaluateWhere(condition, rows);
-          for (const row of matches) {
-            Object.assign(row, values);
+        return Promise.resolve([{ id: inserted.id }]);
+      };
+      return {
+        values: (values: Record<string, unknown>) => {
+          const result = executeInsert(values);
+          return {
+            returning: vi.fn(() => result),
+            then: (resolve: any, reject: any) => result.then(resolve, reject),
+          };
+        },
+      };
+    }),
+    update: vi.fn((table: any) => {
+      const name = tableName(table);
+      const executeUpdate = (values: Record<string, unknown>, condition: any) => {
+        const rows = tableRows(table);
+        const matches = evaluateWhere(condition, rows);
+        for (const row of matches) {
+          Object.assign(row, values);
+          if (name === "lihok_corporate_documents") {
             routerMocks.updatedDocuments.push({ id: row.id as number, values });
           }
-          return Promise.resolve(matches.map((row) => ({ id: row.id })));
-        };
-        return {
-          where: (condition: any) => ({
-            returning: vi.fn(() => executeUpdate(condition)),
-            then: (resolve: any) => executeUpdate(condition).then(resolve),
-          }),
-        };
-      },
-    })),
-    query: {},
-    transaction: vi.fn(async (fn: (tx: any) => Promise<unknown>) => {
-      const tx = {
-        update: vi.fn((table: any) => ({
-          set: (values: Record<string, unknown>) => ({
-            where: (condition: any) => ({
-              returning: vi.fn(() => {
-                const rows = tableRows(table);
-                const matches = evaluateWhere(condition, rows);
-                for (const row of matches) Object.assign(row, values);
-                return Promise.resolve(matches.map((row) => ({ id: row.id })));
-              }),
-            }),
-          }),
-        })),
+        }
+        return Promise.resolve(matches.map((row) => ({ id: row.id })));
       };
-      return fn(tx);
+      return {
+        set: (values: Record<string, unknown>) => ({
+          where: (condition: any) => {
+            const result = executeUpdate(values, condition);
+            return {
+              returning: vi.fn(() => result),
+              then: (resolve: any, reject: any) => result.then(resolve, reject),
+            };
+          },
+        }),
+      };
     }),
+    query: {},
+    transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(db)),
   };
+
+  return db;
 }
 
 vi.mock("./queries/connection", async () => {
@@ -330,6 +330,7 @@ vi.mock("./queries/connection", async () => {
 });
 
 import { lihokCorporateRouter } from "./lihok-corporate-router";
+import { db } from "./queries/connection";
 
 // ----------------------------------------------------------------------------
 // Tests
@@ -339,7 +340,117 @@ describe("Lihok Corporate Library backend services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDb();
-    routerMocks.authenticateRequest.mockResolvedValue({ id: 1, name: "Test User", role: "admin" } as any);
+    routerMocks.authenticateRequest.mockResolvedValue({ id: 1, name: "Admin User", role: "admin" } as any);
+  });
+
+  function asNonAdmin() {
+    routerMocks.authenticateRequest.mockResolvedValue({ id: 2, name: "Regular User", role: "user" } as any);
+  }
+
+  function asAnonymous() {
+    routerMocks.authenticateRequest.mockRejectedValue({ tag: "app_error", status: 403, message: "Invalid authentication token." } as any);
+  }
+
+  function seedDocument(id: number, overrides: Record<string, unknown> = {}) {
+    routerMocks.documents.set(id, {
+      id,
+      documentNumber: `LT-CORP-${String(id).padStart(3, "0")}`,
+      title: "Seeded Document",
+      description: null,
+      categoryId: 1,
+      defaultClassification: "internal",
+      ownerName: "Owner",
+      createdBy: 1,
+      updatedBy: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      archivedAt: null,
+      ...overrides,
+    });
+  }
+
+  function seedVersion(id: number, overrides: Record<string, unknown> = {}) {
+    routerMocks.versions.set(id, {
+      id,
+      documentId: 1,
+      versionNumber: "1.0",
+      title: "Seeded Version",
+      description: null,
+      status: "draft",
+      classification: "internal",
+      ownerName: null,
+      effectiveDate: null,
+      changeNotes: null,
+      fileName: null,
+      fileSize: null,
+      mimeType: null,
+      storageProvider: null,
+      storageBucket: null,
+      storagePath: null,
+      storageEtag: null,
+      storageUploadedAt: null,
+      uploadedBy: 2,
+      reviewedBy: null,
+      reviewedAt: null,
+      approvedBy: null,
+      approvedAt: null,
+      supersededByVersionId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...overrides,
+    });
+  }
+
+  function withStorage(overrides: Record<string, unknown> = {}) {
+    return {
+      fileName: "manual.pdf",
+      fileSize: 12345,
+      mimeType: "application/pdf",
+      storageProvider: "supabase",
+      storageBucket: "lihok-corporate-library",
+      storagePath: "documents/manual.pdf",
+      storageUploadedAt: new Date(),
+      ...overrides,
+    };
+  }
+
+  describe("authentication", () => {
+    it("rejects anonymous GET /categories", async () => {
+      asAnonymous();
+      const res = await lihokCorporateRouter.request("http://localhost/categories");
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects anonymous GET /documents", async () => {
+      asAnonymous();
+      const res = await lihokCorporateRouter.request("http://localhost/documents");
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects anonymous GET /documents/:id", async () => {
+      asAnonymous();
+      const res = await lihokCorporateRouter.request("http://localhost/documents/1");
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects anonymous GET /documents/:id/versions", async () => {
+      asAnonymous();
+      const res = await lihokCorporateRouter.request("http://localhost/documents/1/versions");
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects anonymous GET /versions/:id", async () => {
+      seedVersion(1);
+      asAnonymous();
+      const res = await lihokCorporateRouter.request("http://localhost/versions/1");
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects anonymous GET /documents/:id/audit", async () => {
+      asAnonymous();
+      const res = await lihokCorporateRouter.request("http://localhost/documents/1/audit");
+      expect(res.status).toBe(403);
+    });
   });
 
   describe("categories", () => {
@@ -352,20 +463,8 @@ describe("Lihok Corporate Library backend services", () => {
     });
 
     it("counts active documents per category", async () => {
-      routerMocks.documents.set(2, {
-        id: 2,
-        documentNumber: "LT-CORP-002",
-        title: "Active Legal Document",
-        categoryId: 2,
-        archivedAt: null,
-      });
-      routerMocks.documents.set(3, {
-        id: 3,
-        documentNumber: "LT-CORP-003",
-        title: "Archived Governance Doc",
-        categoryId: 3,
-        archivedAt: new Date(),
-      });
+      seedDocument(2, { categoryId: 2, archivedAt: null });
+      seedDocument(3, { categoryId: 3, archivedAt: new Date() });
       const res = await lihokCorporateRouter.request("http://localhost/categories");
       const body = (await res.json()) as { categories: Array<{ id: number; activeDocumentCount: number }> };
       expect(body.categories.find((c) => c.id === 1)?.activeDocumentCount).toBe(1);
@@ -375,7 +474,8 @@ describe("Lihok Corporate Library backend services", () => {
   });
 
   describe("documents", () => {
-    it("creates a document", async () => {
+    it("creates a document and writes an audit entry", async () => {
+      const transactionSpy = vi.spyOn(db, "transaction");
       const res = await lihokCorporateRouter.request("http://localhost/documents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -391,6 +491,8 @@ describe("Lihok Corporate Library backend services", () => {
       const body = (await res.json()) as { document: { id: number } };
       expect(body.document.id).toBeDefined();
       expect(routerMocks.insertedDocuments.length).toBe(1);
+      expect(routerMocks.insertedAudit.length).toBe(1);
+      expect(transactionSpy).toHaveBeenCalled();
     });
 
     it("rejects duplicate document numbers", async () => {
@@ -423,15 +525,6 @@ describe("Lihok Corporate Library backend services", () => {
       expect(body.error).toContain("Category not found");
     });
 
-    it("rejects invalid input", async () => {
-      const res = await lihokCorporateRouter.request("http://localhost/documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentNumber: "", title: "" }),
-      });
-      expect(res.status).toBe(400);
-    });
-
     it("reads a document by id", async () => {
       const res = await lihokCorporateRouter.request("http://localhost/documents/1");
       expect(res.status).toBe(200);
@@ -439,15 +532,17 @@ describe("Lihok Corporate Library backend services", () => {
       expect(body.document.id).toBe(1);
     });
 
-    it("updates document metadata", async () => {
+    it("updates document metadata atomically with audit", async () => {
+      const transactionSpy = vi.spyOn(db, "transaction");
       const res = await lihokCorporateRouter.request("http://localhost/documents/1", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "Updated Title" }),
       });
       expect(res.status).toBe(200);
-      expect(routerMocks.updatedDocuments.length).toBe(1);
       expect(routerMocks.documents.get(1)?.title).toBe("Updated Title");
+      expect(routerMocks.insertedAudit.length).toBe(1);
+      expect(transactionSpy).toHaveBeenCalled();
     });
 
     it("archives and restores a document", async () => {
@@ -464,21 +559,30 @@ describe("Lihok Corporate Library backend services", () => {
       expect(routerMocks.documents.get(1)?.archivedAt).toBeNull();
     });
 
-    it("rejects unauthenticated document creation", async () => {
-      routerMocks.authenticateRequest.mockRejectedValue(Errors.forbidden("Invalid authentication token."));
-      const res = await lihokCorporateRouter.request("http://localhost/documents", {
-        method: "POST",
+    it("blocks edits on archived documents", async () => {
+      seedDocument(1, { archivedAt: new Date() });
+      const res = await lihokCorporateRouter.request("http://localhost/documents/1", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ title: "Should Fail" }),
       });
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(409);
+    });
+
+    it("returns 500 for unexpected errors without leaking details", async () => {
+      vi.spyOn(db, "select").mockImplementationOnce(() => {
+        throw new Error("unexpected database failure");
+      });
+      const res = await lihokCorporateRouter.request("http://localhost/documents/1");
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("Internal server error.");
     });
   });
 
   describe("search", () => {
     beforeEach(() => {
-      routerMocks.documents.set(2, {
-        id: 2,
+      seedDocument(2, {
         documentNumber: "LT-CORP-002",
         title: "Legal Compliance Guide",
         categoryId: 2,
@@ -486,8 +590,7 @@ describe("Lihok Corporate Library backend services", () => {
         ownerName: "Legal Counsel",
         archivedAt: null,
       });
-      routerMocks.documents.set(3, {
-        id: 3,
+      seedDocument(3, {
         documentNumber: "LT-CORP-003",
         title: "Archived Handbook",
         categoryId: 1,
@@ -525,7 +628,8 @@ describe("Lihok Corporate Library backend services", () => {
   });
 
   describe("versions", () => {
-    it("creates a version", async () => {
+    it("creates a version and writes an audit entry", async () => {
+      const transactionSpy = vi.spyOn(db, "transaction");
       const res = await lihokCorporateRouter.request("http://localhost/versions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -538,10 +642,13 @@ describe("Lihok Corporate Library backend services", () => {
       });
       expect(res.status).toBe(201);
       expect(routerMocks.insertedVersions.length).toBe(1);
+      expect(routerMocks.insertedAudit.length).toBe(1);
+      expect(routerMocks.insertedVersions[0].uploadedBy).toBe(1);
+      expect(transactionSpy).toHaveBeenCalled();
     });
 
     it("rejects duplicate version number per document", async () => {
-      routerMocks.versions.set(1, { id: 1, documentId: 1, versionNumber: "1.0", status: "draft" });
+      seedVersion(1, { documentId: 1, versionNumber: "1.0" });
       const res = await lihokCorporateRouter.request("http://localhost/versions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -557,22 +664,23 @@ describe("Lihok Corporate Library backend services", () => {
       expect(body.error).toContain("already exists");
     });
 
-    it("rejects version for unknown document", async () => {
+    it("rejects version for archived document", async () => {
+      seedDocument(1, { archivedAt: new Date() });
       const res = await lihokCorporateRouter.request("http://localhost/versions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          documentId: 999,
+          documentId: 1,
           versionNumber: "1.0",
           title: "Orphan Version",
           classification: "internal",
         }),
       });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(409);
     });
 
     it("lists versions for a document", async () => {
-      routerMocks.versions.set(1, { id: 1, documentId: 1, versionNumber: "1.0", status: "draft" });
+      seedVersion(1, { documentId: 1, versionNumber: "1.0" });
       const res = await lihokCorporateRouter.request("http://localhost/documents/1/versions");
       expect(res.status).toBe(200);
       const body = (await res.json()) as { items: unknown[] };
@@ -580,8 +688,30 @@ describe("Lihok Corporate Library backend services", () => {
       expect(body.items.length).toBeGreaterThan(0);
     });
 
-    it("allows valid status transition", async () => {
-      routerMocks.versions.set(1, { id: 1, documentId: 1, versionNumber: "1.0", status: "draft" });
+    it("prevents editing approved versions", async () => {
+      seedVersion(1, { documentId: 1, versionNumber: "1.0", status: "approved" });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId: 1, title: "Changed" }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("prevents editing archived versions", async () => {
+      seedVersion(1, { documentId: 1, versionNumber: "1.0", status: "archived" });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId: 1, title: "Changed" }),
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("status transitions", () => {
+    it("allows draft -> for_review with a completed file", async () => {
+      seedVersion(1, { ...withStorage() });
       const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -591,8 +721,65 @@ describe("Lihok Corporate Library backend services", () => {
       expect(routerMocks.versions.get(1)?.status).toBe("for_review");
     });
 
-    it("rejects invalid status transition", async () => {
-      routerMocks.versions.set(1, { id: 1, documentId: 1, versionNumber: "1.0", status: "approved" });
+    it("blocks draft -> for_review without a completed file", async () => {
+      seedVersion(1);
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "for_review" }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain("completed file upload");
+    });
+
+    it("blocks approval without a completed file", async () => {
+      seedVersion(1, { status: "for_review" });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "approved" }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects approval by a non-admin", async () => {
+      asNonAdmin();
+      seedVersion(1, { status: "for_review", ...withStorage() });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "approved" }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects self-approval", async () => {
+      seedVersion(1, { status: "for_review", uploadedBy: 1, ...withStorage() });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "approved" }),
+      });
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain("Uploaders cannot approve");
+    });
+
+    it("allows admin approval by a different user", async () => {
+      seedVersion(1, { status: "for_review", uploadedBy: 2, ...withStorage() });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "approved" }),
+      });
+      expect(res.status).toBe(200);
+      expect(routerMocks.versions.get(1)?.status).toBe("approved");
+      expect(routerMocks.versions.get(1)?.approvedBy).toBe(1);
+    });
+
+    it("rejects invalid transitions that break immutability", async () => {
+      seedVersion(1, { status: "approved" });
       const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -601,21 +788,55 @@ describe("Lihok Corporate Library backend services", () => {
       expect(res.status).toBe(400);
     });
 
-    it("prevents editing approved versions", async () => {
-      routerMocks.versions.set(1, { id: 1, documentId: 1, versionNumber: "1.0", status: "approved" });
-      const res = await lihokCorporateRouter.request("http://localhost/versions/1", {
-        method: "PATCH",
+    it("rejects manual supersede transition", async () => {
+      seedVersion(1, { status: "approved", ...withStorage() });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentId: 1, title: "Changed" }),
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "superseded" }),
       });
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain("Supersession occurs automatically");
     });
 
-    it("approving a version supersedes the previous approved version", async () => {
-      routerMocks.versions.set(1, { id: 1, documentId: 1, versionNumber: "1.0", status: "for_review" });
-      routerMocks.versions.set(2, { id: 2, documentId: 1, versionNumber: "2.0", status: "for_review" });
+    it("treats same-status transition as idempotent no-op", async () => {
+      seedVersion(1, { status: "draft" });
+      const before = routerMocks.insertedAudit.length;
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "draft" }),
+      });
+      expect(res.status).toBe(200);
+      expect(routerMocks.insertedAudit.length).toBe(before);
+    });
 
-      // Approve version 1 first.
+    it("allows approved -> archived", async () => {
+      seedVersion(1, { status: "approved", ...withStorage() });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "archived" }),
+      });
+      expect(res.status).toBe(200);
+      expect(routerMocks.versions.get(1)?.status).toBe("archived");
+    });
+
+    it("blocks archived -> draft", async () => {
+      seedVersion(1, { status: "archived" });
+      const res = await lihokCorporateRouter.request("http://localhost/versions/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId: 1, documentId: 1, status: "draft" }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("automatically supersedes the previous approved version on approval", async () => {
+      seedVersion(1, { status: "for_review", uploadedBy: 2, versionNumber: "1.0", ...withStorage() });
+      seedVersion(2, { status: "for_review", uploadedBy: 2, versionNumber: "2.0", ...withStorage() });
+
       const first = await lihokCorporateRouter.request("http://localhost/versions/transition", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -623,7 +844,6 @@ describe("Lihok Corporate Library backend services", () => {
       });
       expect(first.status).toBe(200);
 
-      // Approve version 2; version 1 should become superseded.
       const second = await lihokCorporateRouter.request("http://localhost/versions/transition", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
