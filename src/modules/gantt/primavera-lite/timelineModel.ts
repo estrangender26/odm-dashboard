@@ -1,4 +1,7 @@
-import { addDays, differenceInCalendarDays, format, parseISO, startOfDay } from "date-fns";
+import {
+  addDays, addMonths, addQuarters, addWeeks, differenceInCalendarDays, format,
+  parseISO, startOfDay, startOfMonth, startOfQuarter, startOfWeek,
+} from "date-fns";
 import type { ActivityGridRow } from "./activityGridModel";
 
 export type TimelineZoom = "day" | "week" | "month" | "quarter";
@@ -21,20 +24,20 @@ export function parseTimelineDate(value: TimelineDate): Date | null {
 export function plannedDates(activity: TimelineActivity) {
   const plannedStart = parseTimelineDate(activity.plannedStart);
   const plannedFinish = parseTimelineDate(activity.plannedFinish);
-  if (plannedStart && plannedFinish) return { start: plannedStart, finish: plannedFinish, source: "planned" as const };
+  if (plannedStart && plannedFinish && plannedFinish >= plannedStart) return { start: plannedStart, finish: plannedFinish, source: "planned" as const };
   const earlyStart = parseTimelineDate(activity.earlyStart);
   const earlyFinish = parseTimelineDate(activity.earlyFinish);
-  return earlyStart && earlyFinish ? { start: earlyStart, finish: earlyFinish, source: "early" as const } : null;
+  return earlyStart && earlyFinish && earlyFinish >= earlyStart ? { start: earlyStart, finish: earlyFinish, source: "early" as const } : null;
 }
 
 export function actualDates(activity: TimelineActivity) {
   const start = parseTimelineDate(activity.actualStart);
   const finish = parseTimelineDate(activity.actualFinish);
-  return start && finish ? { start, finish } : null;
+  return start && finish && finish >= start ? { start, finish } : null;
 }
 
-export function isMilestone(activity: TimelineActivity): boolean {
-  return activity.activityType === "milestone";
+export function isMilestone(activity: TimelineActivity, dates = plannedDates(activity)): boolean {
+  return activity.activityType === "milestone" || Boolean(dates && differenceInCalendarDays(dates.finish, dates.start) === 0);
 }
 
 export function timelineRange(activities: TimelineActivity[], dataDate?: TimelineDate, today = new Date()) {
@@ -65,10 +68,27 @@ export function timelineSpan(start: Date, finish: Date, pixelsPerDay: number): n
 }
 
 export function headerTicks(start: Date, days: number, zoom: TimelineZoom) {
-  const step = zoom === "day" ? 1 : zoom === "week" ? 7 : zoom === "month" ? 30 : 90;
-  return Array.from({ length: Math.ceil(days / step) }, (_, index) => {
-    const date = addDays(start, index * step);
-    const label = zoom === "day" ? format(date, "MMM d") : zoom === "week" ? format(date, "MMM d") : format(date, "MMM yyyy");
-    return { date, label, spanDays: Math.min(step, days - index * step) };
-  });
+  const finish = addDays(start, days - 1);
+  const periodStart = zoom === "day" ? startOfDay : zoom === "week"
+    ? (date: Date) => startOfWeek(date, { weekStartsOn: 1 })
+    : zoom === "month" ? startOfMonth : startOfQuarter;
+  const nextPeriod = zoom === "day" ? (date: Date) => addDays(date, 1) : zoom === "week"
+    ? (date: Date) => addWeeks(date, 1)
+    : zoom === "month" ? (date: Date) => addMonths(date, 1) : (date: Date) => addQuarters(date, 1);
+  const labelFor = (date: Date) => zoom === "day" ? format(date, "MMM d")
+    : zoom === "week" ? `Week of ${format(date, "MMM d")}`
+    : zoom === "month" ? format(date, "MMM yyyy") : `Q${Math.floor(date.getMonth() / 3) + 1} ${format(date, "yyyy")}`;
+  const ticks: Array<{ date: Date; label: string; offsetDays: number; spanDays: number }> = [];
+  for (let period = periodStart(start); period <= finish; period = nextPeriod(period)) {
+    const segmentStart = period < start ? start : period;
+    const periodFinish = addDays(nextPeriod(period), -1);
+    const segmentFinish = periodFinish > finish ? finish : periodFinish;
+    ticks.push({
+      date: period,
+      label: labelFor(period),
+      offsetDays: differenceInCalendarDays(segmentStart, start),
+      spanDays: differenceInCalendarDays(segmentFinish, segmentStart) + 1,
+    });
+  }
+  return ticks;
 }

@@ -17,6 +17,8 @@ export type ActivityGridRow = {
   archivedAt?: string | Date | null;
 };
 
+export const SCHEDULE_ROW_HEIGHT = 40;
+
 export function sortActivities<T extends Pick<ActivityGridRow, "id" | "wbsNodeId" | "sortOrder">>(rows: T[]): T[] {
   return [...rows].sort((a, b) =>
     a.wbsNodeId - b.wbsNodeId || a.sortOrder - b.sortOrder || a.id - b.id

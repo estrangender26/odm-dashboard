@@ -21,6 +21,7 @@ export default function PrimaveraLiteProjectPage() {
   const [expectedRevision, setExpectedRevision] = useState(0);
   const [isEditingActivity, setIsEditingActivity] = useState(false);
   const [highlightedActivityId, setHighlightedActivityId] = useState<number | null>(null);
+  const [scheduleScrollTop, setScheduleScrollTop] = useState(0);
 
   useEffect(() => {
     if (access) {
@@ -118,10 +119,12 @@ export default function PrimaveraLiteProjectPage() {
               activities={data.activities} wbsNodes={data.wbsNodes} calendars={data.calendars}
               onRevisionChange={setExpectedRevision} onRefresh={() => refetch()}
               onEditingChange={setIsEditingActivity} highlightedActivityId={highlightedActivityId}
-              onActivityHighlight={setHighlightedActivityId} />
+              onActivityHighlight={setHighlightedActivityId} verticalScrollTop={scheduleScrollTop}
+              onVerticalScroll={setScheduleScrollTop} />
 
             <Timeline activities={data.activities} dataDate={data.project.dataDate}
-              highlightedActivityId={highlightedActivityId} onActivityHighlight={setHighlightedActivityId} />
+              highlightedActivityId={highlightedActivityId} onActivityHighlight={setHighlightedActivityId}
+              verticalScrollTop={scheduleScrollTop} onVerticalScroll={setScheduleScrollTop} />
           </CardContent>
         </Card>
       </div>

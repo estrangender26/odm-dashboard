@@ -26,5 +26,15 @@ describe("Timeline", () => {
     const html = renderToStaticMarkup(createElement(Timeline, { highlightedActivityId: 1, activities: [{ ...base, ...dated, id: 2, sortOrder: 1, activityName: "Second" }, { ...base, ...dated, activityName: "First" }] }));
     expect(html.indexOf("Highlight First")).toBeLessThan(html.indexOf("Highlight Second"));
     expect(html).toContain("bg-blue-50");
+    expect(html).toContain("height:40px");
+    expect(html).toContain('data-testid="timeline-scroll-viewport"');
+  });
+  it("renders an invalid-range row as No dates without a bar", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, plannedStart: "2026-08-01", plannedFinish: "2026-08-03" },
+      { ...base, id: 2, sortOrder: 1, activityName: "Invalid", plannedStart: "2026-08-10", plannedFinish: "2026-08-09" },
+    ] }));
+    expect(html.match(/aria-label="Planned bar"/g)).toHaveLength(1);
+    expect(html).toContain("No dates");
   });
 });

@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { sortActivities, type ActivityGridRow } from "./activityGridModel";
+import { SCHEDULE_ROW_HEIGHT, sortActivities, type ActivityGridRow } from "./activityGridModel";
 import {
   ZOOM_PIXELS_PER_DAY, actualDates, headerTicks, isMilestone, plannedDates,
   parseTimelineDate, timelinePosition, timelineRange, timelineSpan, type TimelineZoom,
@@ -11,11 +11,11 @@ type Props = {
   dataDate?: string | null;
   highlightedActivityId?: number | null;
   onActivityHighlight?: (activityId: number | null) => void;
+  verticalScrollTop?: number;
+  onVerticalScroll?: (scrollTop: number) => void;
 };
 
-const ROW_HEIGHT = 40;
-
-export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight }: Props) {
+export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll }: Props) {
   const activities = useMemo(() => sortActivities(input), [input]);
   const [zoom, setZoom] = useState<TimelineZoom>("week");
   const [fitPixelsPerDay, setFitPixelsPerDay] = useState<number | null>(null);
@@ -23,6 +23,12 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
   const range = useMemo(() => timelineRange(activities, dataDate), [activities, dataDate]);
   const projectDataDate = useMemo(() => parseTimelineDate(dataDate), [dataDate]);
   const pixelsPerDay = fitPixelsPerDay ?? ZOOM_PIXELS_PER_DAY[zoom];
+
+  useEffect(() => {
+    if (viewportRef.current && verticalScrollTop !== undefined && viewportRef.current.scrollTop !== verticalScrollTop) {
+      viewportRef.current.scrollTop = verticalScrollTop;
+    }
+  }, [verticalScrollTop]);
 
   function selectZoom(value: TimelineZoom) {
     setZoom(value);
@@ -51,14 +57,14 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
       {!range ? (
         <div className="rounded border bg-white p-8 text-center text-sm text-muted-foreground">No dates</div>
       ) : (
-        <div ref={viewportRef} className="max-h-[520px] overflow-auto rounded border bg-white" data-testid="timeline-scroll-viewport">
+        <div ref={viewportRef} onScroll={(event) => onVerticalScroll?.(event.currentTarget.scrollTop)} className="max-h-[520px] overflow-auto rounded border bg-white" data-testid="timeline-scroll-viewport">
           <div className="relative min-w-full" style={{ width: range.days * pixelsPerDay }}>
             <div className="sticky top-0 z-20 flex h-10 border-b bg-slate-100/95 text-xs" data-testid="timeline-sticky-header">
               {headerTicks(range.start, range.days, zoom).map((tick) => (
                 <div key={tick.date.toISOString()} className="shrink-0 border-r px-1 py-2 text-center" style={{ width: tick.spanDays * pixelsPerDay }}>{tick.label}</div>
               ))}
             </div>
-            <div className="relative" style={{ height: activities.length * ROW_HEIGHT }}>
+            <div className="relative" style={{ height: activities.length * SCHEDULE_ROW_HEIGHT }}>
               {activities.map((activity, rowIndex) => {
                 const planned = plannedDates(activity);
                 const actual = actualDates(activity);
@@ -67,8 +73,8 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                   <button key={activity.id} type="button" aria-label={`Highlight ${activity.activityName}`}
                     onMouseEnter={() => onActivityHighlight?.(activity.id)} onMouseLeave={() => onActivityHighlight?.(null)} onFocus={() => onActivityHighlight?.(activity.id)}
                     className={`absolute left-0 w-full border-b text-left transition-colors ${highlighted ? "bg-blue-50" : "hover:bg-slate-50"}`}
-                    style={{ top: rowIndex * ROW_HEIGHT, height: ROW_HEIGHT }}>
-                    {planned && (isMilestone(activity) ? (
+                    style={{ top: rowIndex * SCHEDULE_ROW_HEIGHT, height: SCHEDULE_ROW_HEIGHT }}>
+                    {planned && (isMilestone(activity, planned) ? (
                       <span title={`${activity.activityName} milestone`} aria-label="Planned milestone" className="absolute top-3 h-4 w-4 rotate-45 border-2 border-blue-700 bg-blue-500"
                         style={{ left: timelinePosition(planned.start, range.start, pixelsPerDay) - 8 }} />
                     ) : (
@@ -77,6 +83,7 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                     ))}
                     {actual && <span title={`${activity.activityName}: actual dates`} aria-label="Actual bar" className="absolute top-6 h-2 rounded bg-emerald-600"
                       style={{ left: timelinePosition(actual.start, range.start, pixelsPerDay), width: timelineSpan(actual.start, actual.finish, pixelsPerDay) }} />}
+                    {!planned && !actual && <span className="absolute left-2 top-3 text-xs text-muted-foreground">No dates</span>}
                   </button>
                 );
               })}

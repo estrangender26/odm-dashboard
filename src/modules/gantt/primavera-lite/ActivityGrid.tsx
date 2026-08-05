@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, GripVertical, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,7 @@ import { trpc } from "@/providers/trpc";
 import {
   activityGridPermissions, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder,
   preserveConflictAttempt, selectValidNewWbs, sortActivities, validateActivityEdit,
-  type ActivityGridRow, type ConflictRecovery,
+  SCHEDULE_ROW_HEIGHT, type ActivityGridRow, type ConflictRecovery,
 } from "./activityGridModel";
 
 type WbsNode = { id: number; code: string; name: string; isLeaf: boolean; archivedAt?: string | Date | null };
@@ -26,6 +26,8 @@ type Props = {
   onEditingChange: (editing: boolean) => void;
   highlightedActivityId?: number | null;
   onActivityHighlight?: (activityId: number | null) => void;
+  verticalScrollTop?: number;
+  onVerticalScroll?: (scrollTop: number) => void;
 };
 
 export default function ActivityGrid(props: Props) {
@@ -42,7 +44,14 @@ export default function ActivityGrid(props: Props) {
   const [conflict, setConflict] = useState<ConflictRecovery>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<number | null>(null);
+  const rowsViewportRef = useRef<HTMLDivElement>(null);
   const selectedNewWbs = selectValidNewWbs(newWbs, leafNodes.map((node) => node.id));
+
+  useEffect(() => {
+    if (rowsViewportRef.current && props.verticalScrollTop !== undefined && rowsViewportRef.current.scrollTop !== props.verticalScrollTop) {
+      rowsViewportRef.current.scrollTop = props.verticalScrollTop;
+    }
+  }, [props.verticalScrollTop]);
 
   function setCachedActivities(updater: (rows: ActivityGridRow[]) => ActivityGridRow[]) {
     utils.primaveraLite.load.setData(queryInput, (current) => current ? { ...current, activities: updater(current.activities) } : current);
@@ -167,14 +176,15 @@ export default function ActivityGrid(props: Props) {
         </div>
       )}
       {message && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">{message}{conflict && <span> Your attempted value is preserved; retry the highlighted edit.</span>}</div>}
-      <div className="overflow-x-auto rounded border bg-white">
+      <div ref={rowsViewportRef} onScroll={(event) => props.onVerticalScroll?.(event.currentTarget.scrollTop)}
+        className="max-h-[520px] overflow-auto rounded border bg-white" data-testid="activity-grid-scroll-viewport">
         <table className="w-full min-w-[1050px] text-sm">
-          <thead className="bg-slate-100 text-left"><tr><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">Percent complete</th><th className="w-16 p-2">Archive</th></tr></thead>
+          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">Percent complete</th><th className="w-16 p-2">Archive</th></tr></thead>
           <tbody>{activities.map((activity) => (
             <tr key={activity.id} draggable={canEdit} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)}
               onMouseEnter={() => props.onActivityHighlight?.(activity.id)} onMouseLeave={() => props.onActivityHighlight?.(null)}
               onFocus={() => props.onActivityHighlight?.(activity.id)}
-              className={`border-t transition-colors ${props.highlightedActivityId === activity.id ? "bg-blue-50" : ""}`}>
+              style={{ height: SCHEDULE_ROW_HEIGHT }} className={`border-t transition-colors ${props.highlightedActivityId === activity.id ? "bg-blue-50" : ""}`}>
               <td className="p-2 text-slate-400">{canEdit && <GripVertical className="h-4 w-4 cursor-grab" />}</td>
               <td className="p-1">{editableCell(activity, "activityId")}</td><td className="p-1">{editableCell(activity, "activityName")}</td>
               <td className="p-1"><select disabled={!canEdit} value={activity.wbsNodeId} onChange={(e) => submitEdit(activity, "wbsNodeId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none">{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></td>
