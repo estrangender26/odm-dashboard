@@ -141,15 +141,15 @@ export async function checkLedgerAgainstJournal(
       }
     }
 
-    // Schema-present / ledger-absent drift detection for the latest migration.
-    // This specifically guards the 0020 production drift case: objects exist but
-    // the migrator has not yet recorded the migration as applied.
-    const latestEntry = journal.entries.at(-1);
-    if (latestEntry && !ledgerHashes.has(fileHash(latestEntry.tag))) {
-      const drift = await detectSchemaDrift(client, latestEntry.tag);
+    // Schema-present / ledger-absent drift detection for governed migrations.
+    // Check every unrecorded entry so adding a later migration does not disable
+    // drift detection for an earlier governed migration.
+    for (const entry of [...journal.entries].reverse()) {
+      if (ledgerHashes.has(fileHash(entry.tag))) continue;
+      const drift = await detectSchemaDrift(client, entry.tag);
       if (drift.present) {
         errors.push(
-          `schema-present/ledger-absent drift: ${latestEntry.tag} schema objects exist (${drift.objects.join(", ")}) but no matching ledger row was found`
+          `schema-present/ledger-absent drift: ${entry.tag} schema objects exist (${drift.objects.join(", ")}) but no matching ledger row was found`
         );
       }
     }
@@ -189,6 +189,16 @@ async function detectSchemaDrift(
         )[0] !== undefined;
       if (exists) objects.push(`${c.table}.${c.column}`);
     }
+  }
+
+  if (tag === "0021_primavera_lite_activity_grid") {
+    const column = await client`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'gantt_activities' AND column_name = 'sort_order'
+    `;
+    if (column.length > 0) objects.push("gantt_activities.sort_order");
+    const index = (await client`SELECT to_regclass('public.gantt_activities_order_idx') as e`)[0].e;
+    if (index !== null) objects.push("gantt_activities_order_idx");
   }
 
   return { present: objects.length > 0, objects };

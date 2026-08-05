@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import {
   computeRolePermissions,
@@ -12,14 +10,15 @@ import {
   stripTokenPath,
 } from "@/modules/gantt/primavera-lite/pageState";
 import WbsTree from "@/modules/gantt/primavera-lite/WbsTree";
+import ActivityGrid from "@/modules/gantt/primavera-lite/ActivityGrid";
 
 export default function PrimaveraLiteProjectPage() {
   const [searchParams] = useSearchParams();
   const slug = useMemo(() => window.location.pathname.split("/gantt/p/")[1] || "", []);
   const access = searchParams.get("access") || "";
 
-  const [activityName, setActivityName] = useState("");
   const [expectedRevision, setExpectedRevision] = useState(0);
+  const [isEditingActivity, setIsEditingActivity] = useState(false);
 
   useEffect(() => {
     if (access) {
@@ -30,35 +29,19 @@ export default function PrimaveraLiteProjectPage() {
 
   const { data, isLoading, error, refetch } = trpc.primaveraLite.load.useQuery(
     { slug, access },
-    { enabled: !!slug && !!access, refetchInterval: 5000 }
+    { enabled: !!slug && !!access, refetchInterval: isEditingActivity ? false : 5000 }
   );
 
   useEffect(() => {
     if (data) setExpectedRevision(data.revision);
   }, [data?.revision]);
 
-  const createActivity = trpc.primaveraLite.createActivity.useMutation({
-    onSuccess: (res) => {
-      setExpectedRevision(res.revision);
-      setActivityName("");
-      refetch();
-    },
-  });
-
   const archiveProjectDryRun = trpc.primaveraLite.archiveProjectDryRun.useMutation();
   const archiveProject = trpc.primaveraLite.archiveProject.useMutation({
     onSuccess: () => refetch(),
   });
 
-  const archiveActivityDryRun = trpc.primaveraLite.archiveActivityDryRun.useMutation();
-  const archiveActivity = trpc.primaveraLite.archiveActivity.useMutation({
-    onSuccess: (res) => {
-      setExpectedRevision(res.revision);
-      refetch();
-    },
-  });
-
-  const { canEdit, isAdmin } = computeRolePermissions(data?.role);
+  const { isAdmin } = computeRolePermissions(data?.role);
 
   const handleArchiveProject = async () => {
     const dryRun = await archiveProjectDryRun.mutateAsync({ slug, access, expectedRevision });
@@ -66,18 +49,6 @@ export default function PrimaveraLiteProjectPage() {
       slug,
       access,
       expectedRevision,
-      previewToken: dryRun.previewToken,
-      confirmed: true,
-    });
-  };
-
-  const handleArchiveActivity = async (activityId: number) => {
-    const dryRun = await archiveActivityDryRun.mutateAsync({ slug, access, expectedRevision, activityId });
-    await archiveActivity.mutateAsync({
-      slug,
-      access,
-      expectedRevision,
-      activityId,
       previewToken: dryRun.previewToken,
       confirmed: true,
     });
@@ -141,61 +112,10 @@ export default function PrimaveraLiteProjectPage() {
               </Button>
             )}
 
-            {canEdit && (
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <Label htmlFor="activityName">New activity</Label>
-                  <Input
-                    id="activityName"
-                    value={activityName}
-                    onChange={(e) => setActivityName(e.target.value)}
-                    placeholder="Activity name"
-                  />
-                </div>
-                <Button
-                  className="self-end"
-                  onClick={() =>
-                    createActivity.mutate({
-                      slug,
-                      access,
-                      expectedRevision,
-                      activity: { activityName },
-                    })
-                  }
-                  disabled={!activityName.trim() || createActivity.isPending}
-                >
-                  Add
-                </Button>
-              </div>
-            )}
-
-            <div>
-              <h3 className="mb-2 text-sm font-semibold">Activities</h3>
-              {data.activities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No activities yet.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {data.activities.map((activity) => (
-                    <li
-                      key={activity.id}
-                      className="flex items-center justify-between rounded border bg-white p-3"
-                    >
-                      <span className="text-sm">{activity.activityName}</span>
-                      {canEdit && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleArchiveActivity(activity.id)}
-                          disabled={archiveActivityDryRun.isPending || archiveActivity.isPending}
-                        >
-                          Archive
-                        </Button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <ActivityGrid slug={slug} access={access} role={data.role} expectedRevision={expectedRevision}
+              activities={data.activities} wbsNodes={data.wbsNodes} calendars={data.calendars}
+              onRevisionChange={setExpectedRevision} onRefresh={() => refetch()}
+              onEditingChange={setIsEditingActivity} />
           </CardContent>
         </Card>
       </div>
