@@ -81,12 +81,26 @@ describe("pageState helpers", () => {
     expect(result).toHaveLength(50);
   });
 
-  it("extracts admin token from a link", () => {
+  it("extracts admin token from an absolute link", () => {
     expect(extractTokenFromUrl(linkA.adminUrl)).toBe("admin-token-a");
+  });
+
+  it("extracts admin token from a relative createProject link", () => {
+    expect(extractTokenFromUrl("/gantt/p/project-a?access=admin-token-a")).toBe("admin-token-a");
+  });
+
+  it("extracts token from a relative link with a slug containing hyphens", () => {
+    expect(extractTokenFromUrl("/gantt/p/calawis-handover-abc123?access=xyz-123")).toBe("xyz-123");
   });
 
   it("returns null for a link without a token", () => {
     expect(extractTokenFromUrl("https://example.com/gantt/p/project-a")).toBeNull();
+    expect(extractTokenFromUrl("/gantt/p/project-a")).toBeNull();
+  });
+
+  it("returns null for malformed input", () => {
+    expect(extractTokenFromUrl("not a url")).toBeNull();
+    expect(extractTokenFromUrl("")).toBeNull();
   });
 
   it("strips token from the visible project path", () => {

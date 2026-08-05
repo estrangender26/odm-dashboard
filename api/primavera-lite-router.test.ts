@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { sql, eq, inArray } from "drizzle-orm";
 import { ganttProjects, ganttWbsNodes, ganttActivities, ganttProjectEvents } from "@db/schema";
 import { appRouter } from "./router";
+import { extractTokenFromUrl } from "@/modules/gantt/primavera-lite/pageState";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../db/schema";
@@ -68,6 +69,24 @@ describe("primaveraLite router PR1", () => {
     expect(rows[0].editorHash).not.toBe(extractToken(created.editorLink));
     expect(rows[0].viewerHash).not.toBe(extractToken(created.viewerLink));
     expect(rows[0].adminHash).toHaveLength(64);
+  });
+
+  it("regression: createProject link can be opened with the frontend helper", async () => {
+    // createProject returns a relative link such as /gantt/p/:slug?access=:token.
+    // The frontend extracts the token with extractTokenFromUrl and then loads.
+    const created = await caller.primaveraLite.createProject({ name: "PR1 Open Project Regression" });
+    createdProjectIds.push(created.project.id);
+
+    // Use the exact same helper the Open Project button uses.
+    const adminToken = extractTokenFromUrl(created.adminLink);
+    expect(adminToken).toBeTruthy();
+
+    const loaded = await caller.primaveraLite.load({ slug: created.project.slug, access: adminToken! });
+    expect(loaded.role).toBe("admin");
+    expect(loaded.project).toBeTruthy();
+    expect(loaded.project!.name).toBe("PR1 Open Project Regression");
+    expect(loaded.wbsNodes.length).toBe(1);
+    expect(loaded.wbsNodes[0].code).toBe("1");
   });
 
   it("loads project with role and returns creation event for sinceRevision: 0", async () => {
