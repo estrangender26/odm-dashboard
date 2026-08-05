@@ -39,7 +39,11 @@ export function addRememberedLink(
 
 export function extractTokenFromUrl(url: string): string | null {
   try {
-    return new URL(url).searchParams.get("access");
+    // createProject returns relative links such as /gantt/p/:slug?access=:token.
+    // new URL() requires an absolute URL, so we resolve against a safe origin
+    // and then read the access query parameter.
+    const resolved = new URL(url, "http://localhost");
+    return resolved.searchParams.get("access");
   } catch {
     return null;
   }
