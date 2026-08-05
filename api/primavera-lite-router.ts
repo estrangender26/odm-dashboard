@@ -109,6 +109,7 @@ const createActivityInputSchema = z.object({
   access: z.string().min(1),
   expectedRevision: z.number().int().nonnegative(),
   activity: activityInputSchema,
+  wbsNodeId: z.number().int().positive().optional(),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
@@ -140,6 +141,83 @@ const archiveActivityInputSchema = z.object({
   }),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
+
+const wbsActorSchema = z.string().max(MAX_ACTOR_NAME_LENGTH).optional();
+
+const wbsNodeSlugAccessSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+});
+
+const createWbsNodeInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  parentNodeId: z.number().int().nullable(),
+  name: z.string().min(1).max(500),
+  actorName: wbsActorSchema,
+});
+
+const renameWbsNodeInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  nodeId: z.number().int().positive(),
+  name: z.string().min(1).max(500),
+  actorName: wbsActorSchema,
+});
+
+const moveWbsNodeInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  nodeId: z.number().int().positive(),
+  newParentNodeId: z.number().int().nullable(),
+  actorName: wbsActorSchema,
+});
+
+const reorderWbsNodeInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  nodeId: z.number().int().positive(),
+  newSortOrder: z.number().int().min(0),
+  actorName: wbsActorSchema,
+});
+
+const archiveWbsNodeDryRunInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  nodeId: z.number().int().positive(),
+  actorName: wbsActorSchema,
+});
+
+const archiveWbsNodeInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  nodeId: z.number().int().positive(),
+  previewToken: z.string().min(1),
+  confirmed: z.boolean().refine((v) => v === true, {
+    message: "confirmed must be true",
+  }),
+  actorName: wbsActorSchema,
+});
+
+const restoreWbsNodeInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  nodeId: z.number().int().positive(),
+  confirmed: z.boolean().refine((v) => v === true, {
+    message: "confirmed must be true",
+  }),
+  actorName: wbsActorSchema,
+});
+
+const MAX_WBS_DEPTH = 20;
+
 
 type AccessRole = "admin" | "editor" | "viewer";
 
@@ -349,6 +427,156 @@ function mapActivityRow(activity: typeof ganttActivities.$inferSelect) {
     createdAt: activity.createdAt,
     updatedAt: activity.updatedAt,
   } as any;
+}
+
+
+function countCodeSegments(code: string): number {
+  return code.split(".").length;
+}
+
+function siblingIndexFromCode(code: string): number {
+  const last = code.split(".").pop() ?? "0";
+  const n = parseInt(last, 10);
+  return isNaN(n) ? 0 : n;
+}
+
+async function getActiveChildren(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  parentNodeId: number | null
+): Promise<typeof ganttWbsNodes.$inferSelect[]> {
+  return tx
+    .select()
+    .from(ganttWbsNodes)
+    .where(
+      and(
+        eq(ganttWbsNodes.projectId, projectId),
+        isNull(ganttWbsNodes.archivedAt),
+        parentNodeId === null
+          ? isNull(ganttWbsNodes.parentNodeId)
+          : eq(ganttWbsNodes.parentNodeId, parentNodeId)
+      )
+    )
+    .orderBy(asc(ganttWbsNodes.sortOrder), asc(ganttWbsNodes.id));
+}
+
+async function getActiveNode(
+  tx: PgTransaction<any, any, any>,
+  nodeId: number,
+  projectId: number
+): Promise<typeof ganttWbsNodes.$inferSelect | undefined> {
+  const rows = await tx
+    .select()
+    .from(ganttWbsNodes)
+    .where(
+      and(
+        eq(ganttWbsNodes.id, nodeId),
+        eq(ganttWbsNodes.projectId, projectId),
+        isNull(ganttWbsNodes.archivedAt)
+      )
+    );
+  return rows[0];
+}
+
+async function getChildrenIncludingArchived(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  parentNodeId: number | null
+): Promise<typeof ganttWbsNodes.$inferSelect[]> {
+  return tx
+    .select()
+    .from(ganttWbsNodes)
+    .where(
+      and(
+        eq(ganttWbsNodes.projectId, projectId),
+        parentNodeId === null
+          ? isNull(ganttWbsNodes.parentNodeId)
+          : eq(ganttWbsNodes.parentNodeId, parentNodeId)
+      )
+    );
+}
+
+async function nextChildCode(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  parentNodeId: number | null,
+  parentCode: string
+): Promise<string> {
+  // Consider both active and archived siblings so that archived codes remain reserved.
+  const children = await getChildrenIncludingArchived(tx, projectId, parentNodeId);
+  let maxIndex = 0;
+  for (const child of children) {
+    const idx = siblingIndexFromCode(child.code);
+    if (idx > maxIndex) maxIndex = idx;
+  }
+  return parentCode === "" ? `${maxIndex + 1}` : `${parentCode}.${maxIndex + 1}`;
+}
+
+async function collectDescendants(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  nodeId: number
+): Promise<typeof ganttWbsNodes.$inferSelect[]> {
+  const result: typeof ganttWbsNodes.$inferSelect[] = [];
+  const queue = [nodeId];
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const children = await tx
+      .select()
+      .from(ganttWbsNodes)
+      .where(
+        and(
+          eq(ganttWbsNodes.projectId, projectId),
+          eq(ganttWbsNodes.parentNodeId, currentId),
+          isNull(ganttWbsNodes.archivedAt)
+        )
+      );
+    for (const child of children) {
+      result.push(child);
+      queue.push(child.id);
+    }
+  }
+  return result;
+}
+
+async function countActiveNodeActivities(
+  tx: PgTransaction<any, any, any>,
+  nodeId: number
+): Promise<number> {
+  const rows = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(ganttActivities)
+    .where(and(eq(ganttActivities.wbsNodeId, nodeId), isNull(ganttActivities.archivedAt)));
+  return rows[0]?.count ?? 0;
+}
+
+async function setNodesLeaf(
+  tx: PgTransaction<any, any, any>,
+  nodeIds: number[]
+): Promise<void> {
+  for (const id of nodeIds) {
+    const children = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(ganttWbsNodes)
+      .where(and(eq(ganttWbsNodes.parentNodeId, id), isNull(ganttWbsNodes.archivedAt)));
+    const hasChildren = (children[0]?.count ?? 0) > 0;
+    await tx
+      .update(ganttWbsNodes)
+      .set({ isLeaf: !hasChildren, updatedAt: new Date() })
+      .where(eq(ganttWbsNodes.id, id));
+  }
+}
+
+async function validateProjectNotArchived(
+  tx: PgTransaction<any, any, any>,
+  projectId: number
+): Promise<{ revision: number; archivedAt: Date | null }> {
+  const rows = await tx
+    .select({ revision: ganttProjects.revision, archivedAt: ganttProjects.archivedAt })
+    .from(ganttProjects)
+    .where(eq(ganttProjects.id, projectId));
+  if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+  return rows[0];
 }
 
 export const primaveraLiteRouter = createRouter({
@@ -689,21 +917,46 @@ export const primaveraLiteRouter = createRouter({
           });
         }
 
-        const rootNodes = await tx
-          .select({ id: ganttWbsNodes.id })
-          .from(ganttWbsNodes)
-          .where(
-            and(
-              eq(ganttWbsNodes.projectId, accessCtx.projectId),
-              isNull(ganttWbsNodes.archivedAt)
+        let wbsNodeId: number;
+        if (input.wbsNodeId) {
+          const targetNodes = await tx
+            .select()
+            .from(ganttWbsNodes)
+            .where(
+              and(
+                eq(ganttWbsNodes.id, input.wbsNodeId),
+                eq(ganttWbsNodes.projectId, accessCtx.projectId),
+                isNull(ganttWbsNodes.archivedAt)
+              )
+            );
+          if (targetNodes.length === 0) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+          }
+          if (!targetNodes[0].isLeaf) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Activities can only be created on leaf WBS nodes" });
+          }
+          wbsNodeId = targetNodes[0].id;
+        } else {
+          const rootNodes = await tx
+            .select()
+            .from(ganttWbsNodes)
+            .where(
+              and(
+                eq(ganttWbsNodes.projectId, accessCtx.projectId),
+                isNull(ganttWbsNodes.parentNodeId),
+                isNull(ganttWbsNodes.archivedAt)
+              )
             )
-          )
-          .orderBy(asc(ganttWbsNodes.id))
-          .limit(1);
-        if (rootNodes.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "No root WBS node found for project" });
+            .orderBy(asc(ganttWbsNodes.id))
+            .limit(1);
+          if (rootNodes.length === 0) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "No root WBS node found for project" });
+          }
+          if (!rootNodes[0].isLeaf) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Activities can only be created on leaf WBS nodes; specify a leaf WBS node" });
+          }
+          wbsNodeId = rootNodes[0].id;
         }
-        const wbsNodeId = rootNodes[0].id;
 
         const [activity] = await tx
           .insert(ganttActivities)
@@ -915,5 +1168,557 @@ export const primaveraLiteRouter = createRouter({
       });
 
       return { activity: mapActivityRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  // ── WBS Tree (PR2) ──
+  listWbsTree: publicQuery
+    .input(wbsNodeSlugAccessSchema.extend({ includeArchived: z.boolean().optional() }))
+    .query(async ({ input }) => {
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      if (input.includeArchived) {
+        requireAdmin(accessCtx);
+      }
+      const nodes = await db
+        .select()
+        .from(ganttWbsNodes)
+        .where(
+          input.includeArchived
+            ? eq(ganttWbsNodes.projectId, accessCtx.projectId)
+            : and(
+                eq(ganttWbsNodes.projectId, accessCtx.projectId),
+                isNull(ganttWbsNodes.archivedAt)
+              )
+        )
+        .orderBy(asc(ganttWbsNodes.sortOrder), asc(ganttWbsNodes.id));
+      return {
+        nodes: nodes.map(mapWbsNodeRow),
+        revision: accessCtx.projectRevision,
+      };
+    }),
+
+  createWbsNode: publicQuery
+    .input(createWbsNodeInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-create-wbs:${input.slug}`, 60, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        if (input.parentNodeId === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only the project root may have no parent" });
+        }
+
+        const parentNodeId = input.parentNodeId;
+        const parent = await getActiveNode(tx, parentNodeId, accessCtx.projectId);
+        if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "Parent WBS node not found" });
+
+        const activeActivitiesOnParent = await countActiveNodeActivities(tx, parent.id);
+        if (activeActivitiesOnParent > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot add a WBS child to a node that has activities" });
+        }
+
+        const parentCode = parent.code;
+        const parentDepth = countCodeSegments(parentCode);
+
+        if (parentDepth + 1 > MAX_WBS_DEPTH) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `WBS depth exceeds maximum ${MAX_WBS_DEPTH}` });
+        }
+
+        const code = await nextChildCode(tx, accessCtx.projectId, parentNodeId, parentCode);
+        const siblings = await getActiveChildren(tx, accessCtx.projectId, parentNodeId);
+        const sortOrder = siblings.length;
+
+        const [node] = await tx
+          .insert(ganttWbsNodes)
+          .values({
+            projectId: accessCtx.projectId,
+            parentNodeId,
+            code,
+            name: input.name,
+            sortOrder,
+            isLeaf: true,
+          })
+          .returning();
+
+        // Parent is no longer a leaf
+        if (parentNodeId !== null) {
+          await tx
+            .update(ganttWbsNodes)
+            .set({ isLeaf: false, updatedAt: new Date() })
+            .where(eq(ganttWbsNodes.id, parentNodeId));
+        }
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "wbs", "create", node.id, null, mapWbsNodeRow(node));
+
+        return node;
+      });
+
+      return { node: mapWbsNodeRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  renameWbsNode: publicQuery
+    .input(renameWbsNodeInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-rename-wbs:${input.slug}`, 60, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const node = await getActiveNode(tx, input.nodeId, accessCtx.projectId);
+        if (!node) throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+
+        const before = mapWbsNodeRow(node);
+        const [updated] = await tx
+          .update(ganttWbsNodes)
+          .set({ name: input.name, updatedAt: new Date() })
+          .where(eq(ganttWbsNodes.id, node.id))
+          .returning();
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "wbs", "rename", updated.id, before, mapWbsNodeRow(updated));
+
+        return updated;
+      });
+
+      return { node: mapWbsNodeRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  moveWbsNode: publicQuery
+    .input(moveWbsNodeInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-move-wbs:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const movingNode = await getActiveNode(tx, input.nodeId, accessCtx.projectId);
+        if (!movingNode) throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+        if (movingNode.parentNodeId === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot move the root WBS node" });
+        }
+
+        const oldParentId = movingNode.parentNodeId;
+        const newParentId: number | null = input.newParentNodeId;
+
+        if (newParentId === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot move a WBS node to the root" });
+        }
+        if (newParentId === oldParentId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Use reorderWbsNode to reorder siblings" });
+        }
+
+        const newParent = await getActiveNode(tx, newParentId, accessCtx.projectId);
+        if (!newParent) throw new TRPCError({ code: "NOT_FOUND", message: "Target parent WBS node not found" });
+
+        const activeActivitiesOnNewParent = await countActiveNodeActivities(tx, newParent.id);
+        if (activeActivitiesOnNewParent > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot move a WBS node beneath a node that has activities" });
+        }
+
+        const descendants = await collectDescendants(tx, accessCtx.projectId, movingNode.id);
+        const descendantIds = descendants.map((d) => d.id);
+        if (newParentId === movingNode.id || descendantIds.includes(newParentId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cannot move a WBS node beneath itself or its descendants",
+          });
+        }
+
+        const newParentDepth = countCodeSegments(newParent.code);
+        const movingDepth = countCodeSegments(movingNode.code);
+        const maxDescendantExtraDepth = descendants.reduce((max, d) => {
+          return Math.max(max, countCodeSegments(d.code) - movingDepth);
+        }, 0);
+        if (newParentDepth + 1 + maxDescendantExtraDepth > MAX_WBS_DEPTH) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Move would exceed maximum WBS depth ${MAX_WBS_DEPTH}` });
+        }
+
+        // Re-parent and regenerate codes
+        const newParentCode = newParent.code;
+        const newBaseCode = await nextChildCode(tx, accessCtx.projectId, newParentId, newParentCode);
+        const oldToNewCode = new Map<number, string>();
+        oldToNewCode.set(movingNode.id, newBaseCode);
+
+        const movedDescendants = await collectDescendants(tx, accessCtx.projectId, movingNode.id);
+        for (const desc of movedDescendants) {
+          const relative = desc.code.substring(movingNode.code.length);
+          oldToNewCode.set(desc.id, newBaseCode + relative);
+        }
+
+        const now = new Date();
+        for (const [nodeId, newCode] of oldToNewCode) {
+          await tx
+            .update(ganttWbsNodes)
+            .set({ code: newCode, updatedAt: now })
+            .where(eq(ganttWbsNodes.id, nodeId));
+        }
+
+        // Compute new sort order at end of new parent's children (moving node is not yet a child of new parent)
+        const newSiblings = await getActiveChildren(tx, accessCtx.projectId, newParentId);
+        const newSortOrder = newSiblings.length;
+
+        await tx
+          .update(ganttWbsNodes)
+          .set({ parentNodeId: newParentId, sortOrder: newSortOrder, updatedAt: now })
+          .where(eq(ganttWbsNodes.id, movingNode.id));
+
+        // Reorder old siblings to close gap
+        const oldSiblings = await getActiveChildren(tx, accessCtx.projectId, oldParentId);
+        for (let i = 0; i < oldSiblings.length; i++) {
+          await tx
+            .update(ganttWbsNodes)
+            .set({ sortOrder: i, updatedAt: now })
+            .where(eq(ganttWbsNodes.id, oldSiblings[i].id));
+        }
+
+        // Reorder new siblings
+        const finalNewSiblings = await getActiveChildren(tx, accessCtx.projectId, newParentId);
+        for (let i = 0; i < finalNewSiblings.length; i++) {
+          await tx
+            .update(ganttWbsNodes)
+            .set({ sortOrder: i, updatedAt: now })
+            .where(eq(ganttWbsNodes.id, finalNewSiblings[i].id));
+        }
+
+        // Recompute leaf status
+        const affectedIds = [movingNode.id, ...descendants.map((d) => d.id)];
+        if (oldParentId !== null) affectedIds.push(oldParentId);
+        if (newParentId !== null) affectedIds.push(newParentId);
+        await setNodesLeaf(tx, Array.from(new Set(affectedIds)));
+
+        const [updated] = await tx
+          .select()
+          .from(ganttWbsNodes)
+          .where(eq(ganttWbsNodes.id, movingNode.id));
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "wbs", "move", updated.id, { oldParentId, oldCode: movingNode.code }, mapWbsNodeRow(updated));
+
+        return updated;
+      });
+
+      return { node: mapWbsNodeRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  reorderWbsNode: publicQuery
+    .input(reorderWbsNodeInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-reorder-wbs:${input.slug}`, 60, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const node = await getActiveNode(tx, input.nodeId, accessCtx.projectId);
+        if (!node) throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+
+        const siblings = await getActiveChildren(tx, accessCtx.projectId, node.parentNodeId);
+        const ordered = siblings.filter((s) => s.id !== node.id);
+        const clampedOrder = Math.max(0, Math.min(input.newSortOrder, ordered.length));
+        ordered.splice(clampedOrder, 0, node);
+
+        const now = new Date();
+        for (let i = 0; i < ordered.length; i++) {
+          await tx
+            .update(ganttWbsNodes)
+            .set({ sortOrder: i, updatedAt: now })
+            .where(eq(ganttWbsNodes.id, ordered[i].id));
+        }
+
+        const [updated] = await tx
+          .select()
+          .from(ganttWbsNodes)
+          .where(eq(ganttWbsNodes.id, node.id));
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "wbs", "reorder", updated.id, { oldSortOrder: node.sortOrder }, mapWbsNodeRow(updated));
+
+        return updated;
+      });
+
+      return { node: mapWbsNodeRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  archiveWbsNodeDryRun: publicQuery
+    .input(archiveWbsNodeDryRunInputSchema)
+    .mutation(async ({ input }) => {
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const node = await getActiveNode(tx, input.nodeId, accessCtx.projectId);
+        if (!node) throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+
+        const descendants = await collectDescendants(tx, accessCtx.projectId, node.id);
+        const activityCount = await countActiveNodeActivities(tx, node.id);
+        const descendantActivityCount = await Promise.all(
+          descendants.map((d) => countActiveNodeActivities(tx, d.id))
+        ).then((arr) => arr.reduce((a, b) => a + b, 0));
+
+        return {
+          nodeCount: 1 + descendants.length,
+          activityCount: activityCount + descendantActivityCount,
+          projectRevision: projectRow.revision,
+        };
+      });
+
+      const previewToken = await createPreviewToken(
+        "archiveWbsNode",
+        input.slug,
+        result.projectRevision,
+        input.nodeId
+      );
+
+      return {
+        dryRun: true,
+        wouldArchive: { wbsNodes: result.nodeCount, activities: result.activityCount },
+        previewToken,
+        message: "Use the previewToken with confirmed: true to archive this WBS node.",
+      };
+    }),
+
+  archiveWbsNode: publicQuery
+    .input(archiveWbsNodeInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-archive-wbs:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      try {
+        await verifyPreviewToken(input.previewToken, "archiveWbsNode", input.slug, input.expectedRevision, input.nodeId);
+      } catch (err) {
+        handlePreviewTokenError(err);
+      }
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const node = await getActiveNode(tx, input.nodeId, accessCtx.projectId);
+        if (!node) throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+        if (node.parentNodeId === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot archive the root WBS node" });
+        }
+
+        const before = mapWbsNodeRow(node);
+        const now = new Date();
+        const parentId = node.parentNodeId;
+
+        await tx
+          .update(ganttWbsNodes)
+          .set({ archivedAt: now, updatedAt: now, isLeaf: true })
+          .where(
+            and(
+              eq(ganttWbsNodes.projectId, accessCtx.projectId),
+              sql`${ganttWbsNodes.code} LIKE ${node.code + ".%"}`,
+              isNull(ganttWbsNodes.archivedAt)
+            )
+          );
+
+        const [updated] = await tx
+          .update(ganttWbsNodes)
+          .set({ archivedAt: now, updatedAt: now })
+          .where(eq(ganttWbsNodes.id, node.id))
+          .returning();
+
+        // Soft-archive active activities on the node and its descendants with the same timestamp.
+        await tx
+          .update(ganttActivities)
+          .set({ archivedAt: now, updatedAt: now, updatedByName: input.actorName ?? "Anonymous" })
+          .where(
+            and(
+              eq(ganttActivities.projectId, accessCtx.projectId),
+              sql`${ganttActivities.wbsNodeId} IN (
+                SELECT id FROM gantt_wbs_nodes
+                WHERE project_id = ${accessCtx.projectId}
+                  AND (id = ${node.id} OR code LIKE ${node.code + ".%"})
+                  AND archived_at = ${now.toISOString()}
+              )`,
+              isNull(ganttActivities.archivedAt)
+            )
+          );
+
+        if (parentId !== null) {
+          await setNodesLeaf(tx, [parentId]);
+        }
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "wbs", "archive", updated.id, before, mapWbsNodeRow(updated));
+
+        return updated;
+      });
+
+      return { node: mapWbsNodeRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  restoreWbsNode: publicQuery
+    .input(restoreWbsNodeInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-restore-wbs:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const [node] = await tx
+          .select()
+          .from(ganttWbsNodes)
+          .where(
+            and(
+              eq(ganttWbsNodes.id, input.nodeId),
+              eq(ganttWbsNodes.projectId, accessCtx.projectId)
+            )
+          );
+        if (!node) throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+        if (!node.archivedAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "WBS node is not archived" });
+        }
+
+        // Detect code conflicts before restoring anything.
+        const candidateCodes = [node.code, ...(await collectDescendants(tx, accessCtx.projectId, node.id)).map((d) => d.code)];
+        const existingConflicts: { code: string }[] = [];
+        for (const candidateCode of candidateCodes) {
+          const conflictRows = await tx
+            .select({ code: ganttWbsNodes.code })
+            .from(ganttWbsNodes)
+            .where(
+              and(
+                eq(ganttWbsNodes.projectId, accessCtx.projectId),
+                eq(ganttWbsNodes.code, candidateCode),
+                isNull(ganttWbsNodes.archivedAt)
+              )
+            );
+          if (conflictRows.length > 0) {
+            existingConflicts.push(conflictRows[0]);
+            break;
+          }
+        }
+        if (existingConflicts.length > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `WBS code collision on restore: ${existingConflicts[0].code} already exists`,
+          });
+        }
+
+        // If parent is archived, refuse (would create orphaned visible node)
+        if (node.parentNodeId !== null) {
+          const [parent] = await tx
+            .select()
+            .from(ganttWbsNodes)
+            .where(eq(ganttWbsNodes.id, node.parentNodeId));
+          if (parent?.archivedAt) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot restore WBS node while its parent is archived" });
+          }
+        }
+
+        const before = mapWbsNodeRow(node);
+        const now = new Date();
+        const parentId = node.parentNodeId;
+
+        // Restore node and all descendants that were archived at the same time
+        await tx
+          .update(ganttWbsNodes)
+          .set({ archivedAt: null, updatedAt: now })
+          .where(
+            and(
+              eq(ganttWbsNodes.projectId, accessCtx.projectId),
+              sql`${ganttWbsNodes.code} LIKE ${node.code + ".%"}`,
+              eq(ganttWbsNodes.archivedAt, node.archivedAt)
+            )
+          );
+
+        const [updated] = await tx
+          .update(ganttWbsNodes)
+          .set({ archivedAt: null, updatedAt: now })
+          .where(eq(ganttWbsNodes.id, node.id))
+          .returning();
+
+        // Restore only activities archived by this exact WBS cascade.
+        await tx
+          .update(ganttActivities)
+          .set({ archivedAt: null, updatedAt: now, updatedByName: input.actorName ?? "Anonymous" })
+          .where(
+            and(
+              eq(ganttActivities.projectId, accessCtx.projectId),
+              sql`${ganttActivities.wbsNodeId} IN (
+                SELECT id FROM gantt_wbs_nodes
+                WHERE project_id = ${accessCtx.projectId}
+                  AND (id = ${node.id} OR code LIKE ${node.code + ".%"})
+                  AND archived_at IS NULL
+              )`,
+              eq(ganttActivities.archivedAt, node.archivedAt)
+            )
+          );
+
+        // Recalculate leaf status for restored subtree and parent
+        const descendants = await collectDescendants(tx, accessCtx.projectId, updated.id);
+        const affectedIds = [updated.id, ...descendants.map((d) => d.id)];
+        if (parentId !== null) affectedIds.push(parentId);
+        await setNodesLeaf(tx, Array.from(new Set(affectedIds)));
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "wbs", "restore", updated.id, before, mapWbsNodeRow(updated));
+
+        return updated;
+      });
+
+      return { node: mapWbsNodeRow(result), revision: accessCtx.projectRevision };
     }),
 });
