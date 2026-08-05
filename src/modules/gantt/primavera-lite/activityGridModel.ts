@@ -7,6 +7,13 @@ export type ActivityGridRow = {
   originalDurationDays: number | null;
   calendarId: number | null;
   percentComplete: number | null;
+  activityType?: string | null;
+  plannedStart?: string | null;
+  plannedFinish?: string | null;
+  earlyStart?: string | null;
+  earlyFinish?: string | null;
+  actualStart?: string | null;
+  actualFinish?: string | null;
   archivedAt?: string | Date | null;
 };
 

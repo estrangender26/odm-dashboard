@@ -11,6 +11,7 @@ import {
 } from "@/modules/gantt/primavera-lite/pageState";
 import WbsTree from "@/modules/gantt/primavera-lite/WbsTree";
 import ActivityGrid from "@/modules/gantt/primavera-lite/ActivityGrid";
+import Timeline from "@/modules/gantt/primavera-lite/Timeline";
 
 export default function PrimaveraLiteProjectPage() {
   const [searchParams] = useSearchParams();
@@ -19,6 +20,7 @@ export default function PrimaveraLiteProjectPage() {
 
   const [expectedRevision, setExpectedRevision] = useState(0);
   const [isEditingActivity, setIsEditingActivity] = useState(false);
+  const [highlightedActivityId, setHighlightedActivityId] = useState<number | null>(null);
 
   useEffect(() => {
     if (access) {
@@ -115,7 +117,11 @@ export default function PrimaveraLiteProjectPage() {
             <ActivityGrid slug={slug} access={access} role={data.role} expectedRevision={expectedRevision}
               activities={data.activities} wbsNodes={data.wbsNodes} calendars={data.calendars}
               onRevisionChange={setExpectedRevision} onRefresh={() => refetch()}
-              onEditingChange={setIsEditingActivity} />
+              onEditingChange={setIsEditingActivity} highlightedActivityId={highlightedActivityId}
+              onActivityHighlight={setHighlightedActivityId} />
+
+            <Timeline activities={data.activities} dataDate={data.project.dataDate}
+              highlightedActivityId={highlightedActivityId} onActivityHighlight={setHighlightedActivityId} />
           </CardContent>
         </Card>
       </div>

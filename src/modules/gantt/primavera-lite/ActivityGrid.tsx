@@ -24,6 +24,8 @@ type Props = {
   onRevisionChange: (revision: number) => void;
   onRefresh: () => Promise<unknown> | void;
   onEditingChange: (editing: boolean) => void;
+  highlightedActivityId?: number | null;
+  onActivityHighlight?: (activityId: number | null) => void;
 };
 
 export default function ActivityGrid(props: Props) {
@@ -169,7 +171,10 @@ export default function ActivityGrid(props: Props) {
         <table className="w-full min-w-[1050px] text-sm">
           <thead className="bg-slate-100 text-left"><tr><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">Percent complete</th><th className="w-16 p-2">Archive</th></tr></thead>
           <tbody>{activities.map((activity) => (
-            <tr key={activity.id} draggable={canEdit} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)} className="border-t">
+            <tr key={activity.id} draggable={canEdit} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)}
+              onMouseEnter={() => props.onActivityHighlight?.(activity.id)} onMouseLeave={() => props.onActivityHighlight?.(null)}
+              onFocus={() => props.onActivityHighlight?.(activity.id)}
+              className={`border-t transition-colors ${props.highlightedActivityId === activity.id ? "bg-blue-50" : ""}`}>
               <td className="p-2 text-slate-400">{canEdit && <GripVertical className="h-4 w-4 cursor-grab" />}</td>
               <td className="p-1">{editableCell(activity, "activityId")}</td><td className="p-1">{editableCell(activity, "activityName")}</td>
               <td className="p-1"><select disabled={!canEdit} value={activity.wbsNodeId} onChange={(e) => submitEdit(activity, "wbsNodeId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none">{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></td>
