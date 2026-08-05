@@ -7,7 +7,7 @@ const base = { id: 1, wbsNodeId: 1, sortOrder: 0, activityId: "A1", activityName
 
 describe("Timeline", () => {
   it("renders controls, planned/actual bars, milestones and markers read-only", () => {
-    const html = renderToStaticMarkup(createElement(Timeline, { dataDate: "2026-08-02", activities: [
+    const html = renderToStaticMarkup(createElement(Timeline, { dataDate: "2026-08-02", dependencies: [{ id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 }], activities: [
       { ...base, plannedStart: "2026-08-01", plannedFinish: "2026-08-03", actualStart: "2026-08-01", actualFinish: "2026-08-02" },
       { ...base, id: 2, sortOrder: 1, activityName: "Gate", activityType: "milestone", plannedStart: "2026-08-04", plannedFinish: "2026-08-04" },
     ] }));
@@ -16,6 +16,8 @@ describe("Timeline", () => {
     expect(html).toContain('aria-label="Actual bar"');
     expect(html).toContain('aria-label="Planned milestone"');
     expect(html).toContain('aria-label="Project data date marker"');
+    expect(html).toContain('aria-label="FS dependency"');
+    expect(html).toContain('marker-end="url(#dependency-arrow)"');
     expect(html).not.toContain("draggable");
   });
   it("renders the No dates state when no existing dates are available", () => {
