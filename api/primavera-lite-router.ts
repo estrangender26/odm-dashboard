@@ -478,13 +478,32 @@ async function getActiveNode(
   return rows[0];
 }
 
+async function getChildrenIncludingArchived(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  parentNodeId: number | null
+): Promise<typeof ganttWbsNodes.$inferSelect[]> {
+  return tx
+    .select()
+    .from(ganttWbsNodes)
+    .where(
+      and(
+        eq(ganttWbsNodes.projectId, projectId),
+        parentNodeId === null
+          ? isNull(ganttWbsNodes.parentNodeId)
+          : eq(ganttWbsNodes.parentNodeId, parentNodeId)
+      )
+    );
+}
+
 async function nextChildCode(
   tx: PgTransaction<any, any, any>,
   projectId: number,
   parentNodeId: number | null,
   parentCode: string
 ): Promise<string> {
-  const children = await getActiveChildren(tx, projectId, parentNodeId);
+  // Consider both active and archived siblings so that archived codes remain reserved.
+  const children = await getChildrenIncludingArchived(tx, projectId, parentNodeId);
   let maxIndex = 0;
   for (const child of children) {
     const idx = siblingIndexFromCode(child.code);
@@ -1156,6 +1175,9 @@ export const primaveraLiteRouter = createRouter({
     .input(wbsNodeSlugAccessSchema.extend({ includeArchived: z.boolean().optional() }))
     .query(async ({ input }) => {
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      if (input.includeArchived) {
+        requireAdmin(accessCtx);
+      }
       const nodes = await db
         .select()
         .from(ganttWbsNodes)
@@ -1189,16 +1211,21 @@ export const primaveraLiteRouter = createRouter({
           throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
         }
 
-        let parentCode = "";
-        let parentNodeId: number | null = input.parentNodeId;
-        let parentDepth = 0;
-
-        if (parentNodeId !== null) {
-          const parent = await getActiveNode(tx, parentNodeId, accessCtx.projectId);
-          if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "Parent WBS node not found" });
-          parentCode = parent.code;
-          parentDepth = countCodeSegments(parentCode);
+        if (input.parentNodeId === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only the project root may have no parent" });
         }
+
+        const parentNodeId = input.parentNodeId;
+        const parent = await getActiveNode(tx, parentNodeId, accessCtx.projectId);
+        if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "Parent WBS node not found" });
+
+        const activeActivitiesOnParent = await countActiveNodeActivities(tx, parent.id);
+        if (activeActivitiesOnParent > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot add a WBS child to a node that has activities" });
+        }
+
+        const parentCode = parent.code;
+        const parentDepth = countCodeSegments(parentCode);
 
         if (parentDepth + 1 > MAX_WBS_DEPTH) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `WBS depth exceeds maximum ${MAX_WBS_DEPTH}` });
@@ -1297,43 +1324,49 @@ export const primaveraLiteRouter = createRouter({
         }
 
         const oldParentId = movingNode.parentNodeId;
-        let newParentId: number | null = input.newParentNodeId;
+        const newParentId: number | null = input.newParentNodeId;
 
-        if (newParentId !== null) {
-          if (newParentId === oldParentId) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Use reorderWbsNode to reorder siblings" });
-          }
+        if (newParentId === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot move a WBS node to the root" });
+        }
+        if (newParentId === oldParentId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Use reorderWbsNode to reorder siblings" });
+        }
 
-          const newParent = await getActiveNode(tx, newParentId, accessCtx.projectId);
-          if (!newParent) throw new TRPCError({ code: "NOT_FOUND", message: "Target parent WBS node not found" });
+        const newParent = await getActiveNode(tx, newParentId, accessCtx.projectId);
+        if (!newParent) throw new TRPCError({ code: "NOT_FOUND", message: "Target parent WBS node not found" });
 
-          const descendants = await collectDescendants(tx, accessCtx.projectId, movingNode.id);
-          const descendantIds = descendants.map((d) => d.id);
-          if (newParentId === movingNode.id || descendantIds.includes(newParentId)) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Cannot move a WBS node beneath itself or its descendants",
-            });
-          }
+        const activeActivitiesOnNewParent = await countActiveNodeActivities(tx, newParent.id);
+        if (activeActivitiesOnNewParent > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot move a WBS node beneath a node that has activities" });
+        }
 
-          const newParentDepth = countCodeSegments(newParent.code);
-          const movingDepth = countCodeSegments(movingNode.code);
-          const maxDescendantExtraDepth = descendants.reduce((max, d) => {
-            return Math.max(max, countCodeSegments(d.code) - movingDepth);
-          }, 0);
-          if (newParentDepth + 1 + maxDescendantExtraDepth > MAX_WBS_DEPTH) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: `Move would exceed maximum WBS depth ${MAX_WBS_DEPTH}` });
-          }
+        const descendants = await collectDescendants(tx, accessCtx.projectId, movingNode.id);
+        const descendantIds = descendants.map((d) => d.id);
+        if (newParentId === movingNode.id || descendantIds.includes(newParentId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cannot move a WBS node beneath itself or its descendants",
+          });
+        }
+
+        const newParentDepth = countCodeSegments(newParent.code);
+        const movingDepth = countCodeSegments(movingNode.code);
+        const maxDescendantExtraDepth = descendants.reduce((max, d) => {
+          return Math.max(max, countCodeSegments(d.code) - movingDepth);
+        }, 0);
+        if (newParentDepth + 1 + maxDescendantExtraDepth > MAX_WBS_DEPTH) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Move would exceed maximum WBS depth ${MAX_WBS_DEPTH}` });
         }
 
         // Re-parent and regenerate codes
-        const newParentCode = newParentId === null ? "" : (await getActiveNode(tx, newParentId, accessCtx.projectId))!.code;
+        const newParentCode = newParent.code;
         const newBaseCode = await nextChildCode(tx, accessCtx.projectId, newParentId, newParentCode);
         const oldToNewCode = new Map<number, string>();
         oldToNewCode.set(movingNode.id, newBaseCode);
 
-        const descendants = await collectDescendants(tx, accessCtx.projectId, movingNode.id);
-        for (const desc of descendants) {
+        const movedDescendants = await collectDescendants(tx, accessCtx.projectId, movingNode.id);
+        for (const desc of movedDescendants) {
           const relative = desc.code.substring(movingNode.code.length);
           oldToNewCode.set(desc.id, newBaseCode + relative);
         }
@@ -1535,6 +1568,23 @@ export const primaveraLiteRouter = createRouter({
           .where(eq(ganttWbsNodes.id, node.id))
           .returning();
 
+        // Soft-archive active activities on the node and its descendants with the same timestamp.
+        await tx
+          .update(ganttActivities)
+          .set({ archivedAt: now, updatedAt: now, updatedByName: input.actorName ?? "Anonymous" })
+          .where(
+            and(
+              eq(ganttActivities.projectId, accessCtx.projectId),
+              sql`${ganttActivities.wbsNodeId} IN (
+                SELECT id FROM gantt_wbs_nodes
+                WHERE project_id = ${accessCtx.projectId}
+                  AND (id = ${node.id} OR code LIKE ${node.code + ".%"})
+                  AND archived_at = ${now.toISOString()}
+              )`,
+              isNull(ganttActivities.archivedAt)
+            )
+          );
+
         if (parentId !== null) {
           await setNodesLeaf(tx, [parentId]);
         }
@@ -1579,6 +1629,32 @@ export const primaveraLiteRouter = createRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "WBS node is not archived" });
         }
 
+        // Detect code conflicts before restoring anything.
+        const candidateCodes = [node.code, ...(await collectDescendants(tx, accessCtx.projectId, node.id)).map((d) => d.code)];
+        const existingConflicts: { code: string }[] = [];
+        for (const candidateCode of candidateCodes) {
+          const conflictRows = await tx
+            .select({ code: ganttWbsNodes.code })
+            .from(ganttWbsNodes)
+            .where(
+              and(
+                eq(ganttWbsNodes.projectId, accessCtx.projectId),
+                eq(ganttWbsNodes.code, candidateCode),
+                isNull(ganttWbsNodes.archivedAt)
+              )
+            );
+          if (conflictRows.length > 0) {
+            existingConflicts.push(conflictRows[0]);
+            break;
+          }
+        }
+        if (existingConflicts.length > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `WBS code collision on restore: ${existingConflicts[0].code} already exists`,
+          });
+        }
+
         // If parent is archived, refuse (would create orphaned visible node)
         if (node.parentNodeId !== null) {
           const [parent] = await tx
@@ -1611,6 +1687,23 @@ export const primaveraLiteRouter = createRouter({
           .set({ archivedAt: null, updatedAt: now })
           .where(eq(ganttWbsNodes.id, node.id))
           .returning();
+
+        // Restore only activities archived by this exact WBS cascade.
+        await tx
+          .update(ganttActivities)
+          .set({ archivedAt: null, updatedAt: now, updatedByName: input.actorName ?? "Anonymous" })
+          .where(
+            and(
+              eq(ganttActivities.projectId, accessCtx.projectId),
+              sql`${ganttActivities.wbsNodeId} IN (
+                SELECT id FROM gantt_wbs_nodes
+                WHERE project_id = ${accessCtx.projectId}
+                  AND (id = ${node.id} OR code LIKE ${node.code + ".%"})
+                  AND archived_at IS NULL
+              )`,
+              eq(ganttActivities.archivedAt, node.archivedAt)
+            )
+          );
 
         // Recalculate leaf status for restored subtree and parent
         const descendants = await collectDescendants(tx, accessCtx.projectId, updated.id);

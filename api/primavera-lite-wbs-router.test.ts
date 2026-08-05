@@ -477,4 +477,355 @@ describe("primaveraLite WBS PR2", () => {
       })
     ).rejects.toThrow(/root/);
   });
+
+
+  it('cannot add child under node with active activity', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Parent Activity Block' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    // create an activity on root, making root non-leaf
+    await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      activity: { activityName: 'Root Activity' },
+    });
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    await expect(
+      caller.primaveraLite.createWbsNode({
+        slug: created.project.slug,
+        access: token,
+        expectedRevision: loaded2.revision,
+        parentNodeId: root.id,
+        name: 'Blocked Child',
+      })
+    ).rejects.toThrow(/node that has activities/);
+  });
+
+  it('cannot move node under node with active activity', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Move Parent Activity Block' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    const a = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      parentNodeId: root.id,
+      name: 'A',
+    });
+    const b = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: a.revision,
+      parentNodeId: root.id,
+      name: 'B',
+    });
+
+    // Put an activity on A
+    await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: b.revision,
+      activity: { activityName: 'A Activity' },
+      wbsNodeId: a.node.id,
+    });
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    await expect(
+      caller.primaveraLite.moveWbsNode({
+        slug: created.project.slug,
+        access: token,
+        expectedRevision: loaded2.revision,
+        nodeId: b.node.id,
+        newParentNodeId: a.node.id,
+      })
+    ).rejects.toThrow(/node that has activities/);
+  });
+
+  it('WBS archive archives active subtree activities', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Archive Activities' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    const child = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      parentNodeId: root.id,
+      name: 'Child',
+    });
+
+    const act = await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: child.revision,
+      activity: { activityName: 'Child Activity' },
+      wbsNodeId: child.node.id,
+    });
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const dryRun = await caller.primaveraLite.archiveWbsNodeDryRun({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      nodeId: child.node.id,
+    });
+    expect(dryRun.wouldArchive.activities).toBe(1);
+
+    await caller.primaveraLite.archiveWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      nodeId: child.node.id,
+      previewToken: dryRun.previewToken,
+      confirmed: true,
+    });
+
+    const archivedRows = await testDb
+      .select({ archivedAt: ganttActivities.archivedAt })
+      .from(ganttActivities)
+      .where(eq(ganttActivities.id, act.activity.id));
+    expect(archivedRows[0].archivedAt).toBeTruthy();
+  });
+
+  it('WBS restore restores only same-cascade activities and keeps independently archived', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Restore Activities' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    const child = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      parentNodeId: root.id,
+      name: 'Child',
+    });
+
+    const independentActivity = await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: child.revision,
+      activity: { activityName: 'Independent' },
+      wbsNodeId: child.node.id,
+    });
+
+    // Archive the activity independently first (different timestamp).
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const activityDryRun = await caller.primaveraLite.archiveActivityDryRun({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      activityId: independentActivity.activity.id,
+    });
+    await caller.primaveraLite.archiveActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      activityId: independentActivity.activity.id,
+      previewToken: activityDryRun.previewToken,
+      confirmed: true,
+    });
+
+    // Now archive the WBS node; it should not overwrite the independently archived activity.
+    const loaded3 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const dryRun = await caller.primaveraLite.archiveWbsNodeDryRun({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded3.revision,
+      nodeId: child.node.id,
+    });
+    expect(dryRun.wouldArchive.activities).toBe(0);
+    const archived = await caller.primaveraLite.archiveWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded3.revision,
+      nodeId: child.node.id,
+      previewToken: dryRun.previewToken,
+      confirmed: true,
+    });
+
+    // Restore the WBS node; the independently archived activity must stay archived.
+    await caller.primaveraLite.restoreWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: archived.revision,
+      nodeId: child.node.id,
+      confirmed: true,
+    });
+
+    const rows = await testDb
+      .select({ archivedAt: ganttActivities.archivedAt })
+      .from(ganttActivities)
+      .where(eq(ganttActivities.id, independentActivity.activity.id));
+    expect(rows[0].archivedAt).toBeTruthy();
+  });
+
+  it('archived code is not reused', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Code Reserved' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    const a = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      parentNodeId: root.id,
+      name: 'A',
+    });
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const dryRun = await caller.primaveraLite.archiveWbsNodeDryRun({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      nodeId: a.node.id,
+    });
+    await caller.primaveraLite.archiveWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      nodeId: a.node.id,
+      previewToken: dryRun.previewToken,
+      confirmed: true,
+    });
+
+    const loaded3 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const b = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded3.revision,
+      parentNodeId: root.id,
+      name: 'B',
+    });
+    expect(b.node.code).toBe('1.2');  // 1.1 is reserved by archived A
+  });
+
+  it('restore collision returns controlled CONFLICT', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Restore Collision' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    const a = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      parentNodeId: root.id,
+      name: 'A',
+    });
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const dryRun = await caller.primaveraLite.archiveWbsNodeDryRun({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      nodeId: a.node.id,
+    });
+    const archived = await caller.primaveraLite.archiveWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      nodeId: a.node.id,
+      previewToken: dryRun.previewToken,
+      confirmed: true,
+    });
+
+    // Manually insert an active node with code 1.1 to create a collision.
+    await testDb.insert(ganttWbsNodes).values({
+      projectId: created.project.id,
+      parentNodeId: root.id,
+      code: '1.1',
+      name: 'Collision',
+      sortOrder: 1,
+      isLeaf: true,
+    });
+
+    // Restoring A should now conflict
+    const loaded4 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const activeBefore = await testDb
+      .select({ id: ganttWbsNodes.id, code: ganttWbsNodes.code, archivedAt: ganttWbsNodes.archivedAt })
+      .from(ganttWbsNodes)
+      .where(and(eq(ganttWbsNodes.projectId, created.project.id), eq(ganttWbsNodes.code, '1.1')));
+    console.log('// ', activeBefore);
+    await expect(
+      caller.primaveraLite.restoreWbsNode({
+        slug: created.project.slug,
+        access: token,
+        expectedRevision: loaded4.revision,
+        nodeId: a.node.id,
+        confirmed: true,
+      })
+    ).rejects.toThrow(/WBS code collision|CONFLICT/);
+  });
+
+  it('cannot create second root', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS No Second Root' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    await expect(
+      caller.primaveraLite.createWbsNode({
+        slug: created.project.slug,
+        access: token,
+        expectedRevision: loaded.revision,
+        parentNodeId: null,
+        name: 'Fake Root',
+      })
+    ).rejects.toThrow(/Only the project root may have no parent/);
+  });
+
+  it('cannot move node to null', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS No Move To Root' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    const child = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      parentNodeId: root.id,
+      name: 'Child',
+    });
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    await expect(
+      caller.primaveraLite.moveWbsNode({
+        slug: created.project.slug,
+        access: token,
+        expectedRevision: loaded2.revision,
+        nodeId: child.node.id,
+        newParentNodeId: null,
+      })
+    ).rejects.toThrow(/root/);
+  });
+
+  it('editor/viewer cannot list archived nodes', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Admin Archived List' });
+    createdProjectIds.push(created.project.id);
+    const adminToken = extractToken(created.adminLink);
+    const editorToken = extractToken(created.editorLink);
+    const viewerToken = extractToken(created.viewerLink);
+
+    await expect(
+      caller.primaveraLite.listWbsTree({ slug: created.project.slug, access: editorToken, includeArchived: true })
+    ).rejects.toThrow(/Admin token required|FORBIDDEN/);
+
+    await expect(
+      caller.primaveraLite.listWbsTree({ slug: created.project.slug, access: viewerToken, includeArchived: true })
+    ).rejects.toThrow(/Admin token required|FORBIDDEN/);
+
+    // Admin can
+    const adminList = await caller.primaveraLite.listWbsTree({ slug: created.project.slug, access: adminToken, includeArchived: true });
+    expect(adminList.nodes.length).toBeGreaterThanOrEqual(1);
+  });
 });
