@@ -59,7 +59,8 @@ describe("Primavera Lite PR5 dependencies", () => {
     const p = await project("PR5 Validation"); const other = await project("PR5 Other");
     const a = await activity(p, "A"); const b = await activity(p, "B"); const c = await activity(p, "C"); const foreign = await activity(other, "Foreign");
     await createDependency(p, a.id, b.id, "FS", 0);
-    await expect(createDependency(p, a.id, b.id, "FS", 0)).rejects.toThrow(/Duplicate/i);
+    await expect(createDependency(p, a.id, b.id, "FS", 7)).rejects.toThrow(/Duplicate/i);
+    await expect(createDependency(p, a.id, b.id, "SS", 0)).resolves.toMatchObject({ dependency: { dependencyType: "SS" } });
     await createDependency(p, b.id, c.id, "FS", 0);
     await expect(createDependency(p, c.id, a.id, "FS", 0)).rejects.toThrow(/circular/i);
     await expect(createDependency(p, a.id, a.id, "FS", 0)).rejects.toThrow(/itself/i);

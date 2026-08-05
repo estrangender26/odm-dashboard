@@ -547,7 +547,6 @@ async function requireNoDuplicateDependency(
     eq(ganttActivityDependencies.predecessorActivityId, values.predecessorActivityId),
     eq(ganttActivityDependencies.successorActivityId, values.successorActivityId),
     eq(ganttActivityDependencies.dependencyType, values.dependencyType),
-    eq(ganttActivityDependencies.lagDays, values.lagDays),
     isNull(ganttActivityDependencies.archivedAt),
   ];
   if (excludeId !== undefined) conditions.push(ne(ganttActivityDependencies.id, excludeId));

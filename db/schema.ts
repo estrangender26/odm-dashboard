@@ -530,8 +530,10 @@ export const ganttActivityDependencies = pgTable("gantt_activity_dependencies", 
   index("gantt_activity_dependencies_project_idx").on(table.projectId),
   index("gantt_activity_dependencies_pred_idx").on(table.projectId, table.predecessorActivityId),
   index("gantt_activity_dependencies_succ_idx").on(table.projectId, table.successorActivityId),
+  check("gantt_activity_dependencies_type_check", sql`${table.dependencyType} IN ('FS', 'SS', 'FF', 'SF')`),
+  check("gantt_activity_dependencies_no_self_check", sql`${table.predecessorActivityId} <> ${table.successorActivityId}`),
   uniqueIndex("gantt_activity_dependencies_active_unique")
-    .on(table.projectId, table.predecessorActivityId, table.successorActivityId, table.dependencyType, table.lagDays)
+    .on(table.projectId, table.predecessorActivityId, table.successorActivityId, table.dependencyType)
     .where(sql`${table.archivedAt} IS NULL`),
 ]);
 

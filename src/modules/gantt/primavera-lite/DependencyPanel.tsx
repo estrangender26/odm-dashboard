@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Archive, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,14 @@ type Props = {
 };
 
 const TYPES: DependencyType[] = ["FS", "SS", "FF", "SF"];
+
+export function LagInput({ dependency, disabled, onCommit }: { dependency: DependencyRow; disabled: boolean; onCommit: (lagDays: number) => void }) {
+  const [value, setValue] = useState(String(dependency.lagDays));
+  useEffect(() => setValue(String(dependency.lagDays)), [dependency.lagDays]);
+  return <Input aria-label={`Lag for dependency ${dependency.id}`} disabled={disabled} type="number" step="1" value={value}
+    onChange={(event) => setValue(event.target.value)}
+    onBlur={() => { const lag = Number(value); if (!Number.isInteger(lag)) setValue(String(dependency.lagDays)); else if (lag !== dependency.lagDays) onCommit(lag); }} className="h-8" />;
+}
 
 export default function DependencyPanel(props: Props) {
   const { slug, access, expectedRevision } = props;
@@ -116,7 +124,7 @@ export default function DependencyPanel(props: Props) {
         <td className="p-1"><select aria-label={`Predecessor for dependency ${dependency.id}`} disabled={!canEdit} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none" value={dependency.predecessorActivityId} onChange={(event) => update(dependency.id, { predecessorActivityId: Number(event.target.value) })}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activityLabel(activity.id)}</option>)}</select></td>
         <td className="p-1"><select aria-label={`Successor for dependency ${dependency.id}`} disabled={!canEdit} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none" value={dependency.successorActivityId} onChange={(event) => update(dependency.id, { successorActivityId: Number(event.target.value) })}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activityLabel(activity.id)}</option>)}</select></td>
         <td className="p-1"><select aria-label={`Type for dependency ${dependency.id}`} disabled={!canEdit} className="h-8 rounded border px-1 disabled:border-transparent" value={dependency.dependencyType} onChange={(event) => update(dependency.id, { dependencyType: event.target.value as DependencyType })}>{TYPES.map((value) => <option key={value}>{value}</option>)}</select></td>
-        <td className="p-1"><Input aria-label={`Lag for dependency ${dependency.id}`} disabled={!canEdit} type="number" step="1" defaultValue={dependency.lagDays} onBlur={(event) => { const value = Number(event.target.value); if (Number.isInteger(value) && value !== dependency.lagDays) update(dependency.id, { lagDays: value }); }} className="h-8" /></td>
+        <td className="p-1"><LagInput dependency={dependency} disabled={!canEdit} onCommit={(lagDays) => update(dependency.id, { lagDays })} /></td>
         <td className="p-1">{canEdit && <Button variant="ghost" size="icon" aria-label={`Archive dependency ${dependency.id}`} onClick={() => archive(dependency.id)}><Archive className="h-4 w-4" /></Button>}</td>
       </tr>)}</tbody></table>{dependencies.length === 0 && <p className="p-5 text-center text-sm text-muted-foreground">No dependencies yet.</p>}</div>
   </section>;
