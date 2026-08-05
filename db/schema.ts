@@ -482,6 +482,7 @@ export const ganttActivities = pgTable("gantt_activities", {
   activityId: varchar("activity_id", { length: 100 }),
   activityName: varchar("activity_name", { length: 500 }).notNull(),
   activityType: varchar("activity_type", { length: 20 }).notNull().default("task"),
+  sortOrder: integer("sort_order").notNull().default(0),
   calendarId: integer("calendar_id").references(() => ganttCalendars.id, { onDelete: "restrict" }),
   originalDurationDays: integer("original_duration_days").notNull().default(0),
   remainingDurationDays: integer("remaining_duration_days").notNull().default(0),
@@ -508,6 +509,7 @@ export const ganttActivities = pgTable("gantt_activities", {
 }, (table) => [
   index("gantt_activities_project_idx").on(table.projectId),
   index("gantt_activities_wbs_idx").on(table.projectId, table.wbsNodeId),
+  index("gantt_activities_order_idx").on(table.projectId, table.wbsNodeId, table.sortOrder),
   index("gantt_activities_uid_idx").on(table.frontendActivityUid),
 ]);
 

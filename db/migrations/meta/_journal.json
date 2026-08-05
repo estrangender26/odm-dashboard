@@ -148,6 +148,13 @@
       "when": 1791312000002,
       "tag": "0020_primavera_lite_shell",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791312000003,
+      "tag": "0021_primavera_lite_activity_grid",
+      "breakpoints": true
     }
   ]
 }

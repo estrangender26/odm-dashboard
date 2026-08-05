@@ -131,7 +131,7 @@ async function scenario2(): Promise<{ message: string; dbName: string }> {
   const whens = await runMigrate(dbName);
   const expected0020 = 1791312000002;
   const only0020 = whens.filter((w) => w === expected0020).length;
-  const ok = whens.length === 21 && only0020 === 1 && isNonDecreasing(whens);
+  const ok = whens.length === 22 && only0020 === 1 && isNonDecreasing(whens);
   return {
     message: `Scenario 2 (through 0019): ${ok ? "PASS" : "FAIL"} — ledger has ${whens.length} rows, 0020 rows=${only0020}`,
     dbName,
@@ -281,7 +281,7 @@ async function scenario3(): Promise<string> {
     countsAfter.gantt_activities === countsBefore.gantt_activities;
   const ok =
     driftDetected &&
-    whens.length === 21 &&
+    whens.length === 22 &&
     only0020 === 1 &&
     isNonDecreasing(whens) &&
     countsOk;
@@ -576,7 +576,7 @@ async function scenario1(): Promise<string> {
   const whens = await runMigrate(dbName);
   const expected0020 = 1791312000002;
   const only0020 = whens.filter((w) => w === expected0020).length;
-  const ok = whens.length === 21 && only0020 === 1 && isNonDecreasing(whens);
+  const ok = whens.length === 22 && only0020 === 1 && isNonDecreasing(whens);
   return `Scenario 1 (fresh DB): ${ok ? "PASS" : "FAIL"} — ledger has ${whens.length} rows, 0020 rows=${only0020}`;
 }
 
@@ -591,7 +591,7 @@ async function main() {
   // no additional ledger rows are added.
   const whensAgain = await runMigrate(s2.dbName);
   const only0020Again = whensAgain.filter((w) => w === 1791312000002).length;
-  const okIdempotent = whensAgain.length === 21 && only0020Again === 1 && isNonDecreasing(whensAgain);
+  const okIdempotent = whensAgain.length === 22 && only0020Again === 1 && isNonDecreasing(whensAgain);
   console.log(`Scenario 2b (idempotency): ${okIdempotent ? "PASS" : "FAIL"} — ledger has ${whensAgain.length} rows, 0020 rows=${only0020Again} after second run`);
 
   const s3 = await scenario3();

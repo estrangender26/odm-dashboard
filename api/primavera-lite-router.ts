@@ -5,6 +5,7 @@ import {
   ganttProjects,
   ganttWbsNodes,
   ganttActivities,
+  ganttCalendars,
   ganttProjectEvents,
 } from "@db/schema";
 import { eq, and, sql, asc, isNull } from "drizzle-orm";
@@ -88,7 +89,7 @@ const restoreProjectInputSchema = z.object({
 });
 
 const activityInputSchema = z.object({
-  activityName: z.string().min(1).max(500),
+  activityName: z.string().trim().min(1).max(500),
   activityId: z.string().max(100).optional().nullable(),
   activityType: z.string().max(20).optional().nullable(),
   originalDurationDays: z.number().int().min(0).optional().nullable(),
@@ -102,6 +103,7 @@ const activityInputSchema = z.object({
   constraintType: z.string().max(20).optional().nullable(),
   constraintDate: dateStringSchema.optional().nullable(),
   notes: z.string().max(MAX_NOTES_LENGTH).optional().nullable(),
+  calendarId: z.number().int().positive().optional().nullable(),
 });
 
 const createActivityInputSchema = z.object({
@@ -118,7 +120,21 @@ const updateActivityInputSchema = z.object({
   access: z.string().min(1),
   expectedRevision: z.number().int().nonnegative(),
   activityId: z.number().int().positive(),
-  changes: activityInputSchema.partial(),
+  changes: activityInputSchema.partial().extend({
+    wbsNodeId: z.number().int().positive().optional(),
+  }).refine((changes) => Object.keys(changes).length > 0, {
+    message: "At least one activity change is required",
+  }),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const reorderActivityInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  activityId: z.number().int().positive(),
+  targetWbsNodeId: z.number().int().positive(),
+  newSortOrder: z.number().int().min(0),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
@@ -403,6 +419,7 @@ function mapActivityRow(activity: typeof ganttActivities.$inferSelect) {
     activityId: activity.activityId,
     activityName: activity.activityName,
     activityType: activity.activityType,
+    sortOrder: activity.sortOrder,
     calendarId: activity.calendarId,
     originalDurationDays: activity.originalDurationDays,
     remainingDurationDays: activity.remainingDurationDays,
@@ -427,6 +444,63 @@ function mapActivityRow(activity: typeof ganttActivities.$inferSelect) {
     createdAt: activity.createdAt,
     updatedAt: activity.updatedAt,
   } as any;
+}
+
+async function requireActiveLeafWbs(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  wbsNodeId: number
+) {
+  const [node] = await tx
+    .select()
+    .from(ganttWbsNodes)
+    .where(and(
+      eq(ganttWbsNodes.id, wbsNodeId),
+      eq(ganttWbsNodes.projectId, projectId),
+      isNull(ganttWbsNodes.archivedAt)
+    ));
+  if (!node) throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+  if (!node.isLeaf) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Activities can only be assigned to leaf WBS nodes" });
+  }
+  return node;
+}
+
+async function requireProjectCalendar(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  calendarId: number
+) {
+  const [calendar] = await tx
+    .select()
+    .from(ganttCalendars)
+    .where(and(eq(ganttCalendars.id, calendarId), eq(ganttCalendars.projectId, projectId)));
+  if (!calendar) throw new TRPCError({ code: "NOT_FOUND", message: "Calendar not found" });
+  return calendar;
+}
+
+async function normalizeActivityOrder(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  wbsNodeId: number,
+  orderedIds?: number[]
+) {
+  const rows = await tx
+    .select({ id: ganttActivities.id })
+    .from(ganttActivities)
+    .where(and(
+      eq(ganttActivities.projectId, projectId),
+      eq(ganttActivities.wbsNodeId, wbsNodeId),
+      isNull(ganttActivities.archivedAt)
+    ))
+    .orderBy(asc(ganttActivities.sortOrder), asc(ganttActivities.id));
+  const ids = orderedIds ?? rows.map((row) => row.id);
+  const now = new Date();
+  for (let index = 0; index < ids.length; index++) {
+    await tx.update(ganttActivities)
+      .set({ sortOrder: index, updatedAt: now })
+      .where(and(eq(ganttActivities.id, ids[index]), eq(ganttActivities.projectId, projectId)));
+  }
 }
 
 
@@ -678,7 +752,13 @@ export const primaveraLiteRouter = createRouter({
             isNull(ganttActivities.archivedAt)
           )
         )
-        .orderBy(asc(ganttActivities.id));
+        .orderBy(asc(ganttActivities.wbsNodeId), asc(ganttActivities.sortOrder), asc(ganttActivities.id));
+
+      const calendars = await db
+        .select()
+        .from(ganttCalendars)
+        .where(eq(ganttCalendars.projectId, accessCtx.projectId))
+        .orderBy(asc(ganttCalendars.name), asc(ganttCalendars.id));
 
       const events = input.sinceRevision !== undefined
         ? await db
@@ -698,6 +778,7 @@ export const primaveraLiteRouter = createRouter({
         project: projectRow ? mapProjectRow(projectRow) : null,
         wbsNodes: wbsNodes.map(mapWbsNodeRow),
         activities: activities.map(mapActivityRow),
+        calendars,
         events: events.map((e) => ({
           id: e.id,
           entityType: e.entityType,
@@ -919,23 +1000,7 @@ export const primaveraLiteRouter = createRouter({
 
         let wbsNodeId: number;
         if (input.wbsNodeId) {
-          const targetNodes = await tx
-            .select()
-            .from(ganttWbsNodes)
-            .where(
-              and(
-                eq(ganttWbsNodes.id, input.wbsNodeId),
-                eq(ganttWbsNodes.projectId, accessCtx.projectId),
-                isNull(ganttWbsNodes.archivedAt)
-              )
-            );
-          if (targetNodes.length === 0) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
-          }
-          if (!targetNodes[0].isLeaf) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Activities can only be created on leaf WBS nodes" });
-          }
-          wbsNodeId = targetNodes[0].id;
+          wbsNodeId = (await requireActiveLeafWbs(tx, accessCtx.projectId, input.wbsNodeId)).id;
         } else {
           const rootNodes = await tx
             .select()
@@ -958,6 +1023,19 @@ export const primaveraLiteRouter = createRouter({
           wbsNodeId = rootNodes[0].id;
         }
 
+        if (input.activity.calendarId != null) {
+          await requireProjectCalendar(tx, accessCtx.projectId, input.activity.calendarId);
+        }
+
+        const [orderRow] = await tx
+          .select({ next: sql<number>`COALESCE(MAX(${ganttActivities.sortOrder}), -1)::int + 1` })
+          .from(ganttActivities)
+          .where(and(
+            eq(ganttActivities.projectId, accessCtx.projectId),
+            eq(ganttActivities.wbsNodeId, wbsNodeId),
+            isNull(ganttActivities.archivedAt)
+          ));
+
         const [activity] = await tx
           .insert(ganttActivities)
           .values({
@@ -966,6 +1044,8 @@ export const primaveraLiteRouter = createRouter({
             activityName: input.activity.activityName,
             activityId: (input.activity.activityId ?? null) as any,
             activityType: (input.activity.activityType ?? "task") as any,
+            sortOrder: orderRow?.next ?? 0,
+            calendarId: input.activity.calendarId ?? null,
             originalDurationDays: (input.activity.originalDurationDays ?? 0) as any,
             remainingDurationDays: (input.activity.remainingDurationDays ?? 0) as any,
             plannedStart: (input.activity.plannedStart ?? null) as any,
@@ -1029,6 +1109,25 @@ export const primaveraLiteRouter = createRouter({
         const before = mapActivityRow(activity);
         const changes = input.changes;
         const setData: Record<string, unknown> = { updatedAt: new Date(), updatedByName: input.actorName ?? "Anonymous" };
+        if (changes.wbsNodeId !== undefined) {
+          await requireActiveLeafWbs(tx, accessCtx.projectId, changes.wbsNodeId);
+          setData.wbsNodeId = changes.wbsNodeId;
+          if (changes.wbsNodeId !== activity.wbsNodeId) {
+            const [orderRow] = await tx
+              .select({ next: sql<number>`COALESCE(MAX(${ganttActivities.sortOrder}), -1)::int + 1` })
+              .from(ganttActivities)
+              .where(and(
+                eq(ganttActivities.projectId, accessCtx.projectId),
+                eq(ganttActivities.wbsNodeId, changes.wbsNodeId),
+                isNull(ganttActivities.archivedAt)
+              ));
+            setData.sortOrder = orderRow?.next ?? 0;
+          }
+        }
+        if (changes.calendarId !== undefined && changes.calendarId !== null) {
+          await requireProjectCalendar(tx, accessCtx.projectId, changes.calendarId);
+        }
+        if (changes.calendarId !== undefined) setData.calendarId = changes.calendarId;
         if (changes.activityName !== undefined) setData.activityName = changes.activityName;
         if (changes.activityId !== undefined) setData.activityId = changes.activityId;
         if (changes.activityType !== undefined) setData.activityType = changes.activityType;
@@ -1043,12 +1142,17 @@ export const primaveraLiteRouter = createRouter({
         if (changes.constraintType !== undefined) setData.constraintType = changes.constraintType;
         if (changes.constraintDate !== undefined) setData.constraintDate = changes.constraintDate;
         if (changes.notes !== undefined) setData.notes = changes.notes;
+        setData.revision = sql`${ganttActivities.revision} + 1`;
 
         const [updated] = await tx
           .update(ganttActivities)
           .set(setData)
           .where(eq(ganttActivities.id, activity.id))
           .returning();
+
+        if (changes.wbsNodeId !== undefined && changes.wbsNodeId !== activity.wbsNodeId) {
+          await normalizeActivityOrder(tx, accessCtx.projectId, activity.wbsNodeId);
+        }
 
         const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
         accessCtx.projectRevision = newRevision;
@@ -1058,6 +1162,63 @@ export const primaveraLiteRouter = createRouter({
         return updated;
       });
 
+      return { activity: mapActivityRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  reorderActivity: publicQuery
+    .input(reorderActivityInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-reorder-activity:${input.slug}`, 60, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+        await requireActiveLeafWbs(tx, accessCtx.projectId, input.targetWbsNodeId);
+        const [activity] = await tx.select().from(ganttActivities).where(and(
+          eq(ganttActivities.id, input.activityId),
+          eq(ganttActivities.projectId, accessCtx.projectId),
+          isNull(ganttActivities.archivedAt)
+        ));
+        if (!activity) throw new TRPCError({ code: "NOT_FOUND", message: "Activity not found" });
+
+        const sourceWbsNodeId = activity.wbsNodeId;
+        const targetRows = await tx
+          .select({ id: ganttActivities.id })
+          .from(ganttActivities)
+          .where(and(
+            eq(ganttActivities.projectId, accessCtx.projectId),
+            eq(ganttActivities.wbsNodeId, input.targetWbsNodeId),
+            isNull(ganttActivities.archivedAt)
+          ))
+          .orderBy(asc(ganttActivities.sortOrder), asc(ganttActivities.id));
+        const orderedIds = targetRows.map((row) => row.id).filter((id) => id !== activity.id);
+        const targetIndex = Math.min(input.newSortOrder, orderedIds.length);
+        orderedIds.splice(targetIndex, 0, activity.id);
+
+        await tx.update(ganttActivities).set({
+          wbsNodeId: input.targetWbsNodeId,
+          sortOrder: targetIndex,
+          revision: sql`${ganttActivities.revision} + 1`,
+          updatedAt: new Date(),
+          updatedByName: input.actorName ?? "Anonymous",
+        }).where(and(eq(ganttActivities.id, activity.id), eq(ganttActivities.projectId, accessCtx.projectId)));
+        await normalizeActivityOrder(tx, accessCtx.projectId, input.targetWbsNodeId, orderedIds);
+        if (sourceWbsNodeId !== input.targetWbsNodeId) {
+          await normalizeActivityOrder(tx, accessCtx.projectId, sourceWbsNodeId);
+        }
+
+        const [updated] = await tx.select().from(ganttActivities).where(eq(ganttActivities.id, activity.id));
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "activity", "reorder", updated.id, mapActivityRow(activity), mapActivityRow(updated));
+        return updated;
+      });
       return { activity: mapActivityRow(result), revision: accessCtx.projectRevision };
     }),
 
@@ -1155,9 +1316,11 @@ export const primaveraLiteRouter = createRouter({
 
         const [updated] = await tx
           .update(ganttActivities)
-          .set({ archivedAt: now, updatedAt: now })
+          .set({ archivedAt: now, updatedAt: now, revision: sql`${ganttActivities.revision} + 1` })
           .where(eq(ganttActivities.id, activity.id))
           .returning();
+
+        await normalizeActivityOrder(tx, accessCtx.projectId, activity.wbsNodeId);
 
         const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
         accessCtx.projectRevision = newRevision;

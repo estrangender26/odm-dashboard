@@ -1435,7 +1435,22 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Root-node activities from PR 1 remain loadable and editable.
 - WBS code uniqueness enforced project-wide.
 
-### PR 3 — Timeline
+### PR 3 — Activity Grid MVP
+
+**Scope:**
+- Add durable, project/WBS-scoped activity ordering.
+- Build the editable activity table for Activity ID, name, WBS, original duration, nullable calendar assignment, and percent complete.
+- Support add, inline edit, archive, within-WBS reorder, and cross-WBS move.
+- Keep `gantt_projects.revision` authoritative and use optimistic cache updates with rollback and conflict recovery.
+- Calendar management, scheduling dates, dependencies, CPM, timeline rendering, resources, and baselines remain deferred.
+
+**Acceptance:**
+- Activity ordering persists and remains contiguous within each WBS.
+- Viewer is read-only; editor/admin can mutate.
+- Cross-project WBS/calendar references and stale revisions are rejected.
+- Optimistic edits and archive removal roll back on failure.
+
+### PR 4 — Timeline
 
 **Scope:**
 - Build `TimelineCanvas` component.
@@ -1447,7 +1462,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Renders 1,000 activities smoothly.
 - Zoom transitions are smooth.
 
-### PR 4 — Drag & Drop
+### PR 5 — Drag & Drop
 
 **Scope:**
 - WBS row reordering and indent/outdent via drag.
@@ -1459,7 +1474,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - All drag operations issue correct mutations.
 - Stale drops show conflict toast.
 
-### PR 5 — Scheduling Engine
+### PR 6 — Scheduling Engine
 
 **Scope:**
 - Calendar-aware date math using whole working days.
@@ -1475,7 +1490,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Cycle detection rejects invalid dependencies.
 - Negative float and progress scenarios produce correct dates.
 
-### PR 6 — Calendars & Exceptions
+### PR 7 — Calendars & Exceptions
 
 **Scope:**
 - Extend `gantt_calendars` and `gantt_calendar_exceptions`.
@@ -1487,7 +1502,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Non-working days excluded from duration.
 - Exceptions override default working days.
 
-### PR 7 — Constraints
+### PR 8 — Constraints
 
 **Scope:**
 - Enforce the inline single-constraint model.
@@ -1498,7 +1513,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Constraints drive early/late dates correctly.
 - Conflicting constraints reported without crashing the schedule.
 
-### PR 8 — Baselines
+### PR 9 — Baselines
 
 **Scope:**
 - Add `gantt_baselines` and `gantt_baseline_activities`.
@@ -1510,7 +1525,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Baseline snapshot preserves current plan.
 - Archiving a live activity does not delete baseline rows.
 
-### PR 9 — Resources
+### PR 10 — Resources
 
 **Scope:**
 - Add `gantt_resources` and `gantt_activity_resources`.
@@ -1522,7 +1537,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Resource assignments persisted and loaded.
 - Summary rollups computed.
 
-### PR 10 — Progress Updates
+### PR 11 — Progress Updates
 
 **Scope:**
 - Percent complete input.
@@ -1535,7 +1550,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Progress updates trigger CPM recalculation.
 - Actual dates validated against logical ordering.
 
-### PR 11 — Reporting & Import/Export
+### PR 12 — Reporting & Import/Export
 
 **Scope:**
 - S-curve chart (planned vs actual progress).
@@ -1546,7 +1561,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 - Export produces valid Excel.
 - Import creates normalized rows.
 
-### PR 12 — Retire Legacy Module
+### PR 13 — Retire Legacy Module
 
 **Scope:**
 - Redirect `/gantt-planner` → `/gantt`.
