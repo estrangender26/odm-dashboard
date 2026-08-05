@@ -11,6 +11,7 @@ import {
   isProjectUnavailable,
   stripTokenPath,
 } from "@/modules/gantt/primavera-lite/pageState";
+import WbsTree from "@/modules/gantt/primavera-lite/WbsTree";
 
 export default function PrimaveraLiteProjectPage() {
   const [searchParams] = useSearchParams();
@@ -119,6 +120,16 @@ export default function PrimaveraLiteProjectPage() {
             <div className="text-sm text-muted-foreground">
               Role: {data.role} | Revision: {data.revision}
             </div>
+
+            <WbsTree
+              slug={slug}
+              access={access}
+              role={data.role}
+              expectedRevision={expectedRevision}
+              nodes={data.wbsNodes}
+              onRevisionChange={setExpectedRevision}
+              onRefresh={() => refetch()}
+            />
 
             {isAdmin && (
               <Button

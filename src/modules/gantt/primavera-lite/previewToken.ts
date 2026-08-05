@@ -2,7 +2,7 @@ import { webcrypto } from "node:crypto";
 
 const PREVIEW_TOKEN_TTL_MS = 5 * 60 * 1000;
 
-export type PreviewTokenAction = "archiveProject" | "archiveActivity";
+export type PreviewTokenAction = "archiveProject" | "archiveActivity" | "archiveWbsNode";
 
 export interface PreviewTokenPayload {
   action: PreviewTokenAction;
