@@ -7,8 +7,17 @@ export type ActivityGridRow = {
   originalDurationDays: number | null;
   calendarId: number | null;
   percentComplete: number | null;
+  activityType?: string | null;
+  plannedStart?: string | null;
+  plannedFinish?: string | null;
+  earlyStart?: string | null;
+  earlyFinish?: string | null;
+  actualStart?: string | null;
+  actualFinish?: string | null;
   archivedAt?: string | Date | null;
 };
+
+export const SCHEDULE_ROW_HEIGHT = 40;
 
 export function sortActivities<T extends Pick<ActivityGridRow, "id" | "wbsNodeId" | "sortOrder">>(rows: T[]): T[] {
   return [...rows].sort((a, b) =>
