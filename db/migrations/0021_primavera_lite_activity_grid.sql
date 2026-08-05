@@ -8,6 +8,7 @@ DECLARE
   v_default text;
   v_nulls bigint;
   v_non_nulls bigint;
+  v_invalid_partitions bigint;
   v_index_definition text;
 BEGIN
   SELECT data_type, is_nullable, column_default
@@ -41,6 +42,21 @@ BEGIN
     SET sort_order = ordered.sort_order
     FROM ordered
     WHERE activity.id = ordered.id;
+  ELSE
+    SELECT count(*) INTO v_invalid_partitions
+    FROM (
+      SELECT project_id, wbs_node_id
+      FROM public.gantt_activities
+      GROUP BY project_id, wbs_node_id
+      HAVING min(sort_order) < 0
+         OR min(sort_order) <> 0
+         OR max(sort_order) <> count(*) - 1
+         OR count(*) <> count(DISTINCT sort_order)
+    ) AS invalid_partitions;
+
+    IF v_invalid_partitions > 0 THEN
+      RAISE EXCEPTION 'gantt_activities.sort_order drift: % project/WBS partition(s) contain negative, duplicate, or non-contiguous ordering', v_invalid_partitions;
+    END IF;
   END IF;
 
   ALTER TABLE public.gantt_activities ALTER COLUMN sort_order SET DEFAULT 0;

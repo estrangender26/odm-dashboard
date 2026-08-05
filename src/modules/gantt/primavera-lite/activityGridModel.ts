@@ -26,8 +26,33 @@ export function optimisticActivityUpdate<T extends { id: number }>(rows: T[], id
   return rows.map((row) => row.id === id ? { ...row, ...changes } : row);
 }
 
-export function optimisticActivityArchive<T extends { id: number }>(rows: T[], id: number): T[] {
-  return rows.filter((row) => row.id !== id);
+export function optimisticActivityArchive<T extends Pick<ActivityGridRow, "id" | "wbsNodeId" | "sortOrder">>(rows: T[], id: number): T[] {
+  const archived = rows.find((row) => row.id === id);
+  if (!archived) return rows;
+  const remaining = rows.filter((row) => row.id !== id);
+  const source = remaining.filter((row) => row.wbsNodeId === archived.wbsNodeId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+  const sourceOrder = new Map(source.map((row, index) => [row.id, index]));
+  return sortActivities(remaining.map((row) =>
+    row.wbsNodeId === archived.wbsNodeId ? { ...row, sortOrder: sourceOrder.get(row.id)! } : row
+  ));
+}
+
+export function optimisticActivityEdit<T extends Pick<ActivityGridRow, "id" | "wbsNodeId" | "sortOrder">>(
+  rows: T[], id: number, changes: Partial<T>
+): T[] {
+  const current = rows.find((row) => row.id === id);
+  if (!current) return rows;
+  if (changes.wbsNodeId !== undefined && changes.wbsNodeId !== current.wbsNodeId) {
+    const moved = optimisticActivityReorder(rows, id, changes.wbsNodeId, Number.MAX_SAFE_INTEGER);
+    return moved.map((row) => row.id === id ? { ...row, ...changes } : row);
+  }
+  return optimisticActivityUpdate(rows, id, changes);
+}
+
+export function selectValidNewWbs(currentWbsId: number | null, leafNodeIds: number[]): number | null {
+  if (currentWbsId !== null && leafNodeIds.includes(currentWbsId)) return currentWbsId;
+  return leafNodeIds[0] ?? null;
 }
 
 export function optimisticActivityReorder<T extends Pick<ActivityGridRow, "id" | "wbsNodeId" | "sortOrder">>(

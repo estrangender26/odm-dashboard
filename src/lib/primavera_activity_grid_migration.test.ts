@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -68,6 +70,24 @@ describe("migration 0021 Primavera activity ordering", () => {
     const client = await database("drift");
     await client`ALTER TABLE gantt_activities ADD COLUMN sort_order text`;
     await expect(client.unsafe(migration)).rejects.toThrow(/type conflict/);
+    await client.end();
+  });
+
+  it.each([
+    ["duplicate", [0, 0]],
+    ["negative", [-1, 0]],
+    ["non_contiguous", [0, 2]],
+  ])("rejects %s existing order drift", async (label, orders) => {
+    const client = await database(label);
+    await client`ALTER TABLE gantt_activities ADD COLUMN sort_order integer NOT NULL DEFAULT 0`;
+    await client`INSERT INTO gantt_activities (project_id, wbs_node_id, activity_name, sort_order) VALUES (1, 10, 'A', ${orders[0]}), (1, 10, 'B', ${orders[1]})`;
+    await client`CREATE SCHEMA drizzle`;
+    await client`CREATE TABLE drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint)`;
+    await client`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('through-0020', 1791312000002)`;
+    await expect(migrate(drizzle(client), { migrationsFolder: join(process.cwd(), "db/migrations") }))
+      .rejects.toThrow(/negative, duplicate, or non-contiguous ordering/);
+    const [ledger] = await client`SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations WHERE created_at = 1791312000003`;
+    expect(ledger.count).toBe(0);
     await client.end();
   });
 

@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/providers/trpc";
 import {
-  activityGridPermissions, optimisticActivityArchive, optimisticActivityReorder,
-  optimisticActivityUpdate, preserveConflictAttempt, sortActivities, validateActivityEdit,
+  activityGridPermissions, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder,
+  preserveConflictAttempt, selectValidNewWbs, sortActivities, validateActivityEdit,
   type ActivityGridRow, type ConflictRecovery,
 } from "./activityGridModel";
 
@@ -40,6 +40,7 @@ export default function ActivityGrid(props: Props) {
   const [conflict, setConflict] = useState<ConflictRecovery>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<number | null>(null);
+  const selectedNewWbs = selectValidNewWbs(newWbs, leafNodes.map((node) => node.id));
 
   function setCachedActivities(updater: (rows: ActivityGridRow[]) => ActivityGridRow[]) {
     utils.primaveraLite.load.setData(queryInput, (current) => current ? { ...current, activities: updater(current.activities) } : current);
@@ -70,12 +71,12 @@ export default function ActivityGrid(props: Props) {
     onMutate: async (input) => {
       await utils.primaveraLite.load.cancel(queryInput);
       const snapshot = utils.primaveraLite.load.getData(queryInput);
-      setCachedActivities((rows) => optimisticActivityUpdate(rows, input.activityId, input.changes));
+      setCachedActivities((rows) => optimisticActivityEdit(rows, input.activityId, input.changes));
       return { snapshot, input };
     },
     onSuccess: (result) => {
       props.onRevisionChange(result.revision);
-      setCachedActivities((rows) => optimisticActivityUpdate(rows, result.activity.id, result.activity));
+      setCachedActivities((rows) => optimisticActivityEdit(rows, result.activity.id, result.activity));
       setConflict(null);
       endEdit();
     },
@@ -159,8 +160,8 @@ export default function ActivityGrid(props: Props) {
       {canEdit && (
         <div className="flex flex-wrap items-end gap-2 rounded border bg-white p-3">
           <div className="min-w-64 flex-1"><label className="text-xs font-medium">Activity name</label><Input value={newName} onChange={(e) => setNewName(e.target.value)} /></div>
-          <div><label className="block text-xs font-medium">WBS</label><select className="h-9 rounded border px-2" value={newWbs ?? ""} onChange={(e) => setNewWbs(Number(e.target.value))}>{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></div>
-          <Button disabled={!newName.trim() || !newWbs || createActivity.isPending} onClick={() => createActivity.mutate({ slug, access, expectedRevision, wbsNodeId: newWbs!, activity: { activityName: newName.trim() } })}><Plus className="mr-1 h-4 w-4" />Add Activity</Button>
+          <div><label className="block text-xs font-medium">WBS</label><select className="h-9 rounded border px-2" value={selectedNewWbs ?? ""} onChange={(e) => setNewWbs(Number(e.target.value))}>{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></div>
+          <Button disabled={!newName.trim() || selectedNewWbs === null || createActivity.isPending} onClick={() => createActivity.mutate({ slug, access, expectedRevision, wbsNodeId: selectedNewWbs!, activity: { activityName: newName.trim() } })}><Plus className="mr-1 h-4 w-4" />Add Activity</Button>
         </div>
       )}
       {message && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">{message}{conflict && <span> Your attempted value is preserved; retry the highlighted edit.</span>}</div>}
