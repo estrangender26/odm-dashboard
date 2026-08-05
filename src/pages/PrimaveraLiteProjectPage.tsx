@@ -12,6 +12,7 @@ import {
 import WbsTree from "@/modules/gantt/primavera-lite/WbsTree";
 import ActivityGrid from "@/modules/gantt/primavera-lite/ActivityGrid";
 import Timeline from "@/modules/gantt/primavera-lite/Timeline";
+import DependencyPanel from "@/modules/gantt/primavera-lite/DependencyPanel";
 
 export default function PrimaveraLiteProjectPage() {
   const [searchParams] = useSearchParams();
@@ -123,8 +124,13 @@ export default function PrimaveraLiteProjectPage() {
               onVerticalScroll={setScheduleScrollTop} />
 
             <Timeline activities={data.activities} dataDate={data.project.dataDate}
+              dependencies={data.dependencies}
               highlightedActivityId={highlightedActivityId} onActivityHighlight={setHighlightedActivityId}
               verticalScrollTop={scheduleScrollTop} onVerticalScroll={setScheduleScrollTop} />
+
+            <DependencyPanel slug={slug} access={access} role={data.role} expectedRevision={expectedRevision}
+              activities={data.activities} dependencies={data.dependencies}
+              onRevisionChange={setExpectedRevision} onRefresh={() => refetch()} />
           </CardContent>
         </Card>
       </div>

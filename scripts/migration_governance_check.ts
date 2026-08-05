@@ -201,6 +201,13 @@ async function detectSchemaDrift(
     if (index !== null) objects.push("gantt_activities_order_idx");
   }
 
+  if (tag === "0022_primavera_lite_dependencies") {
+    const table = (await client`SELECT to_regclass('public.gantt_activity_dependencies') as e`)[0].e;
+    if (table !== null) objects.push("gantt_activity_dependencies");
+    const index = (await client`SELECT to_regclass('public.gantt_activity_dependencies_active_unique') as e`)[0].e;
+    if (index !== null) objects.push("gantt_activity_dependencies_active_unique");
+  }
+
   return { present: objects.length > 0, objects };
 }
 

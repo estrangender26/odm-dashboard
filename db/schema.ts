@@ -513,6 +513,30 @@ export const ganttActivities = pgTable("gantt_activities", {
   index("gantt_activities_uid_idx").on(table.frontendActivityUid),
 ]);
 
+/* ── Primavera Lite Activity Dependencies (normalized; legacy gantt_dependencies remains untouched) ── */
+export const ganttActivityDependencies = pgTable("gantt_activity_dependencies", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => ganttProjects.id, { onDelete: "restrict" }),
+  predecessorActivityId: integer("predecessor_activity_id").notNull().references(() => ganttActivities.id, { onDelete: "restrict" }),
+  successorActivityId: integer("successor_activity_id").notNull().references(() => ganttActivities.id, { onDelete: "restrict" }),
+  dependencyType: varchar("dependency_type", { length: 10 }).notNull().default("FS"),
+  lagDays: integer("lag_days").notNull().default(0),
+  revision: integer("revision").notNull().default(1),
+  updatedByName: varchar("updated_by_name", { length: 255 }),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("gantt_activity_dependencies_project_idx").on(table.projectId),
+  index("gantt_activity_dependencies_pred_idx").on(table.projectId, table.predecessorActivityId),
+  index("gantt_activity_dependencies_succ_idx").on(table.projectId, table.successorActivityId),
+  check("gantt_activity_dependencies_type_check", sql`${table.dependencyType} IN ('FS', 'SS', 'FF', 'SF')`),
+  check("gantt_activity_dependencies_no_self_check", sql`${table.predecessorActivityId} <> ${table.successorActivityId}`),
+  uniqueIndex("gantt_activity_dependencies_active_unique")
+    .on(table.projectId, table.predecessorActivityId, table.successorActivityId, table.dependencyType)
+    .where(sql`${table.archivedAt} IS NULL`),
+]);
+
 /* ── ODM Talk AI Collaboration Hub ── */
 
 export const odmTalkThreads = pgTable("odm_talk_threads", {

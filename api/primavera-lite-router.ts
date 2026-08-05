@@ -5,10 +5,11 @@ import {
   ganttProjects,
   ganttWbsNodes,
   ganttActivities,
+  ganttActivityDependencies,
   ganttCalendars,
   ganttProjectEvents,
 } from "@db/schema";
-import { eq, and, sql, asc, isNull } from "drizzle-orm";
+import { eq, and, or, sql, asc, isNull, inArray, ne } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 import { TRPCError } from "@trpc/server";
 import { generateProjectTokens, hashToken } from "@/modules/gantt/collaboration/accessToken";
@@ -25,6 +26,7 @@ const MAX_DESCRIPTION_LENGTH = 2000;
 const MAX_NOTES_LENGTH = 5000;
 const MAX_ACTOR_NAME_LENGTH = 100;
 const MAX_ACTIVITIES_PER_PROJECT = Number(process.env.MAX_ACTIVITIES_PER_PROJECT) || 2000;
+const dependencyTypeSchema = z.enum(["FS", "SS", "FF", "SF"]);
 
 const dateStringSchema = z
   .string()
@@ -127,6 +129,45 @@ const updateActivityInputSchema = z.object({
   }),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
+
+const dependencyFieldsSchema = z.object({
+  predecessorActivityId: z.number().int().positive(),
+  successorActivityId: z.number().int().positive(),
+  dependencyType: dependencyTypeSchema,
+  lagDays: z.number().int(),
+});
+
+const createDependencyInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  dependency: dependencyFieldsSchema,
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const updateDependencyInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  dependencyId: z.number().int().positive(),
+  changes: dependencyFieldsSchema.partial().refine((changes) => Object.keys(changes).length > 0, "At least one dependency change is required"),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const dependencyIdInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  dependencyId: z.number().int().positive(),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const archiveDependencyInputSchema = dependencyIdInputSchema.extend({
+  previewToken: z.string().min(1),
+  confirmed: z.literal(true),
+});
+
+const restoreDependencyInputSchema = dependencyIdInputSchema.extend({ confirmed: z.literal(true) });
 
 const reorderActivityInputSchema = z.object({
   slug: slugSchema,
@@ -446,6 +487,73 @@ function mapActivityRow(activity: typeof ganttActivities.$inferSelect) {
   } as any;
 }
 
+function mapDependencyRow(dependency: typeof ganttActivityDependencies.$inferSelect) {
+  return {
+    id: dependency.id,
+    projectId: dependency.projectId,
+    predecessorActivityId: dependency.predecessorActivityId,
+    successorActivityId: dependency.successorActivityId,
+    dependencyType: dependency.dependencyType as "FS" | "SS" | "FF" | "SF",
+    lagDays: dependency.lagDays,
+    revision: dependency.revision,
+    updatedByName: dependency.updatedByName,
+    archivedAt: dependency.archivedAt,
+    createdAt: dependency.createdAt,
+    updatedAt: dependency.updatedAt,
+  };
+}
+
+async function requireDependencyActivities(
+  tx: PgTransaction<any, any, any>, projectId: number, predecessorActivityId: number, successorActivityId: number
+) {
+  if (predecessorActivityId === successorActivityId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "An activity cannot depend on itself" });
+  }
+  const rows = await tx.select({ id: ganttActivities.id, archivedAt: ganttActivities.archivedAt })
+    .from(ganttActivities)
+    .where(and(eq(ganttActivities.projectId, projectId), inArray(ganttActivities.id, [predecessorActivityId, successorActivityId])));
+  if (rows.length !== 2) throw new TRPCError({ code: "NOT_FOUND", message: "Dependency activities must belong to this project" });
+  if (rows.some((row) => row.archivedAt)) throw new TRPCError({ code: "BAD_REQUEST", message: "Archived activities cannot have active dependencies" });
+}
+
+async function requireNoDependencyCycle(
+  tx: PgTransaction<any, any, any>, projectId: number, predecessorActivityId: number, successorActivityId: number, excludeId?: number
+) {
+  const rows = await tx.select({ id: ganttActivityDependencies.id, predecessorActivityId: ganttActivityDependencies.predecessorActivityId, successorActivityId: ganttActivityDependencies.successorActivityId })
+    .from(ganttActivityDependencies)
+    .where(and(eq(ganttActivityDependencies.projectId, projectId), isNull(ganttActivityDependencies.archivedAt)));
+  const graph = new Map<number, number[]>();
+  for (const row of rows) {
+    if (row.id === excludeId) continue;
+    graph.set(row.predecessorActivityId, [...(graph.get(row.predecessorActivityId) ?? []), row.successorActivityId]);
+  }
+  graph.set(predecessorActivityId, [...(graph.get(predecessorActivityId) ?? []), successorActivityId]);
+  const stack = [successorActivityId];
+  const seen = new Set<number>();
+  while (stack.length) {
+    const current = stack.pop()!;
+    if (current === predecessorActivityId) throw new TRPCError({ code: "BAD_REQUEST", message: "Dependency would create a circular relationship" });
+    if (seen.has(current)) continue;
+    seen.add(current);
+    stack.push(...(graph.get(current) ?? []));
+  }
+}
+
+async function requireNoDuplicateDependency(
+  tx: PgTransaction<any, any, any>, projectId: number, values: { predecessorActivityId: number; successorActivityId: number; dependencyType: string; lagDays: number }, excludeId?: number
+) {
+  const conditions = [
+    eq(ganttActivityDependencies.projectId, projectId),
+    eq(ganttActivityDependencies.predecessorActivityId, values.predecessorActivityId),
+    eq(ganttActivityDependencies.successorActivityId, values.successorActivityId),
+    eq(ganttActivityDependencies.dependencyType, values.dependencyType),
+    isNull(ganttActivityDependencies.archivedAt),
+  ];
+  if (excludeId !== undefined) conditions.push(ne(ganttActivityDependencies.id, excludeId));
+  const duplicate = await tx.select({ id: ganttActivityDependencies.id }).from(ganttActivityDependencies).where(and(...conditions));
+  if (duplicate.length) throw new TRPCError({ code: "CONFLICT", message: "Duplicate active dependency" });
+}
+
 async function requireActiveLeafWbs(
   tx: PgTransaction<any, any, any>,
   projectId: number,
@@ -754,6 +862,12 @@ export const primaveraLiteRouter = createRouter({
         )
         .orderBy(asc(ganttActivities.wbsNodeId), asc(ganttActivities.sortOrder), asc(ganttActivities.id));
 
+      const dependencies = await db
+        .select()
+        .from(ganttActivityDependencies)
+        .where(and(eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)))
+        .orderBy(asc(ganttActivityDependencies.id));
+
       const calendars = await db
         .select()
         .from(ganttCalendars)
@@ -778,6 +892,7 @@ export const primaveraLiteRouter = createRouter({
         project: projectRow ? mapProjectRow(projectRow) : null,
         wbsNodes: wbsNodes.map(mapWbsNodeRow),
         activities: activities.map(mapActivityRow),
+        dependencies: dependencies.map(mapDependencyRow),
         calendars,
         events: events.map((e) => ({
           id: e.id,
@@ -1314,6 +1429,14 @@ export const primaveraLiteRouter = createRouter({
         const before = mapActivityRow(activity);
         const now = new Date();
 
+        await tx.update(ganttActivityDependencies).set({
+          archivedAt: now, updatedAt: now, revision: sql`${ganttActivityDependencies.revision} + 1`, updatedByName: input.actorName ?? "Anonymous",
+        }).where(and(
+          eq(ganttActivityDependencies.projectId, accessCtx.projectId),
+          isNull(ganttActivityDependencies.archivedAt),
+          or(eq(ganttActivityDependencies.predecessorActivityId, activity.id), eq(ganttActivityDependencies.successorActivityId, activity.id))
+        ));
+
         const [updated] = await tx
           .update(ganttActivities)
           .set({ archivedAt: now, updatedAt: now, revision: sql`${ganttActivities.revision} + 1` })
@@ -1331,6 +1454,152 @@ export const primaveraLiteRouter = createRouter({
       });
 
       return { activity: mapActivityRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  createDependency: publicQuery
+    .input(createDependencyInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-create-dependency:${input.slug}`, 60, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+      const dependency = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const project = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (project.revision !== input.expectedRevision) throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        const values = input.dependency;
+        await requireDependencyActivities(tx, accessCtx.projectId, values.predecessorActivityId, values.successorActivityId);
+        await requireNoDuplicateDependency(tx, accessCtx.projectId, values);
+        await requireNoDependencyCycle(tx, accessCtx.projectId, values.predecessorActivityId, values.successorActivityId);
+        const [created] = await tx.insert(ganttActivityDependencies).values({
+          projectId: accessCtx.projectId, ...values, updatedByName: input.actorName ?? "Anonymous",
+        }).returning();
+        const revision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = revision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "dependency", "create", created.id, null, mapDependencyRow(created));
+        return created;
+      });
+      return { dependency: mapDependencyRow(dependency), revision: accessCtx.projectRevision };
+    }),
+
+  listDependencies: publicQuery
+    .input(tokenAccessInputSchema)
+    .query(async ({ input }) => {
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      const dependencies = await db.select().from(ganttActivityDependencies).where(and(
+        eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)
+      )).orderBy(asc(ganttActivityDependencies.id));
+      return { dependencies: dependencies.map(mapDependencyRow), revision: accessCtx.projectRevision };
+    }),
+
+  updateDependency: publicQuery
+    .input(updateDependencyInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-update-dependency:${input.slug}`, 60, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+      const dependency = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const project = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (project.revision !== input.expectedRevision) throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        const [current] = await tx.select().from(ganttActivityDependencies).where(and(
+          eq(ganttActivityDependencies.id, input.dependencyId), eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)
+        ));
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Dependency not found" });
+        const values = {
+          predecessorActivityId: input.changes.predecessorActivityId ?? current.predecessorActivityId,
+          successorActivityId: input.changes.successorActivityId ?? current.successorActivityId,
+          dependencyType: input.changes.dependencyType ?? current.dependencyType,
+          lagDays: input.changes.lagDays ?? current.lagDays,
+        };
+        await requireDependencyActivities(tx, accessCtx.projectId, values.predecessorActivityId, values.successorActivityId);
+        await requireNoDuplicateDependency(tx, accessCtx.projectId, values, current.id);
+        await requireNoDependencyCycle(tx, accessCtx.projectId, values.predecessorActivityId, values.successorActivityId, current.id);
+        const [updated] = await tx.update(ganttActivityDependencies).set({
+          ...values, revision: sql`${ganttActivityDependencies.revision} + 1`, updatedAt: new Date(), updatedByName: input.actorName ?? "Anonymous",
+        }).where(eq(ganttActivityDependencies.id, current.id)).returning();
+        const revision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = revision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "dependency", "update", updated.id, mapDependencyRow(current), mapDependencyRow(updated));
+        return updated;
+      });
+      return { dependency: mapDependencyRow(dependency), revision: accessCtx.projectRevision };
+    }),
+
+  archiveDependencyDryRun: publicQuery
+    .input(dependencyIdInputSchema)
+    .mutation(async ({ input }) => {
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const project = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (project.revision !== input.expectedRevision) throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        const [dependency] = await tx.select({ id: ganttActivityDependencies.id }).from(ganttActivityDependencies).where(and(
+          eq(ganttActivityDependencies.id, input.dependencyId), eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)
+        ));
+        if (!dependency) throw new TRPCError({ code: "NOT_FOUND", message: "Dependency not found" });
+        return dependency;
+      });
+      return { dryRun: true, wouldArchive: { dependencies: 1 }, previewToken: await createPreviewToken("archiveDependency", input.slug, input.expectedRevision, result.id) };
+    }),
+
+  archiveDependency: publicQuery
+    .input(archiveDependencyInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-archive-dependency:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+      try { await verifyPreviewToken(input.previewToken, "archiveDependency", input.slug, input.expectedRevision, input.dependencyId); }
+      catch (error) { handlePreviewTokenError(error); }
+      const dependency = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const project = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (project.revision !== input.expectedRevision) throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        const [current] = await tx.select().from(ganttActivityDependencies).where(and(
+          eq(ganttActivityDependencies.id, input.dependencyId), eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)
+        ));
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Dependency not found" });
+        const now = new Date();
+        const [updated] = await tx.update(ganttActivityDependencies).set({ archivedAt: now, updatedAt: now, revision: sql`${ganttActivityDependencies.revision} + 1`, updatedByName: input.actorName ?? "Anonymous" })
+          .where(eq(ganttActivityDependencies.id, current.id)).returning();
+        const revision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = revision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "dependency", "archive", updated.id, mapDependencyRow(current), mapDependencyRow(updated));
+        return updated;
+      });
+      return { dependency: mapDependencyRow(dependency), revision: accessCtx.projectRevision };
+    }),
+
+  restoreDependency: publicQuery
+    .input(restoreDependencyInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-restore-dependency:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+      const dependency = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const project = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (project.revision !== input.expectedRevision) throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        const [current] = await tx.select().from(ganttActivityDependencies).where(and(
+          eq(ganttActivityDependencies.id, input.dependencyId), eq(ganttActivityDependencies.projectId, accessCtx.projectId)
+        ));
+        if (!current || !current.archivedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Archived dependency not found" });
+        const values = mapDependencyRow(current);
+        await requireDependencyActivities(tx, accessCtx.projectId, current.predecessorActivityId, current.successorActivityId);
+        await requireNoDuplicateDependency(tx, accessCtx.projectId, values, current.id);
+        await requireNoDependencyCycle(tx, accessCtx.projectId, current.predecessorActivityId, current.successorActivityId, current.id);
+        const [updated] = await tx.update(ganttActivityDependencies).set({ archivedAt: null, updatedAt: new Date(), revision: sql`${ganttActivityDependencies.revision} + 1`, updatedByName: input.actorName ?? "Anonymous" })
+          .where(eq(ganttActivityDependencies.id, current.id)).returning();
+        const revision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = revision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "dependency", "restore", updated.id, mapDependencyRow(current), mapDependencyRow(updated));
+        return updated;
+      });
+      return { dependency: mapDependencyRow(dependency), revision: accessCtx.projectRevision };
     }),
 
   // ── WBS Tree (PR2) ──

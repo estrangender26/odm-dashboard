@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SCHEDULE_ROW_HEIGHT, sortActivities, type ActivityGridRow } from "./activityGridModel";
+import { dependencyLineGeometry, type DependencyRow } from "./dependencyModel";
 import {
   ZOOM_PIXELS_PER_DAY, actualDates, headerTicks, isMilestone, plannedDates,
   parseTimelineDate, timelinePosition, timelineRange, timelineSpan, type TimelineZoom,
@@ -13,9 +14,10 @@ type Props = {
   onActivityHighlight?: (activityId: number | null) => void;
   verticalScrollTop?: number;
   onVerticalScroll?: (scrollTop: number) => void;
+  dependencies?: DependencyRow[];
 };
 
-export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll }: Props) {
+export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll, dependencies = [] }: Props) {
   const activities = useMemo(() => sortActivities(input), [input]);
   const [zoom, setZoom] = useState<TimelineZoom>("week");
   const [fitPixelsPerDay, setFitPixelsPerDay] = useState<number | null>(null);
@@ -23,6 +25,7 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
   const range = useMemo(() => timelineRange(activities, dataDate), [activities, dataDate]);
   const projectDataDate = useMemo(() => parseTimelineDate(dataDate), [dataDate]);
   const pixelsPerDay = fitPixelsPerDay ?? ZOOM_PIXELS_PER_DAY[zoom];
+  const dependencyLines = useMemo(() => range ? dependencyLineGeometry(dependencies, activities, range.start, pixelsPerDay) : [], [dependencies, activities, range, pixelsPerDay]);
 
   useEffect(() => {
     if (viewportRef.current && verticalScrollTop !== undefined && viewportRef.current.scrollTop !== verticalScrollTop) {
@@ -65,6 +68,14 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
               ))}
             </div>
             <div className="relative" style={{ height: activities.length * SCHEDULE_ROW_HEIGHT }}>
+              <svg className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible" aria-label="Dependency lines">
+                <defs><marker id="dependency-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="currentColor" /></marker></defs>
+                {dependencyLines.map((line) => <g key={line.id} aria-label={`${line.type} dependency`} className="text-slate-600">
+                  <path d={line.path} fill="none" stroke="currentColor" strokeWidth="1.5" markerEnd="url(#dependency-arrow)" />
+                  <circle cx={line.startX} cy={line.startY} r="3" fill="currentColor" />
+                  <circle cx={line.endX} cy={line.endY} r="3" fill="white" stroke="currentColor" strokeWidth="1.5" />
+                </g>)}
+              </svg>
               {activities.map((activity, rowIndex) => {
                 const planned = plannedDates(activity);
                 const actual = actualDates(activity);
