@@ -369,6 +369,8 @@ const monthlyKpiCanonicalBusinessUnitSql = sql`
     WHEN 'tagum water' THEN 'Tagum Water'
     WHEN 'estate' THEN 'Estate Water'
     WHEN 'estate water' THEN 'Estate Water'
+    WHEN 'wawajvc' THEN 'WAWA/JVC'
+    WHEN 'wawa/jvc' THEN 'WAWA/JVC'
     ELSE trim(business_unit)
   END
 `;
@@ -499,7 +501,7 @@ async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: strin
   const rows = await getDb().execute(sql`
     SELECT
       id,
-      business_unit,
+      canonical_business_unit AS business_unit,
       reporting_month,
       reporting_year,
       source_file_name,
