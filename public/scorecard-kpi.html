@@ -100,6 +100,20 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .monthly-records-table th.situation-col{text-align:left}
 .monthly-records-table td.situation-col{font-weight:600;color:var(--text)}
 .summary-aggregate-row td{background:#F8FAFC}
+.summary-bu-row{cursor:pointer}
+.matrix-table .summary-bu-row:hover td,
+.matrix-table .summary-bu-row:focus-visible td{box-shadow:inset 0 1px 0 rgba(0,102,166,.18),inset 0 -1px 0 rgba(0,102,166,.18)}
+.matrix-table .summary-bu-row:hover td:first-child,
+.matrix-table .summary-bu-row:hover td.notes-col,
+.matrix-table .summary-bu-row:focus-visible td:first-child,
+.matrix-table .summary-bu-row:focus-visible td.notes-col{background:#F1F8FC}
+.summary-bu-row:focus-visible{outline:2px solid rgba(0,102,166,.45);outline-offset:-2px}
+#t-business-unit{scroll-margin-top:84px;border-radius:var(--r)}
+#t-business-unit.bu-detail-highlight{animation:buDetailHighlight 1.6s ease-out}
+@keyframes buDetailHighlight{
+  0%,20%{box-shadow:0 0 0 4px rgba(245,158,11,.32);background:rgba(254,243,199,.65)}
+  100%{box-shadow:0 0 0 0 rgba(245,158,11,0);background:transparent}
+}
 .notes-rollup-btn{border:0;background:none;color:var(--blue);font:inherit;font-weight:800;text-align:left;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .notes-rollup-btn:hover,.notes-rollup-btn:focus{color:#004F86;outline:none}
 .commentary-modal-table td{vertical-align:top}
@@ -786,6 +800,23 @@ function canonicalizeMonthlyKpiBusinessUnit(value){
 function monthlyKpiBusinessUnitsMatch(left,right){
   return normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(left))===normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(right));
 }
+function getBusinessUnitDisplayLabel(bu){
+  return normalizeBusinessUnitName(bu && (bu.label || bu.name || bu.apiValue || bu.id));
+}
+function getSortedBusinessUnits(businessUnits){
+  var seen = {};
+  return (businessUnits || []).map(function(bu,index){
+    return {bu:bu,index:index,label:getBusinessUnitDisplayLabel(bu)};
+  }).filter(function(item){
+    var identity = normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(item.label || item.bu.id));
+    if(!identity || seen[identity])return false;
+    seen[identity] = true;
+    return true;
+  }).sort(function(left,right){
+    var labelOrder = left.label.localeCompare(right.label,undefined,{sensitivity:'base'});
+    return labelOrder || left.index-right.index;
+  }).map(function(item){return item.bu;});
+}
 function makeBusinessUnitIdFromName(value){
   var base = normalizeBusinessUnitAlias(value).replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
   if(!base)base='business-unit';
@@ -965,7 +996,7 @@ function initBusinessUnitSelector(){
   var activeSet = {};
   activeBuIds.forEach(function(id){ activeSet[id] = true; });
   var options = '<option value="'+ALL_BUSINESS_UNITS_VALUE+'">All Business Units</option>';
-  BUs.forEach(function(bu){
+  getSortedBusinessUnits(BUs).forEach(function(bu){
     if(activeSet[bu.id] || activeSet[bu.apiValue] || activeSet[normalizePersistedBusinessUnit(bu.apiValue)] || activeSet[bu.label] || activeSet[bu.name]){
       options += '<option value="'+bu.id+'">'+bu.label+'</option>';
     }
@@ -982,7 +1013,7 @@ function initManualSelectors(){
   var buSel = document.getElementById('manualBusinessUnitSel');
   var monthSel = document.getElementById('manualMonthSel');
   var yearSel = document.getElementById('manualYearSel');
-  if(buSel)buSel.innerHTML = '<option value="">Select business unit</option>'+BUs.map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
+  if(buSel)buSel.innerHTML = '<option value="">Select business unit</option>'+getSortedBusinessUnits(BUs).map(function(bu){return '<option value="'+bu.id+'">'+bu.label+'</option>';}).join('');
   if(monthSel)monthSel.innerHTML = '<option value="">Select month</option>'+MonthNames.map(function(name,index){return '<option value="'+(index+1)+'">'+name+'</option>';}).join('');
   if(yearSel){
     var pageYearSel = document.getElementById('yearSel');
@@ -1331,7 +1362,7 @@ function getSummaryNotesForBusinessUnit(buId){
 }
 
 function getBusinessUnitCommentaryRows(){
-  return BUs.filter(function(bu){return isValidBusinessUnitId(bu.id);}).map(function(bu){
+  return getSortedBusinessUnits(BUs).filter(function(bu){return isValidBusinessUnitId(bu.id);}).map(function(bu){
     return {businessUnit:bu.label,notes:getSummaryNotesForBusinessUnit(bu.id)};
   }).filter(function(row){return !!row.notes;});
 }
@@ -2102,7 +2133,7 @@ function buildSummaryMatrixExportRows(aggregates,scope){
     });
   }
   var allowedBu = scope==='current' ? getBUApiValue(selectedBusinessUnitId) : null;
-  BUs.filter(function(bu){return isValidBusinessUnitId(bu.id);}).forEach(function(bu){
+  getSortedBusinessUnits(BUs).filter(function(bu){return isValidBusinessUnitId(bu.id);}).forEach(function(bu){
     if(allowedBu && getBUApiValue(bu.id)!==allowedBu)return;
     var aggregate = (aggregates.byBusinessUnitMap || {})[getBUApiValue(bu.id)] || (aggregates.byBusinessUnitMap || {})[bu.label] || null;
     rows.push({
@@ -2869,6 +2900,34 @@ function getPortfolioSummaryKPIs(){
 }
 
 // ===== RENDER SUMMARY =====
+var summaryDrilldownHighlightTimer = null;
+function highlightBusinessUnitDetail(){
+  var detail = document.getElementById('t-business-unit');
+  if(!detail)return;
+  if(summaryDrilldownHighlightTimer)clearTimeout(summaryDrilldownHighlightTimer);
+  detail.classList.remove('bu-detail-highlight');
+  void detail.offsetWidth;
+  detail.classList.add('bu-detail-highlight');
+  if(detail.scrollIntoView)detail.scrollIntoView({behavior:'smooth',block:'start'});
+  summaryDrilldownHighlightTimer = setTimeout(function(){
+    detail.classList.remove('bu-detail-highlight');
+    summaryDrilldownHighlightTimer = null;
+  },1600);
+}
+function drillDownToBusinessUnit(buId){
+  if(!isValidBusinessUnitId(buId))return;
+  var selector = document.getElementById('businessUnitSel');
+  if(!selector)return;
+  selector.value = buId;
+  handleBusinessUnitChange();
+  highlightBusinessUnitDetail();
+}
+function handleSummaryBusinessUnitKeydown(event,buId){
+  var key = event && event.key;
+  if(key!=='Enter' && key!==' ' && key!=='Spacebar')return;
+  if(event.preventDefault)event.preventDefault();
+  drillDownToBusinessUnit(buId);
+}
 function renderSummary(){
   var tbody = document.getElementById('summaryBody');
   var columnCount = SummaryMatrixKPIs.length + 2;
@@ -2886,10 +2945,12 @@ function renderSummary(){
   getPortfolioSummaryKPIs().forEach(function(k){html += '<td class="'+k.cls+'">'+k.display+'</td>';});
   html += '<td class="notes-col">'+renderAggregateNotesRollup()+'</td>';
   html += '</tr>';
-  BUs.filter(function(bu){return isValidBusinessUnitId(bu.id) && hasImportedData(bu.id,getSelectedYear());}).forEach(function(bu){
+  getSortedBusinessUnits(BUs).filter(function(bu){return isValidBusinessUnitId(bu.id) && hasImportedData(bu.id,getSelectedYear());}).forEach(function(bu){
     var kpis = getSummaryKPIs(bu);
-    html += '<tr>';
-    html += '<td>'+bu.label+'</td>';
+    var buId = escapeHtml(bu.id);
+    var buLabel = escapeHtml(bu.label);
+    html += '<tr class="summary-bu-row" tabindex="0" role="button" aria-label="View '+buLabel+' details" data-bu-id="'+buId+'" onclick="drillDownToBusinessUnit(this.getAttribute(\'data-bu-id\'))" onkeydown="handleSummaryBusinessUnitKeydown(event,this.getAttribute(\'data-bu-id\'))">';
+    html += '<td>'+buLabel+'</td>';
     kpis.forEach(function(k){html += '<td class="'+k.cls+'">'+k.display+'</td>';});
     html += '<td class="notes-col">'+renderSummaryNotesValue(getSummaryNotesForBusinessUnit(bu.id))+'</td>';
     html += '</tr>';

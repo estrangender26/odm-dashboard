@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import vm from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const scorecardHtml = readFileSync(resolve(process.cwd(), "public/scorecard-kpi.html"), "utf8");
 const scorecardThresholdScript = readFileSync(resolve(process.cwd(), "public/scorecard-kpi-thresholds.js"), "utf8");
@@ -315,6 +315,9 @@ function createImportContext() {
     BUs: Array<{ id: string; apiValue: string; name: string; label: string }>;
     normalizePersistedBusinessUnit: (value: string) => string;
     getAggregateForBusinessUnit: (buId: string, year: number) => { businessUnit: string } | null;
+    getSortedBusinessUnits: (businessUnits: Array<{ id: string; apiValue: string; name: string; label: string }>) => Array<{ id: string; apiValue: string; name: string; label: string }>;
+    drillDownToBusinessUnit: (buId: string) => void;
+    handleSummaryBusinessUnitKeydown: (event: { key: string; preventDefault?: () => void }, buId: string) => void;
     renderSummary: () => void;
     renderMonthlyRecords: (buId: string) => void;
   };
@@ -3444,6 +3447,95 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
 
     ctx.renderSummary();
     expect(ctx.document.getElementById("summaryBody").innerHTML).toContain("WAWA/JVC");
+  });
+
+  it("sorts normalized Business Units alphabetically with All Business Units first", () => {
+    const ctx = createImportContext();
+    ctx.applyPersistedMonthlyKpiRecords([
+      { id: 1, business_unit: "Tagum Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 97 },
+      { id: 2, business_unit: "WAWAJVC", reporting_year: 2026, reporting_month: 1, pm_compliance: 98 },
+      { id: 3, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 99 },
+      { id: 4, business_unit: "Clark Water", reporting_year: 2026, reporting_month: 1, pm_compliance: 96 },
+      { id: 5, business_unit: "WAWA/JVC", reporting_year: 2026, reporting_month: 2, pm_compliance: 99 },
+    ], { reset: true });
+
+    ctx.initBusinessUnitSelector();
+    const selectorHtml = String(ctx.document.getElementById("businessUnitSel").innerHTML);
+    const selectorLabels = Array.from(selectorHtml.matchAll(/<option value="[^"]+">([^<]+)<\/option>/g), (match) => match[1]);
+    expect(selectorLabels).toEqual(["All Business Units", "AMD-EZ", "Clark Water", "Tagum Water", "WAWA/JVC"]);
+    expect(selectorLabels.filter((label) => label === "WAWA/JVC")).toHaveLength(1);
+
+    const sortedLabels = ctx.getSortedBusinessUnits(ctx.BUs).map((bu) => bu.label);
+    expect(sortedLabels).toEqual(["AMD-EZ", "Clark Water", "Estate Water", "Laguna Water", "Tagum Water", "WAWA/JVC"]);
+
+    ctx.renderSummary();
+    const summaryHtml = ctx.document.getElementById("summaryBody").innerHTML;
+    expect(summaryHtml.indexOf("All Business Units")).toBeLessThan(summaryHtml.indexOf("AMD-EZ"));
+    expect(summaryHtml.indexOf("AMD-EZ")).toBeLessThan(summaryHtml.indexOf("Clark Water"));
+    expect(summaryHtml.indexOf("Clark Water")).toBeLessThan(summaryHtml.indexOf("Tagum Water"));
+    expect(summaryHtml.indexOf("Tagum Water")).toBeLessThan(summaryHtml.indexOf("WAWA/JVC"));
+    expect((summaryHtml.match(/>WAWA\/JVC</g) || [])).toHaveLength(1);
+    expect(summaryHtml).toContain('class="summary-bu-row"');
+    expect(summaryHtml).toContain('role="button"');
+    expect(summaryHtml).toContain("onclick=\"drillDownToBusinessUnit");
+  });
+
+  it("drills down through the existing selector workflow and briefly highlights details", () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = createImportContext();
+      ctx.applyPersistedMonthlyKpiRecords([
+        { id: 1, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 98 },
+        { id: 2, business_unit: "WAWAJVC", reporting_year: 2026, reporting_month: 1, pm_compliance: 65.85 },
+      ], { reset: true });
+      ctx.initBusinessUnitSelector();
+
+      const originalGetElementById = ctx.document.getElementById.bind(ctx.document);
+      const detailClassList = createClassList("tc");
+      const scrollCalls: Array<{ behavior?: string; block?: string }> = [];
+      const detailElement = {
+        id: "t-business-unit",
+        classList: detailClassList,
+        scrollIntoView(options: { behavior?: string; block?: string }) { scrollCalls.push(options); },
+      };
+      ctx.document.getElementById = ((id: string) => {
+        if (id === "t-business-unit") return detailElement;
+        return originalGetElementById(id);
+      }) as typeof ctx.document.getElementById;
+
+      let detailRefreshCount = 0;
+      ctx.loadData = () => { detailRefreshCount += 1; };
+      ctx.fetchSavedMonthlyKpiRecords = async () => ({ ok: true, records: [] });
+
+      ctx.drillDownToBusinessUnit("ez");
+      const selector = ctx.document.getElementById("businessUnitSel") as unknown as { value: string };
+      expect(ctx.selectedBusinessUnitId).toBe("ez");
+      expect(selector.value).toBe("ez");
+      expect(detailRefreshCount).toBe(1);
+      expect(scrollCalls).toEqual([{ behavior: "smooth", block: "start" }]);
+      expect(detailClassList.contains("bu-detail-highlight")).toBe(true);
+
+      let prevented = false;
+      ctx.handleSummaryBusinessUnitKeydown({ key: " ", preventDefault() { prevented = true; } }, "wawajvc");
+      expect(prevented).toBe(true);
+      expect(ctx.selectedBusinessUnitId).toBe("wawajvc");
+      expect(selector.value).toBe("wawajvc");
+      expect(detailRefreshCount).toBe(2);
+      expect(scrollCalls).toHaveLength(2);
+      expect(detailClassList.contains("bu-detail-highlight")).toBe(true);
+
+      let enterPrevented = false;
+      ctx.handleSummaryBusinessUnitKeydown({ key: "Enter", preventDefault() { enterPrevented = true; } }, "ez");
+      expect(enterPrevented).toBe(true);
+      expect(ctx.selectedBusinessUnitId).toBe("ez");
+      expect(selector.value).toBe("ez");
+      expect(detailRefreshCount).toBe(3);
+
+      vi.advanceTimersByTime(1600);
+      expect(detailClassList.contains("bu-detail-highlight")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps WAWA/JVC selected and renders its monthly rows after a filtered refresh", async () => {
