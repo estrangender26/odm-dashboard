@@ -221,8 +221,9 @@ function createImportContext() {
     style: {},
     querySelector() { return null; },
     querySelectorAll() { return []; },
-    set innerHTML(_value: string) {},
-    get innerHTML() { return ""; },
+    _innerHTML: "",
+    set innerHTML(value: string) { this._innerHTML = value; },
+    get innerHTML() { return this._innerHTML; },
     value: "2026",
     focus() {},
   };
@@ -312,6 +313,10 @@ function createImportContext() {
     KpiAggregates: any;
     selectedBusinessUnitId: string;
     BUs: Array<{ id: string; apiValue: string; name: string; label: string }>;
+    normalizePersistedBusinessUnit: (value: string) => string;
+    getAggregateForBusinessUnit: (buId: string, year: number) => { businessUnit: string } | null;
+    renderSummary: () => void;
+    renderMonthlyRecords: (buId: string) => void;
   };
 }
 
@@ -3399,6 +3404,80 @@ describe("Monthly KPI Scorecard Scope / Inclusions tab", () => {
     expect(html).toContain('value="ez"');
     expect(html).not.toContain('value="clark"');
     expect(html).not.toContain('value="laguna"');
+  });
+
+  it("canonicalizes WAWAJVC records and aggregates without duplicate dropdown options", () => {
+    const ctx = createImportContext();
+    const records = [
+      { id: 1, business_unit: "WAWAJVC", reporting_year: 2026, reporting_month: 1, pm_compliance: 98 },
+      { id: 2, business_unit: "WAWA/JVC", reporting_year: 2026, reporting_month: 2, pm_compliance: 99 },
+      { id: 3, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 97 },
+    ];
+
+    ctx.applyPersistedMonthlyKpiRecords(records, { reset: true });
+    const wawaBus = ctx.BUs.filter((bu) => bu.id === "wawajvc");
+    expect(wawaBus).toHaveLength(1);
+    expect(wawaBus[0]).toMatchObject({ apiValue: "WAWA/JVC", label: "WAWA/JVC" });
+    expect(ctx.normalizePersistedBusinessUnit("WAWAJVC")).toBe("wawajvc");
+    expect(ctx.normalizePersistedBusinessUnit("WAWA/JVC")).toBe("wawajvc");
+    expect(Object.keys(ctx.MonthlyScoreData.wawajvc[2026])).toEqual(["1", "2"]);
+
+    ctx.KpiAggregates = ctx.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [
+        { businessUnit: "WAWA/JVC", reportingYear: 2026, recordCount: 2, pmCompliance: 98.5 },
+        { businessUnit: "AMD-EZ", reportingYear: 2026, recordCount: 1, pmCompliance: 97 },
+      ],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: { pmCompliance: 97.75 },
+      portfolioMonthlyAverages: {},
+      portfolioMonthlyActuals: {},
+    });
+
+    expect(ctx.getAggregateForBusinessUnit("wawajvc", 2026)?.businessUnit).toBe("WAWA/JVC");
+    expect(ctx.getAggregateForBusinessUnit("ez", 2026)?.businessUnit).toBe("AMD-EZ");
+
+    ctx.initBusinessUnitSelector();
+    const html = ctx.document.getElementById("businessUnitSel").innerHTML;
+    expect((html.match(/value="wawajvc"/g) || [])).toHaveLength(1);
+    expect(html).toContain(">WAWA/JVC<");
+
+    ctx.renderSummary();
+    expect(ctx.document.getElementById("summaryBody").innerHTML).toContain("WAWA/JVC");
+  });
+
+  it("keeps WAWA/JVC selected and renders its monthly rows after a filtered refresh", async () => {
+    const ctx = createImportContext();
+    const wawaRecord = {
+      id: 724,
+      business_unit: "WAWA/JVC",
+      reporting_year: 2026,
+      reporting_month: 1,
+      pm_compliance: 65.85,
+      budget_spend: 0,
+      raw_imported_values: { values: { pm_compliance: 65.85, budget_spend: 0 } },
+    };
+    const amdRecord = { id: 1, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_compliance: 98 };
+    ctx.applyPersistedMonthlyKpiRecords([wawaRecord, amdRecord], { reset: true });
+    ctx.selectedBusinessUnitId = "wawajvc";
+    (ctx as unknown as { fetch: (url: string) => Promise<{ ok: boolean; json: () => Promise<{ records: typeof wawaRecord[] }> }> }).fetch = async (url: string) => {
+      expect(url).toContain("reporting_year=2026");
+      expect(url).toContain("business_unit=WAWA%2FJVC");
+      return { ok: true, json: async () => ({ records: [wawaRecord] }) };
+    };
+
+    await ctx.fetchSavedMonthlyKpiRecords("wawajvc");
+
+    expect(ctx.MonthlyScoreData.wawajvc[2026][1].id).toBe(724);
+    expect(ctx.MonthlyScoreData.ez[2026][1].id).toBe(1);
+    const selectorHtml = ctx.document.getElementById("businessUnitSel").innerHTML;
+    expect(selectorHtml).toContain('value="wawajvc"');
+    expect((selectorHtml.match(/value="wawajvc"/g) || [])).toHaveLength(1);
+
+    ctx.renderMonthlyRecords("wawajvc");
+    const tableHtml = ctx.document.getElementById("business-unit-monthly-records").innerHTML;
+    expect(tableHtml).toContain("January");
+    expect(tableHtml).toContain("65.85");
   });
 
   it("Business Unit dropdown resets to All Business Units when the selected BU no longer has data", () => {

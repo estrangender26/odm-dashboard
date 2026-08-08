@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { normalizeBusinessUnitLabel } from "../src/modules/monthly-kpi/kpiAggregation";
 
 const bootSource = readFileSync(resolve(process.cwd(), "api/boot.ts"), "utf8");
 
@@ -29,13 +30,34 @@ function expectInOrder(source: string, tokens: string[]) {
 }
 
 describe("Monthly KPI records API", () => {
+  it("normalizes supported WAWA/JVC aliases to one shared label", () => {
+    expect(normalizeBusinessUnitLabel("WAWAJVC")).toBe("WAWA/JVC");
+    expect(normalizeBusinessUnitLabel("WAWA/JVC")).toBe("WAWA/JVC");
+  });
+
   it("supports business-unit aliases when filtering Monthly KPI records", () => {
     expect(bootSource).toContain("WHEN 'ez' THEN 'AMD-EZ'");
     expect(bootSource).toContain("WHEN 'laguna' THEN 'Laguna Water'");
     expect(bootSource).toContain("WHEN 'clark' THEN 'Clark Water'");
     expect(bootSource).toContain("WHEN 'tagum' THEN 'Tagum Water'");
     expect(bootSource).toContain("WHEN 'estate' THEN 'Estate Water'");
+    expect(bootSource).toContain("WHEN 'wawajvc' THEN 'WAWA/JVC'");
+    expect(bootSource).toContain("WHEN 'wawa/jvc' THEN 'WAWA/JVC'");
     expect(bootSource).toContain("canonical_business_unit = ${businessUnitParam}");
+  });
+
+  it("returns and filters legacy WAWAJVC rows under the canonical WAWA/JVC identity", () => {
+    const listQuery = sourceBlock(
+      "async function fetchMonthlyKpiRecordsForResponse",
+      "async function fetchMonthlyKpiAggregateForResponse",
+    );
+    const getRoute = routeBlock("get", "/api/monthly-kpi/records");
+
+    expect(listQuery).toContain("canonical_business_unit AS business_unit");
+    expect(listQuery).toContain("PARTITION BY ${monthlyKpiCanonicalBusinessUnitSql}, reporting_year, reporting_month");
+    expect(listQuery).toContain("canonical_business_unit = ${businessUnitParam}");
+    expect(getRoute).toContain('businessUnit: c.req.query("business_unit")?.trim() || null');
+    expect(bootSource).toContain("const businessUnitParam = normalizeMonthlyKpiBusinessUnitFilter(filters.businessUnit)");
   });
 
   it("deduplicates alias records by preferring the current API value row", () => {

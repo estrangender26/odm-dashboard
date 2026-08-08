@@ -770,6 +770,22 @@ function normalizeBusinessUnitName(value){
 function normalizeBusinessUnitAlias(value){
   return normalizeBusinessUnitName(value).toLowerCase();
 }
+var WAWA_JVC_CANONICAL_VALUE = 'WAWA/JVC';
+var WAWA_JVC_ALIASES = {
+  'wawajvc':true,
+  'wawa/jvc':true,
+  'wawa jvc':true,
+  'wawa-jvc':true,
+  'wawa_jvc':true
+};
+function canonicalizeMonthlyKpiBusinessUnit(value){
+  var normalized = normalizeBusinessUnitAlias(value);
+  if(WAWA_JVC_ALIASES[normalized])return WAWA_JVC_CANONICAL_VALUE;
+  return normalizeBusinessUnitName(value);
+}
+function monthlyKpiBusinessUnitsMatch(left,right){
+  return normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(left))===normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(right));
+}
 function makeBusinessUnitIdFromName(value){
   var base = normalizeBusinessUnitAlias(value).replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
   if(!base)base='business-unit';
@@ -782,10 +798,10 @@ function makeBusinessUnitIdFromName(value){
   return candidate;
 }
 function getBusinessUnitByName(value){
-  var normalized = normalizeBusinessUnitAlias(value);
+  var normalized = normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(value));
   if(!normalized)return null;
   var direct = BUs.find(function(bu){
-    return normalizeBusinessUnitAlias(bu.id)===normalized || normalizeBusinessUnitAlias(bu.apiValue)===normalized || normalizeBusinessUnitAlias(bu.name)===normalized || normalizeBusinessUnitAlias(bu.label)===normalized;
+    return monthlyKpiBusinessUnitsMatch(bu.id,normalized) || monthlyKpiBusinessUnitsMatch(bu.apiValue,normalized) || monthlyKpiBusinessUnitsMatch(bu.name,normalized) || monthlyKpiBusinessUnitsMatch(bu.label,normalized);
   });
   if(direct)return direct;
   return null;
@@ -793,10 +809,18 @@ function getBusinessUnitByName(value){
 function getOrCreateBusinessUnitByName(value,options){
   options = options || {};
   var existing = getBusinessUnitByName(value);
-  if(existing)return {bu:existing,created:false};
-  var normalized = normalizeBusinessUnitName(value);
+  var normalized = canonicalizeMonthlyKpiBusinessUnit(value);
+  if(existing){
+    if(normalized===WAWA_JVC_CANONICAL_VALUE){
+      existing.apiValue = WAWA_JVC_CANONICAL_VALUE;
+      existing.name = WAWA_JVC_CANONICAL_VALUE;
+      existing.label = WAWA_JVC_CANONICAL_VALUE;
+    }
+    return {bu:existing,created:false};
+  }
   if(!normalized)return {bu:null,created:false};
-  var newBu = {id:makeBusinessUnitIdFromName(normalized),apiValue:normalized,name:normalized,label:normalized};
+  var newBuId = normalized===WAWA_JVC_CANONICAL_VALUE ? 'wawajvc' : makeBusinessUnitIdFromName(normalized);
+  var newBu = {id:newBuId,apiValue:normalized,name:normalized,label:normalized};
   BUs.push(newBu);
   if(options.persist !== false)persistBusinessUnits();
   return {bu:newBu,created:true};
@@ -1780,9 +1804,13 @@ function normalizeAggregateKpiFields(source){
 function addBusinessUnitAggregateMapAliases(map,aggregate){
   if(!map || !aggregate)return;
   var businessUnit = aggregate.businessUnit || aggregate.business_unit || aggregate.businessUnitId || aggregate.business_unit_id;
-  if(businessUnit && !/^\d+(\.\d+)?$/.test(String(businessUnit).trim()))map[businessUnit] = aggregate;
+  var canonicalBusinessUnit = canonicalizeMonthlyKpiBusinessUnit(businessUnit);
+  if(businessUnit && !/^\d+(\.\d+)?$/.test(String(businessUnit).trim())){
+    map[businessUnit] = aggregate;
+    map[canonicalBusinessUnit] = aggregate;
+  }
   BUs.forEach(function(bu){
-    if(businessUnit===bu.label || businessUnit===bu.apiValue || businessUnit===bu.name || businessUnit===bu.id){
+    if(monthlyKpiBusinessUnitsMatch(canonicalBusinessUnit,bu.label) || monthlyKpiBusinessUnitsMatch(canonicalBusinessUnit,bu.apiValue) || monthlyKpiBusinessUnitsMatch(canonicalBusinessUnit,bu.name) || monthlyKpiBusinessUnitsMatch(canonicalBusinessUnit,bu.id)){
       map[bu.apiValue] = aggregate;
       map[bu.label] = aggregate;
       map[bu.name] = aggregate;
@@ -1826,7 +1854,8 @@ function getAggregateForBusinessUnit(buId,year){
   if(!KpiAggregates || Number(KpiAggregates.reportingYear)!==Number(year))return null;
   var bu = getBUById(buId);
   var map = KpiAggregates.byBusinessUnitMap || {};
-  return map[bu.id] || map[bu.apiValue] || map[bu.label] || map[bu.name] || null;
+  var canonicalBusinessUnit = canonicalizeMonthlyKpiBusinessUnit(bu.apiValue || bu.label || bu.name || bu.id);
+  return map[canonicalBusinessUnit] || map[bu.id] || map[bu.apiValue] || map[bu.label] || map[bu.name] || null;
 }
 
 function getBusinessUnitYearAverage(buId,year,key){
@@ -2633,16 +2662,17 @@ function importSummaryWorkbook(workbook,fileName,buId){
 }
 
 function normalizePersistedBusinessUnit(value){
-  var normalized = normalizeBusinessUnitAlias(value);
+  var canonicalValue = canonicalizeMonthlyKpiBusinessUnit(value);
+  var normalized = normalizeBusinessUnitAlias(canonicalValue);
   if(!normalized)return '';
   if(normalized===ALL_BUSINESS_UNITS_VALUE || normalized==='all business units')return '';
-  var exact = BUs.find(function(bu){return normalized===normalizeBusinessUnitAlias(bu.id) || normalized===normalizeBusinessUnitAlias(bu.apiValue) || normalized===normalizeBusinessUnitAlias(bu.name) || normalized===normalizeBusinessUnitAlias(bu.label);});
+  var exact = getBusinessUnitByName(canonicalValue);
   if(exact)return exact.id;
   var fuzzy = BUs.find(function(bu){
-    return normalized.indexOf(normalizeBusinessUnitAlias(bu.id))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(bu.apiValue))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(bu.name))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(bu.label))>-1;
+    return normalized.indexOf(normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(bu.id)))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(bu.apiValue)))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(bu.name)))>-1 || normalized.indexOf(normalizeBusinessUnitAlias(canonicalizeMonthlyKpiBusinessUnit(bu.label)))>-1;
   });
   if(fuzzy)return fuzzy.id;
-  var created = getOrCreateBusinessUnitByName(value,{persist:false});
+  var created = getOrCreateBusinessUnitByName(canonicalValue,{persist:false});
   return created.bu ? created.bu.id : '';
 }
 
