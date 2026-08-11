@@ -100,6 +100,7 @@
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
     "drizzle-kit": "^0.31.8",
+    "embedded-postgres": "^15.18.0-beta.17",
     "esbuild": "^0.28.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",

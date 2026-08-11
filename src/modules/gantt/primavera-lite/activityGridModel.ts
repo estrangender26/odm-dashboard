@@ -12,6 +12,10 @@ export type ActivityGridRow = {
   plannedFinish?: string | null;
   earlyStart?: string | null;
   earlyFinish?: string | null;
+  lateStart?: string | null;
+  lateFinish?: string | null;
+  totalFloatDays?: number | null;
+  freeFloatDays?: number | null;
   actualStart?: string | null;
   actualFinish?: string | null;
   archivedAt?: string | Date | null;

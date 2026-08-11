@@ -162,6 +162,13 @@
       "when": 1791312000004,
       "tag": "0022_primavera_lite_dependencies",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791312000005,
+      "tag": "0023_primavera_lite_default_calendar",
+      "breakpoints": true
     }
   ]
 }

@@ -48,7 +48,13 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
   return (
     <section className="space-y-3" aria-label="Activity timeline">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div><h3 className="text-sm font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Read-only schedule dates</p></div>
+        <div className="flex items-center gap-4">
+          <div><h3 className="text-sm font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Read-only schedule dates</p></div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-blue-600"></span> Normal</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-red-600"></span> Critical</span>
+          </div>
+        </div>
         <div className="flex flex-wrap gap-1" aria-label="Timeline zoom">
           {(["day", "week", "month", "quarter"] as TimelineZoom[]).map((value) => (
             <Button key={value} type="button" size="sm" variant={zoom === value && fitPixelsPerDay === null ? "default" : "outline"}
@@ -80,16 +86,19 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                 const planned = plannedDates(activity);
                 const actual = actualDates(activity);
                 const highlighted = highlightedActivityId === activity.id;
+                const isCritical = (activity.totalFloatDays ?? 0) <= 0 && activity.earlyStart != null;
                 return (
                   <button key={activity.id} type="button" aria-label={`Highlight ${activity.activityName}`}
                     onMouseEnter={() => onActivityHighlight?.(activity.id)} onMouseLeave={() => onActivityHighlight?.(null)} onFocus={() => onActivityHighlight?.(activity.id)}
                     className={`absolute left-0 w-full border-b text-left transition-colors ${highlighted ? "bg-blue-50" : "hover:bg-slate-50"}`}
                     style={{ top: rowIndex * SCHEDULE_ROW_HEIGHT, height: SCHEDULE_ROW_HEIGHT }}>
                     {planned && (isMilestone(activity, planned) ? (
-                      <span title={`${activity.activityName} milestone`} aria-label="Planned milestone" className="absolute top-3 h-4 w-4 rotate-45 border-2 border-blue-700 bg-blue-500"
+                      <span title={`${activity.activityName} milestone${isCritical ? " (Critical)" : ""}`} aria-label="Planned milestone"
+                        className={`absolute top-3 h-4 w-4 rotate-45 border-2 ${isCritical ? "border-red-700 bg-red-500" : "border-blue-700 bg-blue-500"}`}
                         style={{ left: timelinePosition(planned.start, range.start, pixelsPerDay) - 8 }} />
                     ) : (
-                      <span title={`${activity.activityName}: ${planned.source} dates`} aria-label="Planned bar" className="absolute top-2 h-3 rounded bg-blue-600"
+                      <span title={`${activity.activityName}: ${planned.source} dates${isCritical ? ` (Critical, ${activity.totalFloatDays ?? 0}d float)` : ""}`} aria-label="Planned bar"
+                        className={`absolute top-2 h-3 rounded ${isCritical ? "bg-red-600" : "bg-blue-600"}`}
                         style={{ left: timelinePosition(planned.start, range.start, pixelsPerDay), width: timelineSpan(planned.start, planned.finish, pixelsPerDay) }} />
                     ))}
                     {actual && <span title={`${activity.activityName}: actual dates`} aria-label="Actual bar" className="absolute top-6 h-2 rounded bg-emerald-600"

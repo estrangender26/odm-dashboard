@@ -44,8 +44,14 @@ export default function PrimaveraLiteProjectPage() {
   const archiveProject = trpc.primaveraLite.archiveProject.useMutation({
     onSuccess: () => refetch(),
   });
+  const runSchedule = trpc.primaveraLite.runSchedule.useMutation({
+    onSuccess: (res) => {
+      setExpectedRevision(res.revision);
+      refetch();
+    },
+  });
 
-  const { isAdmin } = computeRolePermissions(data?.role);
+  const { isAdmin, canEdit } = computeRolePermissions(data?.role);
 
   const handleArchiveProject = async () => {
     const dryRun = await archiveProjectDryRun.mutateAsync({ slug, access, expectedRevision });
@@ -56,6 +62,10 @@ export default function PrimaveraLiteProjectPage() {
       previewToken: dryRun.previewToken,
       confirmed: true,
     });
+  };
+
+  const handleRunSchedule = async () => {
+    await runSchedule.mutateAsync({ slug, access, expectedRevision });
   };
 
   if (isLoading) {
@@ -92,8 +102,29 @@ export default function PrimaveraLiteProjectPage() {
             <CardTitle>{data.project?.name || slug}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="text-sm text-muted-foreground">
-              Role: {data.role} | Revision: {data.revision}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm text-muted-foreground">
+                Role: {data.role} | Revision: {data.revision} | Last Scheduled:{" "}
+                {data.project?.lastScheduledAt
+                  ? new Date(data.project.lastScheduledAt).toLocaleString()
+                  : "Never"}
+              </div>
+              {canEdit && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    onClick={handleRunSchedule}
+                    disabled={runSchedule.isPending}
+                  >
+                    {runSchedule.isPending ? "Scheduling…" : "Run Schedule"}
+                  </Button>
+                  {runSchedule.error && (
+                    <span className="text-xs text-red-600">
+                      {runSchedule.error.message}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             <WbsTree

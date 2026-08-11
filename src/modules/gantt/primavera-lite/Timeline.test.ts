@@ -39,4 +39,17 @@ describe("Timeline", () => {
     expect(html.match(/aria-label="Planned bar"/g)).toHaveLength(1);
     expect(html).toContain("No dates");
   });
+  it("visually identifies critical activities with red styling and legend", () => {
+    const html = renderToStaticMarkup(
+      createElement(Timeline, {
+        activities: [
+          { ...base, id: 1, earlyStart: "2026-08-01", earlyFinish: "2026-08-05", totalFloatDays: 0 },
+          { ...base, id: 2, sortOrder: 1, earlyStart: "2026-08-01", earlyFinish: "2026-08-03", totalFloatDays: 5 },
+        ],
+      })
+    );
+    expect(html).toContain("bg-red-600");
+    expect(html).toContain("Critical");
+    expect(html).toContain("Normal");
+  });
 });

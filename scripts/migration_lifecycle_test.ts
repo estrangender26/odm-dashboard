@@ -54,27 +54,6 @@ async function applyUpTo0019(dbName: string): Promise<void> {
     `;
 
     await client`
-      CREATE TABLE IF NOT EXISTS gantt_calendars (
-        id SERIAL PRIMARY KEY,
-        project_id INTEGER,
-        name VARCHAR(255) NOT NULL,
-        is_default BOOLEAN DEFAULT false,
-        is_global BOOLEAN DEFAULT false,
-        work_on_monday BOOLEAN DEFAULT true,
-        work_on_tuesday BOOLEAN DEFAULT true,
-        work_on_wednesday BOOLEAN DEFAULT true,
-        work_on_thursday BOOLEAN DEFAULT true,
-        work_on_friday BOOLEAN DEFAULT true,
-        work_on_saturday BOOLEAN DEFAULT false,
-        work_on_sunday BOOLEAN DEFAULT false,
-        hours_per_day NUMERIC(5,2) DEFAULT 8,
-        minutes_per_day INTEGER DEFAULT 480,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    await client`
       CREATE TABLE IF NOT EXISTS gantt_projects (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -100,11 +79,23 @@ async function applyUpTo0019(dbName: string): Promise<void> {
         view_token_hash VARCHAR(64),
         revision INTEGER DEFAULT 1,
         data_date VARCHAR(20),
-        default_calendar_id INTEGER,
         sharing_enabled INTEGER DEFAULT 0,
         last_scheduled_at TIMESTAMP,
         tasks_data_json TEXT,
         links_data_json TEXT
+      )
+    `;
+
+    await client`
+      CREATE TABLE IF NOT EXISTS gantt_calendars (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES gantt_projects(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        working_days INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
+        hours_per_day NUMERIC(4,2) NOT NULL DEFAULT 8,
+        timezone VARCHAR(100) NOT NULL DEFAULT 'Asia/Manila',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
 
@@ -131,7 +122,7 @@ async function scenario2(): Promise<{ message: string; dbName: string }> {
   const whens = await runMigrate(dbName);
   const expected0020 = 1791312000002;
   const only0020 = whens.filter((w) => w === expected0020).length;
-  const ok = whens.length === 23 && only0020 === 1 && isNonDecreasing(whens);
+  const ok = whens.length === 24 && only0020 === 1 && isNonDecreasing(whens);
   return {
     message: `Scenario 2 (through 0019): ${ok ? "PASS" : "FAIL"} — ledger has ${whens.length} rows, 0020 rows=${only0020}`,
     dbName,
@@ -281,7 +272,7 @@ async function scenario3(): Promise<string> {
     countsAfter.gantt_activities === countsBefore.gantt_activities;
   const ok =
     driftDetected &&
-    whens.length === 23 &&
+    whens.length === 24 &&
     only0020 === 1 &&
     isNonDecreasing(whens) &&
     countsOk;
@@ -576,7 +567,7 @@ async function scenario1(): Promise<string> {
   const whens = await runMigrate(dbName);
   const expected0020 = 1791312000002;
   const only0020 = whens.filter((w) => w === expected0020).length;
-  const ok = whens.length === 23 && only0020 === 1 && isNonDecreasing(whens);
+  const ok = whens.length === 24 && only0020 === 1 && isNonDecreasing(whens);
   return `Scenario 1 (fresh DB): ${ok ? "PASS" : "FAIL"} — ledger has ${whens.length} rows, 0020 rows=${only0020}`;
 }
 
@@ -591,7 +582,7 @@ async function main() {
   // no additional ledger rows are added.
   const whensAgain = await runMigrate(s2.dbName);
   const only0020Again = whensAgain.filter((w) => w === 1791312000002).length;
-  const okIdempotent = whensAgain.length === 23 && only0020Again === 1 && isNonDecreasing(whensAgain);
+  const okIdempotent = whensAgain.length === 24 && only0020Again === 1 && isNonDecreasing(whensAgain);
   console.log(`Scenario 2b (idempotency): ${okIdempotent ? "PASS" : "FAIL"} — ledger has ${whensAgain.length} rows, 0020 rows=${only0020Again} after second run`);
 
   const s3 = await scenario3();

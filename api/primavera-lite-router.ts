@@ -7,6 +7,7 @@ import {
   ganttActivities,
   ganttActivityDependencies,
   ganttCalendars,
+  ganttCalendarExceptions,
   ganttProjectEvents,
 } from "@db/schema";
 import { eq, and, or, sql, asc, isNull, inArray, ne } from "drizzle-orm";
@@ -20,6 +21,7 @@ import {
   verifyPreviewToken,
   PreviewTokenException,
 } from "@/modules/gantt/primavera-lite/previewToken";
+import { runScheduleEngine } from "@/modules/gantt/primavera-lite/schedulingEngine";
 
 const MAX_NAME_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
@@ -59,6 +61,13 @@ const updateProjectMetaInputSchema = z.object({
     description: z.string().max(MAX_DESCRIPTION_LENGTH).optional().nullable(),
     status: z.string().max(50).optional().nullable(),
   }),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const runScheduleInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
@@ -430,6 +439,7 @@ function mapProjectRow(project: typeof ganttProjects.$inferSelect) {
     dataDate: project.dataDate,
     defaultCalendarId: project.defaultCalendarId,
     sharingEnabled: project.sharingEnabled,
+    lastScheduledAt: project.lastScheduledAt,
     archivedAt: project.archivedAt,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
@@ -792,6 +802,23 @@ export const primaveraLiteRouter = createRouter({
           })
           .returning();
 
+        const [defaultCalendar] = await tx
+          .insert(ganttCalendars)
+          .values({
+            projectId: project.id,
+            name: "Default Calendar",
+            workingDays: [1, 2, 3, 4, 5],
+            hoursPerDay: "8.00",
+            timezone: "Asia/Manila",
+          })
+          .returning();
+
+        const [updatedProject] = await tx
+          .update(ganttProjects)
+          .set({ defaultCalendarId: defaultCalendar.id })
+          .where(eq(ganttProjects.id, project.id))
+          .returning();
+
         const [rootNode] = await tx
           .insert(ganttWbsNodes)
           .values({
@@ -810,11 +837,11 @@ export const primaveraLiteRouter = createRouter({
           action: "create",
           actorName: input.actorName ?? "Anonymous",
           beforeData: null,
-          afterData: { name: project.name, slug: project.slug },
+          afterData: { name: project.name, slug: project.slug, defaultCalendarId: defaultCalendar.id },
           projectRevision: 1,
         });
 
-        return { project, rootNode };
+        return { project: updatedProject, rootNode };
       });
 
       return {
@@ -956,6 +983,146 @@ export const primaveraLiteRouter = createRouter({
       });
 
       return { project: mapProjectRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  runSchedule: publicQuery
+    .input(runScheduleInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-run-schedule:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const [projectRow] = await tx
+          .select()
+          .from(ganttProjects)
+          .where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+        if (projectRow.archivedAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
+        }
+
+        const calendars = await tx
+          .select()
+          .from(ganttCalendars)
+          .where(eq(ganttCalendars.projectId, accessCtx.projectId));
+
+        const calendarIds = calendars.map((c) => c.id);
+        const exceptionsRows =
+          calendarIds.length > 0
+            ? await tx
+                .select()
+                .from(ganttCalendarExceptions)
+                .where(inArray(ganttCalendarExceptions.calendarId, calendarIds))
+            : [];
+
+        const calendarsWithExceptions = calendars.map((cal) => ({
+          ...cal,
+          exceptions: exceptionsRows
+            .filter((ex) => ex.calendarId === cal.id)
+            .map((ex) => ({
+              exceptionDate: String(ex.exceptionDate ?? "").trim().split("T")[0],
+              isWorking: ex.isWorking,
+            })),
+        }));
+
+        const activitiesRow = await tx
+          .select()
+          .from(ganttActivities)
+          .where(and(eq(ganttActivities.projectId, accessCtx.projectId), isNull(ganttActivities.archivedAt)))
+          .orderBy(asc(ganttActivities.wbsNodeId), asc(ganttActivities.sortOrder), asc(ganttActivities.id));
+
+        const dependenciesRow = await tx
+          .select()
+          .from(ganttActivityDependencies)
+          .where(and(eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)))
+          .orderBy(asc(ganttActivityDependencies.id));
+
+        const todayStr = new Date().toISOString().split("T")[0];
+        let scheduled;
+        try {
+          scheduled = runScheduleEngine(
+            projectRow.dataDate,
+            todayStr,
+            calendarsWithExceptions,
+            projectRow.defaultCalendarId,
+            activitiesRow,
+            dependenciesRow
+          );
+        } catch (err: any) {
+          if (/circular|cycle/i.test(err?.message || "")) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+          }
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err?.message || "Failed to schedule project" });
+        }
+
+        const now = new Date();
+        for (const s of scheduled) {
+          await tx
+            .update(ganttActivities)
+            .set({
+              earlyStart: s.earlyStart,
+              earlyFinish: s.earlyFinish,
+              lateStart: s.lateStart,
+              lateFinish: s.lateFinish,
+              totalFloatDays: s.totalFloatDays,
+              freeFloatDays: s.freeFloatDays,
+              updatedAt: now,
+              updatedByName: input.actorName ?? "Anonymous",
+            })
+            .where(
+              and(
+                eq(ganttActivities.id, s.id),
+                eq(ganttActivities.projectId, accessCtx.projectId)
+              )
+            );
+        }
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+
+        const [updatedProject] = await tx
+          .update(ganttProjects)
+          .set({
+            lastScheduledAt: now,
+            updatedAt: now,
+          })
+          .where(eq(ganttProjects.id, accessCtx.projectId))
+          .returning();
+
+        await insertEvent(
+          tx,
+          accessCtx,
+          "project",
+          "schedule",
+          accessCtx.projectId,
+          null,
+          {
+            scheduledCount: scheduled.length,
+            criticalCount: scheduled.filter((s) => s.totalFloatDays <= 0).length,
+            dataDate: projectRow.dataDate ?? null,
+          }
+        );
+
+        return {
+          project: updatedProject,
+          scheduledCount: scheduled.length,
+          criticalCount: scheduled.filter((s) => s.totalFloatDays <= 0).length,
+        };
+      });
+
+      return {
+        project: mapProjectRow(result.project),
+        revision: accessCtx.projectRevision,
+        scheduledCount: result.scheduledCount,
+        criticalCount: result.criticalCount,
+      };
     }),
 
   archiveProjectDryRun: publicQuery
