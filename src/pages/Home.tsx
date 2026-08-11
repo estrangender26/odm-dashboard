@@ -293,36 +293,6 @@ export default function Home() {
             </span>
           </Link>
 
-          {/* ODM Talk */}
-          <Link
-            to="/odm-talk"
-            className={navCardClassName}
-            style={navCardStyle}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #7C3AED 0%, #2563EB 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
-                💬
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3, margin: 0 }}>ODM Talk</h3>
-                <p style={{ fontSize: 12, color: '#8BA3B8', margin: '4px 0 0' }}>
-                  Unified AI collaboration hub for discussions, decisions, action items, and backlinks.
-                </p>
-              </div>
-            </div>
-            <p style={{ fontSize: 14, color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
-              Review assistant-generated recommendations from every module while each AI keeps its own module database as the source of truth.
-            </p>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#EDE9FE', color: '#6D28D9' }}>AI Generated</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#DBEAFE', color: '#005BAC' }}>Backlinks</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Decisions</span>
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#6D28D9', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Open ODM Talk →
-            </span>
-          </Link>
-
           {/* Presentation Center */}
           <Link
             to="/presentation-center"
@@ -373,7 +343,6 @@ export default function Home() {
           "What can this dashboard do?",
           "Which module should I open?",
           "How do I use Maintenance Planning?",
-          "How do I use ODM Talk?",
         ]}
       />
     </div>

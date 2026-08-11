@@ -13,7 +13,6 @@ import { primaveraLiteRouter } from "./primavera-lite-router";
 import { aiRouter } from "./ai-router";
 import { githubRouter } from "./github-router";
 import { smpRouter } from "./smp-router";
-import { odmTalkRouter } from "./odm-talk-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -33,7 +32,6 @@ export const appRouter = createRouter({
   ai: aiRouter,
   github: githubRouter,
   smp: smpRouter,
-  odmTalk: odmTalkRouter,
 });
 
 export type AppRouter = typeof appRouter;

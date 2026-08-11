@@ -15,7 +15,6 @@ import OmManualsLibrary from "./pages/OmManualsLibrary";
 import ScorecardDashboard from "./pages/ScorecardDashboard";
 import PostPlanningInsights from "./pages/PostPlanningInsights";
 import PresentationCenter from "./pages/PresentationCenter";
-import OdmTalk from "./pages/OdmTalk";
 
 export default function App() {
   return (
@@ -44,7 +43,6 @@ export default function App() {
         element={<PostPlanningInsights />}
       />
       <Route path="/presentation-center" element={<PresentationCenter />} />
-      <Route path="/odm-talk" element={<OdmTalk />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
