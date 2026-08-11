@@ -20,21 +20,6 @@ const DASHBOARDS = [
     ],
   },
   {
-    icon: "🏭",
-    bg: "#E0F2FE",
-    title: "Existing Facilities Maintenance",
-    route: "/existing-facilities",
-    desc: "View and manage maintenance plans grouped by equipment type with inferred categorization, KPI cards, and grouped task tables.",
-    steps: [
-      "View equipment grouped by inferred Equipment Type (Pumps, Motors, Blowers, etc.).",
-      "Check KPI cards for total equipment, tasks, implementors, and frequencies.",
-      "Expand equipment groups to see individual maintenance tasks.",
-      "Filter by plant, equipment type, or responsible person.",
-      "Export grouped data to Excel for offline analysis.",
-      "Ask AI: get summaries of PM coverage, overloaded implementors, and incomplete plans.",
-    ],
-  },
-  {
     icon: "📅",
     bg: "#ECFDF5",
     title: "Gantt Chart Planner",
