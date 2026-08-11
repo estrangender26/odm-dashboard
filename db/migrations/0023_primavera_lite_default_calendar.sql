@@ -160,13 +160,16 @@ BEGIN
     LIMIT 1;
 
     IF NOT FOUND THEN
-      RAISE EXCEPTION 'gantt_projects.default_calendar_id FK conflict: missing foreign key constraint to gantt_calendars';
-    END IF;
-    IF v_fk.target_table <> 'gantt_calendars' THEN
-      RAISE EXCEPTION 'gantt_projects.default_calendar_id FK conflict: references % instead of gantt_calendars', v_fk.target_table;
-    END IF;
-    IF v_fk.confdeltype <> 'n' THEN
-      RAISE EXCEPTION 'gantt_projects.default_calendar_id FK delete rule conflict: expected SET NULL (n), found %', v_fk.confdeltype;
+      ALTER TABLE public.gantt_projects
+        ADD CONSTRAINT gantt_projects_default_calendar_id_gantt_calendars_id_fk
+        FOREIGN KEY (default_calendar_id) REFERENCES public.gantt_calendars(id) ON DELETE SET NULL;
+    ELSE
+      IF v_fk.target_table <> 'gantt_calendars' THEN
+        RAISE EXCEPTION 'gantt_projects.default_calendar_id FK conflict: references % instead of gantt_calendars', v_fk.target_table;
+      END IF;
+      IF v_fk.confdeltype <> 'n' THEN
+        RAISE EXCEPTION 'gantt_projects.default_calendar_id FK delete rule conflict: expected SET NULL (n), found %', v_fk.confdeltype;
+      END IF;
     END IF;
   ELSE
     ALTER TABLE public.gantt_projects
