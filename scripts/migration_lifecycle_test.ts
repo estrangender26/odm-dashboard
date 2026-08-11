@@ -56,19 +56,11 @@ async function applyUpTo0019(dbName: string): Promise<void> {
     await client`
       CREATE TABLE IF NOT EXISTS gantt_calendars (
         id SERIAL PRIMARY KEY,
-        project_id INTEGER,
+        project_id INTEGER NOT NULL,
         name VARCHAR(255) NOT NULL,
-        is_default BOOLEAN DEFAULT false,
-        is_global BOOLEAN DEFAULT false,
-        work_on_monday BOOLEAN DEFAULT true,
-        work_on_tuesday BOOLEAN DEFAULT true,
-        work_on_wednesday BOOLEAN DEFAULT true,
-        work_on_thursday BOOLEAN DEFAULT true,
-        work_on_friday BOOLEAN DEFAULT true,
-        work_on_saturday BOOLEAN DEFAULT false,
-        work_on_sunday BOOLEAN DEFAULT false,
-        hours_per_day NUMERIC(5,2) DEFAULT 8,
-        minutes_per_day INTEGER DEFAULT 480,
+        working_days INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
+        hours_per_day NUMERIC(4,2) NOT NULL DEFAULT 8,
+        timezone VARCHAR(100) NOT NULL DEFAULT 'Asia/Manila',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )

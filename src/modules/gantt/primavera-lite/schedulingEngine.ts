@@ -3,6 +3,8 @@
  *
  * Implements:
  * - Working-day calendar arithmetic (with custom working days & exceptions)
+ * - Mixed-calendar dependency arithmetic (operating on absolute calendar days while
+ *   each activity calendar controls working-day add/subtract)
  * - FS / SS / FF / SF dependencies with positive / zero / negative lag
  * - Forward pass (Early Start / Early Finish)
  * - Backward pass (Late Start / Late Finish)
@@ -11,6 +13,7 @@
  * - Milestones (0-duration activities)
  * - Open ends (default start at Data Date / default finish at Project Finish)
  * - Data Date handling & basic progress-aware scheduling
+ * - Anchor priority: valid project data_date -> earliest valid plannedStart -> explicit scheduleDate
  * - Graph cycle detection
  */
 
@@ -75,8 +78,10 @@ const MAX_CAL_DAY = 30000;   // ~2082
 const RANGE_SIZE = MAX_CAL_DAY - BASE_CAL_DAY + 1;
 
 interface CalendarIndexCache {
-  nextWorkIdx: Int32Array;
-  prevWorkIdx: Int32Array;
+  isWorking: Int32Array;
+  workCum: Int32Array;
+  nextWorkDay: Int32Array;
+  prevWorkDay: Int32Array;
   workToCalDay: Int32Array;
 }
 
@@ -87,14 +92,14 @@ function isValidISOString(dateStr: string | null | undefined): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim());
 }
 
-function dateToCalendarDay(dateStr: string): number {
+export function dateToCalendarDay(dateStr: string): number {
   const trimmed = dateStr.trim();
   const [y, m, d] = trimmed.split("-").map(Number);
   const utc = Date.UTC(y, m - 1, d);
   return Math.round((utc - REF_UTC_MS) / MS_PER_DAY);
 }
 
-function calendarDayToDate(calDay: number): string {
+export function calendarDayToDate(calDay: number): string {
   const utc = REF_UTC_MS + calDay * MS_PER_DAY;
   const dt = new Date(utc);
   const y = dt.getUTCFullYear();
@@ -106,7 +111,6 @@ function calendarDayToDate(calDay: number): string {
 function normalizeWorkingDays(workingDays: number[]): Set<number> {
   const set = new Set<number>();
   if (!workingDays || workingDays.length === 0) {
-    // Default Mon-Fri
     for (const d of [1, 2, 3, 4, 5]) set.add(d);
     return set;
   }
@@ -121,8 +125,6 @@ function isWorkingDayOnCalendar(calDay: number, workingSet: Set<number>, exMap: 
   if (exMap.has(calDay)) {
     return exMap.get(calDay)!;
   }
-  // Compute JS day of week (0=Sun, 1=Mon .. 6=Sat)
-  // calDay 0 is Monday (1)
   const jsDay = (((calDay + 1) % 7) + 7) % 7;
   return workingSet.has(jsDay);
 }
@@ -141,17 +143,21 @@ function getCalendarCache(cal: ScheduleCalendarInput): CalendarIndexCache {
     }
   }
 
-  const nextWorkIdx = new Int32Array(RANGE_SIZE);
-  const prevWorkIdx = new Int32Array(RANGE_SIZE);
+  const isWorking = new Int32Array(RANGE_SIZE);
+  const workCum = new Int32Array(RANGE_SIZE);
+  const nextWorkDay = new Int32Array(RANGE_SIZE);
+  const prevWorkDay = new Int32Array(RANGE_SIZE);
   const workToCalDay = new Int32Array(RANGE_SIZE);
 
   let workCount = 0;
   for (let idx = 0; idx < RANGE_SIZE; idx++) {
     const calDay = BASE_CAL_DAY + idx;
     if (isWorkingDayOnCalendar(calDay, workingSet, exMap)) {
+      isWorking[idx] = 1;
       workToCalDay[workCount] = calDay;
       workCount++;
     }
+    workCum[idx] = workCount; // cumulative up to idx
   }
 
   let nextPtr = 0;
@@ -160,8 +166,8 @@ function getCalendarCache(cal: ScheduleCalendarInput): CalendarIndexCache {
     while (nextPtr < workCount && workToCalDay[nextPtr] < calDay) {
       nextPtr++;
     }
-    const safeNext = nextPtr < workCount ? nextPtr : workCount - 1;
-    nextWorkIdx[idx] = safeNext;
+    const safeNext = nextPtr < workCount ? workToCalDay[nextPtr] : workToCalDay[workCount - 1];
+    nextWorkDay[idx] = safeNext;
   }
 
   let prevPtr = 0;
@@ -170,14 +176,92 @@ function getCalendarCache(cal: ScheduleCalendarInput): CalendarIndexCache {
     while (prevPtr + 1 < workCount && workToCalDay[prevPtr + 1] <= calDay) {
       prevPtr++;
     }
-    prevWorkIdx[idx] = prevPtr;
+    prevWorkDay[idx] = workToCalDay[prevPtr];
   }
 
-  cached = { nextWorkIdx, prevWorkIdx, workToCalDay };
+  cached = { isWorking, workCum, nextWorkDay, prevWorkDay, workToCalDay };
   calendarCache.set(cal, cached);
   return cached;
 }
 
+export function isWorkingDay(calDay: number, cal: ScheduleCalendarInput): boolean {
+  const cache = getCalendarCache(cal);
+  const idx = Math.max(0, Math.min(RANGE_SIZE - 1, calDay - BASE_CAL_DAY));
+  return cache.isWorking[idx] === 1;
+}
+
+export function nextWorkingDay(calDay: number, cal: ScheduleCalendarInput): number {
+  const cache = getCalendarCache(cal);
+  const idx = Math.max(0, Math.min(RANGE_SIZE - 1, calDay - BASE_CAL_DAY));
+  return cache.nextWorkDay[idx];
+}
+
+export function prevWorkingDay(calDay: number, cal: ScheduleCalendarInput): number {
+  const cache = getCalendarCache(cal);
+  const idx = Math.max(0, Math.min(RANGE_SIZE - 1, calDay - BASE_CAL_DAY));
+  return cache.prevWorkDay[idx];
+}
+
+export function addWorkingDays(startCalDay: number, durDays: number, cal: ScheduleCalendarInput): number {
+  if (durDays <= 0) return startCalDay;
+  const cache = getCalendarCache(cal);
+  const sDay = nextWorkingDay(startCalDay, cal);
+  const sIdx = Math.max(0, Math.min(RANGE_SIZE - 1, sDay - BASE_CAL_DAY));
+  const workIdx = cache.workCum[sIdx] - 1; // 0-based work index of sDay
+  const targetWorkIdx = Math.max(0, Math.min(cache.workToCalDay.length - 1, workIdx + durDays - 1));
+  return cache.workToCalDay[targetWorkIdx];
+}
+
+export function subWorkingDays(finishCalDay: number, durDays: number, cal: ScheduleCalendarInput): number {
+  if (durDays <= 0) return finishCalDay;
+  const cache = getCalendarCache(cal);
+  const fDay = prevWorkingDay(finishCalDay, cal);
+  const fIdx = Math.max(0, Math.min(RANGE_SIZE - 1, fDay - BASE_CAL_DAY));
+  const workIdx = cache.workCum[fIdx] - 1; // 0-based work index of fDay
+  const targetWorkIdx = Math.max(0, Math.min(cache.workToCalDay.length - 1, workIdx - durDays + 1));
+  return cache.workToCalDay[targetWorkIdx];
+}
+
+export function shiftWorkingDays(baseCalDay: number, shiftDays: number, cal: ScheduleCalendarInput): number {
+  const cache = getCalendarCache(cal);
+  if (shiftDays === 0) return nextWorkingDay(baseCalDay, cal);
+  if (shiftDays > 0) {
+    const sDay = nextWorkingDay(baseCalDay, cal);
+    const sIdx = Math.max(0, Math.min(RANGE_SIZE - 1, sDay - BASE_CAL_DAY));
+    const workIdx = cache.workCum[sIdx] - 1;
+    const targetWorkIdx = Math.max(0, Math.min(cache.workToCalDay.length - 1, workIdx + shiftDays));
+    return cache.workToCalDay[targetWorkIdx];
+  } else {
+    // shiftDays < 0
+    const pDay = nextWorkingDay(baseCalDay, cal);
+    const pIdx = Math.max(0, Math.min(RANGE_SIZE - 1, pDay - BASE_CAL_DAY));
+    const workIdx = cache.workCum[pIdx] - 1;
+    const targetWorkIdx = Math.max(0, Math.min(cache.workToCalDay.length - 1, workIdx + shiftDays));
+    return cache.workToCalDay[targetWorkIdx];
+  }
+}
+
+export function shiftWorkingDaysBackward(baseCalDay: number, shiftDays: number, cal: ScheduleCalendarInput): number {
+  const cache = getCalendarCache(cal);
+  if (shiftDays === 0) return prevWorkingDay(baseCalDay, cal);
+  const pDay = prevWorkingDay(baseCalDay, cal);
+  const pIdx = Math.max(0, Math.min(RANGE_SIZE - 1, pDay - BASE_CAL_DAY));
+  const workIdx = cache.workCum[pIdx] - 1;
+  const targetWorkIdx = Math.max(0, Math.min(cache.workToCalDay.length - 1, workIdx + shiftDays));
+  return cache.workToCalDay[targetWorkIdx];
+}
+
+export function countWorkingDays(startCalDay: number, finishCalDay: number, cal: ScheduleCalendarInput): number {
+  if (finishCalDay < startCalDay) return 0;
+  const cache = getCalendarCache(cal);
+  const sIdx = Math.max(0, Math.min(RANGE_SIZE - 1, startCalDay - BASE_CAL_DAY));
+  const fIdx = Math.max(0, Math.min(RANGE_SIZE - 1, finishCalDay - BASE_CAL_DAY));
+  const wStart = cache.workCum[sIdx] - cache.isWorking[sIdx];
+  const wFinish = cache.workCum[fIdx];
+  return Math.max(0, wFinish - wStart);
+}
+
+// Backward-compatible working day index helpers for any legacy callers
 export function toWorkingDayIndex(
   dateStr: string | null | undefined,
   cal: ScheduleCalendarInput,
@@ -187,7 +271,9 @@ export function toWorkingDayIndex(
   const calDay = dateToCalendarDay(dateStr!);
   const cache = getCalendarCache(cal);
   const offset = Math.max(0, Math.min(RANGE_SIZE - 1, calDay - BASE_CAL_DAY));
-  return mode === "next" ? cache.nextWorkIdx[offset] : cache.prevWorkIdx[offset];
+  const mappedDay = mode === "next" ? cache.nextWorkDay[offset] : cache.prevWorkDay[offset];
+  const mappedOffset = Math.max(0, Math.min(RANGE_SIZE - 1, mappedDay - BASE_CAL_DAY));
+  return cache.workCum[mappedOffset] - 1;
 }
 
 export function fromWorkingDayIndex(workIdx: number, cal: ScheduleCalendarInput): string {
@@ -303,13 +389,41 @@ export function resolveDefaultCalendar(
   };
 }
 
+/**
+ * Run CPM scheduling engine.
+ * Supports both signatures:
+ * - runScheduleEngine(dataDate, scheduleDate, calendars, defaultCalId, activities, dependencies)
+ * - runScheduleEngine(dataDate, calendars, defaultCalId, activities, dependencies) [legacy/compat]
+ */
 export function runScheduleEngine(
   projectDataDate: string | null | undefined,
-  calendars: ScheduleCalendarInput[],
-  defaultCalendarId: number | null | undefined,
-  activities: ScheduleActivityInput[],
-  dependencies: ScheduleDependencyInput[]
+  scheduleDateOrCalendars: string | null | undefined | ScheduleCalendarInput[],
+  calendarsOrDefaultCalId: ScheduleCalendarInput[] | number | null | undefined,
+  defaultCalIdOrActivities: number | null | undefined | ScheduleActivityInput[],
+  activitiesOrDeps: ScheduleActivityInput[] | ScheduleDependencyInput[],
+  maybeDeps?: ScheduleDependencyInput[]
 ): ScheduledActivityOutput[] {
+  let scheduleDate: string | null | undefined;
+  let calendars: ScheduleCalendarInput[];
+  let defaultCalendarId: number | null | undefined;
+  let activities: ScheduleActivityInput[];
+  let dependencies: ScheduleDependencyInput[];
+
+  if (Array.isArray(scheduleDateOrCalendars)) {
+    // 5-arg compatibility call
+    scheduleDate = "2026-01-01";
+    calendars = scheduleDateOrCalendars as ScheduleCalendarInput[];
+    defaultCalendarId = calendarsOrDefaultCalId as number | null | undefined;
+    activities = defaultCalIdOrActivities as ScheduleActivityInput[];
+    dependencies = activitiesOrDeps as ScheduleDependencyInput[];
+  } else {
+    scheduleDate = scheduleDateOrCalendars as string | null | undefined;
+    calendars = calendarsOrDefaultCalId as ScheduleCalendarInput[];
+    defaultCalendarId = defaultCalIdOrActivities as number | null | undefined;
+    activities = activitiesOrDeps as ScheduleActivityInput[];
+    dependencies = maybeDeps || [];
+  }
+
   if (activities.length === 0) return [];
 
   const defaultCal = resolveDefaultCalendar(calendars, defaultCalendarId);
@@ -326,27 +440,32 @@ export function runScheduleEngine(
   // 1. Validate against cycles and determine topological processing order
   const order = topologicalSort(activities, dependencies);
 
-  // 2. Determine default project reference Data Date index
-  let defaultDateStr = "2026-08-11";
+  // 2. Anchor priority: valid project data_date -> earliest valid plannedStart -> explicit scheduleDate
+  let anchorDateStr = "2026-01-01";
   if (isValidISOString(projectDataDate)) {
-    defaultDateStr = projectDataDate!.trim();
+    anchorDateStr = projectDataDate!.trim();
   } else {
-    // Earliest planned start among activities if available
     let earliest: string | null = null;
     for (const act of activities) {
       if (isValidISOString(act.plannedStart)) {
-        if (!earliest || act.plannedStart! < earliest) {
+        if (!earliest || act.plannedStart!.trim() < earliest) {
           earliest = act.plannedStart!.trim();
         }
       }
     }
-    if (earliest) defaultDateStr = earliest;
+    if (earliest) {
+      anchorDateStr = earliest;
+    } else {
+      anchorDateStr = isValidISOString(scheduleDate) ? scheduleDate!.trim() : "2026-01-01";
+    }
   }
 
-  const ES_map = new Map<number, number>();
-  const EF_map = new Map<number, number>();
-  const LS_map = new Map<number, number>();
-  const LF_map = new Map<number, number>();
+  const anchorDay = dateToCalendarDay(anchorDateStr);
+
+  const ES_day_map = new Map<number, number>();
+  const EF_day_map = new Map<number, number>();
+  const LS_day_map = new Map<number, number>();
+  const LF_day_map = new Map<number, number>();
 
   // Build incoming/outgoing adjacency maps
   const incomingMap = new Map<number, ScheduleDependencyInput[]>();
@@ -361,161 +480,169 @@ export function runScheduleEngine(
     outgoingMap.get(dep.predecessorActivityId)!.push(dep);
   }
 
-  // 3. Forward Pass (ES & EF)
+  // 3. Forward Pass (ES & EF) - using absolute calendar days & target calendar arithmetic
   for (const act of order) {
     const cal = act.calendarId != null && calMap.has(act.calendarId) ? calMap.get(act.calendarId)! : defaultCal;
     const dur = getWorkingDuration(act);
-    const dataDateIdx = toWorkingDayIndex(defaultDateStr, cal, "next");
+    const anchorWorkDay = nextWorkingDay(anchorDay, cal);
     const incoming = incomingMap.get(act.id) || [];
 
     if (act.percentComplete === 100 || act.status?.toLowerCase() === "completed") {
-      const es = isValidISOString(act.actualStart)
-        ? toWorkingDayIndex(act.actualStart, cal, "next")
+      const esStr = isValidISOString(act.actualStart)
+        ? act.actualStart!
         : isValidISOString(act.plannedStart)
-        ? toWorkingDayIndex(act.plannedStart, cal, "next")
-        : dataDateIdx;
-      const ef = isValidISOString(act.actualFinish)
-        ? toWorkingDayIndex(act.actualFinish, cal, "next")
+        ? act.plannedStart!
+        : anchorDateStr;
+      const efStr = isValidISOString(act.actualFinish)
+        ? act.actualFinish!
         : isValidISOString(act.plannedFinish)
-        ? toWorkingDayIndex(act.plannedFinish, cal, "next")
-        : es;
-      ES_map.set(act.id, es);
-      EF_map.set(act.id, ef);
+        ? act.plannedFinish!
+        : esStr;
+      const es = dateToCalendarDay(esStr);
+      const ef = dateToCalendarDay(efStr);
+      ES_day_map.set(act.id, es);
+      EF_day_map.set(act.id, ef);
       continue;
     }
 
-    let baseES_idx = dataDateIdx;
+    let baseES_day = anchorWorkDay;
     if (incoming.length === 0) {
       if (isValidISOString(act.plannedStart)) {
-        baseES_idx = Math.max(dataDateIdx, toWorkingDayIndex(act.plannedStart, cal, "next"));
+        const plannedDay = nextWorkingDay(dateToCalendarDay(act.plannedStart!), cal);
+        baseES_day = Math.max(anchorWorkDay, plannedDay);
       } else {
-        baseES_idx = dataDateIdx;
+        baseES_day = anchorWorkDay;
       }
     } else {
       if (isValidISOString(act.plannedStart)) {
-        baseES_idx = toWorkingDayIndex(act.plannedStart, cal, "next");
+        baseES_day = nextWorkingDay(dateToCalendarDay(act.plannedStart!), cal);
       } else {
-        baseES_idx = -Infinity;
+        baseES_day = -Infinity;
       }
     }
 
-    let ES_idx = baseES_idx;
+    let ES_day = baseES_day;
     for (const dep of incoming) {
       const pred = actMap.get(dep.predecessorActivityId)!;
-      const predEF = EF_map.get(pred.id)!;
-      const predES = ES_map.get(pred.id)!;
+      const predEF = EF_day_map.get(pred.id)!;
+      const predES = ES_day_map.get(pred.id)!;
       const lag = dep.lagDays || 0;
 
-      let constrIdx = baseES_idx;
+      let constrDay = baseES_day;
       if (dep.dependencyType === "FS") {
-        constrIdx = predEF + 1 + lag;
+        constrDay = shiftWorkingDays(predEF + 1, lag, cal);
       } else if (dep.dependencyType === "SS") {
-        constrIdx = predES + lag;
+        constrDay = shiftWorkingDays(predES, lag, cal);
       } else if (dep.dependencyType === "FF") {
-        const efReq = predEF + lag;
-        constrIdx = dur === 0 ? efReq : (efReq - dur + 1);
+        const efReq = shiftWorkingDays(predEF, lag, cal);
+        constrDay = dur === 0 ? efReq : subWorkingDays(efReq, dur, cal);
       } else if (dep.dependencyType === "SF") {
-        const efReq = predES + lag;
-        constrIdx = dur === 0 ? efReq : (efReq - dur + 1);
+        const efReq = shiftWorkingDays(predES, lag, cal);
+        constrDay = dur === 0 ? efReq : subWorkingDays(efReq, dur, cal);
       }
-      if (constrIdx > ES_idx) {
-        ES_idx = constrIdx;
+      if (constrDay > ES_day) {
+        ES_day = constrDay;
       }
     }
-    if (ES_idx === -Infinity) ES_idx = dataDateIdx;
+    if (ES_day === -Infinity) ES_day = anchorWorkDay;
 
-    const EF_idx = dur === 0 ? ES_idx : (ES_idx + dur - 1);
-    ES_map.set(act.id, ES_idx);
-    EF_map.set(act.id, EF_idx);
+    const EF_day = dur === 0 ? ES_day : addWorkingDays(ES_day, dur, cal);
+    ES_day_map.set(act.id, ES_day);
+    EF_day_map.set(act.id, EF_day);
   }
 
   // 4. Backward Pass (LS & LF)
-  let projectFinishIdx = -Infinity;
-  for (const ef of EF_map.values()) {
-    if (ef > projectFinishIdx) projectFinishIdx = ef;
+  let projectFinishDay = -Infinity;
+  for (const ef of EF_day_map.values()) {
+    if (ef > projectFinishDay) projectFinishDay = ef;
   }
-  if (projectFinishIdx === -Infinity) projectFinishIdx = 0;
+  if (projectFinishDay === -Infinity) projectFinishDay = anchorDay;
 
   for (let i = order.length - 1; i >= 0; i--) {
     const act = order[i];
+    const cal = act.calendarId != null && calMap.has(act.calendarId) ? calMap.get(act.calendarId)! : defaultCal;
     const dur = getWorkingDuration(act);
-    const ef = EF_map.get(act.id)!;
-    const es = ES_map.get(act.id)!;
+    const efDay = EF_day_map.get(act.id)!;
+    const esDay = ES_day_map.get(act.id)!;
 
     if (act.percentComplete === 100 || act.status?.toLowerCase() === "completed") {
-      LF_map.set(act.id, ef);
-      LS_map.set(act.id, es);
+      LF_day_map.set(act.id, efDay);
+      LS_day_map.set(act.id, esDay);
       continue;
     }
 
     const outgoing = outgoingMap.get(act.id) || [];
 
-    let LF_idx = projectFinishIdx;
+    let LF_day = projectFinishDay;
     if (outgoing.length > 0) {
-      LF_idx = Infinity;
+      LF_day = Infinity;
       for (const dep of outgoing) {
         const succ = actMap.get(dep.successorActivityId)!;
-        const sLS = LS_map.get(succ.id)!;
-        const sLF = LF_map.get(succ.id)!;
+        const sLS = LS_day_map.get(succ.id)!;
+        const sLF = LF_day_map.get(succ.id)!;
         const lag = dep.lagDays || 0;
 
-        let constrLf = projectFinishIdx;
+        let constrLf = projectFinishDay;
         if (dep.dependencyType === "FS") {
-          constrLf = sLS - 1 - lag;
+          constrLf = shiftWorkingDaysBackward(sLS - 1, -lag, cal);
         } else if (dep.dependencyType === "SS") {
-          const esMax = sLS - lag;
-          constrLf = dur === 0 ? esMax : (esMax + dur - 1);
+          const reqLS = shiftWorkingDaysBackward(sLS, -lag, cal);
+          constrLf = dur === 0 ? reqLS : addWorkingDays(reqLS, dur, cal);
         } else if (dep.dependencyType === "FF") {
-          constrLf = sLF - lag;
+          constrLf = shiftWorkingDaysBackward(sLF, -lag, cal);
         } else if (dep.dependencyType === "SF") {
-          const esMax = sLF - lag;
-          constrLf = dur === 0 ? esMax : (esMax + dur - 1);
+          const reqLS = shiftWorkingDaysBackward(sLF, -lag, cal);
+          constrLf = dur === 0 ? reqLS : addWorkingDays(reqLS, dur, cal);
         }
-        if (constrLf < LF_idx) {
-          LF_idx = constrLf;
+        if (constrLf < LF_day) {
+          LF_day = constrLf;
         }
       }
     }
 
-    if (LF_idx < ef) {
-      LF_idx = ef;
+    if (LF_day < efDay) {
+      LF_day = efDay;
     }
 
-    const LS_idx = dur === 0 ? LF_idx : (LF_idx - dur + 1);
-    LF_map.set(act.id, LF_idx);
-    LS_map.set(act.id, LS_idx);
+    const LS_day = dur === 0 ? LF_day : subWorkingDays(LF_day, dur, cal);
+    LF_day_map.set(act.id, LF_day);
+    LS_day_map.set(act.id, LS_day);
   }
 
   // 5. Total Float, Free Float, and Critical Path
   const result: ScheduledActivityOutput[] = [];
   for (const act of activities) {
     const cal = act.calendarId != null && calMap.has(act.calendarId) ? calMap.get(act.calendarId)! : defaultCal;
-    const esIdx = ES_map.get(act.id)!;
-    const efIdx = EF_map.get(act.id)!;
-    const lsIdx = LS_map.get(act.id)!;
-    const lfIdx = LF_map.get(act.id)!;
+    const esDay = ES_day_map.get(act.id)!;
+    const efDay = EF_day_map.get(act.id)!;
+    const lsDay = LS_day_map.get(act.id)!;
+    const lfDay = LF_day_map.get(act.id)!;
 
-    const totalFloatDays = lsIdx - esIdx;
+    const totalFloatDays = Math.max(0, countWorkingDays(esDay, lsDay, cal) - 1);
     let freeFloatDays = totalFloatDays;
     const outgoing = outgoingMap.get(act.id) || [];
     if (outgoing.length > 0) {
       let minSlack = Infinity;
       for (const dep of outgoing) {
         const succ = actMap.get(dep.successorActivityId)!;
-        const sES = ES_map.get(succ.id)!;
-        const sEF = EF_map.get(succ.id)!;
+        const sES = ES_day_map.get(succ.id)!;
+        const sEF = EF_day_map.get(succ.id)!;
         const lag = dep.lagDays || 0;
 
-        let slack = Infinity;
+        let reqLF = Infinity;
         if (dep.dependencyType === "FS") {
-          slack = sES - (efIdx + 1 + lag);
+          reqLF = shiftWorkingDaysBackward(sES - 1, -lag, cal);
         } else if (dep.dependencyType === "SS") {
-          slack = sES - (esIdx + lag);
+          const reqLS = shiftWorkingDaysBackward(sES, -lag, cal);
+          reqLF = getWorkingDuration(act) === 0 ? reqLS : addWorkingDays(reqLS, getWorkingDuration(act), cal);
         } else if (dep.dependencyType === "FF") {
-          slack = sEF - (efIdx + lag);
+          reqLF = shiftWorkingDaysBackward(sEF, -lag, cal);
         } else if (dep.dependencyType === "SF") {
-          slack = sEF - (esIdx + lag);
+          const reqLS = shiftWorkingDaysBackward(sEF, -lag, cal);
+          reqLF = getWorkingDuration(act) === 0 ? reqLS : addWorkingDays(reqLS, getWorkingDuration(act), cal);
         }
+
+        const slack = Math.max(0, countWorkingDays(efDay, reqLF, cal) - 1);
         if (slack < minSlack) minSlack = slack;
       }
       freeFloatDays = Math.max(0, Math.min(totalFloatDays, minSlack));
@@ -527,10 +654,10 @@ export function runScheduleEngine(
 
     result.push({
       id: act.id,
-      earlyStart: fromWorkingDayIndex(esIdx, cal),
-      earlyFinish: fromWorkingDayIndex(efIdx, cal),
-      lateStart: fromWorkingDayIndex(lsIdx, cal),
-      lateFinish: fromWorkingDayIndex(lfIdx, cal),
+      earlyStart: calendarDayToDate(esDay),
+      earlyFinish: calendarDayToDate(efDay),
+      lateStart: calendarDayToDate(lsDay),
+      lateFinish: calendarDayToDate(lfDay),
       totalFloatDays,
       freeFloatDays,
       isCritical,

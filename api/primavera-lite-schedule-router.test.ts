@@ -7,6 +7,7 @@ import {
   ganttActivities,
   ganttActivityDependencies,
   ganttCalendars,
+  ganttCalendarExceptions,
   ganttProjectEvents,
   ganttProjects,
   ganttWbsNodes,
@@ -289,5 +290,54 @@ describe("Primavera Lite PR6 Scheduling Engine & runSchedule mutation", () => {
     loadedB = await caller.primaveraLite.load({ slug: pB.project.slug, access: pB.editor });
     expect(loadedB.revision).toBe(initialRevB);
     expect(loadedB.project!.lastScheduledAt).toBeNull();
+  });
+
+  it("proves a non-working calendar exception changes CPM dates in runSchedule", async () => {
+    const p = await createProject("PR6 Exception Test");
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Set project data_date to Monday 2026-08-17
+    await testDb
+      .update(ganttProjects)
+      .set({ dataDate: "2026-08-17" })
+      .where(eq(ganttProjects.id, p.project.id));
+
+    // Create a 1-day task
+    const actRes = await caller.primaveraLite.createActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activity: { activityName: "Exception Task", originalDurationDays: 1 },
+    });
+
+    // 1. Run schedule without exception: task starts & finishes Mon 2026-08-17
+    const sched1 = await caller.primaveraLite.runSchedule({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: actRes.revision,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.viewer, sinceRevision: 0 });
+    const act1 = loaded.activities.find((a) => a.activityName === "Exception Task")!;
+    expect(act1.earlyStart).toBe("2026-08-17");
+    expect(act1.earlyFinish).toBe("2026-08-17");
+
+    // 2. Add a non-working exception for Mon 2026-08-17 on the project's default calendar
+    const calId = loaded.project!.defaultCalendarId!;
+    await testDb.insert(ganttCalendarExceptions).values({
+      calendarId: calId,
+      exceptionDate: "2026-08-17",
+      isWorking: false,
+    });
+
+    // 3. Run schedule with exception: task moves to Tue 2026-08-18!
+    const sched2 = await caller.primaveraLite.runSchedule({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: sched1.revision,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.viewer, sinceRevision: 0 });
+    const act2 = loaded.activities.find((a) => a.activityName === "Exception Task")!;
+    expect(act2.earlyStart).toBe("2026-08-18");
+    expect(act2.earlyFinish).toBe("2026-08-18");
   });
 });

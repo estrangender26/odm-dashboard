@@ -18,6 +18,14 @@ const monFriCalendar: ScheduleCalendarInput = {
   timezone: "Asia/Manila",
 };
 
+const monSatCalendar: ScheduleCalendarInput = {
+  id: 2,
+  name: "Six Day Mon-Sat",
+  workingDays: [1, 2, 3, 4, 5, 6], // Mon=1 .. Sat=6
+  hoursPerDay: "8.00",
+  timezone: "Asia/Manila",
+};
+
 describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
   it("working-day calendar arithmetic handles weekends and custom exceptions", () => {
     // 2026-08-14 is a Friday.
@@ -213,5 +221,102 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
     // Future task follows In Progress task -> starts 2026-08-12, finishes 2026-08-14
     expect(map.get(3)!.earlyStart).toBe("2026-08-12");
     expect(map.get(3)!.earlyFinish).toBe("2026-08-17"); // 4 days: Wed, Thu, Fri, Mon
+  });
+
+  it("supports mixed calendars: Mon-Fri predecessor to Mon-Sat successor and reverse direction across FS/SS/FF/SF", () => {
+    // 1. Mon-Fri predecessor (A) -> Mon-Sat successor (B) via FS
+    // A starts Mon 2026-08-10, dur 5 -> finishes Fri 2026-08-14
+    // B starts Sat 2026-08-15 (since Sat is a working day on Mon-Sat calendar!)
+    const activities1: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "MonFri_A", originalDurationDays: 5, calendarId: 1 },
+      { id: 2, wbsNodeId: 1, activityName: "MonSat_B", originalDurationDays: 1, calendarId: 2 },
+    ];
+    const deps1: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+    ];
+    const res1 = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar, monSatCalendar], 1, activities1, deps1);
+    const map1 = new Map(res1.map((r) => [r.id, r]));
+    expect(map1.get(1)!.earlyFinish).toBe("2026-08-14");
+    expect(map1.get(2)!.earlyStart).toBe("2026-08-15"); // Sat 2026-08-15
+
+    // 2. Reverse direction: Mon-Sat predecessor (X) -> Mon-Fri successor (Y) via FS
+    // X starts Mon 2026-08-10, dur 6 -> finishes Sat 2026-08-15
+    // Y starts Mon 2026-08-17 (since Sun is non-working on Mon-Fri calendar!)
+    const activities2: ScheduleActivityInput[] = [
+      { id: 10, wbsNodeId: 1, activityName: "MonSat_X", originalDurationDays: 6, calendarId: 2 },
+      { id: 20, wbsNodeId: 1, activityName: "MonFri_Y", originalDurationDays: 1, calendarId: 1 },
+    ];
+    const deps2: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 10, successorActivityId: 20, dependencyType: "FS", lagDays: 0 },
+    ];
+    const res2 = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar, monSatCalendar], 1, activities2, deps2);
+    const map2 = new Map(res2.map((r) => [r.id, r]));
+    expect(map2.get(10)!.earlyFinish).toBe("2026-08-15"); // Sat 2026-08-15
+    expect(map2.get(20)!.earlyStart).toBe("2026-08-17"); // Mon 2026-08-17
+
+    // 3. SS, FF across different calendars
+    const activities3: ScheduleActivityInput[] = [
+      { id: 100, wbsNodeId: 1, activityName: "P_MonFri", originalDurationDays: 5, calendarId: 1 },
+      { id: 101, wbsNodeId: 1, activityName: "S_SS_MonSat", originalDurationDays: 2, calendarId: 2 },
+      { id: 102, wbsNodeId: 1, activityName: "S_FF_MonSat", originalDurationDays: 2, calendarId: 2 },
+    ];
+    const deps3: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 100, successorActivityId: 101, dependencyType: "SS", lagDays: 1 },
+      { id: 2, predecessorActivityId: 100, successorActivityId: 102, dependencyType: "FF", lagDays: 0 },
+    ];
+    const res3 = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar, monSatCalendar], 1, activities3, deps3);
+    const map3 = new Map(res3.map((r) => [r.id, r]));
+    expect(map3.get(101)!.earlyStart).toBe("2026-08-11"); // Tue
+    expect(map3.get(102)!.earlyFinish).toBe("2026-08-14"); // Fri
+    expect(map3.get(102)!.earlyStart).toBe("2026-08-13");  // Thu (2 working days: Thu, Fri)
+  });
+
+  it("follows deterministic anchor priority: data_date -> earliest plannedStart -> explicit scheduleDate", () => {
+    const actWithPlanned: ScheduleActivityInput = {
+      id: 1,
+      wbsNodeId: 1,
+      activityName: "Act With Planned",
+      originalDurationDays: 1,
+      plannedStart: "2026-03-02",
+    };
+    const actWithoutPlanned: ScheduleActivityInput = {
+      id: 2,
+      wbsNodeId: 1,
+      activityName: "Act Without Planned",
+      originalDurationDays: 1,
+    };
+
+    // 1. projectDataDate ("2026-02-02") overrides both plannedStart ("2026-03-02") and scheduleDate ("2026-04-01") for actWithoutPlanned
+    const res1 = runScheduleEngine(
+      "2026-02-02",
+      "2026-04-01",
+      [monFriCalendar],
+      1,
+      [actWithPlanned, actWithoutPlanned],
+      []
+    );
+    expect(res1.find((r) => r.id === 2)!.earlyStart).toBe("2026-02-02");
+
+    // 2. null projectDataDate -> earliest plannedStart ("2026-03-02") overrides explicit scheduleDate ("2026-04-01") for actWithoutPlanned
+    const res2 = runScheduleEngine(
+      null,
+      "2026-04-01",
+      [monFriCalendar],
+      1,
+      [actWithPlanned, actWithoutPlanned],
+      []
+    );
+    expect(res2.find((r) => r.id === 2)!.earlyStart).toBe("2026-03-02");
+
+    // 3. null projectDataDate and null plannedStart -> explicit scheduleDate ("2026-04-01") is used for actWithoutPlanned
+    const res3 = runScheduleEngine(
+      null,
+      "2026-04-01",
+      [monFriCalendar],
+      1,
+      [actWithoutPlanned],
+      []
+    );
+    expect(res3[0].earlyStart).toBe("2026-04-01");
   });
 });

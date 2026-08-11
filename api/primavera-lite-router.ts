@@ -7,6 +7,7 @@ import {
   ganttActivities,
   ganttActivityDependencies,
   ganttCalendars,
+  ganttCalendarExceptions,
   ganttProjectEvents,
 } from "@db/schema";
 import { eq, and, or, sql, asc, isNull, inArray, ne } from "drizzle-orm";
@@ -1011,6 +1012,25 @@ export const primaveraLiteRouter = createRouter({
           .from(ganttCalendars)
           .where(eq(ganttCalendars.projectId, accessCtx.projectId));
 
+        const calendarIds = calendars.map((c) => c.id);
+        const exceptionsRows =
+          calendarIds.length > 0
+            ? await tx
+                .select()
+                .from(ganttCalendarExceptions)
+                .where(inArray(ganttCalendarExceptions.calendarId, calendarIds))
+            : [];
+
+        const calendarsWithExceptions = calendars.map((cal) => ({
+          ...cal,
+          exceptions: exceptionsRows
+            .filter((ex) => ex.calendarId === cal.id)
+            .map((ex) => ({
+              exceptionDate: String(ex.exceptionDate ?? "").trim().split("T")[0],
+              isWorking: ex.isWorking,
+            })),
+        }));
+
         const activitiesRow = await tx
           .select()
           .from(ganttActivities)
@@ -1023,11 +1043,13 @@ export const primaveraLiteRouter = createRouter({
           .where(and(eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)))
           .orderBy(asc(ganttActivityDependencies.id));
 
+        const todayStr = new Date().toISOString().split("T")[0];
         let scheduled;
         try {
           scheduled = runScheduleEngine(
             projectRow.dataDate,
-            calendars,
+            todayStr,
+            calendarsWithExceptions,
             projectRow.defaultCalendarId,
             activitiesRow,
             dependenciesRow
