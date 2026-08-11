@@ -1572,7 +1572,6 @@ export default function AIAssistant({
         .odm-ai-input { flex: 1; min-width: 0; padding: 7px 10px; font-size: 11px; border: 1px solid #D6DFE8; border-radius: 8px; font-family: Inter, sans-serif; resize: none; outline: none; max-height: 64px; line-height: 1.4; }
         .odm-ai-send-btn { padding: 7px 14px; font-size: 11px; font-weight: 800; background: #7C3AED; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-family: Inter, sans-serif; }
         .odm-ai-send-btn:disabled { background: #CBD5E1; cursor: not-allowed; }
-                                                                                .odm-ai-bridge-status { margin-top: 5px; font-size: 9px; color: #64748B; line-height: 1.35; }
         @media (max-width: 640px) {
           .odm-ai-fab { right: 1rem; bottom: calc(.875rem + env(safe-area-inset-bottom)); }
           .odm-ai-panel {
@@ -1589,7 +1588,7 @@ export default function AIAssistant({
           .odm-ai-input-row { align-items: stretch; }
           .odm-ai-input { min-height: 36px; }
           .odm-ai-send-btn { min-width: 64px; }
-                  }
+          }
         @keyframes dotPulse { 0%,80%,100%{opacity:.3;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
       `}</style>
     </>
