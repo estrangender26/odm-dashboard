@@ -7,12 +7,6 @@ import {
   getSpeechRecognitionConstructor,
 } from "@/lib/voiceAgent";
 import {
-  formatOdmTalkAiPost,
-  inferOdmTalkSource,
-  type OdmTalkShareType,
-  type OdmTalkThreadType,
-} from "@/lib/odmTalkBridge";
-import {
   normProgress,
   rowStatus,
 } from "@/modules/gantt/engine/schedulingEngine";
@@ -64,7 +58,6 @@ const GENERAL_HELP_PROMPTS = [
   "What can this dashboard do?",
   "Which module should I open?",
   "How do I use Maintenance Planning?",
-  "How do I use ODM Talk?",
 ];
 
 const DASHBOARD_GROUNDING_INSTRUCTION = `Use dashboard data first and active module data first for module-specific questions. General knowledge questions may be answered normally. Current, live, recent, or external questions may use server-side web search when available, except simple time/date questions must use dashboard/browser runtime time instead of web search. If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module data, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, schedule delays, or file/folder counts. Web search must not override dashboard/module records.`;
@@ -982,7 +975,6 @@ export default function AIAssistant({
   data,
   filters,
   metadata,
-  title,
   quickQuestions,
 }: AIAssistantProps) {
   const [open, setOpen] = useState(false);
@@ -992,8 +984,6 @@ export default function AIAssistant({
   >([]);
   const [loading, setLoading] = useState(false);
   const requestIdRef = useRef(0);
-  const [odmTalkStatus, setOdmTalkStatus] = useState("");
-  const [selectedThreadId, setSelectedThreadId] = useState("");
   const [listening, setListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(false);
@@ -1006,41 +996,6 @@ export default function AIAssistant({
   const manualVoiceStopRef = useRef(false);
   const voiceReplyEnabledRef = useRef(voiceReplyEnabled);
   const hasModuleData = hasUsableModuleData(data, contextType, metadata);
-  const odmTalkSource = inferOdmTalkSource(
-    contextType,
-    title,
-    metadata,
-    filters
-  );
-  const relatedThreads = trpc.odmTalk.related.useQuery(
-    {
-      sourceModule: odmTalkSource.sourceModule,
-      sourceRecordId: odmTalkSource.sourceRecordId,
-    },
-    { enabled: open }
-  );
-  const odmTalkUtils = trpc.useUtils();
-  const createOdmTalkThread = trpc.odmTalk.createThread.useMutation({
-    onSuccess: res => {
-      setSelectedThreadId(String(res.threadId));
-      setOdmTalkStatus(`Posted to ODM Talk thread #${res.threadId}.`);
-      odmTalkUtils.odmTalk.related.invalidate({
-        sourceModule: odmTalkSource.sourceModule,
-        sourceRecordId: odmTalkSource.sourceRecordId,
-      });
-    },
-    onError: e => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
-  });
-  const postToOdmTalkThread = trpc.odmTalk.postToThread.useMutation({
-    onSuccess: res => {
-      setOdmTalkStatus(`Added to ODM Talk thread #${res.threadId}.`);
-      odmTalkUtils.odmTalk.related.invalidate({
-        sourceModule: odmTalkSource.sourceModule,
-        sourceRecordId: odmTalkSource.sourceRecordId,
-      });
-    },
-    onError: e => setOdmTalkStatus(`ODM Talk post failed: ${e.message}`),
-  });
 
   const speakAssistantReply = (reply: string) => {
     if (!voiceReplyEnabledRef.current) return;
@@ -1147,16 +1102,12 @@ export default function AIAssistant({
 
     // Build data context and prepend to message
     const dataContext = buildDataContext(data, contextType, filters, metadata);
-    const odmTalkContext = relatedThreads.data?.length
-      ? `\n=== RELATED ODM TALK THREADS (secondary context only; module data remains source of truth) ===\n${relatedThreads.data.map(t => `- #${t.id} ${t.threadType}: ${t.title} (${t.status})`).join("\n")}\n`
-      : "";
     const baseInstruction =
       contextType === "gantt"
         ? `${DASHBOARD_GROUNDING_INSTRUCTION} Be specific with numbers and task names. If task rows are provided, do not ask for more data and instead analyze delays, overdue tasks, dependencies, and likely schedule drivers from the provided records. Completed tasks are not overdue even if planned finish date is in the past. If a task is completed, do not classify it as delayed or overdue.`
         : `${DASHBOARD_GROUNDING_INSTRUCTION} Be specific with numbers and names from the active module data.`;
     let fullMessage =
       dataContext +
-      odmTalkContext +
       `=== REQUIRED ANSWERING RULES ===\n${baseInstruction}\n\nUSER QUESTION: ${msg}`;
     if (fullMessage.length > MAX_AI_CONTEXT_CHARS) {
       const keepTail = `\n\n=== REQUIRED ANSWERING RULES ===\n${baseInstruction}\n\nUSER QUESTION: ${msg}`;
@@ -1320,33 +1271,7 @@ export default function AIAssistant({
     ? quickQuestions || CONTEXT_PROMPTS[contextType] || CONTEXT_PROMPTS.help
     : GENERAL_HELP_PROMPTS;
 
-  const lastAssistantMessage =
-    [...messages].reverse().find(m => m.role === "assistant")?.content || "";
-  const postLastAssistantMessage = (
-    threadType: OdmTalkThreadType,
-    shareType: OdmTalkShareType,
-    threadId?: number
-  ) => {
-    if (
-      !lastAssistantMessage ||
-      createOdmTalkThread.isPending ||
-      postToOdmTalkThread.isPending
-    )
-      return;
-    const payload = {
-      ...odmTalkSource,
-      threadType,
-      shareType,
-      title: `${threadType}: ${odmTalkSource.sourceRecordLabel || odmTalkSource.sourceRecordId}`,
-      content: formatOdmTalkAiPost(lastAssistantMessage, odmTalkSource),
-    };
-    setOdmTalkStatus("Posting to ODM Talk...");
-    if (threadId) {
-      postToOdmTalkThread.mutate({ ...payload, threadId });
-    } else {
-      createOdmTalkThread.mutate(payload);
-    }
-  };
+
 
   return (
     <>
@@ -1410,7 +1335,6 @@ export default function AIAssistant({
               <button
                 onClick={() => {
                   setMessages([]);
-                  setOdmTalkStatus("");
                   setCopyStatus("");
                 }}
                 className="odm-ai-header-btn"
@@ -1563,119 +1487,9 @@ export default function AIAssistant({
                 Send
               </button>
             </div>
-
-            {/* ODM Talk bridge actions */}
-            <div className="odm-ai-odm-talk">
-              <div className="odm-ai-odm-talk-header">
-                <span>ODM Talk Bridge</span>
-                <a href="/odm-talk">Open Hub</a>
-              </div>
-              <div className="odm-ai-odm-actions">
-                <button
-                  onClick={() =>
-                    postLastAssistantMessage("General Discussion", "AI summary")
-                  }
-                  disabled={
-                    !lastAssistantMessage || createOdmTalkThread.isPending
-                  }
-                >
-                  Send to ODM Talk
-                </button>
-                <button
-                  onClick={() =>
-                    postLastAssistantMessage("General Discussion", "AI summary")
-                  }
-                  disabled={
-                    !lastAssistantMessage || createOdmTalkThread.isPending
-                  }
-                >
-                  Create Discussion
-                </button>
-                <button
-                  onClick={() =>
-                    postLastAssistantMessage("General Discussion", "AI summary")
-                  }
-                  disabled={
-                    !lastAssistantMessage || createOdmTalkThread.isPending
-                  }
-                >
-                  Share Summary
-                </button>
-                <button
-                  onClick={() =>
-                    postLastAssistantMessage("Post-PPP Decision", "Decision")
-                  }
-                  disabled={
-                    !lastAssistantMessage || createOdmTalkThread.isPending
-                  }
-                >
-                  Create Decision Thread
-                </button>
-                <button
-                  onClick={() =>
-                    postLastAssistantMessage(
-                      "Maintenance Recommendation",
-                      "AI recommendation"
-                    )
-                  }
-                  disabled={
-                    !lastAssistantMessage || createOdmTalkThread.isPending
-                  }
-                >
-                  Share Recommendation
-                </button>
-                <button
-                  onClick={() =>
-                    postLastAssistantMessage(
-                      "Action Tracking",
-                      "AI-generated action items"
-                    )
-                  }
-                  disabled={
-                    !lastAssistantMessage || createOdmTalkThread.isPending
-                  }
-                >
-                  Share Action Items
-                </button>
-              </div>
-              <div className="odm-ai-discussion-row">
-                <select
-                  value={selectedThreadId}
-                  onChange={e => setSelectedThreadId(e.target.value)}
-                >
-                  <option value="">Add to Discussion...</option>
-                  {(relatedThreads.data || []).map(thread => (
-                    <option key={thread.id} value={thread.id}>
-                      #{thread.id} {thread.threadType}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() =>
-                    selectedThreadId &&
-                    postLastAssistantMessage(
-                      "General Discussion",
-                      "AI summary",
-                      Number(selectedThreadId)
-                    )
-                  }
-                  disabled={
-                    !lastAssistantMessage ||
-                    !selectedThreadId ||
-                    postToOdmTalkThread.isPending
-                  }
-                >
-                  Add to Discussion
-                </button>
-              </div>
-              <div
-                className={`odm-ai-bridge-status ${odmTalkStatus.includes("failed") ? "odm-ai-status-error" : ""}`}
-              >
-                {odmTalkStatus ||
-                  copyStatus ||
-                  `${odmTalkSource.assistantName} shares labels, backlinks, source record metadata, and keeps ${odmTalkSource.sourceModule} data as primary context.`}
-              </div>
-            </div>
+          {copyStatus ? (
+            <div className="odm-ai-copy-status">{copyStatus}</div>
+          ) : null}
           </div>
         </div>
       )}
@@ -1758,16 +1572,7 @@ export default function AIAssistant({
         .odm-ai-input { flex: 1; min-width: 0; padding: 7px 10px; font-size: 11px; border: 1px solid #D6DFE8; border-radius: 8px; font-family: Inter, sans-serif; resize: none; outline: none; max-height: 64px; line-height: 1.4; }
         .odm-ai-send-btn { padding: 7px 14px; font-size: 11px; font-weight: 800; background: #7C3AED; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-family: Inter, sans-serif; }
         .odm-ai-send-btn:disabled { background: #CBD5E1; cursor: not-allowed; }
-        .odm-ai-odm-talk { padding: 8px 12px; border-top: 1px solid #E2E8F0; background: #FAFBFF; }
-        .odm-ai-odm-talk-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-        .odm-ai-odm-talk-header span { font-size: 10px; font-weight: 900; color: #334155; text-transform: uppercase; letter-spacing: .5px; }
-        .odm-ai-odm-talk-header a { font-size: 10px; color: #2563EB; text-decoration: none; font-weight: 800; }
-        .odm-ai-odm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
-        .odm-ai-odm-actions button, .odm-ai-discussion-row button { padding: 5px 8px; font-size: 10px; border: 1px solid #C7D2FE; border-radius: 8px; background: #EEF2FF; color: #3730A3; cursor: pointer; font-weight: 800; font-family: Inter, sans-serif; }
-        .odm-ai-odm-actions button:disabled, .odm-ai-discussion-row button:disabled { background: #F1F5F9; color: #64748B; border-color: #CBD5E1; cursor: not-allowed; }
-        .odm-ai-discussion-row { display: flex; gap: 6px; }
-        .odm-ai-discussion-row select { flex: 1; min-width: 0; padding: 5px 6px; font-size: 10px; border: 1px solid #CBD5E1; border-radius: 8px; font-family: Inter, sans-serif; }
-        .odm-ai-bridge-status { margin-top: 5px; font-size: 9px; color: #64748B; line-height: 1.35; }
+                                                                                .odm-ai-bridge-status { margin-top: 5px; font-size: 9px; color: #64748B; line-height: 1.35; }
         @media (max-width: 640px) {
           .odm-ai-fab { right: 1rem; bottom: calc(.875rem + env(safe-area-inset-bottom)); }
           .odm-ai-panel {
@@ -1784,8 +1589,7 @@ export default function AIAssistant({
           .odm-ai-input-row { align-items: stretch; }
           .odm-ai-input { min-height: 36px; }
           .odm-ai-send-btn { min-width: 64px; }
-          .odm-ai-odm-actions { grid-template-columns: 1fr; }
-        }
+                  }
         @keyframes dotPulse { 0%,80%,100%{opacity:.3;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
       `}</style>
     </>

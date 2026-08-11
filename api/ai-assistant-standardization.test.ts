@@ -48,10 +48,9 @@ describe("AI assistant visual standardization", () => {
     expect(headerChrome).toContain("{SHARED_ASSISTANT_TITLE}");
     expect(headerChrome).toContain("{SHARED_ASSISTANT_SUBTITLE}");
     expect(headerChrome).not.toContain('title || "AI Analysis"');
-    expect(headerChrome).not.toContain("odmTalkSource.sourceModule");
   });
 
-  it("renders one shared visual section for fab, panel, header, input, voice, and ODM Talk", () => {
+  it("renders one shared visual section for fab, panel, header, input, and voice", () => {
     const shell = assistantShell();
 
     expect(shell.match(/className="odm-ai-fab"/g) ?? []).toHaveLength(1);
@@ -59,16 +58,14 @@ describe("AI assistant visual standardization", () => {
     expect(shell.match(/className="odm-ai-header"/g) ?? []).toHaveLength(1);
     expect(shell.match(/className="odm-ai-input-row"/g) ?? []).toHaveLength(1);
     expect(shell.match(/className="odm-ai-voice-controls"/g) ?? []).toHaveLength(1);
-    expect(shell.match(/className="odm-ai-odm-talk"/g) ?? []).toHaveLength(1);
   });
 
-  it("keeps required shared voice, ODM Talk, and grounding UI copy", () => {
+  it("keeps required shared voice and grounding UI copy", () => {
     const source = assistantSource();
 
     expect(source).toContain("Start voice listening");
     expect(source).toContain("Voice reply ON");
     expect(source).toContain("Voice captured. Review then tap Send.");
-    expect(source).toContain("ODM Talk Bridge");
     expect(source).toContain("server-side web search when available");
     expect(source).not.toContain("Live web lookup is not enabled in this dashboard AI.");
   });

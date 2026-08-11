@@ -49,7 +49,6 @@ describe("AI assistant voice agent helpers", () => {
       "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data."
     );
     expect(source).toContain("VOICE_UNSUPPORTED_MESSAGE");
-    expect(source).toContain("ODM Talk Bridge");
   });
 
   it("does not auto-send the captured final transcript when recognition ends", () => {
@@ -71,7 +70,6 @@ describe("AI assistant voice agent helpers", () => {
     expect(source).toContain("What can this dashboard do?");
     expect(source).toContain("Which module should I open?");
     expect(source).toContain("How do I use Maintenance Planning?");
-    expect(source).toContain("How do I use ODM Talk?");
     expect(source).toMatch(/hasModuleData\s*\?/);
   });
 
@@ -83,7 +81,6 @@ describe("AI assistant voice agent helpers", () => {
     expect(generalPromptsBlock).toContain("What can this dashboard do?");
     expect(generalPromptsBlock).toContain("Which module should I open?");
     expect(generalPromptsBlock).toContain("How do I use Maintenance Planning?");
-    expect(generalPromptsBlock).toContain("How do I use ODM Talk?");
     expect(generalPromptsBlock).not.toContain("Analyze PM compliance trends");
     expect(generalPromptsBlock).not.toContain("Identify high-risk equipment");
     expect(generalPromptsBlock).not.toContain(

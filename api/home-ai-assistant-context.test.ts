@@ -38,7 +38,6 @@ describe("Dashboard Suite home AI assistant context", () => {
     expect(block).toContain("What can this dashboard do?");
     expect(block).toContain("Which module should I open?");
     expect(block).toContain("How do I use Maintenance Planning?");
-    expect(block).toContain("How do I use ODM Talk?");
     expect(block).not.toContain("Analyze PM compliance trends");
     expect(block).not.toContain("Identify high-risk equipment");
     expect(block).not.toContain("Review overdue work orders");
