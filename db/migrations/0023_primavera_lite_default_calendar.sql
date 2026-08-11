@@ -1,6 +1,44 @@
 -- Migration 0023: safely backfill default calendars for Primavera Lite projects missing a default calendar.
 -- Idempotent, drift-detecting, schema-validating, and never modifies legacy Gantt projects.
 
+CREATE OR REPLACE FUNCTION public._mig0023_normalize_default(expr text) RETURNS text AS $$
+DECLARE
+  v text;
+BEGIN
+  IF expr IS NULL THEN RETURN NULL; END IF;
+  -- Remove trailing type cast like ::integer[], ::numeric, ::character varying(100), ::text, etc.
+  v := regexp_replace(expr, '(::[a-z0-9_ ]+(\([0-9,]+\))?(\[\])?)+$', '', 'i');
+  -- Remove whitespace
+  v := regexp_replace(v, '\s+', '', 'g');
+  -- Strip surrounding single/double quotes
+  v := trim(both '''' from v);
+  v := trim(both '"' from v);
+  -- Normalize ARRAY[1,2,3,4,5] to {1,2,3,4,5}
+  IF v ~* '^array\[' THEN
+    v := '{' || substring(v from 7 for length(v) - 7) || '}';
+  END IF;
+  IF v ~ '^[0-9]+(\.[0-9]+)?$' THEN
+    v := regexp_replace(v, '^0+([1-9])', '\1');
+    IF v LIKE '%.%' THEN
+      v := regexp_replace(v, '0+$', '');
+      v := regexp_replace(v, '\.$', '');
+    END IF;
+  END IF;
+  RETURN lower(v);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TABLE IF NOT EXISTS public.gantt_calendars (
+  id serial PRIMARY KEY,
+  project_id integer NOT NULL REFERENCES public.gantt_projects(id) ON DELETE CASCADE,
+  name character varying(255) NOT NULL,
+  working_days integer[] DEFAULT '{1,2,3,4,5}'::integer[] NOT NULL,
+  hours_per_day numeric(4,2) DEFAULT 8 NOT NULL,
+  timezone character varying(100) DEFAULT 'Asia/Manila'::character varying NOT NULL,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now()
+);
+
 DO $$
 DECLARE
   v_exists boolean;
@@ -51,21 +89,21 @@ BEGIN
     SELECT column_default INTO v_col
     FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'gantt_calendars' AND column_name = 'working_days';
-    IF NOT FOUND OR v_col.column_default IS NULL OR v_col.column_default NOT LIKE '%{1,2,3,4,5}%' THEN
+    IF NOT FOUND OR v_col.column_default IS NULL OR public._mig0023_normalize_default(v_col.column_default) <> '{1,2,3,4,5}' THEN
       RAISE EXCEPTION 'gantt_calendars.working_days default conflict: expected {1,2,3,4,5}, found %', v_col.column_default;
     END IF;
 
     SELECT column_default INTO v_col
     FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'gantt_calendars' AND column_name = 'hours_per_day';
-    IF NOT FOUND OR v_col.column_default IS NULL OR v_col.column_default NOT LIKE '%8%' THEN
+    IF NOT FOUND OR v_col.column_default IS NULL OR public._mig0023_normalize_default(v_col.column_default) <> '8' THEN
       RAISE EXCEPTION 'gantt_calendars.hours_per_day default conflict: expected 8, found %', v_col.column_default;
     END IF;
 
     SELECT column_default INTO v_col
     FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'gantt_calendars' AND column_name = 'timezone';
-    IF NOT FOUND OR v_col.column_default IS NULL OR v_col.column_default NOT LIKE '%Asia/Manila%' THEN
+    IF NOT FOUND OR v_col.column_default IS NULL OR public._mig0023_normalize_default(v_col.column_default) <> 'asia/manila' THEN
       RAISE EXCEPTION 'gantt_calendars.timezone default conflict: expected Asia/Manila, found %', v_col.column_default;
     END IF;
 
@@ -177,3 +215,5 @@ BEGIN
   END IF;
 END
 $$;
+
+DROP FUNCTION IF EXISTS public._mig0023_normalize_default(text);
