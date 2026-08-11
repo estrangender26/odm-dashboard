@@ -12,7 +12,6 @@ const auditedAssistantPages = [
   "src/pages/OmManualsLibrary.tsx",
   "src/pages/GovernanceDashboard.tsx",
   "src/pages/GanttPlanner.tsx",
-  "src/pages/ExistingFacilitiesMaintenance.tsx",
   "src/pages/SmpDashboard.tsx",
   "src/pages/Help.tsx",
 ];
