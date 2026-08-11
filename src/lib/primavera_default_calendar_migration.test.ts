@@ -149,6 +149,109 @@ describe("migration 0023 Primavera Lite default calendar backfill & schema valid
     }
   });
 
+  it("production regression: default_calendar_id exists as INTEGER but its FK is absent", async () => {
+    const client = await createBaseDatabase("missing_default_calendar_fk");
+    try {
+      await client.unsafe(`
+        ALTER TABLE public.gantt_projects
+          ADD COLUMN default_calendar_id integer;
+
+        INSERT INTO public.gantt_projects (id, name) VALUES (1, 'Production State Project');
+        INSERT INTO public.gantt_wbs_nodes (id, project_id) VALUES (10, 1);
+      `);
+
+      const historicalState = await client.unsafe(`
+        SELECT
+          column_row.data_type,
+          (SELECT count(*)::integer
+           FROM pg_constraint constraint_row
+           WHERE constraint_row.contype = 'f'
+             AND constraint_row.conrelid = 'public.gantt_projects'::regclass
+             AND column_row.ordinal_position = ANY (constraint_row.conkey)) AS fk_count
+        FROM information_schema.columns column_row
+        WHERE column_row.table_schema = 'public'
+          AND column_row.table_name = 'gantt_projects'
+          AND column_row.column_name = 'default_calendar_id';
+      `);
+      expect(historicalState).toEqual([{ data_type: "integer", fk_count: 0 }]);
+
+      await client.unsafe(migration0023);
+
+      const defaultCalendarFks = await client.unsafe(`
+        SELECT
+          target_table.relname AS target_table,
+          target_column.attname AS target_column,
+          constraint_row.confdeltype AS delete_rule
+        FROM pg_constraint constraint_row
+        JOIN pg_class source_table
+          ON source_table.oid = constraint_row.conrelid
+        JOIN pg_attribute source_column
+          ON source_column.attrelid = source_table.oid
+         AND source_column.attnum = constraint_row.conkey[1]
+        JOIN pg_class target_table
+          ON target_table.oid = constraint_row.confrelid
+        JOIN pg_attribute target_column
+          ON target_column.attrelid = target_table.oid
+         AND target_column.attnum = constraint_row.confkey[1]
+        WHERE constraint_row.contype = 'f'
+          AND constraint_row.conrelid = 'public.gantt_projects'::regclass
+          AND array_length(constraint_row.conkey, 1) = 1
+          AND source_column.attname = 'default_calendar_id';
+      `);
+      expect(defaultCalendarFks).toEqual([
+        {
+          target_table: "gantt_calendars",
+          target_column: "id",
+          delete_rule: "n",
+        },
+      ]);
+
+      const projectCalendar = await client.unsafe(`
+        SELECT
+          project.default_calendar_id,
+          calendar.id AS calendar_id,
+          calendar.project_id AS calendar_project_id
+        FROM public.gantt_projects project
+        JOIN public.gantt_calendars calendar
+          ON calendar.id = project.default_calendar_id
+        WHERE project.id = 1;
+      `);
+      expect(projectCalendar).toHaveLength(1);
+      expect(projectCalendar[0].default_calendar_id).toBe(projectCalendar[0].calendar_id);
+      expect(projectCalendar[0].calendar_project_id).toBe(1);
+
+      await client.unsafe(migration0023);
+
+      const stateAfterSecondRun = await client.unsafe(`
+        SELECT
+          (SELECT count(*)::integer
+           FROM pg_constraint constraint_row
+           JOIN pg_attribute source_column
+             ON source_column.attrelid = constraint_row.conrelid
+            AND source_column.attnum = constraint_row.conkey[1]
+           WHERE constraint_row.contype = 'f'
+             AND constraint_row.conrelid = 'public.gantt_projects'::regclass
+             AND array_length(constraint_row.conkey, 1) = 1
+             AND source_column.attname = 'default_calendar_id') AS fk_count,
+          (SELECT count(*)::integer
+           FROM public.gantt_calendars
+           WHERE project_id = 1) AS calendar_count,
+          (SELECT default_calendar_id
+           FROM public.gantt_projects
+           WHERE id = 1) AS default_calendar_id;
+      `);
+      expect(stateAfterSecondRun).toEqual([
+        {
+          fk_count: 1,
+          calendar_count: 1,
+          default_calendar_id: projectCalendar[0].default_calendar_id,
+        },
+      ]);
+    } finally {
+      await client.end();
+    }
+  });
+
   it("conflicting drift: rejects column nullability conflict before backfill", async () => {
     const client = await createBaseDatabase("conflict_nullable", false);
     try {
