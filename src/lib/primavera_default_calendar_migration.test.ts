@@ -237,16 +237,32 @@ describe("migration 0023 Primavera Lite default calendar backfill & schema valid
     }
   });
 
-  it("conflicting drift: rejects missing default_calendar_id FK before backfill", async () => {
-    const client = await createBaseDatabase("conflict_missing_def_fk");
+  it("conflicting drift: rejects default_calendar_id FK referencing wrong table before backfill", async () => {
+    const client = await createBaseDatabase("conflict_wrong_def_fk");
     try {
       await client.unsafe(`
         ALTER TABLE public.gantt_projects
-          ADD COLUMN default_calendar_id integer;
+          ADD COLUMN default_calendar_id integer REFERENCES public.gantt_projects(id) ON DELETE SET NULL;
       `);
 
       await expect(client.unsafe(migration0023)).rejects.toThrow(
-        /gantt_projects\.default_calendar_id FK conflict: missing foreign key constraint to gantt_calendars/i
+        /gantt_projects\.default_calendar_id FK conflict: references gantt_projects instead of gantt_calendars/i
+      );
+    } finally {
+      await client.end();
+    }
+  });
+
+  it("conflicting drift: rejects default_calendar_id FK with wrong delete rule before backfill", async () => {
+    const client = await createBaseDatabase("conflict_wrong_def_del_rule");
+    try {
+      await client.unsafe(`
+        ALTER TABLE public.gantt_projects
+          ADD COLUMN default_calendar_id integer REFERENCES public.gantt_calendars(id) ON DELETE CASCADE;
+      `);
+
+      await expect(client.unsafe(migration0023)).rejects.toThrow(
+        /gantt_projects\.default_calendar_id FK delete rule conflict: expected SET NULL \(n\), found c/i
       );
     } finally {
       await client.end();
