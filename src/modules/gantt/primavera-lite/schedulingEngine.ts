@@ -391,39 +391,15 @@ export function resolveDefaultCalendar(
 
 /**
  * Run CPM scheduling engine.
- * Supports both signatures:
- * - runScheduleEngine(dataDate, scheduleDate, calendars, defaultCalId, activities, dependencies)
- * - runScheduleEngine(dataDate, calendars, defaultCalId, activities, dependencies) [legacy/compat]
  */
 export function runScheduleEngine(
   projectDataDate: string | null | undefined,
-  scheduleDateOrCalendars: string | null | undefined | ScheduleCalendarInput[],
-  calendarsOrDefaultCalId: ScheduleCalendarInput[] | number | null | undefined,
-  defaultCalIdOrActivities: number | null | undefined | ScheduleActivityInput[],
-  activitiesOrDeps: ScheduleActivityInput[] | ScheduleDependencyInput[],
-  maybeDeps?: ScheduleDependencyInput[]
+  scheduleDate: string | null | undefined,
+  calendars: ScheduleCalendarInput[],
+  defaultCalendarId: number | null | undefined,
+  activities: ScheduleActivityInput[],
+  dependencies: ScheduleDependencyInput[]
 ): ScheduledActivityOutput[] {
-  let scheduleDate: string | null | undefined;
-  let calendars: ScheduleCalendarInput[];
-  let defaultCalendarId: number | null | undefined;
-  let activities: ScheduleActivityInput[];
-  let dependencies: ScheduleDependencyInput[];
-
-  if (Array.isArray(scheduleDateOrCalendars)) {
-    // 5-arg compatibility call
-    scheduleDate = "2026-01-01";
-    calendars = scheduleDateOrCalendars as ScheduleCalendarInput[];
-    defaultCalendarId = calendarsOrDefaultCalId as number | null | undefined;
-    activities = defaultCalIdOrActivities as ScheduleActivityInput[];
-    dependencies = activitiesOrDeps as ScheduleDependencyInput[];
-  } else {
-    scheduleDate = scheduleDateOrCalendars as string | null | undefined;
-    calendars = calendarsOrDefaultCalId as ScheduleCalendarInput[];
-    defaultCalendarId = defaultCalIdOrActivities as number | null | undefined;
-    activities = activitiesOrDeps as ScheduleActivityInput[];
-    dependencies = maybeDeps || [];
-  }
-
   if (activities.length === 0) return [];
 
   const defaultCal = resolveDefaultCalendar(calendars, defaultCalendarId);
@@ -441,7 +417,7 @@ export function runScheduleEngine(
   const order = topologicalSort(activities, dependencies);
 
   // 2. Anchor priority: valid project data_date -> earliest valid plannedStart -> explicit scheduleDate
-  let anchorDateStr = "2026-01-01";
+  let anchorDateStr: string | null = null;
   if (isValidISOString(projectDataDate)) {
     anchorDateStr = projectDataDate!.trim();
   } else {
@@ -455,9 +431,15 @@ export function runScheduleEngine(
     }
     if (earliest) {
       anchorDateStr = earliest;
-    } else {
-      anchorDateStr = isValidISOString(scheduleDate) ? scheduleDate!.trim() : "2026-01-01";
+    } else if (isValidISOString(scheduleDate)) {
+      anchorDateStr = scheduleDate!.trim();
     }
+  }
+
+  if (!anchorDateStr) {
+    throw new Error(
+      "Cannot schedule project: no valid project data_date, plannedStart, or scheduleDate anchor available"
+    );
   }
 
   const anchorDay = dateToCalendarDay(anchorDateStr);

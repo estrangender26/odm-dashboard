@@ -54,19 +54,6 @@ async function applyUpTo0019(dbName: string): Promise<void> {
     `;
 
     await client`
-      CREATE TABLE IF NOT EXISTS gantt_calendars (
-        id SERIAL PRIMARY KEY,
-        project_id INTEGER NOT NULL,
-        name VARCHAR(255) NOT NULL,
-        working_days INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
-        hours_per_day NUMERIC(4,2) NOT NULL DEFAULT 8,
-        timezone VARCHAR(100) NOT NULL DEFAULT 'Asia/Manila',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    await client`
       CREATE TABLE IF NOT EXISTS gantt_projects (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -92,11 +79,23 @@ async function applyUpTo0019(dbName: string): Promise<void> {
         view_token_hash VARCHAR(64),
         revision INTEGER DEFAULT 1,
         data_date VARCHAR(20),
-        default_calendar_id INTEGER,
         sharing_enabled INTEGER DEFAULT 0,
         last_scheduled_at TIMESTAMP,
         tasks_data_json TEXT,
         links_data_json TEXT
+      )
+    `;
+
+    await client`
+      CREATE TABLE IF NOT EXISTS gantt_calendars (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES gantt_projects(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        working_days INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
+        hours_per_day NUMERIC(4,2) NOT NULL DEFAULT 8,
+        timezone VARCHAR(100) NOT NULL DEFAULT 'Asia/Manila',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
 

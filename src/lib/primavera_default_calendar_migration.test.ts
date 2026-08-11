@@ -84,8 +84,7 @@ describe("migration 0023 Primavera Lite default calendar backfill & schema valid
       // 2. Insert Legacy Gantt project (no WBS node) without calendar
       await client`INSERT INTO gantt_projects (id, name) VALUES (2, 'Legacy Gantt Project')`;
 
-      // Run preflight (after adding default_calendar_id column or letting migration add it)
-      await client.unsafe(`ALTER TABLE gantt_projects ADD COLUMN default_calendar_id integer;`);
+      // Run preflight
       const preflight = await client.unsafe(preflight0023);
       expect(Number(preflight[0].primavera_lite_project_count)).toBe(1);
       expect(Number(preflight[0].primavera_lite_missing_default_calendar_count)).toBe(1);
@@ -208,6 +207,70 @@ describe("migration 0023 Primavera Lite default calendar backfill & schema valid
 
       await expect(client.unsafe(migration0023)).rejects.toThrow(
         /gantt_projects\.default_calendar_id type conflict: expected integer/i
+      );
+    } finally {
+      await client.end();
+    }
+  });
+
+  it("conflicting drift: rejects missing calendar project FK before backfill", async () => {
+    const client = await createBaseDatabase("conflict_missing_cal_fk", false);
+    try {
+      await client.unsafe(`
+        CREATE TABLE public.gantt_calendars (
+          id serial PRIMARY KEY,
+          project_id integer NOT NULL,
+          name character varying(255) NOT NULL,
+          working_days integer[] DEFAULT '{1,2,3,4,5}'::integer[] NOT NULL,
+          hours_per_day numeric(4,2) DEFAULT 8 NOT NULL,
+          timezone character varying(100) DEFAULT 'Asia/Manila'::character varying NOT NULL,
+          created_at timestamp without time zone DEFAULT now(),
+          updated_at timestamp without time zone DEFAULT now()
+        );
+      `);
+
+      await expect(client.unsafe(migration0023)).rejects.toThrow(
+        /gantt_calendars project_id FK conflict: missing foreign key constraint to gantt_projects/i
+      );
+    } finally {
+      await client.end();
+    }
+  });
+
+  it("conflicting drift: rejects missing default_calendar_id FK before backfill", async () => {
+    const client = await createBaseDatabase("conflict_missing_def_fk");
+    try {
+      await client.unsafe(`
+        ALTER TABLE public.gantt_projects
+          ADD COLUMN default_calendar_id integer;
+      `);
+
+      await expect(client.unsafe(migration0023)).rejects.toThrow(
+        /gantt_projects\.default_calendar_id FK conflict: missing foreign key constraint to gantt_calendars/i
+      );
+    } finally {
+      await client.end();
+    }
+  });
+
+  it("conflicting drift: rejects wrong required default before backfill", async () => {
+    const client = await createBaseDatabase("conflict_wrong_default", false);
+    try {
+      await client.unsafe(`
+        CREATE TABLE public.gantt_calendars (
+          id serial PRIMARY KEY,
+          project_id integer NOT NULL REFERENCES public.gantt_projects(id) ON DELETE CASCADE,
+          name character varying(255) NOT NULL,
+          working_days integer[] DEFAULT '{1,2,3,4,5,6}'::integer[] NOT NULL,
+          hours_per_day numeric(4,2) DEFAULT 8 NOT NULL,
+          timezone character varying(100) DEFAULT 'Asia/Manila'::character varying NOT NULL,
+          created_at timestamp without time zone DEFAULT now(),
+          updated_at timestamp without time zone DEFAULT now()
+        );
+      `);
+
+      await expect(client.unsafe(migration0023)).rejects.toThrow(
+        /gantt_calendars\.working_days default conflict: expected {1,2,3,4,5}/i
       );
     } finally {
       await client.end();

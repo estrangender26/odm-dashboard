@@ -47,6 +47,28 @@ BEGIN
       RAISE EXCEPTION 'gantt_calendars.timezone conflict: expected character varying NOT NULL';
     END IF;
 
+    -- Validate canonical defaults
+    SELECT column_default INTO v_col
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'gantt_calendars' AND column_name = 'working_days';
+    IF NOT FOUND OR v_col.column_default IS NULL OR v_col.column_default NOT LIKE '%{1,2,3,4,5}%' THEN
+      RAISE EXCEPTION 'gantt_calendars.working_days default conflict: expected {1,2,3,4,5}, found %', v_col.column_default;
+    END IF;
+
+    SELECT column_default INTO v_col
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'gantt_calendars' AND column_name = 'hours_per_day';
+    IF NOT FOUND OR v_col.column_default IS NULL OR v_col.column_default NOT LIKE '%8%' THEN
+      RAISE EXCEPTION 'gantt_calendars.hours_per_day default conflict: expected 8, found %', v_col.column_default;
+    END IF;
+
+    SELECT column_default INTO v_col
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'gantt_calendars' AND column_name = 'timezone';
+    IF NOT FOUND OR v_col.column_default IS NULL OR v_col.column_default NOT LIKE '%Asia/Manila%' THEN
+      RAISE EXCEPTION 'gantt_calendars.timezone default conflict: expected Asia/Manila, found %', v_col.column_default;
+    END IF;
+
     SELECT c.confdeltype, cl.relname AS target_table
     INTO v_fk
     FROM pg_constraint c
@@ -58,13 +80,14 @@ BEGIN
       ) = 'project_id'
     LIMIT 1;
 
-    IF FOUND THEN
-      IF v_fk.target_table <> 'gantt_projects' THEN
-        RAISE EXCEPTION 'gantt_calendars project_id FK conflict: references % instead of gantt_projects', v_fk.target_table;
-      END IF;
-      IF v_fk.confdeltype <> 'c' THEN
-        RAISE EXCEPTION 'gantt_calendars project_id FK delete rule conflict: expected CASCADE (c), found %', v_fk.confdeltype;
-      END IF;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'gantt_calendars project_id FK conflict: missing foreign key constraint to gantt_projects';
+    END IF;
+    IF v_fk.target_table <> 'gantt_projects' THEN
+      RAISE EXCEPTION 'gantt_calendars project_id FK conflict: references % instead of gantt_projects', v_fk.target_table;
+    END IF;
+    IF v_fk.confdeltype <> 'c' THEN
+      RAISE EXCEPTION 'gantt_calendars project_id FK delete rule conflict: expected CASCADE (c), found %', v_fk.confdeltype;
     END IF;
   ELSE
     CREATE TABLE public.gantt_calendars (
@@ -88,7 +111,7 @@ BEGIN
     IF v_col.data_type <> 'integer' THEN
       RAISE EXCEPTION 'gantt_projects.default_calendar_id type conflict: expected integer, found %', v_col.data_type;
     END IF;
-    SELECT cl.relname AS target_table INTO v_fk
+    SELECT c.confdeltype, cl.relname AS target_table INTO v_fk
     FROM pg_constraint c
     JOIN pg_class cl ON c.confrelid = cl.oid
     WHERE c.conrelid = 'public.gantt_projects'::regclass
@@ -98,8 +121,14 @@ BEGIN
       ) = 'default_calendar_id'
     LIMIT 1;
 
-    IF FOUND AND v_fk.target_table <> 'gantt_calendars' THEN
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'gantt_projects.default_calendar_id FK conflict: missing foreign key constraint to gantt_calendars';
+    END IF;
+    IF v_fk.target_table <> 'gantt_calendars' THEN
       RAISE EXCEPTION 'gantt_projects.default_calendar_id FK conflict: references % instead of gantt_calendars', v_fk.target_table;
+    END IF;
+    IF v_fk.confdeltype <> 'n' THEN
+      RAISE EXCEPTION 'gantt_projects.default_calendar_id FK delete rule conflict: expected SET NULL (n), found %', v_fk.confdeltype;
     END IF;
   ELSE
     ALTER TABLE public.gantt_projects

@@ -62,7 +62,7 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       { id: 4, predecessorActivityId: 30, successorActivityId: 40, dependencyType: "FS", lagDays: 0 },
     ];
 
-    const res = runScheduleEngine("2026-08-10", [monFriCalendar], 1, activities, dependencies);
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, dependencies);
     expect(res).toHaveLength(4);
 
     const map = new Map(res.map((r) => [r.id, r]));
@@ -111,7 +111,7 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       { id: 4, predecessorActivityId: 1, successorActivityId: 5, dependencyType: "SF", lagDays: 0 },
     ];
 
-    const res = runScheduleEngine("2026-08-10", [monFriCalendar], 1, activities, dependencies);
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, dependencies);
     const map = new Map(res.map((r) => [r.id, r]));
 
     const p = map.get(1)!;
@@ -146,7 +146,7 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       { id: 2, predecessorActivityId: 200, successorActivityId: 300, dependencyType: "FS", lagDays: 0 },
     ];
 
-    const res = runScheduleEngine("2026-08-10", [monFriCalendar], 1, activities, dependencies);
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, dependencies);
     const startM = res.find((r) => r.id === 100)!;
     const taskA = res.find((r) => r.id === 200)!;
     const endM = res.find((r) => r.id === 300)!;
@@ -170,7 +170,7 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
     ];
 
     expect(() =>
-      runScheduleEngine("2026-08-10", [monFriCalendar], 1, activities, dependencies)
+      runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, dependencies)
     ).toThrow(/Circular dependency detected/i);
   });
 
@@ -207,7 +207,7 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
     ];
 
     // Data date is 2026-08-10 (Monday)
-    const res = runScheduleEngine("2026-08-10", [monFriCalendar], 1, activities, dependencies);
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, dependencies);
     const map = new Map(res.map((r) => [r.id, r]));
 
     // Done task keeps its actual dates
@@ -318,5 +318,20 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       []
     );
     expect(res3[0].earlyStart).toBe("2026-04-01");
+  });
+
+  it("throws a controlled error when all three anchors (data_date, plannedStart, scheduleDate) are absent/invalid", () => {
+    const baseAct: ScheduleActivityInput = {
+      id: 1,
+      wbsNodeId: 1,
+      activityName: "No Anchor Test",
+      originalDurationDays: 1,
+    };
+    expect(() =>
+      runScheduleEngine(null, null, [monFriCalendar], 1, [baseAct], [])
+    ).toThrow(/no valid project data_date, plannedStart, or scheduleDate anchor available/i);
+    expect(() =>
+      runScheduleEngine("invalid-date", "bad-date", [monFriCalendar], 1, [baseAct], [])
+    ).toThrow(/no valid project data_date, plannedStart, or scheduleDate anchor available/i);
   });
 });
