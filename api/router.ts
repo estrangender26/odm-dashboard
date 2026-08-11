@@ -5,7 +5,6 @@ import { governanceFilesRouter } from "./governance-files-router";
 import { seedRouter } from "./seed-router";
 import { mwRouter } from "./mw-router";
 import { ganttRouter } from "./gantt-router";
-import { efmRouter } from "./efm-router";
 import { documentsRouter } from "./documents-router";
 import { ganttProjectsRouter } from "./gantt-projects-router";
 import { sharedGanttRouter } from "./shared-gantt-router";
@@ -24,7 +23,6 @@ export const appRouter = createRouter({
   seed: seedRouter,
   mw: mwRouter,
   gantt: ganttRouter,
-  efm: efmRouter,
   documents: documentsRouter,
   ganttProjects: ganttProjectsRouter,
   sharedGantt: sharedGanttRouter,

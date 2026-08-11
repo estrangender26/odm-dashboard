@@ -198,36 +198,6 @@ export default function Home() {
             </span>
           </Link>
 
-          {/* Existing Facilities Maintenance Plans Card */}
-          <Link
-            to="/existing-facilities"
-            className={navCardClassName}
-            style={navCardStyle}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
-                🏗️
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3, margin: 0 }}>Existing Facilities Maintenance Plans</h3>
-                <p style={{ fontSize: 12, color: '#8BA3B8', margin: '4px 0 0' }}>
-                  Asset Maintenance Department / Programs
-                </p>
-              </div>
-            </div>
-            <p style={{ fontSize: 14, color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
-              View and manage maintenance schedules for existing facilities. Track tasks by equipment type, frequency, implementor. Import/export from Excel.
-            </p>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#D1FAE5', color: '#059669' }}>Maintenance</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#D1FAE5', color: '#059669' }}>CRUD</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Excel</span>
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#059669', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Open Dashboard →
-            </span>
-          </Link>
-
           {/* SMP — Standard Maintenance Procedures */}
           <Link
             to="/smp-dashboard"

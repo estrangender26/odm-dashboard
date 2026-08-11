@@ -9,7 +9,6 @@ import GanttLandingPage from "./pages/GanttLandingPage";
 import GanttNewProjectPage from "./pages/GanttNewProjectPage";
 import PrimaveraLiteProjectPage from "./pages/PrimaveraLiteProjectPage";
 import GanttProjectsDebug from "./pages/GanttProjectsDebug";
-import ExistingFacilitiesMaintenance from "./pages/ExistingFacilitiesMaintenance";
 import SmpDashboard from "./pages/SmpDashboard";
 import OmManualsLibrary from "./pages/OmManualsLibrary";
 import ScorecardDashboard from "./pages/ScorecardDashboard";
@@ -30,10 +29,6 @@ export default function App() {
       <Route
         path="/admin/gantt-projects-debug"
         element={<GanttProjectsDebug />}
-      />
-      <Route
-        path="/existing-facilities"
-        element={<ExistingFacilitiesMaintenance />}
       />
       <Route path="/smp-dashboard" element={<SmpDashboard />} />
       <Route path="/om-manuals-library" element={<OmManualsLibrary />} />
