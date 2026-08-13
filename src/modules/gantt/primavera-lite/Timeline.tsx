@@ -103,9 +103,12 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                 const progressLabel = unresolvedCompletion
                   ? hasOpenActual ? "100% complete (Actual Finish open)" : "100% complete (no actual dates)"
                   : `${progress.percent}% complete`;
+                const actualStateLabel = actual.kind === "closed"
+                  ? "Actual Start and Actual Finish recorded"
+                  : hasOpenActual ? "Actual Start recorded, no Actual Finish" : "no actual dates recorded";
                 const activityLabel = unresolvedCompletion
                   ? `Highlight ${activity.activityName}; ${hasOpenActual ? "100% complete, Actual Start recorded and no Actual Finish" : "100% complete, no actual dates recorded"}`
-                  : `Highlight ${activity.activityName}; ${progressLabel}`;
+                  : `Highlight ${activity.activityName}; ${progressLabel}; ${actualStateLabel}`;
                 return (
                   <button key={activity.id} type="button" aria-label={activityLabel}
                     onMouseEnter={() => onActivityHighlight?.(activity.id)} onMouseLeave={() => onActivityHighlight?.(null)} onFocus={() => onActivityHighlight?.(activity.id)}

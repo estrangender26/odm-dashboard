@@ -66,6 +66,22 @@ describe("Timeline", () => {
     ] }));
     expect(html).toContain('data-testid="open-actual-caret"');
     expect(html).not.toContain('data-testid="actual-bar"');
+    expect(html).toContain('aria-label="Highlight Foundations; 25% complete; Actual Start recorded, no Actual Finish"');
+    // The parent button is the only announcement; its visual caret remains hidden.
+    expect(html).toContain('data-testid="open-actual-caret" title="Foundations: actual start 2026-08-14 (in progress, no Actual Finish)" aria-hidden="true"');
+    expect((html.match(/Actual Start recorded, no Actual Finish/g) || [])).toHaveLength(1);
+  });
+
+  it("announces ordinary closed and absent actual states on the parent activity only", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, id: 1, activityName: "Closed", plannedStart: "2026-08-13", plannedFinish: "2026-08-17", actualStart: "2026-08-14", actualFinish: "2026-08-16" },
+      { ...base, id: 2, sortOrder: 1, activityName: "None", plannedStart: "2026-08-18", plannedFinish: "2026-08-22", actualStart: null, actualFinish: null },
+    ] }));
+    expect(html).toContain('aria-label="Highlight Closed; 25% complete; Actual Start and Actual Finish recorded"');
+    expect(html).toContain('aria-label="Highlight None; 25% complete; no actual dates recorded"');
+    expect(html).toContain('data-testid="actual-bar" title="Closed: actual dates" aria-hidden="true"');
+    expect((html.match(/Actual Start and Actual Finish recorded/g) || [])).toHaveLength(1);
+    expect((html.match(/no actual dates recorded/g) || [])).toHaveLength(1);
   });
 
   it("renders 100% complete with a null Actual Finish without implying a finish date", () => {
