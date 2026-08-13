@@ -361,3 +361,25 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
     expect(activity?.plannedStart).toBe("2026-08-10");
   });
 });
+
+it("sets Duration % Complete to 100 atomically when Actual Finish is supplied, without inventing dates from percent", async () => {
+  const p = await createProject("PR7 Duration Complete");
+  const created = await createActivity(p.editor, p.project.slug, p.project.revision, {
+    activityName: "Task", percentComplete: 20,
+  });
+  let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+  const completed = await caller.primaveraLite.updateActivity({
+    slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+    activityId: created.activity.id, changes: { actualFinish: "2026-08-12", percentComplete: 25 },
+  });
+  expect(completed.activity.actualFinish).toBe("2026-08-12");
+  expect(completed.activity.percentComplete).toBe(100);
+
+  loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+  const progressOnly = await caller.primaveraLite.updateActivity({
+    slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+    activityId: created.activity.id, changes: { actualFinish: null, percentComplete: 100 },
+  });
+  expect(progressOnly.activity.actualFinish).toBeNull();
+  expect(progressOnly.activity.percentComplete).toBe(100);
+});

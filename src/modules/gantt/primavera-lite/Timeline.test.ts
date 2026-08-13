@@ -12,7 +12,7 @@ describe("Timeline", () => {
       { ...base, id: 2, sortOrder: 1, activityName: "Gate", activityType: "milestone", plannedStart: "2026-08-04", plannedFinish: "2026-08-04" },
     ] }));
     expect(html).toContain("Fit Project");
-    expect(html).toContain('aria-label="Planned bar"');
+    expect(html).toContain('aria-label="Planned bar, 25% complete"');
     expect(html).toContain('aria-label="Actual bar"');
     expect(html).toContain('aria-label="Planned milestone"');
     expect(html).toContain('aria-label="Project data date marker"');
@@ -51,11 +51,13 @@ describe("Timeline", () => {
         }],
       })
     );
-    expect(html).toContain('aria-label="Planned bar"');
+    expect(html).toContain('aria-label="Planned bar, 25% complete"');
     expect(html).toContain('aria-label="Actual bar"');
     // Planned bar is blue, actual bar is emerald (distinct colors)
     expect(html).toContain("bg-blue-600");
     expect(html).toContain("bg-emerald-600");
+    expect(html).toContain("Shaded = % complete");
+    expect(html).toContain('aria-label="25% complete"');
   });
 
   it("visually identifies critical activities with red styling and legend", () => {

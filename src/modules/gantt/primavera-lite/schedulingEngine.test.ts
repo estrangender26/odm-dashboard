@@ -335,3 +335,12 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
     ).toThrow(/no valid project data_date, plannedStart, or scheduleDate anchor available/i);
   });
 });
+
+describe("Duration % Complete semantics", () => {
+  it("does not derive remaining CPM duration from Duration % Complete", () => {
+    const result = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, [
+      { id: 1, wbsNodeId: 1, activityName: "In progress", originalDurationDays: 10, remainingDurationDays: 4, percentComplete: 60 },
+    ], []);
+    expect(result[0].earlyFinish).toBe("2026-08-13");
+  });
+});
