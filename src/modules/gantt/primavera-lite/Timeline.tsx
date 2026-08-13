@@ -15,17 +15,27 @@ type Props = {
   verticalScrollTop?: number;
   onVerticalScroll?: (scrollTop: number) => void;
   dependencies?: DependencyRow[];
+  /** Initial zoom level for embedding/tests; defaults to "week". */
+  initialZoom?: TimelineZoom;
 };
 
-export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll, dependencies = [] }: Props) {
+export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll, dependencies = [], initialZoom }: Props) {
   const activities = useMemo(() => sortActivities(input), [input]);
-  const [zoom, setZoom] = useState<TimelineZoom>("week");
+  const [zoom, setZoom] = useState<TimelineZoom>(initialZoom ?? "week");
   const [fitPixelsPerDay, setFitPixelsPerDay] = useState<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const range = useMemo(() => timelineRange(activities, dataDate), [activities, dataDate]);
   const projectDataDate = useMemo(() => parseTimelineDate(dataDate), [dataDate]);
   const pixelsPerDay = fitPixelsPerDay ?? ZOOM_PIXELS_PER_DAY[zoom];
   const dependencyLines = useMemo(() => range ? dependencyLineGeometry(dependencies, activities, range.start, pixelsPerDay) : [], [dependencies, activities, range, pixelsPerDay]);
+
+  // Today and the project Data Date are two independent project markers.  When
+  // they land on the same day they are merged into a single combined marker so
+  // the two labels can never stack or collide on top of each other.
+  const todayInRange = range ? range.today >= range.start && range.today <= range.finish : false;
+  const dataDateInRange = projectDataDate && range ? projectDataDate >= range.start && projectDataDate <= range.finish : false;
+  const combinedDateMarker = todayInRange && dataDateInRange && projectDataDate !== null && range !== null
+    && projectDataDate.getTime() === range.today.getTime();
 
   useEffect(() => {
     if (viewportRef.current && verticalScrollTop !== undefined && viewportRef.current.scrollTop !== verticalScrollTop) {
@@ -50,12 +60,19 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4">
           <div><h3 className="text-sm font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Read-only schedule dates</p></div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-blue-600"></span> Normal</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-red-600"></span> Critical</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-emerald-600"></span> Actual</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-slate-100"></span> CPM</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-slate-300"></span> Shaded = % complete</span>
+          {/* Legend matches the rendered primitives one-to-one: planned bar,
+              critical bar, closed actual bar, open-actual dot+caret, CPM hollow
+              bar, solid planned milestone diamond, hollow CPM milestone diamond
+              and the % complete shading overlay. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-blue-600" /> Planned</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-red-600" /> Critical</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-emerald-600" /> Actual</span>
+            <span className="inline-flex items-center gap-1"><span className="flex h-2 items-center gap-0.5"><span className="h-2 w-2 rounded-full bg-emerald-600" /><span className="h-0 w-0 border-y-4 border-l-[6px] border-y-transparent border-l-emerald-600" /></span> Open actual</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-transparent" /> CPM</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 border-2 border-blue-700 bg-blue-500" /> Planned milestone</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 border-2 border-dashed border-slate-500 bg-transparent" /> CPM milestone</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 overflow-hidden rounded bg-blue-600"><span className="block h-full bg-white/55" /></span> Shaded = % complete</span>
           </div>
         </div>
         <div className="flex flex-wrap gap-1" aria-label="Timeline zoom">
@@ -91,10 +108,13 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                 const highlighted = highlightedActivityId === activity.id;
                 const isCritical = (activity.totalFloatDays ?? 0) <= 0 && activity.earlyStart != null;
                 const barKind = isPlanned ? "Planned" : "CPM";
-                // Progress is truthful only when a real Actual Finish exists; a
-                // 100% activity that is still open is labelled as such.
-                const progressLabel = progress.isComplete && !progress.hasActualFinish
-                  ? "100% complete (no Actual Finish)"
+                // Progress is truthful only when a real Actual Finish exists.  A
+                // 100% activity is labelled by what is actually missing: an open
+                // Actual Start (awaiting its finish) or no actual dates at all.
+                const unclosed = progress.isComplete && !progress.hasActualFinish;
+                const hasActualStart = actual.kind === "open";
+                const progressLabel = unclosed
+                  ? hasActualStart ? "100% complete (no Actual Finish)" : "100% complete (no actual dates)"
                   : `${progress.percent}% complete`;
                 return (
                   <button key={activity.id} type="button" aria-label={`Highlight ${activity.activityName}`}
@@ -121,39 +141,67 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                           ? (isCritical ? "bg-red-600" : "bg-blue-600")
                           : `border border-dashed bg-transparent ${isCritical ? "border-red-600" : "border-slate-500"}`}`}
                         style={{ left: timelinePosition(primary.span.start, range.start, pixelsPerDay), width: timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) }}>
-                        {isPlanned && <span aria-label={progressLabel} className="block h-full bg-white/55" style={{ width: `${progress.percent}%` }} />}
+                        {/* Ordinary % shading. Decoration only: the bar's own aria-label
+                            already carries the progress, so this overlay is aria-hidden. */}
+                        {isPlanned && !unclosed && <span aria-hidden="true" className="block h-full bg-white/55" style={{ width: `${progress.percent}%` }} />}
+                        {/* 100% with no Actual Finish: never the ordinary full-span completion
+                            shading (that would imply completion through the planned finish).
+                            A hatched, unresolved treatment keeps the exact same endpoints. */}
+                        {isPlanned && unclosed && <span aria-hidden="true" className="block h-full" style={{ backgroundImage: "repeating-linear-gradient(-45deg, rgba(255,255,255,0.8) 0 4px, rgba(255,255,255,0) 4px 8px)" }} />}
                       </span>
                     ))}
                     {/* Closed actual pair: an exact Actual Start -> Actual Finish bar. */}
                     {actual.kind === "closed" && <span title={`${activity.activityName}: actual dates`} aria-label="Actual bar" className="absolute top-6 h-2 rounded bg-emerald-600"
                       style={{ left: timelinePosition(actual.start, range.start, pixelsPerDay), width: timelineSpan(actual.start, actual.finish, pixelsPerDay) }} />}
-                    {/* Open actual: a start marker plus a fading open-ended tail. No closed bar,
-                        because no Actual Finish exists to close it with. */}
+                    {/* Open actual: a start marker plus a fixed-size caret. No closed bar and
+                        no metric tail, because no Actual Finish exists to close it with and no
+                        width could ever imply a real duration. */}
                     {actual.kind === "open" && (
                       <span title={`${activity.activityName}: actual start ${activity.actualStart} (in progress, no Actual Finish)`}
                         aria-label="Actual start marker, in progress with no Actual Finish"
-                        className="absolute top-6 flex h-2 items-center"
+                        className="absolute top-6 flex h-2 items-center gap-0.5"
                         style={{ left: timelinePosition(actual.start, range.start, pixelsPerDay) }}>
                         <span className="h-2 w-2 rounded-full bg-emerald-600" />
-                        <span aria-hidden="true" className="h-1 w-6 rounded-r bg-gradient-to-r from-emerald-600 to-transparent" />
+                        <span aria-hidden="true" className="h-0 w-0 border-y-4 border-l-[6px] border-y-transparent border-l-emerald-600" />
                       </span>
                     )}
-                    {/* 100% with no Actual Finish: state is shown as a label, never as a date. */}
-                    {progress.isComplete && !progress.hasActualFinish && (
-                      <span aria-label="100% complete, no Actual Finish recorded"
-                        className="absolute top-5 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800"
-                        style={{ left: primary ? timelinePosition(primary.span.start, range.start, pixelsPerDay) + timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) + 4 : 8 }}>
-                        100% · no Actual Finish
-                      </span>
+                    {/* 100% with no Actual Finish: state is shown as a label, never as a date.
+                        The chip sits at the top of the row above the z-10 dependency layer
+                        (solid fill + z-20) so connector lines can never pierce it, and above
+                        the actual geometry band (top-6) so it never overlaps it. */}
+                    {unclosed && (
+                      hasActualStart ? (
+                        <span aria-label="100% complete, no Actual Finish recorded"
+                          className="absolute top-0 z-20 inline-flex h-[18px] items-center rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800"
+                          style={{ left: primary ? timelinePosition(primary.span.start, range.start, pixelsPerDay) + timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) + 4 : 8 }}>
+                          100% · no Actual Finish
+                        </span>
+                      ) : (
+                        <span aria-label="100% complete, no actual dates recorded"
+                          className="absolute top-0 z-20 inline-flex h-[18px] items-center rounded bg-rose-100 px-1 text-[10px] font-medium text-rose-700"
+                          style={{ left: primary ? timelinePosition(primary.span.start, range.start, pixelsPerDay) + timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) + 4 : 8 }}>
+                          100% · no actual dates
+                        </span>
+                      )
                     )}
                     {!primary && actual.kind === "none" && <span className="absolute left-2 top-3 text-xs text-muted-foreground">No dates</span>}
                   </button>
                 );
               })}
-              {range.today >= range.start && range.today <= range.finish && <div aria-label="Today marker" className="pointer-events-none absolute inset-y-0 z-10 w-px bg-red-500"
-                style={{ left: timelinePosition(range.today, range.start, pixelsPerDay) }}><span className="absolute top-0 -translate-x-1/2 bg-red-500 px-1 text-[10px] text-white">Today</span></div>}
-              {projectDataDate && projectDataDate >= range.start && projectDataDate <= range.finish && <div aria-label="Project data date marker" className="pointer-events-none absolute inset-y-0 z-10 border-l-2 border-dashed border-violet-600"
-                style={{ left: timelinePosition(projectDataDate, range.start, pixelsPerDay) }}><span className="absolute top-3 -translate-x-1/2 bg-violet-600 px-1 text-[10px] text-white">Data date</span></div>}
+              {combinedDateMarker ? (
+                /* Today and Data Date share the same day: one marker, one readable label. */
+                <div aria-label="Today and project data date marker" className="pointer-events-none absolute inset-y-0 z-10 w-px border-l-2 border-dashed border-violet-600 bg-red-500"
+                  style={{ left: timelinePosition(range.today, range.start, pixelsPerDay) }}>
+                  <span className="absolute top-0 -translate-x-1/2 whitespace-nowrap bg-gradient-to-r from-red-500 to-violet-600 px-1 text-[10px] text-white">Today · Data date</span>
+                </div>
+              ) : (
+                <>
+                  {todayInRange && <div aria-label="Today marker" className="pointer-events-none absolute inset-y-0 z-10 w-px bg-red-500"
+                    style={{ left: timelinePosition(range.today, range.start, pixelsPerDay) }}><span className="absolute top-0 -translate-x-1/2 whitespace-nowrap bg-red-500 px-1 text-[10px] text-white">Today</span></div>}
+                  {dataDateInRange && projectDataDate && <div aria-label="Project data date marker" className="pointer-events-none absolute inset-y-0 z-10 border-l-2 border-dashed border-violet-600"
+                    style={{ left: timelinePosition(projectDataDate, range.start, pixelsPerDay) }}><span className="absolute top-3 -translate-x-1/2 whitespace-nowrap bg-violet-600 px-1 text-[10px] text-white">Data date</span></div>}
+                </>
+              )}
             </div>
           </div>
         </div>
