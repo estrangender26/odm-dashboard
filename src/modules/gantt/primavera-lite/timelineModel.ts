@@ -91,17 +91,21 @@ export function cpmSpan(activity: TimelineActivity): TimelineSpan | null {
 }
 
 /**
- * Actual state.  An Actual Start with no Actual Finish stays OPEN: no finish is
- * borrowed from % complete, Data Date, planned finish or CPM finish.  A present
- * but reversed actual pair is invalid data and renders nothing.
+ * Actual state.  An Actual Start with no usable Actual Finish stays OPEN: no
+ * finish is borrowed from % complete, Data Date, planned finish or CPM finish.
+ *
+ * A valid Actual Start is a real, persisted fact and is never discarded because
+ * the finish beside it is unusable.  Null, empty, whitespace-only, unparsable
+ * and reversed finishes all degrade to `open` rather than `none`, so the start
+ * keeps rendering.  A closed span requires two valid dates with finish >= start.
  */
 export function actualState(activity: TimelineActivity): TimelineActualState {
   const start = parseTimelineDate(activity.actualStart);
   if (!start) return { kind: "none" };
-  const finishProvided = activity.actualFinish != null && activity.actualFinish !== "";
-  if (!finishProvided) return { kind: "open", start };
-  const finish = parseTimelineDate(activity.actualFinish);
-  return finish && finish >= start ? { kind: "closed", start, finish } : { kind: "none" };
+  const rawFinish = typeof activity.actualFinish === "string" ? activity.actualFinish.trim() : activity.actualFinish;
+  if (!rawFinish) return { kind: "open", start };
+  const finish = parseTimelineDate(rawFinish);
+  return finish && finish >= start ? { kind: "closed", start, finish } : { kind: "open", start };
 }
 
 /** % complete is progress only; it carries no date meaning of its own. */

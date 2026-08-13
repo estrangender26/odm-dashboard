@@ -156,6 +156,87 @@ describe("Timeline", () => {
     expect(html).toContain('aria-label="Project data date marker"');
   });
 
+  /**
+   * M1 regression: a milestone must stay a diamond whatever its span source.
+   * Before this fix a CPM-only milestone was rendered as a dashed duration bar.
+   */
+  it("M1. renders a planned milestone as a solid diamond", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, activityName: "Gate", activityType: "milestone", plannedStart: "2026-08-20", plannedFinish: "2026-08-20" },
+    ] }));
+    expect(html).toContain('aria-label="Planned milestone"');
+    expect(html).toContain("rotate-45");
+    expect(html).toContain("bg-blue-500");
+    expect(html).not.toContain('aria-label="CPM milestone"');
+    // A milestone is never widened into a duration bar.
+    expect(html).not.toContain('aria-label="Planned bar');
+  });
+
+  it("M1. renders an explicit CPM-only milestone as a distinct hollow diamond", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, activityName: "GateCPM", activityType: "milestone", earlyStart: "2026-08-20", earlyFinish: "2026-08-20" },
+    ] }));
+    expect(html).toContain('aria-label="CPM milestone"');
+    expect(html).toContain("rotate-45");
+    // Hollow + dashed keeps it readable as CPM output, not a planned commitment.
+    expect(html).toContain("border-dashed");
+    expect(html).toContain("bg-transparent");
+    expect(html).not.toContain('aria-label="Planned milestone"');
+    // It must not regress into a CPM duration bar.
+    expect(html).not.toContain('aria-label="CPM bar');
+  });
+
+  it("M1. renders a zero-duration CPM span as a milestone diamond, not a bar", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, activityName: "ZeroDur", activityType: "task", originalDurationDays: 0, earlyStart: "2026-08-20", earlyFinish: "2026-08-20" },
+    ] }));
+    expect(html).toContain('aria-label="CPM milestone"');
+    expect(html).not.toContain('aria-label="CPM bar');
+  });
+
+  it("M1. keeps a critical CPM milestone identifiable as CPM, critical and milestone", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, activityName: "CritGate", activityType: "milestone", earlyStart: "2026-08-20", earlyFinish: "2026-08-20", totalFloatDays: 0 },
+    ] }));
+    expect(html).toContain('aria-label="CPM milestone"');   // milestone
+    expect(html).toContain("border-red-600");                // critical
+    expect(html).toContain("border-dashed");                 // CPM, not planned
+    expect(html).toContain("bg-transparent");
+    expect(html).toContain("rotate-45");
+    expect(html).toContain("(CPM early dates)");
+    expect(html).toContain("(Critical)");
+    // Critical styling must not promote it to a solid planned diamond.
+    expect(html).not.toContain("bg-red-500");
+  });
+
+  /**
+   * M2 regression: a valid Actual Start must keep rendering even when the
+   * Actual Finish beside it is unusable. No finish may be fabricated.
+   */
+  it("M2. preserves the open Actual Start marker for every unusable finish", () => {
+    for (const actualFinish of [null, "", "   ", "not-a-date", "2026-08-13"]) {
+      const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+        { ...base, activityName: "Open", plannedStart: "2026-08-13", plannedFinish: "2026-08-17",
+          actualStart: "2026-08-14", actualFinish },
+      ] }));
+      expect(html, `finish=${JSON.stringify(actualFinish)}`)
+        .toContain('aria-label="Actual start marker, in progress with no Actual Finish"');
+      // Never a closed actual bar, because no usable Actual Finish exists.
+      expect(html, `finish=${JSON.stringify(actualFinish)}`).not.toContain('aria-label="Actual bar"');
+      // Planned geometry stays exactly 5 days at week zoom.
+      expect(html).toContain("width:80px");
+    }
+  });
+
+  it("M2. still renders a closed actual bar for a valid finish pair", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, activityName: "Closed", plannedStart: "2026-08-13", plannedFinish: "2026-08-17",
+        actualStart: "2026-08-14", actualFinish: "2026-08-16" },
+    ] }));
+    expect(html).toContain('aria-label="Actual bar"');
+    expect(html).not.toContain('aria-label="Actual start marker, in progress with no Actual Finish"');
+  });
+
   it("visually identifies critical activities with red styling and legend", () => {
     const html = renderToStaticMarkup(
       createElement(Timeline, {

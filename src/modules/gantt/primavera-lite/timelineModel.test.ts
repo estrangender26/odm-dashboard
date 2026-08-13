@@ -53,7 +53,10 @@ describe("timelineModel", () => {
     const invalid = { ...activity, plannedStart: "2026-08-10", plannedFinish: "2026-08-09", earlyStart: "2026-08-08", earlyFinish: "2026-08-07", actualStart: "2026-08-06", actualFinish: "2026-08-05" };
     expect(plannedDates(invalid)).toBeNull();
     expect(actualDates(invalid)).toBeNull();
-    expect(timelineRange([invalid])).toBeNull();
+    // No usable span remains, but the valid Actual Start is still a real date and
+    // anchors the range rather than being discarded (M2).
+    expect(timelineRange([invalid])?.days).toBe(5);
+    expect(timelineRange([{ ...invalid, actualStart: null }])).toBeNull();
   });
   it("shares a fixed row contract and stable ordering with the Activity Grid", () => {
     expect(SCHEDULE_ROW_HEIGHT).toBe(40);
@@ -176,10 +179,75 @@ describe("timelineModel representation states", () => {
     expect(range?.days).toBe(12);
   });
 
-  it("treats an invalid actual pair as no actual rather than an invented one", () => {
-    expect(actualState({ ...activity, actualStart: "2026-08-16", actualFinish: "2026-08-14" }).kind).toBe("none");
+  it("keeps a valid Actual Start open when the finish is unusable, never inventing one", () => {
+    // A reversed finish is unusable data, but the Actual Start beside it is real
+    // and must survive as an open state rather than being discarded.
+    const reversed = actualState({ ...activity, actualStart: "2026-08-16", actualFinish: "2026-08-14" });
+    expect(reversed.kind).toBe("open");
+    expect(reversed.kind === "open" && format(reversed.start, "yyyy-MM-dd")).toBe("2026-08-16");
     expect(cpmSpan({ ...activity, earlyStart: "2026-08-16", earlyFinish: "2026-08-14" })).toBeNull();
     expect(plannedSpan({ ...activity, plannedStart: "2026-08-16" })).toBeNull();
+  });
+
+  /**
+   * M2 regression matrix: a valid Actual Start must never disappear because the
+   * Actual Finish beside it is missing or malformed. Every unusable finish
+   * degrades to `open`; only two valid dates with finish >= start close a span.
+   */
+  it("M2. every unusable Actual Finish degrades to an open Actual Start", () => {
+    const withFinish = (actualFinish: string | null | undefined) =>
+      actualState({ ...activity, actualStart: "2026-08-14", actualFinish });
+    for (const finish of [null, undefined, "", "   ", "\t", "not-a-date", "2026-13-45", "2026-08-13"]) {
+      const state = withFinish(finish as string | null | undefined);
+      expect(state.kind, `finish=${JSON.stringify(finish)}`).toBe("open");
+      expect(state.kind === "open" && format(state.start, "yyyy-MM-dd")).toBe("2026-08-14");
+    }
+  });
+
+  it("M2. a valid finish pair still closes the span exactly", () => {
+    const sameDay = actualState({ ...activity, actualStart: "2026-08-14", actualFinish: "2026-08-14" });
+    expect(sameDay.kind).toBe("closed");
+    const closed = actualState({ ...activity, actualStart: "2026-08-14", actualFinish: "2026-08-19" });
+    expect(closed.kind === "closed" && [format(closed.start, "yyyy-MM-dd"), format(closed.finish, "yyyy-MM-dd")])
+      .toEqual(["2026-08-14", "2026-08-19"]);
+    // Surrounding whitespace is normalized rather than treated as unusable.
+    const padded = actualState({ ...activity, actualStart: "2026-08-14", actualFinish: " 2026-08-19 " });
+    expect(padded.kind).toBe("closed");
+  });
+
+  it("M2. no Actual Start still means no actual at all", () => {
+    expect(actualState({ ...activity, actualStart: null, actualFinish: "2026-08-19" }).kind).toBe("none");
+    expect(actualState({ ...activity, actualStart: "", actualFinish: null }).kind).toBe("none");
+  });
+
+  it("M2. an unusable finish never reports a fabricated Actual Finish to progress", () => {
+    const progress = progressState({
+      ...activity, percentComplete: 100, actualStart: "2026-08-16", actualFinish: "2026-08-14",
+    });
+    expect(progress.hasActualFinish).toBe(false);
+    expect(progress.impliesFinish).toBe(false);
+  });
+
+  /**
+   * M1 regression: milestone-ness is a property of the activity and its span,
+   * not of which field the span came from. A CPM-sourced span must still be
+   * recognized as a milestone so the view can draw a diamond rather than a bar.
+   */
+  it("M1. recognizes milestones on a CPM-sourced span, not just a planned one", () => {
+    const explicit = { ...activity, activityType: "milestone", earlyStart: "2026-08-20", earlyFinish: "2026-08-20" };
+    const model = activityTimelineModel(explicit);
+    expect(model.primary?.source).toBe("cpm");
+    expect(isMilestone(explicit, model.primary!.span)).toBe(true);
+
+    // Zero-duration CPM span (same early start/finish) is a milestone by geometry.
+    const zeroDuration = { ...activity, activityType: "task", earlyStart: "2026-08-20", earlyFinish: "2026-08-20" };
+    const zeroModel = activityTimelineModel(zeroDuration);
+    expect(zeroModel.primary?.source).toBe("cpm");
+    expect(isMilestone(zeroDuration, zeroModel.primary!.span)).toBe(true);
+
+    // A multi-day CPM span is not a milestone unless explicitly typed.
+    const spanned = { ...activity, activityType: "task", earlyStart: "2026-08-20", earlyFinish: "2026-08-24" };
+    expect(isMilestone(spanned, activityTimelineModel(spanned).primary!.span)).toBe(false);
   });
 
   it("11. exact production reproduction: A/B/C after Run Schedule", () => {

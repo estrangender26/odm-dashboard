@@ -101,9 +101,15 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                     onMouseEnter={() => onActivityHighlight?.(activity.id)} onMouseLeave={() => onActivityHighlight?.(null)} onFocus={() => onActivityHighlight?.(activity.id)}
                     className={`absolute left-0 w-full border-b text-left transition-colors ${highlighted ? "bg-blue-50" : "hover:bg-slate-50"}`}
                     style={{ top: rowIndex * SCHEDULE_ROW_HEIGHT, height: SCHEDULE_ROW_HEIGHT }}>
-                    {primary && (isPlanned && isMilestone(activity, primary.span) ? (
-                      <span title={`${activity.activityName} milestone${isCritical ? " (Critical)" : ""}`} aria-label="Planned milestone"
-                        className={`absolute top-3 h-4 w-4 rotate-45 border-2 ${isCritical ? "border-red-700 bg-red-500" : "border-blue-700 bg-blue-500"}`}
+                    {primary && (isMilestone(activity, primary.span) ? (
+                      /* A milestone stays a diamond whatever its span source; only the fill
+                         distinguishes a planned commitment (solid) from CPM output (hollow,
+                         dashed). A milestone is never widened into a duration bar. */
+                      <span title={`${activity.activityName} milestone${isPlanned ? "" : " (CPM early dates)"}${isCritical ? " (Critical)" : ""}`}
+                        aria-label={`${barKind} milestone`}
+                        className={`absolute top-3 h-4 w-4 rotate-45 border-2 ${isPlanned
+                          ? (isCritical ? "border-red-700 bg-red-500" : "border-blue-700 bg-blue-500")
+                          : `border-dashed bg-transparent ${isCritical ? "border-red-600" : "border-slate-500"}`}`}
                         style={{ left: timelinePosition(primary.span.start, range.start, pixelsPerDay) - 8 }} />
                     ) : (
                       /* Planned geometry is exactly Planned Start -> Planned Finish and is never
