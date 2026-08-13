@@ -15,17 +15,69 @@ type Props = {
   verticalScrollTop?: number;
   onVerticalScroll?: (scrollTop: number) => void;
   dependencies?: DependencyRow[];
+  /**
+   * Initial zoom before any user interaction. Optional composition/test seam
+   * only — the interactive default ("week") and all zoom behavior are
+   * unchanged; no page passes this prop in production.
+   */
+  initialZoom?: TimelineZoom;
 };
 
-export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll, dependencies = [] }: Props) {
+/* ---------------------------------------------------------------------------
+ * Visual-composition constants (PR #346 forensic follow-up).
+ *
+ * These exist so the chip/marker geometry provably cannot collide with the
+ * dependency lane: dependency lines always run on each row's midline
+ * (SCHEDULE_ROW_HEIGHT / 2 and below), so anything confined to the row-top
+ * band [WARNING_CHIP_TOP_PX, WARNING_CHIP_BAND_BOTTOM_PX] can never be
+ * intersected by a connector at any zoom.
+ * ------------------------------------------------------------------------ */
+
+/** Warning chips render this far below the row's top edge. */
+export const WARNING_CHIP_TOP_PX = 2; // top-0.5
+/** Worst-case chip height: 10px font * 1.5 line-height + 1px padding. */
+export const WARNING_CHIP_MAX_HEIGHT_PX = 16;
+/** Bottom of the chip band; must stay above the dependency lane midline. */
+export const WARNING_CHIP_BAND_BOTTOM_PX = WARNING_CHIP_TOP_PX + WARNING_CHIP_MAX_HEIGHT_PX;
+
+/**
+ * Total horizontal extent of the open-actual affordance: 8px dot + 1px gap +
+ * 6px non-metric caret. It is a constant — no dimension derives from
+ * pixelsPerDay — so the affordance can never be read as a duration, at any
+ * zoom. It stays within a single week-zoom day cell (16px).
+ */
+export const OPEN_ACTUAL_AFFORDANCE_PX = 15;
+
+/** Chip offset past a milestone diamond's visual reach (16px square rotated 45° ≈ ±11.3px). */
+export const MILESTONE_CHIP_OFFSET_PX = 14;
+
+/** Marker chips closer than this horizontally are re-slotted so they do not overlap. */
+export const MARKER_CHIP_COLLISION_PX = 64;
+
+/** Striped overlay for "100% reported, no Actual Finish": unresolved, not a completed span. */
+const UNRESOLVED_FULL_PROGRESS_GRADIENT =
+  "repeating-linear-gradient(45deg, rgba(255,255,255,0.65) 0 3px, rgba(255,255,255,0.12) 3px 6px)";
+
+export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll, dependencies = [], initialZoom }: Props) {
   const activities = useMemo(() => sortActivities(input), [input]);
-  const [zoom, setZoom] = useState<TimelineZoom>("week");
+  const [zoom, setZoom] = useState<TimelineZoom>(initialZoom ?? "week");
   const [fitPixelsPerDay, setFitPixelsPerDay] = useState<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const range = useMemo(() => timelineRange(activities, dataDate), [activities, dataDate]);
   const projectDataDate = useMemo(() => parseTimelineDate(dataDate), [dataDate]);
   const pixelsPerDay = fitPixelsPerDay ?? ZOOM_PIXELS_PER_DAY[zoom];
   const dependencyLines = useMemo(() => range ? dependencyLineGeometry(dependencies, activities, range.start, pixelsPerDay) : [], [dependencies, activities, range, pixelsPerDay]);
+
+  /* Today / Data Date marker composition. Two project facts may share one x.
+   * When they do, they must read as ONE combined label, never two stacked
+   * chips; the Data Date line is rendered first so the coincident Today line
+   * leaves the violet dashes visible beside it instead of hiding under them. */
+  const todayX = range ? timelinePosition(range.today, range.start, pixelsPerDay) : 0;
+  const showToday = Boolean(range && range.today >= range.start && range.today <= range.finish);
+  const dataDateX = range && projectDataDate ? timelinePosition(projectDataDate, range.start, pixelsPerDay) : null;
+  const showDataDate = Boolean(range && projectDataDate && projectDataDate >= range.start && projectDataDate <= range.finish);
+  const markersCoincide = showToday && showDataDate && dataDateX === todayX;
+  const markersCrowd = showToday && showDataDate && !markersCoincide && Math.abs((dataDateX ?? 0) - todayX) < MARKER_CHIP_COLLISION_PX;
 
   useEffect(() => {
     if (viewportRef.current && verticalScrollTop !== undefined && viewportRef.current.scrollTop !== verticalScrollTop) {
@@ -50,12 +102,19 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4">
           <div><h3 className="text-sm font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Read-only schedule dates</p></div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-blue-600"></span> Normal</span>
+          {/* Legend matches rendered semantics one-for-one: Planned / Critical /
+              Actual / CPM bars, both milestone kinds, the open-actual affordance,
+              ordinary % shading and the unclosed-100% striped treatment. */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" aria-label="Timeline legend">
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-blue-600"></span> Planned</span>
             <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-red-600"></span> Critical</span>
             <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-emerald-600"></span> Actual</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-slate-100"></span> CPM</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-transparent"></span> CPM</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 border border-blue-700 bg-blue-500"></span> Planned milestone</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 border border-dashed border-slate-500 bg-transparent"></span> CPM milestone</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-flex items-center"><span className="h-2 w-2 rounded-full bg-emerald-600"></span><span aria-hidden="true" className="ml-px h-0 w-0 border-y-4 border-l-[6px] border-y-transparent border-l-emerald-600"></span></span> Open actual</span>
             <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-slate-300"></span> Shaded = % complete</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded border-r-2 border-dashed border-amber-400" style={{ backgroundImage: UNRESOLVED_FULL_PROGRESS_GRADIENT }}></span> Striped = 100% unclosed</span>
           </div>
         </div>
         <div className="flex flex-wrap gap-1" aria-label="Timeline zoom">
@@ -91,17 +150,36 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                 const highlighted = highlightedActivityId === activity.id;
                 const isCritical = (activity.totalFloatDays ?? 0) <= 0 && activity.earlyStart != null;
                 const barKind = isPlanned ? "Planned" : "CPM";
+                const isRowMilestone = primary ? isMilestone(activity, primary.span) : false;
                 // Progress is truthful only when a real Actual Finish exists; a
                 // 100% activity that is still open is labelled as such.
                 const progressLabel = progress.isComplete && !progress.hasActualFinish
                   ? "100% complete (no Actual Finish)"
                   : `${progress.percent}% complete`;
+                /* Warning-chip geometry: row-top band (never the dependency lane)
+                 * and strictly right of the bar/diamond it annotates. A chip
+                 * therefore can never be pierced by a connector nor touch its
+                 * own activity's geometry, at any zoom. */
+                const chipLeft = primary
+                  ? timelinePosition(primary.span.start, range.start, pixelsPerDay)
+                    + (isRowMilestone ? MILESTONE_CHIP_OFFSET_PX : timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) + 6)
+                  : 8;
+                /* "100% · no Actual Finish" (an Actual Start exists, work is
+                   reported complete but unclosed) is a different anomaly from
+                   "100% · no actual dates" (no actual evidence at all) — they
+                   get different wording and different styling. */
+                const hasAnyActual = actual.kind !== "none";
+                const warningChipLabel = hasAnyActual ? "100% · no Actual Finish" : "100% · no actual dates";
+                const warningChipAria = hasAnyActual ? "100% complete, no Actual Finish recorded" : "100% complete, no actual dates recorded";
+                const warningChipClass = hasAnyActual
+                  ? "bg-amber-100 text-amber-800"
+                  : "border border-dashed border-orange-400 bg-orange-50 text-orange-800";
                 return (
                   <button key={activity.id} type="button" aria-label={`Highlight ${activity.activityName}`}
                     onMouseEnter={() => onActivityHighlight?.(activity.id)} onMouseLeave={() => onActivityHighlight?.(null)} onFocus={() => onActivityHighlight?.(activity.id)}
                     className={`absolute left-0 w-full border-b text-left transition-colors ${highlighted ? "bg-blue-50" : "hover:bg-slate-50"}`}
                     style={{ top: rowIndex * SCHEDULE_ROW_HEIGHT, height: SCHEDULE_ROW_HEIGHT }}>
-                    {primary && (isMilestone(activity, primary.span) ? (
+                    {primary && (isRowMilestone ? (
                       /* A milestone stays a diamond whatever its span source; only the fill
                          distinguishes a planned commitment (solid) from CPM output (hollow,
                          dashed). A milestone is never widened into a duration bar. */
@@ -121,39 +199,59 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                           ? (isCritical ? "bg-red-600" : "bg-blue-600")
                           : `border border-dashed bg-transparent ${isCritical ? "border-red-600" : "border-slate-500"}`}`}
                         style={{ left: timelinePosition(primary.span.start, range.start, pixelsPerDay), width: timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) }}>
-                        {isPlanned && <span aria-label={progressLabel} className="block h-full bg-white/55" style={{ width: `${progress.percent}%` }} />}
+                        {isPlanned && (progress.isComplete && !progress.hasActualFinish ? (
+                          /* 100% reported with NO real Actual Finish must not read as a
+                             completed span: striped overlay + amber dashed "unclosed" cap.
+                             The bar endpoints themselves are untouched. The solid wash is
+                             reserved for progress that is backed by an Actual Finish. */
+                          <>
+                            <span aria-hidden="true" className="block h-full" style={{ width: `${progress.percent}%`, backgroundImage: UNRESOLVED_FULL_PROGRESS_GRADIENT }} />
+                            <span aria-hidden="true" className="absolute inset-y-0 right-0 w-0 border-r-2 border-dashed border-amber-300" />
+                          </>
+                        ) : (
+                          <span aria-hidden="true" className="block h-full bg-white/55" style={{ width: `${progress.percent}%` }} />
+                        ))}
                       </span>
                     ))}
                     {/* Closed actual pair: an exact Actual Start -> Actual Finish bar. */}
                     {actual.kind === "closed" && <span title={`${activity.activityName}: actual dates`} aria-label="Actual bar" className="absolute top-6 h-2 rounded bg-emerald-600"
                       style={{ left: timelinePosition(actual.start, range.start, pixelsPerDay), width: timelineSpan(actual.start, actual.finish, pixelsPerDay) }} />}
-                    {/* Open actual: a start marker plus a fading open-ended tail. No closed bar,
-                        because no Actual Finish exists to close it with. */}
+                    {/* Open actual: exact Actual Start dot plus a fixed non-metric caret.
+                        The caret is constant ~15px at every zoom; it points into the
+                        future without drawing an interval, so it cannot imply a duration
+                        the data does not contain. No closed bar is fabricated. */}
                     {actual.kind === "open" && (
                       <span title={`${activity.activityName}: actual start ${activity.actualStart} (in progress, no Actual Finish)`}
                         aria-label="Actual start marker, in progress with no Actual Finish"
                         className="absolute top-6 flex h-2 items-center"
                         style={{ left: timelinePosition(actual.start, range.start, pixelsPerDay) }}>
-                        <span className="h-2 w-2 rounded-full bg-emerald-600" />
-                        <span aria-hidden="true" className="h-1 w-6 rounded-r bg-gradient-to-r from-emerald-600 to-transparent" />
+                        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-emerald-600" />
+                        <span aria-hidden="true" className="ml-px h-0 w-0 border-y-4 border-l-[6px] border-y-transparent border-l-emerald-600" />
                       </span>
                     )}
-                    {/* 100% with no Actual Finish: state is shown as a label, never as a date. */}
+                    {/* 100% with no Actual Finish: state is shown as a labelled chip in the
+                        row-top band, never as a date and never across the dependency lane. */}
                     {progress.isComplete && !progress.hasActualFinish && (
-                      <span aria-label="100% complete, no Actual Finish recorded"
-                        className="absolute top-5 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800"
-                        style={{ left: primary ? timelinePosition(primary.span.start, range.start, pixelsPerDay) + timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) + 4 : 8 }}>
-                        100% · no Actual Finish
+                      <span aria-label={warningChipAria}
+                        className={`absolute top-0.5 whitespace-nowrap rounded px-1 text-[10px] font-medium ${warningChipClass}`}
+                        style={{ left: chipLeft }}>
+                        {warningChipLabel}
                       </span>
                     )}
                     {!primary && actual.kind === "none" && <span className="absolute left-2 top-3 text-xs text-muted-foreground">No dates</span>}
                   </button>
                 );
               })}
-              {range.today >= range.start && range.today <= range.finish && <div aria-label="Today marker" className="pointer-events-none absolute inset-y-0 z-10 w-px bg-red-500"
-                style={{ left: timelinePosition(range.today, range.start, pixelsPerDay) }}><span className="absolute top-0 -translate-x-1/2 bg-red-500 px-1 text-[10px] text-white">Today</span></div>}
-              {projectDataDate && projectDataDate >= range.start && projectDataDate <= range.finish && <div aria-label="Project data date marker" className="pointer-events-none absolute inset-y-0 z-10 border-l-2 border-dashed border-violet-600"
-                style={{ left: timelinePosition(projectDataDate, range.start, pixelsPerDay) }}><span className="absolute top-3 -translate-x-1/2 bg-violet-600 px-1 text-[10px] text-white">Data date</span></div>}
+              {showDataDate && dataDateX !== null && <div aria-label="Project data date marker" className="pointer-events-none absolute inset-y-0 z-10 border-l-2 border-dashed border-violet-600"
+                style={{ left: dataDateX }}>{!markersCoincide && <span className={`absolute -translate-x-1/2 whitespace-nowrap rounded bg-violet-600 px-1 text-[10px] leading-none text-white ${markersCrowd ? "top-6" : "top-3"}`}>Data date</span>}</div>}
+              {showToday && <div aria-label="Today marker" className="pointer-events-none absolute inset-y-0 z-10 w-px bg-red-500"
+                style={{ left: todayX }}>{markersCoincide ? (
+                  /* Today and Data Date share one calendar date: one combined,
+                     readable label instead of two stacked colliding chips. */
+                  <span className="absolute top-0 -translate-x-1/2 whitespace-nowrap rounded border-l-4 border-red-400 bg-violet-600 px-1 text-[10px] leading-none text-white">Today · Data date</span>
+                ) : (
+                  <span className="absolute top-0 -translate-x-1/2 whitespace-nowrap rounded bg-red-500 px-1 text-[10px] leading-none text-white">Today</span>
+                )}</div>}
             </div>
           </div>
         </div>
