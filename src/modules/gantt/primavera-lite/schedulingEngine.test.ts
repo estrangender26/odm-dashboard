@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getWorkingDuration,
   runScheduleEngine,
   toWorkingDayIndex,
   fromWorkingDayIndex,
@@ -337,10 +338,28 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
 });
 
 describe("Duration % Complete semantics", () => {
-  it("does not derive remaining CPM duration from Duration % Complete", () => {
-    const result = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, [
-      { id: 1, wbsNodeId: 1, activityName: "In progress", originalDurationDays: 10, remainingDurationDays: 4, percentComplete: 60 },
+  it("derives 3 working days from 5 original days at 40% when Remaining Duration is absent", () => {
+    expect(getWorkingDuration({ id: 1, wbsNodeId: 1, activityName: "Task", originalDurationDays: 5, percentComplete: 40 })).toBe(3);
+  });
+
+  it("derives 4 working days from 10 original days at 60% when Remaining Duration is absent", () => {
+    expect(getWorkingDuration({ id: 1, wbsNodeId: 1, activityName: "Task", originalDurationDays: 10, percentComplete: 60 })).toBe(4);
+  });
+
+  it("uses explicit Remaining Duration under the established precedence rules", () => {
+    expect(getWorkingDuration({ id: 1, wbsNodeId: 1, activityName: "Task", originalDurationDays: 10, remainingDurationDays: 2, percentComplete: 60 })).toBe(2);
+    expect(getWorkingDuration({ id: 1, wbsNodeId: 1, activityName: "Task", originalDurationDays: 10, remainingDurationDays: 2, percentComplete: 0 })).toBe(2);
+  });
+
+  it("preserves the 0% and 100% boundaries", () => {
+    expect(getWorkingDuration({ id: 1, wbsNodeId: 1, activityName: "Not started", originalDurationDays: 5, percentComplete: 0 })).toBe(5);
+    expect(getWorkingDuration({ id: 1, wbsNodeId: 1, activityName: "Complete", originalDurationDays: 5, percentComplete: 100 })).toBe(0);
+  });
+
+  it("keeps calendar and weekend scheduling behavior unchanged for derived duration", () => {
+    const result = runScheduleEngine("2026-08-14", "2026-08-14", [monFriCalendar], 1, [
+      { id: 1, wbsNodeId: 1, activityName: "Task", originalDurationDays: 5, percentComplete: 40 },
     ], []);
-    expect(result[0].earlyFinish).toBe("2026-08-13");
+    expect(result[0]).toMatchObject({ earlyStart: "2026-08-14", earlyFinish: "2026-08-18" });
   });
 });

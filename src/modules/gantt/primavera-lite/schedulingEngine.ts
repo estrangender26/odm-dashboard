@@ -285,13 +285,31 @@ export function fromWorkingDayIndex(workIdx: number, cal: ScheduleCalendarInput)
 
 export function getWorkingDuration(act: ScheduleActivityInput): number {
   if (act.activityType?.toLowerCase() === "milestone") return 0;
-  // Remaining Duration remains the CPM driver. Duration % Complete is display
-  // progress and deliberately does not derive or overwrite remaining work.
   if (act.percentComplete === 100 || act.status?.toLowerCase() === "completed") return 0;
-  if (act.remainingDurationDays !== undefined && act.remainingDurationDays !== null && act.remainingDurationDays >= 0) {
-    return act.remainingDurationDays;
+  if (
+    act.remainingDurationDays !== undefined &&
+    act.remainingDurationDays !== null &&
+    act.remainingDurationDays >= 0
+  ) {
+    if (act.percentComplete && act.percentComplete > 0) {
+      return act.remainingDurationDays;
+    }
+    if (act.remainingDurationDays > 0) {
+      return act.remainingDurationDays;
+    }
   }
-  return Math.max(0, act.originalDurationDays ?? 0);
+  if (
+    act.originalDurationDays !== undefined &&
+    act.originalDurationDays !== null &&
+    act.originalDurationDays >= 0
+  ) {
+    const orig = act.originalDurationDays;
+    if (act.percentComplete && act.percentComplete > 0 && act.percentComplete < 100) {
+      return Math.max(1, Math.round(orig * (1 - act.percentComplete / 100)));
+    }
+    return orig;
+  }
+  return 1;
 }
 
 export function topologicalSort(

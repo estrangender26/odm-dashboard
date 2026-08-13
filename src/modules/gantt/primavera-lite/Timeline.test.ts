@@ -36,7 +36,7 @@ describe("Timeline", () => {
       { ...base, plannedStart: "2026-08-01", plannedFinish: "2026-08-03" },
       { ...base, id: 2, sortOrder: 1, activityName: "Invalid", plannedStart: "2026-08-10", plannedFinish: "2026-08-09" },
     ] }));
-    expect(html.match(/aria-label="Planned bar"/g)).toHaveLength(1);
+    expect(html.match(/aria-label="Planned bar, 25% complete"/g)).toHaveLength(1);
     expect(html).toContain("No dates");
   });
   it("renders a distinct planned bar and actual bar for the same activity", () => {
