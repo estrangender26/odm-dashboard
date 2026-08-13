@@ -303,6 +303,6 @@ describe("Timeline", () => {
     );
     expect(html).toContain("bg-red-600");
     expect(html).toContain("Critical");
-    expect(html).toContain("Normal");
+    expect(html).toContain("Planned");
   });
 });
