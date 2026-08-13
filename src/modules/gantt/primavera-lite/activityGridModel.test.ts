@@ -137,4 +137,41 @@ describe("activityGridModel", () => {
     expect(isActivityEditNoop(baseRow, "calendarId", null)).toBe(true);
     expect(isActivityEditNoop(baseRow, "calendarId", 5)).toBe(false);
   });
+
+  it("optimistically applies % Complete and Actual Finish synchronization rules", () => {
+    const row100WithStart: ActivityGridRow = {
+      ...baseRow,
+      id: 10,
+      percentComplete: 100,
+      actualStart: "2026-08-10",
+      actualFinish: "2026-08-12",
+    };
+    const row100NoStart: ActivityGridRow = {
+      ...baseRow,
+      id: 20,
+      percentComplete: 100,
+      actualStart: null,
+      actualFinish: "2026-08-12",
+    };
+
+    // Clearing Actual Finish with Actual Start present -> 99%
+    const res1 = optimisticActivityEdit([row100WithStart], 10, { actualFinish: null });
+    expect(res1[0].actualFinish).toBeNull();
+    expect(res1[0].percentComplete).toBe(99);
+
+    // Clearing Actual Finish with Actual Start null -> 0%
+    const res2 = optimisticActivityEdit([row100NoStart], 20, { actualFinish: null });
+    expect(res2[0].actualFinish).toBeNull();
+    expect(res2[0].percentComplete).toBe(0);
+
+    // Setting Actual Finish -> 100%
+    const res3 = optimisticActivityEdit([baseRow], 1, { actualFinish: "2026-08-15" });
+    expect(res3[0].actualFinish).toBe("2026-08-15");
+    expect(res3[0].percentComplete).toBe(100);
+
+    // Reducing % Complete below 100 -> clears Actual Finish
+    const res4 = optimisticActivityEdit([row100WithStart], 10, { percentComplete: 50 });
+    expect(res4[0].percentComplete).toBe(50);
+    expect(res4[0].actualFinish).toBeNull();
+  });
 });

@@ -58,14 +58,19 @@ export function optimisticActivityEdit<T extends Pick<ActivityGridRow, "id" | "w
   if (!current) return rows;
   const mergedChanges: any = { ...changes };
 
+  const effActualStart = mergedChanges.actualStart !== undefined
+    ? mergedChanges.actualStart
+    : (current as any).actualStart;
+
   if (mergedChanges.actualFinish !== undefined) {
     if (mergedChanges.actualFinish != null && String(mergedChanges.actualFinish).trim() !== "") {
       if (mergedChanges.percentComplete === undefined) {
         mergedChanges.percentComplete = 100;
       }
     } else {
+      // Clearing Actual Finish: 99% if Actual Start exists, else 0%
       if (mergedChanges.percentComplete === undefined && (current as any).percentComplete === 100) {
-        mergedChanges.percentComplete = 99;
+        mergedChanges.percentComplete = effActualStart ? 99 : 0;
       }
     }
   } else if (mergedChanges.percentComplete !== undefined) {

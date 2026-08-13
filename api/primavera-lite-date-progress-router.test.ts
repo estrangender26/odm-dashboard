@@ -380,7 +380,8 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
       activityId: created.activity.id, changes: { actualFinish: null, percentComplete: 100 },
     });
     expect(progressOnly.activity.actualFinish).toBeNull();
-    expect(progressOnly.activity.percentComplete).toBe(99);
+    // Rule 1: actualStart is null, so clearing actualFinish sets % Complete to 0%
+    expect(progressOnly.activity.percentComplete).toBe(0);
   });
 
   it("changing % Complete to 100 auto-populates Actual Finish = Project Data Date", async () => {
@@ -432,6 +433,257 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
     });
     expect(reduced.activity.percentComplete).toBe(60);
     expect(reduced.activity.actualFinish).toBeNull();
+  });
+
+  it("Rule 1: Clearing Actual Finish sets % Complete = 99% if Actual Start exists, 0% if Actual Start is null", async () => {
+    const p = await createProject("PR7 Clear Rules");
+    await caller.primaveraLite.updateProjectMeta({
+      slug: p.project.slug,
+      access: p.admin,
+      expectedRevision: p.project.revision,
+      changes: { dataDate: "2026-08-13" },
+    });
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Task 1: has Actual Start ("2026-08-10") and Actual Finish ("2026-08-12"), % Complete = 100
+    const t1 = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Task With Actual Start",
+      actualStart: "2026-08-10",
+      actualFinish: "2026-08-12",
+    });
+    expect(t1.activity.percentComplete).toBe(100);
+
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Task 2: has Actual Finish ("2026-08-12") but no Actual Start, % Complete = 100
+    const t2 = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Task Without Actual Start",
+      actualFinish: "2026-08-12",
+    });
+    expect(t2.activity.percentComplete).toBe(100);
+
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Clearing Actual Finish on t1 (has Actual Start) -> % Complete = 99%
+    const cleared1 = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: t1.activity.id,
+      changes: { actualFinish: null },
+    });
+    expect(cleared1.activity.actualFinish).toBeNull();
+    expect(cleared1.activity.percentComplete).toBe(99);
+
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Clearing Actual Finish on t2 (no Actual Start) -> % Complete = 0%
+    const cleared2 = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: t2.activity.id,
+      changes: { actualFinish: null },
+    });
+    expect(cleared2.activity.actualFinish).toBeNull();
+    expect(cleared2.activity.percentComplete).toBe(0);
+
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Explicit % Complete < 100 supplied in same edit takes precedence
+    await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: t1.activity.id,
+      changes: { actualFinish: "2026-08-12" },
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    const explicitCleared = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: t1.activity.id,
+      changes: { actualFinish: null, percentComplete: 45 },
+    });
+    expect(explicitCleared.activity.actualFinish).toBeNull();
+    expect(explicitCleared.activity.percentComplete).toBe(45);
+  });
+
+  it("Rule 2: Setting % Complete to 100 requires a valid Project Data Date and does not fall back to today", async () => {
+    const p = await createProject("PR7 No Data Date");
+    // Project created with dataDate = null
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const created = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Task",
+      percentComplete: 0,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Attempting % Complete = 100 without Project Data Date must be rejected with a clear validation error
+    await expect(
+      caller.primaveraLite.updateActivity({
+        slug: p.project.slug,
+        access: p.editor,
+        expectedRevision: loaded.revision,
+        activityId: created.activity.id,
+        changes: { percentComplete: 100 },
+      })
+    ).rejects.toThrow(/Project Data Date is required/);
+  });
+
+  it("Rule 3: Data Date earlier than Actual Start is rejected on 100% edit", async () => {
+    const p = await createProject("PR7 DD Before Start");
+    await caller.primaveraLite.updateProjectMeta({
+      slug: p.project.slug,
+      access: p.admin,
+      expectedRevision: p.project.revision,
+      changes: { dataDate: "2026-08-13" },
+    });
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    const created = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Task with later Actual Start",
+      actualStart: "2026-08-14",
+      percentComplete: 25,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Data Date is 2026-08-13, but Actual Start is 2026-08-14.
+    // Setting % Complete to 100 would auto-populate 2026-08-13, violating Actual Start <= Actual Finish.
+    // Must be rejected with a clear validation error.
+    await expect(
+      caller.primaveraLite.updateActivity({
+        slug: p.project.slug,
+        access: p.editor,
+        expectedRevision: loaded.revision,
+        activityId: created.activity.id,
+        changes: { percentComplete: 100 },
+      })
+    ).rejects.toThrow(/precedes Actual Start/);
+
+    // User may manually enter a valid Actual Finish (e.g. 2026-08-14) which sets % Complete = 100
+    const manualSuccess = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: created.activity.id,
+      changes: { actualFinish: "2026-08-14" },
+    });
+    expect(manualSuccess.activity.actualFinish).toBe("2026-08-14");
+    expect(manualSuccess.activity.percentComplete).toBe(100);
+  });
+
+  it("Rule 4: Exact PR345 Production Reproduction smoke data fixture", async () => {
+    // Data Date = 2026-08-13
+    const p = await createProject("PR345 Smoke Reproduction");
+    await caller.primaveraLite.updateProjectMeta({
+      slug: p.project.slug,
+      access: p.admin,
+      expectedRevision: p.project.revision,
+      changes: { dataDate: "2026-08-13" },
+    });
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Activity A: Planned Start 2026-08-13, Planned Finish 2026-08-17, Actual Start 2026-08-14, Actual Finish null, % Complete 25, Original Duration 5
+    const actA = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Activity A",
+      plannedStart: "2026-08-13",
+      plannedFinish: "2026-08-17",
+      actualStart: "2026-08-14",
+      actualFinish: null,
+      percentComplete: 25,
+      originalDurationDays: 5,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Activity B: no complete planned date pair, Original Duration 5
+    const actB = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Activity B",
+      originalDurationDays: 5,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Activity C: no planned dates, Original Duration 2
+    const actC = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Activity C",
+      originalDurationDays: 2,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Dependencies: A -> B FS lag 0, B -> C FS lag 0
+    await caller.primaveraLite.createDependency({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      dependency: { predecessorActivityId: actA.activity.id, successorActivityId: actB.activity.id, dependencyType: "FS", lagDays: 0 },
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    await caller.primaveraLite.createDependency({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      dependency: { predecessorActivityId: actB.activity.id, successorActivityId: actC.activity.id, dependencyType: "FS", lagDays: 0 },
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // 1. Attempting A % Complete = 100 with Data Date (2026-08-13) before Actual Start (2026-08-14) is rejected
+    await expect(
+      caller.primaveraLite.updateActivity({
+        slug: p.project.slug,
+        access: p.editor,
+        expectedRevision: loaded.revision,
+        activityId: actA.activity.id,
+        changes: { percentComplete: 100 },
+      })
+    ).rejects.toThrow(/precedes Actual Start/);
+
+    // 2. Manual valid Actual Finish sets A = 100
+    const aManual = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: actA.activity.id,
+      changes: { actualFinish: "2026-08-14" },
+    });
+    expect(aManual.activity.actualFinish).toBe("2026-08-14");
+    expect(aManual.activity.percentComplete).toBe(100);
+
+    // 3. Run Schedule anchors B from A Actual Finish (2026-08-14 Fri)
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const sched = await caller.primaveraLite.runSchedule({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+    });
+    expect(sched.scheduledCount).toBe(3);
+
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const aAfter = loaded.activities.find((a) => a.id === actA.activity.id)!;
+    const bAfter = loaded.activities.find((a) => a.id === actB.activity.id)!;
+    const cAfter = loaded.activities.find((a) => a.id === actC.activity.id)!;
+
+    // A: Early dates equal Actual dates
+    expect(aAfter.earlyStart).toBe("2026-08-14");
+    expect(aAfter.earlyFinish).toBe("2026-08-14");
+
+    // B: Starts Mon 2026-08-17 (next working day after Fri 2026-08-14). 5 working days -> finishes Fri 2026-08-21
+    expect(bAfter.earlyStart).toBe("2026-08-17");
+    expect(bAfter.earlyFinish).toBe("2026-08-21");
+
+    // C: Starts Mon 2026-08-24 (next working day after Fri 2026-08-21). 2 working days -> finishes Tue 2026-08-25
+    expect(cAfter.earlyStart).toBe("2026-08-24");
+    expect(cAfter.earlyFinish).toBe("2026-08-25");
+
+    // 4. Planned dates are NOT rewritten by schedule run
+    expect(aAfter.plannedStart).toBe("2026-08-13");
+    expect(aAfter.plannedFinish).toBe("2026-08-17");
+    expect(bAfter.plannedStart).toBeNull();
+    expect(bAfter.plannedFinish).toBeNull();
+    expect(cAfter.plannedStart).toBeNull();
+    expect(cAfter.plannedFinish).toBeNull();
   });
 
   it("synchronizes duration and planned dates with working-day calendar math across weekends", async () => {

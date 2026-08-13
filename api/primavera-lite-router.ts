@@ -528,6 +528,11 @@ function toIsoDateString(value: unknown): string | null {
   return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : s;
 }
 
+function isValidISOString(dateStr: string | null | undefined): boolean {
+  if (!dateStr || typeof dateStr !== "string") return false;
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim());
+}
+
 function normalizeComparableDate(value: unknown): unknown {
   return value instanceof Date ? toIsoDateString(value) : value;
 }
@@ -1486,7 +1491,19 @@ export const primaveraLiteRouter = createRouter({
         if (actualFinish != null) {
           percentComplete = 100;
         } else if (percentComplete === 100) {
-          actualFinish = projectRow.dataDate ?? new Date().toISOString().split("T")[0];
+          if (!projectRow.dataDate || !isValidISOString(projectRow.dataDate)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Project Data Date is required to automatically set Actual Finish when completing an activity at 100%",
+            });
+          }
+          if (actualStart && projectRow.dataDate < actualStart) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Cannot auto-populate Actual Finish from Project Data Date (${projectRow.dataDate}) because it precedes Actual Start (${actualStart}); provide an explicit Actual Finish on or after ${actualStart} or update the Project Data Date`,
+            });
+          }
+          actualFinish = projectRow.dataDate;
         } else {
           actualFinish = null;
         }
@@ -1753,11 +1770,11 @@ export const primaveraLiteRouter = createRouter({
                 setData.percentComplete = changes.percentComplete;
               } else {
                 // Clearing Actual Finish must make % Complete < 100; cannot remain 100%
-                setData.percentComplete = 99;
+                setData.percentComplete = effActualStart ? 99 : 0;
               }
             } else {
               if (currentPercent === 100) {
-                setData.percentComplete = 99;
+                setData.percentComplete = effActualStart ? 99 : 0;
               }
             }
           }
@@ -1765,7 +1782,19 @@ export const primaveraLiteRouter = createRouter({
           if (changes.percentComplete === 100) {
             setData.percentComplete = 100;
             if (effActualFinish == null) {
-              effActualFinish = projectRow.dataDate ?? new Date().toISOString().split("T")[0];
+              if (!projectRow.dataDate || !isValidISOString(projectRow.dataDate)) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: "Project Data Date is required to automatically set Actual Finish when completing an activity at 100%",
+                });
+              }
+              if (effActualStart && projectRow.dataDate < effActualStart) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: `Cannot auto-populate Actual Finish from Project Data Date (${projectRow.dataDate}) because it precedes Actual Start (${effActualStart}); provide an explicit Actual Finish on or after ${effActualStart} or update the Project Data Date`,
+                });
+              }
+              effActualFinish = projectRow.dataDate;
               setData.actualFinish = effActualFinish;
             }
           } else if (changes.percentComplete < 100) {

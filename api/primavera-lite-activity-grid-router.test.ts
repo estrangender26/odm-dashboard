@@ -83,7 +83,7 @@ describe("Primavera Lite PR3 Activity Grid", () => {
     const [calendar] = await testDb.insert(ganttCalendars).values({ projectId: project.project.id, name: "Project Calendar" }).returning();
     const [foreignCalendar] = await testDb.insert(ganttCalendars).values({ projectId: other.project.id, name: "Foreign Calendar" }).returning();
     let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
-    const activity = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Valid", originalDurationDays: 0, percentComplete: 100, calendarId: calendar.id } });
+    const activity = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Valid", originalDurationDays: 0, percentComplete: 100, actualFinish: "2026-08-10", calendarId: calendar.id } });
     loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
     await expect(caller.primaveraLite.updateActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id, changes: { calendarId: foreignCalendar.id } })).rejects.toThrow(/Calendar not found/i);
     await expect(caller.primaveraLite.updateActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id, changes: { wbsNodeId: other.rootWbsNode.id } })).rejects.toThrow(/WBS node not found/i);
