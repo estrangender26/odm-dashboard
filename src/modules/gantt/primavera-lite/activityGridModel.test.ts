@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  activityGridPermissions, groupActivities, optimisticActivityArchive,
+  activityGridPermissions, formatDate, groupActivities, optimisticActivityArchive,
   optimisticActivityEdit, optimisticActivityReorder, optimisticActivityUpdate, preserveConflictAttempt,
-  selectValidNewWbs, sortActivities, validateActivityEdit,
+  selectValidNewWbs, sortActivities, validateActivityEdit, validateDateField, validateDatePair,
 } from "./activityGridModel";
 
 const rows = [
@@ -64,5 +64,29 @@ describe("activityGridModel", () => {
     expect(validateActivityEdit("originalDurationDays", -1)).toBeTruthy();
     expect(validateActivityEdit("percentComplete", 101)).toBeTruthy();
     expect(validateActivityEdit("percentComplete", 100)).toBeNull();
+  });
+  it("validates planned and actual date fields", () => {
+    expect(validateActivityEdit("plannedStart", "2026-08-10")).toBeNull();
+    expect(validateActivityEdit("plannedFinish", "2026-08-12")).toBeNull();
+    expect(validateActivityEdit("actualStart", null)).toBeNull();
+    expect(validateActivityEdit("actualFinish", "")).toBeNull();
+    expect(validateActivityEdit("plannedStart", "not-a-date")).toBeTruthy();
+    expect(validateActivityEdit("actualFinish", "2026-13-99")).toBeTruthy();
+  });
+  it("validates date field formats and ranges", () => {
+    expect(validateDateField("2026-08-10")).toBeNull();
+    expect(validateDateField("")).toBeNull();
+    expect(validateDateField(null)).toBeNull();
+    expect(validateDateField("08/10/2026")).toBeTruthy();
+    expect(validateDateField("2026-02-30")).toBeTruthy();
+    expect(validateDatePair("2026-08-10", "2026-08-12", "Planned")).toBeNull();
+    expect(validateDatePair("2026-08-12", "2026-08-10", "Planned")).toBe("Planned start must be on or before planned finish");
+    expect(validateDatePair("2026-08-12", "2026-08-10", "Actual")).toBe("Actual start must be on or before actual finish");
+  });
+  it("formats date values as YYYY-MM-DD", () => {
+    expect(formatDate("2026-08-10")).toBe("2026-08-10");
+    expect(formatDate(new Date("2026-08-10T00:00:00Z"))).toBe("2026-08-10");
+    expect(formatDate(null)).toBe("");
+    expect(formatDate("")).toBe("");
   });
 });

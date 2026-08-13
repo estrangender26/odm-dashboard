@@ -4,14 +4,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/providers/trpc";
 import {
-  activityGridPermissions, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder,
-  preserveConflictAttempt, selectValidNewWbs, sortActivities, validateActivityEdit,
+  activityGridPermissions, formatDate, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder,
+  preserveConflictAttempt, selectValidNewWbs, sortActivities, validateActivityEdit, validateDatePair,
   SCHEDULE_ROW_HEIGHT, type ActivityGridRow, type ConflictRecovery,
 } from "./activityGridModel";
 
 type WbsNode = { id: number; code: string; name: string; isLeaf: boolean; archivedAt?: string | Date | null };
 type Calendar = { id: number; name: string };
 type MutationError = { message: string; data?: { code?: string } | null; shape?: { data?: { code?: string } | null } | null };
+
+const dateFieldNames = ["plannedStart", "plannedFinish", "actualStart", "actualFinish"] as const;
+
+type EditableTextField = "activityId" | "activityName";
+type EditableNumericField = "wbsNodeId" | "originalDurationDays" | "percentComplete";
+type EditableDateField = (typeof dateFieldNames)[number];
+
+function isDateFieldName(field: string): field is EditableDateField {
+  return (dateFieldNames as readonly string[]).includes(field);
+}
 
 type Props = {
   slug: string;
@@ -59,7 +69,7 @@ export default function ActivityGrid(props: Props) {
   function startEdit(activity: ActivityGridRow, field: keyof ActivityGridRow) {
     if (!canEdit) return;
     setEditing(`${activity.id}:${field}`);
-    setDraft(String(activity[field] ?? ""));
+    setDraft(isDateFieldName(field as string) ? formatDate(activity[field]) : String(activity[field] ?? ""));
     props.onEditingChange(true);
   }
   function endEdit() {
@@ -132,13 +142,48 @@ export default function ActivityGrid(props: Props) {
     },
   });
 
-  function submitEdit(activity: ActivityGridRow, field: "activityId" | "activityName" | "wbsNodeId" | "originalDurationDays" | "calendarId" | "percentComplete", rawValue: string) {
-    const numeric = field === "originalDurationDays" || field === "percentComplete" || field === "wbsNodeId";
-    const value: string | number | null = numeric ? Number(rawValue) : field === "calendarId" ? (rawValue ? Number(rawValue) : null) : rawValue;
+  function submitEdit(
+    activity: ActivityGridRow,
+    field: EditableTextField | EditableNumericField | EditableDateField | "calendarId",
+    rawValue: string
+  ) {
+    const isDateField = isDateFieldName(field);
+    const isNumeric = field === "originalDurationDays" || field === "percentComplete" || field === "wbsNodeId";
+    let value: unknown;
+    if (isDateField) {
+      value = rawValue === "" ? null : rawValue;
+    } else if (isNumeric) {
+      value = Number(rawValue);
+    } else if (field === "calendarId") {
+      value = rawValue ? Number(rawValue) : null;
+    } else {
+      value = rawValue;
+    }
     const validation = validateActivityEdit(field, value);
     if (validation) return setMessage(validation);
-    if (value === activity[field]) return endEdit();
+    if (isDateField) {
+      const pairError = validateActivityDatePair(activity, field, value as string | null);
+      if (pairError) return setMessage(pairError);
+    }
+    const current = formatDate(activity[field as keyof ActivityGridRow]);
+    const next = formatDate(value);
+    if (current === next) return endEdit();
     updateActivity.mutate({ slug, access, expectedRevision, activityId: activity.id, changes: { [field]: value } });
+  }
+
+  function validateActivityDatePair(activity: ActivityGridRow, field: EditableDateField, value: string | null): string | null {
+    if (field === "plannedStart" || field === "plannedFinish") {
+      return validateDatePair(
+        field === "plannedStart" ? value : (formatDate(activity.plannedStart) || null),
+        field === "plannedFinish" ? value : (formatDate(activity.plannedFinish) || null),
+        "Planned"
+      );
+    }
+    return validateDatePair(
+      field === "actualStart" ? value : (formatDate(activity.actualStart) || null),
+      field === "actualFinish" ? value : (formatDate(activity.actualFinish) || null),
+      "Actual"
+    );
   }
   async function archive(activityId: number) {
     if (!window.confirm("Archive this activity?")) return;
@@ -165,6 +210,20 @@ export default function ActivityGrid(props: Props) {
     );
   };
 
+  const editableDateCell = (activity: ActivityGridRow, field: EditableDateField) => {
+    const active = editing === `${activity.id}:${field}`;
+    return active ? (
+      <Input autoFocus type="date" value={draft} onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => submitEdit(activity, field, draft)}
+        onKeyDown={(event) => { if (event.key === "Enter") submitEdit(activity, field, draft); if (event.key === "Escape") endEdit(); }}
+        className="h-8 min-w-36" />
+    ) : (
+      <button type="button" disabled={!canEdit} onClick={() => startEdit(activity, field)} className="min-h-8 w-full rounded px-2 text-left hover:bg-slate-100 disabled:cursor-default disabled:hover:bg-transparent">
+        {formatDate(activity[field]) || "—"}
+      </button>
+    );
+  };
+
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Activities</h3><span className="text-xs text-muted-foreground">{activities.length} activities</span></div>
@@ -178,8 +237,8 @@ export default function ActivityGrid(props: Props) {
       {message && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">{message}{conflict && <span> Your attempted value is preserved; retry the highlighted edit.</span>}</div>}
       <div ref={rowsViewportRef} onScroll={(event) => props.onVerticalScroll?.(event.currentTarget.scrollTop)}
         className="max-h-[520px] overflow-auto rounded border bg-white" data-testid="activity-grid-scroll-viewport">
-        <table className="w-full min-w-[1050px] text-sm">
-          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">Percent complete</th><th className="w-16 p-2">Archive</th></tr></thead>
+        <table className="w-full min-w-[1600px] text-sm">
+          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Planned start</th><th className="p-2">Planned finish</th><th className="p-2">Actual start</th><th className="p-2">Actual finish</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">% complete</th><th className="w-16 p-2">Archive</th></tr></thead>
           <tbody>{activities.map((activity) => (
             <tr key={activity.id} draggable={canEdit} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)}
               onMouseEnter={() => props.onActivityHighlight?.(activity.id)} onMouseLeave={() => props.onActivityHighlight?.(null)}
@@ -188,6 +247,10 @@ export default function ActivityGrid(props: Props) {
               <td className="p-2 text-slate-400">{canEdit && <GripVertical className="h-4 w-4 cursor-grab" />}</td>
               <td className="p-1">{editableCell(activity, "activityId")}</td><td className="p-1">{editableCell(activity, "activityName")}</td>
               <td className="p-1"><select disabled={!canEdit} value={activity.wbsNodeId} onChange={(e) => submitEdit(activity, "wbsNodeId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none">{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></td>
+              <td className="p-1">{editableDateCell(activity, "plannedStart")}</td>
+              <td className="p-1">{editableDateCell(activity, "plannedFinish")}</td>
+              <td className="p-1">{editableDateCell(activity, "actualStart")}</td>
+              <td className="p-1">{editableDateCell(activity, "actualFinish")}</td>
               <td className="p-1">{editableCell(activity, "originalDurationDays", "number")}</td>
               <td className="p-1"><select disabled={!canEdit} value={activity.calendarId ?? ""} onChange={(e) => submitEdit(activity, "calendarId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none"><option value="">Project default / unassigned</option>{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></td>
               <td className="p-1">{editableCell(activity, "percentComplete", "number")}</td>

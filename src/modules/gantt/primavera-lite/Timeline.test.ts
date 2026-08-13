@@ -39,6 +39,25 @@ describe("Timeline", () => {
     expect(html.match(/aria-label="Planned bar"/g)).toHaveLength(1);
     expect(html).toContain("No dates");
   });
+  it("renders a distinct planned bar and actual bar for the same activity", () => {
+    const html = renderToStaticMarkup(
+      createElement(Timeline, {
+        activities: [{
+          ...base,
+          plannedStart: "2026-08-01",
+          plannedFinish: "2026-08-05",
+          actualStart: "2026-08-02",
+          actualFinish: "2026-08-03",
+        }],
+      })
+    );
+    expect(html).toContain('aria-label="Planned bar"');
+    expect(html).toContain('aria-label="Actual bar"');
+    // Planned bar is blue, actual bar is emerald (distinct colors)
+    expect(html).toContain("bg-blue-600");
+    expect(html).toContain("bg-emerald-600");
+  });
+
   it("visually identifies critical activities with red styling and legend", () => {
     const html = renderToStaticMarkup(
       createElement(Timeline, {

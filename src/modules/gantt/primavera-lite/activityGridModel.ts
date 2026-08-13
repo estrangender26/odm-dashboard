@@ -94,6 +94,36 @@ export function validateActivityEdit(field: string, value: unknown): string | nu
   if (field === "activityName" && (!String(value).trim() || String(value).length > 500)) return "Name is required";
   if (field === "originalDurationDays" && (!Number.isInteger(Number(value)) || Number(value) < 0)) return "Duration must be a whole number of 0 or more";
   if (field === "percentComplete" && (!Number.isInteger(Number(value)) || Number(value) < 0 || Number(value) > 100)) return "Percent complete must be a whole number from 0 to 100";
+  if (field === "plannedStart" || field === "plannedFinish" || field === "actualStart" || field === "actualFinish") {
+    const v = value == null || value === "" ? null : String(value);
+    return validateDateField(v);
+  }
+  return null;
+}
+
+/** Format a stored/edited date (Date or "YYYY-MM-DD" string) into a "YYYY-MM-DD" input value. */
+export function formatDate(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "" : value.toISOString().slice(0, 10);
+  const s = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : s;
+}
+
+/** Validate a single date field. Blank (empty/null) is allowed. */
+export function validateDateField(value: string | null): string | null {
+  if (value == null || value === "") return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "Date must be in YYYY-MM-DD format";
+  const [y, m, d] = value.split("-").map(Number);
+  const parsed = new Date(y, m - 1, d);
+  if (parsed.getFullYear() !== y || parsed.getMonth() !== m - 1 || parsed.getDate() !== d) {
+    return "Date must be a valid YYYY-MM-DD";
+  }
+  return null;
+}
+
+/** Validate a start/finish date pair (both endpoints provided) for a planned/actual range. */
+export function validateDatePair(start: string | null, finish: string | null, label: string): string | null {
+  if (start && finish && start > finish) return `${label} start must be on or before ${label.toLowerCase()} finish`;
   return null;
 }
 
