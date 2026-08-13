@@ -197,6 +197,14 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
     expect(html).not.toContain("Archive Project");
   });
 
+  it("shows Schedule Out of Date to every role when the loaded schedule is stale", () => {
+    const html = renderPage("", makeSessionStorage({ "primavera-lite-access:project-a": "viewer-token" }), {
+      data: { ...LOADED_FIXTURE, project: { ...LOADED_FIXTURE.project, scheduleOutOfDate: true } },
+      isLoading: false, error: null,
+    });
+    expect(html).toContain("Schedule Out of Date");
+  });
+
   it("admin token recovery renders the admin (editable) experience", () => {
     const storage = makeSessionStorage({
       "primavera-lite-access:project-a": "admin-token",

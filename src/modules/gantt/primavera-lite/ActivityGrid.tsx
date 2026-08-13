@@ -235,8 +235,8 @@ export default function ActivityGrid(props: Props) {
       {message && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">{message}{conflict && <span> Your attempted value is preserved; retry the highlighted edit.</span>}</div>}
       <div ref={rowsViewportRef} onScroll={(event) => props.onVerticalScroll?.(event.currentTarget.scrollTop)}
         className="max-h-[520px] overflow-auto rounded border bg-white" data-testid="activity-grid-scroll-viewport">
-        <table className="w-full min-w-[1600px] text-sm">
-          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Planned start</th><th className="p-2">Planned finish</th><th className="p-2">Actual start</th><th className="p-2">Actual finish</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">% complete</th><th className="w-16 p-2">Archive</th></tr></thead>
+        <table className="w-full min-w-[2200px] text-sm">
+          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Planned start</th><th className="p-2">Planned finish</th><th className="p-2">Actual start</th><th className="p-2">Actual finish</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">% complete</th><th className="p-2">Early start</th><th className="p-2">Early finish</th><th className="p-2">Late start</th><th className="p-2">Late finish</th><th className="p-2">Total float</th><th className="w-16 p-2">Archive</th></tr></thead>
           <tbody>{activities.map((activity) => (
             <tr key={activity.id} draggable={canEdit} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)}
               onMouseEnter={() => props.onActivityHighlight?.(activity.id)} onMouseLeave={() => props.onActivityHighlight?.(null)}
@@ -252,6 +252,11 @@ export default function ActivityGrid(props: Props) {
               <td className="p-1">{editableCell(activity, "originalDurationDays", "number")}</td>
               <td className="p-1"><select disabled={!canEdit} value={activity.calendarId ?? ""} onChange={(e) => submitEdit(activity, "calendarId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none"><option value="">Project default / unassigned</option>{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></td>
               <td className="p-1">{editableCell(activity, "percentComplete", "number")}</td>
+              <td className="p-2 text-muted-foreground">{formatDate(activity.earlyStart) || "—"}</td>
+              <td className="p-2 text-muted-foreground">{formatDate(activity.earlyFinish) || "—"}</td>
+              <td className="p-2 text-muted-foreground">{formatDate(activity.lateStart) || "—"}</td>
+              <td className="p-2 text-muted-foreground">{formatDate(activity.lateFinish) || "—"}</td>
+              <td className="p-2 text-muted-foreground">{activity.totalFloatDays ?? "—"}</td>
               <td className="p-2">{canEdit && <Button variant="ghost" size="icon" onClick={() => archive(activity.id)} aria-label={`Archive ${activity.activityName}`}><Archive className="h-4 w-4" /></Button>}</td>
             </tr>
           ))}</tbody>

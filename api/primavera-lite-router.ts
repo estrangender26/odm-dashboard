@@ -22,6 +22,7 @@ import {
   PreviewTokenException,
 } from "@/modules/gantt/primavera-lite/previewToken";
 import { runScheduleEngine } from "@/modules/gantt/primavera-lite/schedulingEngine";
+import { isScheduleOutOfDate } from "@/modules/gantt/primavera-lite/scheduleStaleness";
 
 const MAX_NAME_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
@@ -978,6 +979,32 @@ export const primaveraLiteRouter = createRouter({
         .where(eq(ganttCalendars.projectId, accessCtx.projectId))
         .orderBy(asc(ganttCalendars.name), asc(ganttCalendars.id));
 
+      const scheduleEvents = await db
+        .select({ projectRevision: ganttProjectEvents.projectRevision })
+        .from(ganttProjectEvents)
+        .where(and(
+          eq(ganttProjectEvents.projectId, accessCtx.projectId),
+          eq(ganttProjectEvents.entityType, "project"),
+          eq(ganttProjectEvents.action, "schedule")
+        ))
+        .orderBy(sql`${ganttProjectEvents.projectRevision} DESC`)
+        .limit(1);
+      const lastScheduledRevision = scheduleEvents[0]?.projectRevision ?? null;
+      const subsequentEvents = lastScheduledRevision == null ? [] : await db
+        .select({
+          entityType: ganttProjectEvents.entityType,
+          action: ganttProjectEvents.action,
+          beforeData: ganttProjectEvents.beforeData,
+          afterData: ganttProjectEvents.afterData,
+          projectRevision: ganttProjectEvents.projectRevision,
+        })
+        .from(ganttProjectEvents)
+        .where(and(
+          eq(ganttProjectEvents.projectId, accessCtx.projectId),
+          sql`${ganttProjectEvents.projectRevision} > ${lastScheduledRevision}`
+        ));
+      const scheduleOutOfDate = isScheduleOutOfDate(lastScheduledRevision, subsequentEvents);
+
       const events = input.sinceRevision !== undefined
         ? await db
             .select()
@@ -993,7 +1020,7 @@ export const primaveraLiteRouter = createRouter({
 
       return {
         role: accessCtx.role,
-        project: projectRow ? mapProjectRow(projectRow) : null,
+        project: projectRow ? { ...mapProjectRow(projectRow), scheduleOutOfDate } : null,
         wbsNodes: wbsNodes.map(mapWbsNodeRow),
         activities: activities.map(mapActivityRow),
         dependencies: dependencies.map(mapDependencyRow),
@@ -1418,7 +1445,7 @@ export const primaveraLiteRouter = createRouter({
             plannedFinish: (input.activity.plannedFinish ?? null) as any,
             actualStart: (input.activity.actualStart ?? null) as any,
             actualFinish: (input.activity.actualFinish ?? null) as any,
-            percentComplete: (input.activity.percentComplete ?? 0) as any,
+            percentComplete: (input.activity.actualFinish != null ? 100 : input.activity.percentComplete ?? 0) as any,
             status: (input.activity.status ?? null) as any,
             constraintType: (input.activity.constraintType ?? null) as any,
             constraintDate: (input.activity.constraintDate ?? null) as any,
@@ -1516,7 +1543,10 @@ export const primaveraLiteRouter = createRouter({
         if (changes.plannedFinish !== undefined) setData.plannedFinish = changes.plannedFinish;
         if (changes.actualStart !== undefined) setData.actualStart = changes.actualStart;
         if (changes.actualFinish !== undefined) setData.actualFinish = changes.actualFinish;
-        if (changes.percentComplete !== undefined) setData.percentComplete = changes.percentComplete;
+        // A supplied Actual Finish completes the activity in the same revision.
+        // Clearing it deliberately leaves existing progress unchanged.
+        if (changes.actualFinish != null) setData.percentComplete = 100;
+        else if (changes.percentComplete !== undefined) setData.percentComplete = changes.percentComplete;
         if (changes.status !== undefined) setData.status = changes.status;
         if (changes.constraintType !== undefined) setData.constraintType = changes.constraintType;
         if (changes.constraintDate !== undefined) setData.constraintDate = changes.constraintDate;

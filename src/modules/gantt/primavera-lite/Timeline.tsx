@@ -53,6 +53,7 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-blue-600"></span> Normal</span>
             <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-red-600"></span> Critical</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-slate-300"></span> Shaded = % complete</span>
           </div>
         </div>
         <div className="flex flex-wrap gap-1" aria-label="Timeline zoom">
@@ -97,9 +98,11 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                         className={`absolute top-3 h-4 w-4 rotate-45 border-2 ${isCritical ? "border-red-700 bg-red-500" : "border-blue-700 bg-blue-500"}`}
                         style={{ left: timelinePosition(planned.start, range.start, pixelsPerDay) - 8 }} />
                     ) : (
-                      <span title={`${activity.activityName}: ${planned.source} dates${isCritical ? ` (Critical, ${activity.totalFloatDays ?? 0}d float)` : ""}`} aria-label="Planned bar"
-                        className={`absolute top-2 h-3 rounded ${isCritical ? "bg-red-600" : "bg-blue-600"}`}
-                        style={{ left: timelinePosition(planned.start, range.start, pixelsPerDay), width: timelineSpan(planned.start, planned.finish, pixelsPerDay) }} />
+                      <span title={`${activity.activityName}: ${activity.percentComplete ?? 0}% complete; ${planned.source} dates${isCritical ? ` (Critical, ${activity.totalFloatDays ?? 0}d float)` : ""}`} aria-label={`Planned bar, ${activity.percentComplete ?? 0}% complete`}
+                        className={`absolute top-2 h-3 overflow-hidden rounded ${isCritical ? "bg-red-600" : "bg-blue-600"}`}
+                        style={{ left: timelinePosition(planned.start, range.start, pixelsPerDay), width: timelineSpan(planned.start, planned.finish, pixelsPerDay) }}>
+                        <span aria-label={`${activity.percentComplete ?? 0}% complete`} className="block h-full bg-white/55" style={{ width: `${Math.min(100, Math.max(0, activity.percentComplete ?? 0))}%` }} />
+                      </span>
                     ))}
                     {actual && <span title={`${activity.activityName}: actual dates`} aria-label="Actual bar" className="absolute top-6 h-2 rounded bg-emerald-600"
                       style={{ left: timelinePosition(actual.start, range.start, pixelsPerDay), width: timelineSpan(actual.start, actual.finish, pixelsPerDay) }} />}

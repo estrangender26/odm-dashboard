@@ -144,6 +144,9 @@ export default function PrimaveraLiteProjectPage() {
                 {data.project?.lastScheduledAt
                   ? new Date(data.project.lastScheduledAt).toLocaleString()
                   : "Never"}
+                {data.project?.scheduleOutOfDate && (
+                  <span role="status" className="ml-2 font-semibold text-amber-700">Schedule Out of Date</span>
+                )}
               </div>
               {isAdmin && (
                 <div className="flex items-center gap-2">
