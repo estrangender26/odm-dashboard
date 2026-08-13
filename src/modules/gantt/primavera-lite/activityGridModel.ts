@@ -127,6 +127,43 @@ export function validateDatePair(start: string | null, finish: string | null, la
   return null;
 }
 
+/**
+ * Field-type-aware equality for detecting no-op edits.
+ *
+ * - date fields (plannedStart/plannedFinish/actualStart/actualFinish) are compared
+ *   after canonical YYYY-MM-DD normalization;
+ * - numeric fields (originalDurationDays/percentComplete/wbsNodeId) compare by number;
+ * - calendarId compares by number/null;
+ * - all other text fields compare by exact string equality.
+ *
+ * This must NOT use formatDate() for non-date fields, because formatDate()
+ * truncates any value that merely looks like an ISO date (e.g. an activity name
+ * such as "2026-08-13 Inspection A" would be collapsed to "2026-08-13").
+ */
+export function isActivityEditNoop(
+  activity: ActivityGridRow,
+  field: keyof ActivityGridRow | "calendarId",
+  value: unknown
+): boolean {
+  const current = activity[field];
+  if (field === "plannedStart" || field === "plannedFinish" || field === "actualStart" || field === "actualFinish") {
+    return (formatDate(current) || null) === (formatDate(value) || null);
+  }
+  if (field === "originalDurationDays" || field === "percentComplete" || field === "wbsNodeId") {
+    const a = current == null || current === "" ? NaN : Number(current);
+    const b = value == null || value === "" ? NaN : Number(value);
+    return a === b;
+  }
+  if (field === "calendarId") {
+    const a = current == null ? null : Number(current);
+    const b = value == null ? null : Number(value);
+    return a === b;
+  }
+  const a = current == null ? "" : String(current);
+  const b = value == null ? "" : String(value);
+  return a === b;
+}
+
 export function activityGridPermissions(role: "admin" | "editor" | "viewer") {
   return { readOnly: role === "viewer", canEdit: role === "admin" || role === "editor" };
 }

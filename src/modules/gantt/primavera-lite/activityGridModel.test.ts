@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  activityGridPermissions, formatDate, groupActivities, optimisticActivityArchive,
+  activityGridPermissions, formatDate, groupActivities, isActivityEditNoop, optimisticActivityArchive,
   optimisticActivityEdit, optimisticActivityReorder, optimisticActivityUpdate, preserveConflictAttempt,
   selectValidNewWbs, sortActivities, validateActivityEdit, validateDateField, validateDatePair,
+  type ActivityGridRow,
 } from "./activityGridModel";
 
 const rows = [
@@ -88,5 +89,52 @@ describe("activityGridModel", () => {
     expect(formatDate(new Date("2026-08-10T00:00:00Z"))).toBe("2026-08-10");
     expect(formatDate(null)).toBe("");
     expect(formatDate("")).toBe("");
+  });
+
+  const baseRow: ActivityGridRow = {
+    id: 1,
+    wbsNodeId: 1,
+    sortOrder: 0,
+    activityId: "A1",
+    activityName: "2026-08-13 Inspection A",
+    originalDurationDays: 3,
+    percentComplete: 25,
+    calendarId: null,
+    plannedStart: "2026-08-01",
+    plannedFinish: "2026-08-03",
+    actualStart: null,
+    actualFinish: null,
+  };
+
+  it("allows changing an activity name that begins with a YYYY-MM-DD prefix", () => {
+    // Regression: a name that looks like an ISO date must NOT be treated as a no-op.
+    expect(isActivityEditNoop(baseRow, "activityName", "2026-08-13 Inspection A")).toBe(true);
+    expect(isActivityEditNoop(baseRow, "activityName", "2026-08-13 Inspection B")).toBe(false);
+    expect(isActivityEditNoop(baseRow, "activityName", "2026-08-14 Inspection A")).toBe(false);
+  });
+
+  it("treats identical date edits as no-op", () => {
+    expect(isActivityEditNoop(baseRow, "plannedStart", "2026-08-01")).toBe(true);
+    expect(isActivityEditNoop(baseRow, "plannedFinish", "2026-08-03")).toBe(true);
+    expect(isActivityEditNoop(baseRow, "actualStart", null)).toBe(true);
+    // A real date change is NOT a no-op
+    expect(isActivityEditNoop(baseRow, "plannedStart", "2026-08-02")).toBe(false);
+    expect(isActivityEditNoop(baseRow, "actualStart", "2026-08-01")).toBe(false);
+  });
+
+  it("treats identical numeric edits as no-op", () => {
+    expect(isActivityEditNoop(baseRow, "originalDurationDays", 3)).toBe(true);
+    expect(isActivityEditNoop(baseRow, "percentComplete", 25)).toBe(true);
+    expect(isActivityEditNoop(baseRow, "percentComplete", "25")).toBe(true);
+    // A real numeric change is NOT a no-op
+    expect(isActivityEditNoop(baseRow, "originalDurationDays", 4)).toBe(false);
+    expect(isActivityEditNoop(baseRow, "percentComplete", 30)).toBe(false);
+  });
+
+  it("does not suppress real text/numeric changes and handles calendarId by number/null", () => {
+    expect(isActivityEditNoop(baseRow, "activityId", "A1")).toBe(true);
+    expect(isActivityEditNoop(baseRow, "activityId", "A2")).toBe(false);
+    expect(isActivityEditNoop(baseRow, "calendarId", null)).toBe(true);
+    expect(isActivityEditNoop(baseRow, "calendarId", 5)).toBe(false);
   });
 });

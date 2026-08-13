@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/providers/trpc";
 import {
-  activityGridPermissions, formatDate, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder,
+  activityGridPermissions, formatDate, isActivityEditNoop, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder,
   preserveConflictAttempt, selectValidNewWbs, sortActivities, validateActivityEdit, validateDatePair,
   SCHEDULE_ROW_HEIGHT, type ActivityGridRow, type ConflictRecovery,
 } from "./activityGridModel";
@@ -165,9 +165,7 @@ export default function ActivityGrid(props: Props) {
       const pairError = validateActivityDatePair(activity, field, value as string | null);
       if (pairError) return setMessage(pairError);
     }
-    const current = formatDate(activity[field as keyof ActivityGridRow]);
-    const next = formatDate(value);
-    if (current === next) return endEdit();
+    if (isActivityEditNoop(activity, field, value)) return endEdit();
     updateActivity.mutate({ slug, access, expectedRevision, activityId: activity.id, changes: { [field]: value } });
   }
 
