@@ -7,6 +7,8 @@ import { Spinner } from "@/components/ui/spinner";
 import {
   computeRolePermissions,
   isProjectUnavailable,
+  persistAccessToken,
+  resolveAccessToken,
   stripTokenPath,
 } from "@/modules/gantt/primavera-lite/pageState";
 import WbsTree from "@/modules/gantt/primavera-lite/WbsTree";
@@ -18,7 +20,23 @@ import { formatDate } from "@/modules/gantt/primavera-lite/activityGridModel";
 export default function PrimaveraLiteProjectPage() {
   const [searchParams] = useSearchParams();
   const slug = useMemo(() => window.location.pathname.split("/gantt/p/")[1] || "", []);
-  const access = searchParams.get("access") || "";
+  const urlAccess = searchParams.get("access") || "";
+
+  // Resolve the effective access token: the current URL first, then
+  // sessionStorage, otherwise empty. This keeps a full reload (where the URL
+  // token has already been stripped) able to recover the credential.
+  const [access, setAccess] = useState<string>(() =>
+    resolveAccessToken(urlAccess, sessionStorage, slug)
+  );
+
+  // A token in the URL always takes precedence over any older stored token,
+  // and is persisted to sessionStorage so it survives the visible URL strip.
+  useEffect(() => {
+    if (urlAccess) {
+      setAccess(urlAccess);
+      persistAccessToken(sessionStorage, slug, urlAccess);
+    }
+  }, [urlAccess, slug]);
 
   const [expectedRevision, setExpectedRevision] = useState(0);
   const [isEditingActivity, setIsEditingActivity] = useState(false);
@@ -28,7 +46,7 @@ export default function PrimaveraLiteProjectPage() {
 
   useEffect(() => {
     if (access) {
-      // Strip token from visible URL after capture, keeping it only in memory
+      // Strip token from visible URL after capture, keeping it in memory and sessionStorage
       window.history.replaceState({}, "", stripTokenPath(window.location.pathname, slug));
     }
   }, [slug, access]);

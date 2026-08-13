@@ -53,6 +53,59 @@ export function stripTokenPath(_pathWithSearch: string, slug: string): string {
   return `/gantt/p/${slug}`;
 }
 
+const ACCESS_TOKEN_KEY_PREFIX = "primavera-lite-access:";
+
+function accessTokenKey(slug: string): string {
+  return `${ACCESS_TOKEN_KEY_PREFIX}${slug}`;
+}
+
+/**
+ * Persist the active project access token in sessionStorage, keyed by slug.
+ * Storage failures (private browsing, quota, blocked storage) are tolerated
+ * silently; the token remains usable from the current URL/memory.
+ */
+export function persistAccessToken(
+  storage: StorageLike,
+  slug: string,
+  token: string
+): void {
+  if (!token) return;
+  try {
+    storage.setItem(accessTokenKey(slug), token);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+/**
+ * Read a previously persisted access token for a project slug.
+ * Returns null when absent, empty, or when storage is unavailable/corrupt.
+ */
+export function readAccessToken(
+  storage: StorageLike,
+  slug: string
+): string | null {
+  try {
+    const raw = storage.getItem(accessTokenKey(slug));
+    return typeof raw === "string" && raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the effective access token for a project slug.
+ * A token supplied by the current URL always takes precedence over a stored token.
+ */
+export function resolveAccessToken(
+  urlAccess: string,
+  storage: StorageLike,
+  slug: string
+): string {
+  if (urlAccess) return urlAccess;
+  return readAccessToken(storage, slug) ?? "";
+}
+
 export function computeRolePermissions(role: string | undefined): {
   canEdit: boolean;
   isAdmin: boolean;

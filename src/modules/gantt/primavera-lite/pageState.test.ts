@@ -4,7 +4,10 @@ import {
   computeRolePermissions,
   extractTokenFromUrl,
   isProjectUnavailable,
+  persistAccessToken,
+  readAccessToken,
   readRememberedLinks,
+  resolveAccessToken,
   stripTokenPath,
   type RememberedLink,
   type StorageLike,
@@ -142,5 +145,78 @@ describe("pageState helpers", () => {
 
   it("does not mark active project unavailable", () => {
     expect(isProjectUnavailable({ archivedAt: null })).toBe(false);
+  });
+});
+
+describe("pageState access-token persistence (reload/viewer recovery)", () => {
+  it("first tokenized navigation resolves to the URL token and persists it", () => {
+    const storage = makeStorage();
+    expect(resolveAccessToken("url-token", storage, "project-a")).toBe("url-token");
+    persistAccessToken(storage, "project-a", "url-token");
+    expect(readAccessToken(storage, "project-a")).toBe("url-token");
+  });
+
+  it("reload without ?access= recovers the token from sessionStorage", () => {
+    const storage = makeStorage();
+    persistAccessToken(storage, "project-a", "admin-token-a");
+    // A reload has an empty URL token but the stored token remains available.
+    expect(resolveAccessToken("", storage, "project-a")).toBe("admin-token-a");
+  });
+
+  it("URL token always takes precedence over an older stored token", () => {
+    const storage = makeStorage();
+    persistAccessToken(storage, "project-a", "stale-token");
+    expect(resolveAccessToken("fresh-token", storage, "project-a")).toBe("fresh-token");
+    // The fresh token is persisted in place of the stale one.
+    persistAccessToken(storage, "project-a", "fresh-token");
+    expect(readAccessToken(storage, "project-a")).toBe("fresh-token");
+  });
+
+  it("isolates stored tokens per project slug", () => {
+    const storage = makeStorage();
+    persistAccessToken(storage, "project-a", "token-a");
+    persistAccessToken(storage, "project-b", "token-b");
+    expect(readAccessToken(storage, "project-a")).toBe("token-a");
+    expect(readAccessToken(storage, "project-b")).toBe("token-b");
+    expect(readAccessToken(storage, "project-c")).toBeNull();
+  });
+
+  it("tolerates unavailable/corrupt storage without crashing", () => {
+    const throwing: StorageLike = {
+      getItem: () => {
+        throw new Error("storage blocked");
+      },
+      setItem: () => {
+        throw new Error("storage blocked");
+      },
+    };
+    expect(readAccessToken(throwing, "project-a")).toBeNull();
+    expect(() => persistAccessToken(throwing, "project-a", "token")).not.toThrow();
+    // A URL token still works even when storage is completely unavailable.
+    expect(resolveAccessToken("url-token", throwing, "project-a")).toBe("url-token");
+  });
+
+  it("returns empty access when no token is present anywhere (Project Unavailable path)", () => {
+    const storage = makeStorage();
+    expect(resolveAccessToken("", storage, "project-a")).toBe("");
+    // Empty access means the load query stays disabled and the page falls
+    // through to the unavailable branch.
+    expect(computeRolePermissions(undefined)).toEqual({ canEdit: false, isAdmin: false });
+  });
+
+  it("viewer token survives reload and remains read-only", () => {
+    const storage = makeStorage();
+    persistAccessToken(storage, "project-a", "viewer-token");
+    const recovered = resolveAccessToken("", storage, "project-a");
+    expect(recovered).toBe("viewer-token");
+    expect(computeRolePermissions("viewer")).toEqual({ canEdit: false, isAdmin: false });
+  });
+
+  it("admin token survives reload and remains admin", () => {
+    const storage = makeStorage();
+    persistAccessToken(storage, "project-a", "admin-token");
+    const recovered = resolveAccessToken("", storage, "project-a");
+    expect(recovered).toBe("admin-token");
+    expect(computeRolePermissions("admin")).toEqual({ canEdit: true, isAdmin: true });
   });
 });
