@@ -94,7 +94,74 @@ export function validateActivityEdit(field: string, value: unknown): string | nu
   if (field === "activityName" && (!String(value).trim() || String(value).length > 500)) return "Name is required";
   if (field === "originalDurationDays" && (!Number.isInteger(Number(value)) || Number(value) < 0)) return "Duration must be a whole number of 0 or more";
   if (field === "percentComplete" && (!Number.isInteger(Number(value)) || Number(value) < 0 || Number(value) > 100)) return "Percent complete must be a whole number from 0 to 100";
+  if (field === "plannedStart" || field === "plannedFinish" || field === "actualStart" || field === "actualFinish") {
+    const v = value == null || value === "" ? null : String(value);
+    return validateDateField(v);
+  }
   return null;
+}
+
+/** Format a stored/edited date (Date or "YYYY-MM-DD" string) into a "YYYY-MM-DD" input value. */
+export function formatDate(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "" : value.toISOString().slice(0, 10);
+  const s = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : s;
+}
+
+/** Validate a single date field. Blank (empty/null) is allowed. */
+export function validateDateField(value: string | null): string | null {
+  if (value == null || value === "") return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "Date must be in YYYY-MM-DD format";
+  const [y, m, d] = value.split("-").map(Number);
+  const parsed = new Date(y, m - 1, d);
+  if (parsed.getFullYear() !== y || parsed.getMonth() !== m - 1 || parsed.getDate() !== d) {
+    return "Date must be a valid YYYY-MM-DD";
+  }
+  return null;
+}
+
+/** Validate a start/finish date pair (both endpoints provided) for a planned/actual range. */
+export function validateDatePair(start: string | null, finish: string | null, label: string): string | null {
+  if (start && finish && start > finish) return `${label} start must be on or before ${label.toLowerCase()} finish`;
+  return null;
+}
+
+/**
+ * Field-type-aware equality for detecting no-op edits.
+ *
+ * - date fields (plannedStart/plannedFinish/actualStart/actualFinish) are compared
+ *   after canonical YYYY-MM-DD normalization;
+ * - numeric fields (originalDurationDays/percentComplete/wbsNodeId) compare by number;
+ * - calendarId compares by number/null;
+ * - all other text fields compare by exact string equality.
+ *
+ * This must NOT use formatDate() for non-date fields, because formatDate()
+ * truncates any value that merely looks like an ISO date (e.g. an activity name
+ * such as "2026-08-13 Inspection A" would be collapsed to "2026-08-13").
+ */
+export function isActivityEditNoop(
+  activity: ActivityGridRow,
+  field: keyof ActivityGridRow | "calendarId",
+  value: unknown
+): boolean {
+  const current = activity[field];
+  if (field === "plannedStart" || field === "plannedFinish" || field === "actualStart" || field === "actualFinish") {
+    return (formatDate(current) || null) === (formatDate(value) || null);
+  }
+  if (field === "originalDurationDays" || field === "percentComplete" || field === "wbsNodeId") {
+    const a = current == null || current === "" ? NaN : Number(current);
+    const b = value == null || value === "" ? NaN : Number(value);
+    return a === b;
+  }
+  if (field === "calendarId") {
+    const a = current == null ? null : Number(current);
+    const b = value == null ? null : Number(value);
+    return a === b;
+  }
+  const a = current == null ? "" : String(current);
+  const b = value == null ? "" : String(value);
+  return a === b;
 }
 
 export function activityGridPermissions(role: "admin" | "editor" | "viewer") {

@@ -13,6 +13,7 @@ import WbsTree from "@/modules/gantt/primavera-lite/WbsTree";
 import ActivityGrid from "@/modules/gantt/primavera-lite/ActivityGrid";
 import Timeline from "@/modules/gantt/primavera-lite/Timeline";
 import DependencyPanel from "@/modules/gantt/primavera-lite/DependencyPanel";
+import { formatDate } from "@/modules/gantt/primavera-lite/activityGridModel";
 
 export default function PrimaveraLiteProjectPage() {
   const [searchParams] = useSearchParams();
@@ -23,6 +24,7 @@ export default function PrimaveraLiteProjectPage() {
   const [isEditingActivity, setIsEditingActivity] = useState(false);
   const [highlightedActivityId, setHighlightedActivityId] = useState<number | null>(null);
   const [scheduleScrollTop, setScheduleScrollTop] = useState(0);
+  const [dataDateDraft, setDataDateDraft] = useState("");
 
   useEffect(() => {
     if (access) {
@@ -50,6 +52,22 @@ export default function PrimaveraLiteProjectPage() {
       refetch();
     },
   });
+  const updateProjectMeta = trpc.primaveraLite.updateProjectMeta.useMutation({
+    onSuccess: (res) => {
+      setExpectedRevision(res.revision);
+      refetch();
+      setDataDateDraft(formatDate(res.project.dataDate));
+    },
+  });
+
+  useEffect(() => {
+    if (data?.project?.dataDate !== undefined) setDataDateDraft(formatDate(data.project.dataDate));
+  }, [data?.project?.dataDate]);
+
+  const handleDataDateSave = () => {
+    const value = dataDateDraft === "" ? null : dataDateDraft;
+    updateProjectMeta.mutate({ slug, access, expectedRevision, changes: { dataDate: value } });
+  };
 
   const { isAdmin, canEdit } = computeRolePermissions(data?.role);
 
@@ -109,6 +127,35 @@ export default function PrimaveraLiteProjectPage() {
                   ? new Date(data.project.lastScheduledAt).toLocaleString()
                   : "Never"}
               </div>
+              {isAdmin && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium" htmlFor="project-data-date">
+                    Data Date
+                  </label>
+                  <input
+                    id="project-data-date"
+                    type="date"
+                    value={dataDateDraft}
+                    onChange={(e) => setDataDateDraft(e.target.value)}
+                    className="h-9 rounded border px-2 text-sm"
+                    aria-label="Project Data Date"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDataDateSave}
+                    disabled={updateProjectMeta.isPending}
+                  >
+                    {updateProjectMeta.isPending ? "Saving…" : "Set Data Date"}
+                  </Button>
+                  {updateProjectMeta.error && (
+                    <span className="text-xs text-red-600">
+                      {updateProjectMeta.error.message}
+                    </span>
+                  )}
+                </div>
+              )}
               {canEdit && (
                 <div className="flex items-center gap-2">
                   <Button

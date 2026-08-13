@@ -60,6 +60,7 @@ const updateProjectMetaInputSchema = z.object({
     projectName: z.string().max(MAX_NAME_LENGTH).optional(),
     description: z.string().max(MAX_DESCRIPTION_LENGTH).optional().nullable(),
     status: z.string().max(50).optional().nullable(),
+    dataDate: dateStringSchema.optional().nullable(),
   }),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
@@ -495,6 +496,82 @@ function mapActivityRow(activity: typeof ganttActivities.$inferSelect) {
     createdAt: activity.createdAt,
     updatedAt: activity.updatedAt,
   } as any;
+}
+
+type ActivityLike = {
+  plannedStart?: unknown;
+  plannedFinish?: unknown;
+  actualStart?: unknown;
+  actualFinish?: unknown;
+  [key: string]: unknown;
+};
+
+/**
+ * Normalize a stored/edited date value to a canonical YYYY-MM-DD string (or null).
+ * Drizzle date columns are read back as "YYYY-MM-DD" strings, but we also accept
+ * Date instances defensively.
+ */
+function toIsoDateString(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  const s = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : s;
+}
+
+function normalizeComparableDate(value: unknown): unknown {
+  return value instanceof Date ? toIsoDateString(value) : value;
+}
+
+/**
+ * Returns true when every provided change maps to the activity's current value.
+ * Used to short-circuit no-op edits so they do not bump the project revision or
+ * create audit events.
+ */
+function isActivityChangeNoop(activity: ActivityLike, changes: Record<string, unknown>): boolean {
+  return Object.keys(changes).every((key) => {
+    const current = normalizeComparableDate(activity[key]);
+    const next = normalizeComparableDate(changes[key]);
+    return current === next;
+  });
+}
+
+/**
+ * Validates planned/actual date pairs after merging the proposed changes with the
+ * activity's existing dates. Returns an error message or null when valid.
+ * Blank (null) dates are allowed; both endpoints are required to enforce start <= finish.
+ */
+function validateActivityDateRanges(
+  activity: ActivityLike,
+  changes: Record<string, unknown>
+): string | null {
+  const plannedStart = changes.plannedStart !== undefined ? toIsoDateString(changes.plannedStart) : toIsoDateString(activity.plannedStart);
+  const plannedFinish = changes.plannedFinish !== undefined ? toIsoDateString(changes.plannedFinish) : toIsoDateString(activity.plannedFinish);
+  if (plannedStart && plannedFinish && plannedStart > plannedFinish) {
+    return "Planned start must be on or before planned finish";
+  }
+  const actualStart = changes.actualStart !== undefined ? toIsoDateString(changes.actualStart) : toIsoDateString(activity.actualStart);
+  const actualFinish = changes.actualFinish !== undefined ? toIsoDateString(changes.actualFinish) : toIsoDateString(activity.actualFinish);
+  if (actualStart && actualFinish && actualStart > actualFinish) {
+    return "Actual start must be on or before actual finish";
+  }
+  return null;
+}
+
+/**
+ * Compares a proposed project-meta change against the current project row. Returns
+ * true when every provided change equals the current value (no-op).
+ */
+function isProjectMetaNoop(
+  current: Record<string, unknown>,
+  changes: Record<string, unknown>
+): boolean {
+  return Object.keys(changes).every((key) => {
+    const currentVal = current[key];
+    const nextVal = changes[key];
+    return normalizeComparableDate(currentVal) === normalizeComparableDate(nextVal);
+  });
 }
 
 function mapDependencyRow(dependency: typeof ganttActivityDependencies.$inferSelect) {
@@ -959,6 +1036,12 @@ export const primaveraLiteRouter = createRouter({
         }
 
         const before = mapProjectRow(current);
+
+        // No-op guard: identical edits must not create a revision bump or audit event.
+        if (isProjectMetaNoop(current as unknown as Record<string, unknown>, input.changes)) {
+          return { project: current, revision: current.revision, noop: true };
+        }
+
         const setData: Record<string, unknown> = { updatedAt: new Date() };
         if (input.changes.name !== undefined) {
           setData.name = input.changes.name;
@@ -967,6 +1050,7 @@ export const primaveraLiteRouter = createRouter({
         if (input.changes.projectName !== undefined) setData.projectName = input.changes.projectName;
         if (input.changes.description !== undefined) setData.description = input.changes.description;
         if (input.changes.status !== undefined) setData.status = input.changes.status;
+        if (input.changes.dataDate !== undefined) setData.dataDate = input.changes.dataDate;
 
         const [updated] = await tx
           .update(ganttProjects)
@@ -979,10 +1063,10 @@ export const primaveraLiteRouter = createRouter({
         accessCtx.actorName = input.actorName;
         await insertEvent(tx, accessCtx, "project", "update", accessCtx.projectId, before, mapProjectRow(updated));
 
-        return updated;
+        return { project: updated, revision: newRevision, noop: false };
       });
 
-      return { project: mapProjectRow(result), revision: accessCtx.projectRevision };
+      return { project: mapProjectRow(result.project), revision: result.revision, noop: result.noop };
     }),
 
   runSchedule: publicQuery
@@ -1390,6 +1474,19 @@ export const primaveraLiteRouter = createRouter({
 
         const before = mapActivityRow(activity);
         const changes = input.changes;
+
+        // Server-side date-pair validation: planned start <= planned finish and
+        // actual start <= actual finish, merging proposed changes with existing dates.
+        const dateRangeError = validateActivityDateRanges(activity, changes);
+        if (dateRangeError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: dateRangeError });
+        }
+
+        // No-op guard: identical edits must not bump the project revision or create audit events.
+        if (isActivityChangeNoop(activity, changes)) {
+          return { activity, revision: projectRow.revision };
+        }
+
         const setData: Record<string, unknown> = { updatedAt: new Date(), updatedByName: input.actorName ?? "Anonymous" };
         if (changes.wbsNodeId !== undefined) {
           await requireActiveLeafWbs(tx, accessCtx.projectId, changes.wbsNodeId);
@@ -1441,10 +1538,10 @@ export const primaveraLiteRouter = createRouter({
         accessCtx.actorName = input.actorName;
         await insertEvent(tx, accessCtx, "activity", "update", updated.id, before, mapActivityRow(updated));
 
-        return updated;
+        return { activity: updated, revision: newRevision };
       });
 
-      return { activity: mapActivityRow(result), revision: accessCtx.projectRevision };
+      return { activity: mapActivityRow(result.activity), revision: result.revision };
     }),
 
   reorderActivity: publicQuery
