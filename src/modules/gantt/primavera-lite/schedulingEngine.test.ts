@@ -335,6 +335,162 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       runScheduleEngine("invalid-date", "bad-date", [monFriCalendar], 1, [baseAct], [])
     ).toThrow(/no valid project data_date, plannedStart, or scheduleDate anchor available/i);
   });
+  it("uses Actual Finish as FS predecessor anchor and propagates through chained successors", () => {
+    // PR345 acceptance scenario network:
+    // A (100% complete, actualFinish: 2026-08-13 Thu) -> B (dur 5) FS lag 0 -> C (dur 2) FS lag 0
+    const activities: ScheduleActivityInput[] = [
+      {
+        id: 1,
+        wbsNodeId: 1,
+        activityName: "A",
+        originalDurationDays: 5,
+        percentComplete: 100,
+        plannedStart: "2026-08-13",
+        plannedFinish: "2026-08-19",
+        actualStart: "2026-08-13",
+        actualFinish: "2026-08-13",
+      },
+      {
+        id: 2,
+        wbsNodeId: 1,
+        activityName: "B",
+        originalDurationDays: 5,
+        percentComplete: 0,
+        plannedStart: "2026-08-13",
+        plannedFinish: "2026-08-19",
+      },
+      {
+        id: 3,
+        wbsNodeId: 1,
+        activityName: "C",
+        originalDurationDays: 2,
+        percentComplete: 0,
+        plannedStart: "2026-08-13",
+        plannedFinish: "2026-08-14",
+      },
+    ];
+    const dependencies: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+      { id: 2, predecessorActivityId: 2, successorActivityId: 3, dependencyType: "FS", lagDays: 0 },
+    ];
+
+    const res = runScheduleEngine("2026-08-13", "2026-08-13", [monFriCalendar], 1, activities, dependencies);
+    const map = new Map(res.map((r) => [r.id, r]));
+
+    // A is completed with actualFinish: 2026-08-13
+    expect(map.get(1)!.earlyStart).toBe("2026-08-13");
+    expect(map.get(1)!.earlyFinish).toBe("2026-08-13");
+
+    // B starts next working day after A's Actual Finish (2026-08-13 Thu -> 2026-08-14 Fri)
+    // 5 working days on Mon-Fri calendar: Fri 14, Mon 17, Tue 18, Wed 19, Thu 20
+    expect(map.get(2)!.earlyStart).toBe("2026-08-14");
+    expect(map.get(2)!.earlyFinish).toBe("2026-08-20");
+
+    // C starts next working day after B's Early Finish (2026-08-20 Thu -> 2026-08-21 Fri)
+    // 2 working days: Fri 21, Mon 24
+    expect(map.get(3)!.earlyStart).toBe("2026-08-21");
+    expect(map.get(3)!.earlyFinish).toBe("2026-08-24");
+  });
+
+  it("supports actual-start anchoring for SS and SF relationships", () => {
+    // Predecessor in-progress with Actual Start = 2026-08-11 (Tue)
+    const activities: ScheduleActivityInput[] = [
+      {
+        id: 1,
+        wbsNodeId: 1,
+        activityName: "InProg_P",
+        originalDurationDays: 5,
+        remainingDurationDays: 3,
+        percentComplete: 40,
+        actualStart: "2026-08-11",
+      },
+      {
+        id: 2,
+        wbsNodeId: 1,
+        activityName: "Succ_SS",
+        originalDurationDays: 2,
+      },
+      {
+        id: 3,
+        wbsNodeId: 1,
+        activityName: "Succ_SF",
+        originalDurationDays: 2,
+      },
+    ];
+    const dependencies: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "SS", lagDays: 1 },
+      { id: 2, predecessorActivityId: 1, successorActivityId: 3, dependencyType: "SF", lagDays: 0 },
+    ];
+
+    // Data Date: 2026-08-13 (Thu)
+    const res = runScheduleEngine("2026-08-13", "2026-08-13", [monFriCalendar], 1, activities, dependencies);
+    const map = new Map(res.map((r) => [r.id, r]));
+
+    // SS + 1 lag anchored to P's Actual Start (2026-08-11 Tue -> +1 working day -> 2026-08-12 Wed)
+    expect(map.get(2)!.earlyStart).toBe("2026-08-12");
+    expect(map.get(2)!.earlyFinish).toBe("2026-08-13");
+
+    // SF 0 lag anchored to P's Actual Start (2026-08-11 Tue finish -> dur 2 -> ES = 2026-08-10 Mon)
+    expect(map.get(3)!.earlyFinish).toBe("2026-08-11");
+    expect(map.get(3)!.earlyStart).toBe("2026-08-10");
+  });
+
+  it("supports actual-finish anchoring for FF relationships with lag", () => {
+    const activities: ScheduleActivityInput[] = [
+      {
+        id: 1,
+        wbsNodeId: 1,
+        activityName: "Done_P",
+        originalDurationDays: 4,
+        percentComplete: 100,
+        actualStart: "2026-08-10",
+        actualFinish: "2026-08-13", // Thu
+      },
+      {
+        id: 2,
+        wbsNodeId: 1,
+        activityName: "Succ_FF_pos",
+        originalDurationDays: 3,
+      },
+      {
+        id: 3,
+        wbsNodeId: 1,
+        activityName: "Succ_FF_neg",
+        originalDurationDays: 2,
+      },
+    ];
+    const dependencies: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FF", lagDays: 1 },
+      { id: 2, predecessorActivityId: 1, successorActivityId: 3, dependencyType: "FF", lagDays: -1 },
+    ];
+
+    const res = runScheduleEngine("2026-08-13", "2026-08-13", [monFriCalendar], 1, activities, dependencies);
+    const map = new Map(res.map((r) => [r.id, r]));
+
+    // FF + 1 lag: P actual finish 2026-08-13 Thu -> EF req = 2026-08-14 Fri. Dur 3 -> ES = 2026-08-12 Wed
+    expect(map.get(2)!.earlyFinish).toBe("2026-08-14");
+    expect(map.get(2)!.earlyStart).toBe("2026-08-12");
+
+    // FF - 1 lag: P actual finish 2026-08-13 Thu -> EF req = 2026-08-12 Wed. Dur 2 -> ES = 2026-08-11 Tue
+    expect(map.get(3)!.earlyFinish).toBe("2026-08-12");
+    expect(map.get(3)!.earlyStart).toBe("2026-08-11");
+  });
+
+  it("handles weekend working-day span correctly (5 working days crossing weekend = 7 calendar days)", () => {
+    // 2026-08-14 is a Friday. 5 working days: Fri 14, Mon 17, Tue 18, Wed 19, Thu 20.
+    const activities: ScheduleActivityInput[] = [
+      {
+        id: 1,
+        wbsNodeId: 1,
+        activityName: "Weekend Task",
+        originalDurationDays: 5,
+        plannedStart: "2026-08-14",
+      },
+    ];
+    const res = runScheduleEngine("2026-08-14", "2026-08-14", [monFriCalendar], 1, activities, []);
+    expect(res[0].earlyStart).toBe("2026-08-14");
+    expect(res[0].earlyFinish).toBe("2026-08-20");
+  });
 });
 
 describe("Duration % Complete semantics", () => {

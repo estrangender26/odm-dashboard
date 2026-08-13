@@ -52,15 +52,16 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4">
           <div><h3 className="text-sm font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Read-only schedule dates</p></div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-blue-600"></span> Planned</span>
-            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-red-600"></span> Critical</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-red-600"></span> Critical planned</span>
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-emerald-600"></span> Actual</span>
-            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-slate-100"></span> CPM</span>
-            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-3 w-3 rotate-45 bg-blue-500"></span> Planned milestone</span>
-            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-3 w-3 rotate-45 border border-dashed border-slate-500"></span> CPM milestone</span>
-            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="text-emerald-700">▸</span> Open actual</span>
-            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-white/55 ring-1 ring-slate-300"></span> Shaded = % complete</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-transparent"></span> CPM</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-3 w-3 rotate-45 border-2 border-blue-700 bg-blue-500"></span> Planned milestone</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-3 w-3 rotate-45 border-2 border-dashed border-slate-500 bg-transparent"></span> CPM milestone</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="inline-flex items-center"><span className="h-2 w-2 rounded-full bg-emerald-600" /><span className="-ml-px text-[10px] leading-none text-emerald-700">▸</span></span> Open actual</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 overflow-hidden rounded bg-blue-600"><span className="block h-full w-1/2 bg-white/55"></span></span> Shaded = % complete</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-amber-300/70" style={{ backgroundImage: "repeating-linear-gradient(135deg, transparent 0 3px, rgb(146 64 14 / 0.45) 3px 5px)" }}></span> Unresolved progress</span>
           </div>
         </div>
         <div className="flex flex-wrap gap-1" aria-label="Timeline zoom">

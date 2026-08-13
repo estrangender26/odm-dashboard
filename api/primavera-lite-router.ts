@@ -21,7 +21,14 @@ import {
   verifyPreviewToken,
   PreviewTokenException,
 } from "@/modules/gantt/primavera-lite/previewToken";
-import { runScheduleEngine } from "@/modules/gantt/primavera-lite/schedulingEngine";
+import {
+  runScheduleEngine,
+  addWorkingDays,
+  countWorkingDays,
+  dateToCalendarDay,
+  calendarDayToDate,
+  type ScheduleCalendarInput,
+} from "@/modules/gantt/primavera-lite/schedulingEngine";
 import { isScheduleOutOfDate } from "@/modules/gantt/primavera-lite/scheduleStaleness";
 
 const MAX_NAME_LENGTH = 255;
@@ -539,28 +546,6 @@ function isActivityChangeNoop(activity: ActivityLike, changes: Record<string, un
 }
 
 /**
- * Validates planned/actual date pairs after merging the proposed changes with the
- * activity's existing dates. Returns an error message or null when valid.
- * Blank (null) dates are allowed; both endpoints are required to enforce start <= finish.
- */
-function validateActivityDateRanges(
-  activity: ActivityLike,
-  changes: Record<string, unknown>
-): string | null {
-  const plannedStart = changes.plannedStart !== undefined ? toIsoDateString(changes.plannedStart) : toIsoDateString(activity.plannedStart);
-  const plannedFinish = changes.plannedFinish !== undefined ? toIsoDateString(changes.plannedFinish) : toIsoDateString(activity.plannedFinish);
-  if (plannedStart && plannedFinish && plannedStart > plannedFinish) {
-    return "Planned start must be on or before planned finish";
-  }
-  const actualStart = changes.actualStart !== undefined ? toIsoDateString(changes.actualStart) : toIsoDateString(activity.actualStart);
-  const actualFinish = changes.actualFinish !== undefined ? toIsoDateString(changes.actualFinish) : toIsoDateString(activity.actualFinish);
-  if (actualStart && actualFinish && actualStart > actualFinish) {
-    return "Actual start must be on or before actual finish";
-  }
-  return null;
-}
-
-/**
  * Compares a proposed project-meta change against the current project row. Returns
  * true when every provided change equals the current value (no-op).
  */
@@ -847,6 +832,45 @@ async function validateProjectNotArchived(
     .where(eq(ganttProjects.id, projectId));
   if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   return rows[0];
+}
+
+async function resolveActivityCalendar(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  calendarId: number | null | undefined,
+  defaultCalendarId: number | null | undefined
+): Promise<ScheduleCalendarInput> {
+  const targetId = calendarId ?? defaultCalendarId;
+  if (targetId != null) {
+    const [calRow] = await tx
+      .select()
+      .from(ganttCalendars)
+      .where(and(eq(ganttCalendars.id, targetId), eq(ganttCalendars.projectId, projectId)));
+    if (calRow) {
+      const exRows = await tx
+        .select()
+        .from(ganttCalendarExceptions)
+        .where(eq(ganttCalendarExceptions.calendarId, calRow.id));
+      return {
+        id: calRow.id,
+        name: calRow.name,
+        workingDays: calRow.workingDays,
+        hoursPerDay: calRow.hoursPerDay,
+        timezone: calRow.timezone,
+        exceptions: exRows.map((ex) => ({
+          exceptionDate: String(ex.exceptionDate ?? "").trim().split("T")[0],
+          isWorking: ex.isWorking,
+        })),
+      };
+    }
+  }
+  return {
+    id: 0,
+    name: "Default Calendar",
+    workingDays: [1, 2, 3, 4, 5],
+    hoursPerDay: "8.00",
+    timezone: "Asia/Manila",
+  };
 }
 
 export const primaveraLiteRouter = createRouter({
@@ -1372,7 +1396,12 @@ export const primaveraLiteRouter = createRouter({
         await lockProject(tx, accessCtx.projectId);
 
         const [projectRow] = await tx
-          .select({ revision: ganttProjects.revision, archivedAt: ganttProjects.archivedAt })
+          .select({
+            revision: ganttProjects.revision,
+            archivedAt: ganttProjects.archivedAt,
+            dataDate: ganttProjects.dataDate,
+            defaultCalendarId: ganttProjects.defaultCalendarId,
+          })
           .from(ganttProjects)
           .where(eq(ganttProjects.id, accessCtx.projectId));
         if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
@@ -1420,6 +1449,55 @@ export const primaveraLiteRouter = createRouter({
           await requireProjectCalendar(tx, accessCtx.projectId, input.activity.calendarId);
         }
 
+        const cal = await resolveActivityCalendar(
+          tx,
+          accessCtx.projectId,
+          input.activity.calendarId,
+          projectRow.defaultCalendarId
+        );
+
+        const isMilestone = input.activity.activityType === "milestone";
+        let plannedStart = input.activity.plannedStart ? toIsoDateString(input.activity.plannedStart) : null;
+        let plannedFinish = input.activity.plannedFinish ? toIsoDateString(input.activity.plannedFinish) : null;
+        let originalDurationDays = input.activity.originalDurationDays ?? 0;
+
+        if (isMilestone) {
+          originalDurationDays = 0;
+          if (plannedStart && !plannedFinish) plannedFinish = plannedStart;
+          else if (plannedFinish && !plannedStart) plannedStart = plannedFinish;
+        } else {
+          if (plannedStart && originalDurationDays > 0 && !plannedFinish) {
+            const startDay = dateToCalendarDay(plannedStart);
+            const finishDay = addWorkingDays(startDay, originalDurationDays, cal);
+            plannedFinish = calendarDayToDate(finishDay);
+          } else if (plannedStart && plannedFinish && input.activity.originalDurationDays === undefined) {
+            const startDay = dateToCalendarDay(plannedStart);
+            const finishDay = dateToCalendarDay(plannedFinish);
+            if (finishDay >= startDay) {
+              originalDurationDays = countWorkingDays(startDay, finishDay, cal);
+            }
+          }
+        }
+
+        let percentComplete = input.activity.percentComplete ?? 0;
+        let actualStart = input.activity.actualStart ? toIsoDateString(input.activity.actualStart) : null;
+        let actualFinish = input.activity.actualFinish ? toIsoDateString(input.activity.actualFinish) : null;
+
+        if (actualFinish != null) {
+          percentComplete = 100;
+        } else if (percentComplete === 100) {
+          actualFinish = projectRow.dataDate ?? new Date().toISOString().split("T")[0];
+        } else {
+          actualFinish = null;
+        }
+
+        if (plannedStart && plannedFinish && plannedStart > plannedFinish) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Planned start must be on or before planned finish" });
+        }
+        if (actualStart && actualFinish && actualStart > actualFinish) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Actual start must be on or before actual finish" });
+        }
+
         const [orderRow] = await tx
           .select({ next: sql<number>`COALESCE(MAX(${ganttActivities.sortOrder}), -1)::int + 1` })
           .from(ganttActivities)
@@ -1439,13 +1517,13 @@ export const primaveraLiteRouter = createRouter({
             activityType: (input.activity.activityType ?? "task") as any,
             sortOrder: orderRow?.next ?? 0,
             calendarId: input.activity.calendarId ?? null,
-            originalDurationDays: (input.activity.originalDurationDays ?? 0) as any,
+            originalDurationDays: originalDurationDays as any,
             remainingDurationDays: (input.activity.remainingDurationDays ?? 0) as any,
-            plannedStart: (input.activity.plannedStart ?? null) as any,
-            plannedFinish: (input.activity.plannedFinish ?? null) as any,
-            actualStart: (input.activity.actualStart ?? null) as any,
-            actualFinish: (input.activity.actualFinish ?? null) as any,
-            percentComplete: (input.activity.actualFinish != null ? 100 : input.activity.percentComplete ?? 0) as any,
+            plannedStart: (plannedStart ?? null) as any,
+            plannedFinish: (plannedFinish ?? null) as any,
+            actualStart: (actualStart ?? null) as any,
+            actualFinish: (actualFinish ?? null) as any,
+            percentComplete: percentComplete as any,
             status: (input.activity.status ?? null) as any,
             constraintType: (input.activity.constraintType ?? null) as any,
             constraintDate: (input.activity.constraintDate ?? null) as any,
@@ -1476,7 +1554,12 @@ export const primaveraLiteRouter = createRouter({
         await lockProject(tx, accessCtx.projectId);
 
         const [projectRow] = await tx
-          .select({ revision: ganttProjects.revision, archivedAt: ganttProjects.archivedAt })
+          .select({
+            revision: ganttProjects.revision,
+            archivedAt: ganttProjects.archivedAt,
+            dataDate: ganttProjects.dataDate,
+            defaultCalendarId: ganttProjects.defaultCalendarId,
+          })
           .from(ganttProjects)
           .where(eq(ganttProjects.id, accessCtx.projectId));
         if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
@@ -1502,21 +1585,31 @@ export const primaveraLiteRouter = createRouter({
         const before = mapActivityRow(activity);
         const changes = input.changes;
 
-        // Server-side date-pair validation: planned start <= planned finish and
-        // actual start <= actual finish, merging proposed changes with existing dates.
-        const dateRangeError = validateActivityDateRanges(activity, changes);
-        if (dateRangeError) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: dateRangeError });
-        }
-
         // No-op guard: identical edits must not bump the project revision or create audit events.
         if (isActivityChangeNoop(activity, changes)) {
           return { activity, revision: projectRow.revision };
         }
 
-        const setData: Record<string, unknown> = { updatedAt: new Date(), updatedByName: input.actorName ?? "Anonymous" };
         if (changes.wbsNodeId !== undefined) {
           await requireActiveLeafWbs(tx, accessCtx.projectId, changes.wbsNodeId);
+        }
+        if (changes.calendarId !== undefined && changes.calendarId !== null) {
+          await requireProjectCalendar(tx, accessCtx.projectId, changes.calendarId);
+        }
+
+        const cal = await resolveActivityCalendar(
+          tx,
+          accessCtx.projectId,
+          changes.calendarId !== undefined ? changes.calendarId : activity.calendarId,
+          projectRow.defaultCalendarId
+        );
+
+        const setData: Record<string, unknown> = {
+          updatedAt: new Date(),
+          updatedByName: input.actorName ?? "Anonymous",
+        };
+
+        if (changes.wbsNodeId !== undefined) {
           setData.wbsNodeId = changes.wbsNodeId;
           if (changes.wbsNodeId !== activity.wbsNodeId) {
             const [orderRow] = await tx
@@ -1530,27 +1623,166 @@ export const primaveraLiteRouter = createRouter({
             setData.sortOrder = orderRow?.next ?? 0;
           }
         }
-        if (changes.calendarId !== undefined && changes.calendarId !== null) {
-          await requireProjectCalendar(tx, accessCtx.projectId, changes.calendarId);
-        }
         if (changes.calendarId !== undefined) setData.calendarId = changes.calendarId;
         if (changes.activityName !== undefined) setData.activityName = changes.activityName;
         if (changes.activityId !== undefined) setData.activityId = changes.activityId;
         if (changes.activityType !== undefined) setData.activityType = changes.activityType;
-        if (changes.originalDurationDays !== undefined) setData.originalDurationDays = changes.originalDurationDays;
-        if (changes.remainingDurationDays !== undefined) setData.remainingDurationDays = changes.remainingDurationDays;
-        if (changes.plannedStart !== undefined) setData.plannedStart = changes.plannedStart;
-        if (changes.plannedFinish !== undefined) setData.plannedFinish = changes.plannedFinish;
-        if (changes.actualStart !== undefined) setData.actualStart = changes.actualStart;
-        if (changes.actualFinish !== undefined) setData.actualFinish = changes.actualFinish;
-        // A supplied Actual Finish completes the activity in the same revision.
-        // Clearing it deliberately leaves existing progress unchanged.
-        if (changes.actualFinish != null) setData.percentComplete = 100;
-        else if (changes.percentComplete !== undefined) setData.percentComplete = changes.percentComplete;
         if (changes.status !== undefined) setData.status = changes.status;
         if (changes.constraintType !== undefined) setData.constraintType = changes.constraintType;
         if (changes.constraintDate !== undefined) setData.constraintDate = changes.constraintDate;
         if (changes.notes !== undefined) setData.notes = changes.notes;
+        if (changes.remainingDurationDays !== undefined) setData.remainingDurationDays = changes.remainingDurationDays;
+
+        // Synchronize Planned Dates and Duration
+        const effType = changes.activityType !== undefined ? changes.activityType : activity.activityType;
+        const isMilestone = effType === "milestone";
+
+        if (isMilestone) {
+          setData.originalDurationDays = 0;
+          if (changes.plannedStart !== undefined && changes.plannedFinish !== undefined) {
+            setData.plannedStart = toIsoDateString(changes.plannedStart);
+            setData.plannedFinish = toIsoDateString(changes.plannedFinish);
+          } else if (changes.plannedStart !== undefined) {
+            const s = toIsoDateString(changes.plannedStart);
+            setData.plannedStart = s;
+            setData.plannedFinish = s;
+          } else if (changes.plannedFinish !== undefined) {
+            const f = toIsoDateString(changes.plannedFinish);
+            setData.plannedStart = f;
+            setData.plannedFinish = f;
+          }
+        } else {
+          const hasStart = changes.plannedStart !== undefined;
+          const hasFinish = changes.plannedFinish !== undefined;
+          const hasDuration = changes.originalDurationDays !== undefined;
+
+          if (hasStart && hasFinish) {
+            const s = toIsoDateString(changes.plannedStart);
+            const f = toIsoDateString(changes.plannedFinish);
+            setData.plannedStart = s;
+            setData.plannedFinish = f;
+            if (hasDuration && changes.originalDurationDays !== null) {
+              setData.originalDurationDays = changes.originalDurationDays;
+            } else if (s && f && s <= f) {
+              const startDay = dateToCalendarDay(s);
+              const finishDay = dateToCalendarDay(f);
+              setData.originalDurationDays = countWorkingDays(startDay, finishDay, cal);
+            }
+          } else if (hasDuration && !hasStart && !hasFinish) {
+            const newDur = changes.originalDurationDays ?? 0;
+            setData.originalDurationDays = newDur;
+            const currentStart = toIsoDateString(activity.plannedStart);
+            if (currentStart) {
+              if (newDur === 0) {
+                setData.plannedFinish = currentStart;
+              } else {
+                const startDay = dateToCalendarDay(currentStart);
+                const finishDay = addWorkingDays(startDay, newDur, cal);
+                setData.plannedFinish = calendarDayToDate(finishDay);
+              }
+            }
+          } else if (hasFinish && !hasStart && !hasDuration) {
+            const f = toIsoDateString(changes.plannedFinish);
+            setData.plannedFinish = f;
+            const currentStart = toIsoDateString(activity.plannedStart);
+            if (currentStart && f && f >= currentStart) {
+              const startDay = dateToCalendarDay(currentStart);
+              const finishDay = dateToCalendarDay(f);
+              setData.originalDurationDays = countWorkingDays(startDay, finishDay, cal);
+            }
+          } else if (hasStart && !hasFinish && !hasDuration) {
+            const s = toIsoDateString(changes.plannedStart);
+            setData.plannedStart = s;
+            const curDur = activity.originalDurationDays;
+            if (s && curDur != null && curDur > 0) {
+              const startDay = dateToCalendarDay(s);
+              const finishDay = addWorkingDays(startDay, curDur, cal);
+              setData.plannedFinish = calendarDayToDate(finishDay);
+            }
+          } else if (hasStart && hasDuration && !hasFinish) {
+            const s = toIsoDateString(changes.plannedStart);
+            const newDur = changes.originalDurationDays ?? 0;
+            setData.plannedStart = s;
+            setData.originalDurationDays = newDur;
+            if (s) {
+              if (newDur === 0) {
+                setData.plannedFinish = s;
+              } else {
+                const startDay = dateToCalendarDay(s);
+                const finishDay = addWorkingDays(startDay, newDur, cal);
+                setData.plannedFinish = calendarDayToDate(finishDay);
+              }
+            }
+          } else if (hasFinish && hasDuration && !hasStart) {
+            setData.plannedFinish = toIsoDateString(changes.plannedFinish);
+            setData.originalDurationDays = changes.originalDurationDays ?? 0;
+          } else {
+            if (hasStart) setData.plannedStart = toIsoDateString(changes.plannedStart);
+            if (hasFinish) setData.plannedFinish = toIsoDateString(changes.plannedFinish);
+            if (hasDuration) setData.originalDurationDays = changes.originalDurationDays;
+          }
+        }
+
+        // Validate date ranges after date/duration synchronization
+        const effPlannedStart = setData.plannedStart !== undefined ? toIsoDateString(setData.plannedStart) : toIsoDateString(activity.plannedStart);
+        const effPlannedFinish = setData.plannedFinish !== undefined ? toIsoDateString(setData.plannedFinish) : toIsoDateString(activity.plannedFinish);
+        if (effPlannedStart && effPlannedFinish && effPlannedStart > effPlannedFinish) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Planned start must be on or before planned finish" });
+        }
+
+        // Actual Start / Actual Finish / % Complete synchronization
+        let effActualStart = changes.actualStart !== undefined ? toIsoDateString(changes.actualStart) : toIsoDateString(activity.actualStart);
+        let effActualFinish = changes.actualFinish !== undefined ? toIsoDateString(changes.actualFinish) : toIsoDateString(activity.actualFinish);
+        const currentPercent = activity.percentComplete ?? 0;
+
+        if (changes.actualStart !== undefined) {
+          setData.actualStart = effActualStart;
+        }
+
+        if (changes.actualFinish !== undefined) {
+          if (changes.actualFinish != null && String(changes.actualFinish).trim() !== "") {
+            effActualFinish = toIsoDateString(changes.actualFinish);
+            setData.actualFinish = effActualFinish;
+            setData.percentComplete = 100;
+          } else {
+            // Clearing Actual Finish
+            effActualFinish = null;
+            setData.actualFinish = null;
+            if (changes.percentComplete !== undefined && changes.percentComplete !== null) {
+              if (changes.percentComplete < 100) {
+                setData.percentComplete = changes.percentComplete;
+              } else {
+                // Clearing Actual Finish must make % Complete < 100; cannot remain 100%
+                setData.percentComplete = 99;
+              }
+            } else {
+              if (currentPercent === 100) {
+                setData.percentComplete = 99;
+              }
+            }
+          }
+        } else if (changes.percentComplete !== undefined && changes.percentComplete !== null) {
+          if (changes.percentComplete === 100) {
+            setData.percentComplete = 100;
+            if (effActualFinish == null) {
+              effActualFinish = projectRow.dataDate ?? new Date().toISOString().split("T")[0];
+              setData.actualFinish = effActualFinish;
+            }
+          } else if (changes.percentComplete < 100) {
+            setData.percentComplete = changes.percentComplete;
+            effActualFinish = null;
+            setData.actualFinish = null;
+          }
+        } else if (changes.percentComplete === null) {
+          setData.percentComplete = 0;
+          effActualFinish = null;
+          setData.actualFinish = null;
+        }
+
+        if (effActualStart && effActualFinish && effActualStart > effActualFinish) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Actual start must be on or before actual finish" });
+        }
+
         setData.revision = sql`${ganttActivities.revision} + 1`;
 
         const [updated] = await tx

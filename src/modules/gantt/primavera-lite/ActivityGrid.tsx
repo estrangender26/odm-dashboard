@@ -170,10 +170,20 @@ export default function ActivityGrid(props: Props) {
   }
 
   function validateActivityDatePair(activity: ActivityGridRow, field: EditableDateField, value: string | null): string | null {
-    if (field === "plannedStart" || field === "plannedFinish") {
+    if (field === "plannedStart") {
+      if (activity.originalDurationDays != null && activity.originalDurationDays > 0) {
+        return null;
+      }
       return validateDatePair(
-        field === "plannedStart" ? value : (formatDate(activity.plannedStart) || null),
-        field === "plannedFinish" ? value : (formatDate(activity.plannedFinish) || null),
+        value,
+        formatDate(activity.plannedFinish) || null,
+        "Planned"
+      );
+    }
+    if (field === "plannedFinish") {
+      return validateDatePair(
+        formatDate(activity.plannedStart) || null,
+        value,
         "Planned"
       );
     }

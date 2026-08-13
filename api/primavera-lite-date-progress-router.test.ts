@@ -360,26 +360,230 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
     // planned start preserved as a user input (not overwritten by CPM)
     expect(activity?.plannedStart).toBe("2026-08-10");
   });
-});
 
-it("sets Duration % Complete to 100 atomically when Actual Finish is supplied, without inventing dates from percent", async () => {
-  const p = await createProject("PR7 Duration Complete");
-  const created = await createActivity(p.editor, p.project.slug, p.project.revision, {
-    activityName: "Task", percentComplete: 20,
-  });
-  let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
-  const completed = await caller.primaveraLite.updateActivity({
-    slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
-    activityId: created.activity.id, changes: { actualFinish: "2026-08-12", percentComplete: 25 },
-  });
-  expect(completed.activity.actualFinish).toBe("2026-08-12");
-  expect(completed.activity.percentComplete).toBe(100);
+  it("sets Duration % Complete to 100 atomically when Actual Finish is supplied, without inventing dates from percent", async () => {
+    const p = await createProject("PR7 Duration Complete");
+    const created = await createActivity(p.editor, p.project.slug, p.project.revision, {
+      activityName: "Task", percentComplete: 20,
+    });
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const completed = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+      activityId: created.activity.id, changes: { actualFinish: "2026-08-12", percentComplete: 25 },
+    });
+    expect(completed.activity.actualFinish).toBe("2026-08-12");
+    expect(completed.activity.percentComplete).toBe(100);
 
-  loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
-  const progressOnly = await caller.primaveraLite.updateActivity({
-    slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
-    activityId: created.activity.id, changes: { actualFinish: null, percentComplete: 100 },
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const progressOnly = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+      activityId: created.activity.id, changes: { actualFinish: null, percentComplete: 100 },
+    });
+    expect(progressOnly.activity.actualFinish).toBeNull();
+    expect(progressOnly.activity.percentComplete).toBe(99);
   });
-  expect(progressOnly.activity.actualFinish).toBeNull();
-  expect(progressOnly.activity.percentComplete).toBe(100);
+
+  it("changing % Complete to 100 auto-populates Actual Finish = Project Data Date", async () => {
+    const p = await createProject("PR7 Auto Data Date");
+    await caller.primaveraLite.updateProjectMeta({
+      slug: p.project.slug,
+      access: p.admin,
+      expectedRevision: p.project.revision,
+      changes: { dataDate: "2026-08-13" },
+    });
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const created = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Task Auto Finish",
+      percentComplete: 0,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Changing % Complete from 0 to 100 auto-populates Actual Finish = Project Data Date (2026-08-13)
+    const updated = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: created.activity.id,
+      changes: { percentComplete: 100 },
+    });
+    expect(updated.activity.percentComplete).toBe(100);
+    expect(updated.activity.actualFinish).toBe("2026-08-13");
+
+    // Manually changing Actual Finish to another valid date while remaining 100%
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const manualFinish = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: created.activity.id,
+      changes: { actualFinish: "2026-08-14" },
+    });
+    expect(manualFinish.activity.percentComplete).toBe(100);
+    expect(manualFinish.activity.actualFinish).toBe("2026-08-14");
+
+    // Reducing % Complete below 100 automatically clears Actual Finish
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const reduced = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: created.activity.id,
+      changes: { percentComplete: 60 },
+    });
+    expect(reduced.activity.percentComplete).toBe(60);
+    expect(reduced.activity.actualFinish).toBeNull();
+  });
+
+  it("synchronizes duration and planned dates with working-day calendar math across weekends", async () => {
+    const p = await createProject("PR7 Duration Sync");
+    // Friday 2026-08-14 start, duration 5 working days -> finishes Thursday 2026-08-20 (spans 7 calendar days)
+    const created = await createActivity(p.editor, p.project.slug, p.project.revision, {
+      activityName: "Weekend Task",
+      plannedStart: "2026-08-14",
+      originalDurationDays: 5,
+    });
+    expect(created.activity.plannedStart).toBe("2026-08-14");
+    expect(created.activity.plannedFinish).toBe("2026-08-20");
+    expect(created.activity.originalDurationDays).toBe(5);
+
+    // Editing duration to 6 working days -> recalculates Planned Finish to Friday 2026-08-21
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const updatedDur = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: created.activity.id,
+      changes: { originalDurationDays: 6 },
+    });
+    expect(updatedDur.activity.originalDurationDays).toBe(6);
+    expect(updatedDur.activity.plannedFinish).toBe("2026-08-21");
+
+    // Editing Planned Finish to Monday 2026-08-24 -> recalculates duration to 7 working days
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const updatedFinish = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: created.activity.id,
+      changes: { plannedFinish: "2026-08-24" },
+    });
+    expect(updatedFinish.activity.plannedFinish).toBe("2026-08-24");
+    expect(updatedFinish.activity.originalDurationDays).toBe(7);
+
+    // Editing Planned Start to Monday 2026-08-17 -> shifts Planned Finish with duration = 7 to Tuesday 2026-08-25
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const updatedStart = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: created.activity.id,
+      changes: { plannedStart: "2026-08-17" },
+    });
+    expect(updatedStart.activity.plannedStart).toBe("2026-08-17");
+    expect(updatedStart.activity.originalDurationDays).toBe(7);
+    expect(updatedStart.activity.plannedFinish).toBe("2026-08-25");
+  });
+
+  it("End-to-End PR345 acceptance scenario: A -> B -> C integrated scheduling and actuals", async () => {
+    // 1. Setup project with Data Date = 2026-08-13 (Thursday)
+    const p = await createProject("PR345 Acceptance Project");
+    await caller.primaveraLite.updateProjectMeta({
+      slug: p.project.slug,
+      access: p.admin,
+      expectedRevision: p.project.revision,
+      changes: { dataDate: "2026-08-13" },
+    });
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Create A (plannedStart 2026-08-13, originalDuration 5 -> plannedFinish 2026-08-19)
+    const actA = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Activity A",
+      plannedStart: "2026-08-13",
+      originalDurationDays: 5,
+      actualStart: "2026-08-13",
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Create B (originalDuration 5, plannedStart 2026-08-13)
+    const actB = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Activity B",
+      plannedStart: "2026-08-13",
+      originalDurationDays: 5,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Create C (originalDuration 2, plannedStart 2026-08-13)
+    const actC = await createActivity(p.editor, p.project.slug, loaded.revision, {
+      activityName: "Activity C",
+      plannedStart: "2026-08-13",
+      originalDurationDays: 2,
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // Create dependencies: A -> B (FS lag 0), B -> C (FS lag 0)
+    await caller.primaveraLite.createDependency({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      dependency: { predecessorActivityId: actA.activity.id, successorActivityId: actB.activity.id, dependencyType: "FS", lagDays: 0 },
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    await caller.primaveraLite.createDependency({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      dependency: { predecessorActivityId: actB.activity.id, successorActivityId: actC.activity.id, dependencyType: "FS", lagDays: 0 },
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+
+    // A. Setting A to 100% auto-populates Actual Finish = Data Date (2026-08-13)
+    const a100 = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: actA.activity.id,
+      changes: { percentComplete: 100 },
+    });
+    expect(a100.activity.percentComplete).toBe(100);
+    expect(a100.activity.actualFinish).toBe("2026-08-13");
+
+    // B. Actual Finish can then be manually changed while remaining 100%
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const aManual = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+      activityId: actA.activity.id,
+      changes: { actualFinish: "2026-08-13" },
+    });
+    expect(aManual.activity.actualFinish).toBe("2026-08-13");
+    expect(aManual.activity.percentComplete).toBe(100);
+
+    // E. Run Schedule uses A's Actual Finish (2026-08-13 Thu) as the FS anchor for B
+    // B starts Friday 2026-08-14, 5 working days -> finishes Thursday 2026-08-20
+    // F. B propagates to C: C starts Friday 2026-08-21, 2 working days -> finishes Monday 2026-08-24
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const sched = await caller.primaveraLite.runSchedule({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: loaded.revision,
+    });
+    expect(sched.scheduledCount).toBe(3);
+
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const bAfterSched = loaded.activities.find((a) => a.id === actB.activity.id)!;
+    const cAfterSched = loaded.activities.find((a) => a.id === actC.activity.id)!;
+
+    expect(bAfterSched.earlyStart).toBe("2026-08-14");
+    expect(bAfterSched.earlyFinish).toBe("2026-08-20");
+    expect(cAfterSched.earlyStart).toBe("2026-08-21");
+    expect(cAfterSched.earlyFinish).toBe("2026-08-24");
+
+    // H. Planned dates remain unchanged by actualized scheduling
+    expect(bAfterSched.plannedStart).toBe("2026-08-13");
+    expect(bAfterSched.plannedFinish).toBe("2026-08-19");
+    expect(cAfterSched.plannedStart).toBe("2026-08-13");
+    expect(cAfterSched.plannedFinish).toBe("2026-08-14");
+  });
 });

@@ -56,11 +56,29 @@ export function optimisticActivityEdit<T extends Pick<ActivityGridRow, "id" | "w
 ): T[] {
   const current = rows.find((row) => row.id === id);
   if (!current) return rows;
+  const mergedChanges: any = { ...changes };
+
+  if (mergedChanges.actualFinish !== undefined) {
+    if (mergedChanges.actualFinish != null && String(mergedChanges.actualFinish).trim() !== "") {
+      if (mergedChanges.percentComplete === undefined) {
+        mergedChanges.percentComplete = 100;
+      }
+    } else {
+      if (mergedChanges.percentComplete === undefined && (current as any).percentComplete === 100) {
+        mergedChanges.percentComplete = 99;
+      }
+    }
+  } else if (mergedChanges.percentComplete !== undefined) {
+    if (mergedChanges.percentComplete < 100 && mergedChanges.actualFinish === undefined) {
+      mergedChanges.actualFinish = null;
+    }
+  }
+
   if (changes.wbsNodeId !== undefined && changes.wbsNodeId !== current.wbsNodeId) {
     const moved = optimisticActivityReorder(rows, id, changes.wbsNodeId, Number.MAX_SAFE_INTEGER);
-    return moved.map((row) => row.id === id ? { ...row, ...changes } : row);
+    return moved.map((row) => row.id === id ? { ...row, ...mergedChanges } : row);
   }
-  return optimisticActivityUpdate(rows, id, changes);
+  return optimisticActivityUpdate(rows, id, mergedChanges);
 }
 
 export function selectValidNewWbs(currentWbsId: number | null, leafNodeIds: number[]): number | null {

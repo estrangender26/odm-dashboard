@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, asc } from "drizzle-orm";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../db/schema";
@@ -88,7 +88,7 @@ describe("Primavera Lite PR5 dependencies", () => {
     const restored = await caller.primaveraLite.restoreDependency({ slug: p.project.slug, access: p.editor, expectedRevision: archived.revision, dependencyId: created.dependency.id, confirmed: true });
     expect(updated.dependency).toMatchObject({ dependencyType: "SS", lagDays: -3 });
     expect(restored.dependency.archivedAt).toBeNull();
-    const events = await testDb.select().from(ganttProjectEvents).where(eq(ganttProjectEvents.projectId, p.project.id));
+    const events = await testDb.select().from(ganttProjectEvents).where(eq(ganttProjectEvents.projectId, p.project.id)).orderBy(asc(ganttProjectEvents.projectRevision), asc(ganttProjectEvents.id));
     const dependencyEvents = events.filter((event) => event.entityType === "dependency" && event.entityId === created.dependency.id);
     expect(dependencyEvents.map((event) => event.action)).toEqual(["create", "update", "archive", "restore"]);
     expect(new Set(dependencyEvents.map((event) => event.projectRevision)).size).toBe(4);
