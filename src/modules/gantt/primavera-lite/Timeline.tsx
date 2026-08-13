@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { SCHEDULE_ROW_HEIGHT, sortActivities, type ActivityGridRow } from "./activityGridModel";
 import { dependencyLineGeometry, type DependencyRow } from "./dependencyModel";
 import {
-  ZOOM_PIXELS_PER_DAY, actualDates, headerTicks, isMilestone, plannedDates,
+  ZOOM_PIXELS_PER_DAY, activityTimelineModel, headerTicks, isMilestone,
   parseTimelineDate, timelinePosition, timelineRange, timelineSpan, type TimelineZoom,
 } from "./timelineModel";
 
@@ -53,6 +53,8 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-blue-600"></span> Normal</span>
             <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-red-600"></span> Critical</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-emerald-600"></span> Actual</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-slate-100"></span> CPM</span>
             <span className="inline-flex items-center gap-1"><span className="h-2.5 w-4 rounded bg-slate-300"></span> Shaded = % complete</span>
           </div>
         </div>
@@ -84,29 +86,67 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                 </g>)}
               </svg>
               {activities.map((activity, rowIndex) => {
-                const planned = plannedDates(activity);
-                const actual = actualDates(activity);
+                const { primary, actual, progress } = activityTimelineModel(activity);
+                const isPlanned = primary?.source === "planned";
                 const highlighted = highlightedActivityId === activity.id;
                 const isCritical = (activity.totalFloatDays ?? 0) <= 0 && activity.earlyStart != null;
+                const barKind = isPlanned ? "Planned" : "CPM";
+                // Progress is truthful only when a real Actual Finish exists; a
+                // 100% activity that is still open is labelled as such.
+                const progressLabel = progress.isComplete && !progress.hasActualFinish
+                  ? "100% complete (no Actual Finish)"
+                  : `${progress.percent}% complete`;
                 return (
                   <button key={activity.id} type="button" aria-label={`Highlight ${activity.activityName}`}
                     onMouseEnter={() => onActivityHighlight?.(activity.id)} onMouseLeave={() => onActivityHighlight?.(null)} onFocus={() => onActivityHighlight?.(activity.id)}
                     className={`absolute left-0 w-full border-b text-left transition-colors ${highlighted ? "bg-blue-50" : "hover:bg-slate-50"}`}
                     style={{ top: rowIndex * SCHEDULE_ROW_HEIGHT, height: SCHEDULE_ROW_HEIGHT }}>
-                    {planned && (isMilestone(activity, planned) ? (
-                      <span title={`${activity.activityName} milestone${isCritical ? " (Critical)" : ""}`} aria-label="Planned milestone"
-                        className={`absolute top-3 h-4 w-4 rotate-45 border-2 ${isCritical ? "border-red-700 bg-red-500" : "border-blue-700 bg-blue-500"}`}
-                        style={{ left: timelinePosition(planned.start, range.start, pixelsPerDay) - 8 }} />
+                    {primary && (isMilestone(activity, primary.span) ? (
+                      /* A milestone stays a diamond whatever its span source; only the fill
+                         distinguishes a planned commitment (solid) from CPM output (hollow,
+                         dashed). A milestone is never widened into a duration bar. */
+                      <span title={`${activity.activityName} milestone${isPlanned ? "" : " (CPM early dates)"}${isCritical ? " (Critical)" : ""}`}
+                        aria-label={`${barKind} milestone`}
+                        className={`absolute top-3 h-4 w-4 rotate-45 border-2 ${isPlanned
+                          ? (isCritical ? "border-red-700 bg-red-500" : "border-blue-700 bg-blue-500")
+                          : `border-dashed bg-transparent ${isCritical ? "border-red-600" : "border-slate-500"}`}`}
+                        style={{ left: timelinePosition(primary.span.start, range.start, pixelsPerDay) - 8 }} />
                     ) : (
-                      <span title={`${activity.activityName}: ${activity.percentComplete ?? 0}% complete; ${planned.source} dates${isCritical ? ` (Critical, ${activity.totalFloatDays ?? 0}d float)` : ""}`} aria-label={`Planned bar, ${activity.percentComplete ?? 0}% complete`}
-                        className={`absolute top-2 h-3 overflow-hidden rounded ${isCritical ? "bg-red-600" : "bg-blue-600"}`}
-                        style={{ left: timelinePosition(planned.start, range.start, pixelsPerDay), width: timelineSpan(planned.start, planned.finish, pixelsPerDay) }}>
-                        <span aria-label={`${activity.percentComplete ?? 0}% complete`} className="block h-full bg-white/55" style={{ width: `${Math.min(100, Math.max(0, activity.percentComplete ?? 0))}%` }} />
+                      /* Planned geometry is exactly Planned Start -> Planned Finish and is never
+                         resized by Data Date, % complete or CPM. A CPM-sourced bar is drawn
+                         hollow/dashed so it can never read as a planned commitment. */
+                      <span title={`${activity.activityName}: ${progressLabel}; ${isPlanned ? "planned" : "CPM early"} dates${isCritical ? ` (Critical, ${activity.totalFloatDays ?? 0}d float)` : ""}`}
+                        aria-label={`${barKind} bar, ${progressLabel}`}
+                        className={`absolute top-2 h-3 overflow-hidden rounded ${isPlanned
+                          ? (isCritical ? "bg-red-600" : "bg-blue-600")
+                          : `border border-dashed bg-transparent ${isCritical ? "border-red-600" : "border-slate-500"}`}`}
+                        style={{ left: timelinePosition(primary.span.start, range.start, pixelsPerDay), width: timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) }}>
+                        {isPlanned && <span aria-label={progressLabel} className="block h-full bg-white/55" style={{ width: `${progress.percent}%` }} />}
                       </span>
                     ))}
-                    {actual && <span title={`${activity.activityName}: actual dates`} aria-label="Actual bar" className="absolute top-6 h-2 rounded bg-emerald-600"
+                    {/* Closed actual pair: an exact Actual Start -> Actual Finish bar. */}
+                    {actual.kind === "closed" && <span title={`${activity.activityName}: actual dates`} aria-label="Actual bar" className="absolute top-6 h-2 rounded bg-emerald-600"
                       style={{ left: timelinePosition(actual.start, range.start, pixelsPerDay), width: timelineSpan(actual.start, actual.finish, pixelsPerDay) }} />}
-                    {!planned && !actual && <span className="absolute left-2 top-3 text-xs text-muted-foreground">No dates</span>}
+                    {/* Open actual: a start marker plus a fading open-ended tail. No closed bar,
+                        because no Actual Finish exists to close it with. */}
+                    {actual.kind === "open" && (
+                      <span title={`${activity.activityName}: actual start ${activity.actualStart} (in progress, no Actual Finish)`}
+                        aria-label="Actual start marker, in progress with no Actual Finish"
+                        className="absolute top-6 flex h-2 items-center"
+                        style={{ left: timelinePosition(actual.start, range.start, pixelsPerDay) }}>
+                        <span className="h-2 w-2 rounded-full bg-emerald-600" />
+                        <span aria-hidden="true" className="h-1 w-6 rounded-r bg-gradient-to-r from-emerald-600 to-transparent" />
+                      </span>
+                    )}
+                    {/* 100% with no Actual Finish: state is shown as a label, never as a date. */}
+                    {progress.isComplete && !progress.hasActualFinish && (
+                      <span aria-label="100% complete, no Actual Finish recorded"
+                        className="absolute top-5 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800"
+                        style={{ left: primary ? timelinePosition(primary.span.start, range.start, pixelsPerDay) + timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) + 4 : 8 }}>
+                        100% · no Actual Finish
+                      </span>
+                    )}
+                    {!primary && actual.kind === "none" && <span className="absolute left-2 top-3 text-xs text-muted-foreground">No dates</span>}
                   </button>
                 );
               })}
