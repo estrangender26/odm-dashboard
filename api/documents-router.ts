@@ -632,6 +632,25 @@ export const documentsRouter = {
     }
   }),
 
+  // ── Get the lightweight folder-only hierarchy used by move dialogs ──
+  getFolderTree: publicQuery.query(async () => {
+    try {
+      const folders = await db
+        .select({
+          id: docFolders.id,
+          name: docFolders.name,
+          parentId: docFolders.parentId,
+          sortOrder: docFolders.sortOrder,
+        })
+        .from(docFolders)
+        .orderBy(docFolders.sortOrder, docFolders.name);
+      return { folders };
+    } catch (err: unknown) {
+      console.error("[docFolderTree] Error:", getErrorMessage(err));
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to load folder tree" });
+    }
+  }),
+
   // ── Get one folder level for lazy tree loading ──
   getFolderContents: publicQuery
     .input(z.object({ parentId: z.number().nullable() }))

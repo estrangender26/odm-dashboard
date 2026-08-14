@@ -8,6 +8,12 @@ import {
   MAX_UPLOAD_FILE_SIZE_BYTES,
 } from "@contracts/upload-limits";
 import { deleteFileWithVerification, shouldUseDirectStorage, uploadFileDirect } from "@/lib/direct-storage-upload";
+import {
+  buildDestinationFolderTree,
+  createSubmissionGuard,
+  createTrailingAsyncCoordinator,
+  getDestinationFolderOptions,
+} from "@/lib/om-manual-moves";
 
 // ═══════════════════════════════════════════════════════════
 // Types
@@ -651,6 +657,8 @@ export default function OmManualsLibrary() {
   const [loadedFolderIds, setLoadedFolderIds] = useState<Set<number>>(new Set());
   const [loadingFolderIds, setLoadingFolderIds] = useState<Set<number>>(new Set());
   const inFlightFolderLoads = useRef<Set<number | null>>(new Set());
+  const moveFolderSubmissionGuard = useRef(createSubmissionGuard());
+  const moveFileSubmissionGuard = useRef(createSubmissionGuard());
   const apiCallCount = useRef(0);
   const initialLoadStartedAt = useRef(performance.now());
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -686,7 +694,14 @@ export default function OmManualsLibrary() {
     refetchOnWindowFocus: false,
   });
   const { data: fullTreeData, isFetching: isSearchTreeLoading } = trpc.documents.getTree.useQuery(undefined, {
-    enabled: debouncedSearch.length > 2 || modal?.type === "moveFolder" || modal?.type === "moveFile",
+    enabled: debouncedSearch.length > 2,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const isMoveDialogOpen = modal?.type === "moveFolder" || modal?.type === "moveFile";
+  const { data: destinationFolderData, isFetching: isDestinationFoldersLoading } = trpc.documents.getFolderTree.useQuery(undefined, {
+    enabled: isMoveDialogOpen,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,
@@ -783,14 +798,21 @@ export default function OmManualsLibrary() {
   }, []);
 
   // ── Refresh helper ──
-  const refreshTree = useCallback(async (action: string) => {
+  const refreshTree = useCallback(async (
+    action: string,
+    { invalidateAiContext = true }: { invalidateAiContext?: boolean } = {},
+  ) => {
     try {
-      await Promise.all([
+      const invalidations = [
         utils.documents.getFolderContents.invalidate(),
+        utils.documents.getFolderTree.invalidate(),
         utils.documents.getStats.invalidate(),
         utils.documents.getTree.invalidate(),
-        utils.documents.getAiContext.invalidate(),
-      ]);
+      ];
+      if (invalidateAiContext) {
+        invalidations.push(utils.documents.getAiContext.invalidate());
+      }
+      await Promise.all(invalidations);
 
       const loadedIds = [...loadedFolderIds].filter((id) => id !== -1);
       const [freshRoot] = await Promise.all([
@@ -813,6 +835,19 @@ export default function OmManualsLibrary() {
     }
   }, [loadedFolderIds, utils]);
 
+  const refreshTreeRef = useRef(refreshTree);
+  refreshTreeRef.current = refreshTree;
+  const moveRefreshCoordinator = useMemo(
+    () => createTrailingAsyncCoordinator((action: string) => (
+      refreshTreeRef.current(action, { invalidateAiContext: false })
+    )),
+    [],
+  );
+  const refreshAfterMove = useCallback(
+    (action: string) => moveRefreshCoordinator.request(action),
+    [moveRefreshCoordinator],
+  );
+
   // ── Mutations ──
   const createFolder = trpc.documents.createFolder.useMutation({
     onMutate: (vars) => { logTiming("[OM perf] Creating folder", { name: vars.name, parentId: vars.parentId ?? null }); },
@@ -834,8 +869,9 @@ export default function OmManualsLibrary() {
     onError: (e) => { setBanner({ type: "error", message: `Unable to delete folder. ${e.message}` }); },
   });
   const moveFolder = trpc.documents.moveFolder.useMutation({
-    onSuccess: async () => { await refreshTree("moveFolder"); setBanner({ type: "success", message: "Folder moved" }); },
+    onSuccess: async () => { await refreshAfterMove("moveFolder"); setModal(null); setBanner({ type: "success", message: "Folder moved" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to move folder. ${e.message}` }); },
+    onSettled: () => { moveFolderSubmissionGuard.current.finish(); },
   });
 
   const deleteFile = trpc.documents.deleteFile.useMutation({
@@ -847,9 +883,20 @@ export default function OmManualsLibrary() {
     onError: (e) => { setBanner({ type: "error", message: `Unable to rename file. ${e.message}` }); },
   });
   const moveFile = trpc.documents.moveFile.useMutation({
-    onSuccess: async () => { await refreshTree("moveFile"); setBanner({ type: "success", message: "File moved" }); },
+    onSuccess: async () => { await refreshAfterMove("moveFile"); setModal(null); setBanner({ type: "success", message: "File moved" }); },
     onError: (e) => { setBanner({ type: "error", message: `Unable to move file. ${e.message}` }); },
+    onSettled: () => { moveFileSubmissionGuard.current.finish(); },
   });
+
+  const submitMoveFolder = useCallback((parentId: number | null) => {
+    if (modal?.folderId === undefined || moveFolder.isPending || !moveFolderSubmissionGuard.current.tryStart()) return;
+    moveFolder.mutate({ id: modal.folderId, parentId });
+  }, [modal?.folderId, moveFolder]);
+
+  const submitMoveFile = useCallback((folderId: number) => {
+    if (modal?.fileId === undefined || moveFile.isPending || !moveFileSubmissionGuard.current.tryStart()) return;
+    moveFile.mutate({ id: modal.fileId, folderId });
+  }, [modal?.fileId, moveFile]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -868,7 +915,17 @@ export default function OmManualsLibrary() {
 
   // ── Search ──
   const searchTree = useMemo(() => fullTreeData?.tree ? markFullTreeLoaded(fullTreeData.tree) : tree, [fullTreeData?.tree, tree]);
-  const destinationTree = searchTree;
+  const destinationTree = useMemo(
+    () => buildDestinationFolderTree(destinationFolderData?.folders ?? []),
+    [destinationFolderData?.folders],
+  );
+  const destinationOptions = useMemo(
+    () => getDestinationFolderOptions(
+      destinationTree,
+      modal?.type === "moveFolder" ? modal.folderId : undefined,
+    ),
+    [destinationTree, modal?.folderId, modal?.type],
+  );
   const treeForDisplay = debouncedSearch.length > 2 ? searchTree : tree;
   const matchedIds = useMemo(() => debouncedSearch.length > 2 ? getMatchingIds(treeForDisplay, debouncedSearch) : new Set<number>(), [treeForDisplay, debouncedSearch]);
   const displayTree = useMemo(() => debouncedSearch.length > 2 ? filterTree(treeForDisplay, debouncedSearch) : treeForDisplay, [treeForDisplay, debouncedSearch]);
@@ -1322,35 +1379,39 @@ export default function OmManualsLibrary() {
       )}
 
       {modal?.type === "moveFolder" && (
-        <Modal title="Move Folder" onClose={() => setModal(null)}>
+        <Modal title="Move Folder" onClose={() => { if (!moveFolder.isPending) setModal(null); }}>
           <p className="text-xs text-gray-500 mb-2">Select a destination folder:</p>
           <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
-            <button type="button" onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: null }); setModal(null); }}
-              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100">📁 Root (top level)</button>
-            {collectIds(destinationTree).filter(id => id !== modal.folderId).map(id => {
-              const path = getFolderPath(destinationTree, id);
-              const name = path.map(p => p.name).join(" / ");
-              return (
-                <button type="button" key={id} onClick={() => { moveFolder.mutate({ id: modal.folderId!, parentId: id }); setModal(null); }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-600 border-b border-gray-50">{name}</button>
-              );
-            })}
+            <button type="button" disabled={moveFolder.isPending} onClick={() => submitMoveFolder(null)}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">📁 {moveFolder.isPending ? "Moving..." : "Root (top level)"}</button>
+            {isDestinationFoldersLoading && destinationOptions.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-500">Loading destination folders...</p>
+            )}
+            {!isDestinationFoldersLoading && destinationOptions.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-500">No other destination folders available.</p>
+            )}
+            {destinationOptions.map(({ id, label }) => (
+              <button type="button" key={id} disabled={moveFolder.isPending} onClick={() => submitMoveFolder(id)}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-600 border-b border-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">{label}</button>
+            ))}
           </div>
         </Modal>
       )}
 
       {modal?.type === "moveFile" && (
-        <Modal title="Move File" onClose={() => setModal(null)}>
+        <Modal title="Move File" onClose={() => { if (!moveFile.isPending) setModal(null); }}>
           <p className="text-xs text-gray-500 mb-2">Select a destination folder:</p>
           <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
-            {collectIds(destinationTree).map(id => {
-              const path = getFolderPath(destinationTree, id);
-              const name = path.map(p => p.name).join(" / ");
-              return (
-                <button type="button" key={id} onClick={() => { moveFile.mutate({ id: modal.fileId!, folderId: id }); setModal(null); }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-600 border-b border-gray-50">{name}</button>
-              );
-            })}
+            {isDestinationFoldersLoading && destinationOptions.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-500">Loading destination folders...</p>
+            )}
+            {!isDestinationFoldersLoading && destinationOptions.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-500">No destination folders available.</p>
+            )}
+            {destinationOptions.map(({ id, label }) => (
+              <button type="button" key={id} disabled={moveFile.isPending} onClick={() => submitMoveFile(id)}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-600 border-b border-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">{label}</button>
+            ))}
           </div>
         </Modal>
       )}
