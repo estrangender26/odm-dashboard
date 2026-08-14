@@ -111,4 +111,78 @@ describe("O&M post-move refresh coalescing", () => {
     expect(visibleState).toEqual(serverState);
     expect(coordinator.isRunning()).toBe(false);
   });
+
+  it("resolves when an earlier refresh fails but the trailing refresh succeeds", async () => {
+    let releaseFirstRefresh!: () => void;
+    const firstRefreshGate = new Promise<void>((resolve) => {
+      releaseFirstRefresh = resolve;
+    });
+    let runCount = 0;
+
+    const refresh = vi.fn(async () => {
+      runCount += 1;
+      if (runCount === 1) {
+        await firstRefreshGate;
+        throw new Error("first refresh failed");
+      }
+    });
+    const coordinator = createTrailingAsyncCoordinator(refresh);
+
+    const first = coordinator.request("move-file-1");
+    const trailing = coordinator.request("move-file-2");
+
+    releaseFirstRefresh();
+    await expect(first).resolves.toBeUndefined();
+    await expect(trailing).resolves.toBeUndefined();
+
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(coordinator.isRunning()).toBe(false);
+  });
+
+  it("rejects when the final trailing refresh fails after an earlier success", async () => {
+    let releaseFirstRefresh!: () => void;
+    const firstRefreshGate = new Promise<void>((resolve) => {
+      releaseFirstRefresh = resolve;
+    });
+    let runCount = 0;
+
+    const refresh = vi.fn(async () => {
+      runCount += 1;
+      if (runCount === 1) {
+        await firstRefreshGate;
+        return;
+      }
+      throw new Error("final refresh failed");
+    });
+    const coordinator = createTrailingAsyncCoordinator(refresh);
+
+    const first = coordinator.request("move-file-1");
+    const trailing = coordinator.request("move-file-2");
+
+    releaseFirstRefresh();
+    await expect(first).rejects.toThrow("final refresh failed");
+    await expect(trailing).rejects.toThrow("final refresh failed");
+
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(coordinator.isRunning()).toBe(false);
+  });
+
+  it("recovers and runs the next request after a rejected refresh", async () => {
+    let shouldFail = true;
+    const refresh = vi.fn(async () => {
+      if (shouldFail) {
+        shouldFail = false;
+        throw new Error("refresh failed");
+      }
+    });
+    const coordinator = createTrailingAsyncCoordinator(refresh);
+
+    await expect(coordinator.request("move-file-1")).rejects.toThrow("refresh failed");
+    expect(coordinator.isRunning()).toBe(false);
+
+    await expect(coordinator.request("move-file-2")).resolves.toBeUndefined();
+
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(coordinator.isRunning()).toBe(false);
+  });
 });

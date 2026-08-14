@@ -139,6 +139,11 @@ export interface TrailingAsyncCoordinator<T> {
  * Runs at most one task at a time. Requests received during a run are folded
  * into one trailing run with the latest value, so the final request is never
  * dropped.
+ *
+ * The settled outcome reflects the final run only: if an earlier run fails but
+ * a later trailing run succeeds, the shared promise resolves, because the last
+ * run is what brought the UI to its final correct state. If the final run
+ * fails, the shared promise rejects with that run's error.
  */
 export function createTrailingAsyncCoordinator<T>(
   run: (value: T) => Promise<void>,
@@ -154,19 +159,23 @@ export function createTrailingAsyncCoordinator<T>(
 
       if (!running) {
         running = (async () => {
-          let firstError: unknown;
+          let finalFailed = false;
+          let finalError: unknown;
           try {
             do {
               trailingRequested = false;
               const valueForRun = latestValue;
               try {
                 await run(valueForRun);
+                finalFailed = false;
+                finalError = undefined;
               } catch (error) {
-                firstError ??= error;
+                finalFailed = true;
+                finalError = error;
               }
             } while (trailingRequested);
 
-            if (firstError !== undefined) throw firstError;
+            if (finalFailed) throw finalError;
           } finally {
             running = null;
           }
