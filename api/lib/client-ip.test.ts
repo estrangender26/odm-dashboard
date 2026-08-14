@@ -47,6 +47,9 @@ describe("client IP trust classification", () => {
     const cases = [
       "::1",
       "fe80::1",
+      "fe90::1",
+      "fea0::1",
+      "febf::1",
       "fd00::1",
       "fc00::1",
     ];

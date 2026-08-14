@@ -104,16 +104,35 @@ function isPublicIPv6(ip: string): boolean {
   }
 
   // Link-local fe80::/10
-  if (normalized.startsWith('fe80:')) {
+  if (isIPv6InPrefix(normalized, 'fe80', 10)) {
     return false;
   }
 
-  // Unique/local (private) fc00::/7 and fd00::/8
-  if (normalized.startsWith('fc') || normalized.startsWith('fd')) {
+  // Unique/local (private) fc00::/7
+  if (isIPv6InPrefix(normalized, 'fc00', 7)) {
     return false;
   }
 
   return true;
+}
+
+/**
+ * Check whether a normalized IPv6 address belongs to a prefix.
+ * `prefixHex` is the first colon-free 16-bit group in hex; `prefixBits`
+ * is the prefix length (max 16). The comparison is numeric, so it works
+ * for prefixes that do not end on a nibble boundary.
+ */
+function isIPv6InPrefix(normalizedIp: string, prefixHex: string, prefixBits: number): boolean {
+  const firstGroupHex = normalizedIp.split(':')[0] || '';
+  const addressTop = parseInt(firstGroupHex, 16);
+  const prefixTop = parseInt(prefixHex, 16);
+
+  if (!Number.isFinite(addressTop) || !Number.isFinite(prefixTop)) {
+    return false;
+  }
+
+  const mask = 0xffff & (0xffff << (16 - prefixBits));
+  return (addressTop & mask) === prefixTop;
 }
 
 function hashClientId(value: string): string {
