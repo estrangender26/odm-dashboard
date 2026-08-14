@@ -160,7 +160,7 @@ export const governanceRouter = createRouter({
     }),
 
   // Delete upload — ALWAYS clears completion date (even if other files remain)
-  deleteUpload: publicQuery
+  deleteUpload: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       // Find the upload to get its milestone before deleting

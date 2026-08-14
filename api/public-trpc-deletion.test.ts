@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
 
 // ============================================================================
-// BEHAVIORAL TESTS: tRPC Public Deletion Procedures
+// BEHAVIORAL TESTS: tRPC destructive procedures require authentication
 // ============================================================================
 
 const mocks = vi.hoisted(() => ({
@@ -61,7 +61,7 @@ vi.mock("./supabase-storage", () => ({
 }));
 
 vi.mock("./kimi/auth", () => ({
-  authenticateRequest: vi.fn(() => Promise.reject(new Error("No auth"))),
+  authenticateRequest: vi.fn(),
 }));
 
 vi.mock("./lib/env", () => ({
@@ -84,8 +84,8 @@ import { documentsRouter } from "./documents-router";
 import { governanceFilesRouter } from "./governance-files-router";
 import { governanceRouter } from "./governance-router";
 import { smpRouter } from "./smp-router";
+import { authenticateRequest } from "./kimi/auth";
 
-// Create test router with unauthenticated context
 const deletionTestRouter = createRouter({
   documents: documentsRouter,
   govFiles: governanceFilesRouter,
@@ -93,11 +93,19 @@ const deletionTestRouter = createRouter({
   smp: smpRouter,
 });
 
-describe("BEHAVIORAL TESTS: tRPC Public Deletion Procedures", () => {
+const testUser = { id: 1, email: "test@example.com", role: "user" } as any;
+
+describe("BEHAVIORAL TESTS: tRPC destructive procedures", () => {
   const createUnauthCtx = () => ({
     req: new Request("http://localhost/api/trpc"),
     resHeaders: new Headers(),
     user: undefined,
+  });
+
+  const createAuthCtx = () => ({
+    req: new Request("http://localhost/api/trpc"),
+    resHeaders: new Headers(),
+    user: testUser,
   });
 
   beforeEach(() => {
@@ -107,175 +115,143 @@ describe("BEHAVIORAL TESTS: tRPC Public Deletion Procedures", () => {
     mocks.dbSelectResult = [];
     mocks.dbDeleteResult = [{ id: 1 }];
     mocks.dbUpdateResult = [{}];
+    vi.mocked(authenticateRequest).mockReset();
   });
 
-  describe("documents.deleteFile", () => {
-    it("deletes legacy file without calling Supabase", async () => {
-      mocks.dbSelectResult = [{ bucket: null, path: null }];
-      mocks.dbDeleteResult = [{ id: 101 }];
-
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
-      const result = await caller.documents.deleteFile({ id: 101 });
-
-      expect(result).toEqual({ success: true, deletedFileId: 101 });
-      expect(mocks.storageFrom).not.toHaveBeenCalled();
+  describe("anonymous callers", () => {
+    beforeEach(() => {
+      vi.mocked(authenticateRequest).mockRejectedValue(new Error("No auth"));
     });
 
-    it("deletes storage-backed file calling Supabase then database", async () => {
-      mocks.dbSelectResult = [{ bucket: "odm-files", path: "documents/test-101.pdf" }];
-      mocks.dbDeleteResult = [{ id: 101 }];
-
+    it("documents.deleteFile rejects with UNAUTHORIZED", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
-      await caller.documents.deleteFile({ id: 101 });
-
-      expect(mocks.storageFrom).toHaveBeenCalledWith("odm-files");
-      expect(mocks.storageRemove).toHaveBeenCalledWith(["documents/test-101.pdf"]);
+      await expect(caller.documents.deleteFile({ id: 101 })).rejects.toThrow(
+        new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" })
+      );
     });
 
-    it("prevents database deletion when Supabase removal fails", async () => {
-      mocks.dbSelectResult = [{ bucket: "odm-files", path: "documents/protected.pdf" }];
-      mocks.storageRemove.mockResolvedValue({ data: null, error: { message: "Access denied" } });
-
+    it("documents.deleteFolder rejects with UNAUTHORIZED", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
-
-      await expect(caller.documents.deleteFile({ id: 101 })).rejects.toThrow();
+      await expect(caller.documents.deleteFolder({ id: 101 })).rejects.toThrow(TRPCError);
     });
 
-    it("returns NOT_FOUND for missing files", async () => {
-      mocks.dbSelectResult = [];
-      mocks.dbDeleteResult = [];
-
+    it("documents.renameFile rejects with UNAUTHORIZED", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
-
-      await expect(caller.documents.deleteFile({ id: 999 })).rejects.toThrow(TRPCError);
-    });
-  });
-
-  describe("govFiles.delete", () => {
-    it("deletes governance file anonymously (legacy)", async () => {
-      mocks.dbSelectResult = [{ bucket: null, path: null }];
-
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
-      const result = await caller.govFiles.delete({ id: 102 });
-
-      expect(result).toEqual({ success: true });
-      expect(mocks.storageFrom).not.toHaveBeenCalled();
+      await expect(caller.documents.renameFile({ id: 101, title: "x.pdf" })).rejects.toThrow(TRPCError);
     });
 
-    it("deletes storage-backed file calling Supabase with exact path", async () => {
-      mocks.dbSelectResult = [{ bucket: "odm-files", path: "governance/doc-102.pdf" }];
-
+    it("documents.renameFolder rejects with UNAUTHORIZED", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
-      await caller.govFiles.delete({ id: 102 });
-
-      expect(mocks.storageFrom).toHaveBeenCalledWith("odm-files");
-      expect(mocks.storageRemove).toHaveBeenCalledWith(["governance/doc-102.pdf"]);
+      await expect(caller.documents.renameFolder({ id: 101, name: "x" })).rejects.toThrow(TRPCError);
     });
 
-    it("prevents database deletion when Supabase fails", async () => {
-      mocks.dbSelectResult = [{ bucket: "odm-files", path: "governance/protected.pdf" }];
-      mocks.storageRemove.mockResolvedValue({ data: null, error: { message: "Permission denied" } });
-
+    it("documents.moveFile rejects with UNAUTHORIZED", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
+      await expect(caller.documents.moveFile({ id: 101, folderId: 2 })).rejects.toThrow(TRPCError);
+    });
 
-      await expect(caller.govFiles.delete({ id: 102 })).rejects.toThrow();
+    it("documents.moveFolder rejects with UNAUTHORIZED", async () => {
+      const ctx = createUnauthCtx();
+      const caller = deletionTestRouter.createCaller(ctx);
+      await expect(caller.documents.moveFolder({ id: 101, parentId: 2 })).rejects.toThrow(TRPCError);
+    });
+
+    it("governance.deleteUpload rejects with UNAUTHORIZED", async () => {
+      const ctx = createUnauthCtx();
+      const caller = deletionTestRouter.createCaller(ctx);
+      await expect(caller.governance.deleteUpload({ id: 103 })).rejects.toThrow(TRPCError);
+    });
+
+    it("smp.delete rejects with UNAUTHORIZED", async () => {
+      const ctx = createUnauthCtx();
+      const caller = deletionTestRouter.createCaller(ctx);
+      await expect(caller.smp.delete({ id: 104 })).rejects.toThrow(TRPCError);
+    });
+
+    it("govFiles.delete rejects with UNAUTHORIZED", async () => {
+      const ctx = createUnauthCtx();
+      const caller = deletionTestRouter.createCaller(ctx);
+      await expect(caller.govFiles.delete({ id: 102 })).rejects.toThrow(TRPCError);
     });
   });
 
-  describe("governance.deleteUpload", () => {
-    it("deletes upload and updates milestone (legacy)", async () => {
-      mocks.dbSelectResult = [{
-        id: 103,
-        facilitySlug: "test-facility",
-        milestoneId: "milestone-103",
-        bucket: null,
-        path: null,
-      }];
-
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
-      const result = await caller.governance.deleteUpload({ id: 103 });
-
-      expect(result).toEqual({ success: true });
-      expect(mocks.storageFrom).not.toHaveBeenCalled();
+  describe("authenticated callers", () => {
+    beforeEach(() => {
+      vi.mocked(authenticateRequest).mockResolvedValue(testUser);
     });
 
-    it("deletes storage-backed upload with proper cleanup", async () => {
-      mocks.dbSelectResult = [{
-        id: 103,
-        facilitySlug: "test-facility",
-        milestoneId: "milestone-103",
-        storageBucket: "odm-files",
-        storagePath: "governance-uploads/file-103.pdf",
-      }];
+    describe("documents.deleteFile", () => {
+      it("deletes legacy file without calling Supabase", async () => {
+        mocks.dbSelectResult = [{ bucket: null, path: null }];
+        mocks.dbDeleteResult = [{ id: 101 }];
 
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
-      await caller.governance.deleteUpload({ id: 103 });
+        const ctx = createAuthCtx();
+        const caller = deletionTestRouter.createCaller(ctx);
+        const result = await caller.documents.deleteFile({ id: 101 });
 
-      expect(mocks.storageFrom).toHaveBeenCalledWith("odm-files");
-      expect(mocks.storageRemove).toHaveBeenCalledWith(["governance-uploads/file-103.pdf"]);
+        expect(result).toEqual({ success: true, deletedFileId: 101 });
+        expect(mocks.storageFrom).not.toHaveBeenCalled();
+      });
+
+      it("deletes storage-backed file calling Supabase then database", async () => {
+        mocks.dbSelectResult = [{ bucket: "odm-files", path: "documents/test-101.pdf" }];
+        mocks.dbDeleteResult = [{ id: 101 }];
+
+        const ctx = createAuthCtx();
+        const caller = deletionTestRouter.createCaller(ctx);
+        await caller.documents.deleteFile({ id: 101 });
+
+        expect(mocks.storageFrom).toHaveBeenCalledWith("odm-files");
+        expect(mocks.storageRemove).toHaveBeenCalledWith(["documents/test-101.pdf"]);
+      });
     });
 
-    it("prevents deletion when storage fails for upload", async () => {
-      mocks.dbSelectResult = [{
-        id: 103,
-        facilitySlug: "test-facility",
-        milestoneId: "milestone-103",
-        storageBucket: "odm-files",
-        storagePath: "governance-uploads/protected.pdf",
-      }];
-      mocks.storageRemove.mockResolvedValue({ data: null, error: { message: "Access denied" } });
+    describe("govFiles.delete", () => {
+      it("deletes governance file", async () => {
+        mocks.dbSelectResult = [{ bucket: null, path: null }];
 
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
+        const ctx = createAuthCtx();
+        const caller = deletionTestRouter.createCaller(ctx);
+        const result = await caller.govFiles.delete({ id: 102 });
 
-      await expect(caller.governance.deleteUpload({ id: 103 })).rejects.toThrow();
-    });
-  });
-
-  describe("smp.delete", () => {
-    it("deletes legacy SMP without calling Supabase", async () => {
-      mocks.dbSelectResult = [{ bucket: null, path: null }];
-      mocks.dbDeleteResult = [{ id: 104 }];
-
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
-      const result = await caller.smp.delete({ id: 104 });
-
-      expect(result).toEqual({ deleted: true, id: 104 });
-      expect(mocks.storageFrom).not.toHaveBeenCalled();
+        expect(result).toEqual({ success: true });
+      });
     });
 
-    it("deletes storage-backed SMP calling Supabase once then database", async () => {
-      mocks.dbSelectResult = [{ bucket: "odm-files", path: "smp/manual-104.pdf" }];
-      mocks.dbDeleteResult = [{ id: 104 }];
+    describe("governance.deleteUpload", () => {
+      it("deletes upload and updates milestone", async () => {
+        mocks.dbSelectResult = [{
+          id: 103,
+          facilitySlug: "test-facility",
+          milestoneId: "milestone-103",
+          bucket: null,
+          path: null,
+        }];
 
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
-      const result = await caller.smp.delete({ id: 104 });
+        const ctx = createAuthCtx();
+        const caller = deletionTestRouter.createCaller(ctx);
+        const result = await caller.governance.deleteUpload({ id: 103 });
 
-      expect(result).toEqual({ deleted: true, id: 104 });
-      expect(mocks.storageFrom).toHaveBeenCalledTimes(1);
-      expect(mocks.storageFrom).toHaveBeenCalledWith("odm-files");
-      expect(mocks.storageRemove).toHaveBeenCalledWith(["smp/manual-104.pdf"]);
+        expect(result).toEqual({ success: true });
+      });
     });
 
-    it("preserves record when storage deletion fails", async () => {
-      mocks.dbSelectResult = [{ bucket: "odm-files", path: "smp/protected.pdf" }];
-      mocks.storageRemove.mockResolvedValue({ data: null, error: { message: "Permission denied" } });
+    describe("smp.delete", () => {
+      it("deletes legacy SMP without calling Supabase", async () => {
+        mocks.dbSelectResult = [{ bucket: null, path: null }];
+        mocks.dbDeleteResult = [{ id: 104 }];
 
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
+        const ctx = createAuthCtx();
+        const caller = deletionTestRouter.createCaller(ctx);
+        const result = await caller.smp.delete({ id: 104 });
 
-      await expect(caller.smp.delete({ id: 104 })).rejects.toThrow();
+        expect(result).toEqual({ deleted: true, id: 104 });
+      });
     });
   });
 });

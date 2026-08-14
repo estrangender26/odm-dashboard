@@ -43,10 +43,10 @@ describe("Anonymous Upload Security", () => {
     expect(filesRoute).not.toContain("requireUser");
     expect(filesRoute).toContain("createSignedUrl");
     
-    // Delete routes should require auth
+    // Delete routes use a signed confirmation-token capability (narrow, server-signed)
     const deleteRoutes = source.slice(source.indexOf('storageRouter.post("/files/delete/prepare"'));
-    // Delete routes now public - no requireUser
-    // authenticateRequest is called via requireUser
+    expect(deleteRoutes).toContain("signDeletePayload");
+    expect(deleteRoutes).toContain("verifyDeletePayload");
   });
 
   it("client-ip has documented trust boundaries", () => {
@@ -87,28 +87,30 @@ describe("Anonymous Upload Security", () => {
     expect(source).toContain("Anonymous upload session expired");
   });
 
-  it("documents-router has correct public deletion for files", () => {
+  it("documents-router destructive procedures require authentication", () => {
     const source = readFileSync(join(root, "api/documents-router.ts"), "utf8");
     
-    // uploadFile should be public
+    // uploadFile should remain public
     expect(source).toContain("uploadFile: publicQuery");
     
-    // deleteFile should now be public for uploaded files
-    const deleteSection = source.slice(source.indexOf("deleteFile:"), source.indexOf("deleteFile:") + 200);
-    expect(deleteSection).toContain("publicQuery");
+    // destructive procedures require authentication
+    for (const procedure of ["deleteFile:", "renameFile:", "moveFile:", "deleteFolder:", "renameFolder:", "moveFolder:"]) {
+      const section = source.slice(source.indexOf(procedure), source.indexOf(procedure) + 200);
+      expect(section).toContain("authedQuery");
+    }
   });
 
-  it("governance-files-router has correct public deletion for files", () => {
+  it("governance-files-router destructive delete requires authentication", () => {
     const source = readFileSync(join(root, "api/governance-files-router.ts"), "utf8");
     
-    // upload should be public
+    // upload should remain public
     expect(source).toContain("upload: publicQuery");
     
-    // download should be public
+    // download should remain public
     expect(source).toContain("download: publicQuery");
     
-    // delete should now be public for uploaded files
+    // delete requires authentication
     const deleteSection = source.slice(source.indexOf("delete:"), source.indexOf("delete:") + 200);
-    expect(deleteSection).toContain("publicQuery");
+    expect(deleteSection).toContain("authedQuery");
   });
 });

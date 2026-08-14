@@ -718,7 +718,7 @@ export const documentsRouter = {
     }),
 
   // ── Rename folder ──
-  renameFolder: publicQuery
+  renameFolder: authedQuery
     .input(z.object({ id: z.number(), name: z.string().min(1).max(255) }))
     .mutation(async ({ input }) => {
       try {
@@ -784,7 +784,7 @@ export const documentsRouter = {
     }),
 
   // ── Move folder ──
-  moveFolder: publicQuery
+  moveFolder: authedQuery
     .input(z.object({ id: z.number(), parentId: z.number().nullable() }))
     .mutation(async ({ input }) => {
       try {
@@ -858,7 +858,7 @@ export const documentsRouter = {
     }),
 
   // ── Delete file ──
-  deleteFile: publicQuery
+  deleteFile: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       try {
@@ -879,7 +879,7 @@ export const documentsRouter = {
     }),
 
   // ── Rename file ──
-  renameFile: publicQuery
+  renameFile: authedQuery
     .input(z.object({ id: z.number(), title: z.string().min(1).max(500) }))
     .mutation(async ({ input }) => {
       try {
@@ -896,7 +896,7 @@ export const documentsRouter = {
     }),
 
   // ── Move file to another folder ──
-  moveFile: publicQuery
+  moveFile: authedQuery
     .input(z.object({ id: z.number(), folderId: z.number() }))
     .mutation(async ({ input }) => {
       try {

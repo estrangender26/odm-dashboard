@@ -66,7 +66,7 @@ export function getRateLimitForClient(client: { isTrusted: boolean }): {
   maxBytes: number;
 } {
   if (client.isTrusted) {
-    return { maxIntents: 10, maxBytes: 5 * 1024 * 1024 * 1024 };
+    return { maxIntents: 100, maxBytes: 5 * 1024 * 1024 * 1024 };
   }
   return { maxIntents: 5, maxBytes: 1 * 1024 * 1024 * 1024 };
 }

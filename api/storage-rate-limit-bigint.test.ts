@@ -39,7 +39,7 @@ describe("checkRateLimitWithExecutor behavioral tests", () => {
   it("returns count limit when intent_count exceeds max", async () => {
     mockExecute
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ intent_count: 10, total_bytes: 1000000 }]);
+      .mockResolvedValueOnce([{ intent_count: 100, total_bytes: 1000000 }]);
 
     const result = await checkRateLimitWithExecutor({
       clientId: "test-client",

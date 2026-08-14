@@ -83,7 +83,7 @@ describe("POST /api/storage/uploads/authorize rate limiting", () => {
   it("count limit returns HTTP 429", async () => {
     mockDbExecute
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ intent_count: 10, total_bytes: 1000000 }]);
+      .mockResolvedValueOnce([{ intent_count: 100, total_bytes: 1000000 }]);
     
     const req = new Request("http://localhost/uploads/authorize", {
       method: "POST",
