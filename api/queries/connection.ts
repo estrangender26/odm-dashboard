@@ -96,6 +96,23 @@ export function getDatabaseUrl(): string {
 
 export const getNormalizedDatabaseUrl = getDatabaseUrl;
 
+export function getPostgresOptions(
+  sslMode: string,
+): NonNullable<Parameters<typeof postgres>[1]> {
+  return {
+    ssl: sslMode === "disable" ? false : sslMode,
+    prepare: false,
+    max: 10,
+    max_lifetime: 600,
+    connect_timeout: 10,
+    idle_timeout: 20,
+    connection: {
+      statement_timeout: 15000,
+    },
+    onnotice: () => undefined,
+  } as NonNullable<Parameters<typeof postgres>[1]>;
+}
+
 export function getDb() {
   if (_db) return _db;
 
@@ -109,16 +126,7 @@ export function getDb() {
     console.log("[DB] Connecting to database...");
   }
   const sslMode = process.env.DATABASE_SSL_MODE ?? "require";
-  const client = postgres(databaseUrl, {
-    ssl: sslMode === "disable" ? false : sslMode,
-    prepare: false,
-    max: 10,
-    max_lifetime: 600,
-    connect_timeout: 10,
-    idle_timeout: 20,
-    statement_timeout: 15000,
-    onnotice: () => undefined,
-  } as Parameters<typeof postgres>[1]);
+  const client = postgres(databaseUrl, getPostgresOptions(sslMode));
 
   _db = drizzle(client, { schema });
   if (!isMigratorMode) {
