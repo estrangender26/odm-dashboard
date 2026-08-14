@@ -167,7 +167,7 @@ export const smpRouter = createRouter({
     }),
 
   /* ── 5. DELETE ── */
-  delete: publicQuery
+  delete: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await ensureSmpTable();

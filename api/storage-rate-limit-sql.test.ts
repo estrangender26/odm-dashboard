@@ -108,7 +108,7 @@ describe("rate limit compiled SQL verification", () => {
     expect(compiled.params[1]).toBe("2024-01-15T14:00:00.000Z"); // windowStart as ISO string
     expect(compiled.params[2]).toBe("157286400"); // declaredBytes as decimal string
     expect(compiled.params[3]).toBe("157286400"); // declaredBytes as decimal string
-    expect(compiled.params[4]).toBe("10"); // maxIntents as decimal string
+    expect(compiled.params[4]).toBe("100"); // maxIntents for trusted (100/hour)
     expect(compiled.params[5]).toBe("157286400"); // declaredBytes as decimal string
     expect(compiled.params[6]).toBe("5368709120"); // maxBytes as decimal string
 
@@ -166,7 +166,7 @@ describe("rate limit compiled SQL verification", () => {
     // All numeric parameters should be decimal strings
     expect(compiled.params[2]).toBe("157286400");
     expect(compiled.params[3]).toBe("157286400");
-    expect(compiled.params[4]).toBe("10"); // maxIntents for trusted
+    expect(compiled.params[4]).toBe("100"); // maxIntents for trusted
     expect(compiled.params[5]).toBe("157286400");
     expect(compiled.params[6]).toBe("5368709120"); // maxBytes for trusted
 
@@ -403,7 +403,7 @@ describe("rate limit driver boundary behavioral test", () => {
         if (callCount === 1) {
           return Promise.resolve([]); // INSERT returned empty
         }
-        return Promise.resolve([{ intent_count: 10, total_bytes: 0 }]);
+        return Promise.resolve([{ intent_count: 100, total_bytes: 0 }]);
       }),
     };
 

@@ -384,7 +384,7 @@ storageRouter.post("/uploads/authorize", async (c) => {
           return c.json({ error: "Upload authorization is temporarily unavailable." }, 503);
         }
         const message = rateCheck.limit === 'count' 
-          ? "Rate limit exceeded: 10 uploads per hour."
+          ? "Rate limit exceeded: 100 uploads per hour."
           : "Rate limit exceeded: 5 GB per hour.";
         return c.json({ error: message }, 429);
       }
