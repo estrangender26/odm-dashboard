@@ -6,6 +6,7 @@ import { trpc } from "@/providers/trpc";
 import {
   activityGridPermissions, formatDate, isActivityEditNoop, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder,
   preserveConflictAttempt, selectValidNewWbs, sortActivities, validateActivityEdit, validateDatePair,
+  validateHundredPercentEdit,
   SCHEDULE_ROW_HEIGHT, type ActivityGridRow, type ConflictRecovery,
 } from "./activityGridModel";
 
@@ -31,6 +32,7 @@ type Props = {
   activities: ActivityGridRow[];
   wbsNodes: WbsNode[];
   calendars: Calendar[];
+  dataDate?: string | null;
   onRevisionChange: (revision: number) => void;
   onRefresh: () => Promise<unknown> | void;
   onEditingChange: (editing: boolean) => void;
@@ -92,7 +94,7 @@ export default function ActivityGrid(props: Props) {
     onMutate: async (input) => {
       await utils.primaveraLite.load.cancel(queryInput);
       const snapshot = utils.primaveraLite.load.getData(queryInput);
-      setCachedActivities((rows) => optimisticActivityEdit(rows, input.activityId, input.changes));
+      setCachedActivities((rows) => optimisticActivityEdit(rows, input.activityId, input.changes, props.dataDate));
       return { snapshot, input };
     },
     onSuccess: (result) => {
@@ -164,6 +166,10 @@ export default function ActivityGrid(props: Props) {
     if (isDateField) {
       const pairError = validateActivityDatePair(activity, field, value as string | null);
       if (pairError) return setMessage(pairError);
+    }
+    if (field === "percentComplete" && Number(value) === 100) {
+      const hundredError = validateHundredPercentEdit(activity, props.dataDate);
+      if (hundredError) return setMessage(hundredError);
     }
     if (isActivityEditNoop(activity, field, value)) return endEdit();
     updateActivity.mutate({ slug, access, expectedRevision, activityId: activity.id, changes: { [field]: value } });

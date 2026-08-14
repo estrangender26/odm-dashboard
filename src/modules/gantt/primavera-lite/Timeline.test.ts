@@ -176,6 +176,33 @@ describe("Timeline", () => {
     expect(html).toContain("Data date");
   });
 
+  it("renders the exact PR345 smoke after manual Actual Finish and Run Schedule", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, {
+      dataDate: "2026-08-13",
+      dependencies: [
+        { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+        { id: 2, predecessorActivityId: 2, successorActivityId: 3, dependencyType: "FS", lagDays: 0 },
+      ],
+      activities: [
+        { ...base, id: 1, activityId: "A", activityName: "Activity A", originalDurationDays: 5, percentComplete: 100,
+          plannedStart: "2026-08-13", plannedFinish: "2026-08-17", actualStart: "2026-08-14", actualFinish: "2026-08-14",
+          earlyStart: "2026-08-14", earlyFinish: "2026-08-14", totalFloatDays: 0 },
+        { ...base, id: 2, sortOrder: 1, activityId: "B", activityName: "Activity B", originalDurationDays: 5, percentComplete: 0,
+          plannedStart: null, plannedFinish: null, actualStart: null, actualFinish: null,
+          earlyStart: "2026-08-17", earlyFinish: "2026-08-21", totalFloatDays: 0 },
+        { ...base, id: 3, sortOrder: 2, activityId: "C", activityName: "Activity C", originalDurationDays: 2, percentComplete: 0,
+          plannedStart: null, plannedFinish: null, actualStart: null, actualFinish: null,
+          earlyStart: "2026-08-24", earlyFinish: "2026-08-25", totalFloatDays: 0 },
+      ],
+    }));
+    expect(html).toContain('data-testid="planned-bar"');
+    expect(html).toContain('data-testid="actual-bar"');
+    expect(html).not.toContain('data-testid="open-actual-caret"');
+    expect((html.match(/data-testid="cpm-bar"/g) || []).length).toBe(2);
+    expect((html.match(/data-testid="planned-bar"/g) || []).length).toBe(1);
+    expect(html).toContain("Data date");
+  });
+
   it("composes anomalous warnings above dependency lines without changing connector geometry", () => {
     const html = renderToStaticMarkup(createElement(Timeline, { dependencies: [
       { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },

@@ -30,6 +30,10 @@ import {
   type ScheduleCalendarInput,
 } from "@/modules/gantt/primavera-lite/schedulingEngine";
 import { isScheduleOutOfDate } from "@/modules/gantt/primavera-lite/scheduleStaleness";
+import {
+  autoActualFinishFromDataDate,
+  percentAfterClearingActualFinish,
+} from "@/modules/gantt/primavera-lite/activityGridModel";
 
 const MAX_NAME_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
@@ -526,11 +530,6 @@ function toIsoDateString(value: unknown): string | null {
   }
   const s = String(value).trim();
   return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : s;
-}
-
-function isValidISOString(dateStr: string | null | undefined): boolean {
-  if (!dateStr || typeof dateStr !== "string") return false;
-  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim());
 }
 
 function normalizeComparableDate(value: unknown): unknown {
@@ -1491,19 +1490,11 @@ export const primaveraLiteRouter = createRouter({
         if (actualFinish != null) {
           percentComplete = 100;
         } else if (percentComplete === 100) {
-          if (!projectRow.dataDate || !isValidISOString(projectRow.dataDate)) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Project Data Date is required to automatically set Actual Finish when completing an activity at 100%",
-            });
+          const autoFinish = autoActualFinishFromDataDate(projectRow.dataDate, actualStart);
+          if (!autoFinish.ok) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: autoFinish.error });
           }
-          if (actualStart && projectRow.dataDate < actualStart) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Cannot auto-populate Actual Finish from Project Data Date (${projectRow.dataDate}) because it precedes Actual Start (${actualStart}); provide an explicit Actual Finish on or after ${actualStart} or update the Project Data Date`,
-            });
-          }
-          actualFinish = projectRow.dataDate;
+          actualFinish = autoFinish.actualFinish;
         } else {
           actualFinish = null;
         }
@@ -1769,32 +1760,21 @@ export const primaveraLiteRouter = createRouter({
               if (changes.percentComplete < 100) {
                 setData.percentComplete = changes.percentComplete;
               } else {
-                // Clearing Actual Finish must make % Complete < 100; cannot remain 100%
-                setData.percentComplete = effActualStart ? 99 : 0;
+                setData.percentComplete = percentAfterClearingActualFinish(effActualStart, changes.percentComplete);
               }
-            } else {
-              if (currentPercent === 100) {
-                setData.percentComplete = effActualStart ? 99 : 0;
-              }
+            } else if (currentPercent === 100) {
+              setData.percentComplete = percentAfterClearingActualFinish(effActualStart);
             }
           }
         } else if (changes.percentComplete !== undefined && changes.percentComplete !== null) {
           if (changes.percentComplete === 100) {
             setData.percentComplete = 100;
             if (effActualFinish == null) {
-              if (!projectRow.dataDate || !isValidISOString(projectRow.dataDate)) {
-                throw new TRPCError({
-                  code: "BAD_REQUEST",
-                  message: "Project Data Date is required to automatically set Actual Finish when completing an activity at 100%",
-                });
+              const autoFinish = autoActualFinishFromDataDate(projectRow.dataDate, effActualStart);
+              if (!autoFinish.ok) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: autoFinish.error });
               }
-              if (effActualStart && projectRow.dataDate < effActualStart) {
-                throw new TRPCError({
-                  code: "BAD_REQUEST",
-                  message: `Cannot auto-populate Actual Finish from Project Data Date (${projectRow.dataDate}) because it precedes Actual Start (${effActualStart}); provide an explicit Actual Finish on or after ${effActualStart} or update the Project Data Date`,
-                });
-              }
-              effActualFinish = projectRow.dataDate;
+              effActualFinish = autoFinish.actualFinish;
               setData.actualFinish = effActualFinish;
             }
           } else if (changes.percentComplete < 100) {

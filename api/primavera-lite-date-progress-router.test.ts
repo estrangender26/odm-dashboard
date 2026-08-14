@@ -12,6 +12,17 @@ import {
   ganttWbsNodes,
 } from "@db/schema";
 import { appRouter } from "./router";
+import { activityTimelineModel } from "@/modules/gantt/primavera-lite/timelineModel";
+import { format } from "date-fns";
+import {
+  PR345_ACTIVITY_A_INITIAL,
+  PR345_ACTIVITY_B,
+  PR345_ACTIVITY_C,
+  PR345_AFTER_SCHEDULE,
+  PR345_DATA_DATE,
+  PR345_MANUAL_ACTUAL_FINISH,
+} from "@/modules/gantt/primavera-lite/pr345SmokeFixture";
+import { PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE } from "@/modules/gantt/primavera-lite/activityGridModel";
 
 const DATABASE_URL =
   process.env.DATABASE_URL_TEST || "postgresql://postgres:postgres@localhost:5433/odmtest_pr6?sslmode=disable";
@@ -530,7 +541,16 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
         activityId: created.activity.id,
         changes: { percentComplete: 100 },
       })
-    ).rejects.toThrow(/Project Data Date is required/);
+    ).rejects.toThrow(PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE);
+
+    await expect(
+      caller.primaveraLite.createActivity({
+        slug: p.project.slug,
+        access: p.editor,
+        expectedRevision: loaded.revision,
+        activity: { activityName: "Create at 100", percentComplete: 100 },
+      })
+    ).rejects.toThrow(PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE);
   });
 
   it("Rule 3: Data Date earlier than Actual Start is rejected on 100% edit", async () => {
@@ -646,9 +666,9 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
       access: p.editor,
       expectedRevision: loaded.revision,
       activityId: actA.activity.id,
-      changes: { actualFinish: "2026-08-14" },
+      changes: { actualFinish: PR345_MANUAL_ACTUAL_FINISH },
     });
-    expect(aManual.activity.actualFinish).toBe("2026-08-14");
+    expect(aManual.activity.actualFinish).toBe(PR345_MANUAL_ACTUAL_FINISH);
     expect(aManual.activity.percentComplete).toBe(100);
 
     // 3. Run Schedule anchors B from A Actual Finish (2026-08-14 Fri)
@@ -666,24 +686,48 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
     const cAfter = loaded.activities.find((a) => a.id === actC.activity.id)!;
 
     // A: Early dates equal Actual dates
-    expect(aAfter.earlyStart).toBe("2026-08-14");
-    expect(aAfter.earlyFinish).toBe("2026-08-14");
+    expect(aAfter.earlyStart).toBe(PR345_AFTER_SCHEDULE.A.earlyStart);
+    expect(aAfter.earlyFinish).toBe(PR345_AFTER_SCHEDULE.A.earlyFinish);
+    expect(aAfter.actualStart).toBe(PR345_AFTER_SCHEDULE.A.actualStart);
+    expect(aAfter.actualFinish).toBe(PR345_AFTER_SCHEDULE.A.actualFinish);
+    expect(aAfter.percentComplete).toBe(100);
+    expect(aAfter.originalDurationDays).toBe(5);
+    expect(aAfter.lateStart).toBe(PR345_AFTER_SCHEDULE.A.earlyStart);
+    expect(aAfter.lateFinish).toBe(PR345_AFTER_SCHEDULE.A.earlyFinish);
 
     // B: Starts Mon 2026-08-17 (next working day after Fri 2026-08-14). 5 working days -> finishes Fri 2026-08-21
-    expect(bAfter.earlyStart).toBe("2026-08-17");
-    expect(bAfter.earlyFinish).toBe("2026-08-21");
+    expect(bAfter.earlyStart).toBe(PR345_AFTER_SCHEDULE.B.earlyStart);
+    expect(bAfter.earlyFinish).toBe(PR345_AFTER_SCHEDULE.B.earlyFinish);
+    expect(bAfter.originalDurationDays).toBe(5);
 
     // C: Starts Mon 2026-08-24 (next working day after Fri 2026-08-21). 2 working days -> finishes Tue 2026-08-25
-    expect(cAfter.earlyStart).toBe("2026-08-24");
-    expect(cAfter.earlyFinish).toBe("2026-08-25");
+    expect(cAfter.earlyStart).toBe(PR345_AFTER_SCHEDULE.C.earlyStart);
+    expect(cAfter.earlyFinish).toBe(PR345_AFTER_SCHEDULE.C.earlyFinish);
+    expect(cAfter.originalDurationDays).toBe(2);
 
     // 4. Planned dates are NOT rewritten by schedule run
-    expect(aAfter.plannedStart).toBe("2026-08-13");
-    expect(aAfter.plannedFinish).toBe("2026-08-17");
+    expect(aAfter.plannedStart).toBe(PR345_AFTER_SCHEDULE.A.plannedStart);
+    expect(aAfter.plannedFinish).toBe(PR345_AFTER_SCHEDULE.A.plannedFinish);
     expect(bAfter.plannedStart).toBeNull();
     expect(bAfter.plannedFinish).toBeNull();
     expect(cAfter.plannedStart).toBeNull();
     expect(cAfter.plannedFinish).toBeNull();
+
+    // Timeline/grid/CPM fields agree
+    const iso = (date: Date) => format(date, "yyyy-MM-dd");
+    const aModel = activityTimelineModel(aAfter);
+    const bModel = activityTimelineModel(bAfter);
+    const cModel = activityTimelineModel(cAfter);
+    expect(aModel.primary?.source).toBe("planned");
+    expect([iso(aModel.planned!.start), iso(aModel.planned!.finish)]).toEqual(["2026-08-13", "2026-08-17"]);
+    expect(aModel.actual.kind).toBe("closed");
+    expect([iso(aModel.cpm!.start), iso(aModel.cpm!.finish)]).toEqual(["2026-08-14", "2026-08-14"]);
+    expect(bModel.planned).toBeNull();
+    expect(bModel.primary?.source).toBe("cpm");
+    expect([iso(bModel.cpm!.start), iso(bModel.cpm!.finish)]).toEqual(["2026-08-17", "2026-08-21"]);
+    expect(cModel.planned).toBeNull();
+    expect(cModel.primary?.source).toBe("cpm");
+    expect([iso(cModel.cpm!.start), iso(cModel.cpm!.finish)]).toEqual(["2026-08-24", "2026-08-25"]);
   });
 
   it("synchronizes duration and planned dates with working-day calendar math across weekends", async () => {

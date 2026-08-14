@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  addWorkingDays,
+  countWorkingDays,
+  dateToCalendarDay,
   getWorkingDuration,
   runScheduleEngine,
   toWorkingDayIndex,
@@ -10,6 +13,15 @@ import type {
   ScheduleCalendarInput,
   ScheduleDependencyInput,
 } from "./schedulingEngine";
+import {
+  PR345_ACTIVITY_A_INITIAL,
+  PR345_ACTIVITY_B,
+  PR345_ACTIVITY_C,
+  PR345_AFTER_SCHEDULE,
+  PR345_DATA_DATE,
+  PR345_MANUAL_ACTUAL_FINISH,
+  PR345_WORKING_DAYS,
+} from "./pr345SmokeFixture";
 
 const monFriCalendar: ScheduleCalendarInput = {
   id: 1,
@@ -517,5 +529,54 @@ describe("Duration % Complete semantics", () => {
       { id: 1, wbsNodeId: 1, activityName: "Task", originalDurationDays: 5, percentComplete: 40 },
     ], []);
     expect(result[0]).toMatchObject({ earlyStart: "2026-08-14", earlyFinish: "2026-08-18" });
+  });
+});
+
+describe("PR345 exact production reproduction", () => {
+  it("anchors B from A's Actual Finish and propagates to C without inventing dates or rewriting planned dates", () => {
+    const activities: ScheduleActivityInput[] = [
+      {
+        id: 1,
+        wbsNodeId: 1,
+        ...PR345_ACTIVITY_A_INITIAL,
+        actualFinish: PR345_MANUAL_ACTUAL_FINISH,
+        percentComplete: 100,
+      },
+      { id: 2, wbsNodeId: 1, ...PR345_ACTIVITY_B },
+      { id: 3, wbsNodeId: 1, ...PR345_ACTIVITY_C },
+    ];
+    const dependencies: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+      { id: 2, predecessorActivityId: 2, successorActivityId: 3, dependencyType: "FS", lagDays: 0 },
+    ];
+
+    expect(getWorkingDuration(activities[0])).toBe(0);
+    expect(getWorkingDuration(activities[1])).toBe(5);
+    expect(getWorkingDuration(activities[2])).toBe(2);
+
+    // Calendar-aware: next working day after Fri 2026-08-14 is Mon 2026-08-17.
+    const afterFriday = addWorkingDays(dateToCalendarDay("2026-08-15"), 1, monFriCalendar);
+    expect(fromWorkingDayIndex(toWorkingDayIndex("2026-08-17", monFriCalendar), monFriCalendar)).toBe("2026-08-17");
+    expect(countWorkingDays(dateToCalendarDay(PR345_WORKING_DAYS.b[0]), dateToCalendarDay(PR345_WORKING_DAYS.b[4]), monFriCalendar)).toBe(5);
+    expect(countWorkingDays(dateToCalendarDay(PR345_WORKING_DAYS.c[0]), dateToCalendarDay(PR345_WORKING_DAYS.c[1]), monFriCalendar)).toBe(2);
+    expect(afterFriday).toBe(dateToCalendarDay("2026-08-17"));
+
+    const res = runScheduleEngine(PR345_DATA_DATE, PR345_DATA_DATE, [monFriCalendar], 1, activities, dependencies);
+    const map = new Map(res.map((r) => [r.id, r]));
+
+    expect(map.get(1)!.earlyStart).toBe(PR345_AFTER_SCHEDULE.A.earlyStart);
+    expect(map.get(1)!.earlyFinish).toBe(PR345_AFTER_SCHEDULE.A.earlyFinish);
+    expect(map.get(2)!.earlyStart).toBe(PR345_AFTER_SCHEDULE.B.earlyStart);
+    expect(map.get(2)!.earlyFinish).toBe(PR345_AFTER_SCHEDULE.B.earlyFinish);
+    expect(map.get(3)!.earlyStart).toBe(PR345_AFTER_SCHEDULE.C.earlyStart);
+    expect(map.get(3)!.earlyFinish).toBe(PR345_AFTER_SCHEDULE.C.earlyFinish);
+
+    // Engine output does not carry or rewrite planned dates.
+    expect(activities[0].plannedStart).toBe("2026-08-13");
+    expect(activities[0].plannedFinish).toBe("2026-08-17");
+    expect(activities[1].plannedStart).toBeNull();
+    expect(activities[1].plannedFinish).toBeNull();
+    expect(activities[2].plannedStart).toBeNull();
+    expect(activities[2].plannedFinish).toBeNull();
   });
 });

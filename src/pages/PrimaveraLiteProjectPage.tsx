@@ -217,6 +217,7 @@ export default function PrimaveraLiteProjectPage() {
 
             <ActivityGrid slug={slug} access={access} role={data.role} expectedRevision={expectedRevision}
               activities={data.activities} wbsNodes={data.wbsNodes} calendars={data.calendars}
+              dataDate={data.project?.dataDate ?? null}
               onRevisionChange={setExpectedRevision} onRefresh={() => refetch()}
               onEditingChange={setIsEditingActivity} highlightedActivityId={highlightedActivityId}
               onActivityHighlight={setHighlightedActivityId} verticalScrollTop={scheduleScrollTop}
