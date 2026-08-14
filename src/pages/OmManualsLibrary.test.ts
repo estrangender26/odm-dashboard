@@ -7,28 +7,63 @@ const source = readFileSync(
   "utf8",
 );
 
+/**
+ * Extracts the options object literal passed to a `.useQuery(...)` call, using
+ * brace balancing so the slice stops at the query's own closing brace instead
+ * of running on into unrelated statements that follow it.
+ */
+function extractQueryOptions(procedure: string): string {
+  const callIndex = source.indexOf(`${procedure}.useQuery`);
+  if (callIndex === -1) throw new Error(`Query call not found: ${procedure}.useQuery`);
+
+  const optionsStart = source.indexOf("{", callIndex);
+  if (optionsStart === -1) throw new Error(`Options object not found: ${procedure}.useQuery`);
+
+  let depth = 0;
+  for (let index = optionsStart; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "{") depth += 1;
+    if (character === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(optionsStart, index + 1);
+    }
+  }
+
+  throw new Error(`Unbalanced options object: ${procedure}.useQuery`);
+}
+
+/** Returns just the `enabled:` expression from a query options object. */
+function extractEnabledExpression(options: string): string {
+  const match = /^[ \t]*enabled:[ \t]*(.+?),?[ \t]*$/m.exec(options);
+  if (!match) throw new Error("No enabled option found in query options");
+  return match[1];
+}
+
 describe("O&M move dialog queries", () => {
-  const fullTreeQuery = source.slice(
-    source.indexOf("trpc.documents.getTree.useQuery"),
-    source.indexOf("trpc.documents.getFolderTree.useQuery"),
-  );
-  const destinationFolderQuery = source.slice(
-    source.indexOf("trpc.documents.getFolderTree.useQuery"),
-    source.indexOf("trpc.documents.getAiContext.useQuery"),
-  );
+  const fullTreeOptions = extractQueryOptions("trpc.documents.getTree");
+  const fullTreeEnabled = extractEnabledExpression(fullTreeOptions);
+  const destinationFolderOptions = extractQueryOptions("trpc.documents.getFolderTree");
 
   it("does not enable documents.getTree when Move File opens", () => {
-    expect(fullTreeQuery).toContain("enabled: debouncedSearch.length > 2");
-    expect(fullTreeQuery).not.toContain('modal?.type === "moveFile"');
+    expect(fullTreeEnabled).toBe("debouncedSearch.length > 2");
+    expect(fullTreeEnabled).not.toContain("moveFile");
+    expect(fullTreeOptions).not.toContain("moveFile");
   });
 
   it("does not enable documents.getTree when Move Folder opens", () => {
-    expect(fullTreeQuery).toContain("enabled: debouncedSearch.length > 2");
-    expect(fullTreeQuery).not.toContain('modal?.type === "moveFolder"');
+    expect(fullTreeEnabled).toBe("debouncedSearch.length > 2");
+    expect(fullTreeEnabled).not.toContain("moveFolder");
+    expect(fullTreeOptions).not.toContain("moveFolder");
+  });
+
+  it("keeps the documents.getTree enabled condition search-only", () => {
+    expect(fullTreeEnabled).not.toContain("isMoveDialogOpen");
+    expect(fullTreeEnabled).not.toContain("modal");
+    expect(fullTreeEnabled).not.toMatch(/\|\||&&/);
   });
 
   it("loads the folder-only destination query for both move dialogs", () => {
-    expect(destinationFolderQuery).toContain("enabled: isMoveDialogOpen");
+    expect(extractEnabledExpression(destinationFolderOptions)).toBe("isMoveDialogOpen");
     expect(source).toContain('modal?.type === "moveFolder" || modal?.type === "moveFile"');
     expect(source).toContain("buildDestinationFolderTree(destinationFolderData?.folders ?? [])");
     expect(source).toContain("getDestinationFolderOptions(");
