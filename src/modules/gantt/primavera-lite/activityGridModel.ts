@@ -51,16 +51,120 @@ export function optimisticActivityArchive<T extends Pick<ActivityGridRow, "id" |
   ));
 }
 
+export const PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE =
+  "Project Data Date is required to automatically set Actual Finish when completing an activity at 100%";
+
+export function hundredPercentDataDateConflictMessage(dataDate: string, actualStart: string): string {
+  return `Cannot auto-populate Actual Finish from Project Data Date (${dataDate}) because it precedes Actual Start (${actualStart}); provide an explicit Actual Finish on or after ${actualStart} or update the Project Data Date`;
+}
+
+export function normalizeIsoDate(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  const s = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
+}
+
+export function isValidIsoDate(value: unknown): value is string {
+  const iso = normalizeIsoDate(value);
+  return iso != null && /^\d{4}-\d{2}-\d{2}$/.test(iso);
+}
+
+/**
+ * Clearing Actual Finish:
+ * - explicit % Complete < 100 supplied in the same edit takes precedence
+ * - otherwise 99% if Actual Start exists, 0% if Actual Start is null
+ * Actual Finish remains null.
+ */
+export function percentAfterClearingActualFinish(
+  actualStart: string | null | undefined,
+  explicitPercent?: number | null
+): number {
+  if (explicitPercent != null && explicitPercent < 100) return explicitPercent;
+  return actualStart ? 99 : 0;
+}
+
+/**
+ * When % Complete becomes 100 and no Actual Finish is present, populate Actual
+ * Finish from Project Data Date only. Never fall back to wall-clock today.
+ */
+export function autoActualFinishFromDataDate(
+  dataDate: unknown,
+  actualStart: string | null | undefined
+): { ok: true; actualFinish: string } | { ok: false; error: string } {
+  const dd = normalizeIsoDate(dataDate);
+  if (!dd || !isValidIsoDate(dd)) {
+    return { ok: false, error: PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE };
+  }
+  const start = normalizeIsoDate(actualStart);
+  if (start && dd < start) {
+    return { ok: false, error: hundredPercentDataDateConflictMessage(dd, start) };
+  }
+  return { ok: true, actualFinish: dd };
+}
+
+export function validateHundredPercentEdit(
+  activity: Pick<ActivityGridRow, "actualStart" | "actualFinish">,
+  dataDate: string | null | undefined
+): string | null {
+  const existingFinish = normalizeIsoDate(activity.actualFinish);
+  if (existingFinish) return null;
+  const result = autoActualFinishFromDataDate(dataDate, activity.actualStart ?? null);
+  return result.ok ? null : result.error;
+}
+
 export function optimisticActivityEdit<T extends Pick<ActivityGridRow, "id" | "wbsNodeId" | "sortOrder">>(
-  rows: T[], id: number, changes: Partial<T>
+  rows: T[], id: number, changes: Partial<T>, dataDate?: string | null
 ): T[] {
   const current = rows.find((row) => row.id === id);
   if (!current) return rows;
+  const mergedChanges: any = { ...changes };
+
+  const effActualStart = mergedChanges.actualStart !== undefined
+    ? (mergedChanges.actualStart == null || String(mergedChanges.actualStart).trim() === ""
+      ? null
+      : mergedChanges.actualStart)
+    : (current as any).actualStart;
+
+  if (mergedChanges.actualFinish !== undefined) {
+    if (mergedChanges.actualFinish != null && String(mergedChanges.actualFinish).trim() !== "") {
+      if (mergedChanges.percentComplete === undefined) {
+        mergedChanges.percentComplete = 100;
+      }
+    } else {
+      // Clearing Actual Finish. Explicit % Complete < 100 takes precedence.
+      const explicit = mergedChanges.percentComplete;
+      if (explicit !== undefined && explicit !== null) {
+        if (explicit >= 100) {
+          mergedChanges.percentComplete = percentAfterClearingActualFinish(effActualStart, explicit);
+        }
+      } else if ((current as any).percentComplete === 100) {
+        mergedChanges.percentComplete = percentAfterClearingActualFinish(effActualStart);
+      }
+    }
+  } else if (mergedChanges.percentComplete !== undefined) {
+    if (mergedChanges.percentComplete === 100) {
+      const currentFinish = (current as any).actualFinish;
+      const hasFinish = currentFinish != null && String(currentFinish).trim() !== "";
+      if (!hasFinish) {
+        const auto = autoActualFinishFromDataDate(dataDate, effActualStart);
+        if (auto.ok) {
+          mergedChanges.actualFinish = auto.actualFinish;
+        }
+        // Missing/invalid Data Date or Data Date < Actual Start: do not invent today.
+      }
+    } else if (mergedChanges.percentComplete < 100) {
+      mergedChanges.actualFinish = null;
+    }
+  }
+
   if (changes.wbsNodeId !== undefined && changes.wbsNodeId !== current.wbsNodeId) {
     const moved = optimisticActivityReorder(rows, id, changes.wbsNodeId, Number.MAX_SAFE_INTEGER);
-    return moved.map((row) => row.id === id ? { ...row, ...changes } : row);
+    return moved.map((row) => row.id === id ? { ...row, ...mergedChanges } : row);
   }
-  return optimisticActivityUpdate(rows, id, changes);
+  return optimisticActivityUpdate(rows, id, mergedChanges);
 }
 
 export function selectValidNewWbs(currentWbsId: number | null, leafNodeIds: number[]): number | null {

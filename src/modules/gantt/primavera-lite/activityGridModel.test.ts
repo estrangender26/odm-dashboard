@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  activityGridPermissions, formatDate, groupActivities, isActivityEditNoop, optimisticActivityArchive,
-  optimisticActivityEdit, optimisticActivityReorder, optimisticActivityUpdate, preserveConflictAttempt,
+  activityGridPermissions, autoActualFinishFromDataDate, formatDate, groupActivities, isActivityEditNoop,
+  optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder, optimisticActivityUpdate,
+  percentAfterClearingActualFinish, preserveConflictAttempt, PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE,
   selectValidNewWbs, sortActivities, validateActivityEdit, validateDateField, validateDatePair,
-  type ActivityGridRow,
+  validateHundredPercentEdit, type ActivityGridRow,
 } from "./activityGridModel";
 
 const rows = [
@@ -136,5 +137,86 @@ describe("activityGridModel", () => {
     expect(isActivityEditNoop(baseRow, "activityId", "A2")).toBe(false);
     expect(isActivityEditNoop(baseRow, "calendarId", null)).toBe(true);
     expect(isActivityEditNoop(baseRow, "calendarId", 5)).toBe(false);
+  });
+
+  it("optimistically applies % Complete and Actual Finish synchronization rules", () => {
+    const row100WithStart: ActivityGridRow = {
+      ...baseRow,
+      id: 10,
+      percentComplete: 100,
+      actualStart: "2026-08-10",
+      actualFinish: "2026-08-12",
+    };
+    const row100NoStart: ActivityGridRow = {
+      ...baseRow,
+      id: 20,
+      percentComplete: 100,
+      actualStart: null,
+      actualFinish: "2026-08-12",
+    };
+
+    // Clearing Actual Finish with Actual Start present -> 99%
+    const res1 = optimisticActivityEdit([row100WithStart], 10, { actualFinish: null });
+    expect(res1[0].actualFinish).toBeNull();
+    expect(res1[0].percentComplete).toBe(99);
+
+    // Clearing Actual Finish with Actual Start null -> 0%
+    const res2 = optimisticActivityEdit([row100NoStart], 20, { actualFinish: null });
+    expect(res2[0].actualFinish).toBeNull();
+    expect(res2[0].percentComplete).toBe(0);
+
+    // Setting Actual Finish -> 100%
+    const res3 = optimisticActivityEdit([baseRow], 1, { actualFinish: "2026-08-15" });
+    expect(res3[0].actualFinish).toBe("2026-08-15");
+    expect(res3[0].percentComplete).toBe(100);
+
+    // Reducing % Complete below 100 -> clears Actual Finish
+    const res4 = optimisticActivityEdit([row100WithStart], 10, { percentComplete: 50 });
+    expect(res4[0].percentComplete).toBe(50);
+    expect(res4[0].actualFinish).toBeNull();
+
+    // Explicit % Complete < 100 supplied in the same clear edit takes precedence
+    const res5 = optimisticActivityEdit([row100WithStart], 10, { actualFinish: null, percentComplete: 45 });
+    expect(res5[0].actualFinish).toBeNull();
+    expect(res5[0].percentComplete).toBe(45);
+
+    // Explicit 100% while clearing Actual Finish cannot remain 100%
+    const res6 = optimisticActivityEdit([row100WithStart], 10, { actualFinish: null, percentComplete: 100 });
+    expect(res6[0].actualFinish).toBeNull();
+    expect(res6[0].percentComplete).toBe(99);
+    const res7 = optimisticActivityEdit([row100NoStart], 20, { actualFinish: null, percentComplete: 100 });
+    expect(res7[0].actualFinish).toBeNull();
+    expect(res7[0].percentComplete).toBe(0);
+  });
+
+  it("optimistically auto-populates Actual Finish from Project Data Date at 100%, never from today", () => {
+    const res = optimisticActivityEdit([baseRow], 1, { percentComplete: 100 }, "2026-08-13");
+    expect(res[0].percentComplete).toBe(100);
+    expect(res[0].actualFinish).toBe("2026-08-13");
+
+    const missing = optimisticActivityEdit([baseRow], 1, { percentComplete: 100 }, null);
+    expect(missing[0].percentComplete).toBe(100);
+    expect(missing[0].actualFinish).toBeNull();
+
+    const started: ActivityGridRow = { ...baseRow, actualStart: "2026-08-14" };
+    const rejected = optimisticActivityEdit([started], 1, { percentComplete: 100 }, "2026-08-13");
+    expect(rejected[0].percentComplete).toBe(100);
+    expect(rejected[0].actualFinish).toBeNull();
+  });
+
+  it("validates 100% edits against Project Data Date and Actual Start", () => {
+    expect(autoActualFinishFromDataDate("2026-08-13", null)).toEqual({ ok: true, actualFinish: "2026-08-13" });
+    expect(autoActualFinishFromDataDate(null, null)).toEqual({
+      ok: false,
+      error: PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE,
+    });
+    expect(autoActualFinishFromDataDate("2026-08-13", "2026-08-14").ok).toBe(false);
+    expect(validateHundredPercentEdit({ actualStart: "2026-08-14", actualFinish: null }, "2026-08-13")).toMatch(
+      /precedes Actual Start/
+    );
+    expect(validateHundredPercentEdit({ actualStart: "2026-08-14", actualFinish: "2026-08-14" }, null)).toBeNull();
+    expect(percentAfterClearingActualFinish("2026-08-14")).toBe(99);
+    expect(percentAfterClearingActualFinish(null)).toBe(0);
+    expect(percentAfterClearingActualFinish("2026-08-14", 45)).toBe(45);
   });
 });

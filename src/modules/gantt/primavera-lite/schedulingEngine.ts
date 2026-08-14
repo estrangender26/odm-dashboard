@@ -510,16 +510,26 @@ export function runScheduleEngine(
       const predES = ES_day_map.get(pred.id)!;
       const lag = dep.lagDays || 0;
 
+      const predActualFinishDay = isValidISOString(pred.actualFinish)
+        ? dateToCalendarDay(pred.actualFinish!)
+        : null;
+      const predActualStartDay = isValidISOString(pred.actualStart)
+        ? dateToCalendarDay(pred.actualStart!)
+        : null;
+
+      const predFinishAnchor = predActualFinishDay != null ? predActualFinishDay : predEF;
+      const predStartAnchor = predActualStartDay != null ? predActualStartDay : predES;
+
       let constrDay = baseES_day;
       if (dep.dependencyType === "FS") {
-        constrDay = shiftWorkingDays(predEF + 1, lag, cal);
+        constrDay = shiftWorkingDays(predFinishAnchor + 1, lag, cal);
       } else if (dep.dependencyType === "SS") {
-        constrDay = shiftWorkingDays(predES, lag, cal);
+        constrDay = shiftWorkingDays(predStartAnchor, lag, cal);
       } else if (dep.dependencyType === "FF") {
-        const efReq = shiftWorkingDays(predEF, lag, cal);
+        const efReq = shiftWorkingDays(predFinishAnchor, lag, cal);
         constrDay = dur === 0 ? efReq : subWorkingDays(efReq, dur, cal);
       } else if (dep.dependencyType === "SF") {
-        const efReq = shiftWorkingDays(predES, lag, cal);
+        const efReq = shiftWorkingDays(predStartAnchor, lag, cal);
         constrDay = dur === 0 ? efReq : subWorkingDays(efReq, dur, cal);
       }
       if (constrDay > ES_day) {

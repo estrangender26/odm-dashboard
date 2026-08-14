@@ -250,6 +250,42 @@ describe("timelineModel representation states", () => {
     expect(isMilestone(spanned, activityTimelineModel(spanned).primary!.span)).toBe(false);
   });
 
+  it("PR345 exact smoke: Timeline/grid/CPM fields agree after Run Schedule", () => {
+    const a = activityTimelineModel({
+      ...activity, id: 1, activityName: "Activity A", originalDurationDays: 5, percentComplete: 100,
+      plannedStart: "2026-08-13", plannedFinish: "2026-08-17",
+      actualStart: "2026-08-14", actualFinish: "2026-08-14",
+      earlyStart: "2026-08-14", earlyFinish: "2026-08-14", totalFloatDays: 0,
+    });
+    expect(a.primary?.source).toBe("planned");
+    expect([iso(a.planned!.start), iso(a.planned!.finish)]).toEqual(["2026-08-13", "2026-08-17"]);
+    expect(a.actual.kind).toBe("closed");
+    expect(a.actual.kind === "closed" && [iso(a.actual.start), iso(a.actual.finish)]).toEqual(["2026-08-14", "2026-08-14"]);
+    expect([iso(a.cpm!.start), iso(a.cpm!.finish)]).toEqual(["2026-08-14", "2026-08-14"]);
+    expect(a.progress.isComplete).toBe(true);
+    expect(a.progress.impliesFinish).toBe(true);
+
+    const b = activityTimelineModel({
+      ...activity, id: 2, activityName: "Activity B", originalDurationDays: 5, percentComplete: 0,
+      plannedStart: null, plannedFinish: null, actualStart: null, actualFinish: null,
+      earlyStart: "2026-08-17", earlyFinish: "2026-08-21",
+    });
+    expect(b.planned).toBeNull();
+    expect(b.primary?.source).toBe("cpm");
+    expect([iso(b.cpm!.start), iso(b.cpm!.finish)]).toEqual(["2026-08-17", "2026-08-21"]);
+    expect(b.actual.kind).toBe("none");
+
+    const c = activityTimelineModel({
+      ...activity, id: 3, activityName: "Activity C", originalDurationDays: 2, percentComplete: 0,
+      plannedStart: null, plannedFinish: null, actualStart: null, actualFinish: null,
+      earlyStart: "2026-08-24", earlyFinish: "2026-08-25",
+    });
+    expect(c.planned).toBeNull();
+    expect(c.primary?.source).toBe("cpm");
+    expect([iso(c.cpm!.start), iso(c.cpm!.finish)]).toEqual(["2026-08-24", "2026-08-25"]);
+    expect(c.actual.kind).toBe("none");
+  });
+
   it("11. exact production reproduction: A/B/C after Run Schedule", () => {
     const a = activityTimelineModel({
       ...activity, id: 1, activityName: "A", originalDurationDays: 5, percentComplete: 100,

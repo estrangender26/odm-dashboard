@@ -31,4 +31,23 @@ describe("dependencyModel", () => {
     expect(optimisticDependencyArchive(rows, 1)).toEqual([]);
     expect(dependencyPermissions("viewer")).toEqual({ canEdit: false, readOnly: true });
   });
+
+  it("PR345: FS connectors exist when B and C only have CPM dates", () => {
+    const smoke = [
+      { id: 1, wbsNodeId: 1, sortOrder: 0, activityId: "A", activityName: "Activity A", originalDurationDays: 5, calendarId: null, percentComplete: 100, plannedStart: "2026-08-13", plannedFinish: "2026-08-17", actualStart: "2026-08-14", actualFinish: "2026-08-14", earlyStart: "2026-08-14", earlyFinish: "2026-08-14" },
+      { id: 2, wbsNodeId: 1, sortOrder: 1, activityId: "B", activityName: "Activity B", originalDurationDays: 5, calendarId: null, percentComplete: 0, plannedStart: null, plannedFinish: null, earlyStart: "2026-08-17", earlyFinish: "2026-08-21" },
+      { id: 3, wbsNodeId: 1, sortOrder: 2, activityId: "C", activityName: "Activity C", originalDurationDays: 2, calendarId: null, percentComplete: 0, plannedStart: null, plannedFinish: null, earlyStart: "2026-08-24", earlyFinish: "2026-08-25" },
+    ];
+    const lines = dependencyLineGeometry(
+      [
+        { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+        { id: 2, predecessorActivityId: 2, successorActivityId: 3, dependencyType: "FS", lagDays: 0 },
+      ],
+      smoke,
+      new Date(2026, 7, 13),
+      10
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines.map((line) => line.type)).toEqual(["FS", "FS"]);
+  });
 });
