@@ -838,9 +838,9 @@ export default function OmManualsLibrary() {
   const refreshTreeRef = useRef(refreshTree);
   refreshTreeRef.current = refreshTree;
   const moveRefreshCoordinator = useMemo(
-    () => createTrailingAsyncCoordinator((action: string) => (
-      refreshTreeRef.current(action, { invalidateAiContext: false })
-    )),
+    () => createTrailingAsyncCoordinator(async (action: string): Promise<void> => {
+      await refreshTreeRef.current(action, { invalidateAiContext: false });
+    }),
     [],
   );
   const refreshAfterMove = useCallback(
