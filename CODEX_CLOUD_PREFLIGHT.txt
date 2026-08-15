@@ -1,0 +1,4 @@
+Codex Cloud preflight.
+Repository: estrangender26/odm-dashboard
+Purpose: verify Codex Cloud task -> GitHub PR workflow.
+This file is disposable and must not be merged to main.
