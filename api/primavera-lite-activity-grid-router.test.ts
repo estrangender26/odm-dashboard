@@ -3,7 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../db/schema";
-import { ganttActivities, ganttCalendars, ganttProjectEvents, ganttProjects, ganttWbsNodes } from "@db/schema";
+import { ganttActivities, ganttActivityDependencies, ganttCalendars, ganttProjectEvents, ganttProjects, ganttWbsNodes } from "@db/schema";
 import { appRouter } from "./router";
 
 const DATABASE_URL = process.env.DATABASE_URL_TEST || "postgresql://postgres:postgres@localhost:5433/odmtest_pr3?sslmode=disable";
@@ -28,6 +28,7 @@ describe("Primavera Lite PR3 Activity Grid", () => {
   beforeAll(assertDisposableDatabase);
   afterAll(async () => {
     if (projectIds.length) {
+      await testDb.delete(ganttActivityDependencies).where(inArray(ganttActivityDependencies.projectId, projectIds));
       await testDb.delete(ganttActivities).where(inArray(ganttActivities.projectId, projectIds));
       await testDb.delete(ganttProjectEvents).where(inArray(ganttProjectEvents.projectId, projectIds));
       await testDb.delete(ganttWbsNodes).where(inArray(ganttWbsNodes.projectId, projectIds));
@@ -176,5 +177,88 @@ describe("Primavera Lite PR3 Activity Grid", () => {
 
     loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
     await expect(caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: second.activity.id })).rejects.toThrow(/same Activity ID already exists/i);
+  });
+
+  it("preserves all activity fields during restore", async () => {
+    const project = await createProject("PR3 Restore Preserve");
+    let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const activity = await caller.primaveraLite.createActivity({
+      slug: project.project.slug,
+      access: project.editor,
+      expectedRevision: loaded.revision,
+      activity: {
+        activityName: "Preserve Me",
+        activityId: "PRESERVE-1",
+        originalDurationDays: 10,
+        plannedStart: "2026-08-01",
+        plannedFinish: "2026-08-10",
+        actualStart: "2026-08-02",
+        actualFinish: null,
+        percentComplete: 50,
+      },
+    });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const dryRun = await caller.primaveraLite.archiveActivityDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id });
+    await caller.primaveraLite.archiveActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id, previewToken: dryRun.previewToken, confirmed: true });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    const restored = await caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id });
+    expect(restored.activity).toMatchObject({
+      id: activity.activity.id,
+      activityName: "Preserve Me",
+      activityId: "PRESERVE-1",
+      originalDurationDays: 10,
+      plannedStart: "2026-08-01",
+      plannedFinish: "2026-08-10",
+      actualStart: "2026-08-02",
+      actualFinish: null,
+      percentComplete: 50,
+      wbsNodeId: activity.activity.wbsNodeId,
+      archivedAt: null,
+    });
+  });
+
+  it("restores dependencies that were archived alongside the activity", async () => {
+    const project = await createProject("PR3 Restore Dependencies");
+    let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const a = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "A" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const b = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "B" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const dep = await caller.primaveraLite.createDependency({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, dependency: { predecessorActivityId: a.activity.id, successorActivityId: b.activity.id, dependencyType: "FS", lagDays: 0 } });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const dryRun = await caller.primaveraLite.archiveActivityDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id });
+    await caller.primaveraLite.archiveActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id, previewToken: dryRun.previewToken, confirmed: true });
+
+    let afterArchive = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    expect(afterArchive.dependencies.find((d) => d.id === dep.dependency.id)?.archivedAt).not.toBeNull();
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    await caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id });
+
+    let afterRestore = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    expect(afterRestore.dependencies.find((d) => d.id === dep.dependency.id)?.archivedAt).toBeNull();
+  });
+
+  it("marks the project schedule as stale after restoring an activity", async () => {
+    const project = await createProject("PR3 Restore Stale");
+    let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const activity = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Task", originalDurationDays: 2, plannedStart: "2026-08-01", plannedFinish: "2026-08-02" } });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    await caller.primaveraLite.runSchedule({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    expect(loaded.project?.scheduleOutOfDate).toBe(false);
+
+    const dryRun = await caller.primaveraLite.archiveActivityDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id });
+    await caller.primaveraLite.archiveActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id, previewToken: dryRun.previewToken, confirmed: true });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    await caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    expect(loaded.project?.scheduleOutOfDate).toBe(true);
   });
 });

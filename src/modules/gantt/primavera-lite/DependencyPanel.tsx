@@ -35,7 +35,7 @@ export default function DependencyPanel(props: Props) {
   const utils = trpc.useUtils();
   const queryInput = { slug, access };
   const { canEdit } = dependencyPermissions(props.role);
-  const activities = useMemo(() => sortActivities(props.activities), [props.activities]);
+  const activities = useMemo(() => sortActivities(props.activities).filter((a) => !a.archivedAt), [props.activities]);
   const dependencies = useMemo(() => sortDependencies(props.dependencies), [props.dependencies]);
   const [predecessorId, setPredecessorId] = useState<number | null>(activities[0]?.id ?? null);
   const [successorId, setSuccessorId] = useState<number | null>(activities[1]?.id ?? null);

@@ -194,7 +194,6 @@ export function optimisticActivityReorder<T extends Pick<ActivityGridRow, "id" |
   }).concat([{ ...moved, wbsNodeId: targetWbsNodeId, sortOrder: target.findIndex((row) => row.id === activityId) }] as T[]));
 }
 
-
 export function optimisticActivityRestore<T extends Pick<ActivityGridRow, "id" | "archivedAt">>(rows: T[], id: number): T[] {
   return rows.map((row) => (row.id === id ? ({ ...row, archivedAt: null } as T) : row));
 }

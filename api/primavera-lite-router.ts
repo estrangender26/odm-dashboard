@@ -10,7 +10,7 @@ import {
   ganttCalendarExceptions,
   ganttProjectEvents,
 } from "@db/schema";
-import { eq, and, or, sql, asc, isNull, inArray, ne } from "drizzle-orm";
+import { eq, and, or, sql, asc, isNull, isNotNull, inArray, ne } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 import { TRPCError } from "@trpc/server";
 import { generateProjectTokens, hashToken } from "@/modules/gantt/collaboration/accessToken";
@@ -2075,6 +2075,22 @@ export const primaveraLiteRouter = createRouter({
           .set({ archivedAt: null, updatedAt: now, revision: sql`${ganttActivities.revision} + 1`, updatedByName: input.actorName ?? "Anonymous" })
           .where(eq(ganttActivities.id, activity.id))
           .returning();
+
+        // Restore any archived dependencies connected to this activity so that
+        // restoring an activity returns the project to its pre-archive dependency state.
+        await tx
+          .update(ganttActivityDependencies)
+          .set({ archivedAt: null, updatedAt: now, revision: sql`${ganttActivityDependencies.revision} + 1`, updatedByName: input.actorName ?? "Anonymous" })
+          .where(
+            and(
+              eq(ganttActivityDependencies.projectId, accessCtx.projectId),
+              isNotNull(ganttActivityDependencies.archivedAt),
+              or(
+                eq(ganttActivityDependencies.predecessorActivityId, activity.id),
+                eq(ganttActivityDependencies.successorActivityId, activity.id)
+              )
+            )
+          );
 
         await normalizeActivityOrder(tx, accessCtx.projectId, activity.wbsNodeId);
 
