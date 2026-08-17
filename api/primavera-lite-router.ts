@@ -61,6 +61,7 @@ const tokenAccessInputSchema = z.object({
   slug: slugSchema,
   access: z.string().min(1),
   sinceRevision: z.number().int().nonnegative().optional(),
+  includeArchived: z.boolean().optional(),
 });
 
 const updateProjectMetaInputSchema = z.object({
@@ -218,6 +219,14 @@ const archiveActivityInputSchema = z.object({
   confirmed: z.boolean().refine((v) => v === true, {
     message: "confirmed must be true",
   }),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const restoreActivityInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  activityId: z.number().int().positive(),
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
@@ -984,16 +993,22 @@ export const primaveraLiteRouter = createRouter({
         )
         .orderBy(asc(ganttWbsNodes.sortOrder), asc(ganttWbsNodes.id));
 
-      const activities = await db
-        .select()
-        .from(ganttActivities)
-        .where(
-          and(
-            eq(ganttActivities.projectId, accessCtx.projectId),
-            isNull(ganttActivities.archivedAt)
-          )
-        )
-        .orderBy(asc(ganttActivities.wbsNodeId), asc(ganttActivities.sortOrder), asc(ganttActivities.id));
+      const activities = input.includeArchived
+        ? await db
+            .select()
+            .from(ganttActivities)
+            .where(eq(ganttActivities.projectId, accessCtx.projectId))
+            .orderBy(asc(ganttActivities.wbsNodeId), asc(ganttActivities.sortOrder), asc(ganttActivities.id))
+        : await db
+            .select()
+            .from(ganttActivities)
+            .where(
+              and(
+                eq(ganttActivities.projectId, accessCtx.projectId),
+                isNull(ganttActivities.archivedAt)
+              )
+            )
+            .orderBy(asc(ganttActivities.wbsNodeId), asc(ganttActivities.sortOrder), asc(ganttActivities.id));
 
       const dependencies = await db
         .select()
@@ -1984,6 +1999,89 @@ export const primaveraLiteRouter = createRouter({
         accessCtx.projectRevision = newRevision;
         accessCtx.actorName = input.actorName;
         await insertEvent(tx, accessCtx, "activity", "archive", updated.id, before, mapActivityRow(updated));
+
+        return updated;
+      });
+
+      return { activity: mapActivityRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  restoreActivity: publicQuery
+    .input(restoreActivityInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-restore-activity:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const projectRow = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const [activity] = await tx
+          .select()
+          .from(ganttActivities)
+          .where(
+            and(
+              eq(ganttActivities.id, input.activityId),
+              eq(ganttActivities.projectId, accessCtx.projectId)
+            )
+          );
+        if (!activity) throw new TRPCError({ code: "NOT_FOUND", message: "Activity not found" });
+        if (!activity.archivedAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Activity is not archived" });
+        }
+
+        // Original WBS node must exist and be active.
+        const [wbsNode] = await tx
+          .select()
+          .from(ganttWbsNodes)
+          .where(
+            and(
+              eq(ganttWbsNodes.id, activity.wbsNodeId),
+              eq(ganttWbsNodes.projectId, accessCtx.projectId)
+            )
+          );
+        if (!wbsNode) throw new TRPCError({ code: "NOT_FOUND", message: "WBS node not found" });
+        if (wbsNode.archivedAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot restore activity while its WBS node is archived" });
+        }
+
+        // Reject if restoring would create a duplicate user-visible activityId within the project.
+        if (activity.activityId != null) {
+          const [duplicate] = await tx
+            .select({ id: ganttActivities.id })
+            .from(ganttActivities)
+            .where(
+              and(
+                eq(ganttActivities.projectId, accessCtx.projectId),
+                eq(ganttActivities.activityId, activity.activityId),
+                isNull(ganttActivities.archivedAt)
+              )
+            );
+          if (duplicate) {
+            throw new TRPCError({ code: "CONFLICT", message: "Active activity with the same Activity ID already exists" });
+          }
+        }
+
+        const before = mapActivityRow(activity);
+        const now = new Date();
+
+        const [updated] = await tx
+          .update(ganttActivities)
+          .set({ archivedAt: null, updatedAt: now, revision: sql`${ganttActivities.revision} + 1`, updatedByName: input.actorName ?? "Anonymous" })
+          .where(eq(ganttActivities.id, activity.id))
+          .returning();
+
+        await normalizeActivityOrder(tx, accessCtx.projectId, activity.wbsNodeId);
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "activity", "restore", updated.id, before, mapActivityRow(updated));
 
         return updated;
       });
