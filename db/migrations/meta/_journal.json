@@ -169,6 +169,13 @@
       "when": 1791312000005,
       "tag": "0023_primavera_lite_default_calendar",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791312000006,
+      "tag": "0024_phase1_rls_pilot",
+      "breakpoints": true
     }
   ]
 }
