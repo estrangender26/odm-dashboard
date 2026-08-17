@@ -2,10 +2,10 @@ import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/providers/trpc";
-import { ChevronRight, ChevronDown, Plus, Pencil, Archive, RotateCcw } from "lucide-react";
+import { ChevronRight, ChevronDown, Plus, Pencil, Archive, RotateCcw, ArrowUp, ArrowDown } from "lucide-react";
 import { buildForest, type WbsNode, type TreeNode } from "./wbsTreeModel";
 
-interface WbsTreeProps {
+export interface WbsTreeProps {
   slug: string;
   access: string;
   role: "admin" | "editor" | "viewer";
@@ -31,6 +31,7 @@ export default function WbsTree({
   const [addingParentId, setAddingParentId] = useState<number | null>(null);
   const [newChildName, setNewChildName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
   const createNode = trpc.primaveraLite.createWbsNode.useMutation({
     onSuccess: (res) => {
@@ -63,6 +64,23 @@ export default function WbsTree({
       onRevisionChange(res.revision);
       onRefresh();
     },
+  });
+
+  const reorderNode = trpc.primaveraLite.reorderWbsNode.useMutation({
+    onSuccess: (res) => {
+      onRevisionChange(res.revision);
+      onRefresh();
+    },
+    onError: (err) => setMessage(err.message),
+  });
+
+  const moveNode = trpc.primaveraLite.moveWbsNode.useMutation({
+    onSuccess: (res) => {
+      onRevisionChange(res.revision);
+      setExpanded((prev) => new Set(prev).add(res.node.parentNodeId ?? res.node.id));
+      onRefresh();
+    },
+    onError: (err) => setMessage(err.message),
   });
 
   const listWithArchived = trpc.primaveraLite.listWbsTree.useQuery(
@@ -141,13 +159,60 @@ export default function WbsTree({
   }
 
   function handleRestore(nodeId: number) {
-    restoreNode.mutate({
+    restoreNode.mutate({ slug, access, expectedRevision, nodeId, confirmed: true });
+  }
+
+  function handleReorder(nodeId: number, direction: "up" | "down") {
+    const node = displayNodes.find((n) => n.id === nodeId);
+    if (!node || node.parentNodeId === null) return;
+    const siblings = displayNodes
+      .filter((n) => n.parentNodeId === node.parentNodeId && !n.archivedAt)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+    const currentIndex = siblings.findIndex((n) => n.id === nodeId);
+    const newIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (newIndex < 0 || newIndex >= siblings.length) return;
+    reorderNode.mutate({
       slug,
       access,
       expectedRevision,
       nodeId,
-      confirmed: true,
+      newSortOrder: newIndex,
     });
+  }
+
+  function handleMove(nodeId: number, newParentId: number) {
+    if (!newParentId) return;
+    moveNode.mutate({
+      slug,
+      access,
+      expectedRevision,
+      nodeId,
+      newParentNodeId: newParentId,
+    });
+  }
+
+  function descendantIds(nodeId: number): number[] {
+    const result: number[] = [];
+    const children = displayNodes.filter((n) => n.parentNodeId === nodeId);
+    for (const child of children) {
+      result.push(child.id);
+      result.push(...descendantIds(child.id));
+    }
+    return result;
+  }
+
+  function validMoveTargets(nodeId: number): WbsNode[] {
+    const node = displayNodes.find((n) => n.id === nodeId);
+    if (!node) return [];
+    const blocked = new Set([nodeId, ...descendantIds(nodeId)]);
+    return displayNodes.filter(
+      (n) =>
+        !n.archivedAt &&
+        !blocked.has(n.id) &&
+        n.id !== node.parentNodeId &&
+        n.id !== nodeId &&
+        n.parentNodeId !== null
+    );
   }
 
   function renderTreeNode(treeNode: TreeNode) {
@@ -157,19 +222,27 @@ export default function WbsTree({
     const isAdding = addingParentId === node.id;
     const isArchived = !!node.archivedAt;
     const hasChildren = children.length > 0;
+    const siblings = node.parentNodeId === null
+      ? forest.map((r) => r.node)
+      : displayNodes
+          .filter((n) => n.parentNodeId === node.parentNodeId && !n.archivedAt)
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+    const siblingIndex = siblings.findIndex((n) => n.id === node.id);
+    const canMoveUp = siblingIndex > 0;
+    const canMoveDown = siblingIndex >= 0 && siblingIndex < siblings.length - 1;
+    const moveTargets = validMoveTargets(node.id);
 
     return (
       <div key={node.id} className="select-none">
         <div
-          className={`flex items-center gap-2 py-1 pr-2 hover:bg-slate-100 rounded ${
-            isArchived ? "opacity-60" : ""
-          }`}
+          className={`flex items-center gap-2 py-1 pr-2 hover:bg-slate-100 rounded ${isArchived ? "opacity-60" : ""}`}
           style={{ paddingLeft: `${depth * 20 + 8}px` }}
         >
           <button
             type="button"
-            className="h-5 w-5 flex items-center justify-center text-slate-500"
             onClick={() => toggleExpanded(node.id)}
+            className="h-4 w-4 text-slate-400"
+            aria-label={isExpanded ? "Collapse" : "Expand"}
             disabled={!hasChildren}
           >
             {hasChildren ? (
@@ -222,6 +295,47 @@ export default function WbsTree({
               >
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                disabled={!canMoveUp || reorderNode.isPending}
+                onClick={() => handleReorder(node.id, "up")}
+                title="Move up"
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                disabled={!canMoveDown || reorderNode.isPending}
+                onClick={() => handleReorder(node.id, "down")}
+                title="Move down"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+              </Button>
+              {moveTargets.length > 0 && (
+                <select
+                  aria-label={`Move ${node.name} to parent`}
+                  className="h-7 rounded border px-1 text-xs"
+                  value=""
+                  disabled={moveNode.isPending}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (!value) return;
+                    handleMove(node.id, value);
+                    e.currentTarget.value = "";
+                  }}
+                >
+                  <option value="">Move to…</option>
+                  {moveTargets.map((target) => (
+                    <option key={target.id} value={target.id}>
+                      {target.code} — {target.name}
+                    </option>
+                  ))}
+                </select>
+              )}
               {isAdmin && (
                 <Button
                   variant="ghost"
@@ -292,6 +406,8 @@ export default function WbsTree({
           </Button>
         )}
       </div>
+
+      {message && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">{message}</div>}
 
       {forest.length === 0 ? (
         <p className="text-sm text-muted-foreground">No WBS nodes found.</p>
