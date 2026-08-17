@@ -66,7 +66,9 @@ describe("Phase 1 RLS pilot migration 0024", () => {
     const entry = journal.entries.find(
       candidate => candidate.tag === "0024_phase1_rls_pilot"
     );
-    const previous = journal.entries.at(-2);
+    const previous = journal.entries.find(
+      candidate => candidate.idx === 23
+    );
 
     expect(entry).toMatchObject({ idx: 24, tag: "0024_phase1_rls_pilot" });
     expect(previous).toBeDefined();
