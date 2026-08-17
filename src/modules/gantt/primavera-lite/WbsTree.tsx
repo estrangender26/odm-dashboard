@@ -13,7 +13,6 @@ export interface WbsTreeProps {
   nodes: WbsNode[];
   onRevisionChange: (revision: number) => void;
   onRefresh: () => void;
-  defaultExpanded?: number[];
 }
 export default function WbsTree({
   slug,
@@ -23,11 +22,10 @@ export default function WbsTree({
   nodes,
   onRevisionChange,
   onRefresh,
-  defaultExpanded,
 }: WbsTreeProps) {
   const canEdit = role === "admin" || role === "editor";
   const isAdmin = role === "admin";
-  const [expanded, setExpanded] = useState<Set<number>>(() => new Set(defaultExpanded ?? []));
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [addingParentId, setAddingParentId] = useState<number | null>(null);
