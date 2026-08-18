@@ -9,7 +9,7 @@ import { appRouter } from "./router";
 import { presentationFilesRouter } from "./presentation-files-router";
 import { documentsUploadRouter } from "./documents-router";
 import { storageRouter } from "./storage-router";
-import { lihokCorporateRouter } from "./lihok-corporate-router";
+
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { assertPreviewSecretConfigured } from "@/modules/gantt/primavera-lite/previewToken";
@@ -274,7 +274,6 @@ installRequestBodyGuard(app);
 logBootStage("registering document upload routes");
 app.route("/api/documents", documentsUploadRouter);
 app.route("/api/storage", storageRouter);
-app.route("/api/lihok-corporate", lihokCorporateRouter);
 
 logBootStage("registering API request logger middleware");
 app.use("*", async (c, next) => {

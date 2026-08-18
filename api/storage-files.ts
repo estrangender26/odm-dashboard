@@ -1,10 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   docFiles,
   governanceFiles,
   governanceMilestoneState,
   governanceUploads,
-  lihokCorporateDocumentVersions,
   smpDocuments,
 } from "@db/schema";
 import type { StorageFileSource } from "@contracts/storage";
@@ -77,17 +76,8 @@ export async function getStoredFileRecord(
     }).from(smpDocuments).where(eq(smpDocuments.id, id)).limit(1);
     return rows[0]?.fileName ? { source, ...rows[0], fileName: rows[0].fileName } : null;
   }
-  const rows = await db.select({
-    id: lihokCorporateDocumentVersions.id,
-    fileName: lihokCorporateDocumentVersions.fileName,
-    mimeType: lihokCorporateDocumentVersions.mimeType,
-    legacyData: sql<string>`CAST(NULL AS text)`,
-    storageBucket: lihokCorporateDocumentVersions.storageBucket,
-    storagePath: lihokCorporateDocumentVersions.storagePath,
-    storageSize: lihokCorporateDocumentVersions.fileSize,
-    storageMimeType: lihokCorporateDocumentVersions.mimeType,
-  }).from(lihokCorporateDocumentVersions).where(eq(lihokCorporateDocumentVersions.id, id)).limit(1);
-  return rows[0]?.fileName ? { source, ...rows[0], fileName: rows[0].fileName } : null;
+  // Remaining source values are handled by the switch exhaustive check at build time
+  return null;
 }
 
 export async function deleteStoredFileRecord(source: StorageFileSource, id: number) {
@@ -106,9 +96,6 @@ export async function deleteStoredFileRecord(source: StorageFileSource, id: numb
     });
   }
   if (source === "governance_files") return db.delete(governanceFiles).where(eq(governanceFiles.id, id));
-  if (source === "lihok_corporate_document_versions") {
-    throw new Error("Corporate Library file deletion is not available. Controlled-document retention must use the governed archive or purge workflow.");
-  }
   if (source === "smp_documents") {
     return db.update(smpDocuments).set({
       fileData: null,
@@ -124,16 +111,5 @@ export async function deleteStoredFileRecord(source: StorageFileSource, id: numb
       updatedAt: new Date(),
     }).where(and(eq(smpDocuments.id, id)));
   }
-  return db.update(lihokCorporateDocumentVersions).set({
-    fileName: null,
-    fileSize: null,
-    mimeType: null,
-    fileHash: null,
-    storageProvider: null,
-    storageBucket: null,
-    storagePath: null,
-    storageEtag: null,
-    storageUploadedAt: null,
-    updatedAt: new Date(),
-  }).where(and(eq(lihokCorporateDocumentVersions.id, id)));
+  // Remaining source values are handled by the switch exhaustive check at build time
 }
