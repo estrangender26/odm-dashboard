@@ -201,43 +201,6 @@ export const governanceFiles = pgTable("governance_files", {
 });
 
 /* ─── Gantt Tasks (clean schema — matches UI fields exactly) ─── */
-export const ganttTasks = pgTable("gantt_tasks", {
-  id: serial("id").primaryKey(),
-  projectId: integer("project_id"),
-  frontendTaskUid: varchar("frontend_task_uid", { length: 64 }).unique(),
-  taskName: varchar("task_name", { length: 500 }).notNull(),
-  parentTaskId: integer("parent_task_id").default(0),
-  predecessorTaskId: integer("predecessor_task_id"),
-  dependencyType: varchar("dependency_type", { length: 10 }),
-  lagDays: integer("lag_days").default(0),
-  wbsLevel: integer("wbs_level").default(0),
-  sortOrder: integer("sort_order").default(0),
-  plannedStart: varchar("planned_start", { length: 20 }),
-  plannedFinish: varchar("planned_finish", { length: 20 }),
-  plannedDuration: integer("planned_duration"),
-  actualStart: varchar("actual_start", { length: 20 }),
-  actualFinish: varchar("actual_finish", { length: 20 }),
-  actualDuration: integer("actual_duration"),
-  progressPercent: integer("progress_percent").default(0),
-  status: varchar("status", { length: 50 }),
-  owner: varchar("owner", { length: 255 }),
-  category: varchar("category", { length: 100 }),
-  notes: text("notes"),
-  remarks: text("remarks"),
-  taskType: varchar("task_type", { length: 20 }).default("task"),
-  isMilestone: integer("is_milestone").default(0),
-  isParent: integer("is_parent").default(0),
-  revision: integer("revision").notNull().default(1),
-  updatedByName: varchar("updated_by_name", { length: 255 }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [
-  index("gantt_tasks_project_idx").on(table.projectId),
-  index("gantt_tasks_parent_idx").on(table.parentTaskId),
-  index("gantt_tasks_predecessor_idx").on(table.predecessorTaskId),
-  index("gantt_tasks_uid_idx").on(table.frontendTaskUid),
-  index("gantt_tasks_sort_idx").on(table.sortOrder),
-]);
 
 
 
@@ -296,22 +259,6 @@ export const docFiles = pgTable("doc_files", {
 ]);
 
 /* ── Gantt Task Dependencies ── */
-export const ganttDependencies = pgTable("gantt_dependencies", {
-  id: serial("id").primaryKey(),
-  projectId: integer("project_id"),
-  predecessorTaskId: integer("predecessor_task_id").notNull(),
-  successorTaskId: integer("successor_task_id").notNull(),
-  dependencyType: varchar("dependency_type", { length: 10 }).notNull().default("FS"),
-  lagDays: integer("lag_days").default(0),
-  revision: integer("revision").notNull().default(1),
-  updatedByName: varchar("updated_by_name", { length: 255 }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [
-  index("gantt_dep_project_idx").on(table.projectId),
-  index("gantt_dep_pred_idx").on(table.predecessorTaskId),
-  index("gantt_dep_succ_idx").on(table.successorTaskId),
-]);
 
 /* ── SMP Documents ── */
 export const smpDocuments = pgTable("smp_documents", {
@@ -372,16 +319,10 @@ export const ganttProjects = pgTable("gantt_projects", {
   startDate: varchar("start_date", { length: 20 }),
   finishDate: varchar("finish_date", { length: 20 }),
   status: varchar("status", { length: 50 }),
-  tasksData: text("tasks_data").notNull(),
-  linksData: text("links_data"),
   description: text("description"),
-  createdBy: varchar("created_by", { length: 255 }),
-  updatedBy: varchar("updated_by", { length: 255 }),
-  userId: integer("user_id"),
   ownerId: integer("owner_id"),
   tenantId: varchar("tenant_id", { length: 255 }),
   orgId: varchar("org_id", { length: 255 }),
-  sessionId: varchar("session_id", { length: 255 }),
   publicId: uuid("public_id").unique(),
   slug: varchar("slug", { length: 255 }).unique(),
   editTokenHash: varchar("edit_token_hash", { length: 64 }),
@@ -397,8 +338,6 @@ export const ganttProjects = pgTable("gantt_projects", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("gantt_projects_name_idx").on(table.name),
-  index("gantt_projects_session_idx").on(table.sessionId),
-  index("gantt_projects_user_idx").on(table.userId),
   index("gantt_projects_public_id_idx").on(table.publicId),
   index("gantt_projects_slug_idx").on(table.slug),
   index("gantt_projects_edit_token_idx").on(table.editTokenHash),

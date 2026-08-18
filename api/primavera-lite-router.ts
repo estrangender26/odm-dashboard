@@ -908,7 +908,6 @@ export const primaveraLiteRouter = createRouter({
             projectName: input.name,
             slug,
             description: input.description ?? null,
-            tasksData: "[]",
             adminTokenHash: tokens.adminHash,
             editTokenHash: tokens.editorHash,
             viewTokenHash: tokens.viewerHash,
