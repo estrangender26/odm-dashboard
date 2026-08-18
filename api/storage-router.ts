@@ -8,8 +8,6 @@ import {
   docFolders,
   governanceFacilities,
   governanceUploads,
-  lihokCorporateDocumentVersions,
-  lihokCorporateDocuments,
   smpDocuments,
   storageUploadIntents,
   type User,
@@ -42,7 +40,7 @@ const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
 
 export const storageRouter = new Hono();
 
-const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "lihok_corporate_document_versions"]);
+const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents"]);
 const authorizeSchema = z.object({
   module: z.enum(STORAGE_MODULES),
   originalFilename: z.string().trim().min(1).max(255),
@@ -122,19 +120,7 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
     if (!rows.length) throw new Error("SMP document not found.");
     return { documentId };
   }
-  if (module === "lihok-corporate") {
-    const documentId = Number(target.documentId);
-    const versionId = Number(target.versionId);
-    if (!Number.isInteger(documentId) || documentId <= 0) throw new Error("A valid corporate document is required.");
-    if (!Number.isInteger(versionId) || versionId <= 0) throw new Error("A valid corporate document version is required.");
-    const docRows = await db.select({ id: lihokCorporateDocuments.id }).from(lihokCorporateDocuments).where(eq(lihokCorporateDocuments.id, documentId)).limit(1);
-    if (!docRows.length) throw new Error("Corporate document not found.");
-    const versionRows = await db.select({ id: lihokCorporateDocumentVersions.id, documentId: lihokCorporateDocumentVersions.documentId })
-      .from(lihokCorporateDocumentVersions).where(eq(lihokCorporateDocumentVersions.id, versionId)).limit(1);
-    if (!versionRows.length) throw new Error("Corporate document version not found.");
-    if (versionRows[0].documentId !== documentId) throw new Error("Version does not belong to the specified corporate document.");
-    return { documentId, versionId };
-  }
+
   const facilitySlug = normalizedSegment(target.facilitySlug, "facility", 50);
   const milestoneId = normalizeGovernanceMilestoneId(target.milestoneId);
   const category = String(target.category ?? "other").trim().slice(0, 50) || "other";
@@ -156,14 +142,12 @@ function buildObjectPath(module: StorageModule, target: Record<string, unknown>,
   const id = randomUUID();
   if (module === "om") return `v1/folder-${target.folderId}/${id}`;
   if (module === "smp") return `v1/document-${target.documentId}/${id}`;
-  if (module === "lihok-corporate") return `v1/${target.documentId}/${target.versionId}/${id}-${safeObjectFilename(originalFilename)}`;
   return `v1/${target.facilitySlug}/${target.milestoneId}/${id}`;
 }
 
 function getSourceFromModule(module: StorageModule): StorageFileSource {
   if (module === "om") return "doc_files";
   if (module === "smp") return "smp_documents";
-  if (module === "lihok-corporate") return "lihok_corporate_document_versions";
   return "governance_uploads";
 }
 
@@ -369,11 +353,6 @@ storageRouter.post("/uploads/authorize", async (c) => {
       return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
     }
 
-    // Corporate Library uploads require authentication
-    if (input.module === "lihok-corporate" && !user) {
-      return c.json({ error: "Authentication required for Corporate Library uploads." }, 401);
-    }
-    
     // Rate limiting for anonymous users
     if (!user) {
       const client = getClientIdentifier(c.req.raw.headers);
@@ -538,18 +517,7 @@ storageRouter.post("/uploads/finalize", async (c) => {
     }
     
     // Verify ownership
-    if (intent.module === "lihok-corporate") {
-      // Corporate Library uploads are always authenticated; capability tokens are never accepted.
-      let user: User;
-      try {
-        user = await authenticateRequest(c.req.raw.headers);
-      } catch {
-        return c.json({ error: "Authentication required." }, 401);
-      }
-      if (user.id !== intent.requestedBy) {
-        return c.json({ error: "Forbidden: upload intent belongs to another user." }, 403);
-      }
-    } else if (intent.requestedBy) {
+    if (intent.requestedBy) {
       try {
         const user = await authenticateRequest(c.req.raw.headers);
         if (user.id !== intent.requestedBy) {
@@ -650,26 +618,6 @@ storageRouter.post("/uploads/finalize", async (c) => {
         }).returning({ id: smpDocuments.id });
         persistedId = inserted[0].id;
         persistedSource = "smp_documents";
-      } else if (intent.module === "lihok-corporate") {
-        const versionId = Number(target.versionId);
-        const updated = await tx.update(lihokCorporateDocumentVersions).set({
-          fileName: intent.originalFilename,
-          fileSize: actualSize,
-          mimeType: actualMime,
-          storageProvider: "supabase",
-          storageBucket: intent.expectedBucket,
-          storagePath: intent.expectedPath,
-          storageEtag: info.etag,
-          storageUploadedAt: now,
-          uploadedBy: intent.requestedBy,
-          updatedAt: now,
-        }).where(and(
-          eq(lihokCorporateDocumentVersions.id, versionId),
-          eq(lihokCorporateDocumentVersions.documentId, Number(target.documentId)),
-        )).returning({ id: lihokCorporateDocumentVersions.id });
-        if (!updated.length) throw new Error("Corporate document version was not found or did not match the target document.");
-        persistedId = updated[0].id;
-        persistedSource = "lihok_corporate_document_versions";
       } else {
         const inserted = await tx.insert(governanceUploads).values({
           facilitySlug: target.facilitySlug,
@@ -763,15 +711,6 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
     const action = c.req.param("action");
     if (!Number.isInteger(id) || !["view", "download"].includes(action)) return c.json({ error: "Invalid file request." }, 400);
 
-    // Corporate Library file access requires authentication in FR-002.
-    if (source === "lihok_corporate_document_versions") {
-      try {
-        await authenticateRequest(c.req.raw.headers);
-      } catch {
-        return c.json({ error: "Authentication required for Corporate Library files." }, 401);
-      }
-    }
-
     const record = await getStoredFileRecord(source, id);
     if (!record) return c.json({ error: "File not found." }, 404);
     if (record.storagePath && record.storageBucket) {
@@ -801,9 +740,6 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
 storageRouter.post("/files/delete/prepare", async (c) => {
   try {
     const input = z.object({ source: sourceSchema, id: z.number().int().positive() }).parse(await c.req.json());
-    if (input.source === "lihok_corporate_document_versions") {
-      return c.json({ error: "Corporate Library file deletion is not available. Controlled-document retention must use the governed archive or purge workflow." }, 403);
-    }
     const record = await getStoredFileRecord(input.source, input.id);
     if (!record) return c.json({ error: "File not found." }, 404);
     const expiresAt = Date.now() + 5 * 60_000;
@@ -826,9 +762,6 @@ storageRouter.post("/files/delete/confirm", async (c) => {
     const payload = verifyDeletePayload(confirmationToken);
     if (!payload || !payload.sessionId) return c.json({ error: "Delete confirmation is invalid or expired." }, 409);
     const source = sourceSchema.parse(payload.source);
-    if (source === "lihok_corporate_document_versions") {
-      return c.json({ error: "Corporate Library file deletion is not available. Controlled-document retention must use the governed archive or purge workflow." }, 403);
-    }
     const id = Number(payload.id);
     const record = await getStoredFileRecord(source, id);
     if (!record) return c.json({ error: "File not found." }, 404);

@@ -43,7 +43,6 @@ const MODULE_FLAG_KEY: Record<StorageModule, keyof StorageFeatureFlags> = {
   om: "om",
   governance: "governance",
   smp: "smp",
-  "lihok-corporate": "lihokCorporate",
 };
 
 export async function shouldUseDirectStorage(module: StorageModule) {
