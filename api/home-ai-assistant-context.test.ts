@@ -45,13 +45,10 @@ describe("Dashboard Suite home AI assistant context", () => {
 
   it("keeps module dashboard pages on their module-specific assistant contexts", () => {
     const maintenancePage = readFileSync("src/pages/Dashboard.tsx", "utf8");
-    const ganttPage = readFileSync("src/pages/GanttPlanner.tsx", "utf8");
     const scorecardPage = readFileSync("src/pages/ScorecardDashboard.tsx", "utf8");
 
     expect(maintenancePage).toContain('contextType="maintenance"');
     expect(maintenancePage).toContain('sourceModule: "Maintenance Planning"');
-    expect(ganttPage).toContain('contextType="gantt"');
-    expect(ganttPage).toContain('sourceModule: "Gantt Charts"');
     expect(scorecardPage).toContain('contextType="scorecard"');
     expect(scorecardPage).toContain('sourceModule: "Monthly KPI Scorecard"');
   });

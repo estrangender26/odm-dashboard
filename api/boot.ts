@@ -1635,24 +1635,6 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
   }
 });
 
-// Manual migration endpoint for gantt planned columns
-app.get("/api/migrate-gantt", async (c) => {
-  try {
-    const { getDb } = await import("./queries/connection");
-    const db = getDb();
-    await db.execute(sql.raw(`
-      ALTER TABLE gantt_tasks 
-      ADD COLUMN IF NOT EXISTS planned_start VARCHAR(20),
-      ADD COLUMN IF NOT EXISTS planned_end VARCHAR(20),
-      ADD COLUMN IF NOT EXISTS category VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS notes TEXT
-    `));
-    return c.json({ success: true, message: "Columns added" });
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
-  }
-});
-
 // Validate YYYY-MM-DD format
 function isValidDate(str: unknown): boolean {
   if (!str || typeof str !== 'string') return false;

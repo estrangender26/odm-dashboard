@@ -4,10 +4,7 @@ import { governanceRouter } from "./governance-router";
 import { governanceFilesRouter } from "./governance-files-router";
 import { seedRouter } from "./seed-router";
 import { mwRouter } from "./mw-router";
-import { ganttRouter } from "./gantt-router";
 import { documentsRouter } from "./documents-router";
-import { ganttProjectsRouter } from "./gantt-projects-router";
-import { sharedGanttRouter } from "./shared-gantt-router";
 import { primaveraLiteRouter } from "./primavera-lite-router";
 import { aiRouter } from "./ai-router";
 import { githubRouter } from "./github-router";
@@ -22,10 +19,7 @@ export const appRouter = createRouter({
   govFiles: governanceFilesRouter,
   seed: seedRouter,
   mw: mwRouter,
-  gantt: ganttRouter,
   documents: documentsRouter,
-  ganttProjects: ganttProjectsRouter,
-  sharedGantt: sharedGanttRouter,
   primaveraLite: primaveraLiteRouter,
   ai: aiRouter,
   github: githubRouter,
