@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, GripVertical, Plus } from "lucide-react";
+import { Archive, GripVertical, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/providers/trpc";
 import {
-  activityGridPermissions, formatDate, isActivityEditNoop, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder,
+  activityGridPermissions, formatDate, isActivityEditNoop, optimisticActivityArchive, optimisticActivityEdit, optimisticActivityReorder, optimisticActivityRestore,
   preserveConflictAttempt, selectValidNewWbs, sortActivities, validateActivityEdit, validateDatePair,
   validateHundredPercentEdit,
   SCHEDULE_ROW_HEIGHT, type ActivityGridRow, type ConflictRecovery,
@@ -47,8 +47,10 @@ export default function ActivityGrid(props: Props) {
   const utils = trpc.useUtils();
   const queryInput = { slug, access };
   const { canEdit } = activityGridPermissions(role);
+  const [showArchived, setShowArchived] = useState(false);
   const leafNodes = useMemo(() => wbsNodes.filter((node) => node.isLeaf && !node.archivedAt), [wbsNodes]);
-  const activities = useMemo(() => sortActivities(props.activities), [props.activities]);
+  const activities = useMemo(() => sortActivities(props.activities).filter((a) => showArchived || !a.archivedAt), [props.activities, showArchived]);
+  const hasArchived = useMemo(() => props.activities.some((a) => a.archivedAt), [props.activities]);
   const [newName, setNewName] = useState("");
   const [newWbs, setNewWbs] = useState<number | null>(leafNodes[0]?.id ?? null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -123,6 +125,26 @@ export default function ActivityGrid(props: Props) {
       return { snapshot };
     },
     onSuccess: (result) => props.onRevisionChange(result.revision),
+    onError: async (error, _input, context) => {
+      if (context?.snapshot) utils.primaveraLite.load.setData(queryInput, context.snapshot);
+      if (isConflict(error)) await props.onRefresh();
+      setMessage(error.message);
+    },
+  });
+
+  const restoreActivity = trpc.primaveraLite.restoreActivity.useMutation({
+    onMutate: async (input) => {
+      await utils.primaveraLite.load.cancel(queryInput);
+      const snapshot = utils.primaveraLite.load.getData(queryInput);
+      setCachedActivities((rows) => optimisticActivityRestore(rows, input.activityId));
+      return { snapshot };
+    },
+    onSuccess: (result) => {
+      props.onRevisionChange(result.revision);
+      if (result.hasArchivedDependencies) {
+        setMessage("Activity restored. Archived dependencies remain archived.");
+      }
+    },
     onError: async (error, _input, context) => {
       if (context?.snapshot) utils.primaveraLite.load.setData(queryInput, context.snapshot);
       if (isConflict(error)) await props.onRefresh();
@@ -204,6 +226,9 @@ export default function ActivityGrid(props: Props) {
     const preview = await archiveDryRun.mutateAsync({ slug, access, expectedRevision, activityId });
     archiveActivity.mutate({ slug, access, expectedRevision, activityId, previewToken: preview.previewToken, confirmed: true });
   }
+  function restore(activityId: number) {
+    restoreActivity.mutate({ slug, access, expectedRevision, activityId });
+  }
   function dropOn(target: ActivityGridRow) {
     if (!canEdit || draggedId == null || draggedId === target.id) return;
     reorderActivity.mutate({ slug, access, expectedRevision, activityId: draggedId, targetWbsNodeId: target.wbsNodeId, newSortOrder: target.sortOrder });
@@ -211,6 +236,7 @@ export default function ActivityGrid(props: Props) {
   }
 
   const editableCell = (activity: ActivityGridRow, field: "activityId" | "activityName" | "originalDurationDays" | "percentComplete", type: "text" | "number" = "text") => {
+    if (activity.archivedAt) return <span className="px-2">{activity[field] ?? "—"}</span>;
     const active = editing === `${activity.id}:${field}`;
     return active ? (
       <Input autoFocus type={type} value={draft} onChange={(event) => setDraft(event.target.value)}
@@ -225,6 +251,7 @@ export default function ActivityGrid(props: Props) {
   };
 
   const editableDateCell = (activity: ActivityGridRow, field: EditableDateField) => {
+    if (activity.archivedAt) return <span className="px-2">{formatDate(activity[field]) || "—"}</span>;
     const active = editing === `${activity.id}:${field}`;
     return active ? (
       <Input autoFocus type="date" value={draft} onChange={(event) => setDraft(event.target.value)}
@@ -240,7 +267,7 @@ export default function ActivityGrid(props: Props) {
 
   return (
     <section className="space-y-3">
-      <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Activities</h3><span className="text-xs text-muted-foreground">{activities.length} activities</span></div>
+      <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Activities</h3><div className="flex items-center gap-2">{hasArchived && <label className="flex items-center gap-1 text-xs text-muted-foreground"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived</label>}<span className="text-xs text-muted-foreground">{activities.length} activities</span></div></div>
       {canEdit && (
         <div className="flex flex-wrap items-end gap-2 rounded border bg-white p-3">
           <div className="min-w-64 flex-1"><label className="text-xs font-medium">Activity name</label><Input value={newName} onChange={(e) => setNewName(e.target.value)} /></div>
@@ -254,26 +281,26 @@ export default function ActivityGrid(props: Props) {
         <table className="w-full min-w-[2200px] text-sm">
           <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Planned start</th><th className="p-2">Planned finish</th><th className="p-2">Actual start</th><th className="p-2">Actual finish</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">% complete</th><th className="p-2">Early start</th><th className="p-2">Early finish</th><th className="p-2">Late start</th><th className="p-2">Late finish</th><th className="p-2">Total float</th><th className="w-16 p-2">Archive</th></tr></thead>
           <tbody>{activities.map((activity) => (
-            <tr key={activity.id} draggable={canEdit} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)}
+            <tr key={activity.id} draggable={canEdit && !activity.archivedAt} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)}
               onMouseEnter={() => props.onActivityHighlight?.(activity.id)} onMouseLeave={() => props.onActivityHighlight?.(null)}
               onFocus={() => props.onActivityHighlight?.(activity.id)}
-              style={{ height: SCHEDULE_ROW_HEIGHT }} className={`border-t transition-colors ${props.highlightedActivityId === activity.id ? "bg-blue-50" : ""}`}>
+              style={{ height: SCHEDULE_ROW_HEIGHT }} className={`border-t transition-colors ${props.highlightedActivityId === activity.id ? "bg-blue-50" : ""} ${activity.archivedAt ? "bg-slate-50 text-slate-500" : ""}`}>
               <td className="p-2 text-slate-400">{canEdit && <GripVertical className="h-4 w-4 cursor-grab" />}</td>
               <td className="p-1">{editableCell(activity, "activityId")}</td><td className="p-1">{editableCell(activity, "activityName")}</td>
-              <td className="p-1"><select disabled={!canEdit} value={activity.wbsNodeId} onChange={(e) => submitEdit(activity, "wbsNodeId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none">{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></td>
+              <td className="p-1">{activity.archivedAt ? <span className="px-2">{leafNodes.find((n) => n.id === activity.wbsNodeId)?.code ?? "—"}</span> : <select disabled={!canEdit} value={activity.wbsNodeId} onChange={(e) => submitEdit(activity, "wbsNodeId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none">{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select>}</td>
               <td className="p-1">{editableDateCell(activity, "plannedStart")}</td>
               <td className="p-1">{editableDateCell(activity, "plannedFinish")}</td>
               <td className="p-1">{editableDateCell(activity, "actualStart")}</td>
               <td className="p-1">{editableDateCell(activity, "actualFinish")}</td>
               <td className="p-1">{editableCell(activity, "originalDurationDays", "number")}</td>
-              <td className="p-1"><select disabled={!canEdit} value={activity.calendarId ?? ""} onChange={(e) => submitEdit(activity, "calendarId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none"><option value="">Project default / unassigned</option>{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></td>
+              <td className="p-1">{activity.archivedAt ? <span className="px-2">{calendars.find((c) => c.id === activity.calendarId)?.name ?? "Project default / unassigned"}</span> : <select disabled={!canEdit} value={activity.calendarId ?? ""} onChange={(e) => submitEdit(activity, "calendarId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none"><option value="">Project default / unassigned</option>{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select>}</td>
               <td className="p-1">{editableCell(activity, "percentComplete", "number")}</td>
               <td className="p-2 text-muted-foreground">{formatDate(activity.earlyStart) || "—"}</td>
               <td className="p-2 text-muted-foreground">{formatDate(activity.earlyFinish) || "—"}</td>
               <td className="p-2 text-muted-foreground">{formatDate(activity.lateStart) || "—"}</td>
               <td className="p-2 text-muted-foreground">{formatDate(activity.lateFinish) || "—"}</td>
               <td className="p-2 text-muted-foreground">{activity.totalFloatDays ?? "—"}</td>
-              <td className="p-2">{canEdit && <Button variant="ghost" size="icon" onClick={() => archive(activity.id)} aria-label={`Archive ${activity.activityName}`}><Archive className="h-4 w-4" /></Button>}</td>
+              <td className="p-2">{canEdit && !activity.archivedAt && <Button variant="ghost" size="icon" onClick={() => archive(activity.id)} aria-label={`Archive ${activity.activityName}`} title="Archive"><Archive className="h-4 w-4" /></Button>}{canEdit && activity.archivedAt && <Button variant="ghost" size="icon" onClick={() => restore(activity.id)} aria-label={`Restore ${activity.activityName}`} title="Restore"><RotateCcw className="h-4 w-4" /></Button>}</td>
             </tr>
           ))}</tbody>
         </table>

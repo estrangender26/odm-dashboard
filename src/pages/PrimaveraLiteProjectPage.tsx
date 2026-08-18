@@ -52,7 +52,7 @@ export default function PrimaveraLiteProjectPage() {
   }, [slug, access]);
 
   const { data, isLoading, error, refetch } = trpc.primaveraLite.load.useQuery(
-    { slug, access },
+    { slug, access, includeArchived: true },
     { enabled: !!slug && !!access, refetchInterval: isEditingActivity ? false : 5000 }
   );
 

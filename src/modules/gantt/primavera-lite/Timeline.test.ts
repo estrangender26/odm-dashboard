@@ -1,11 +1,20 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import Timeline from "./Timeline";
 
 const base = { id: 1, wbsNodeId: 1, sortOrder: 0, activityId: "A1", activityName: "Foundations", originalDurationDays: 3, calendarId: null, percentComplete: 25 };
 
+const MOCK_TODAY = new Date("2026-08-15T12:00:00.000Z");
+
 describe("Timeline", () => {
+  beforeAll(() => {
+    vi.setSystemTime(MOCK_TODAY);
+  });
+
+  afterAll(() => {
+    vi.useRealTimers();
+  });
   it("renders controls, planned/actual bars, milestones and markers read-only", () => {
     const html = renderToStaticMarkup(createElement(Timeline, { dataDate: "2026-08-02", dependencies: [{ id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 }], activities: [
       { ...base, plannedStart: "2026-08-01", plannedFinish: "2026-08-03", actualStart: "2026-08-01", actualFinish: "2026-08-02" },

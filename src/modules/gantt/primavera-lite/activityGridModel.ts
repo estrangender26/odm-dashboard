@@ -194,6 +194,9 @@ export function optimisticActivityReorder<T extends Pick<ActivityGridRow, "id" |
   }).concat([{ ...moved, wbsNodeId: targetWbsNodeId, sortOrder: target.findIndex((row) => row.id === activityId) }] as T[]));
 }
 
+export function optimisticActivityRestore<T extends Pick<ActivityGridRow, "id" | "archivedAt">>(rows: T[], id: number): T[] {
+  return rows.map((row) => (row.id === id ? ({ ...row, archivedAt: null } as T) : row));
+}
 export function validateActivityEdit(field: string, value: unknown): string | null {
   if (field === "activityName" && (!String(value).trim() || String(value).length > 500)) return "Name is required";
   if (field === "originalDurationDays" && (!Number.isInteger(Number(value)) || Number(value) < 0)) return "Duration must be a whole number of 0 or more";

@@ -20,7 +20,7 @@ type Props = {
 };
 
 export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll, dependencies = [], initialZoom = "week" }: Props) {
-  const activities = useMemo(() => sortActivities(input), [input]);
+  const activities = useMemo(() => sortActivities(input).filter((a) => !a.archivedAt), [input]);
   const [zoom, setZoom] = useState<TimelineZoom>(initialZoom);
   const [fitPixelsPerDay, setFitPixelsPerDay] = useState<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
