@@ -204,6 +204,13 @@
       "tag": "0028_enable_rls_remaining_tables",
       "when": 1791312000010,
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "tag": "0029_fix_upload_rate_limit_function_search_path",
+      "when": 1791312000011,
+      "breakpoints": true
     }
   ]
 }
