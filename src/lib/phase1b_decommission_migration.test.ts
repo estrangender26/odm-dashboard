@@ -40,6 +40,9 @@ const decommissionedTables = [
   "gantt_links",
 ] as const;
 
+// Tables that 0025 must NOT touch. gantt_tasks and gantt_dependencies
+// are legacy-only but were intentionally preserved by 0025; they are
+// decommissioned in migration 0026 instead.
 const protectedTables = [
   // Phase 1 tables
   "existing_facilities_maintenance",
