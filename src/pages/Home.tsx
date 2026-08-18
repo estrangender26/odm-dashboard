@@ -173,20 +173,20 @@ export default function Home() {
             </span>
           </a>
 
-          {/* Gantt Charts */}
+          {/* ODM Primavera Lite */}
           <Link
-            to="/gantt-planner"
+            to="/gantt"
             className={navCardClassName}
             style={navCardStyle}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(124,58,237,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📅</div>
               <div>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>Gantt Charts</h3>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3 }}>ODM Primavera Lite</h3>
               </div>
             </div>
             <p style={{ fontSize: 13, color: '#5A6B7D', lineHeight: 1.5, marginBottom: 14 }}>
-              Interactive Gantt chart for project scheduling. Track tasks, dependencies, milestones, durations with Excel import/export.
+              ODM Primavera Lite Online — link-based project scheduling. Create WBS, activities, dependencies, and schedules without an account.
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#EDE9FE', color: '#7C3AED' }}>Gantt</span>
@@ -194,7 +194,7 @@ export default function Home() {
               <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Excel</span>
             </div>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#0066A6', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Open Planner →
+              Open Primavera Lite →
             </span>
           </Link>
 

@@ -4,11 +4,9 @@ import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
-import GanttPlanner from "./pages/GanttPlanner";
 import GanttLandingPage from "./pages/GanttLandingPage";
 import GanttNewProjectPage from "./pages/GanttNewProjectPage";
 import PrimaveraLiteProjectPage from "./pages/PrimaveraLiteProjectPage";
-import GanttProjectsDebug from "./pages/GanttProjectsDebug";
 import SmpDashboard from "./pages/SmpDashboard";
 import OmManualsLibrary from "./pages/OmManualsLibrary";
 import ScorecardDashboard from "./pages/ScorecardDashboard";
@@ -24,12 +22,7 @@ export default function App() {
       <Route path="/help" element={<Help />} />
       <Route path="/gantt" element={<GanttLandingPage />} />
       <Route path="/gantt/new" element={<GanttNewProjectPage />} />
-      <Route path="/gantt-planner" element={<GanttPlanner />} />
       <Route path="/gantt/p/:slug" element={<PrimaveraLiteProjectPage />} />
-      <Route
-        path="/admin/gantt-projects-debug"
-        element={<GanttProjectsDebug />}
-      />
       <Route path="/smp-dashboard" element={<SmpDashboard />} />
       <Route path="/om-manuals-library" element={<OmManualsLibrary />} />
       <Route path="/scorecard-kpi" element={<ScorecardDashboard />} />

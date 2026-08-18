@@ -9,12 +9,12 @@ import {
 import {
   normProgress,
   rowStatus,
-} from "@/modules/gantt/engine/schedulingEngine";
+} from "@/lib/ganttUtils";
 import {
   calcProjectCompletion,
   normalizeTaskStatus,
   taskCompletionPercent,
-} from "@/modules/gantt/engine/uiUtilsEngine";
+} from "@/lib/ganttUtils";
 
 type VoiceRecognition = InstanceType<
   NonNullable<ReturnType<typeof getSpeechRecognitionConstructor>>
