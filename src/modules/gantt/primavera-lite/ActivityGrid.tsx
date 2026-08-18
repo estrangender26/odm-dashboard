@@ -139,7 +139,12 @@ export default function ActivityGrid(props: Props) {
       setCachedActivities((rows) => optimisticActivityRestore(rows, input.activityId));
       return { snapshot };
     },
-    onSuccess: (result) => props.onRevisionChange(result.revision),
+    onSuccess: (result) => {
+      props.onRevisionChange(result.revision);
+      if (result.hasArchivedDependencies) {
+        setMessage("Activity restored. Archived dependencies remain archived.");
+      }
+    },
     onError: async (error, _input, context) => {
       if (context?.snapshot) utils.primaveraLite.load.setData(queryInput, context.snapshot);
       if (isConflict(error)) await props.onRefresh();

@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Hoisted, mutable state shared between the test cases and the module mocks.
 const h = vi.hoisted(() => ({
   accessParam: "",
-  loadInput: null as { slug: string; access: string } | null,
+  loadInput: null as { slug: string; access: string; includeArchived?: boolean } | null,
   loadResult: {
     data: undefined as unknown,
     isLoading: false,
@@ -141,7 +141,7 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
       isLoading: true,
       error: null,
     });
-    expect(h.loadInput).toEqual({ slug: SLUG, access: "admin-token" });
+    expect(h.loadInput).toEqual({ slug: SLUG, access: "admin-token", includeArchived: true });
   });
 
   it("recovers the token from sessionStorage on reload with no ?access=", () => {
@@ -149,7 +149,7 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
       "primavera-lite-access:project-a": "admin-token",
     });
     renderPage("", storage, { data: undefined, isLoading: true, error: null });
-    expect(h.loadInput).toEqual({ slug: SLUG, access: "admin-token" });
+    expect(h.loadInput).toEqual({ slug: SLUG, access: "admin-token", includeArchived: true });
   });
 
   it("wires the recovered token into the real load path, not merely resolveAccessToken", () => {
@@ -164,7 +164,7 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
     });
     // The exact object handed to primaveraLite.load.useQuery carries the
     // recovered token and slug — this is the page's actual load wiring.
-    expect(h.loadInput).toEqual({ slug: SLUG, access: "admin-token" });
+    expect(h.loadInput).toEqual({ slug: SLUG, access: "admin-token", includeArchived: true });
   });
 
   it("gives a URL token precedence over an older stored token", () => {
@@ -176,7 +176,7 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
       isLoading: true,
       error: null,
     });
-    expect(h.loadInput).toEqual({ slug: SLUG, access: "fresh-token" });
+    expect(h.loadInput).toEqual({ slug: SLUG, access: "fresh-token", includeArchived: true });
   });
 
   it("viewer token recovery renders the read-only (viewer) experience", () => {
@@ -228,7 +228,7 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
       isLoading: false,
       error: null,
     });
-    expect(h.loadInput).toEqual({ slug: SLUG, access: "" });
+    expect(h.loadInput).toEqual({ slug: SLUG, access: "", includeArchived: true });
     expect(html).toContain("Project Unavailable");
   });
 });

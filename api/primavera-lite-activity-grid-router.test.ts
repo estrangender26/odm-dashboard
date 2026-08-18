@@ -218,8 +218,8 @@ describe("Primavera Lite PR3 Activity Grid", () => {
     });
   });
 
-  it("restores dependencies that were archived alongside the activity", async () => {
-    const project = await createProject("PR3 Restore Dependencies");
+  it("does not restore dependencies that were archived alongside the activity", async () => {
+    const project = await createProject("PR3 Restore Cascade Dep");
     let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
     const a = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "A" } });
     loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
@@ -235,10 +235,64 @@ describe("Primavera Lite PR3 Activity Grid", () => {
     expect(afterArchive.dependencies.find((d) => d.id === dep.dependency.id)?.archivedAt).not.toBeNull();
 
     loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
-    await caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id });
+    const restored = await caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id });
+    expect(restored.hasArchivedDependencies).toBe(true);
 
     let afterRestore = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
-    expect(afterRestore.dependencies.find((d) => d.id === dep.dependency.id)?.archivedAt).toBeNull();
+    expect(afterRestore.dependencies.find((d) => d.id === dep.dependency.id)?.archivedAt).not.toBeNull();
+  });
+
+  it("leaves independently archived dependencies archived when restoring an activity", async () => {
+    const project = await createProject("PR3 Independent Dep Archive");
+    let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const a = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "A" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const b = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "B" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const dep = await caller.primaveraLite.createDependency({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, dependency: { predecessorActivityId: a.activity.id, successorActivityId: b.activity.id, dependencyType: "FS", lagDays: 0 } });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const depDryRun = await caller.primaveraLite.archiveDependencyDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, dependencyId: dep.dependency.id });
+    await caller.primaveraLite.archiveDependency({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, dependencyId: dep.dependency.id, previewToken: depDryRun.previewToken, confirmed: true });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const actDryRun = await caller.primaveraLite.archiveActivityDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id });
+    await caller.primaveraLite.archiveActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id, previewToken: actDryRun.previewToken, confirmed: true });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    const restored = await caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id });
+    expect(restored.hasArchivedDependencies).toBe(true);
+
+    let afterRestore = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    expect(afterRestore.dependencies.find((d) => d.id === dep.dependency.id)?.archivedAt).not.toBeNull();
+  });
+
+  it("leaves dependencies archived when the other endpoint activity is also archived", async () => {
+    const project = await createProject("PR3 Both Activities Archived");
+    let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const a = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "A" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const b = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "B" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const dep = await caller.primaveraLite.createDependency({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, dependency: { predecessorActivityId: a.activity.id, successorActivityId: b.activity.id, dependencyType: "FS", lagDays: 0 } });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    let dryRun = await caller.primaveraLite.archiveActivityDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id });
+    await caller.primaveraLite.archiveActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id, previewToken: dryRun.previewToken, confirmed: true });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    dryRun = await caller.primaveraLite.archiveActivityDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: b.activity.id });
+    await caller.primaveraLite.archiveActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: b.activity.id, previewToken: dryRun.previewToken, confirmed: true });
+
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    const restored = await caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: a.activity.id });
+    expect(restored.hasArchivedDependencies).toBe(true);
+
+    let afterRestore = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    expect(afterRestore.dependencies.find((d) => d.id === dep.dependency.id)?.archivedAt).not.toBeNull();
+    // Restored activity A is active; B remains archived, so dependency must stay archived.
+    expect(afterRestore.activities.find((row) => row.id === a.activity.id)?.archivedAt).toBeNull();
+    expect(afterRestore.activities.find((row) => row.id === b.activity.id)?.archivedAt).not.toBeNull();
   });
 
   it("marks the project schedule as stale after restoring an activity", async () => {

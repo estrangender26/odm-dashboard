@@ -39,6 +39,22 @@ function createMutationStub(bucket: CapturedMutation[]) {
   };
 }
 
+function createRestoreMutationStub(bucket: CapturedMutation[], hasArchivedDependencies = false) {
+  return (options?: { onSuccess?: (result: { hasArchivedDependencies: boolean }) => void }) => {
+    const [isPending] = useState(false);
+    const [error] = useState<null | Error>(null);
+    const mutate = (input: CapturedMutation) => {
+      bucket.push(input);
+      options?.onSuccess?.({ hasArchivedDependencies });
+    };
+    const mutateAsync = async (input: CapturedMutation) => {
+      bucket.push(input);
+      return { hasArchivedDependencies };
+    };
+    return { isPending, error, mutate, mutateAsync };
+  };
+}
+
 function queryStub() {
   return { data: undefined, isLoading: false, error: null, refetch: async () => ({}) };
 }
@@ -66,7 +82,7 @@ vi.mock("@/providers/trpc", () => {
               return { useMutation: () => ({ mutateAsync: async () => ({ previewToken: "preview-token" }) }) };
             }
             if (prop === "archiveActivity") return { useMutation: createMutationStub(captured.archive) };
-            if (prop === "restoreActivity") return { useMutation: createMutationStub(captured.restore) };
+            if (prop === "restoreActivity") return { useMutation: createRestoreMutationStub(captured.restore, true) };
             if (prop === "createActivity") return { useMutation: () => ({ mutate: () => undefined, mutateAsync: async () => ({}) }) };
             if (prop === "editActivity") return { useMutation: () => ({ mutate: () => undefined, mutateAsync: async () => ({}) }) };
             if (prop === "reorderActivity") return { useMutation: () => ({ mutate: () => undefined, mutateAsync: async () => ({}) }) };
@@ -214,6 +230,13 @@ describe("ActivityGrid restore", () => {
       expectedRevision: 3,
       activityId: 2,
     });
+  });
+
+  it("shows a non-blocking message when restored activity has archived dependencies", async () => {
+    renderGrid("editor");
+    await showArchived();
+    await userEvent.click(screen.getByRole("button", { name: /Restore Archived Activity/i }));
+    expect(screen.getByText("Activity restored. Archived dependencies remain archived.")).toBeInTheDocument();
   });
 
   it("shows archive button for active rows when editor", () => {

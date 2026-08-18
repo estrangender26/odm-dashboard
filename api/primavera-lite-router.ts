@@ -2076,11 +2076,11 @@ export const primaveraLiteRouter = createRouter({
           .where(eq(ganttActivities.id, activity.id))
           .returning();
 
-        // Restore any archived dependencies connected to this activity so that
-        // restoring an activity returns the project to its pre-archive dependency state.
-        await tx
-          .update(ganttActivityDependencies)
-          .set({ archivedAt: null, updatedAt: now, revision: sql`${ganttActivityDependencies.revision} + 1`, updatedByName: input.actorName ?? "Anonymous" })
+        await normalizeActivityOrder(tx, accessCtx.projectId, activity.wbsNodeId);
+
+        const archivedDependencies = await tx
+          .select({ id: ganttActivityDependencies.id })
+          .from(ganttActivityDependencies)
           .where(
             and(
               eq(ganttActivityDependencies.projectId, accessCtx.projectId),
@@ -2092,17 +2092,15 @@ export const primaveraLiteRouter = createRouter({
             )
           );
 
-        await normalizeActivityOrder(tx, accessCtx.projectId, activity.wbsNodeId);
-
         const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
         accessCtx.projectRevision = newRevision;
         accessCtx.actorName = input.actorName;
         await insertEvent(tx, accessCtx, "activity", "restore", updated.id, before, mapActivityRow(updated));
 
-        return updated;
+        return { updated, hasArchivedDependencies: archivedDependencies.length > 0 };
       });
 
-      return { activity: mapActivityRow(result), revision: accessCtx.projectRevision };
+      return { activity: mapActivityRow(result.updated), revision: accessCtx.projectRevision, hasArchivedDependencies: result.hasArchivedDependencies };
     }),
 
   createDependency: publicQuery
