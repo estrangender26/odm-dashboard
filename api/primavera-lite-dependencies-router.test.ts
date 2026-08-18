@@ -30,6 +30,22 @@ async function createDependency(p: Awaited<ReturnType<typeof project>>, predeces
   const loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
   return caller.primaveraLite.createDependency({ slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision, dependency: { predecessorActivityId, successorActivityId, dependencyType, lagDays } });
 }
+async function revision(p: Awaited<ReturnType<typeof project>>) {
+  return (await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor })).revision;
+}
+async function archiveDependencyFlow(p: Awaited<ReturnType<typeof project>>, dependencyId: number) {
+  const expectedRevision = await revision(p);
+  const preview = await caller.primaveraLite.archiveDependencyDryRun({ slug: p.project.slug, access: p.editor, expectedRevision, dependencyId });
+  return caller.primaveraLite.archiveDependency({ slug: p.project.slug, access: p.editor, expectedRevision, dependencyId, previewToken: preview.previewToken, confirmed: true });
+}
+async function archiveActivityFlow(p: Awaited<ReturnType<typeof project>>, activityId: number) {
+  const expectedRevision = await revision(p);
+  const preview = await caller.primaveraLite.archiveActivityDryRun({ slug: p.project.slug, access: p.editor, expectedRevision, activityId });
+  return caller.primaveraLite.archiveActivity({ slug: p.project.slug, access: p.editor, expectedRevision, activityId, previewToken: preview.previewToken, confirmed: true });
+}
+async function restoreDependencyFlow(p: Awaited<ReturnType<typeof project>>, dependencyId: number, access?: string) {
+  return caller.primaveraLite.restoreDependency({ slug: p.project.slug, access: access ?? p.editor, expectedRevision: await revision(p), dependencyId, confirmed: true });
+}
 
 describe("Primavera Lite PR5 dependencies", () => {
   beforeAll(assertDisposableDatabase);
@@ -92,5 +108,133 @@ describe("Primavera Lite PR5 dependencies", () => {
     const dependencyEvents = events.filter((event) => event.entityType === "dependency" && event.entityId === created.dependency.id);
     expect(dependencyEvents.map((event) => event.action)).toEqual(["create", "update", "archive", "restore"]);
     expect(new Set(dependencyEvents.map((event) => event.projectRevision)).size).toBe(4);
+  });
+
+  it("listDependencies excludes archived by default and includeArchived returns them with all fields preserved", async () => {
+    const p = await project("PR-DEP-RESTORE Listing"); const a = await activity(p, "A"); const b = await activity(p, "B");
+    const kept = await createDependency(p, a.id, b.id, "FS", 0);
+    const toArchive = await createDependency(p, a.id, b.id, "SF", -3);
+    await archiveDependencyFlow(p, toArchive.dependency.id);
+
+    // Default behavior unchanged: active only, for both explicit false and absent flag.
+    const defaults = await caller.primaveraLite.listDependencies({ slug: p.project.slug, access: p.viewer });
+    expect(defaults.dependencies.map((row) => row.id)).toEqual([kept.dependency.id]);
+    const explicitFalse = await caller.primaveraLite.listDependencies({ slug: p.project.slug, access: p.viewer, includeArchived: false });
+    expect(explicitFalse.dependencies.map((row) => row.id)).toEqual([kept.dependency.id]);
+
+    // includeArchived returns active + archived, id-ordered, with relationship fields intact.
+    const all = await caller.primaveraLite.listDependencies({ slug: p.project.slug, access: p.viewer, includeArchived: true });
+    expect(all.dependencies.map((row) => row.id)).toEqual([kept.dependency.id, toArchive.dependency.id]);
+    const archivedRow = all.dependencies.find((row) => row.id === toArchive.dependency.id)!;
+    expect(archivedRow.archivedAt).not.toBeNull();
+    expect(archivedRow).toMatchObject({ predecessorActivityId: a.id, successorActivityId: b.id, dependencyType: "SF", lagDays: -3 });
+
+    // Cross-project isolation: another project's includeArchived listing never leaks these rows.
+    const other = await project("PR-DEP-RESTORE Other");
+    const foreign = await caller.primaveraLite.listDependencies({ slug: other.project.slug, access: other.viewer, includeArchived: true });
+    expect(foreign.dependencies).toEqual([]);
+  });
+
+  it("restore preserves id/type/lag/endpoints and rejects already-active, stale revision and viewer", async () => {
+    const p = await project("PR-DEP-RESTORE Guards"); const a = await activity(p, "A"); const b = await activity(p, "B");
+    const created = await createDependency(p, a.id, b.id, "FF", 4);
+    await archiveDependencyFlow(p, created.dependency.id);
+
+    // Viewer cannot restore.
+    await expect(restoreDependencyFlow(p, created.dependency.id, p.viewer)).rejects.toThrow(/Editor or admin/i);
+    // Stale revision is a controlled conflict and must not restore.
+    const current = await revision(p);
+    await expect(caller.primaveraLite.restoreDependency({ slug: p.project.slug, access: p.editor, expectedRevision: current - 1, dependencyId: created.dependency.id, confirmed: true })).rejects.toMatchObject({ code: "CONFLICT" });
+    // Failed attempts above must not advance the project revision.
+    expect(await revision(p)).toBe(current);
+
+    const restored = await restoreDependencyFlow(p, created.dependency.id);
+    expect(restored.dependency).toMatchObject({ id: created.dependency.id, predecessorActivityId: a.id, successorActivityId: b.id, dependencyType: "FF", lagDays: 4 });
+    expect(restored.dependency.archivedAt).toBeNull();
+    // Successful restore advances the revision exactly once.
+    expect(restored.revision).toBe(current + 1);
+    expect(await revision(p)).toBe(current + 1);
+
+    // Restoring an already-active dependency is rejected without another revision bump.
+    await expect(restoreDependencyFlow(p, created.dependency.id)).rejects.toThrow(/Archived dependency not found/i);
+    expect(await revision(p)).toBe(current + 1);
+  });
+
+  it("restore is blocked by archived endpoints, duplicate active dependency and cycles", async () => {
+    const p = await project("PR-DEP-RESTORE Safety"); const a = await activity(p, "A"); const b = await activity(p, "B");
+
+    // Archived predecessor blocks restore (dependency archived via activity cascade).
+    const dep = await createDependency(p, a.id, b.id, "FS", 0);
+    await archiveActivityFlow(p, a.id);
+    const before = await revision(p);
+    await expect(restoreDependencyFlow(p, dep.dependency.id)).rejects.toThrow(/Archived activities/i);
+    expect(await revision(p)).toBe(before);
+    await caller.primaveraLite.restoreActivity({ slug: p.project.slug, access: p.editor, expectedRevision: await revision(p), activityId: a.id });
+
+    // Archived successor blocks restore.
+    await archiveActivityFlow(p, b.id);
+    await expect(restoreDependencyFlow(p, dep.dependency.id)).rejects.toThrow(/Archived activities/i);
+    await caller.primaveraLite.restoreActivity({ slug: p.project.slug, access: p.editor, expectedRevision: await revision(p), activityId: b.id });
+
+    // Duplicate active dependency blocks restore: same endpoints + type re-created while archived.
+    const replacement = await createDependency(p, a.id, b.id, "FS", 9);
+    await expect(restoreDependencyFlow(p, dep.dependency.id)).rejects.toThrow(/Duplicate active dependency/i);
+    await archiveDependencyFlow(p, replacement.dependency.id);
+
+    // Cycle-producing restore is blocked: B -> A became active while A -> B was archived.
+    const reverse = await createDependency(p, b.id, a.id, "FS", 0);
+    await expect(restoreDependencyFlow(p, dep.dependency.id)).rejects.toThrow(/circular/i);
+
+    // Removing the reverse edge makes the same restore succeed.
+    await archiveDependencyFlow(p, reverse.dependency.id);
+    const restored = await restoreDependencyFlow(p, dep.dependency.id);
+    expect(restored.dependency.archivedAt).toBeNull();
+  });
+
+  it("dependency archive and restore both flip the schedule to Out of Date through revision/event semantics", async () => {
+    const p = await project("PR-DEP-RESTORE Staleness"); const a = await activity(p, "A"); const b = await activity(p, "B");
+    const dep = await createDependency(p, a.id, b.id, "FS", 0);
+
+    await caller.primaveraLite.runSchedule({ slug: p.project.slug, access: p.editor, expectedRevision: await revision(p) });
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.viewer });
+    expect(loaded.project?.scheduleOutOfDate).toBe(false);
+
+    await archiveDependencyFlow(p, dep.dependency.id);
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.viewer });
+    expect(loaded.project?.scheduleOutOfDate).toBe(true);
+
+    await caller.primaveraLite.runSchedule({ slug: p.project.slug, access: p.editor, expectedRevision: await revision(p) });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.viewer });
+    expect(loaded.project?.scheduleOutOfDate).toBe(false);
+
+    await restoreDependencyFlow(p, dep.dependency.id);
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.viewer });
+    expect(loaded.project?.scheduleOutOfDate).toBe(true);
+  });
+
+  it("PR #359 acceptance: activity restore leaves the dependency archived until it is explicitly restored", async () => {
+    const p = await project("PR-DEP-RESTORE Acceptance"); const a = await activity(p, "A"); const b = await activity(p, "B");
+    // 1. A -> B active. 2-3. Archiving A cascades the dependency to archived.
+    const dep = await createDependency(p, a.id, b.id, "FS", 2);
+    await archiveActivityFlow(p, a.id);
+    let all = await caller.primaveraLite.listDependencies({ slug: p.project.slug, access: p.editor, includeArchived: true });
+    expect(all.dependencies.find((row) => row.id === dep.dependency.id)?.archivedAt).not.toBeNull();
+
+    // 4-5. Restoring A reports archived dependencies and does NOT auto-restore them.
+    const restoredActivity = await caller.primaveraLite.restoreActivity({ slug: p.project.slug, access: p.editor, expectedRevision: await revision(p), activityId: a.id });
+    expect(restoredActivity.hasArchivedDependencies).toBe(true);
+    expect((await caller.primaveraLite.listDependencies({ slug: p.project.slug, access: p.editor })).dependencies).toEqual([]);
+
+    // 6. The archived listing the panel uses still shows it.
+    all = await caller.primaveraLite.listDependencies({ slug: p.project.slug, access: p.editor, includeArchived: true });
+    expect(all.dependencies.map((row) => row.id)).toEqual([dep.dependency.id]);
+
+    // 7-10. Explicit restore succeeds with both endpoints active; same row returns, no duplicate created.
+    const restored = await restoreDependencyFlow(p, dep.dependency.id);
+    expect(restored.dependency).toMatchObject({ id: dep.dependency.id, predecessorActivityId: a.id, successorActivityId: b.id, dependencyType: "FS", lagDays: 2 });
+    const active = await caller.primaveraLite.listDependencies({ slug: p.project.slug, access: p.viewer });
+    expect(active.dependencies.map((row) => row.id)).toEqual([dep.dependency.id]);
+    const rows = await testDb.select().from(ganttActivityDependencies).where(eq(ganttActivityDependencies.projectId, p.project.id));
+    expect(rows).toHaveLength(1);
   });
 });

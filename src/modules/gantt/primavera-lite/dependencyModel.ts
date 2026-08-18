@@ -24,6 +24,12 @@ export function optimisticDependencyArchive<T extends Pick<DependencyRow, "id">>
   return rows.filter((row) => row.id !== id);
 }
 
+/** Splits an includeArchived listing into sorted active and archived groups. */
+export function partitionDependencies<T extends Pick<DependencyRow, "id" | "archivedAt">>(rows: T[]): { active: T[]; archived: T[] } {
+  const sorted = sortDependencies(rows);
+  return { active: sorted.filter((row) => !row.archivedAt), archived: sorted.filter((row) => !!row.archivedAt) };
+}
+
 export function dependencyPermissions(role: "admin" | "editor" | "viewer") {
   return { canEdit: role === "admin" || role === "editor", readOnly: role === "viewer" };
 }

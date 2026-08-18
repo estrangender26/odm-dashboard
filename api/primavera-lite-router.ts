@@ -2132,9 +2132,18 @@ export const primaveraLiteRouter = createRouter({
     .input(tokenAccessInputSchema)
     .query(async ({ input }) => {
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
-      const dependencies = await db.select().from(ganttActivityDependencies).where(and(
-        eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)
-      )).orderBy(asc(ganttActivityDependencies.id));
+      // Default behavior is unchanged: active dependencies only. includeArchived
+      // additionally returns archived rows for the same project so the UI can
+      // offer explicit dependency restore (mirrors load's archived activities,
+      // which are visible to every token role). Run Schedule does not use this
+      // read path; the engine never consumes archived dependencies.
+      const dependencies = await db.select().from(ganttActivityDependencies).where(
+        input.includeArchived
+          ? eq(ganttActivityDependencies.projectId, accessCtx.projectId)
+          : and(
+              eq(ganttActivityDependencies.projectId, accessCtx.projectId), isNull(ganttActivityDependencies.archivedAt)
+            )
+      ).orderBy(asc(ganttActivityDependencies.id));
       return { dependencies: dependencies.map(mapDependencyRow), revision: accessCtx.projectRevision };
     }),
 
