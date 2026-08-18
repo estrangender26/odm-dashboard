@@ -62,7 +62,7 @@ export function taskCompletionPercent(task: any): number {
   if (status === "in progress") {
     return hasProgress ? Math.max(0, Math.min(100, normProgress(rawProgress))) : 50;
   }
-  return hasProgress ? normProgress(rawProgress) : 0;
+  return hasProgress ? Math.max(0, Math.min(100, normProgress(rawProgress))) : 0;
 }
 
 export function calcProjectCompletion(tasks: any[]): number {
