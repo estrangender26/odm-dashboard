@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import { readRememberedLinks } from "@/modules/gantt/primavera-lite/pageState";
 
 type RememberedLink = {
@@ -22,13 +23,34 @@ export default function GanttLandingPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="mx-auto max-w-2xl pt-12">
-        <meta name="referrer" content="no-referrer" />
-        <Card>
-          <CardHeader className="text-center">
-            <CardTitle>ODM Primavera Lite Online</CardTitle>
-          </CardHeader>
+    <div className="min-h-screen bg-slate-50">
+      <header
+        className="text-white"
+        style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}
+      >
+        <div className="mx-auto flex max-w-4xl items-center px-4 py-3">
+          <Link
+            to="/"
+            aria-label="Dashboard Home"
+            title="Dashboard Home"
+            className="flex items-center gap-3 text-white no-underline"
+          >
+            <ProgramsEngineeringLogo size={56} borderRadius={8} />
+            <div>
+              <h1 className="text-base font-bold leading-tight sm:text-lg">ODM Primavera Lite Online</h1>
+              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Link-based project scheduling</p>
+            </div>
+          </Link>
+        </div>
+      </header>
+
+      <main className="p-6">
+        <div className="mx-auto max-w-2xl pt-6">
+          <meta name="referrer" content="no-referrer" />
+          <Card>
+            <CardHeader className="text-center">
+              <CardTitle>ODM Primavera Lite Online</CardTitle>
+            </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-sm text-muted-foreground">
               Link-based project scheduling. No account required. Keep your admin link safe — it is the only way to manage a project.
@@ -73,6 +95,7 @@ export default function GanttLandingPage() {
           </CardContent>
         </Card>
       </div>
+      </main>
     </div>
   );
 }

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import {
   addRememberedLink,
   extractTokenFromUrl,
@@ -71,13 +72,34 @@ export default function GanttNewProjectPage() {
   const projectPath = created ? stripTokenPath(`/gantt/p/${created.slug}`, created.slug) : "";
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="mx-auto max-w-md pt-12">
-        <meta name="referrer" content="no-referrer" />
-        <Card>
-          <CardHeader className="text-center">
-            <CardTitle>Create Primavera Lite Project</CardTitle>
-          </CardHeader>
+    <div className="min-h-screen bg-slate-50">
+      <header
+        className="text-white"
+        style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}
+      >
+        <div className="mx-auto flex max-w-4xl items-center px-4 py-3">
+          <Link
+            to="/"
+            aria-label="Dashboard Home"
+            title="Dashboard Home"
+            className="flex items-center gap-3 text-white no-underline"
+          >
+            <ProgramsEngineeringLogo size={56} borderRadius={8} />
+            <div>
+              <h1 className="text-base font-bold leading-tight sm:text-lg">Create Primavera Lite Project</h1>
+              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Link-based project scheduling</p>
+            </div>
+          </Link>
+        </div>
+      </header>
+
+      <main className="p-6">
+        <div className="mx-auto max-w-md pt-6">
+          <meta name="referrer" content="no-referrer" />
+          <Card>
+            <CardHeader className="text-center">
+              <CardTitle>Create Primavera Lite Project</CardTitle>
+            </CardHeader>
           <CardContent className="space-y-4">
             {!created ? (
               <>
@@ -155,6 +177,7 @@ export default function GanttNewProjectPage() {
           </CardContent>
         </Card>
       </div>
+      </main>
     </div>
   );
 }
