@@ -16,6 +16,7 @@ import CalendarPanel from "@/modules/gantt/primavera-lite/CalendarPanel";
 import ActivityGrid from "@/modules/gantt/primavera-lite/ActivityGrid";
 import Timeline from "@/modules/gantt/primavera-lite/Timeline";
 import DependencyPanel from "@/modules/gantt/primavera-lite/DependencyPanel";
+import BaselinePanel from "@/modules/gantt/primavera-lite/BaselinePanel";
 import { formatDate } from "@/modules/gantt/primavera-lite/activityGridModel";
 
 export default function PrimaveraLiteProjectPage() {
@@ -243,6 +244,9 @@ export default function PrimaveraLiteProjectPage() {
 
             <DependencyPanel slug={slug} access={access} role={data.role} expectedRevision={expectedRevision}
               activities={data.activities} dependencies={data.dependencies}
+              onRevisionChange={setExpectedRevision} onRefresh={() => refetch()} />
+
+            <BaselinePanel slug={slug} access={access} role={data.role} expectedRevision={expectedRevision}
               onRevisionChange={setExpectedRevision} onRefresh={() => refetch()} />
           </CardContent>
         </Card>

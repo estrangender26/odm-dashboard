@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
@@ -9,6 +10,8 @@ import {
   ganttCalendars,
   ganttCalendarExceptions,
   ganttProjectEvents,
+  ganttBaselines,
+  ganttBaselineActivities,
 } from "@db/schema";
 import { eq, and, or, sql, asc, isNull, isNotNull, inArray, ne } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
@@ -307,6 +310,29 @@ const restoreWbsNodeInputSchema = z.object({
     message: "confirmed must be true",
   }),
   actorName: wbsActorSchema,
+});
+
+const baselineNameSchema = z.string().trim().min(1).max(MAX_NAME_LENGTH);
+const baselineDescriptionSchema = z.string().trim().max(MAX_DESCRIPTION_LENGTH).optional();
+
+const captureBaselineInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  name: baselineNameSchema,
+  description: baselineDescriptionSchema,
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const listBaselinesInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+});
+
+const compareBaselineInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  baselineId: z.number().int().positive(),
 });
 
 const workingDaysInputSchema = z.array(z.number().int()).min(1);
@@ -661,6 +687,29 @@ function mapDependencyRow(dependency: typeof ganttActivityDependencies.$inferSel
     createdAt: dependency.createdAt,
     updatedAt: dependency.updatedAt,
   };
+}
+
+function mapBaselineRow(baseline: typeof ganttBaselines.$inferSelect) {
+  return {
+    id: baseline.id,
+    projectId: baseline.projectId,
+    publicId: baseline.publicId,
+    name: baseline.name,
+    description: baseline.description,
+    activityCount: baseline.activityCount,
+    projectRevision: baseline.projectRevision,
+    capturedAt: baseline.capturedAt,
+    capturedByName: baseline.capturedByName,
+    createdAt: baseline.createdAt,
+  } as any;
+}
+
+function calendarDayVariance(
+  currentDate: string | null | undefined,
+  baselineDate: string | null | undefined
+): number | null {
+  if (!currentDate || !baselineDate) return null;
+  return dateToCalendarDay(currentDate) - dateToCalendarDay(baselineDate);
 }
 
 async function requireDependencyActivities(
@@ -3242,5 +3291,184 @@ export const primaveraLiteRouter = createRouter({
       });
 
       return { node: mapWbsNodeRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  captureBaseline: publicQuery
+    .input(captureBaselineInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-capture-baseline:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+
+        const [projectRow] = await tx
+          .select()
+          .from(ganttProjects)
+          .where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (projectRow.archivedAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
+        }
+        if (projectRow.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const activities = await tx
+          .select()
+          .from(ganttActivities)
+          .where(and(eq(ganttActivities.projectId, accessCtx.projectId), isNull(ganttActivities.archivedAt)))
+          .orderBy(asc(ganttActivities.wbsNodeId), asc(ganttActivities.sortOrder), asc(ganttActivities.id));
+
+        const wbsNodeIds = Array.from(new Set(activities.map((a) => a.wbsNodeId)));
+        const wbsNodes =
+          wbsNodeIds.length > 0
+            ? await tx.select().from(ganttWbsNodes).where(inArray(ganttWbsNodes.id, wbsNodeIds))
+            : [];
+
+        const calendarIds = Array.from(new Set(activities.map((a) => a.calendarId).filter(Boolean))) as number[];
+        const calendars =
+          calendarIds.length > 0
+            ? await tx.select().from(ganttCalendars).where(inArray(ganttCalendars.id, calendarIds))
+            : [];
+
+        const wbsById = new Map(wbsNodes.map((n) => [n.id, n]));
+        const calById = new Map(calendars.map((c) => [c.id, c]));
+
+        const activityCount = activities.length;
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+
+        const [baseline] = await tx
+          .insert(ganttBaselines)
+          .values({
+            projectId: accessCtx.projectId,
+            publicId: randomUUID(),
+            name: input.name,
+            description: input.description ?? null,
+            activityCount,
+            projectRevision: newRevision,
+            capturedByName: input.actorName ?? "Anonymous",
+          })
+          .returning();
+
+        if (activities.length > 0) {
+          const snapshotValues = activities.map((a) => {
+            const wbs = wbsById.get(a.wbsNodeId);
+            const cal = a.calendarId ? calById.get(a.calendarId) : undefined;
+            return {
+              baselineId: baseline.id,
+              activityId: a.id,
+              activityCode: a.activityId ?? null,
+              activityName: a.activityName,
+              wbsNodeId: a.wbsNodeId,
+              wbsCode: wbs?.code ?? null,
+              wbsName: wbs?.name ?? null,
+              calendarId: a.calendarId ?? null,
+              calendarName: cal?.name ?? null,
+              originalDurationDays: a.originalDurationDays,
+              scheduledStart: a.earlyStart ?? null,
+              scheduledFinish: a.earlyFinish ?? null,
+              sortOrder: a.sortOrder,
+            };
+          });
+          await tx.insert(ganttBaselineActivities).values(snapshotValues);
+        }
+
+        await insertEvent(
+          tx,
+          accessCtx,
+          "baseline",
+          "capture",
+          baseline.id,
+          null,
+          { baselineId: baseline.id, name: baseline.name, activityCount, projectRevision: newRevision }
+        );
+
+        return { baseline, activityCount };
+      });
+
+      return {
+        baseline: mapBaselineRow(result.baseline),
+        activityCount: result.activityCount,
+        revision: accessCtx.projectRevision,
+      };
+    }),
+
+  listBaselines: publicQuery
+    .input(listBaselinesInputSchema)
+    .query(async ({ input }) => {
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+
+      const baselines = await db
+        .select()
+        .from(ganttBaselines)
+        .where(eq(ganttBaselines.projectId, accessCtx.projectId))
+        .orderBy(asc(ganttBaselines.createdAt));
+
+      return { baselines: baselines.map(mapBaselineRow) };
+    }),
+
+  compareBaseline: publicQuery
+    .input(compareBaselineInputSchema)
+    .query(async ({ input }) => {
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+
+      const [baseline] = await db
+        .select()
+        .from(ganttBaselines)
+        .where(and(eq(ganttBaselines.id, input.baselineId), eq(ganttBaselines.projectId, accessCtx.projectId)));
+      if (!baseline) throw new TRPCError({ code: "NOT_FOUND", message: "Baseline not found" });
+
+      const snapshots = await db
+        .select()
+        .from(ganttBaselineActivities)
+        .where(eq(ganttBaselineActivities.baselineId, baseline.id))
+        .orderBy(asc(ganttBaselineActivities.sortOrder), asc(ganttBaselineActivities.id));
+
+      const activityIds = snapshots.map((s) => s.activityId);
+      const currentActivities =
+        activityIds.length > 0
+          ? await db.select().from(ganttActivities).where(inArray(ganttActivities.id, activityIds))
+          : [];
+
+      const currentById = new Map(currentActivities.map((a) => [a.id, a]));
+
+      const comparisons = snapshots.map((snapshot) => {
+        const current = currentById.get(snapshot.activityId);
+        const currentStart = current ? toIsoDateString(current.earlyStart) : null;
+        const currentFinish = current ? toIsoDateString(current.earlyFinish) : null;
+        const baselineStart = toIsoDateString(snapshot.scheduledStart);
+        const baselineFinish = toIsoDateString(snapshot.scheduledFinish);
+
+        return {
+          snapshotId: snapshot.id,
+          activityId: snapshot.activityId,
+          activityCode: snapshot.activityCode,
+          activityName: snapshot.activityName,
+          wbsNodeId: snapshot.wbsNodeId,
+          wbsCode: snapshot.wbsCode,
+          wbsName: snapshot.wbsName,
+          calendarId: snapshot.calendarId,
+          calendarName: snapshot.calendarName,
+          originalDurationDays: snapshot.originalDurationDays,
+          baselineScheduledStart: baselineStart,
+          baselineScheduledFinish: baselineFinish,
+          currentScheduledStart: currentStart,
+          currentScheduledFinish: currentFinish,
+          startVariance: calendarDayVariance(currentStart, baselineStart),
+          finishVariance: calendarDayVariance(currentFinish, baselineFinish),
+          currentArchivedAt: current?.archivedAt ?? null,
+          currentMissing: current === undefined,
+        };
+      });
+
+      return {
+        baseline: mapBaselineRow(baseline),
+        comparisons,
+      };
     }),
 });
