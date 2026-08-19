@@ -26,6 +26,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("react-router", () => ({
+  Link: ({ to, children, ...props }: { to: string; children: React.ReactNode }) =>
+    createElement("a", { href: to, ...props }, children),
   useSearchParams: () => {
     const params = new URLSearchParams();
     if (h.accessParam) params.set("access", h.accessParam);
@@ -179,6 +181,16 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
     expect(h.loadInput).toEqual({ slug: SLUG, access: "fresh-token", includeArchived: true });
   });
 
+
+
+  it("shows Schedule Out of Date to every role when the loaded schedule is stale", () => {
+    const html = renderPage("", makeSessionStorage({ "primavera-lite-access:project-a": "viewer-token" }), {
+      data: { ...LOADED_FIXTURE, project: { ...LOADED_FIXTURE.project, scheduleOutOfDate: true } },
+      isLoading: false, error: null,
+    });
+    expect(html).toContain("Schedule Out of Date");
+  });
+
   it("viewer token recovery renders the read-only (viewer) experience", () => {
     const storage = makeSessionStorage({
       "primavera-lite-access:project-a": "viewer-token",
@@ -190,19 +202,14 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
     });
     expect(h.loadInput?.access).toBe("viewer-token");
     expect(html).toContain("Role: viewer");
+    // Logo is the Home navigation.
+    expect(html).toContain("Dashboard Home");
+    expect(html).toContain("programs_engineering_vertical_logo.svg");
     // No admin/edit controls are rendered for a viewer.
     expect(html).not.toContain("Set Data Date");
     expect(html).not.toContain('aria-label="Project Data Date"');
     expect(html).not.toContain("Run Schedule");
     expect(html).not.toContain("Archive Project");
-  });
-
-  it("shows Schedule Out of Date to every role when the loaded schedule is stale", () => {
-    const html = renderPage("", makeSessionStorage({ "primavera-lite-access:project-a": "viewer-token" }), {
-      data: { ...LOADED_FIXTURE, project: { ...LOADED_FIXTURE.project, scheduleOutOfDate: true } },
-      isLoading: false, error: null,
-    });
-    expect(html).toContain("Schedule Out of Date");
   });
 
   it("admin token recovery renders the admin (editable) experience", () => {
@@ -216,11 +223,16 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
     });
     expect(h.loadInput?.access).toBe("admin-token");
     expect(html).toContain("Role: admin");
+    // Logo is the Home navigation.
+    expect(html).toContain("Dashboard Home");
+    expect(html).toContain("programs_engineering_vertical_logo.svg");
     expect(html).toContain("Set Data Date");
     expect(html).toContain('aria-label="Project Data Date"');
     expect(html).toContain("Run Schedule");
     expect(html).toContain("Archive Project");
   });
+
+
 
   it("with neither a URL token nor a stored token renders Project Unavailable", () => {
     const html = renderPage("", makeSessionStorage(), {
@@ -230,5 +242,22 @@ describe("PrimaveraLiteProjectPage access-token wiring (reload/viewer regression
     });
     expect(h.loadInput).toEqual({ slug: SLUG, access: "", includeArchived: true });
     expect(html).toContain("Project Unavailable");
+  });
+
+  it("renders the standard ODM logo as the single Dashboard Home link", () => {
+    const html = renderPage("", makeSessionStorage({ "primavera-lite-access:project-a": "admin-token" }), {
+      data: { ...LOADED_FIXTURE, role: "admin" },
+      isLoading: false,
+      error: null,
+    });
+    // Logo image is present.
+    expect(html).toContain("programs_engineering_vertical_logo.svg");
+    // Link has Home semantics.
+    expect(html).toContain('aria-label="Dashboard Home"');
+    expect(html).toContain('title="Dashboard Home"');
+    expect(html).toContain('href="/"');
+    // No second Home control.
+    const homeLinkCount = (html.match(/aria-label="Dashboard Home"/g) || []).length;
+    expect(homeLinkCount).toBe(1);
   });
 });

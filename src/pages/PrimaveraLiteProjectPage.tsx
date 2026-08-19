@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import {
   computeRolePermissions,
   isProjectUnavailable,
@@ -132,12 +133,39 @@ export default function PrimaveraLiteProjectPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
+    <div className="min-h-screen bg-slate-50">
+      <header
+        className="text-white sticky top-0 z-50"
+        style={{
+          background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)",
+          boxShadow: "0 4px 12px rgba(22,50,79,0.10)",
+        }}
+      >
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+          <Link
+            to="/"
+            aria-label="Dashboard Home"
+            title="Dashboard Home"
+            className="flex items-center gap-3 text-white no-underline"
+          >
+            <ProgramsEngineeringLogo size={56} borderRadius={8} />
+            <div className="min-w-0">
+              <h1 className="text-base font-bold leading-tight sm:text-lg truncate">{data.project?.name || slug}</h1>
+              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Primavera Lite</p>
+            </div>
+          </Link>
+          <div className="flex items-center gap-2 text-xs text-white/80">
+            <span className="hidden sm:inline">Role: {data.role}</span>
+            <span className="hidden sm:inline">Revision: {data.revision}</span>
+          </div>
+        </div>
+      </header>
+
       <meta name="referrer" content="no-referrer" />
-      <div className="mx-auto max-w-4xl space-y-6">
+      <main className="mx-auto max-w-4xl space-y-6 p-6">
         <Card>
           <CardHeader>
-            <CardTitle>{data.project?.name || slug}</CardTitle>
+            <CardTitle>Project Overview</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -250,7 +278,7 @@ export default function PrimaveraLiteProjectPage() {
               onRevisionChange={setExpectedRevision} onRefresh={() => refetch()} />
           </CardContent>
         </Card>
-      </div>
+      </main>
     </div>
   );
 }
