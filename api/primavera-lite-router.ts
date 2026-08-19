@@ -31,6 +31,11 @@ import {
 } from "@/modules/gantt/primavera-lite/schedulingEngine";
 import { isScheduleOutOfDate } from "@/modules/gantt/primavera-lite/scheduleStaleness";
 import {
+  calendarAffectsActiveSchedule,
+  validateWorkingDays,
+  workingDaysEqual,
+} from "@/modules/gantt/primavera-lite/calendarModel";
+import {
   autoActualFinishFromDataDate,
   percentAfterClearingActualFinish,
 } from "@/modules/gantt/primavera-lite/activityGridModel";
@@ -302,6 +307,75 @@ const restoreWbsNodeInputSchema = z.object({
     message: "confirmed must be true",
   }),
   actorName: wbsActorSchema,
+});
+
+const workingDaysInputSchema = z.array(z.number().int()).min(1);
+
+const createCalendarInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  calendar: z.object({
+    name: z.string().min(1).max(MAX_NAME_LENGTH),
+    workingDays: workingDaysInputSchema,
+  }),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const updateCalendarInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  calendarId: z.number().int().positive(),
+  changes: z.object({
+    name: z.string().min(1).max(MAX_NAME_LENGTH).optional(),
+    workingDays: workingDaysInputSchema.optional(),
+  }).refine((changes) => Object.keys(changes).length > 0, {
+    message: "At least one calendar change is required",
+  }),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const setProjectDefaultCalendarInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  calendarId: z.number().int().positive(),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const calendarExceptionFieldsSchema = z.object({
+  exceptionDate: dateStringSchema,
+  isWorking: z.boolean(),
+  description: z.string().max(500).optional().nullable(),
+});
+
+const createCalendarExceptionInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  calendarId: z.number().int().positive(),
+  exception: calendarExceptionFieldsSchema,
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const updateCalendarExceptionInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  exceptionId: z.number().int().positive(),
+  changes: calendarExceptionFieldsSchema.partial().refine((changes) => Object.keys(changes).length > 0, {
+    message: "At least one exception change is required",
+  }),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
+});
+
+const deleteCalendarExceptionInputSchema = z.object({
+  slug: slugSchema,
+  access: z.string().min(1),
+  expectedRevision: z.number().int().nonnegative(),
+  exceptionId: z.number().int().positive(),
+  actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
 const MAX_WBS_DEPTH = 20;
@@ -673,6 +747,76 @@ async function requireProjectCalendar(
   return calendar;
 }
 
+function parseWorkingDays(days: unknown): number[] {
+  try {
+    return validateWorkingDays(days);
+  } catch (err) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "Invalid workingDays" });
+  }
+}
+
+function mapCalendarRow(calendar: typeof ganttCalendars.$inferSelect, exceptions: typeof ganttCalendarExceptions.$inferSelect[] = []) {
+  return {
+    id: calendar.id,
+    projectId: calendar.projectId,
+    name: calendar.name,
+    workingDays: calendar.workingDays,
+    hoursPerDay: calendar.hoursPerDay,
+    timezone: calendar.timezone,
+    createdAt: calendar.createdAt,
+    updatedAt: calendar.updatedAt,
+    exceptions: exceptions.map(mapCalendarExceptionRow),
+  };
+}
+
+function mapCalendarExceptionRow(exception: typeof ganttCalendarExceptions.$inferSelect) {
+  return {
+    id: exception.id,
+    calendarId: exception.calendarId,
+    exceptionDate: toIsoDateString(exception.exceptionDate),
+    isWorking: exception.isWorking,
+    workingHours: exception.workingHours,
+    description: exception.description,
+    createdAt: exception.createdAt,
+    updatedAt: exception.updatedAt,
+  };
+}
+
+async function requireUniqueCalendarName(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  name: string,
+  excludeId?: number
+) {
+  const conditions = [eq(ganttCalendars.projectId, projectId), eq(ganttCalendars.name, name)];
+  if (excludeId !== undefined) conditions.push(ne(ganttCalendars.id, excludeId));
+  const existing = await tx.select({ id: ganttCalendars.id }).from(ganttCalendars).where(and(...conditions));
+  if (existing.length) {
+    throw new TRPCError({ code: "CONFLICT", message: "A calendar with this name already exists in the project" });
+  }
+}
+
+async function loadActiveActivityCalendarIds(
+  tx: PgTransaction<any, any, any>,
+  projectId: number
+): Promise<Array<number | null>> {
+  const rows = await tx
+    .select({ calendarId: ganttActivities.calendarId })
+    .from(ganttActivities)
+    .where(and(eq(ganttActivities.projectId, projectId), isNull(ganttActivities.archivedAt)));
+  return rows.map((row) => row.calendarId);
+}
+
+async function calendarIsScheduleRelevant(
+  tx: PgTransaction<any, any, any>,
+  projectId: number,
+  defaultCalendarId: number | null | undefined,
+  calendarId: number
+): Promise<boolean> {
+  const ids = await loadActiveActivityCalendarIds(tx, projectId);
+  return calendarAffectsActiveSchedule(defaultCalendarId, calendarId, ids);
+}
+
 async function normalizeActivityOrder(
   tx: PgTransaction<any, any, any>,
   projectId: number,
@@ -1021,6 +1165,21 @@ export const primaveraLiteRouter = createRouter({
         .where(eq(ganttCalendars.projectId, accessCtx.projectId))
         .orderBy(asc(ganttCalendars.name), asc(ganttCalendars.id));
 
+      const calendarIds = calendars.map((c) => c.id);
+      const calendarExceptions = calendarIds.length
+        ? await db
+            .select()
+            .from(ganttCalendarExceptions)
+            .where(inArray(ganttCalendarExceptions.calendarId, calendarIds))
+            .orderBy(asc(ganttCalendarExceptions.exceptionDate), asc(ganttCalendarExceptions.id))
+        : [];
+      const exceptionsByCalendar = new Map<number, typeof calendarExceptions>();
+      for (const ex of calendarExceptions) {
+        const list = exceptionsByCalendar.get(ex.calendarId) ?? [];
+        list.push(ex);
+        exceptionsByCalendar.set(ex.calendarId, list);
+      }
+
       const scheduleEvents = await db
         .select({ projectRevision: ganttProjectEvents.projectRevision })
         .from(ganttProjectEvents)
@@ -1066,7 +1225,7 @@ export const primaveraLiteRouter = createRouter({
         wbsNodes: wbsNodes.map(mapWbsNodeRow),
         activities: activities.map(mapActivityRow),
         dependencies: dependencies.map(mapDependencyRow),
-        calendars,
+        calendars: calendars.map((calendar) => mapCalendarRow(calendar, exceptionsByCalendar.get(calendar.id) ?? [])),
         events: events.map((e) => ({
           id: e.id,
           entityType: e.entityType,
@@ -2255,6 +2414,282 @@ export const primaveraLiteRouter = createRouter({
         return updated;
       });
       return { dependency: mapDependencyRow(dependency), revision: accessCtx.projectRevision };
+    }),
+
+  createCalendar: publicQuery
+    .input(createCalendarInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-create-calendar:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const project = await validateProjectNotArchived(tx, accessCtx.projectId);
+        if (project.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const name = input.calendar.name.trim();
+        if (!name) throw new TRPCError({ code: "BAD_REQUEST", message: "Calendar name is required" });
+        const workingDays = parseWorkingDays(input.calendar.workingDays);
+        await requireUniqueCalendarName(tx, accessCtx.projectId, name);
+
+        const [calendar] = await tx.insert(ganttCalendars).values({
+          projectId: accessCtx.projectId,
+          name,
+          workingDays,
+        }).returning();
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "calendar", "create", calendar.id, null, {
+          ...mapCalendarRow(calendar),
+          affectsActiveSchedule: false,
+        });
+        return calendar;
+      });
+
+      return { calendar: mapCalendarRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  updateCalendar: publicQuery
+    .input(updateCalendarInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-update-calendar:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const [project] = await tx.select().from(ganttProjects).where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (project.archivedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
+        if (project.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const calendar = await requireProjectCalendar(tx, accessCtx.projectId, input.calendarId);
+        const nextName = input.changes.name !== undefined ? input.changes.name.trim() : calendar.name;
+        if (!nextName) throw new TRPCError({ code: "BAD_REQUEST", message: "Calendar name is required" });
+        const nextWorkingDays = input.changes.workingDays !== undefined
+          ? parseWorkingDays(input.changes.workingDays)
+          : calendar.workingDays;
+
+        const nameUnchanged = nextName === calendar.name;
+        const daysUnchanged = workingDaysEqual(nextWorkingDays, calendar.workingDays);
+        if (nameUnchanged && daysUnchanged) {
+          return { calendar, revision: project.revision, noop: true };
+        }
+
+        if (!nameUnchanged) {
+          await requireUniqueCalendarName(tx, accessCtx.projectId, nextName, calendar.id);
+        }
+
+        const [updated] = await tx.update(ganttCalendars).set({
+          name: nextName,
+          workingDays: nextWorkingDays,
+          updatedAt: new Date(),
+        }).where(eq(ganttCalendars.id, calendar.id)).returning();
+
+        const relevant = await calendarIsScheduleRelevant(tx, accessCtx.projectId, project.defaultCalendarId, calendar.id);
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "calendar", "update", updated.id, mapCalendarRow(calendar), {
+          ...mapCalendarRow(updated),
+          affectsActiveSchedule: relevant,
+        });
+        return { calendar: updated, revision: newRevision, noop: false };
+      });
+
+      return { calendar: mapCalendarRow(result.calendar), revision: result.revision, noop: result.noop };
+    }),
+
+  setProjectDefaultCalendar: publicQuery
+    .input(setProjectDefaultCalendarInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-set-default-calendar:${input.slug}`, 20, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const [current] = await tx.select().from(ganttProjects).where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (current.archivedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
+        if (current.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        await requireProjectCalendar(tx, accessCtx.projectId, input.calendarId);
+        if (current.defaultCalendarId === input.calendarId) {
+          return { project: current, revision: current.revision, noop: true };
+        }
+
+        const before = mapProjectRow(current);
+        const [updated] = await tx.update(ganttProjects).set({
+          defaultCalendarId: input.calendarId,
+          updatedAt: new Date(),
+        }).where(eq(ganttProjects.id, accessCtx.projectId)).returning();
+
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "project", "update", accessCtx.projectId, before, mapProjectRow(updated));
+        return { project: updated, revision: newRevision, noop: false };
+      });
+
+      return { project: mapProjectRow(result.project), revision: result.revision, noop: result.noop };
+    }),
+
+  createCalendarException: publicQuery
+    .input(createCalendarExceptionInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-create-cal-ex:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const [project] = await tx.select().from(ganttProjects).where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (project.archivedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
+        if (project.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const calendar = await requireProjectCalendar(tx, accessCtx.projectId, input.calendarId);
+        const exceptionDate = toIsoDateString(input.exception.exceptionDate);
+        if (!exceptionDate) throw new TRPCError({ code: "BAD_REQUEST", message: "exceptionDate is required" });
+
+        const [dup] = await tx.select({ id: ganttCalendarExceptions.id }).from(ganttCalendarExceptions).where(and(
+          eq(ganttCalendarExceptions.calendarId, calendar.id),
+          eq(ganttCalendarExceptions.exceptionDate, exceptionDate)
+        ));
+        if (dup) throw new TRPCError({ code: "CONFLICT", message: "An exception already exists for this date" });
+
+        const [created] = await tx.insert(ganttCalendarExceptions).values({
+          calendarId: calendar.id,
+          exceptionDate,
+          isWorking: input.exception.isWorking,
+          description: input.exception.description ?? null,
+          workingHours: null,
+        }).returning();
+
+        const relevant = await calendarIsScheduleRelevant(tx, accessCtx.projectId, project.defaultCalendarId, calendar.id);
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "calendarException", "create", created.id, null, {
+          ...mapCalendarExceptionRow(created),
+          affectsActiveSchedule: relevant,
+        });
+        return created;
+      });
+
+      return { exception: mapCalendarExceptionRow(result), revision: accessCtx.projectRevision };
+    }),
+
+  updateCalendarException: publicQuery
+    .input(updateCalendarExceptionInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-update-cal-ex:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const [project] = await tx.select().from(ganttProjects).where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (project.archivedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
+        if (project.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const [current] = await tx.select().from(ganttCalendarExceptions).where(eq(ganttCalendarExceptions.id, input.exceptionId));
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Calendar exception not found" });
+        const calendar = await requireProjectCalendar(tx, accessCtx.projectId, current.calendarId);
+
+        const nextDate = input.changes.exceptionDate !== undefined
+          ? toIsoDateString(input.changes.exceptionDate)
+          : toIsoDateString(current.exceptionDate);
+        if (!nextDate) throw new TRPCError({ code: "BAD_REQUEST", message: "exceptionDate is required" });
+        const nextWorking = input.changes.isWorking !== undefined ? input.changes.isWorking : current.isWorking;
+        const nextDescription = input.changes.description !== undefined ? input.changes.description : current.description;
+
+        const dateUnchanged = nextDate === toIsoDateString(current.exceptionDate);
+        const workingUnchanged = nextWorking === current.isWorking;
+        const descUnchanged = (nextDescription ?? null) === (current.description ?? null);
+        if (dateUnchanged && workingUnchanged && descUnchanged) {
+          return { exception: current, revision: project.revision, noop: true };
+        }
+
+        if (!dateUnchanged) {
+          const [dup] = await tx.select({ id: ganttCalendarExceptions.id }).from(ganttCalendarExceptions).where(and(
+            eq(ganttCalendarExceptions.calendarId, calendar.id),
+            eq(ganttCalendarExceptions.exceptionDate, nextDate),
+            ne(ganttCalendarExceptions.id, current.id)
+          ));
+          if (dup) throw new TRPCError({ code: "CONFLICT", message: "An exception already exists for this date" });
+        }
+
+        const [updated] = await tx.update(ganttCalendarExceptions).set({
+          exceptionDate: nextDate,
+          isWorking: nextWorking,
+          description: nextDescription ?? null,
+          updatedAt: new Date(),
+        }).where(eq(ganttCalendarExceptions.id, current.id)).returning();
+
+        const relevant = await calendarIsScheduleRelevant(tx, accessCtx.projectId, project.defaultCalendarId, calendar.id);
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "calendarException", "update", updated.id, mapCalendarExceptionRow(current), {
+          ...mapCalendarExceptionRow(updated),
+          affectsActiveSchedule: relevant,
+        });
+        return { exception: updated, revision: newRevision, noop: false };
+      });
+
+      return { exception: mapCalendarExceptionRow(result.exception), revision: result.revision, noop: result.noop };
+    }),
+
+  deleteCalendarException: publicQuery
+    .input(deleteCalendarExceptionInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      enforceRateLimit(ctx.req, `primavera-delete-cal-ex:${input.slug}`, 30, 60_000);
+      const accessCtx = await resolveProjectAccess(input.slug, input.access);
+      requireEditorOrAdmin(accessCtx);
+
+      const result = await db.transaction(async (tx) => {
+        await lockProject(tx, accessCtx.projectId);
+        const [project] = await tx.select().from(ganttProjects).where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        if (project.archivedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
+        if (project.revision !== input.expectedRevision) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
+        }
+
+        const [current] = await tx.select().from(ganttCalendarExceptions).where(eq(ganttCalendarExceptions.id, input.exceptionId));
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Calendar exception not found" });
+        const calendar = await requireProjectCalendar(tx, accessCtx.projectId, current.calendarId);
+
+        await tx.delete(ganttCalendarExceptions).where(eq(ganttCalendarExceptions.id, current.id));
+
+        const relevant = await calendarIsScheduleRelevant(tx, accessCtx.projectId, project.defaultCalendarId, calendar.id);
+        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
+        accessCtx.projectRevision = newRevision;
+        accessCtx.actorName = input.actorName;
+        await insertEvent(tx, accessCtx, "calendarException", "delete", current.id, {
+          ...mapCalendarExceptionRow(current),
+          affectsActiveSchedule: relevant,
+        }, null);
+        return current;
+      });
+
+      return { exception: mapCalendarExceptionRow(result), revision: accessCtx.projectRevision };
     }),
 
   // ── WBS Tree (PR2) ──

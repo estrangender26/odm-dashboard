@@ -505,6 +505,52 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
   });
 });
 
+describe("calendar scheduling semantics", () => {
+  it("lets a Saturday-working calendar finish sooner than Mon-Fri", () => {
+    const activities: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "SixDay", originalDurationDays: 6, calendarId: 2 },
+    ];
+    const sat = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar, monSatCalendar], 1, activities, []);
+    const fri = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, [{ ...activities[0], calendarId: 1 }], []);
+    expect(sat[0].earlyFinish).toBe("2026-08-15");
+    expect(fri[0].earlyFinish).toBe("2026-08-17");
+  });
+
+  it("shifts work off a non-working weekday exception", () => {
+    const cal: ScheduleCalendarInput = {
+      ...monFriCalendar,
+      exceptions: [{ exceptionDate: "2026-08-10", isWorking: false }],
+    };
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [cal], 1, [
+      { id: 1, wbsNodeId: 1, activityName: "Task", originalDurationDays: 1 },
+    ], []);
+    expect(res[0].earlyStart).toBe("2026-08-11");
+  });
+
+  it("permits work on a weekend working exception", () => {
+    const cal: ScheduleCalendarInput = {
+      ...monFriCalendar,
+      exceptions: [{ exceptionDate: "2026-08-15", isWorking: true }],
+    };
+    const res = runScheduleEngine("2026-08-14", "2026-08-14", [cal], 1, [
+      { id: 1, wbsNodeId: 1, activityName: "Weekend", originalDurationDays: 2 },
+    ], []);
+    expect(res[0].earlyStart).toBe("2026-08-14");
+    expect(res[0].earlyFinish).toBe("2026-08-15");
+  });
+
+  it("uses an activity-specific calendar instead of the project default", () => {
+    const activities: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "Assigned", originalDurationDays: 6, calendarId: 2 },
+      { id: 2, wbsNodeId: 1, activityName: "Defaulted", originalDurationDays: 6 },
+    ];
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar, monSatCalendar], 1, activities, []);
+    const map = new Map(res.map((r) => [r.id, r]));
+    expect(map.get(1)!.earlyFinish).toBe("2026-08-15");
+    expect(map.get(2)!.earlyFinish).toBe("2026-08-17");
+  });
+});
+
 describe("Duration % Complete semantics", () => {
   it("derives 3 working days from 5 original days at 40% when Remaining Duration is absent", () => {
     expect(getWorkingDuration({ id: 1, wbsNodeId: 1, activityName: "Task", originalDurationDays: 5, percentComplete: 40 })).toBe(3);

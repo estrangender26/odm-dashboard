@@ -239,6 +239,26 @@ describe("ActivityGrid restore", () => {
     expect(screen.getByText("Activity restored. Archived dependencies remain archived.")).toBeInTheDocument();
   });
 
+  it("keeps the project default calendar option selectable", () => {
+    render(
+      <ActivityGrid
+        slug="test-project"
+        access="test-token"
+        role="editor"
+        expectedRevision={3}
+        activities={[activeRow]}
+        wbsNodes={wbsNodes}
+        calendars={[{ id: 10, name: "Default Calendar" }, { id: 11, name: "Weekend Crew" }]}
+        onRevisionChange={() => undefined}
+        onRefresh={async () => undefined}
+        onEditingChange={() => undefined}
+      />
+    );
+    expect(screen.getByRole("option", { name: "Project default / unassigned" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Default Calendar" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Weekend Crew" })).toBeInTheDocument();
+  });
+
   it("shows archive button for active rows when editor", () => {
     renderGrid("editor");
     const active = rowByName("Activity 1");
