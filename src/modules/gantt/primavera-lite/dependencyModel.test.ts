@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dependencyLineGeometry, dependencyPermissions, optimisticDependencyArchive, optimisticDependencyUpdate, type DependencyRow } from "./dependencyModel";
+import { dependencyLineGeometry, dependencyPermissions, optimisticDependencyArchive, optimisticDependencyUpdate, partitionDependencies, type DependencyRow } from "./dependencyModel";
 
 const activities = [
   { id: 1, wbsNodeId: 1, sortOrder: 0, activityId: "A", activityName: "A", originalDurationDays: 2, calendarId: null, percentComplete: 0, plannedStart: "2026-08-01", plannedFinish: "2026-08-02" },
@@ -30,6 +30,20 @@ describe("dependencyModel", () => {
     expect(optimisticDependencyUpdate(rows, 1, { lagDays: -2 })[0].lagDays).toBe(-2);
     expect(optimisticDependencyArchive(rows, 1)).toEqual([]);
     expect(dependencyPermissions("viewer")).toEqual({ canEdit: false, readOnly: true });
+  });
+
+  it("partitions an includeArchived listing into sorted active and archived groups", () => {
+    const rows = [
+      { ...dependency("FS", 3), archivedAt: "2026-08-15T00:00:00.000Z" },
+      dependency("SS", 1),
+      { ...dependency("FF", 2), archivedAt: new Date("2026-08-16T00:00:00.000Z") },
+      { ...dependency("SF", 4), archivedAt: null },
+    ];
+    const { active, archived } = partitionDependencies(rows);
+    expect(active.map((row) => row.id)).toEqual([1, 4]);
+    expect(archived.map((row) => row.id)).toEqual([2, 3]);
+    // Default (no archivedAt at all) stays active — mirrors listDependencies default.
+    expect(partitionDependencies([dependency("FS", 9)]).archived).toEqual([]);
   });
 
   it("PR345: FS connectors exist when B and C only have CPM dates", () => {

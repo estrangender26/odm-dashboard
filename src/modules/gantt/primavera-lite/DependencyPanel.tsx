@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, Plus } from "lucide-react";
+import { Archive, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/providers/trpc";
 import { sortActivities, type ActivityGridRow } from "./activityGridModel";
 import {
   dependencyPermissions, optimisticDependencyArchive, optimisticDependencyUpdate,
-  sortDependencies, type DependencyRow, type DependencyType,
+  partitionDependencies, sortDependencies, type DependencyRow, type DependencyType,
 } from "./dependencyModel";
 
 type Props = {
@@ -35,8 +35,10 @@ export default function DependencyPanel(props: Props) {
   const utils = trpc.useUtils();
   const queryInput = { slug, access };
   const { canEdit } = dependencyPermissions(props.role);
-  const activities = useMemo(() => sortActivities(props.activities).filter((a) => !a.archivedAt), [props.activities]);
+  const allActivities = useMemo(() => sortActivities(props.activities), [props.activities]);
+  const activities = useMemo(() => allActivities.filter((a) => !a.archivedAt), [allActivities]);
   const dependencies = useMemo(() => sortDependencies(props.dependencies), [props.dependencies]);
+  const [showArchived, setShowArchived] = useState(false);
   const [predecessorId, setPredecessorId] = useState<number | null>(activities[0]?.id ?? null);
   const [successorId, setSuccessorId] = useState<number | null>(activities[1]?.id ?? null);
   const [type, setType] = useState<DependencyType>("FS");
@@ -91,6 +93,30 @@ export default function DependencyPanel(props: Props) {
       setMessage(error.message);
     },
   });
+  // Archived dependencies are fetched only while the user has the archived view
+  // open. There is deliberately no optimistic update on restore: the row stays
+  // visibly archived until the server confirms, so a failed restore can never
+  // leave a false restored state behind.
+  const archivedQuery = trpc.primaveraLite.listDependencies.useQuery(
+    { slug, access, includeArchived: true },
+    { enabled: showArchived }
+  );
+  const archivedDependencies = useMemo(
+    () => (showArchived && archivedQuery.data ? partitionDependencies(archivedQuery.data.dependencies as DependencyRow[]).archived : []),
+    [showArchived, archivedQuery.data]
+  );
+  const restoreDependency = trpc.primaveraLite.restoreDependency.useMutation({
+    onSuccess: async (result) => {
+      props.onRevisionChange(result.revision);
+      setCachedDependencies((rows) => sortDependencies([...rows.filter((row) => row.id !== result.dependency.id), result.dependency as DependencyRow]));
+      await utils.primaveraLite.listDependencies.invalidate();
+      setMessage(null);
+    },
+    onError: async (error) => {
+      if (error.data?.code === "CONFLICT") await props.onRefresh();
+      setMessage(error.message);
+    },
+  });
 
   function create() {
     if (selectedPredecessorId === null || selectedSuccessorId === null) return;
@@ -104,13 +130,26 @@ export default function DependencyPanel(props: Props) {
     const preview = await archiveDryRun.mutateAsync({ slug, access, expectedRevision, dependencyId: id });
     archiveDependency.mutate({ slug, access, expectedRevision, dependencyId: id, previewToken: preview.previewToken, confirmed: true });
   }
+  function restore(id: number) {
+    restoreDependency.mutate({ slug, access, expectedRevision, dependencyId: id, confirmed: true });
+  }
   const activityLabel = (id: number) => {
     const activity = activities.find((row) => row.id === id);
     return activity ? `${activity.activityId ?? "—"} — ${activity.activityName}` : `Activity ${id}`;
   };
+  // Archived dependencies may reference archived activities, so their labels
+  // resolve against the full activity list rather than the active-only list.
+  const archivedActivityLabel = (id: number) => {
+    const activity = allActivities.find((row) => row.id === id);
+    if (!activity) return `Activity ${id}`;
+    return `${activity.activityId ?? "—"} — ${activity.activityName}${activity.archivedAt ? " (archived)" : ""}`;
+  };
 
   return <section className="space-y-3" aria-label="Dependencies">
-    <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Dependencies</h3><span className="text-xs text-muted-foreground">{dependencies.length} relationships</span></div>
+    <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Dependencies</h3><div className="flex items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "Hide archived" : "Show archived"}</Button>
+      <span className="text-xs text-muted-foreground">{dependencies.length} relationships</span>
+    </div></div>
     {canEdit && <div className="grid gap-2 rounded border bg-white p-3 md:grid-cols-[1fr_1fr_auto_7rem_auto]">
       <select aria-label="New predecessor" className="h-9 rounded border px-2" value={selectedPredecessorId ?? ""} onChange={(event) => setPredecessorId(Number(event.target.value))}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activityLabel(activity.id)}</option>)}</select>
       <select aria-label="New successor" className="h-9 rounded border px-2" value={selectedSuccessorId ?? ""} onChange={(event) => setSuccessorId(Number(event.target.value))}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activityLabel(activity.id)}</option>)}</select>
@@ -126,6 +165,17 @@ export default function DependencyPanel(props: Props) {
         <td className="p-1"><select aria-label={`Type for dependency ${dependency.id}`} disabled={!canEdit} className="h-8 rounded border px-1 disabled:border-transparent" value={dependency.dependencyType} onChange={(event) => update(dependency.id, { dependencyType: event.target.value as DependencyType })}>{TYPES.map((value) => <option key={value}>{value}</option>)}</select></td>
         <td className="p-1"><LagInput dependency={dependency} disabled={!canEdit} onCommit={(lagDays) => update(dependency.id, { lagDays })} /></td>
         <td className="p-1">{canEdit && <Button variant="ghost" size="icon" aria-label={`Archive dependency ${dependency.id}`} onClick={() => archive(dependency.id)}><Archive className="h-4 w-4" /></Button>}</td>
-      </tr>)}</tbody></table>{dependencies.length === 0 && <p className="p-5 text-center text-sm text-muted-foreground">No dependencies yet.</p>}</div>
+      </tr>)}
+      {showArchived && archivedDependencies.map((dependency) => <tr key={`archived-${dependency.id}`} data-archived="true" className="border-t bg-slate-50 text-muted-foreground">
+        <td className="p-2">{archivedActivityLabel(dependency.predecessorActivityId)}</td>
+        <td className="p-2">{archivedActivityLabel(dependency.successorActivityId)}</td>
+        <td className="p-2">{dependency.dependencyType}</td>
+        <td className="p-2">{dependency.lagDays}</td>
+        <td className="p-1"><span className="mr-1 text-xs">(archived)</span>{canEdit && <Button variant="ghost" size="icon" aria-label={`Restore dependency ${dependency.id}`} disabled={restoreDependency.isPending} onClick={() => restore(dependency.id)} title="Restore"><RotateCcw className="h-4 w-4" /></Button>}</td>
+      </tr>)}</tbody></table>
+      {dependencies.length === 0 && !showArchived && <p className="p-5 text-center text-sm text-muted-foreground">No dependencies yet.</p>}
+      {showArchived && archivedQuery.isLoading && <p className="p-3 text-center text-xs text-muted-foreground">Loading archived dependencies…</p>}
+      {showArchived && !archivedQuery.isLoading && archivedDependencies.length === 0 && <p className="p-3 text-center text-xs text-muted-foreground">No archived dependencies.</p>}
+    </div>
   </section>;
 }
