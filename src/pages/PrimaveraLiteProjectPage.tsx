@@ -12,6 +12,7 @@ import {
   stripTokenPath,
 } from "@/modules/gantt/primavera-lite/pageState";
 import WbsTree from "@/modules/gantt/primavera-lite/WbsTree";
+import CalendarPanel from "@/modules/gantt/primavera-lite/CalendarPanel";
 import ActivityGrid from "@/modules/gantt/primavera-lite/ActivityGrid";
 import Timeline from "@/modules/gantt/primavera-lite/Timeline";
 import DependencyPanel from "@/modules/gantt/primavera-lite/DependencyPanel";
@@ -201,6 +202,18 @@ export default function PrimaveraLiteProjectPage() {
               role={data.role}
               expectedRevision={expectedRevision}
               nodes={data.wbsNodes}
+              onRevisionChange={setExpectedRevision}
+              onRefresh={() => refetch()}
+            />
+
+            <CalendarPanel
+              slug={slug}
+              access={access}
+              role={data.role}
+              expectedRevision={expectedRevision}
+              defaultCalendarId={data.project?.defaultCalendarId}
+              calendars={data.calendars ?? []}
+              activities={data.activities}
               onRevisionChange={setExpectedRevision}
               onRefresh={() => refetch()}
             />
