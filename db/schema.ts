@@ -476,6 +476,49 @@ export const ganttActivityDependencies = pgTable("gantt_activity_dependencies", 
     .where(sql`${table.archivedAt} IS NULL`),
 ]);
 
+/* ── Primavera Lite Baselines ── */
+export const ganttBaselines = pgTable("gantt_baselines", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => ganttProjects.id, { onDelete: "restrict" }),
+  publicId: uuid("public_id").unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  activityCount: integer("activity_count").notNull().default(0),
+  projectRevision: integer("project_revision").notNull(),
+  capturedAt: timestamp("captured_at").defaultNow(),
+  capturedByName: varchar("captured_by_name", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("gantt_baselines_project_idx").on(table.projectId),
+  index("gantt_baselines_project_created_idx").on(table.projectId, table.createdAt),
+]);
+
+/* ── Primavera Lite Baseline Activity Snapshots ──
+   Detached immutable snapshots. No FK to live gantt_activities/gantt_wbs_nodes
+   so archival or deletion of live rows cannot destroy historical baseline data. */
+export const ganttBaselineActivities = pgTable("gantt_baseline_activities", {
+  id: serial("id").primaryKey(),
+  baselineId: integer("baseline_id").notNull().references(() => ganttBaselines.id, { onDelete: "cascade" }),
+  activityId: integer("activity_id").notNull(),
+  activityCode: varchar("activity_code", { length: 100 }),
+  activityName: varchar("activity_name", { length: 500 }).notNull(),
+  wbsNodeId: integer("wbs_node_id").notNull(),
+  wbsCode: varchar("wbs_code", { length: 100 }),
+  wbsName: varchar("wbs_name", { length: 500 }),
+  calendarId: integer("calendar_id"),
+  calendarName: varchar("calendar_name", { length: 255 }),
+  originalDurationDays: integer("original_duration_days").notNull().default(0),
+  scheduledStart: date("scheduled_start"),
+  scheduledFinish: date("scheduled_finish"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("gantt_baseline_activities_baseline_idx").on(table.baselineId),
+  index("gantt_baseline_activities_activity_idx").on(table.baselineId, table.activityId),
+  uniqueIndex("gantt_baseline_activities_baseline_activity_unique")
+    .on(table.baselineId, table.activityId),
+]);
+
 
 /* ─── Presentation Center Files ─── */
 export const presentationFiles = pgTable("presentation_files", {
