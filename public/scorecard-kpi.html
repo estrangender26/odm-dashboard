@@ -199,7 +199,17 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .bu-context strong{font-size:13px}
 .bu-context span{color:var(--muted);font-weight:700}
 .chart-wrap{height:280px;position:relative}
-.chart-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:12px}
+.chart-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-width:0}
+.chart-card{position:relative;display:flex;flex-direction:column;min-width:0;height:100%;box-sizing:border-box;background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);transition:var(--transition);cursor:pointer}
+.chart-card:hover{box-shadow:var(--sh-hover);border-color:#C8D4E0}
+.chart-card:focus{outline:2px solid rgba(0,102,166,.35);outline-offset:2px}
+.chart-card .chart-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.chart-card .chart-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:0}
+.chart-card .chart-expand{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid var(--border);background:#fff;color:var(--blue);border-radius:6px;padding:0;cursor:pointer;transition:var(--transition)}
+.chart-card .chart-expand:hover{background:#EAF6FC;border-color:var(--blue)}
+.chart-card .chart-expand svg{width:16px;height:16px}
+.chart-card .chart-wrap{flex:1;min-height:0;position:relative}
+.chart-wrap{height:280px;position:relative}
 
 /* MODAL */
 .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
@@ -209,6 +219,25 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .modal-title{font-size:18px;font-weight:700;color:var(--navy)}
 .modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--muted);padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--r)}
 .modal-close:hover{background:var(--bg)}
+/* CHART MODAL */
+.chart-modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.55);z-index:1100;display:none;align-items:center;justify-content:center;padding:20px}
+.chart-modal-overlay.active{display:flex}
+.chart-modal{background:var(--card);border-radius:var(--r);padding:20px;width:min(1200px,90vw);height:min(85vh,900px);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.35);position:relative;overflow:hidden}
+.chart-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex:none}
+.chart-modal-title{font-size:18px;font-weight:700;color:var(--navy)}
+.chart-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--muted);padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);transition:var(--transition)}
+.chart-modal-close:hover{background:var(--bg)}
+.chart-modal-body{flex:1;min-height:0;position:relative}
+.chart-modal-body canvas{width:100%;height:100%}
+@media(max-width:1023px){
+  .chart-modal{padding:16px;width:min(1000px,95vw);height:min(80vh,850px)}
+  .chart-modal-title{font-size:16px}
+}
+@media(max-width:767px){
+  .chart-modal-overlay{padding:0}
+  .chart-modal{border-radius:0;width:100vw;height:100vh;max-height:100vh;padding:14px}
+}
+
 
 /* FORM TABLE */
 .manual-controls{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px;margin-bottom:14px;background:#F8FAFC;border:1px solid var(--border);border-radius:var(--r);padding:14px}
@@ -262,7 +291,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   .brand img{width:56px;height:56px}
   .main{padding:10px 14px 28px}
   .gauge-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .chart-row{grid-template-columns:repeat(auto-fit,minmax(350px,1fr))}
+  .chart-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .chart-wrap{height:260px}
 }
 
@@ -283,9 +312,10 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
   .matrix-table th,.matrix-table td{padding:8px 6px}
   .gauge-card{padding:10px}
   .gauge-value{font-size:21px}
-  .chart-row{grid-template-columns:1fr}
+  .chart-grid{grid-template-columns:minmax(0,1fr)}
   .chart-wrap{height:240px}
   .chart-card{padding:14px}
+  .chart-wrap{height:240px}
   .modal{max-width:95vw;padding:20px}
   .manual-controls{grid-template-columns:repeat(3,1fr);gap:10px;padding:12px}
   .form-table{font-size:12px}
@@ -742,6 +772,7 @@ var ScoreData = {};
 var MonthlyScoreData = {};
 var KpiAggregates = null;
 var Charts = {};
+var ExpandedChart = null;
 var isImporting = false;
 var isFetchingSavedRecords = false;
 var isClearingKpiRecords = false;
@@ -3150,28 +3181,89 @@ function makeChartOptions(kpiKey,yTitle){
 }
 
 var TrendKpiConfig = [
-  {key:'pmCompliance',title:'PM Compliance Trend',axis:'PM Compliance %',color:'#0066A6'},
-  {key:'budgetSpend',title:'Budget Spend Trend',axis:'Budget Spend %',color:'#00A8D2'},
-  {key:'pmcmWORatio',title:'PM:CM Ratio (Work Orders) Trend',axis:'PM:CM WO %',color:'#7C3AED'},
-  {key:'pmcmCostRatio',title:'PM:CM Ratio (Cost) Trend',axis:'PM:CM Cost %',color:'#D97706'},
-  {key:'mttr',title:'MTTR Trend',axis:'MTTR days',color:'#DC2626'},
-  {key:'facilityUptime',title:'Facility Uptime Trend',axis:'Facility Uptime %',color:'#0F766E'}
+  {key:'pmCompliance',title:'PM Compliance (%)',axis:'PM Compliance %',color:'#0066A6'},
+  {key:'budgetSpend',title:'Budget Spend (%)',axis:'Budget Spend %',color:'#00A8D2'},
+  {key:'pmcmWORatio',title:'PM:CM WO (%)',axis:'PM:CM WO %',color:'#7C3AED'},
+  {key:'pmcmCostRatio',title:'PM:CM Cost (%)',axis:'PM:CM Cost %',color:'#D97706'},
+  {key:'mttr',title:'MTTR (Days)',axis:'MTTR days',color:'#DC2626'},
+  {key:'facilityUptime',title:'Facility Uptime (%)',axis:'Facility Uptime %',color:'#0F766E'}
 ];
 
 function buildTrendSection(buId){
   var section = document.getElementById(getBusinessUnitTrendSectionId(buId));
   if(!section)return;
   var html = '<div class="matrix-title" style="margin:18px 0 12px">KPI Trends</div>';
-  for(var i=0;i<TrendKpiConfig.length;i+=2){
-    html += '<div class="chart-row">';
-    TrendKpiConfig.slice(i,i+2).forEach(function(cfg){
-      var chartKey = getBusinessUnitChartKey(buId,cfg.key);
-      html += '<div class="chart-card"><div class="chart-title-row"><div class="chart-title">'+cfg.title+'</div><button class="chart-export" onclick="exportChartImage(\''+chartKey+'\')">Export Image</button></div><div class="chart-wrap"><canvas id="'+chartKey+'-chart"></canvas></div></div>';
-    });
-    html += '</div>';
-  }
+  html += '<div class="chart-grid" role="list" aria-label="KPI trend charts">';
+  TrendKpiConfig.forEach(function(cfg){
+    var chartKey = getBusinessUnitChartKey(buId,cfg.key);
+    var expandLabel = 'Expand '+escapeHtml(cfg.title)+' chart';
+    html += '<div class="chart-card" role="listitem" tabindex="0" aria-label="'+expandLabel+'" data-chart-key="'+chartKey+'" data-kpi-key="'+cfg.key+'" data-kpi-title="'+escapeHtml(cfg.title)+'" data-bu-id="'+buId+'" onclick="openChartModal(this)" onkeydown="handleChartCardKey(event,this)">'
+      + '<div class="chart-title-row"><div class="chart-title">'+cfg.title+'</div>'
+      + '<button class="chart-expand" type="button" aria-label="'+expandLabel+'" onclick="event.stopPropagation();openChartModalButton(\'"+chartKey+"\')">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>'
+      + '</button></div>'
+      + '<div class="chart-wrap"><canvas id="'+chartKey+'-chart"></canvas></div></div>';
+  });
+  html += '</div>';
   section.innerHTML = html;
 }
+
+function escapeHtml(text){
+  if(text===null||text===undefined)return '';
+  return String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+function handleChartCardKey(e,card){
+  if(e.key==='Enter'||e.key===' '){e.preventDefault();openChartModal(card);}
+}
+function openChartModalButton(chartKey){
+  var card = document.querySelector('.chart-card[data-chart-key="'+chartKey+'"]');
+  if(card)openChartModal(card);
+}
+function openChartModal(card){
+  var chartKey = card.getAttribute('data-chart-key');
+  var kpiKey = card.getAttribute('data-kpi-key');
+  var title = card.getAttribute('data-kpi-title') || 'KPI Trend';
+  var buId = card.getAttribute('data-bu-id') || 'summary';
+  var sourceChart = Charts[chartKey];
+  if(!sourceChart)return;
+  document.getElementById('chartModalTitle').textContent = title;
+  var modal = document.getElementById('chartModal');
+  modal.classList.add('active');
+  if(document.body)document.body.style.overflow = 'hidden';
+  var canvas = document.getElementById('chartModalCanvas');
+  if(ExpandedChart){try{ExpandedChart.destroy();}catch(err){}ExpandedChart=null;}
+  var config = buildExpandedChartConfig(chartKey,buId,kpiKey,sourceChart);
+  ExpandedChart = new Chart(canvas,config);
+  setTimeout(function(){if(ExpandedChart)ExpandedChart.resize();},50);
+}
+function buildExpandedChartConfig(chartKey,buId,kpiKey,sourceChart){
+  var cfg = TrendKpiConfig.find(function(c){return c.key===kpiKey;});
+  var axisLabel = cfg ? cfg.axis : (sourceChart.options.scales.y.title.text || '');
+  var baseOptions = makeChartOptions(kpiKey,axisLabel);
+  baseOptions.responsive = true;
+  baseOptions.maintainAspectRatio = false;
+  baseOptions.plugins.legend = Object.assign({}, baseOptions.plugins.legend || {display:true, position:'bottom'}, {display:true, position:'bottom', labels:{boxWidth:14, font:{size:13, weight:'700'}}});
+  baseOptions.plugins.tooltip = Object.assign({}, baseOptions.plugins.tooltip || {}, {titleFont:{size:13}, bodyFont:{size:13}});
+  if(baseOptions.scales && baseOptions.scales.y){
+    baseOptions.scales.y = Object.assign({}, baseOptions.scales.y, {title:{display:true,text:axisLabel,font:{size:14,weight:'700'}},ticks:{font:{size:12}, callback:baseOptions.scales.y.ticks.callback}});
+  }
+  if(baseOptions.scales && baseOptions.scales.x){
+    baseOptions.scales.x = Object.assign({}, baseOptions.scales.x, {ticks:{font:{size:12}, maxRotation:0, autoSkip:false, maxTicksLimit:12}});
+  }
+  return {
+    type: sourceChart.config.type || 'bar',
+    data: JSON.parse(JSON.stringify(sourceChart.data)),
+    options: baseOptions
+  };
+}
+function closeChartModal(){
+  var modal = document.getElementById('chartModal');
+  modal.classList.remove('active');
+  if(document.body)document.body.style.overflow = '';
+  if(ExpandedChart){try{ExpandedChart.destroy();}catch(err){}ExpandedChart=null;}
+}
+
+
 
 function exportChartImage(chartKey){
   var chart = Charts[chartKey];
@@ -4054,6 +4146,13 @@ async function clearData(){
   }
 }
 
+
+// Chart modal controls
+document.getElementById('chartModalClose').addEventListener('click',closeChartModal);
+document.getElementById('chartModal').addEventListener('click',function(e){if(e.target===this)closeChartModal();});
+document.addEventListener('keydown',function(e){if(e.key==='Escape' && document.getElementById('chartModal').classList.contains('active')){closeChartModal();}});
+var chartModalEl = document.querySelector('.chart-modal'); if(chartModalEl){chartModalEl.addEventListener('click',function(e){e.stopPropagation();});}
+
 // Close modal on overlay click
 document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
 document.getElementById('importModal').addEventListener('click',function(e){if(e.target===this)closeImportModal();});
@@ -4070,5 +4169,18 @@ document.getElementById('commentaryModal').addEventListener('click',function(e){
    ============================================================ */
 </script>
 <script src="/scorecard-kpi-thresholds.js"></script>
+
+<!-- CHART EXPANSION MODAL -->
+<div class="chart-modal-overlay" id="chartModal" role="dialog" aria-modal="true" aria-labelledby="chartModalTitle">
+  <div class="chart-modal" role="document">
+    <div class="chart-modal-header">
+      <div class="chart-modal-title" id="chartModalTitle">KPI Trend</div>
+      <button class="chart-modal-close" id="chartModalClose" aria-label="Close expanded chart">&times;</button>
+    </div>
+    <div class="chart-modal-body">
+      <canvas id="chartModalCanvas"></canvas>
+    </div>
+  </div>
+</div>
 </body>
 </html>

@@ -548,6 +548,14 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(scorecardHtml).toContain(".gauge-card:nth-child(3n) .gauge-tooltip{left:auto;right:0");
     expect(scorecardHtml).toContain('<div id="summary-gauges" class="gauge-grid"></div>');
     expect(scorecardHtml).toContain('<div id="business-unit-gauges" class="gauge-grid"></div>');
+
+    // Chart grid responsive layout: 3x2 desktop, 2-col tablet/laptop, 1-col mobile
+    expect(desktopCss).toContain(".chart-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))");
+    expect(desktopCss).toContain(".chart-card{position:relative;display:flex;flex-direction:column;min-width:0;height:100%;box-sizing:border-box");
+    expect(scorecardHtml).toContain(".chart-grid{grid-template-columns:repeat(2,minmax(0,1fr))}");
+    expect(scorecardHtml).toContain(".chart-grid{grid-template-columns:minmax(0,1fr)}");
+    expect(scorecardHtml).toContain('<div id="summary-trend-section"></div>');
+    expect(scorecardHtml).toContain('<div id="business-unit-trend-section"></div>');
   });
 
   it("limits the Summary Matrix to the required KPI metrics without PM Planned", () => {
