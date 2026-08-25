@@ -32,6 +32,11 @@ import type {
   MonthlyKpiValue,
   ScorecardKpiKey,
 } from "../../monthly-kpi/types";
+import {
+  evaluateKpiStatus,
+  getDefaultMonthlyKpiThresholdConfig,
+  type MonthlyKpiThresholdConfig,
+} from "../../monthly-kpi/kpiThresholds";
 
 const TEMPLATE_FILENAME = "MonthlyKpiExecutive.pptx";
 
@@ -117,26 +122,38 @@ function cloneMonthlyRow(sourceRow: XmlElement): XmlElement {
 }
 
 /**
- * Return the slide-1 table-cell fill color for a KPI value based on its
- * existing status. This is a rendering decision only: the presentation
- * generator uses the status already computed by the KPI threshold logic.
+ * Return the table-cell fill color for Slides 1 and 2 using the configurable
+ * Monthly KPI thresholds as the single source of truth. This keeps the
+ * presentation generator aligned with the RAG Threshold Configuration screen.
  *
- * Missing, null, no-data, or provisional values always receive the neutral
- * no-data gray so that cloned template-row colors never leak into empty cells.
+ * Threshold mapping (from the approved configuration):
+ * - PM Compliance: Green ≥98; Amber 90 to <98; Red <90
+ * - Budget Spend: Green 95–105; Amber 90–<95 or >105–110; Red <90 or >110
+ * - PM:CM Ratio (WO): Green ≥86; Amber 75 to <86; Red <75
+ * - PM:CM Ratio (Cost): Green ≥80; Amber 50 to <80; Red <50
+ * - Facility Uptime: Green =100; Amber 99 to <100; Red <99
+ * - MTTR: Green when a valid value exists; no data = gray (Amber/Red TBD)
+ *
+ * Missing/null values always receive neutral gray so cloned template-row
+ * colors never leak into empty cells.
  */
-function getKpiValueFillColor(
-  value: MonthlyKpiValue | undefined
+const DEFAULT_THRESHOLD_CONFIG = getDefaultMonthlyKpiThresholdConfig();
+
+function getSlide12KpiFillColor(
+  key: ScorecardKpiKey,
+  value: MonthlyKpiValue | undefined,
+  config: MonthlyKpiThresholdConfig = DEFAULT_THRESHOLD_CONFIG
 ): string {
   if (!value || !isPresentNumber(value.value)) return "DDE6F0";
-  switch (value.status) {
-    case "success":
+  const evalStatus = evaluateKpiStatus(key, value.value, config).status;
+  switch (evalStatus) {
+    case "green":
       return "A9D18E";
-    case "warning":
+    case "amber":
       return "FFD966";
-    case "danger":
+    case "red":
       return "FF6B6B";
-    case "no-data":
-    case "provisional":
+    case "missing":
     default:
       return "DDE6F0";
   }
@@ -280,7 +297,7 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
       const value = trend?.values[metric];
       const cell = cells[m + 1];
       setCellText(cell, value ? formatMonthlyValue(metric, value) : "");
-      setCellFill(cell, getKpiValueFillColor(value));
+      setCellFill(cell, getSlide12KpiFillColor(metric, value));
     }
   }
 
@@ -310,7 +327,7 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     const value = selectedBu.ytd[metric];
     const cell = ytdCells[m + 1];
     setCellText(cell, formatMonthlyValue(metric, value));
-    setCellFill(cell, getKpiValueFillColor(value));
+    setCellFill(cell, getSlide12KpiFillColor(metric, value));
   }
 
   // Normalize all body cells to a uniform font family/size/alignment so KPI
@@ -529,7 +546,9 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
       const key = TABLE_METRICS[m];
       const value =
         bu?.ytd[key] ?? { value: null, status: "no-data", formatted: "No Data" };
-      setCellText(cells[m + 1], value.formatted);
+      const cell = cells[m + 1];
+      setCellText(cell, value.formatted);
+      setCellFill(cell, getSlide12KpiFillColor(key, value));
     }
   }
 
@@ -537,10 +556,11 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   const portfolioRow = rows[8];
   const portfolioCells = getCells(portfolioRow);
   for (let m = 0; m < TABLE_METRICS.length; m++) {
-    setCellText(
-      portfolioCells[m + 1],
-      data.portfolioYtd[TABLE_METRICS[m]].formatted
-    );
+    const key = TABLE_METRICS[m];
+    const value = data.portfolioYtd[key];
+    const cell = portfolioCells[m + 1];
+    setCellText(cell, value.formatted);
+    setCellFill(cell, getSlide12KpiFillColor(key, value));
   }
 
   const readoutShape = findShapeByName(doc, "Executive Readout");
