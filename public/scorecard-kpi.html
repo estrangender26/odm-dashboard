@@ -189,8 +189,10 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .gauge-fill.red{background:var(--red)}
 
 /* CHARTS */
-.chart-card{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);margin-bottom:16px;transition:var(--transition)}
+.chart-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-width:0;align-items:start}
+.chart-card{position:relative;display:flex;flex-direction:column;min-width:0;height:auto;box-sizing:border-box;background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);transition:var(--transition);cursor:pointer}
 .chart-card:hover{box-shadow:var(--sh-hover);border-color:#C8D4E0}
+.chart-card:focus{outline:2px solid rgba(0,102,166,.35);outline-offset:2px}
 .chart-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px}
 .chart-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
 .chart-title-row .chart-title{margin-bottom:0}
@@ -198,17 +200,11 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
 .bu-context{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#EEF6FF;border:1px solid #BFD7EA;border-radius:var(--r);padding:8px 12px;margin-bottom:10px;color:var(--navy)}
 .bu-context strong{font-size:13px}
 .bu-context span{color:var(--muted);font-weight:700}
-.chart-wrap{height:280px;position:relative}
-.chart-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-width:0}
-.chart-card{position:relative;display:flex;flex-direction:column;min-width:0;height:100%;box-sizing:border-box;background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--sh);border:1px solid var(--border);transition:var(--transition);cursor:pointer}
-.chart-card:hover{box-shadow:var(--sh-hover);border-color:#C8D4E0}
-.chart-card:focus{outline:2px solid rgba(0,102,166,.35);outline-offset:2px}
 .chart-card .chart-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
 .chart-card .chart-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:0}
 .chart-card .chart-expand{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid var(--border);background:#fff;color:var(--blue);border-radius:6px;padding:0;cursor:pointer;transition:var(--transition)}
 .chart-card .chart-expand:hover{background:#EAF6FC;border-color:var(--blue)}
 .chart-card .chart-expand svg{width:16px;height:16px}
-.chart-card .chart-wrap{flex:1;min-height:0;position:relative}
 .chart-wrap{height:280px;position:relative}
 
 /* MODAL */

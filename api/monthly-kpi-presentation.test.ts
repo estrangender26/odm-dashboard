@@ -551,11 +551,31 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
 
     // Chart grid responsive layout: 3x2 desktop, 2-col tablet/laptop, 1-col mobile
     expect(desktopCss).toContain(".chart-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))");
-    expect(desktopCss).toContain(".chart-card{position:relative;display:flex;flex-direction:column;min-width:0;height:100%;box-sizing:border-box");
+    expect(desktopCss).toMatch(/\.chart-grid\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\);gap:12px;min-width:0;align-items:start\}/);
+    expect(desktopCss).toContain(".chart-card{position:relative;display:flex;flex-direction:column;min-width:0;height:auto;box-sizing:border-box");
+    expect(desktopCss).toContain(".chart-wrap{height:280px;position:relative}");
+    expect(desktopCss).not.toContain(".chart-card .chart-wrap{flex:1;min-height:0");
+    expect(desktopCss).not.toContain(".chart-card{height:100%");
     expect(scorecardHtml).toContain(".chart-grid{grid-template-columns:repeat(2,minmax(0,1fr))}");
     expect(scorecardHtml).toContain(".chart-grid{grid-template-columns:minmax(0,1fr)}");
+    expect(scorecardHtml).toContain(".chart-wrap{height:260px}");
+    expect(scorecardHtml).toContain(".chart-wrap{height:240px}");
     expect(scorecardHtml).toContain('<div id="summary-trend-section"></div>');
     expect(scorecardHtml).toContain('<div id="business-unit-trend-section"></div>');
+  });
+
+  it("prevents chart cards and wrappers from stretching vertically (regression)", () => {
+    const desktopCss = scorecardHtml.slice(0, scorecardHtml.indexOf("/* ===== RESPONSIVE ===== */"));
+    expect(desktopCss).toContain(".chart-wrap{height:280px;position:relative}");
+    expect(desktopCss).not.toContain(".chart-card{height:100%");
+    expect(desktopCss).not.toContain(".chart-card .chart-wrap{flex:1;min-height:0");
+    expect(desktopCss).toMatch(/\.chart-grid\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\);gap:12px;min-width:0;align-items:start\}/);
+    expect(scorecardHtml).toContain(".chart-wrap{height:260px}");
+    expect(scorecardHtml).toContain(".chart-wrap{height:240px}");
+    expect(scorecardHtml).toContain(".chart-wrap{height:220px}");
+    expect(scorecardHtml).toContain(".chart-wrap{height:200px}");
+    expect(scorecardHtml).toContain(".chart-wrap{height:180px}");
+    expect(scorecardHtml).toContain(".chart-wrap{height:160px}");
   });
 
   it("limits the Summary Matrix to the required KPI metrics without PM Planned", () => {
