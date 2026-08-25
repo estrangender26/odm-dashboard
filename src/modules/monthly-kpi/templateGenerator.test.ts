@@ -211,6 +211,18 @@ function getMttrCellSizes(xml: string): { sz: number; face: string }[] {
 }
 
 
+function getCellFillColor(xml: string, rowIdx: number, colIdx: number): string | null {
+  const rows = (xml.match(/<a:tr[\s\S]*?<\/a:tr>/g) || []);
+  const row = rows[rowIdx];
+  if (!row) return null;
+  const cells = (row.match(/<a:tc[\s\S]*?<\/a:tc>/g) || []);
+  const cell = cells[colIdx];
+  if (!cell) return null;
+  const tcPr = cell.match(/<a:tcPr[\s\S]*?<\/a:tcPr>/)?.[0] ?? "";
+  const srgb = tcPr.match(/val="([0-9A-Fa-f]{6})"/)?.[1] ?? null;
+  return srgb;
+}
+
 function getRowCellFirstRunProps(
   xml: string,
   rowIdx: number
@@ -457,6 +469,10 @@ describe("generateMonthlyKpiPresentation slide 1 layout and formatting", () => {
     expect(uniqueSizes.size).toBe(1);
     expect([...uniqueSizes][0]).toBeGreaterThanOrEqual(1000);
     expect(mttrSizes.every((s) => s.face === "Aptos")).toBe(true);
+
+    // MTTR cells receive the same status-driven fill as every other KPI.
+    const mttrColor = getCellFillColor(slide1, 1, 5);
+    expect(mttrColor).toBeTruthy();
   });
 
   it.each([
@@ -481,11 +497,12 @@ describe("generateMonthlyKpiPresentation slide 1 layout and formatting", () => {
     expect(table).not.toBeNull();
 
     expect(readout!.y).toBeGreaterThanOrEqual(table!.bottom + 100000);
-    expect(note!.y).toBeGreaterThanOrEqual(readout!.bottom);
     expect(legend!.y).toBeGreaterThanOrEqual(readout!.y);
     expect(legend!.x).toBeGreaterThanOrEqual(readout!.right);
+    // The separate MTTR methodology note shape is hidden off-slide on Slide 1.
+    expect(note!.y).toBeGreaterThanOrEqual(SLIDE_HEIGHT);
     expect(readout!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
-    expect(note!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
+    // note is intentionally hidden off-slide on Slide 1
     expect(legend!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
   });
 
@@ -553,5 +570,96 @@ describe("generateMonthlyKpiPresentation slide 1 layout and formatting", () => {
     const uniqueSizes = new Set(mttrSizes.map((s) => s.sz));
     expect(uniqueSizes.size).toBe(1);
     expect(mttrSizes.every((s) => s.face === "Aptos")).toBe(true);
+  });
+
+  it("colors monthly and YTD KPI cells by existing status using RAG thresholds", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      pmCompliance: 97,
+      budgetSpend: 97,
+      pmCmWorkOrderRatio: 97,
+      pmCmCostRatio: 97,
+      mttrDays: 63.64,
+      facilityUptime: 100,
+    });
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+
+    const monthlyPmCompliance = getCellFillColor(slide1, 1, 1);
+    const monthlyFacilityUptime = getCellFillColor(slide1, 1, 6);
+    expect(monthlyPmCompliance).toBe("A9D18E");
+    expect(monthlyFacilityUptime).toBe("A9D18E");
+
+    // TARGET row should keep its template styling and not be overwritten.
+    const targetFill = getCellFillColor(slide1, 10, 1);
+    expect(targetFill).not.toBe("A9D18E");
+  });
+
+  it("maps MTTR status to the same RAG colors as other KPIs", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      mttrDays: 50,
+    });
+    // Override MTTR statuses across available months/YTD to test all cases.
+    for (const bu of data.buScorecards) {
+      for (const t of bu.monthlyTrend) {
+        t.values.mttrDays = { value: 50, status: "success", formatted: "50.00" };
+      }
+      bu.ytd.mttrDays = { value: 50, status: "success", formatted: "50.00" };
+    }
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    const mttrFills: string[] = [];
+    for (let r = 1; r <= 9; r++) {
+      const fill = getCellFillColor(slide1, r, 5);
+      if (fill) mttrFills.push(fill);
+    }
+    expect(mttrFills.length).toBeGreaterThanOrEqual(9);
+    expect(mttrFills.every((c) => c === "A9D18E")).toBe(true);
+  });
+
+  it("renders MTTR warning as yellow and provisional as gray", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      mttrDays: 50,
+    });
+    for (const bu of data.buScorecards) {
+      bu.monthlyTrend[0].values.mttrDays = { value: 50, status: "warning", formatted: "50.00" };
+      bu.monthlyTrend[1].values.mttrDays = { value: 50, status: "provisional", formatted: "50.00" };
+      bu.ytd.mttrDays = { value: 50, status: "warning", formatted: "50.00" };
+    }
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    expect(getCellFillColor(slide1, 1, 5)).toBe("FFD966");
+    expect(getCellFillColor(slide1, 2, 5)).toBe("DDE6F0");
+    expect(getCellFillColor(slide1, 9, 5)).toBe("FFD966");
+  });
+
+  it("fills missing or null monthly KPI values with neutral gray", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      pmCompliance: 97,
+      budgetSpend: 97,
+      pmCmWorkOrderRatio: 97,
+      pmCmCostRatio: 97,
+      mttrDays: 63.64,
+      facilityUptime: 100,
+    });
+    // Clear one August KPI value so the cloned July green cell must be overwritten.
+    for (const bu of data.buScorecards) {
+      const aug = bu.monthlyTrend.find((t) => t.month === 8);
+      if (aug) {
+        aug.values.pmCompliance = { value: null, status: "no-data", formatted: "No Data" };
+      }
+    }
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    // August is the 8th monthly row (header=0, rows 1-8 monthly).
+    const augPmComplianceFill = getCellFillColor(slide1, 8, 1);
+    expect(augPmComplianceFill).toBe("DDE6F0");
   });
 });
