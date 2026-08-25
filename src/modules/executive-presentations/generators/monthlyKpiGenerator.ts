@@ -12,6 +12,7 @@ import {
   findShapeByName,
   generatePptxBlob,
   getCells,
+  getElementsByTagNameNS,
   getTableRows,
   loadPptxTemplate,
   loadSlideXml,
@@ -21,15 +22,22 @@ import {
   setCellText,
   setShapeText,
   type XmlDocument,
+  type XmlElement,
 } from "../framework";
 import type {
   BusinessUnitScorecard,
   MonthlyKpiPresentation,
+  MonthlyKpiTrendRow,
   MonthlyKpiValue,
   ScorecardKpiKey,
 } from "../../monthly-kpi/types";
 
 const TEMPLATE_FILENAME = "MonthlyKpiExecutive.pptx";
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 const TABLE_METRICS: ScorecardKpiKey[] = [
   "pmCompliance",
@@ -103,6 +111,10 @@ function isPresentNumber(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function cloneMonthlyRow(sourceRow: XmlElement): XmlElement {
+  return sourceRow.cloneNode(true) as XmlElement;
+}
+
 function formatMonthlyValue(
   key: ScorecardKpiKey,
   value: MonthlyKpiValue
@@ -144,29 +156,79 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   const rows = getTableRows(tableFrame);
   if (rows.length < 10) {
     throw new Error(
-      `[TEMPLATE] Expected 10 rows on slide 1 table, found ${rows.length}.`
+      `[TEMPLATE] Expected at least 10 rows on slide 1 table, found ${rows.length}.`
     );
   }
 
-  // Monthly rows Jan-Jul (rows 1-7). Headers and row labels are preserved
-  // from the approved template; only the data values are replaced.
-  for (let i = 0; i < 7; i++) {
-    const row = rows[i + 1];
-    const cells = getCells(row);
-    const trend = selectedBu.monthlyTrend[i];
-    if (!trend) {
-      continue;
+  const reportingMonth = data.reportingMonth;
+  if (reportingMonth < 1 || reportingMonth > 12) {
+    throw new Error(
+      `[MONTHLY-KPI] reportingMonth must be between 1 and 12, got ${reportingMonth}.`
+    );
+  }
+
+  const trendByMonth = new Map<number, MonthlyKpiTrendRow>();
+  for (const trend of selectedBu.monthlyTrend) {
+    trendByMonth.set(trend.month, trend);
+  }
+
+  const tbl = getElementsByTagNameNS(tableFrame, "a", "tbl")[0];
+  if (!tbl) {
+    throw new Error('[TEMPLATE] Slide 1 table has no <a:tbl> element.');
+  }
+
+  // The template provides rows 1-7 (Jan-Jul). If the requested reporting month
+  // is later in the year, clone the July row to create Aug-Dec rows before YTD.
+  const requiredRowCount = reportingMonth + 3; // header + reportingMonth monthly rows + YTD + TARGET
+  if (rows.length < requiredRowCount) {
+    const julyRow = rows[7];
+    const ytdRow = rows[rows.length - 2];
+    const missing = requiredRowCount - rows.length;
+    for (let i = 0; i < missing; i++) {
+      const clone = cloneMonthlyRow(julyRow);
+      tbl.insertBefore(clone, ytdRow);
+      rows.splice(rows.length - 2, 0, clone);
     }
+  }
+
+  // Fill monthly rows Jan..reportingMonth. Missing months use the existing
+  // KPI convention: empty cells (the template already shows the month label).
+  for (let month = 1; month <= reportingMonth; month++) {
+    const row = rows[month];
+    const cells = getCells(row);
+    const monthLabel = MONTH_NAMES[month - 1]?.slice(0, 3) ?? `M${month}`;
+    setCellText(cells[0], monthLabel);
+    const trend = trendByMonth.get(month);
     for (let m = 0; m < TABLE_METRICS.length; m++) {
+      const metric = TABLE_METRICS[m];
+      const value = trend?.values[metric];
       setCellText(
         cells[m + 1],
-        formatMonthlyValue(TABLE_METRICS[m], trend.values[TABLE_METRICS[m]])
+        value ? formatMonthlyValue(metric, value) : ""
       );
     }
   }
 
+  // Remove template rows that fall outside the requested reporting period.
+  // The approved template provides Jan-Jul; for earlier reporting months such as
+  // April, May-Jul must not appear in the deck. Removing them (instead of just
+  // clearing) keeps the generated scorecard strictly limited to the requested
+  // period.
+  const firstTemplateExtraMonth = reportingMonth + 1;
+  const lastTemplateExtraMonth = Math.min(7, rows.length - 3);
+  for (let month = lastTemplateExtraMonth; month >= firstTemplateExtraMonth; month--) {
+    const row = rows[month];
+    if (row && row.parentNode) {
+      tbl.removeChild(row);
+    }
+    rows.splice(month, 1);
+  }
+
+  // After potential removals, re-derive YTD position.
+  const finalYtdRowIndex = rows.length - 2;
+
   // YTD row
-  const ytdRow = rows[8];
+  const ytdRow = rows[finalYtdRowIndex];
   const ytdCells = getCells(ytdRow);
   for (let m = 0; m < TABLE_METRICS.length; m++) {
     setCellText(
