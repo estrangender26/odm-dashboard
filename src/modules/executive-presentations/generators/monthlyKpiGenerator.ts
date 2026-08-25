@@ -32,6 +32,11 @@ import type {
   MonthlyKpiValue,
   ScorecardKpiKey,
 } from "../../monthly-kpi/types";
+import {
+  evaluateKpiStatus,
+  getDefaultMonthlyKpiThresholdConfig,
+  type MonthlyKpiThresholdConfig,
+} from "../../monthly-kpi/kpiThresholds";
 
 const TEMPLATE_FILENAME = "MonthlyKpiExecutive.pptx";
 
@@ -93,6 +98,15 @@ function requireBuScorecard(
   return bu;
 }
 
+// Color palette for the Slide 3 issues matrix and action cards. These hex
+// values match the legend swatches in the approved Monthly KPI template.
+const ISSUE_COLORS = {
+  critical: "FAD7D7", // red / critical performance gap
+  warning: "FFF0C7",  // yellow / KPI or operational gap
+  data: "DDE6F0",     // blue-gray / data or scope gap
+  neutral: "E2F0D9",  // light green / no material issue (meets target)
+} as const;
+
 type IssueClassification =
   | { category: "critical"; text: string; fill: string }
   | { category: "warning"; text: string; fill: string }
@@ -108,31 +122,38 @@ function cloneMonthlyRow(sourceRow: XmlElement): XmlElement {
 }
 
 /**
- * Return the table-cell fill color for a KPI value based on its existing
- * status. This is a rendering decision only: the presentation generator uses
- * the status already computed by the KPI threshold logic.
+ * Return the table-cell fill color for Slides 1 and 2 using the configurable
+ * Monthly KPI thresholds as the single source of truth. This keeps the
+ * presentation generator aligned with the RAG Threshold Configuration screen.
  *
- * MTTR special presentation rule: any valid MTTR value is shown as green
- * (performance is reported), while missing/no-data MTTR is gray.
+ * Threshold mapping (from the approved configuration):
+ * - PM Compliance: Green ≥98; Amber 90 to <98; Red <90
+ * - Budget Spend: Green 95–105; Amber 90–<95 or >105–110; Red <90 or >110
+ * - PM:CM Ratio (WO): Green ≥86; Amber 75 to <86; Red <75
+ * - PM:CM Ratio (Cost): Green ≥80; Amber 50 to <80; Red <50
+ * - Facility Uptime: Green =100; Amber 99 to <100; Red <99
+ * - MTTR: Green when a valid value exists; no data = gray (Amber/Red TBD)
  *
- * Missing, null, no-data, or provisional values always receive the neutral
- * no-data gray so that cloned template-row colors never leak into empty cells.
+ * Missing/null values always receive neutral gray so cloned template-row
+ * colors never leak into empty cells.
  */
-function getKpiValueFillColor(
+const DEFAULT_THRESHOLD_CONFIG = getDefaultMonthlyKpiThresholdConfig();
+
+function getSlide12KpiFillColor(
   key: ScorecardKpiKey,
-  value: MonthlyKpiValue | undefined
+  value: MonthlyKpiValue | undefined,
+  config: MonthlyKpiThresholdConfig = DEFAULT_THRESHOLD_CONFIG
 ): string {
   if (!value || !isPresentNumber(value.value)) return "DDE6F0";
-  if (key === "mttrDays") return "A9D18E";
-  switch (value.status) {
-    case "success":
+  const evalStatus = evaluateKpiStatus(key, value.value, config).status;
+  switch (evalStatus) {
+    case "green":
       return "A9D18E";
-    case "warning":
+    case "amber":
       return "FFD966";
-    case "danger":
+    case "red":
       return "FF6B6B";
-    case "no-data":
-    case "provisional":
+    case "missing":
     default:
       return "DDE6F0";
   }
@@ -276,7 +297,7 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
       const value = trend?.values[metric];
       const cell = cells[m + 1];
       setCellText(cell, value ? formatMonthlyValue(metric, value) : "");
-      setCellFill(cell, getKpiValueFillColor(metric, value));
+      setCellFill(cell, getSlide12KpiFillColor(metric, value));
     }
   }
 
@@ -306,7 +327,7 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     const value = selectedBu.ytd[metric];
     const cell = ytdCells[m + 1];
     setCellText(cell, formatMonthlyValue(metric, value));
-    setCellFill(cell, getKpiValueFillColor(metric, value));
+    setCellFill(cell, getSlide12KpiFillColor(metric, value));
   }
 
   // Normalize all body cells to a uniform font family/size/alignment so KPI
@@ -527,7 +548,7 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
         bu?.ytd[key] ?? { value: null, status: "no-data", formatted: "No Data" };
       const cell = cells[m + 1];
       setCellText(cell, value.formatted);
-      setCellFill(cell, getKpiValueFillColor(key, value));
+      setCellFill(cell, getSlide12KpiFillColor(key, value));
     }
   }
 
@@ -539,7 +560,7 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     const value = data.portfolioYtd[key];
     const cell = portfolioCells[m + 1];
     setCellText(cell, value.formatted);
-    setCellFill(cell, getKpiValueFillColor(key, value));
+    setCellFill(cell, getSlide12KpiFillColor(key, value));
   }
 
   const readoutShape = findShapeByName(doc, "Executive Readout");
@@ -554,29 +575,32 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
 }
 
 /**
- * Build the text label for a Slide 3 issues-matrix cell while leaving the
- * fill color to the shared status-driven RAG helper. This keeps the
- * presentation generator from duplicating threshold logic.
+ * Classify a BU/KPI cell for the Slide 3 issues matrix.
+ *
+ * Rules:
+ * - Critical (red): actual performance shortfall — danger status with data.
+ * - Warning (yellow): near-target or warning status.
+ * - Data gap (blue-gray): no data, provisional MTTR, or questionable metric.
+ * - Neutral (light): success / acceptable.
  */
 function classifyIssueCell(
   bu: BusinessUnitScorecard | undefined,
   key: ScorecardKpiKey
 ): IssueClassification {
   if (!bu) {
-    return { category: "neutral", text: "", fill: "DDE6F0" };
+    return { category: "neutral", text: "", fill: ISSUE_COLORS.neutral };
   }
   const value = bu.ytd[key];
-  const fill = getKpiValueFillColor(key, value);
 
   if (!isPresentNumber(value.value)) {
-    return { category: "data", text: "No data", fill };
+    return { category: "data", text: "No data", fill: ISSUE_COLORS.data };
   }
 
   if (key === "mttrDays") {
     return {
       category: "data",
       text: `${value.formatted} — Provisional`,
-      fill,
+      fill: ISSUE_COLORS.data,
     };
   }
 
@@ -588,7 +612,7 @@ function classifyIssueCell(
       return {
         category: "data",
         text: `${value.formatted} — Validation pending`,
-        fill,
+        fill: ISSUE_COLORS.data,
       };
     }
   }
@@ -597,7 +621,7 @@ function classifyIssueCell(
     return {
       category: "critical",
       text: `${value.formatted} — Recovery required`,
-      fill,
+      fill: ISSUE_COLORS.critical,
     };
   }
 
@@ -605,7 +629,7 @@ function classifyIssueCell(
     return {
       category: "warning",
       text: `${value.formatted} — Monitor`,
-      fill,
+      fill: ISSUE_COLORS.warning,
     };
   }
 
@@ -615,7 +639,7 @@ function classifyIssueCell(
   return {
     category: "neutral",
     text: `${value.formatted} — Meets target`,
-    fill,
+    fill: ISSUE_COLORS.neutral,
   };
 }
 

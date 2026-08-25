@@ -154,7 +154,7 @@ function createTestData(): MonthlyKpiPresentation {
       }),
     ],
     portfolioYtd: {
-      pmCompliance: { value: 80, status: "warning", formatted: "80.00%" },
+      pmCompliance: { value: 95, status: "warning", formatted: "95.00%" },
       budgetSpend: { value: 54, status: "warning", formatted: "54.00%" },
       pmCmWorkOrderRatio: { value: 83, status: "warning", formatted: "83.0% (4.9:1)" },
       pmCmCostRatio: { value: 71, status: "warning", formatted: "71.0% (2.4:1)" },
@@ -572,28 +572,92 @@ describe("generateMonthlyKpiPresentation slide 1 layout and formatting", () => {
     expect(mttrSizes.every((s) => s.face === "Aptos")).toBe(true);
   });
 
-  it("colors monthly and YTD KPI cells by existing status using RAG thresholds", async () => {
+  it("colors monthly and YTD KPI cells using the configurable RAG thresholds", async () => {
     const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
-      pmCompliance: 97,
-      budgetSpend: 97,
-      pmCmWorkOrderRatio: 97,
-      pmCmCostRatio: 97,
+      pmCompliance: 98,
+      budgetSpend: 95,
+      pmCmWorkOrderRatio: 86,
+      pmCmCostRatio: 80,
       mttrDays: 63.64,
       facilityUptime: 100,
+    });
+    // Also set YTD on the selected BU to green thresholds.
+    const selected = data.buScorecards.find((b) => b.businessUnit === data.selectedBusinessUnit);
+    if (selected) {
+      selected.ytd.pmCompliance = { value: 98, status: "success", formatted: "98.00%" };
+      selected.ytd.budgetSpend = { value: 95, status: "success", formatted: "95.00%" };
+      selected.ytd.pmCmWorkOrderRatio = { value: 86, status: "success", formatted: "86.0%" };
+      selected.ytd.pmCmCostRatio = { value: 80, status: "success", formatted: "80.0%" };
+      selected.ytd.mttrDays = { value: 29, status: "success", formatted: "29.00 days" };
+      selected.ytd.facilityUptime = { value: 100, status: "success", formatted: "100.00%" };
+    }
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+
+    // All values sit exactly on the green boundary for their KPI.
+    for (let r = 1; r <= 8; r++) {
+      expect(getCellFillColor(slide1, r, 1)).toBe("A9D18E"); // PM Compliance ≥98
+      expect(getCellFillColor(slide1, r, 2)).toBe("A9D18E"); // Budget Spend 95-105
+      expect(getCellFillColor(slide1, r, 3)).toBe("A9D18E"); // PM:CM WO ≥86
+      expect(getCellFillColor(slide1, r, 4)).toBe("A9D18E"); // PM:CM Cost ≥80
+      expect(getCellFillColor(slide1, r, 5)).toBe("A9D18E"); // MTTR data exists
+      expect(getCellFillColor(slide1, r, 6)).toBe("A9D18E"); // Facility Uptime =100
+    }
+
+    // YTD row uses the same thresholds.
+    expect(getCellFillColor(slide1, 9, 1)).toBe("A9D18E");
+
+    // TARGET row should keep its template styling and not be overwritten.
+    const targetFill = getCellFillColor(slide1, 10, 1);
+    expect(targetFill).not.toBe("A9D18E");
+    expect(targetFill).not.toBe("FFD966");
+    expect(targetFill).not.toBe("FF6B6B");
+  });
+
+  it("maps amber and red thresholds correctly on Slide 1", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      pmCompliance: 95,
+      budgetSpend: 92,
+      pmCmWorkOrderRatio: 80,
+      pmCmCostRatio: 60,
+      mttrDays: 63.64,
+      facilityUptime: 99.5,
     });
     const blob = await generateMonthlyKpiPresentation(data);
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
 
-    const monthlyPmCompliance = getCellFillColor(slide1, 1, 1);
-    const monthlyFacilityUptime = getCellFillColor(slide1, 1, 6);
-    expect(monthlyPmCompliance).toBe("A9D18E");
-    expect(monthlyFacilityUptime).toBe("A9D18E");
+    expect(getCellFillColor(slide1, 1, 1)).toBe("FFD966"); // PM Compliance 90-98
+    expect(getCellFillColor(slide1, 1, 2)).toBe("FFD966"); // Budget Spend 90-95
+    expect(getCellFillColor(slide1, 1, 3)).toBe("FFD966"); // PM:CM WO 75-86
+    expect(getCellFillColor(slide1, 1, 4)).toBe("FFD966"); // PM:CM Cost 50-80
+    expect(getCellFillColor(slide1, 1, 5)).toBe("A9D18E"); // MTTR data exists
+    expect(getCellFillColor(slide1, 1, 6)).toBe("FFD966"); // Facility Uptime 99-100
+  });
 
-    // TARGET row should keep its template styling and not be overwritten.
-    const targetFill = getCellFillColor(slide1, 10, 1);
-    expect(targetFill).not.toBe("A9D18E");
+  it("maps red thresholds correctly on Slide 1", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      pmCompliance: 85,
+      budgetSpend: 85,
+      pmCmWorkOrderRatio: 70,
+      pmCmCostRatio: 40,
+      mttrDays: 63.64,
+      facilityUptime: 98,
+    });
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+
+    expect(getCellFillColor(slide1, 1, 1)).toBe("FF6B6B"); // PM Compliance <90
+    expect(getCellFillColor(slide1, 1, 2)).toBe("FF6B6B"); // Budget Spend <90
+    expect(getCellFillColor(slide1, 1, 3)).toBe("FF6B6B"); // PM:CM WO <75
+    expect(getCellFillColor(slide1, 1, 4)).toBe("FF6B6B"); // PM:CM Cost <50
+    expect(getCellFillColor(slide1, 1, 5)).toBe("A9D18E"); // MTTR data exists
+    expect(getCellFillColor(slide1, 1, 6)).toBe("FF6B6B"); // Facility Uptime <99
   });
 
   it("renders MTTR with valid data as green regardless of underlying status", async () => {
@@ -658,7 +722,7 @@ describe("generateMonthlyKpiPresentation slide 1 layout and formatting", () => {
   });
 });
 
-describe("generateMonthlyKpiPresentation cross-slide RAG consistency", () => {
+describe("generateMonthlyKpiPresentation Slides 1 and 2 threshold fills", () => {
   function makeBuWithStatuses(
     buName: string,
     statuses: Partial<Record<ScorecardKpiKey, { value: number | null; status: string; formatted: string }>>
@@ -676,32 +740,32 @@ describe("generateMonthlyKpiPresentation cross-slide RAG consistency", () => {
     };
   }
 
-  it("applies status-driven fills to all BU and YTD cells on Slide 2", async () => {
+  it("applies the configurable thresholds to all BU and YTD cells on Slide 2", async () => {
     const data = createTestData();
     data.buScorecards = [
       makeBuWithStatuses("AMD-EZ", {
-        pmCompliance: { value: 97, status: "success", formatted: "97.00%" },
-        budgetSpend: { value: 50, status: "warning", formatted: "50.00%" },
-        pmCmWorkOrderRatio: { value: 30, status: "danger", formatted: "30.0% (0.4:1)" },
-        pmCmCostRatio: { value: 40, status: "no-data", formatted: "No Data" },
+        pmCompliance: { value: 98, status: "success", formatted: "98.00%" },
+        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
+        pmCmWorkOrderRatio: { value: 86, status: "success", formatted: "86.0% (6.1:1)" },
+        pmCmCostRatio: { value: 80, status: "success", formatted: "80.0% (4:1)" },
         mttrDays: { value: 5, status: "success", formatted: "5.00 days" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
+        facilityUptime: { value: 100, status: "success", formatted: "100.00%" },
       }),
       makeBuWithStatuses("LARC", {
-        pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
-        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
-        pmCmWorkOrderRatio: { value: 95, status: "success", formatted: "95.0%" },
-        pmCmCostRatio: { value: 95, status: "success", formatted: "95.0%" },
+        pmCompliance: { value: 95, status: "warning", formatted: "95.00%" },
+        budgetSpend: { value: 92, status: "warning", formatted: "92.00%" },
+        pmCmWorkOrderRatio: { value: 80, status: "warning", formatted: "80.0% (4:1)" },
+        pmCmCostRatio: { value: 60, status: "warning", formatted: "60.0% (1.5:1)" },
         mttrDays: { value: 2, status: "warning", formatted: "2.00 days" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
+        facilityUptime: { value: 99.5, status: "warning", formatted: "99.50%" },
       }),
       makeBuWithStatuses("CWC", {
-        pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
-        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
-        pmCmWorkOrderRatio: { value: 99.7, status: "success", formatted: "99.7% (307:1)" },
-        pmCmCostRatio: { value: 95, status: "success", formatted: "95.0%" },
+        pmCompliance: { value: 85, status: "danger", formatted: "85.00%" },
+        budgetSpend: { value: 85, status: "danger", formatted: "85.00%" },
+        pmCmWorkOrderRatio: { value: 70, status: "danger", formatted: "70.0% (2.3:1)" },
+        pmCmCostRatio: { value: 40, status: "danger", formatted: "40.0% (0.7:1)" },
         mttrDays: { value: null, status: "no-data", formatted: "No Data" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
+        facilityUptime: { value: 98, status: "danger", formatted: "98.00%" },
       }),
       makeBuWithStatuses("LAWC", {
         pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
@@ -737,7 +801,7 @@ describe("generateMonthlyKpiPresentation cross-slide RAG consistency", () => {
       }),
     ];
     data.portfolioYtd = {
-      pmCompliance: { value: 80, status: "warning", formatted: "80.00%" },
+      pmCompliance: { value: 95, status: "warning", formatted: "95.00%" },
       budgetSpend: { value: 54, status: "warning", formatted: "54.00%" },
       pmCmWorkOrderRatio: { value: 83, status: "warning", formatted: "83.0% (4.9:1)" },
       pmCmCostRatio: { value: 71, status: "warning", formatted: "71.0% (2.4:1)" },
@@ -750,21 +814,31 @@ describe("generateMonthlyKpiPresentation cross-slide RAG consistency", () => {
     const zip = await JSZip.loadAsync(arrayBuffer);
     const slide2 = await zip.file("ppt/slides/slide2.xml")?.async("string") ?? "";
 
-    // AMD-EZ row: success, warning, danger, no-data, valid MTTR (green), success
-    expect(getCellFillColor(slide2, 1, 1)).toBe("A9D18E");
-    expect(getCellFillColor(slide2, 1, 2)).toBe("FFD966");
-    expect(getCellFillColor(slide2, 1, 3)).toBe("FF6B6B");
-    expect(getCellFillColor(slide2, 1, 4)).toBe("DDE6F0");
-    expect(getCellFillColor(slide2, 1, 5)).toBe("A9D18E");
-    expect(getCellFillColor(slide2, 1, 6)).toBe("A9D18E");
+    // Green thresholds
+    expect(getCellFillColor(slide2, 1, 1)).toBe("A9D18E"); // PM Compliance 98
+    expect(getCellFillColor(slide2, 1, 2)).toBe("A9D18E"); // Budget Spend 95
+    expect(getCellFillColor(slide2, 1, 3)).toBe("A9D18E"); // PM:CM WO 86
+    expect(getCellFillColor(slide2, 1, 4)).toBe("A9D18E"); // PM:CM Cost 80
+    expect(getCellFillColor(slide2, 1, 5)).toBe("A9D18E"); // MTTR valid data
+    expect(getCellFillColor(slide2, 1, 6)).toBe("A9D18E"); // Facility Uptime 100
 
-    // LARC valid MTTR with warning status still renders green
-    expect(getCellFillColor(slide2, 2, 5)).toBe("A9D18E");
+    // Amber thresholds
+    expect(getCellFillColor(slide2, 2, 1)).toBe("FFD966"); // PM Compliance 95
+    expect(getCellFillColor(slide2, 2, 2)).toBe("FFD966"); // Budget Spend 92
+    expect(getCellFillColor(slide2, 2, 3)).toBe("FFD966"); // PM:CM WO 80
+    expect(getCellFillColor(slide2, 2, 4)).toBe("FFD966"); // PM:CM Cost 60
+    expect(getCellFillColor(slide2, 2, 5)).toBe("A9D18E"); // MTTR valid data (green regardless of status)
+    expect(getCellFillColor(slide2, 2, 6)).toBe("FFD966"); // Facility Uptime 99.5
 
-    // CWC missing MTTR renders gray
-    expect(getCellFillColor(slide2, 3, 5)).toBe("DDE6F0");
+    // Red thresholds + missing MTTR gray
+    expect(getCellFillColor(slide2, 3, 1)).toBe("FF6B6B"); // PM Compliance 85
+    expect(getCellFillColor(slide2, 3, 2)).toBe("FF6B6B"); // Budget Spend 85
+    expect(getCellFillColor(slide2, 3, 3)).toBe("FF6B6B"); // PM:CM WO 70
+    expect(getCellFillColor(slide2, 3, 4)).toBe("FF6B6B"); // PM:CM Cost 40
+    expect(getCellFillColor(slide2, 3, 5)).toBe("DDE6F0"); // MTTR no data
+    expect(getCellFillColor(slide2, 3, 6)).toBe("FF6B6B"); // Facility Uptime 98
 
-    // Portfolio YTD row uses status mapping; MTTR valid data is green
+    // Portfolio YTD row uses thresholds; MTTR valid data is green
     expect(getCellFillColor(slide2, 8, 1)).toBe("FFD966");
     expect(getCellFillColor(slide2, 8, 5)).toBe("A9D18E");
 
@@ -774,108 +848,72 @@ describe("generateMonthlyKpiPresentation cross-slide RAG consistency", () => {
     expect(targetFill).not.toBe("FFD966");
     expect(targetFill).not.toBe("FF6B6B");
   });
+});
 
-  it("applies status-driven fills to all KPI cells on Slide 3 issues matrix", async () => {
+describe("generateMonthlyKpiPresentation Slide 3 preserves original issue colors", () => {
+  it("does not apply Slide 1/2 RAG fills to the Slide 3 issues matrix", async () => {
     const data = createTestData();
-    data.buScorecards = [
-      makeBuWithStatuses("AMD-EZ", {
-        pmCompliance: { value: 97, status: "success", formatted: "97.00%" },
-        budgetSpend: { value: 50, status: "warning", formatted: "50.00%" },
-        pmCmWorkOrderRatio: { value: 30, status: "danger", formatted: "30.0% (0.4:1)" },
-        pmCmCostRatio: { value: 40, status: "no-data", formatted: "No Data" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
-        mttrDays: { value: 5, status: "warning", formatted: "5.00 days" },
-      }),
-      makeBuWithStatuses("LARC", {
-        pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
-        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
-        pmCmWorkOrderRatio: { value: 95, status: "success", formatted: "95.0%" },
-        pmCmCostRatio: { value: 95, status: "success", formatted: "95.0%" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
-        mttrDays: { value: null, status: "no-data", formatted: "No Data" },
-      }),
-      makeBuWithStatuses("CWC", {
-        pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
-        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
-        pmCmWorkOrderRatio: { value: 99.7, status: "success", formatted: "99.7% (307:1)" },
-        pmCmCostRatio: { value: 95, status: "success", formatted: "95.0%" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
-        mttrDays: { value: 2, status: "success", formatted: "2.00 days" },
-      }),
-      makeBuWithStatuses("LAWC", {
-        pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
-        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
-        pmCmWorkOrderRatio: { value: 95, status: "success", formatted: "95.0%" },
-        pmCmCostRatio: { value: 95, status: "success", formatted: "95.0%" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
-        mttrDays: { value: 1, status: "provisional", formatted: "1.00 days" },
-      }),
-      makeBuWithStatuses("TWCI", {
-        pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
-        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
-        pmCmWorkOrderRatio: { value: 95, status: "success", formatted: "95.0%" },
-        pmCmCostRatio: { value: 95, status: "success", formatted: "95.0%" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
-        mttrDays: { value: 2, status: "success", formatted: "2.00 days" },
-      }),
-      makeBuWithStatuses("EWG", {
-        pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
-        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
-        pmCmWorkOrderRatio: { value: 95, status: "success", formatted: "95.0%" },
-        pmCmCostRatio: { value: 95, status: "success", formatted: "95.0%" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
-        mttrDays: { value: 3, status: "success", formatted: "3.00 days" },
-      }),
-      makeBuWithStatuses("WAWA/JVC", {
-        pmCompliance: { value: 95, status: "success", formatted: "95.00%" },
-        budgetSpend: { value: 95, status: "success", formatted: "95.00%" },
-        pmCmWorkOrderRatio: { value: 95, status: "success", formatted: "95.0%" },
-        pmCmCostRatio: { value: 95, status: "success", formatted: "95.0%" },
-        facilityUptime: { value: 99.9, status: "success", formatted: "99.90%" },
-        mttrDays: { value: 4, status: "success", formatted: "4.00 days" },
-      }),
-    ];
+    // Set values that would be red under Slide 1/2 thresholds but are treated
+    // as neutral successes by Slide 3's original issue classification.
+    for (const bu of data.buScorecards) {
+      for (const key of SCORECARD_KPI_KEYS) {
+        const v = bu.ytd[key];
+        if (typeof v.value === "number") {
+          v.status = "success";
+        }
+      }
+    }
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide3 = await zip.file("ppt/slides/slide3.xml")?.async("string") ?? "";
+
+    // All issue cells should use the original ISSUE_COLORS palette, not the
+    // Slide 1/2 RAG colors. Successes map to ISSUE_COLORS.neutral (E2F0D9).
+    const fills: string[] = [];
+    const rows = (slide3.match(/<a:tr[\s\S]*?<\/a:tr>/g) || []);
+    for (let r = 1; r <= 6 && r < rows.length; r++) {
+      const cells = (rows[r].match(/<a:tc[\s\S]*?<\/a:tc>/g) || []);
+      for (let c = 1; c < cells.length; c++) {
+        const fill = getCellFillColor(slide3, r, c);
+        if (fill) fills.push(fill);
+      }
+    }
+
+    expect(fills.length).toBeGreaterThan(0);
+    // None of the Slide 3 cells should inherit the Slide 1/2 RAG palette.
+    expect(fills.some((f) => f === "A9D18E" || f === "FFD966" || f === "FF6B6B")).toBe(false);
+    // Original issue-matrix palette must be present.
+    expect(fills.some((f) => f === "E2F0D9")).toBe(true);
+  });
+
+  it("keeps the original Slide 3 classification for danger/warning/no-data cells", async () => {
+    const data = createTestData();
+    // Make EWG the only danger row by overriding its statuses.
+    const ewg = data.buScorecards.find((b) => b.businessUnit === "EWG");
+    if (ewg) {
+      ewg.ytd.pmCompliance = { value: 50, status: "danger", formatted: "50.00%" };
+      ewg.ytd.budgetSpend = { value: 50, status: "danger", formatted: "50.00%" };
+      ewg.ytd.pmCmWorkOrderRatio = { value: 50, status: "danger", formatted: "50.0%" };
+      ewg.ytd.pmCmCostRatio = { value: 30, status: "danger", formatted: "30.0%" };
+      ewg.ytd.facilityUptime = { value: 98, status: "danger", formatted: "98.00%" };
+      ewg.ytd.mttrDays = { value: null, status: "no-data", formatted: "No Data" };
+    }
+    const twci = data.buScorecards.find((b) => b.businessUnit === "TWCI");
+    if (twci) {
+      twci.ytd.pmCompliance = { value: 95, status: "warning", formatted: "95.00%" };
+    }
 
     const blob = await generateMonthlyKpiPresentation(data);
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const slide3 = await zip.file("ppt/slides/slide3.xml")?.async("string") ?? "";
 
-    // AMD-EZ KPI row order on slide 3: PM Compliance, Budget Spend, PM:CM WO, PM:CM Cost, Facility Uptime, MTTR
-    // Columns 1-7 are AMD-EZ, LARC, CWC, LAWC, TWCI, EWG, WAWA/JVC
-    expect(getCellFillColor(slide3, 1, 1)).toBe("A9D18E"); // PM Compliance success
-    expect(getCellFillColor(slide3, 2, 1)).toBe("FFD966"); // Budget Spend warning
-    expect(getCellFillColor(slide3, 3, 1)).toBe("FF6B6B"); // PM:CM WO danger
-    expect(getCellFillColor(slide3, 4, 1)).toBe("DDE6F0"); // PM:CM Cost no-data
-    expect(getCellFillColor(slide3, 5, 1)).toBe("A9D18E"); // Facility Uptime success
-    expect(getCellFillColor(slide3, 6, 1)).toBe("A9D18E"); // MTTR valid data green
-
-    // LARC missing MTTR renders gray
-    expect(getCellFillColor(slide3, 6, 2)).toBe("DDE6F0");
-
-    // LAWC provisional MTTR with valid value renders green
-    expect(getCellFillColor(slide3, 6, 4)).toBe("A9D18E");
-  });
-
-  it("does not let cloned template colors leak into missing monthly values on Slide 1", async () => {
-    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
-      pmCompliance: 97,
-      budgetSpend: 97,
-      pmCmWorkOrderRatio: 97,
-      pmCmCostRatio: 97,
-      mttrDays: 63.64,
-      facilityUptime: 100,
-    });
-    for (const bu of data.buScorecards) {
-      const aug = bu.monthlyTrend.find((t) => t.month === 8);
-      if (aug) {
-        aug.values.pmCompliance = { value: null, status: "no-data", formatted: "No Data" };
-      }
-    }
-    const blob = await generateMonthlyKpiPresentation(data);
-    const arrayBuffer = await blob.arrayBuffer();
-    const zip = await JSZip.loadAsync(arrayBuffer);
-    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
-    expect(getCellFillColor(slide1, 8, 1)).toBe("DDE6F0");
+    // EWG column (column 5) danger cells use original ISSUE_COLORS.critical (FAD7D7)
+    expect(getCellFillColor(slide3, 1, 6)).toBe("FAD7D7");
+    // TWCI warning cell uses original ISSUE_COLORS.warning (FFF0C7)
+    expect(getCellFillColor(slide3, 1, 5)).toBe("FFF0C7");
+    // MTTR no-data uses original ISSUE_COLORS.data (DDE6F0)
+    expect(getCellFillColor(slide3, 6, 6)).toBe("DDE6F0");
   });
 });
