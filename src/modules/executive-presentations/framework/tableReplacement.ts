@@ -15,10 +15,11 @@ import type { XmlElement } from "./types";
 const DEFAULT_BODY_TEXT_COLOR = "172B47";
 
 /**
- * Ensure a run has explicit body-cell formatting. If the run already has an
- * a:rPr we leave it untouched (template formatting is authoritative). If it is
- * missing, add a default 10 pt Aptos run property so empty cells that receive
- * data do not inherit a large endParaRPr/default theme size.
+ * Ensure a run has explicit body-cell formatting. Empty table-body cells in
+ * the approved template only carry an endParaRPr, so when we inject data we
+ * must give the new run the same 14 pt Aptos / centered body formatting used by
+ * neighbouring data cells. This keeps MTTR and other previously-empty cells
+ * visually consistent with the rest of the row.
  */
 function ensureRunProperties(run: XmlElement): void {
   const ownerDoc = run.ownerDocument;
@@ -32,7 +33,7 @@ function ensureRunProperties(run: XmlElement): void {
   }
 
   const rPr = createElementNS(ownerDoc, "a", "rPr");
-  rPr.setAttribute("sz", "1000");
+  rPr.setAttribute("sz", "1400");
   rPr.setAttribute("b", "0");
   rPr.setAttribute("i", "0");
   rPr.setAttribute("u", "none");

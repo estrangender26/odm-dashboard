@@ -61,13 +61,14 @@ function makeMonthlyTrend(
 
 function createTestDataForMonth(
   reportingMonth: number,
-  availableMonths: number[]
+  availableMonths: number[],
+  valueBase: Partial<Record<ScorecardKpiKey, number | null>> = {}
 ): MonthlyKpiPresentation {
   const data = createTestData();
   data.reportingMonth = reportingMonth;
   data.reportingMonthLabel = `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][reportingMonth - 1]} ${data.reportingYear}`;
   for (const bu of data.buScorecards) {
-    bu.monthlyTrend = makeMonthlyTrend(bu.businessUnit, availableMonths);
+    bu.monthlyTrend = makeMonthlyTrend(bu.businessUnit, availableMonths, valueBase);
   }
   return data;
 }
@@ -175,6 +176,36 @@ function getShapeCounts(xml: string) {
     sp: (xml.match(/<p:sp>/g) || []).length,
     gf: (xml.match(/<p:graphicFrame>/g) || []).length,
   };
+}
+
+function getShapeBox(xml: string, name: string) {
+  const spRe = new RegExp(`<p:cNvPr[^>]*name="${name}"[\\s\\S]*?</p:sp>`);
+  const frameRe = new RegExp(`<p:cNvPr[^>]*name="${name}"[\\s\\S]*?</p:graphicFrame>`);
+  let raw = xml.match(spRe)?.[0] ?? xml.match(frameRe)?.[0];
+  if (!raw) return null;
+  const x = Number((raw.match(/x="(-?\d+)"/) || [])[1] || 0);
+  const y = Number((raw.match(/y="(-?\d+)"/) || [])[1] || 0);
+  const cx = Number((raw.match(/cx="(\d+)"/) || [])[1] || 0);
+  const cy = Number((raw.match(/cy="(\d+)"/) || [])[1] || 0);
+  return { x, y, cx, cy, bottom: y + cy, right: x + cx };
+}
+
+function getMttrCellSizes(xml: string): { sz: number; face: string }[] {
+  const rows = (xml.match(/<a:tr[\s\S]*?<\/a:tr>/g) || []);
+  const result: { sz: number; face: string }[] = [];
+  for (const row of rows) {
+    const cells = (row.match(/<a:tc[\s\S]*?<\/a:tc>/g) || []);
+    if (cells.length <= 5) continue;
+    const cell = cells[5];
+    const firstRun = cell.match(/<a:r\b[\s\S]*?<\/a:r>/);
+    if (!firstRun) continue;
+    const rPr = firstRun[0].match(/<a:rPr[\s\S]*?<\/a:rPr>/);
+    if (!rPr) continue;
+    const sz = Number((rPr[0].match(/sz="(\d+)"/) || [])[1] || 0);
+    const face = (rPr[0].match(/typeface="([^"]+)"/) || [])[1] ?? "";
+    result.push({ sz, face });
+  }
+  return result;
 }
 
 function getTableMatrix(xml: string): string[][] {
@@ -366,5 +397,51 @@ describe("generateMonthlyKpiPresentation requested reporting month handling", ()
     expect(rows[1]).toContain("Jan");
     expect(rows[2]).toContain("YTD");
     expect(rows.some((r) => r.includes("Feb"))).toBe(false);
+  });
+});
+
+describe("generateMonthlyKpiPresentation slide 1 layout and formatting", () => {
+  it("keeps MTTR monthly and YTD cells consistent with other KPI body cells", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], { mttrDays: 85.86 });
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    const mttrSizes = getMttrCellSizes(slide1);
+    expect(mttrSizes.length).toBeGreaterThanOrEqual(10); // 8 monthly + YTD + TARGET
+    const uniqueSizes = new Set(mttrSizes.map((s) => s.sz));
+    expect(uniqueSizes.size).toBe(1);
+    expect([...uniqueSizes][0]).toBeGreaterThanOrEqual(1000);
+    expect(mttrSizes.every((s) => s.face === "Aptos")).toBe(true);
+  });
+
+  it.each([
+    { month: 1, label: "January" },
+    { month: 8, label: "August" },
+    { month: 12, label: "December" },
+  ])("$label: table, commentary, MTTR note and legend fit cleanly on slide 1", async ({ month }) => {
+    const data = createTestDataForMonth(month, Array.from({ length: month }, (_, i) => i + 1));
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    const table = getShapeBox(slide1, "AMD-EZ Monthly KPI Scorecard");
+    const readout = getShapeBox(slide1, "Executive Readout");
+    const note = getShapeBox(slide1, "TextBox 1");
+    const legend = getShapeBox(slide1, "RAG Legend");
+    const SLIDE_HEIGHT = 6858000;
+
+    expect(readout).not.toBeNull();
+    expect(note).not.toBeNull();
+    expect(legend).not.toBeNull();
+    expect(table).not.toBeNull();
+
+    expect(readout!.y).toBeGreaterThanOrEqual(table!.bottom + 100000);
+    expect(note!.y).toBeGreaterThanOrEqual(readout!.bottom);
+    expect(legend!.y).toBeGreaterThanOrEqual(readout!.y);
+    expect(legend!.x).toBeGreaterThanOrEqual(readout!.right);
+    expect(readout!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
+    expect(note!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
+    expect(legend!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
   });
 });
