@@ -484,3 +484,146 @@ describe("Monthly KPI chart grid and expansion", () => {
     expect(bodyEl.style.overflow).toBe("");
   });
 });
+
+function createModalEventTestContext() {
+  const { context, capturedCharts } = createScorecardContext();
+  const listeners: Record<string, Array<(e?: any) => void>> = {};
+  const documentListeners: Record<string, Array<(e?: any) => void>> = {};
+  const classList = context._createClassList("chart-modal-overlay active");
+  const modalStyle: any = {};
+  const bodyStyle: any = {};
+  let destroyed = false;
+
+  const closeBtn = {
+    ...context._testElement,
+    addEventListener(event: string, handler: (e?: any) => void) {
+      (listeners[`closeBtn:${event}`] ||= []).push(handler);
+    },
+  };
+
+  const modalEl = {
+    ...context._testElement,
+    classList,
+    style: modalStyle,
+    addEventListener(event: string, handler: (e?: any) => void) {
+      (listeners[`modal:${event}`] ||= []).push(handler);
+    },
+  };
+
+  const chartModalInner = {
+    ...context._testElement,
+    addEventListener(event: string, handler: (e?: any) => void) {
+      (listeners[`inner:${event}`] ||= []).push(handler);
+    },
+  };
+
+  context.document.getElementById = (id: string) => {
+    if (id === "yearSel") return { ...context._testElement, value: "2026" };
+    if (id === "chartModal") return modalEl;
+    if (id === "chartModalTitle") return { ...context._testElement, textContent: "" };
+    if (id === "chartModalClose") return closeBtn;
+    if (id === "chartModalCanvas") return { ...context._testElement };
+    return context._testElement;
+  };
+
+  context.document.querySelector = (sel: string) => {
+    if (sel === ".chart-modal") return chartModalInner;
+    return context._testElement;
+  };
+
+  context.document.body = { ...context._testElement, style: bodyStyle };
+
+  context.document.addEventListener = (event: string, handler: (e?: any) => void) => {
+    (documentListeners[event] ||= []).push(handler);
+  };
+
+  const OriginalChart = context.Chart;
+  context.Chart = class extends OriginalChart {
+    destroy() {
+      destroyed = true;
+      return super.destroy();
+    }
+  };
+
+  context.initChartModalListeners();
+
+  const card = {
+    getAttribute(name: string) {
+      if (name === "data-chart-key") return "summary-pmCompliance";
+      if (name === "data-kpi-key") return "pmCompliance";
+      if (name === "data-kpi-title") return "PM Compliance (%)";
+      if (name === "data-bu-id") return "summary";
+      return null;
+    },
+  };
+
+  context.KpiAggregates = context.normalizeKpiAggregates({
+    reportingYear: 2026,
+    byBusinessUnit: [],
+    byBusinessUnitMap: {},
+    portfolioYearAverage: {},
+    portfolioMonthlyAverages: { 1: { pmCompliance: 90 } },
+    portfolioMonthlyActuals: { 1: { pmCompliance: 90 } },
+  });
+  context.renderSummaryCharts();
+  context.openChartModal(card);
+
+  return {
+    context,
+    modalEl,
+    bodyStyle,
+    closeBtn,
+    chartModalInner,
+    get destroyed() { return destroyed; },
+    triggerCloseClick() { listeners["closeBtn:click"]?.forEach((h) => h({})); },
+    triggerBackdropClick() { listeners["modal:click"]?.forEach((h) => h({ target: modalEl })); },
+    triggerInnerClick() {
+      let stopped = false;
+      listeners["inner:click"]?.forEach((h) => h({ stopPropagation() { stopped = true; } }));
+      return stopped;
+    },
+    triggerEsc() { documentListeners.keydown?.forEach((h) => h({ key: "Escape" })); },
+  };
+}
+
+describe("Monthly KPI chart modal event wiring", () => {
+  it("clicking #chartModalClose closes an open modal", () => {
+    const t = createModalEventTestContext();
+    expect(t.modalEl.classList.contains("active")).toBe(true);
+    t.triggerCloseClick();
+    expect(t.modalEl.classList.contains("active")).toBe(false);
+    expect(t.bodyStyle.overflow).toBe("");
+  });
+
+  it("pressing Esc closes an open modal", () => {
+    const t = createModalEventTestContext();
+    expect(t.modalEl.classList.contains("active")).toBe(true);
+    t.triggerEsc();
+    expect(t.modalEl.classList.contains("active")).toBe(false);
+    expect(t.bodyStyle.overflow).toBe("");
+  });
+
+  it("clicking the backdrop closes an open modal", () => {
+    const t = createModalEventTestContext();
+    expect(t.modalEl.classList.contains("active")).toBe(true);
+    t.triggerBackdropClick();
+    expect(t.modalEl.classList.contains("active")).toBe(false);
+    expect(t.bodyStyle.overflow).toBe("");
+  });
+
+  it("clicking inside the modal does not close it", () => {
+    const t = createModalEventTestContext();
+    expect(t.modalEl.classList.contains("active")).toBe(true);
+    const stopped = t.triggerInnerClick();
+    expect(stopped).toBe(true);
+    expect(t.modalEl.classList.contains("active")).toBe(true);
+    expect(t.bodyStyle.overflow).toBe("hidden");
+  });
+
+  it("closing the modal destroys the expanded Chart.js instance", () => {
+    const t = createModalEventTestContext();
+    expect(t.destroyed).toBe(false);
+    t.triggerCloseClick();
+    expect(t.destroyed).toBe(true);
+  });
+});
