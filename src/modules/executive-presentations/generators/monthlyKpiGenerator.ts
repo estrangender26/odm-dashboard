@@ -8,6 +8,7 @@
  */
 
 import {
+  createElementNS,
   findGraphicFrameByName,
   findShapeByName,
   generatePptxBlob,
@@ -130,6 +131,55 @@ function formatMonthlyValue(
   return `${value.value.toFixed(2)}%`;
 }
 
+
+/**
+ * Convert an EMU attribute value to a number.
+ */
+function parseEmu(value: string | null | undefined): number {
+  if (!value) return 0;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Apply a vertical offset to a shape's xfrm. Only the y offset is changed;
+ * size and x position are preserved.
+ */
+function setShapeY(shape: XmlElement, y: number): void {
+  const xfrm = getElementsByTagNameNS(shape, "a", "xfrm")[0];
+  if (!xfrm) return;
+  const off = getElementsByTagNameNS(xfrm, "a", "off")[0];
+  if (!off) return;
+  off.setAttribute("y", String(Math.round(y)));
+}
+
+/**
+ * Apply a new height to a graphic frame (table) xfrm while preserving position
+ * and width. Graphic frames use a p:xfrm container with a:ext children.
+ */
+function setFrameHeight(frame: XmlElement, cy: number): void {
+  const xfrms = [
+    getElementsByTagNameNS(frame, "p", "xfrm")[0],
+    getElementsByTagNameNS(frame, "a", "xfrm")[0],
+  ].filter(Boolean);
+  const xfrm = xfrms[0];
+  if (!xfrm) return;
+  const ext = getElementsByTagNameNS(xfrm, "a", "ext")[0];
+  if (!ext) return;
+  ext.setAttribute("cy", String(Math.round(cy)));
+}
+
+/**
+ * Sum of table row heights in EMU.
+ */
+function getTableHeightEmu(rows: XmlElement[]): number {
+  let total = 0;
+  for (const row of rows) {
+    total += parseEmu(row.getAttribute("h"));
+  }
+  return total;
+}
+
 function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   const titleShape = findShapeByName(doc, "Slide Title");
   if (titleShape) {
@@ -237,10 +287,70 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     );
   }
 
+  // Normalize all body cells to a uniform font family/size/alignment so KPI
+  // values (including MTTR, which the template leaves empty) render
+  // consistently. Then scale the table if the natural row sum exceeds the
+  // vertical budget, so Slide 1 remains clean for reporting months 1-12.
+  const tableFrameXfrm = getElementsByTagNameNS(tableFrame, "p", "xfrm")[0];
+  const tableOff = tableFrameXfrm
+    ? getElementsByTagNameNS(tableFrameXfrm, "a", "off")[0]
+    : null;
+  const tableY = tableOff ? parseEmu(tableOff.getAttribute("y")) : 742950;
+
+  const SLIDE_HEIGHT_EMU = 6858000;
+  const BOTTOM_MARGIN_EMU = 190500; // ~0.21 in safety margin
+  const READOUT_HEIGHT_EMU = 700000;
+  const NOTE_HEIGHT_EMU = 200000;
+  const READOUT_TOP_MARGIN_EMU = 190500;
+  const NOTE_TOP_MARGIN_EMU = 127000;
+  const LEGEND_MIN_HEIGHT_EMU = 900000;
+  const BUDGET_BELOW_TABLE_EMU =
+    READOUT_TOP_MARGIN_EMU + READOUT_HEIGHT_EMU + NOTE_TOP_MARGIN_EMU + NOTE_HEIGHT_EMU + READOUT_TOP_MARGIN_EMU;
+  const maxTableHeight =
+    SLIDE_HEIGHT_EMU - tableY - BUDGET_BELOW_TABLE_EMU - BOTTOM_MARGIN_EMU;
+
+  const naturalTableHeight = getTableHeightEmu(rows);
+  let tableActualHeight = naturalTableHeight;
+  let bodyFontSizeHundredths = 1400;
+
+  if (naturalTableHeight > maxTableHeight) {
+    const scale = maxTableHeight / naturalTableHeight;
+    tableActualHeight = maxTableHeight;
+    // Reduce body font size proportionally, but never below 10 pt, to keep
+    // text readable inside scaled rows.
+    bodyFontSizeHundredths = Math.max(1000, Math.round(1400 * scale));
+    for (const row of rows) {
+      const currentH = parseEmu(row.getAttribute("h"));
+      row.setAttribute("h", String(Math.round(currentH * scale)));
+    }
+  }
+
+  // Normalize only the KPI data/value cells (columns 1-6). Preserve the approved
+  // template typography for structural cells: header row, Month/YTD/TARGET labels,
+  // and the TARGET row values.
+  for (let r = 0; r < rows.length; r++) {
+    const isHeader = r === 0;
+    const isTarget = r === rows.length - 1;
+    if (isHeader || isTarget) continue;
+
+    const cells = getCells(rows[r]);
+    for (let c = 1; c < cells.length && c <= TABLE_METRICS.length; c++) {
+      const cell = cells[c];
+      normalizeTableCellBodyFormatting(cell, bodyFontSizeHundredths);
+    }
+  }
+
+  // Resize the table frame to match its final row content.
+  setFrameHeight(tableFrame, tableActualHeight);
+
+  const readoutTop = tableY + tableActualHeight + READOUT_TOP_MARGIN_EMU;
+  const noteTop = readoutTop + READOUT_HEIGHT_EMU + NOTE_TOP_MARGIN_EMU;
+
   // Executive observation and MTTR methodology note live in separate shapes.
   const readoutShape = findShapeByName(doc, "Executive Readout");
   if (readoutShape) {
     setShapeText(readoutShape, data.executive.slide1Observation);
+    setShapeY(readoutShape, readoutTop);
   }
 
   const mttrNoteShape = findShapeByName(doc, "TextBox 1");
@@ -249,6 +359,113 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
       mttrNoteShape,
       "MTTR calculation methodology is being realigned. Indicative MTTR remains provisional pending validation."
     );
+    setShapeY(mttrNoteShape, noteTop);
+  }
+
+  // Keep the RAG legend on the right side of the slide, aligned with the
+  // executive readout block. Its compact four-line content fits a fixed height.
+  const legendShape = findShapeByName(doc, "RAG Legend");
+  if (legendShape) {
+    const legendXfrm = getElementsByTagNameNS(legendShape, "a", "xfrm")[0];
+    const legendOff = legendXfrm
+      ? getElementsByTagNameNS(legendXfrm, "a", "off")[0]
+      : null;
+    const legendExt = legendXfrm
+      ? getElementsByTagNameNS(legendXfrm, "a", "ext")[0]
+      : null;
+    if (legendOff) {
+      legendOff.setAttribute("y", String(Math.round(readoutTop)));
+    }
+    if (legendExt) {
+      legendExt.setAttribute("cy", String(LEGEND_MIN_HEIGHT_EMU));
+    }
+  }
+}
+
+/**
+ * Force every run in a KPI data/value table cell to use the same body
+ * formatting: supplied font size, Aptos typeface, centered alignment, and a
+ * centered vertical anchor. Existing intentional emphasis (bold, italic) is
+ * preserved. This eliminates inconsistencies (e.g. MTTR values) caused by
+ * template cells that mix 10 pt, 14 pt, or theme-reference (+mn-lt) fonts.
+ * Structural cells (header, Month/YTD labels, TARGET row) are not modified.
+ */
+function normalizeTableCellBodyFormatting(
+  cell: XmlElement,
+  fontSizeHundredths: number
+): void {
+  const ownerDoc = cell.ownerDocument;
+  if (!ownerDoc) return;
+
+  const txBody = getElementsByTagNameNS(cell, "a", "txBody")[0];
+  if (!txBody) return;
+
+  let bodyPr = getElementsByTagNameNS(txBody, "a", "bodyPr")[0];
+  if (!bodyPr) {
+    bodyPr = createElementNS(ownerDoc, "a", "bodyPr");
+    txBody.insertBefore(bodyPr, txBody.firstChild);
+  }
+  bodyPr.setAttribute("anchor", "ctr");
+
+  for (const paragraph of getElementsByTagNameNS(txBody, "a", "p")) {
+    const pPr = getElementsByTagNameNS(paragraph, "a", "pPr")[0];
+    if (pPr) {
+      pPr.setAttribute("algn", "ctr");
+    }
+    for (const run of getElementsByTagNameNS(paragraph, "a", "r")) {
+      let rPr = getElementsByTagNameNS(run, "a", "rPr")[0];
+      if (!rPr) {
+        rPr = createElementNS(ownerDoc, "a", "rPr");
+        // Insert before any a:t child.
+        const t = getElementsByTagNameNS(run, "a", "t")[0];
+        if (t) {
+          run.insertBefore(rPr, t);
+        } else {
+          run.appendChild(rPr);
+        }
+      }
+      rPr.setAttribute("sz", String(fontSizeHundredths));
+      if (rPr.getAttribute("b") === null) {
+        rPr.setAttribute("b", "0");
+      }
+      if (rPr.getAttribute("i") === null) {
+        rPr.setAttribute("i", "0");
+      }
+      if (rPr.getAttribute("u") === null) {
+        rPr.setAttribute("u", "none");
+      }
+      if (rPr.getAttribute("strike") === null) {
+        rPr.setAttribute("strike", "noStrike");
+      }
+      rPr.setAttribute("kern", "1200");
+
+      // Ensure solid fill and Aptos typeface.
+      let solidFill = getElementsByTagNameNS(rPr, "a", "solidFill")[0];
+      if (!solidFill) {
+        solidFill = createElementNS(ownerDoc, "a", "solidFill");
+        rPr.insertBefore(solidFill, rPr.firstChild);
+      }
+      for (const child of [...solidFill.childNodes]) {
+        if ((child as unknown as XmlElement).localName) {
+          solidFill.removeChild(child);
+        }
+      }
+      const srgbClr = createElementNS(ownerDoc, "a", "srgbClr");
+      srgbClr.setAttribute("val", "172B47");
+      solidFill.appendChild(srgbClr);
+
+      const latin = getElementsByTagNameNS(rPr, "a", "latin")[0] ?? createElementNS(ownerDoc, "a", "latin");
+      latin.setAttribute("typeface", "Aptos");
+      if (!latin.parentNode) rPr.appendChild(latin);
+
+      const ea = getElementsByTagNameNS(rPr, "a", "ea")[0] ?? createElementNS(ownerDoc, "a", "ea");
+      ea.setAttribute("typeface", "Aptos");
+      if (!ea.parentNode) rPr.appendChild(ea);
+
+      const cs = getElementsByTagNameNS(rPr, "a", "cs")[0] ?? createElementNS(ownerDoc, "a", "cs");
+      cs.setAttribute("typeface", "Aptos");
+      if (!cs.parentNode) rPr.appendChild(cs);
+    }
   }
 }
 
