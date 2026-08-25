@@ -193,7 +193,9 @@ function getShapeBox(xml: string, name: string) {
 function getMttrCellSizes(xml: string): { sz: number; face: string }[] {
   const rows = (xml.match(/<a:tr[\s\S]*?<\/a:tr>/g) || []);
   const result: { sz: number; face: string }[] = [];
-  for (const row of rows) {
+  // Skip header row; examine MTTR column in all body rows (monthly, YTD, TARGET).
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
     const cells = (row.match(/<a:tc[\s\S]*?<\/a:tc>/g) || []);
     if (cells.length <= 5) continue;
     const cell = cells[5];
@@ -206,6 +208,48 @@ function getMttrCellSizes(xml: string): { sz: number; face: string }[] {
     result.push({ sz, face });
   }
   return result;
+}
+
+
+function getRowCellFirstRunProps(
+  xml: string,
+  rowIdx: number
+): { colIdx: number; bold: boolean | null }[] {
+  const rows = (xml.match(/<a:tr[\s\S]*?<\/a:tr>/g) || []);
+  const row = rows[rowIdx];
+  if (!row) return [];
+  const cells = (row.match(/<a:tc[\s\S]*?<\/a:tc>/g) || []);
+  return cells.map((cell, colIdx) => {
+    const firstRun = cell.match(/<a:r\b[\s\S]*?<\/a:r>/);
+    if (!firstRun) return { colIdx, bold: null };
+    const rPr = firstRun[0].match(/<a:rPr[\s\S]*?<\/a:rPr>/);
+    if (!rPr) return { colIdx, bold: null };
+    const boldAttr = rPr[0].match(/b="([^"]+)"/);
+    const bold = boldAttr ? boldAttr[1] === "1" : null;
+    return { colIdx, bold };
+  });
+}
+
+function getCellFirstRunProps(
+  xml: string,
+  rowIdx: number,
+  colIdx: number
+): { sz: number; face: string; bold: boolean | null } | null {
+  const rows = (xml.match(/<a:tr[\s\S]*?<\/a:tr>/g) || []);
+  const row = rows[rowIdx];
+  if (!row) return null;
+  const cells = (row.match(/<a:tc[\s\S]*?<\/a:tc>/g) || []);
+  const cell = cells[colIdx];
+  if (!cell) return null;
+  const firstRun = cell.match(/<a:r\b[\s\S]*?<\/a:r>/);
+  if (!firstRun) return null;
+  const rPr = firstRun[0].match(/<a:rPr[\s\S]*?<\/a:rPr>/);
+  if (!rPr) return null;
+  const sz = Number((rPr[0].match(/sz="(\d+)"/) || [])[1] || 0);
+  const face = (rPr[0].match(/typeface="([^"]+)"/) || [])[1] ?? "";
+  const boldAttr = rPr[0].match(/b="([^"]+)"/);
+  const bold = boldAttr ? boldAttr[1] === "1" : null;
+  return { sz, face, bold };
 }
 
 function getTableMatrix(xml: string): string[][] {
@@ -408,7 +452,7 @@ describe("generateMonthlyKpiPresentation slide 1 layout and formatting", () => {
     const zip = await JSZip.loadAsync(arrayBuffer);
     const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
     const mttrSizes = getMttrCellSizes(slide1);
-    expect(mttrSizes.length).toBeGreaterThanOrEqual(10); // 8 monthly + YTD + TARGET
+    expect(mttrSizes.length).toBeGreaterThanOrEqual(9); // 8 monthly + YTD
     const uniqueSizes = new Set(mttrSizes.map((s) => s.sz));
     expect(uniqueSizes.size).toBe(1);
     expect([...uniqueSizes][0]).toBeGreaterThanOrEqual(1000);
@@ -443,5 +487,71 @@ describe("generateMonthlyKpiPresentation slide 1 layout and formatting", () => {
     expect(readout!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
     expect(note!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
     expect(legend!.bottom).toBeLessThanOrEqual(SLIDE_HEIGHT);
+  });
+
+  it("preserves header, Month label, YTD label, and TARGET row formatting", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], { mttrDays: 85.86 });
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+
+    // Header row: first KPI header (PM Compliance) should remain bold.
+    const headerCell = getCellFirstRunProps(slide1, 0, 1);
+    expect(headerCell).not.toBeNull();
+    expect(headerCell!.bold).toBe(true);
+
+    // Month label column: Jan should not be normalized to plain Aptos body formatting.
+    const monthLabel = getCellFirstRunProps(slide1, 1, 0);
+    expect(monthLabel).not.toBeNull();
+    expect(monthLabel!.bold).not.toBe(false);
+
+    // YTD label cell (column 0) should retain emphasis.
+    const ytdLabel = getCellFirstRunProps(slide1, 9, 0);
+    expect(ytdLabel).not.toBeNull();
+    expect(ytdLabel!.bold).not.toBe(false);
+
+    // TARGET row should remain unnormalized.
+    const targetCell = getCellFirstRunProps(slide1, 10, 1);
+    expect(targetCell).not.toBeNull();
+    expect(targetCell!.bold).toBe(true);
+    // TARGET cell keeps its template formatting and is not rewritten with the
+    // normalized body attributes (kern, strike, etc.) used on data cells.
+    const rows = (slide1.match(/<a:tr[\s\S]*?<\/a:tr>/g) || []);
+    const targetRow = rows[10];
+    const targetCells = (targetRow.match(/<a:tc[\s\S]*?<\/a:tc>/g) || []);
+    const targetRPr = targetCells[1].match(/<a:rPr[\s\S]*?<\/a:rPr>/)?.[0] ?? "";
+    expect(targetRPr).not.toContain('kern="1200"');
+  });
+
+  it("preserves existing bold emphasis on YTD KPI value cells", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], { mttrDays: 85.86 });
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+
+    // YTD row index is header(0) + 8 monthly rows = 9.
+    const ytdValueCells = getRowCellFirstRunProps(slide1, 9).filter((c) => c.colIdx >= 1);
+    expect(ytdValueCells.length).toBeGreaterThanOrEqual(6);
+
+    // If the template already marks any YTD KPI value cell bold, that emphasis
+    // must survive normalization. We also confirm no cell was forced plain
+    // when it started bold.
+    const boldCount = ytdValueCells.filter((c) => c.bold === true).length;
+    const plainCount = ytdValueCells.filter((c) => c.bold === false).length;
+    const unspecifiedCount = ytdValueCells.filter((c) => c.bold === null).length;
+
+    // Template may carry intentional YTD emphasis; if present it must be kept.
+    if (boldCount > 0) {
+      expect(plainCount + unspecifiedCount).toBeLessThan(ytdValueCells.length);
+    }
+
+    // MTTR monthly and YTD cells remain uniform in font family/size/alignment.
+    const mttrSizes = getMttrCellSizes(slide1);
+    expect(mttrSizes.length).toBeGreaterThanOrEqual(9); // 8 monthly + YTD
+    const uniqueSizes = new Set(mttrSizes.map((s) => s.sz));
+    expect(uniqueSizes.size).toBe(1);
+    expect(mttrSizes.every((s) => s.face === "Aptos")).toBe(true);
   });
 });

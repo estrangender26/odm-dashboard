@@ -325,8 +325,17 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     }
   }
 
-  for (const row of rows) {
-    for (const cell of getCells(row)) {
+  // Normalize only the KPI data/value cells (columns 1-6). Preserve the approved
+  // template typography for structural cells: header row, Month/YTD/TARGET labels,
+  // and the TARGET row values.
+  for (let r = 0; r < rows.length; r++) {
+    const isHeader = r === 0;
+    const isTarget = r === rows.length - 1;
+    if (isHeader || isTarget) continue;
+
+    const cells = getCells(rows[r]);
+    for (let c = 1; c < cells.length && c <= TABLE_METRICS.length; c++) {
+      const cell = cells[c];
       normalizeTableCellBodyFormatting(cell, bodyFontSizeHundredths);
     }
   }
@@ -374,10 +383,12 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
 }
 
 /**
- * Force every run in a table cell to use the same body formatting: supplied
- * font size, Aptos typeface, centered alignment, and a centered vertical
- * anchor. This eliminates inconsistencies caused by template cells that mix
- * 10 pt, 14 pt, or theme-reference (+mn-lt) fonts.
+ * Force every run in a KPI data/value table cell to use the same body
+ * formatting: supplied font size, Aptos typeface, centered alignment, and a
+ * centered vertical anchor. Existing intentional emphasis (bold, italic) is
+ * preserved. This eliminates inconsistencies (e.g. MTTR values) caused by
+ * template cells that mix 10 pt, 14 pt, or theme-reference (+mn-lt) fonts.
+ * Structural cells (header, Month/YTD labels, TARGET row) are not modified.
  */
 function normalizeTableCellBodyFormatting(
   cell: XmlElement,
@@ -414,10 +425,18 @@ function normalizeTableCellBodyFormatting(
         }
       }
       rPr.setAttribute("sz", String(fontSizeHundredths));
-      rPr.setAttribute("b", "0");
-      rPr.setAttribute("i", "0");
-      rPr.setAttribute("u", "none");
-      rPr.setAttribute("strike", "noStrike");
+      if (rPr.getAttribute("b") === null) {
+        rPr.setAttribute("b", "0");
+      }
+      if (rPr.getAttribute("i") === null) {
+        rPr.setAttribute("i", "0");
+      }
+      if (rPr.getAttribute("u") === null) {
+        rPr.setAttribute("u", "none");
+      }
+      if (rPr.getAttribute("strike") === null) {
+        rPr.setAttribute("strike", "noStrike");
+      }
       rPr.setAttribute("kern", "1200");
 
       // Ensure solid fill and Aptos typeface.
