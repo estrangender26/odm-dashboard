@@ -116,6 +116,32 @@ function cloneMonthlyRow(sourceRow: XmlElement): XmlElement {
   return sourceRow.cloneNode(true) as XmlElement;
 }
 
+/**
+ * Return the slide-1 table-cell fill color for a KPI value based on its
+ * existing status. This is a rendering decision only: the presentation
+ * generator uses the status already computed by the KPI threshold logic.
+ *
+ * Missing, null, no-data, or provisional values always receive the neutral
+ * no-data gray so that cloned template-row colors never leak into empty cells.
+ */
+function getKpiValueFillColor(
+  value: MonthlyKpiValue | undefined
+): string {
+  if (!value || !isPresentNumber(value.value)) return "DDE6F0";
+  switch (value.status) {
+    case "success":
+      return "A9D18E";
+    case "warning":
+      return "FFD966";
+    case "danger":
+      return "FF6B6B";
+    case "no-data":
+    case "provisional":
+    default:
+      return "DDE6F0";
+  }
+}
+
 function formatMonthlyValue(
   key: ScorecardKpiKey,
   value: MonthlyKpiValue
@@ -252,10 +278,9 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     for (let m = 0; m < TABLE_METRICS.length; m++) {
       const metric = TABLE_METRICS[m];
       const value = trend?.values[metric];
-      setCellText(
-        cells[m + 1],
-        value ? formatMonthlyValue(metric, value) : ""
-      );
+      const cell = cells[m + 1];
+      setCellText(cell, value ? formatMonthlyValue(metric, value) : "");
+      setCellFill(cell, getKpiValueFillColor(value));
     }
   }
 
@@ -281,10 +306,11 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   const ytdRow = rows[finalYtdRowIndex];
   const ytdCells = getCells(ytdRow);
   for (let m = 0; m < TABLE_METRICS.length; m++) {
-    setCellText(
-      ytdCells[m + 1],
-      formatMonthlyValue(TABLE_METRICS[m], selectedBu.ytd[TABLE_METRICS[m]])
-    );
+    const metric = TABLE_METRICS[m];
+    const value = selectedBu.ytd[metric];
+    const cell = ytdCells[m + 1];
+    setCellText(cell, formatMonthlyValue(metric, value));
+    setCellFill(cell, getKpiValueFillColor(value));
   }
 
   // Normalize all body cells to a uniform font family/size/alignment so KPI
@@ -299,13 +325,11 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
 
   const SLIDE_HEIGHT_EMU = 6858000;
   const BOTTOM_MARGIN_EMU = 190500; // ~0.21 in safety margin
-  const READOUT_HEIGHT_EMU = 700000;
-  const NOTE_HEIGHT_EMU = 200000;
-  const READOUT_TOP_MARGIN_EMU = 190500;
-  const NOTE_TOP_MARGIN_EMU = 127000;
+  const READOUT_HEIGHT_EMU = 900000;
+  const READOUT_TOP_MARGIN_EMU = 300000;
   const LEGEND_MIN_HEIGHT_EMU = 900000;
   const BUDGET_BELOW_TABLE_EMU =
-    READOUT_TOP_MARGIN_EMU + READOUT_HEIGHT_EMU + NOTE_TOP_MARGIN_EMU + NOTE_HEIGHT_EMU + READOUT_TOP_MARGIN_EMU;
+    READOUT_TOP_MARGIN_EMU + READOUT_HEIGHT_EMU + READOUT_TOP_MARGIN_EMU;
   const maxTableHeight =
     SLIDE_HEIGHT_EMU - tableY - BUDGET_BELOW_TABLE_EMU - BOTTOM_MARGIN_EMU;
 
@@ -344,22 +368,21 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   setFrameHeight(tableFrame, tableActualHeight);
 
   const readoutTop = tableY + tableActualHeight + READOUT_TOP_MARGIN_EMU;
-  const noteTop = readoutTop + READOUT_HEIGHT_EMU + NOTE_TOP_MARGIN_EMU;
 
-  // Executive observation and MTTR methodology note live in separate shapes.
+  // Single executive commentary block below the table. The approved August
+  // layout shows one bullet only and no separate MTTR methodology note on
+  // Slide 1; that note belongs on subsequent slides.
   const readoutShape = findShapeByName(doc, "Executive Readout");
   if (readoutShape) {
     setShapeText(readoutShape, data.executive.slide1Observation);
     setShapeY(readoutShape, readoutTop);
   }
 
+  // Hide the legacy MTTR methodology note shape so it does not appear on
+  // Slide 1 while remaining available in the template for other uses.
   const mttrNoteShape = findShapeByName(doc, "TextBox 1");
   if (mttrNoteShape) {
-    setShapeText(
-      mttrNoteShape,
-      "MTTR calculation methodology is being realigned. Indicative MTTR remains provisional pending validation."
-    );
-    setShapeY(mttrNoteShape, noteTop);
+    setShapeY(mttrNoteShape, SLIDE_HEIGHT_EMU + BOTTOM_MARGIN_EMU);
   }
 
   // Keep the RAG legend on the right side of the slide, aligned with the
