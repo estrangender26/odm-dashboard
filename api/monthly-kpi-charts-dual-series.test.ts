@@ -1,3 +1,12 @@
+function createClassList(initialClasses = "") {
+  const classes = new Set(initialClasses.split(/\s+/).filter(Boolean));
+  return {
+    add(className: string) { classes.add(className); },
+    remove(className: string) { classes.delete(className); },
+    contains(className: string) { return classes.has(className); },
+  };
+}
+
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -51,6 +60,7 @@ function createScorecardContext() {
       createElement() { return { ...element, href: "", download: "", click() {} }; },
       getElementById(id: string) {
         if (id === "yearSel") return yearSelect;
+        if (id === "chartModal" || id === "chartModalTitle" || id === "chartModalCanvas" || id === "chartModalClose") return { ...element, classList: createClassList(), style: {}, textContent: "" };
         return element;
       },
       querySelector() { return element; },
@@ -71,6 +81,8 @@ function createScorecardContext() {
   ctxAny.fetchMonthlyKpiAggregates = async () => {};
   ctxAny.fetchSavedMonthlyKpiRecords = async () => {};
   ctxAny.refreshBusinessUnitSelectors = () => { ctxAny.initBusinessUnitSelector(); };
+  ctxAny._testElement = element;
+  ctxAny._createClassList = createClassList;
   return { context: ctxAny, capturedCharts };
 }
 
@@ -309,5 +321,166 @@ describe("Monthly KPI chart dual series", () => {
     const trendDataset = chart.data.datasets.find((ds: any) => ds.label === "YTD / Trend");
     expect(monthlyActualDataset.type).toBe("bar");
     expect(trendDataset.type).toBe("line");
+  });
+});
+
+describe("Monthly KPI chart grid and expansion", () => {
+  it("renders six KPI chart cards in a single chart-grid with requested 3x2 ordering", () => {
+    const { context } = createScorecardContext();
+    let capturedHtml = "";
+    context.document.getElementById = (id: string) => {
+      if (id === "yearSel") return { ...context._testElement, value: "2026" };
+      if (id === "summary-trend-section") {
+        return {
+          ...context._testElement,
+          set innerHTML(value: string) { capturedHtml = value; },
+          get innerHTML() { return capturedHtml; },
+        };
+      }
+      if (id === "chartModal" || id === "chartModalTitle" || id === "chartModalCanvas" || id === "chartModalClose") return { ...context._testElement, classList: context._createClassList(), style: {}, textContent: "" };
+      return context._testElement;
+    };
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: {},
+      portfolioMonthlyAverages: {
+        1: { pmCompliance: 90, budgetSpend: 100, pmCmWorkOrderRatio: 80, pmCmCostRatio: 75, mttrDays: 5, facilityUptime: 99 },
+      },
+      portfolioMonthlyActuals: {
+        1: { pmCompliance: 90, budgetSpend: 100, pmCmWorkOrderRatio: 80, pmCmCostRatio: 75, mttrDays: 5, facilityUptime: 99 },
+      },
+    });
+    context.renderSummaryCharts();
+
+    expect(capturedHtml).toContain('class="chart-grid"');
+    const cards = Array.from(capturedHtml.matchAll(/class="chart-card"/g));
+    expect(cards.length).toBe(6);
+    const titles = Array.from(capturedHtml.matchAll(/class="chart-title">([^<]+)/g)).map((m) => m[1]);
+    expect(titles).toEqual([
+      "PM Compliance (%)",
+      "Budget Spend (%)",
+      "PM:CM WO (%)",
+      "PM:CM Cost (%)",
+      "MTTR (Days)",
+      "Facility Uptime (%)",
+    ]);
+  });
+
+  it("chart cards include expand affordance with accessible labels and keyboard support", () => {
+    const { context } = createScorecardContext();
+    let capturedHtml = "";
+    context.document.getElementById = (id: string) => {
+      if (id === "yearSel") return { ...context._testElement, value: "2026" };
+      if (id === "summary-trend-section") {
+        return {
+          ...context._testElement,
+          set innerHTML(value: string) { capturedHtml = value; },
+          get innerHTML() { return capturedHtml; },
+        };
+      }
+      if (id === "chartModal" || id === "chartModalTitle" || id === "chartModalCanvas" || id === "chartModalClose") return { ...context._testElement, classList: context._createClassList(), style: {}, textContent: "" };
+      return context._testElement;
+    };
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: {},
+      portfolioMonthlyAverages: { 1: { pmCompliance: 90 } },
+      portfolioMonthlyActuals: { 1: { pmCompliance: 90 } },
+    });
+    context.renderSummaryCharts();
+
+    expect(capturedHtml).toContain('role="listitem"');
+    expect(capturedHtml).toContain('tabindex="0"');
+    expect(capturedHtml).toContain('Expand PM Compliance (%) chart');
+    expect(capturedHtml).toContain('onkeydown="handleChartCardKey(event,this)"');
+    expect(capturedHtml).toContain('aria-label="Expand PM Compliance (%) chart"');
+    expect(capturedHtml).toContain('class="chart-expand"');
+  });
+
+  it("openChartModal clones source chart data into the expanded chart", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    const modalEl = { ...context._testElement, classList: context._createClassList("chart-modal-overlay"), style: {} };
+    const titleEl = { ...context._testElement, textContent: "" };
+    context.document.getElementById = (id: string) => {
+      if (id === "yearSel") return { ...context._testElement, value: "2026" };
+      if (id === "chartModal") return modalEl;
+      if (id === "chartModalTitle") return titleEl;
+      if (id === "chartModalCanvas") return { ...context._testElement };
+      return context._testElement;
+    };
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: {},
+      portfolioMonthlyAverages: {
+        1: { pmCompliance: 90, budgetSpend: 100, pmCmWorkOrderRatio: 80, pmCmCostRatio: 75, mttrDays: 5, facilityUptime: 99 },
+      },
+      portfolioMonthlyActuals: {
+        1: { pmCompliance: 90, budgetSpend: 100, pmCmWorkOrderRatio: 80, pmCmCostRatio: 75, mttrDays: 5, facilityUptime: 99 },
+      },
+    });
+    context.renderSummaryCharts();
+
+    const card = {
+      getAttribute(name: string) {
+        if (name === "data-chart-key") return "summary-pmCompliance";
+        if (name === "data-kpi-key") return "pmCompliance";
+        if (name === "data-kpi-title") return "PM Compliance (%)";
+        if (name === "data-bu-id") return "summary";
+        return null;
+      },
+    };
+    context.openChartModal(card);
+
+    expect(modalEl.classList.contains("active")).toBe(true);
+    expect(titleEl.textContent).toBe("PM Compliance (%)");
+    expect(capturedCharts.length).toBeGreaterThanOrEqual(7);
+    const expanded = capturedCharts[capturedCharts.length - 1];
+    expect(expanded.data.labels).toHaveLength(12);
+    expect(expanded.data.datasets).toHaveLength(2);
+    expect(expanded.options.maintainAspectRatio).toBe(false);
+  });
+
+  it("closeChartModal hides the modal, clears body overflow, and destroys the expanded chart", () => {
+    const { context, capturedCharts } = createScorecardContext();
+    const modalEl = { ...context._testElement, classList: context._createClassList("chart-modal-overlay active"), style: {} };
+    const bodyEl = { ...context._testElement, style: {} };
+    context.document.getElementById = (id: string) => {
+      if (id === "yearSel") return { ...context._testElement, value: "2026" };
+      if (id === "chartModal") return modalEl;
+      if (id === "chartModalTitle") return { ...context._testElement, textContent: "" };
+      if (id === "chartModalCanvas") return { ...context._testElement };
+      return context._testElement;
+    };
+    context.document.body = bodyEl;
+    context.KpiAggregates = context.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [],
+      byBusinessUnitMap: {},
+      portfolioYearAverage: {},
+      portfolioMonthlyAverages: { 1: { pmCompliance: 90 } },
+      portfolioMonthlyActuals: { 1: { pmCompliance: 90 } },
+    });
+    context.renderSummaryCharts();
+    const card = {
+      getAttribute(name: string) {
+        if (name === "data-chart-key") return "summary-pmCompliance";
+        if (name === "data-kpi-key") return "pmCompliance";
+        if (name === "data-kpi-title") return "PM Compliance (%)";
+        if (name === "data-bu-id") return "summary";
+        return null;
+      },
+    };
+    context.openChartModal(card);
+    expect(bodyEl.style.overflow).toBe("hidden");
+
+    context.closeChartModal();
+    expect(modalEl.classList.contains("active")).toBe(false);
+    expect(bodyEl.style.overflow).toBe("");
   });
 });
