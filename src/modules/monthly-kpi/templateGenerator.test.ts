@@ -38,6 +38,54 @@ function makeBuScorecard(
   };
 }
 
+function makeMonthlyTrend(
+  _businessUnit: string,
+  months: number[],
+  valueBase: Partial<Record<ScorecardKpiKey, number | null>> = {}
+): BusinessUnitScorecard["monthlyTrend"] {
+  return months.map((month) => ({
+    month,
+    monthLabel: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1] ?? `M${month}`,
+    values: Object.fromEntries(
+      SCORECARD_KPI_KEYS.map((key) => [
+        key,
+        {
+          value: valueBase[key] ?? 0,
+          status: "success",
+          formatted: `${valueBase[key] ?? 0}%`,
+        },
+      ])
+    ) as unknown as BusinessUnitScorecard["monthlyTrend"][number]["values"],
+  }));
+}
+
+function createTestDataForMonth(
+  reportingMonth: number,
+  availableMonths: number[]
+): MonthlyKpiPresentation {
+  const data = createTestData();
+  data.reportingMonth = reportingMonth;
+  data.reportingMonthLabel = `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][reportingMonth - 1]} ${data.reportingYear}`;
+  for (const bu of data.buScorecards) {
+    bu.monthlyTrend = makeMonthlyTrend(bu.businessUnit, availableMonths);
+  }
+  return data;
+}
+
+async function getSlide1TableText(blob: Blob): Promise<string[]> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const xml = await zip.file("ppt/slides/slide1.xml")?.async("string");
+  if (!xml) throw new Error("slide1.xml missing");
+  const rows = (xml.match(/<a:tr[\s\S]*?<\/a:tr>/g) || []);
+  return rows.map((row) => {
+    const texts = (row.match(/<a:t>([^<]*)<\/a:t>/g) || []).map((m) =>
+      m.replace(/<\/?a:t>/g, "")
+    );
+    return texts.join("|");
+  });
+}
+
 function createTestData(): MonthlyKpiPresentation {
   return {
     generatedAt: new Date().toISOString(),
@@ -195,8 +243,11 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(xml).toBeDefined();
     const matrix = getTableMatrix(xml!);
     expect(matrix[0]).toContain("Month");
-    expect(matrix[8][0]).toBe("YTD");
-    expect(matrix[9][0]).toBe("TARGET");
+    expect(matrix[1][0]).toBe("Jan");
+    expect(matrix[6][0]).toBe("Jun");
+    expect(matrix[7][0]).toBe("YTD");
+    expect(matrix[8][0]).toBe("TARGET");
+    expect(matrix.some((row) => row[0] === "Jul")).toBe(false);
   });
 
   it("populates the All-BU KPI table", async () => {
@@ -257,5 +308,63 @@ describe("generateMonthlyKpiPresentation", () => {
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string");
     expect(xml).toContain("AMD-EZ YTD performance:");
+  });
+});
+
+describe("generateMonthlyKpiPresentation requested reporting month handling", () => {
+  it("includes January through August when August 2026 is requested with August data", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8]);
+    const blob = await generateMonthlyKpiPresentation(data);
+    const rows = await getSlide1TableText(blob);
+    expect(rows[0]).toContain("Month");
+    expect(rows[1]).toContain("Jan");
+    expect(rows[8]).toContain("Aug");
+    expect(rows[9]).toContain("YTD");
+    expect(rows.some((r) => r.includes("Sep"))).toBe(false);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const slide2Xml = await zip.file("ppt/slides/slide2.xml")?.async("string");
+    expect(slide2Xml).toContain("August 2026");
+  });
+
+  it("still represents August 2026 explicitly when only January-July data exists", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7]);
+    const blob = await generateMonthlyKpiPresentation(data);
+    const rows = await getSlide1TableText(blob);
+    expect(rows[1]).toContain("Jan");
+    expect(rows[7]).toContain("Jul");
+    expect(rows[8]).toContain("Aug");
+    expect(rows[9]).toContain("YTD");
+    // August should not silently disappear or be replaced by July
+    expect(rows.filter((r) => r.includes("Aug")).length).toBe(1);
+    expect(rows.filter((r) => r.includes("Jul")).length).toBe(1);
+  });
+
+  it("cuts off at April when April 2026 is requested", async () => {
+    const data = createTestDataForMonth(4, [1, 2, 3, 4, 5, 6, 7, 8]);
+    const blob = await generateMonthlyKpiPresentation(data);
+    const rows = await getSlide1TableText(blob);
+    expect(rows[1]).toContain("Jan");
+    expect(rows[4]).toContain("Apr");
+    expect(rows[5]).toContain("YTD");
+    expect(rows.some((r) => r.includes("May"))).toBe(false);
+  });
+
+  it("includes all twelve months when December 2026 is requested", async () => {
+    const data = createTestDataForMonth(12, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    const blob = await generateMonthlyKpiPresentation(data);
+    const rows = await getSlide1TableText(blob);
+    expect(rows[1]).toContain("Jan");
+    expect(rows[12]).toContain("Dec");
+    expect(rows[13]).toContain("YTD");
+  });
+
+  it("includes only January when January 2026 is requested", async () => {
+    const data = createTestDataForMonth(1, [1]);
+    const blob = await generateMonthlyKpiPresentation(data);
+    const rows = await getSlide1TableText(blob);
+    expect(rows[1]).toContain("Jan");
+    expect(rows[2]).toContain("YTD");
+    expect(rows.some((r) => r.includes("Feb"))).toBe(false);
   });
 });
