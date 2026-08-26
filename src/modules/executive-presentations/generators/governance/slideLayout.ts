@@ -12,6 +12,7 @@
 
 import { NS, getElementsByTagNameNS } from "../../framework";
 import type { XmlDocument, XmlElement } from "../../framework";
+import type { PhaseType } from "../../../governance-v3/types";
 
 // ---------------------------------------------------------------------------
 // Slide 1 — milestone rail
@@ -342,4 +343,79 @@ export function cloneShape(doc: XmlDocument, source: XmlElement, newName: string
     source.parentNode.insertBefore(clone, source.nextSibling);
   }
   return clone;
+}
+
+// ---------------------------------------------------------------------------
+// Authoritative visual semantics
+// ---------------------------------------------------------------------------
+
+/**
+ * Facility-card palette by project phase, matching the phase bands across the
+ * top of Slide 1 (PRE-PPP / PPP / POST-PPP). The card color tells the viewer
+ * the facility's current phase — never compliance, readiness, risk, or
+ * milestone status.
+ */
+export const PHASE_CARD_COLORS: Record<PhaseType, { fill: string; accent: string; text: string }> = {
+  "PRE-PPP": { fill: "DDEBF4", accent: "397DA4", text: "397DA4" },
+  "PPP": { fill: "DDF5F9", accent: "00A9C4", text: "00A9C4" },
+  "POST-PPP": { fill: "DFF3EC", accent: "169873", text: "169873" },
+};
+
+/**
+ * Documentation-matrix cell palette by document presence. A cell shows either
+ * submitted (green check on a pale green fill) or missing (dash on a pale
+ * red/pink fill). Cell color is derived ONLY from the individual TOC-row
+ * submission boolean.
+ */
+export const DOC_PRESENCE_CELL_COLORS = {
+  submitted: "DFF3EC", // pale green
+  missing: "FDECEF",   // pale red/pink
+} as const;
+
+/**
+ * Canonical project phase for the facility card, derived purely from the PPP
+ * start date vs the reporting date using the approved phase windows
+ * (PRE-PPP = start−8mo..start, PPP = start..start+12, POST-PPP = +12..+20).
+ * A facility whose PPP has not started is PRE-PPP regardless of its
+ * milestone progress or documentation compliance.
+ */
+export function effectivePhaseFromDates(
+  pppStartDate: string,
+  reportingDate: string
+): PhaseType {
+  if (!pppStartDate) return "PRE-PPP";
+  const offset = monthDiff(pppStartDate, reportingDate);
+  if (offset < 0) return "PRE-PPP";
+  if (offset <= PHASE_WINDOWS.pppMonths) return "PPP";
+  return "POST-PPP";
+}
+
+/**
+ * Set EVERY a:srgbClr swatch in a shape (defRPr and run rPr text colors) to
+ * the same hex. Used for the facility phase label so no stale default color
+ * (e.g. a leftover red) survives in the definition run properties.
+ */
+export function setAllSrgbClr(shape: XmlElement, hex: string): void {
+  const fills = shape.getElementsByTagNameNS(
+    "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "srgbClr"
+  );
+  for (let i = 0; i < fills.length; i++) {
+    (fills[i] as XmlElement).setAttribute("val", hex);
+  }
+}
+
+/**
+ * Recolor a facility-card shape: set the first spPr solid-fill swatch to the
+ * card fill and the second swatch (outline/accent) to the phase accent.
+ */
+export function setShapeFillAndAccent(shape: XmlElement, fill: string, accent: string): void {
+  const spPr = getElementsByTagNameNS(shape, "p", "spPr")[0];
+  if (!spPr) return;
+  const fills = spPr.getElementsByTagNameNS(
+    "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "srgbClr"
+  );
+  if (fills.length > 0) (fills[0] as XmlElement).setAttribute("val", fill);
+  if (fills.length > 1) (fills[1] as XmlElement).setAttribute("val", accent);
 }
