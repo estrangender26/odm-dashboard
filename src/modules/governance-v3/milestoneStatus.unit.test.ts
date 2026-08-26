@@ -15,6 +15,7 @@
 import { describe, it, expect } from "vitest";
 import {
   aggregatePortfolioSummary,
+  buildMilestones,
   derivePppStartDate,
   determineCurrentPhase,
   determineMilestoneStatus,
@@ -279,5 +280,92 @@ describe("determineMilestoneStatus — authoritative in-progress (yellow)", () =
     const httM5 = state({ facilitySlug: "htt", milestoneId: "M5", pppDate: null, compDate: "2026-09-13", customPct: null });
     expect(determineMilestoneStatus("M5", aglipayM5, new Date("2026-08-26T00:00:00Z"))).toBe("upcoming");
     expect(determineMilestoneStatus("M5", httM5, new Date("2026-08-26T00:00:00Z"))).toBe("upcoming");
+  });
+});
+
+describe("Manual ready_status override precedence (determineMilestoneStatus)", () => {
+  const REPORT = new Date("2026-08-26T00:00:00Z");
+
+  it("Auto (ready_status null) uses the automatic derivation", () => {
+    // compDate evidenced -> achieved regardless of ready_status null
+    expect(determineMilestoneStatus("M5", state({ compDate: "2026-06-01", readyStatus: null }), REPORT)).toBe("achieved");
+    // no evidence -> upcoming
+    expect(determineMilestoneStatus("M5", state({ readyStatus: null }), REPORT)).toBe("upcoming");
+    // customPct partial -> in_progress
+    expect(determineMilestoneStatus("M5", state({ customPct: 40, readyStatus: null }), REPORT)).toBe("in_progress");
+  });
+
+  it("manual 'achieved' overrides the automatic derivation (even without completion evidence)", () => {
+    expect(determineMilestoneStatus("M5", state({ readyStatus: "achieved" }), REPORT)).toBe("achieved");
+  });
+
+  it("manual 'in_progress' overrides the automatic derivation", () => {
+    expect(determineMilestoneStatus("M5", state({ readyStatus: "in_progress" }), REPORT)).toBe("in_progress");
+  });
+
+  it("manual 'planned_open' maps to the presentation gap state", () => {
+    expect(determineMilestoneStatus("M5", state({ readyStatus: "planned_open" }), REPORT)).toBe("gap");
+  });
+
+  it("manual 'upcoming' overrides even evidenced completion", () => {
+    expect(determineMilestoneStatus("M5", state({ compDate: "2026-06-01", readyStatus: "upcoming" }), REPORT)).toBe("upcoming");
+  });
+
+  it("invalid ready_status is ignored (falls through to auto)", () => {
+    expect(determineMilestoneStatus("M5", state({ readyStatus: "banana", compDate: "2026-06-01" }), REPORT)).toBe("achieved");
+    expect(determineMilestoneStatus("M5", state({ readyStatus: "banana" }), REPORT)).toBe("upcoming");
+  });
+
+  it("clearing the override (null) returns to Auto", () => {
+    expect(determineMilestoneStatus("M5", state({ readyStatus: null, compDate: "2026-06-01" }), REPORT)).toBe("achieved");
+  });
+});
+
+describe("Manual status value validation and mapping (milestoneStatusManual)", () => {
+  it("accepts only the approved canonical values", async () => {
+    const mod: any = await import("./milestoneStatusManual");
+    for (const v of ["achieved", "in_progress", "planned_open", "upcoming"]) {
+      expect(mod.isValidManualStatus(v)).toBe(true);
+    }
+    for (const v of ["", "banana", "gap", "auto", "done", 5, null, undefined]) {
+      expect(mod.isValidManualStatus(v)).toBe(false);
+    }
+  });
+
+  it("maps canonical values to the presentation status", async () => {
+    const mod: any = await import("./milestoneStatusManual");
+    expect(mod.manualStatusToMilestoneStatus("achieved")).toBe("achieved");
+    expect(mod.manualStatusToMilestoneStatus("in_progress")).toBe("in_progress");
+    expect(mod.manualStatusToMilestoneStatus("planned_open")).toBe("gap");
+    expect(mod.manualStatusToMilestoneStatus("upcoming")).toBe("upcoming");
+    expect(mod.manualStatusToMilestoneStatus(null)).toBeNull();
+    expect(mod.manualStatusToMilestoneStatus(undefined)).toBeNull();
+    expect(mod.manualStatusToMilestoneStatus("banana")).toBeNull();
+  });
+
+  it("server-side zod schema rejects arbitrary strings and accepts the approved set", async () => {
+    const { z } = await import("zod");
+    const { APPROVED_MANUAL_STATUSES } = await import("./milestoneStatusManual");
+    const schema = z.enum(APPROVED_MANUAL_STATUSES).nullable().optional();
+    for (const v of ["achieved", "in_progress", "planned_open", "upcoming"]) {
+      expect(schema.safeParse(v).success).toBe(true);
+    }
+    expect(schema.safeParse(null).success).toBe(true);
+    expect(schema.safeParse(undefined).success).toBe(true);
+    for (const v of ["banana", "", "gap", "auto"]) {
+      expect(schema.safeParse(v).success).toBe(false);
+    }
+  });
+});
+
+describe("Facility isolation for manual statuses (buildMilestones)", () => {
+  it("does not leak one facility's ready_status into another facility's milestones", () => {
+    const aglipayState = state({ facilitySlug: "aglipay", milestoneId: "M5", readyStatus: "achieved" });
+    const httState = state({ facilitySlug: "htt", milestoneId: "M5", readyStatus: null });
+    const milestones = buildMilestones("htt", [aglipayState, httState], REPORTING);
+    const m5 = milestones.find((m) => m.code === "M5")!;
+    expect(m5.status).toBe("upcoming"); // htt has no override and no evidence
+    const aglipayMs = buildMilestones("aglipay", [aglipayState, httState], REPORTING).find((m) => m.code === "M5")!;
+    expect(aglipayMs.status).toBe("achieved");
   });
 });

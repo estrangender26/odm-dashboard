@@ -907,28 +907,64 @@ describe("Slide 1 — in-progress (yellow) state", () => {
   });
 });
 
-describe("Slide 1 — temporary M5 achieved override (AGLIPAY/HTT)", () => {
-  it("renders AGLIPAY M5 and HTT M5 as green achieved, never yellow", async () => {
+describe("Slide 1 — M5 status is data-driven (no hardcoded override)", () => {
+  it("renders AGLIPAY/HTT M5 from their canonical fixture status (achieved_ahead -> green via approved mapping)", async () => {
     const xml = await generateSlideXml(1, createTestData());
     const shapes = parseSlideShapes(xml);
-    // AGLIPAY M5 (x=6891338, row y=2352675) and HTT M5 (row y=3152775) show a
-    // green achieved dot (fill 169873) with a white check symbol.
+    // The fixture marks AGLIPAY/HTT M5 as achieved_ahead, which maps to the
+    // achieved visual (green). This is data-driven — not a hardcoded override.
     for (const dotY of [2352675, 3152775]) {
       expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, dotY)).toBe("169873");
-      const dot = shapeAt(shapes, 6891338, dotY).find((s) => s.name.startsWith("Milestone achieved Dot") && s.visible);
-      expect(dot).toBeDefined();
       const sym = shapeAt(shapes, 6919913, dotY + 9525).find((s) => s.name.startsWith("Milestone achieved Symbol") && s.visible);
       expect(sym?.text).toContain("✓");
     }
-    // No yellow anywhere in the rail area for these overridden milestones.
+    // No yellow anywhere in the rail area for M5.
     expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, 2352675)).not.toBe("FFC000");
     expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, 3152775)).not.toBe("FFC000");
+  });
+
+  it("renders an 'upcoming' M5 gray — the temporary presentation override is removed", async () => {
+    const data = createTestData();
+    for (const slug of ["aglipay", "htt"]) {
+      const f = data.facilities.find((x) => x.slug === slug)!;
+      f.milestones = f.milestones.map((m) => (m.code === "M5" ? { ...m, status: "upcoming" as const } : m));
+    }
+    const xml = await generateSlideXml(1, data);
+    const shapes = parseSlideShapes(xml);
+    for (const dotY of [2352675, 3152775]) {
+      expect(shapeAt(shapes, 6891338, dotY).some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
+      expect(shapeAt(shapes, 6891338, dotY).some((s) => s.name.startsWith("Milestone achieved Dot") && s.visible)).toBe(false);
+    }
+  });
+
+  it("renders every canonical state selected through the status dropdown (Slide 1 reflects the adapter status)", async () => {
+    const data = createTestData();
+    const aglipay = data.facilities.find((f) => f.slug === "aglipay")!;
+    // Simulate manual ready_status overrides producing these canonical statuses:
+    aglipay.milestones = aglipay.milestones.map((m) => {
+      if (m.code === "M5") return { ...m, status: "achieved" as const };
+      if (m.code === "M6") return { ...m, status: "in_progress" as const };
+      if (m.code === "M7") return { ...m, status: "gap" as const };
+      if (m.code === "M8") return { ...m, status: "upcoming" as const };
+      return m;
+    });
+    const xml = await generateSlideXml(1, data);
+    const shapes = parseSlideShapes(xml);
+    // M5 achieved -> green
+    expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, 2352675)).toBe("169873");
+    // M6 in progress -> yellow fill + outline, navy ellipsis
+    expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 7891463, 2352675)).toBe("FFC000");
+    expect(runTextColorAt(xml, "Milestone achieved Symbol", 7920038, 2362200)).toBe("071B3D");
+    // M7 planned-open -> red gap marker
+    expect(shapeAt(shapes, 8891588, 2352675).some((s) => s.name === "Milestone gap Dot" && s.visible)).toBe(true);
+    // M8 upcoming -> gray
+    expect(shapeAt(shapes, 9891713, 2352675).some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
   });
 
   it("keeps all other facility milestone states data-driven (unchanged)", async () => {
     const xml = await generateSlideXml(1, createTestData());
     const shapes = parseSlideShapes(xml);
-    // EASTBAY M5 and KAYSAKAT M5 are NOT overridden: they remain upcoming (gray).
+    // EASTBAY M5 and KAYSAKAT M5 remain upcoming (gray).
     expect(shapeAt(shapes, 6891338, 3952875).some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
     expect(shapeAt(shapes, 6891338, 4752975).some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
     // KAYSAKAT M1 stays achieved (1 of 9), M2/M3 stay gap, per the fixture.

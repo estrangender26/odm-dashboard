@@ -8,6 +8,7 @@ import {
   isBase64UploadSizeAllowed,
 } from "@contracts/upload-limits";
 import { getSupabaseStorageAdmin } from "./supabase-storage";
+import { APPROVED_MANUAL_STATUSES } from "../src/modules/governance-v3/milestoneStatusManual";
 
 export const governanceRouter = createRouter({
   // Get all facilities
@@ -36,7 +37,10 @@ export const governanceRouter = createRouter({
         pppDate: z.string().nullable().optional(),
         compDate: z.string().nullable().optional(),
         customPct: z.number().nullable().optional(),
-        readyStatus: z.string().nullable().optional(),
+        // Explicit manual status override. Only the approved values are
+        // accepted; null clears the override (back to Auto). Arbitrary strings
+        // are rejected server-side.
+        readyStatus: z.enum(APPROVED_MANUAL_STATUSES).nullable().optional(),
         remarks: z.string().nullable().optional(),
       })
     )

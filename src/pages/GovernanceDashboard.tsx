@@ -10,6 +10,7 @@ import {
 } from "@contracts/upload-limits";
 import { deleteFileWithVerification, shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
 import { GOVERNANCE_MILESTONES, isMilestoneCompleteAsOf } from "@/modules/governance/governanceConfig";
+import type { ManualMilestoneStatus } from "@/modules/governance-v3/milestoneStatusManual";
 
 /* ── Banner (replaces alert) ── */
 function Banner({ type, message, onDismiss }: { type: "error" | "success" | "info"; message: string; onDismiss?: () => void }) {
@@ -200,7 +201,7 @@ export default function GovernanceDashboard() {
   const [pppDate, setPppDate] = useState("");
 
   // Pending state for edit mode
-  const [pendingMilestones, setPendingMilestones] = useState<Record<string, { compDate?: string; customPct?: number }>>({});
+  const [pendingMilestones, setPendingMilestones] = useState<Record<string, { compDate?: string; customPct?: number; readyStatus?: ManualMilestoneStatus | null }>>({});
 
   // Date input refs for focus after upload completion
   const dateInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -324,6 +325,14 @@ export default function GovernanceDashboard() {
     return msStateMap[mId]?.customPct ?? 0;
   };
 
+  // Get the effective manual ready_status for a milestone: "" (Auto) when no
+  // override is stored, otherwise the canonical backend value.
+  const getReadyStatus = (mId: string): string => {
+    const pend = pendingMilestones[mId];
+    if (pend?.readyStatus !== undefined) return pend.readyStatus ?? "";
+    return msStateMap[mId]?.readyStatus ?? "";
+  };
+
   // Checkbox simulation local override for chart preview only.
   // Stores `false` for milestones that should simulate as incomplete (0%).
   // When a milestone is NOT in this map, the DB value is used.
@@ -411,13 +420,30 @@ export default function GovernanceDashboard() {
   const cancelEdit = () => { setEditMode(false); setPendingMilestones({}); setPppDate(""); };
 
   const saveAll = () => {
-    const updates = Object.entries(pendingMilestones).map(([mId, v]) => ({
-      facilitySlug: activeFacility,
-      milestoneId: mId,
-      compDate: v.compDate || null,
-      customPct: v.customPct ?? null,
-      pppDate: mId === "M1" && pppDate ? pppDate : undefined,
-    }));
+    // Only send fields that were actually edited in this session, so a status
+    // change never clobbers compDate/customPct/pppDate and vice versa.
+    const updates: Array<{
+      facilitySlug: string;
+      milestoneId: string;
+      compDate?: string | null;
+      customPct?: number | null;
+      readyStatus?: ManualMilestoneStatus | null;
+      pppDate?: string;
+    }> = Object.entries(pendingMilestones).map(([mId, v]) => {
+      const u: {
+        facilitySlug: string;
+        milestoneId: string;
+        compDate?: string | null;
+        customPct?: number | null;
+        readyStatus?: ManualMilestoneStatus | null;
+        pppDate?: string;
+      } = { facilitySlug: activeFacility, milestoneId: mId };
+      if (v.compDate !== undefined) u.compDate = v.compDate;
+      if (v.customPct !== undefined) u.customPct = v.customPct;
+      if (v.readyStatus !== undefined) u.readyStatus = v.readyStatus;
+      if (mId === "M1" && pppDate) u.pppDate = pppDate;
+      return u;
+    });
 
     // Also save PPP date if changed
     if (pppDate) {
@@ -444,6 +470,15 @@ export default function GovernanceDashboard() {
 
   const onMsChange = (mId: string, field: "compDate" | "customPct", value: string | number) => {
     setPendingMilestones(prev => ({ ...prev, [mId]: { ...prev[mId], [field]: value } }));
+  };
+
+  // Manual status override: "" clears the override (Auto -> null), any
+  // approved value is stored as-is. Never touches compDate/customPct/pppDate.
+  const onStatusChange = (mId: string, value: string) => {
+    setPendingMilestones(prev => ({
+      ...prev,
+      [mId]: { ...prev[mId], readyStatus: value === "" ? null : (value as ManualMilestoneStatus) },
+    }));
   };
 
   // ─── Upload debug (visible on screen) ───
@@ -973,6 +1008,41 @@ export default function GovernanceDashboard() {
                       const pct = getCustomPct(m.id);
                       const planned = getPlannedDate(m.id);
                       const isComplete = isMilestoneCompleteAsOf(comp, null);
+                      const manualStatus = getReadyStatus(m.id);
+                      // Effective status: manual ready_status override first,
+                      // otherwise the derived badge (Simulated/Completed/In Progress/Pending).
+                      const effectiveStatus =
+                        manualStatus === "achieved" ? "Achieved"
+                        : manualStatus === "in_progress" ? "In progress"
+                        : manualStatus === "planned_open" ? "Planned by now — still open"
+                        : manualStatus === "upcoming" ? "Upcoming"
+                        : null;
+                      const statusBadge = effectiveStatus ? (
+                        <span className="stat bg-indigo-100 text-indigo-800">{effectiveStatus}</span>
+                      ) : isSimUnchecked(m.id) ? (
+                        <span className="stat bg-orange-100 text-orange-700">Simulated</span>
+                      ) : isComplete ? (
+                        <span className="stat bg-green-100 text-green-700">Completed</span>
+                      ) : pct > 0 ? (
+                        <span className="stat bg-yellow-100 text-yellow-700">In Progress</span>
+                      ) : (
+                        <span className="stat bg-gray-100 text-gray-500">Pending</span>
+                      );
+                      const statusSelect = (
+                        <select
+                          value={manualStatus}
+                          onChange={e => onStatusChange(m.id, e.target.value)}
+                          className="px-2 py-1 border border-gray-300 rounded text-sm bg-white text-gray-900"
+                          style={{ height: 38, minWidth: 170 }}
+                          title="Manual presentation status override (Auto = derive from evidence)"
+                        >
+                          <option value="">Auto</option>
+                          <option value="achieved">Achieved</option>
+                          <option value="in_progress">In progress</option>
+                          <option value="planned_open">Planned by now — still open</option>
+                          <option value="upcoming">Upcoming</option>
+                        </select>
+                      );
 
                       return (
                         <tr key={m.id} className="hover:bg-gray-50">
@@ -1012,15 +1082,7 @@ export default function GovernanceDashboard() {
                               <div className="ms-card-field">
                                 <label>Status</label>
                                 <div className="flex items-center gap-2">
-                                  {isSimUnchecked(m.id) ? (
-                                    <span className="stat bg-orange-100 text-orange-700">Simulated</span>
-                                  ) : isComplete ? (
-                                    <span className="stat bg-green-100 text-green-700">Completed</span>
-                                  ) : pct > 0 ? (
-                                    <span className="stat bg-yellow-100 text-yellow-700">In Progress</span>
-                                  ) : (
-                                    <span className="stat bg-gray-100 text-gray-500">Pending</span>
-                                  )}
+                                  {editMode ? statusSelect : statusBadge}
                                   <input
                                     type="checkbox"
                                     checked={!isSimUnchecked(m.id)}
@@ -1074,15 +1136,7 @@ export default function GovernanceDashboard() {
                               ) : (
                                 <span className={isComplete ? "text-green-700 font-semibold text-sm whitespace-nowrap" : "text-gray-400 text-sm whitespace-nowrap"}>{fmtDate(comp)}</span>
                               )}
-                              {isSimUnchecked(m.id) ? (
-                                <span className="ms-badge-stat bg-orange-100 text-orange-700">Simulated</span>
-                              ) : isComplete ? (
-                                <span className="ms-badge-stat bg-green-100 text-green-700">Completed</span>
-                              ) : pct > 0 ? (
-                                <span className="ms-badge-stat bg-yellow-100 text-yellow-700">In Progress</span>
-                              ) : (
-                                <span className="ms-badge-stat bg-gray-100 text-gray-500">Pending</span>
-                              )}
+                              {editMode ? statusSelect : statusBadge}
                               <input
                                 type="checkbox"
                                 checked={!isSimUnchecked(m.id)}
