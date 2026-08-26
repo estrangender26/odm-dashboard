@@ -211,7 +211,7 @@ describe("Governance V3 template generator", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const expected = [
-      { slide: 1, total: 157, sp: 155, gf: 0 },  // 148 template + 6 rail clones + 3 in-progress legend shapes
+      { slide: 1, total: 148, sp: 146, gf: 0 },  // 148 template - 9 residual ahead shapes + 6 rail clones + 3 in-progress legend shapes
       { slide: 2, total: 65, sp: 63, gf: 0 },
       { slide: 3, total: 17, sp: 14, gf: 1 },
     ];
@@ -497,27 +497,17 @@ describe("Slide 1 — data-driven milestone symbols", () => {
     expect(shapeAt(shapes, 5891213, 4752975).some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
   });
 
-  it("removes the 'Achieved ahead of plan' visual state and legend entry", async () => {
+  it("completely removes the 'Achieved ahead of plan' visual state and legend entry", async () => {
     const xml = await generateSlideXml(1, createTestData());
     const shapes = parseSlideShapes(xml);
-    // No ahead shape is visible anywhere (rails or legend).
-    for (const s of shapes) {
-      if (s.name.startsWith("Milestone ahead")) {
-        expect(s.visible).toBe(false);
-      }
-    }
-    // The removed legend entry is hidden.
-    const legendAhead = shapes.find((s) => s.name === "Legend ahead");
-    expect(legendAhead).toBeDefined();
-    expect(legendAhead!.visible).toBe(false);
-    // The three retained legend entries stay visible.
-    for (const name of ["Legend achieved", "Legend gap", "Legend upcoming"]) {
+    // No ahead shape remains anywhere in the slide (rails or legend).
+    expect(shapes.some((s) => s.name.startsWith("Milestone ahead") || s.name === "Legend ahead")).toBe(false);
+    // No residual ahead text anywhere in the generated XML.
+    expect(xml).not.toContain("Achieved ahead of plan");
+    // The retained legend entries stay visible.
+    for (const name of ["Legend achieved", "Legend in progress", "Legend gap", "Legend upcoming"]) {
       expect(shapes.find((s) => s.name === name)!.visible).toBe(true);
     }
-    // The legend no longer advertises the ahead state to the reader: no visible
-    // text run claims "Achieved ahead of plan".
-    const visibleText = shapes.filter((s) => s.visible).map((s) => s.text).join(" ");
-    expect(visibleText).not.toContain("Achieved ahead of plan");
   });
 
   it("does not let calendar-driven gaps masquerade as achievement on the rail", async () => {
@@ -810,7 +800,27 @@ describe("Slide 3 — executive note fits its allocated box", () => {
   });
 });
 
-describe("Slide 1 — in-progress (yellow) state", () => {
+  function runTextColorAt(xml: string, namePrefix: string, x: number, y: number): string | null {
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+    const sps = doc.getElementsByTagName("p:sp");
+    for (let i = 0; i < sps.length; i++) {
+      const sp = sps[i] as unknown as Element;
+      const cNvPr = sp.getElementsByTagName("p:cNvPr")[0];
+      const name = cNvPr?.getAttribute("name") || "";
+      if (!name.startsWith(namePrefix)) continue;
+      const off = sp.getElementsByTagName("a:off")[0];
+      if (!off) continue;
+      if (Number(off.getAttribute("x")) === x && Number(off.getAttribute("y")) === y) {
+        const vis = cNvPr.getAttribute("visible");
+        if (vis === "0") return null;
+        const rPr = sp.getElementsByTagName("a:rPr")[0];
+        const srgb = rPr?.getElementsByTagName("a:srgbClr")[0];
+        return srgb?.getAttribute("val") ?? null;
+      }
+    }
+    return null;
+  }
+
   function firstSrgbClrAt(xml: string, namePrefix: string, x: number, y: number): string | null {
     const doc = new DOMParser().parseFromString(xml, "text/xml");
     const sps = doc.getElementsByTagName("p:sp");
@@ -831,23 +841,25 @@ describe("Slide 1 — in-progress (yellow) state", () => {
     return null;
   }
 
-  it("renders an in-progress milestone as a yellow dot with the in-progress symbol", async () => {
+describe("Slide 1 — in-progress (yellow) state", () => {
+  it("renders an in-progress milestone as a yellow dot (fill+outline) with a navy in-progress symbol", async () => {
     const data = createTestData();
     const aglipay = data.facilities.find((f) => f.slug === "aglipay")!;
+    // Use M6 for the synthetic in-progress case: M5 is under the temporary
+    // Slide 1 override and must stay green in this deck.
     aglipay.milestones = aglipay.milestones.map((m) =>
-      m.code === "M5" ? { ...m, status: "in_progress" as const } : m
+      m.code === "M6" ? { ...m, status: "in_progress" as const } : m
     );
     const xml = await generateSlideXml(1, data);
 
-    // Yellow dot at AGLIPAY M5 column (rail row y=2352675) and navy "…" symbol.
-    const dotFill = firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, 2352675);
-    expect(dotFill).toBe("FFC000");
-    const symbolFill = firstSrgbClrAt(xml, "Milestone achieved Symbol", 6919913, 2362200);
-    expect(symbolFill).toBe("071B3D");
+    // Yellow dot at AGLIPAY M6 column (rail row y=2352675): fill AND outline yellow.
+    expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 7891463, 2352675)).toBe("FFC000");
+    // The visible run glyph is navy and is the in-progress ellipsis.
+    expect(runTextColorAt(xml, "Milestone achieved Symbol", 7920038, 2362200)).toBe("071B3D");
     const shapes = parseSlideShapes(xml);
-    const sym = shapeAt(shapes, 6919913, 2362200).find((s) => s.visible);
+    const sym = shapeAt(shapes, 7920038, 2362200).find((s) => s.visible);
     expect(sym?.text).toContain("…");
-    // Other achieved milestones remain green.
+    // Other achieved milestones remain green with green outline.
     expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 2890838, 2352675)).toBe("169873");
   });
 
@@ -892,5 +904,79 @@ describe("Slide 1 — in-progress (yellow) state", () => {
     // The ahead entry is still removed from the visible legend.
     const visibleText = shapes.filter((s) => s.visible).map((s) => s.text).join(" ");
     expect(visibleText).not.toContain("Achieved ahead of plan");
+  });
+});
+
+describe("Slide 1 — temporary M5 achieved override (AGLIPAY/HTT)", () => {
+  it("renders AGLIPAY M5 and HTT M5 as green achieved, never yellow", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    const shapes = parseSlideShapes(xml);
+    // AGLIPAY M5 (x=6891338, row y=2352675) and HTT M5 (row y=3152775) show a
+    // green achieved dot (fill 169873) with a white check symbol.
+    for (const dotY of [2352675, 3152775]) {
+      expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, dotY)).toBe("169873");
+      const dot = shapeAt(shapes, 6891338, dotY).find((s) => s.name.startsWith("Milestone achieved Dot") && s.visible);
+      expect(dot).toBeDefined();
+      const sym = shapeAt(shapes, 6919913, dotY + 9525).find((s) => s.name.startsWith("Milestone achieved Symbol") && s.visible);
+      expect(sym?.text).toContain("✓");
+    }
+    // No yellow anywhere in the rail area for these overridden milestones.
+    expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, 2352675)).not.toBe("FFC000");
+    expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, 3152775)).not.toBe("FFC000");
+  });
+
+  it("keeps all other facility milestone states data-driven (unchanged)", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    const shapes = parseSlideShapes(xml);
+    // EASTBAY M5 and KAYSAKAT M5 are NOT overridden: they remain upcoming (gray).
+    expect(shapeAt(shapes, 6891338, 3952875).some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
+    expect(shapeAt(shapes, 6891338, 4752975).some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
+    // KAYSAKAT M1 stays achieved (1 of 9), M2/M3 stay gap, per the fixture.
+    expect(shapeAt(shapes, 2890838, 4752975).some((s) => s.name.startsWith("Milestone achieved Dot") && s.visible)).toBe(true);
+    expect(shapeAt(shapes, 3890963, 4752975).some((s) => s.name === "Milestone gap Dot" && s.visible)).toBe(true);
+    expect(shapeAt(shapes, 4891088, 4752975).some((s) => s.name === "Milestone gap Dot" && s.visible)).toBe(true);
+  });
+});
+
+describe("Slide 1 — legend integrity (four entries, no overlap, no residual ahead)", () => {
+  it("shows exactly four visible legend entries and no residual ahead text", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    expect(xml).not.toContain("Achieved ahead of plan");
+    const shapes = parseSlideShapes(xml);
+    const legendStrips = ["Legend achieved", "Legend in progress", "Legend gap", "Legend upcoming"]
+      .map((name) => shapes.find((s) => s.name === name && s.visible))
+      .filter(Boolean);
+    expect(legendStrips).toHaveLength(4);
+    // No "ahead" shapes remain anywhere.
+    expect(shapes.some((s) => s.name.startsWith("Milestone ahead") || s.name === "Legend ahead")).toBe(false);
+  });
+
+  it("lays the legend entries out left-to-right without overlapping each other or NEXT GATE", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    const shapes = parseSlideShapes(xml);
+    const stripXs: number[] = [];
+    for (const name of ["Legend achieved", "Legend in progress", "Legend gap", "Legend upcoming"]) {
+      const s = shapes.find((shape) => shape.name === name && shape.visible)!;
+      stripXs.push(s.x);
+    }
+    // Strictly increasing left-to-right order.
+    expect(stripXs).toEqual([...stripXs].sort((a, b) => a - b));
+    // Strips do not overlap: each next strip starts after the previous strip's
+    // width (strip width 2143125 EMU from the approved template).
+    for (let i = 1; i < stripXs.length; i++) {
+      expect(stripXs[i]).toBeGreaterThanOrEqual(stripXs[i - 1] + 2143125);
+    }
+    // The whole legend row sits above the NEXT GATE strip (no overlap).
+    const legendBottom = 5743575; // dots bottom
+    const nextGateTop = 5953125;  // Executive Action Strip top
+    expect(legendBottom).toBeLessThan(nextGateTop);
+    // Legend markers are horizontally within the legend background
+    // (x 457200..11425250) and not over the rail area.
+    for (const s of shapes) {
+      if (s.y >= 5476875 && s.visible) {
+        expect(s.x).toBeGreaterThanOrEqual(457200);
+        expect(s.x).toBeLessThanOrEqual(11425250);
+      }
+    }
   });
 });

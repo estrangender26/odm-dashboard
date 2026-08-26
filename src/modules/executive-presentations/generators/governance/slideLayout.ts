@@ -256,17 +256,37 @@ export function isShapeVisible(shape: XmlElement): boolean {
 }
 
 /**
- * Recolor the first solid-fill swatch in a shape (spPr fill for dots/rails,
- * run text color for symbols). Used to build the yellow "in progress" visual
- * from a cloned green achieved dot / white check symbol.
+ * Recolor a solid shape's fill AND outline (all a:srgbClr inside its spPr) so
+ * a cloned dot keeps a single clean color (e.g. yellow dot + yellow outline).
  */
-export function setFirstSrgbClr(shape: XmlElement, hex: string): void {
-  const fills = shape.getElementsByTagNameNS(
+export function setShapeSolidFill(shape: XmlElement, hex: string): void {
+  const spPr = getElementsByTagNameNS(shape, "p", "spPr")[0];
+  if (!spPr) return;
+  const fills = spPr.getElementsByTagNameNS(
     "http://schemas.openxmlformats.org/drawingml/2006/main",
     "srgbClr"
   );
-  if (fills.length === 0) return;
-  (fills[0] as XmlElement).setAttribute("val", hex);
+  for (let i = 0; i < fills.length; i++) {
+    (fills[i] as XmlElement).setAttribute("val", hex);
+  }
+}
+
+/**
+ * Recolor the rendered run text color (the a:r/a:rPr solid fill) of a symbol
+ * shape. The defRPr swatch is intentionally left untouched — the visible glyph
+ * color is the run's own rPr.
+ */
+export function setRunTextColor(shape: XmlElement, hex: string): void {
+  const runs = shape.getElementsByTagNameNS(
+    "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "r"
+  );
+  for (let i = 0; i < runs.length; i++) {
+    const rPr = getElementsByTagNameNS(runs[i] as XmlElement, "a", "rPr")[0];
+    const solidFill = rPr ? getElementsByTagNameNS(rPr, "a", "solidFill")[0] : null;
+    const srgb = solidFill ? getElementsByTagNameNS(solidFill, "a", "srgbClr")[0] : null;
+    if (srgb) srgb.setAttribute("val", hex);
+  }
 }
 
 /**
