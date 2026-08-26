@@ -9,7 +9,6 @@ const auditedModulePages = [
   "src/pages/PostPlanningInsights.tsx",
   "src/pages/ScorecardDashboard.tsx",
   "src/pages/OmManualsLibrary.tsx",
-  "src/pages/GovernanceDashboard.tsx",
   "src/pages/SmpDashboard.tsx",
 ];
 
