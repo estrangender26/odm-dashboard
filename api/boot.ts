@@ -23,6 +23,7 @@ import {
 import fs from "fs";
 import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
+import { isValidManualStatus } from "../src/modules/governance-v3/milestoneStatusManual";
 import { aggregateMonthlyKpiRecords, computeMonthlyKpiValuesFromRaw, normalizeBusinessUnitLabel, normalizeKpiNumber } from "../src/modules/monthly-kpi/kpiAggregation";
 import type { PersistedMonthlyKpiRecord } from "../src/modules/monthly-kpi/kpiAggregation";
 import { installRequestBodyGuard } from "./request-body-guard";
@@ -1682,6 +1683,12 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
     console.log('[SAVE-BE] facility='+facilitySlug+' body:',JSON.stringify(body));
     const { milestoneId, compDate, customPct, pppDate, readyStatus, remarks } = body;
     if (!milestoneId) return c.json({ error: "milestoneId required" }, 400);
+    // Manual status override whitelist: only approved values or null (Auto).
+    // Arbitrary strings are rejected server-side.
+    if (readyStatus !== undefined && readyStatus !== null && !isValidManualStatus(readyStatus)) {
+      console.warn('[SAVE-BE] REJECTED invalid readyStatus:', JSON.stringify(readyStatus));
+      return c.json({ error: "Invalid readyStatus. Allowed: achieved, in_progress, planned_open, upcoming, null." }, 400);
+    }
     // Sanitize date inputs — reject garbage strings like "undefined"
     const sanitizedPP = pppDate !== undefined
       ? (isValidDate(pppDate) ? pppDate : (pppDate === null ? null : undefined))

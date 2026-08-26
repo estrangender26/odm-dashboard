@@ -695,6 +695,10 @@ async function fetchStateFromDB(facility,opts){
         console.log('[LOAD-FE] → compDate CLEARED for',mid);
       }
       if(s.custom_pct!=null)ST[facility].ms[mid].pct=s.custom_pct;
+      // Manual status override (ready_status) — canonical values or null (Auto)
+      var rawRS=s.ready_status!==undefined?s.ready_status:(s.readyStatus!==undefined?s.readyStatus:null);
+      if(rawRS===null||rawRS===''||rawRS==='null'){delete ST[facility].ms[mid].readyStatus;}
+      else{ST[facility].ms[mid].readyStatus=rawRS;}
       mCount++;
     });
     // Map PPP from M1
@@ -755,7 +759,7 @@ async function fetchStateFromDB(facility,opts){
 // Save milestone state to DB
 async function saveMilestoneToDB(facility,mId,changes){
   try{
-    var payload={milestoneId:mId,compDate:changes.compDate!==undefined?changes.compDate:undefined,customPct:changes.pct!==undefined?changes.pct:undefined,pppDate:changes.ppp!==undefined?changes.ppp:undefined};
+    var payload={milestoneId:mId,compDate:changes.compDate!==undefined?changes.compDate:undefined,customPct:changes.pct!==undefined?changes.pct:undefined,pppDate:changes.ppp!==undefined?changes.ppp:undefined,readyStatus:changes.readyStatus!==undefined?changes.readyStatus:undefined};
     console.log('[SAVE-FE] Sending to REST:',facility,mId,JSON.stringify(payload));
     var resp=await fetch(API_BASE+'/api/governance/state/'+encodeURIComponent(facility),{
       method:'POST',
@@ -1470,14 +1474,41 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       if(!EDIT_MODE){console.log('[DATE] Ignored - not edit mode');return;}
       var f=document.getElementById('fs').value;
       if(!PENDING[f])PENDING[f]={ms:{}};
-      PENDING[f].ms[mid]={compDate:ev.target.value||null};
+      PENDING[f].ms[mid]=Object.assign({},PENDING[f].ms[mid],{compDate:ev.target.value||null});
       console.log('[DATE] PENDING updated:',PENDING);
       updateEditButtons();ALL();
     });
     c5.appendChild(compIn);metaWrap.appendChild(c5);
-    // Column 7: Plan% badge
+    // Column 7: Plan% badge (STATUS) — percentage always visible; manual
+    // ready_status override shown compactly; dropdown appears in Edit mode.
+    var f=document.getElementById('fs').value;
     var c7=document.createElement('div');c7.className='mst';
-    var badge=document.createElement('span');badge.className='badge '+rc;badge.dataset.tip='Completion: '+effPct+'%'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?' (manual)':' (auto from uploads)');badge.textContent=effPct+'%';c7.appendChild(badge);metaWrap.appendChild(c7);
+    var badge=document.createElement('span');badge.className='badge '+rc;badge.dataset.tip='Completion: '+effPct+'%'+(c.ms[mid].pct!==null&&c.ms[mid].pct!==undefined?' (manual)':' (auto from uploads)');badge.textContent=effPct+'%';c7.appendChild(badge);
+    var pendRS=(PENDING[f]&&PENDING[f].ms&&PENDING[f].ms[mid]&&PENDING[f].ms[mid].readyStatus!==undefined)?PENDING[f].ms[mid].readyStatus:null;
+    var effRS=pendRS!==null?pendRS:(c.ms[mid]&&c.ms[mid].readyStatus?c.ms[mid].readyStatus:null);
+    var RS_LABELS={achieved:'Achieved',in_progress:'In progress',planned_open:'Planned by now — still open',upcoming:'Upcoming'};
+    var RS_COLORS={achieved:'#169873',in_progress:'#b45309',planned_open:'#d1383e',upcoming:'#64748b'};
+    if(effRS&&RS_LABELS[effRS]){
+      var chip=document.createElement('span');chip.style.cssText='display:block;font-size:9px;font-weight:700;margin-top:2px;letter-spacing:0.3px;white-space:nowrap';chip.style.color=RS_COLORS[effRS];chip.textContent=RS_LABELS[effRS];c7.appendChild(chip);
+    }
+    var stSel=document.createElement('select');
+    stSel.style.cssText='padding:2px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:10px;font-family:Inter,sans-serif;max-width:150px;background:#fff;color:#0f172a;margin-top:3px;display:block;margin-left:auto;margin-right:auto;';
+    // Dropdown is an EDIT-mode control only — hidden in view mode so the
+    // original compact row layout and the status chip are preserved.
+    stSel.style.display=EDIT_MODE?'block':'none';
+    stSel.disabled=!EDIT_MODE;stSel.title='Manual status override (Auto = derive from evidence)';
+    [['','Auto'],['achieved','Achieved'],['in_progress','In progress'],['planned_open','Planned by now — still open'],['upcoming','Upcoming']].forEach(function(o){
+      var oEl=document.createElement('option');oEl.value=o[0];oEl.textContent=o[1];stSel.appendChild(oEl);
+    });
+    stSel.value=effRS||'';
+    stSel.addEventListener('change',function(ev){
+      if(!EDIT_MODE){return;}
+      var f2=document.getElementById('fs').value;
+      if(!PENDING[f2])PENDING[f2]={ms:{}};
+      PENDING[f2].ms[mid]=Object.assign({},PENDING[f2].ms[mid],{readyStatus:ev.target.value===''?null:ev.target.value});
+      updateEditButtons();ALL();
+    });
+    c7.appendChild(stSel);metaWrap.appendChild(c7);
     // Column 8: Checkbox
     var c8=document.createElement('div');c8.className='msc';
     var cb=document.createElement('input');cb.type='checkbox';cb.checked=isComp;cb.title='Toggle completion';console.log('[RENDER] '+mid+' isComp='+isComp+' compDate='+st.compDate);cb.disabled=!EDIT_MODE;cb.style.cssText='cursor:'+(EDIT_MODE?'pointer':'not-allowed')+';width:18px;height:18px;display:inline-block;opacity:'+(EDIT_MODE?'1':'.5')+';-webkit-appearance:checkbox;-moz-appearance:checkbox;appearance:auto;';cb.addEventListener('change',function(ev){
@@ -1487,7 +1518,7 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
       var dbCompleted=ST[f]&&ST[f].ms&&ST[f].ms[mid]&&ST[f].ms[mid].compDate;
       var checked=ev.target.checked;
       console.log('[CHK] dbCompleted='+dbCompleted+', checked='+checked+', match='+(checked===!!dbCompleted));
-      if(checked===!!dbCompleted){console.log('[CHK] Reverting to DB');if(PENDING[f])delete PENDING[f].ms[mid];updateEditButtons();ALL();return;}
+      if(checked===!!dbCompleted){console.log('[CHK] Reverting to DB');if(PENDING[f]&&PENDING[f].ms&&PENDING[f].ms[mid]){delete PENDING[f].ms[mid].compDate;if(Object.keys(PENDING[f].ms[mid]).length===0)delete PENDING[f].ms[mid];}updateEditButtons();ALL();return;}
       if(!PENDING[f])PENDING[f]={ms:{}};
       if(checked){
         var ppDate=normalizeDateOnly(ST[f]&&ST[f].pp)||normalizeDateOnly(ST[f]&&ST[f].ms&&ST[f].ms['M1']&&ST[f].ms['M1'].pppDate)||'';
@@ -1504,10 +1535,10 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
           dt=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
           console.log('[CHK] No PPP date, using today for '+mid+':',dt);
         }
-        PENDING[f].ms[mid]={compDate:dt};
+        PENDING[f].ms[mid]=Object.assign({},PENDING[f].ms[mid],{compDate:dt});
         console.log('[CHK] Set complete: ppDate='+ppDate+' offset='+MSD[mid].o+' dt='+dt);
       }
-      else{PENDING[f].ms[mid]={compDate:null,done:false};console.log('[CHK] Set incomplete (null)');}
+      else{PENDING[f].ms[mid]=Object.assign({},PENDING[f].ms[mid],{compDate:null,done:false});console.log('[CHK] Set incomplete (null)');}
       console.log('[CHK] PENDING now:',JSON.stringify(PENDING));updateEditButtons();ALL();
     });
     c8.appendChild(cb);metaWrap.appendChild(c8);
@@ -1774,7 +1805,10 @@ async function saveAll(){
       return new Promise(function(resolve){
         var mId=e[0],v=e[1];
         if(!ST[f].ms[mId])ST[f].ms[mId]={done:false};
-        if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;saveMilestoneToDB(f,mId,{compDate:v.compDate}).then(resolve).catch(resolve);}
+        var ch={};
+        if(v.compDate!==undefined){ST[f].ms[mId].compDate=v.compDate;ST[f].ms[mId].done=!!v.compDate;ch.compDate=v.compDate;}
+        if(v.readyStatus!==undefined){ST[f].ms[mId].readyStatus=v.readyStatus;ch.readyStatus=v.readyStatus;}
+        if(Object.keys(ch).length>0){saveMilestoneToDB(f,mId,ch).then(resolve).catch(resolve);}
         else{resolve();}
       });
     }));
