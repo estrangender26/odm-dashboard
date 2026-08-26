@@ -153,7 +153,6 @@ describe("direct Storage security boundaries", () => {
     const browserFiles = [
       "src/lib/direct-storage-upload.ts",
       "src/pages/OmManualsLibrary.tsx",
-      "src/pages/GovernanceDashboard.tsx",
       "src/pages/SmpDashboard.tsx",
       "public/governance-storage-upload.js",
       "public/governance.html",

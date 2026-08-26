@@ -315,11 +315,26 @@ app.get("/api/oauth/authorize", (c) => {
 
 logBootStage("registering static HTML dashboard routes");
 
-// Note: the legacy /governance handler serving dist/public/governance.html was
-// removed — /governance now falls through to the React SPA (GovernanceDashboard)
-// via the static-file SPA fallback. The legacy page remains available at
-// /governance-legacy.html (public/governance-legacy.html) if static serving
-// supports it.
+// Serve O&M Governance Dashboard at /governance
+app.get("/governance", async (c) => {
+  const dp = distPath || findDistPublic();
+  if (!dp) return c.json({ error: "dist/public not found" }, 500);
+  const governancePath = path.join(dp, "governance.html");
+  if (fs.existsSync(governancePath)) {
+    const content = fs.readFileSync(governancePath, "utf-8");
+    // Aggressive cache-busting: unique ETag based on file mtime + content length
+    const stat = fs.statSync(governancePath);
+    const etag = `"gov-${stat.mtime.getTime()}-${content.length}"`;
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
+    c.header("Pragma", "no-cache");
+    c.header("Expires", "0");
+    c.header("Vary", "*");
+    c.header("ETag", etag);
+    // If client sends matching If-None-Match, still return 200 to force refresh
+    return c.html(content);
+  }
+  return c.json({ error: "Governance dashboard not found", path: governancePath }, 404);
+});
 
 // Serve Manila Water Operator-Driven Maintenance Dashboard at /mw-dashboard
 app.get("/mw-dashboard", async (c) => {
