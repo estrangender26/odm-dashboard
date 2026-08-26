@@ -23,6 +23,8 @@ function makeFacility(
       submitted: i < submittedCount,
       documentCount: i < submittedCount ? 1 : 0,
     })),
+    referenceCount: 1,
+    milestoneFileCount: submittedCount,
   };
   const facility: FacilityData = {
     slug,
@@ -48,10 +50,12 @@ const baseSummary: PortfolioSummary = {
   totalDocumentsSubmitted: 19,
   totalDocumentsRequired: 56,
   portfolioCompliancePercent: 34,
+  totalReferenceFiles: 4,
+  totalMilestoneFiles: 19,
 };
 
 describe("generateExecutiveContent", () => {
-  it("uses the high-compliance implication for facilities at or above 75%", () => {
+  it("reports the actual high-compliance facility state including missing files and references", () => {
     const { facility, doc } = makeFacility(
       "htt",
       "HTT STP",
@@ -62,17 +66,19 @@ describe("generateExecutiveContent", () => {
     );
     const result = generateExecutiveContent(
       [facility],
-      { ...baseSummary, totalDocumentsSubmitted: 11, totalDocumentsRequired: 14, portfolioCompliancePercent: 79 },
+      { ...baseSummary, totalDocumentsSubmitted: 11, totalDocumentsRequired: 14, portfolioCompliancePercent: 79, totalReferenceFiles: 1, totalMilestoneFiles: 11 },
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.htt).toContain("Leads portfolio readiness");
-    expect(result.facilityObservations.htt).toContain("outstanding governance deliverables");
+    expect(result.facilityObservations.htt).toContain("HTT: Active PPP with 79% documentation compliance");
+    expect(result.facilityObservations.htt).toContain("3 TOC deliverables missing");
+    expect(result.facilityObservations.htt).toContain("11 milestone files");
+    expect(result.facilityObservations.htt).toContain("1 reference");
     expect(result.facilityObservations.htt).not.toContain("as-built");
     expect(result.facilityObservations.htt).not.toContain("handover");
   });
 
-  it("uses the mid-compliance implication for facilities between 30% and 74%", () => {
+  it("reports the actual mid-compliance facility state including missing files and references", () => {
     const { facility, doc } = makeFacility(
       "eastbay",
       "EASTBAY PH-2 TP",
@@ -83,16 +89,17 @@ describe("generateExecutiveContent", () => {
     );
     const result = generateExecutiveContent(
       [facility],
-      { ...baseSummary, totalDocumentsSubmitted: 7, totalDocumentsRequired: 14, portfolioCompliancePercent: 50 },
+      { ...baseSummary, totalDocumentsSubmitted: 7, totalDocumentsRequired: 14, portfolioCompliancePercent: 50, totalReferenceFiles: 1, totalMilestoneFiles: 7 },
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.eastbay).toContain(
-      "Progressing but still requires focused documentation closure"
-    );
+    expect(result.facilityObservations.eastbay).toContain("EASTBAY: Pre-PPP readiness with 50% documentation compliance");
+    expect(result.facilityObservations.eastbay).toContain("7 TOC deliverables missing");
+    expect(result.facilityObservations.eastbay).toContain("7 milestone files");
+    expect(result.facilityObservations.eastbay).toContain("1 reference");
   });
 
-  it("uses the low-compliance implication for facilities between 10% and 29%", () => {
+  it("reports the actual low-compliance facility state including missing files and references", () => {
     const { facility, doc } = makeFacility(
       "aglipay",
       "AGLIPAY STP",
@@ -103,16 +110,17 @@ describe("generateExecutiveContent", () => {
     );
     const result = generateExecutiveContent(
       [facility],
-      { ...baseSummary, totalDocumentsSubmitted: 3, totalDocumentsRequired: 14, portfolioCompliancePercent: 21 },
+      { ...baseSummary, totalDocumentsSubmitted: 3, totalDocumentsRequired: 14, portfolioCompliancePercent: 21, totalReferenceFiles: 1, totalMilestoneFiles: 3 },
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.aglipay).toContain(
-      "Requires accelerated documentation recovery before the next gate"
-    );
+    expect(result.facilityObservations.aglipay).toContain("AGLIPAY: Active PPP with 21% documentation compliance");
+    expect(result.facilityObservations.aglipay).toContain("11 TOC deliverables missing");
+    expect(result.facilityObservations.aglipay).toContain("3 milestone files");
+    expect(result.facilityObservations.aglipay).toContain("1 reference");
   });
 
-  it("uses the very-low-compliance implication for facilities below 10%", () => {
+  it("reports the actual very-low-compliance facility state including missing files and references", () => {
     const { facility, doc } = makeFacility(
       "kaysakat",
       "KAYSAKAT TP",
@@ -123,13 +131,14 @@ describe("generateExecutiveContent", () => {
     );
     const result = generateExecutiveContent(
       [facility],
-      { ...baseSummary, totalDocumentsSubmitted: 1, totalDocumentsRequired: 14, portfolioCompliancePercent: 7 },
+      { ...baseSummary, totalDocumentsSubmitted: 1, totalDocumentsRequired: 14, portfolioCompliancePercent: 7, totalReferenceFiles: 1, totalMilestoneFiles: 1 },
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.kaysakat).toContain(
-      "Early-stage readiness; immediate completion of core governance documentation is required"
-    );
+    expect(result.facilityObservations.kaysakat).toContain("KAYSAKAT: Pre-PPP readiness with 7% documentation compliance");
+    expect(result.facilityObservations.kaysakat).toContain("13 TOC deliverables missing");
+    expect(result.facilityObservations.kaysakat).toContain("1 milestone file");
+    expect(result.facilityObservations.kaysakat).toContain("1 reference");
   });
 
   it("changes next-gate wording when PPP facilities have incomplete M4/M5 milestones", () => {
@@ -153,6 +162,8 @@ describe("generateExecutiveContent", () => {
       requiredCount: 14,
       compliancePercent: 79,
       submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
     };
     const result = generateExecutiveContent(
       [facility],
@@ -185,6 +196,8 @@ describe("generateExecutiveContent", () => {
       requiredCount: 14,
       compliancePercent: 21,
       submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
     };
     const result = generateExecutiveContent(
       [facility],
@@ -215,6 +228,8 @@ describe("generateExecutiveContent", () => {
       requiredCount: 14,
       compliancePercent: 7,
       submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
     };
     const result = generateExecutiveContent(
       [facility],
@@ -233,7 +248,7 @@ describe("generateExecutiveContent", () => {
     ]);
     const result1 = generateExecutiveContent(
       [f1.facility],
-      { ...baseSummary, totalDocumentsSubmitted: 11, totalDocumentsRequired: 14, portfolioCompliancePercent: 79 },
+      { ...baseSummary, totalDocumentsSubmitted: 1, totalDocumentsRequired: 14, portfolioCompliancePercent: 7 },
       [f1.doc],
       new Date("2026-08-01")
     );
@@ -242,11 +257,188 @@ describe("generateExecutiveContent", () => {
     const f2 = makeFacility("eastbay", "EASTBAY PH-2 TP", "2026-09-01", "PRE-PPP", "PRE-PPP • RECOVERY", 29);
     const result2 = generateExecutiveContent(
       [f2.facility],
-      { ...baseSummary, totalDocumentsSubmitted: 4, totalDocumentsRequired: 14, portfolioCompliancePercent: 29 },
+      { ...baseSummary, totalDocumentsSubmitted: 1, totalDocumentsRequired: 14, portfolioCompliancePercent: 7 },
       [f2.doc],
       new Date("2026-08-01")
     );
     expect(result2.nextGateAction).toContain("EASTBAY");
     expect(result2.nextGateAction).not.toContain("HTT");
+  });
+});
+
+describe("Data-derived NEXT GATE and GATE IMPLICATION", () => {
+  const fourFacilities = () => [
+    makeFacility("aglipay", "AGLIPAY STP", "2026-03-13", "PPP", "PPP ACTIVE", 21, [
+      { code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "gap" },
+    ]),
+    makeFacility("htt", "HTT STP", "2026-03-13", "PPP", "PPP ACTIVE", 79, [
+      { code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "gap" },
+    ]),
+    makeFacility("eastbay", "EASTBAY PH-2 TP", "2026-09-01", "PRE-PPP", "PRE-PPP • GATE READY", 29, [
+      { code: "M1", name: "T&C Complete", phase: "PRE-PPP", status: "achieved" },
+    ]),
+    makeFacility("kaysakat", "KAYSAKAT TP", "2026-09-01", "PRE-PPP", "PRE-PPP • RECOVERY", 7, [
+      { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "gap" },
+    ]),
+  ];
+
+  it("derives NEXT GATE from actual open milestones, not hard-coded text", () => {
+    const facilities = fourFacilities();
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-01")
+    );
+    expect(result.nextGateAction).toContain("complete SAP-PM task list setup");
+    expect(result.nextGateAction).toContain("AGLIPAY");
+    expect(result.nextGateAction).toContain("HTT");
+  });
+
+  it("changes NEXT GATE when the underlying milestone state changes", () => {
+    const facilities = fourFacilities();
+    // Move every facility's PPP start into the past and close all open
+    // milestones → no gaps, no future-PPP gate → fallback statement.
+    for (const f of facilities) {
+      f.facility.pppStartDate = "2026-03-13";
+      f.facility.currentPhase = "PPP";
+      f.facility.phaseStatus = "PPP ACTIVE";
+    }
+    facilities[0].facility.milestones = [{ code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "achieved" }];
+    facilities[1].facility.milestones = [{ code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "achieved" }];
+    facilities[2].facility.milestones = [
+      { code: "M1", name: "T&C Complete", phase: "PRE-PPP", status: "achieved" },
+      { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "achieved" },
+      { code: "M3", name: "Punchlist Closed", phase: "PRE-PPP", status: "achieved" },
+    ];
+    facilities[3].facility.milestones = [
+      { code: "M1", name: "T&C Complete", phase: "PRE-PPP", status: "achieved" },
+      { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "achieved" },
+      { code: "M3", name: "Punchlist Closed", phase: "PRE-PPP", status: "achieved" },
+    ];
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-01")
+    );
+    expect(result.nextGateAction).not.toContain("complete SAP-PM task list setup");
+    expect(result.nextGateAction).not.toContain("close remaining Pre-PPP readiness gaps");
+    expect(result.nextGateAction).toContain("Next gate: Continue milestone progression");
+  });
+
+  it("derives GATE IMPLICATION from future-PPP facilities and their real PPP start months", () => {
+    const facilities = fourFacilities();
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-01")
+    );
+    expect(result.gateImplication).toContain("EASTBAY");
+    expect(result.gateImplication).toContain("KAYSAKAT");
+    expect(result.gateImplication).toContain("September 2026");
+  });
+
+  it("changes GATE IMPLICATION when no facility is still pre-PPP", () => {
+    const facilities = fourFacilities();
+    facilities[2].facility.pppStartDate = "2026-03-13";
+    facilities[2].facility.currentPhase = "PPP";
+    facilities[2].facility.phaseStatus = "PPP ACTIVE";
+    facilities[3].facility.pppStartDate = "2026-03-13";
+    facilities[3].facility.currentPhase = "PPP";
+    facilities[3].facility.phaseStatus = "PPP ACTIVE";
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-01")
+    );
+    expect(result.gateImplication).not.toContain("EASTBAY and KAYSAKAT");
+  });
+
+  it("produces different commentary for different facility records (no stale text)", () => {
+    const low = makeFacility("kaysakat", "KAYSAKAT TP", "2026-09-01", "PRE-PPP", "PRE-PPP • RECOVERY", 7);
+    const high = makeFacility("htt", "HTT STP", "2026-03-13", "PPP", "PPP ACTIVE", 79);
+    const resultLow = generateExecutiveContent([low.facility], baseSummary, [low.doc], new Date("2026-08-01"));
+    const resultHigh = generateExecutiveContent([high.facility], baseSummary, [high.doc], new Date("2026-08-01"));
+    expect(resultLow.facilityObservations.kaysakat).not.toBe(resultHigh.facilityObservations.htt);
+    expect(resultLow.facilityObservations.kaysakat).toContain("7%");
+    expect(resultHigh.facilityObservations.htt).toContain("79%");
+  });
+});
+
+describe("Missing PPP start date — no fabricated dates in commentary", () => {
+  it("renders TBD and never a fabricated date when a facility has no PPP start", () => {
+    const facility: FacilityData = {
+      slug: "kaysakat",
+      name: "KAYSAKAT Treatment Plant",
+      shortName: "KAYSAKAT TP",
+      color: "#F4A261",
+      pppStartDate: "",
+      currentPhase: "PRE-PPP",
+      phaseStatus: "PRE-PPP • RECOVERY",
+      milestones: [
+        { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "gap" },
+      ],
+      executiveObservation: "",
+    };
+    const doc: FacilityDocumentation = {
+      facilitySlug: "kaysakat",
+      facilityName: "KAYSAKAT Treatment Plant",
+      submittedCount: 1,
+      requiredCount: 14,
+      compliancePercent: 7,
+      submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
+    };
+    const result = generateExecutiveContent(
+      [facility],
+      baseSummary,
+      [doc],
+      new Date("2026-08-01")
+    );
+    expect(result.nextGateAction).toContain("TBD");
+    expect(result.nextGateAction).not.toContain("2026-01-01");
+    expect(result.nextGateAction).not.toContain("Invalid Date");
+    expect(result.gateImplication).toContain("TBD");
+    expect(result.gateImplication).not.toContain("2026-01-01");
+    expect(result.gateImplication).not.toContain("Invalid Date");
+    expect(result.facilityObservations.kaysakat).not.toContain("2026-01-01");
+  });
+
+  it("derives the PPP start month and year from the real date (no hard-coded 2026)", () => {
+    const facility: FacilityData = {
+      slug: "eastbay",
+      name: "EASTBAY Phase 2 Treatment Plant",
+      shortName: "EASTBAY PH-2 TP",
+      color: "#10B981",
+      pppStartDate: "2027-03-01",
+      currentPhase: "PRE-PPP",
+      phaseStatus: "PRE-PPP • GATE READY",
+      milestones: [
+        { code: "M1", name: "T&C Complete", phase: "PRE-PPP", status: "achieved" },
+      ],
+      executiveObservation: "",
+    };
+    const doc: FacilityDocumentation = {
+      facilitySlug: "eastbay",
+      facilityName: "EASTBAY Phase 2 Treatment Plant",
+      submittedCount: 4,
+      requiredCount: 14,
+      compliancePercent: 29,
+      submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
+    };
+    const result = generateExecutiveContent(
+      [facility],
+      baseSummary,
+      [doc],
+      new Date("2026-08-01")
+    );
+    expect(result.nextGateAction).toContain("March 2027");
+    expect(result.nextGateAction).not.toContain("2026-01-01");
   });
 });
