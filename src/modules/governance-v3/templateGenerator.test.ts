@@ -432,7 +432,7 @@ describe("Governance V3 template generator", () => {
 // Data-driven Slide 1 milestone symbols, Slide 2 timeline, and scope guards
 // ---------------------------------------------------------------------------
 
-import { timelineXForDate } from "../executive-presentations/generators/governance/slideLayout";
+import { effectivePhaseFromDates, timelineXForDate } from "../executive-presentations/generators/governance/slideLayout";
 
 type ShapeInfo = { name: string; text: string; visible: boolean; x: number; y: number };
 
@@ -1053,10 +1053,11 @@ describe("Slide 1 — facility card colors represent project PHASE", () => {
     expect(kaysakat.accent).not.toBe("E63950");
   });
 
-  it("labels the facility phase text from the effective phase", async () => {
+  it("labels the facility phase text with the authoritative phase only (no hard-coded status suffix)", async () => {
     const xml = await generateSlideXml(1, createTestData());
-    expect(xml).toContain("PPP • IN PROGRESS");
-    expect(xml).toContain("PRE-PPP • IN PROGRESS");
+    expect(xml).toContain("<a:t>PPP</a:t>");
+    expect(xml).toContain("<a:t>PRE-PPP</a:t>");
+    expect(xml).not.toContain("IN PROGRESS");
   });
 
   it("derives a POST-PPP facility card from a past PPP start date", async () => {
@@ -1129,5 +1130,63 @@ describe("Slide 3 — documentation-matrix cell colors match document presence",
       const symbol = text[r][3];
       if (symbol === "✓") expect(fills[r][3]).toBe("DFF3EC");
     }
+  });
+});
+
+describe("Slide 3 — submitted check glyph color is normalized to green", () => {
+  function matrixCellRunColors(xml: string): string[][] {
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+    const tbl = doc.getElementsByTagName("a:tbl")[0];
+    const rows = tbl.getElementsByTagName("a:tr");
+    const matrix: string[][] = [];
+    for (let r = 0; r < rows.length; r++) {
+      const cells = rows[r].getElementsByTagName("a:tc");
+      const row: string[] = [];
+      for (let c = 0; c < cells.length; c++) {
+        const rPr = cells[c].getElementsByTagName("a:rPr")[0];
+        const color = rPr?.getElementsByTagName("a:srgbClr")[0]?.getAttribute("val") ?? null;
+        row.push(color ?? "");
+      }
+      matrix.push(row);
+    }
+    return matrix;
+  }
+
+  it("renders every submitted check glyph in the same green (169873)", async () => {
+    const xml = await generateSlideXml(3, createTestData());
+    const text = getTableMatrix(xml);
+    const colors = matrixCellRunColors(xml);
+    let submittedCount = 0;
+    for (let r = 1; r <= 14; r++) {
+      for (let c = 1; c <= 4; c++) {
+        if (text[r][c] === "✓") {
+          submittedCount++;
+          expect(colors[r][c]).toBe("169873");
+        }
+      }
+    }
+    expect(submittedCount).toBeGreaterThan(0);
+  });
+});
+
+describe("effectivePhaseFromDates — phase boundaries", () => {
+  it("returns PRE-PPP before the PPP start", () => {
+    expect(effectivePhaseFromDates("2026-09-01", "2026-08-26")).toBe("PRE-PPP");
+  });
+
+  it("returns PPP exactly at the PPP start", () => {
+    expect(effectivePhaseFromDates("2026-09-01", "2026-09-01")).toBe("PPP");
+  });
+
+  it("returns PPP at +12 months (current intended rule: PPP through +12)", () => {
+    expect(effectivePhaseFromDates("2026-03-13", "2027-03-13")).toBe("PPP");
+  });
+
+  it("returns POST-PPP at +13 months", () => {
+    expect(effectivePhaseFromDates("2026-03-13", "2027-04-13")).toBe("POST-PPP");
+  });
+
+  it("returns PRE-PPP for a missing/TBD PPP start (safe fallback)", () => {
+    expect(effectivePhaseFromDates("", "2026-08-26")).toBe("PRE-PPP");
   });
 });

@@ -35,6 +35,7 @@ import {
   miniXForMonthOffset,
   monthDiff,
   setAllSrgbClr,
+  setRunTextColor,
   setShapeFillAndAccent,
   setShapeOff,
   setShapeVisible,
@@ -246,7 +247,9 @@ function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
     if (labelArea) setShapeFillAndAccent(labelArea, card.fill, card.accent);
     if (nameShape) setShapeText(nameShape, facility.shortName.toUpperCase());
     if (phaseShape) {
-      setShapeText(phaseShape, `${phase} • IN PROGRESS`);
+      // The card communicates the authoritative phase only (no hard-coded
+      // status suffix). Color communicates phase at a glance.
+      setShapeText(phaseShape, phase);
       // Recolor every text swatch (defRPr + run rPr) so no stale default color
       // (e.g. the template's red for KAYSAKAT) survives.
       setAllSrgbClr(phaseShape, card.text);
@@ -467,6 +470,9 @@ function updateSlide3(doc: XmlDocument, data: GovernanceV3Presentation): void {
       setCellText(cell, submitted ? "✓" : "—");
       // Cell background = document presence only (green=submitted, red/pink=missing).
       setCellFill(cell, submitted ? DOC_PRESENCE_CELL_COLORS.submitted : DOC_PRESENCE_CELL_COLORS.missing);
+      // Normalize every submitted check glyph to the same green (169873) so no
+      // stale template run color (e.g. gray) survives on a green cell.
+      if (submitted) setRunTextColor(cell, "169873");
     }
   }
 
