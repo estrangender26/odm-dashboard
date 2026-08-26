@@ -29,6 +29,7 @@ import {
   miniXForMonthOffset,
   monthDiff,
   setShapeOff,
+  setShapeVisible,
   setShapeWidth,
   timelineXForDate,
 } from "./governance/slideLayout";
@@ -45,7 +46,9 @@ const FACILITY_SHAPE_PREFIX: Record<string, string> = {
 };
 
 function formatDateLong(dateStr: string): string {
+  if (!dateStr) return "TBD";
   const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "TBD";
   return d.toLocaleDateString("en-US", {
     day: "numeric",
     month: "long",
@@ -54,7 +57,9 @@ function formatDateLong(dateStr: string): string {
 }
 
 function formatDateUpper(dateStr: string): string {
+  if (!dateStr) return "TBD";
   const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "TBD";
   return d
     .toLocaleDateString("en-US", {
       day: "2-digit",
@@ -65,7 +70,9 @@ function formatDateUpper(dateStr: string): string {
 }
 
 function formatMonthYearUpper(dateStr: string): string {
+  if (!dateStr) return "TBD";
   const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "TBD";
   return d
     .toLocaleDateString("en-US", { month: "short", year: "numeric" })
     .toUpperCase();
@@ -80,6 +87,9 @@ function formatTodayLabel(dateStr: string): string {
  * position implied by the reporting date relative to that facility's actual
  * PPP start date. The marker is 76200 EMU wide (dot) with a 19050 EMU line
  * centered on the same x.
+ *
+ * When no real PPP start date is recorded, the marker is hidden instead of
+ * being positioned from a fabricated date.
  */
 function updateSlide1TodayMarkers(doc: XmlDocument, data: GovernanceV3Presentation): void {
   const { facilities, reportingDate } = data;
@@ -89,6 +99,11 @@ function updateSlide1TodayMarkers(doc: XmlDocument, data: GovernanceV3Presentati
     const dot = findShapeByName(doc, `${prefix} Today Marker Dot`);
     const line = findShapeByName(doc, `${prefix} Today Marker Line`);
     if (!dot && !line) continue;
+    if (!facility.pppStartDate) {
+      if (dot) setShapeVisible(dot, false);
+      if (line) setShapeVisible(line, false);
+      continue;
+    }
     const offset = monthDiff(facility.pppStartDate, reportingDate);
     const x = miniXForMonthOffset(offset);
     if (dot) setShapeOff(dot, x - 38100, getShapeOff(dot).y);
@@ -132,16 +147,25 @@ function updateSlide2Timeline(doc: XmlDocument, data: GovernanceV3Presentation):
     const prefix = FACILITY_SHAPE_PREFIX[facility.slug];
     if (!prefix) continue;
 
-    const start = facility.pppStartDate;
-    const preStart = addMonths(start, -PHASE_WINDOWS.preMonths);
-    const pppEnd = addMonths(start, PHASE_WINDOWS.pppMonths);
-    const postEnd = addMonths(start, PHASE_WINDOWS.postMonths);
-
     const seg1 = findShapeByName(doc, `${prefix} Phase Segment 1`);
     const seg2 = findShapeByName(doc, `${prefix} Phase Segment 2`);
     const seg3 = findShapeByName(doc, `${prefix} Phase Segment 3`);
     const startLine = findShapeByName(doc, `${prefix} PPP Start Line`);
     const todayDot = findShapeByName(doc, `${prefix} Today Dot`);
+
+    // No real PPP start date: hide every date-positioned timeline element so
+    // nothing is placed from a fabricated or static date. Labels show "TBD".
+    if (!facility.pppStartDate) {
+      for (const shape of [seg1, seg2, seg3, startLine, todayDot]) {
+        if (shape) setShapeVisible(shape, false);
+      }
+      continue;
+    }
+
+    const start = facility.pppStartDate;
+    const preStart = addMonths(start, -PHASE_WINDOWS.preMonths);
+    const pppEnd = addMonths(start, PHASE_WINDOWS.pppMonths);
+    const postEnd = addMonths(start, PHASE_WINDOWS.postMonths);
 
     if (seg1) positionSegment(seg1, preStart, start);
     if (seg2) positionSegment(seg2, start, pppEnd);

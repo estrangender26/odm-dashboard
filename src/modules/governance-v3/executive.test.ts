@@ -367,3 +367,78 @@ describe("Data-derived NEXT GATE and GATE IMPLICATION", () => {
     expect(resultHigh.facilityObservations.htt).toContain("79%");
   });
 });
+
+describe("Missing PPP start date — no fabricated dates in commentary", () => {
+  it("renders TBD and never a fabricated date when a facility has no PPP start", () => {
+    const facility: FacilityData = {
+      slug: "kaysakat",
+      name: "KAYSAKAT Treatment Plant",
+      shortName: "KAYSAKAT TP",
+      color: "#F4A261",
+      pppStartDate: "",
+      currentPhase: "PRE-PPP",
+      phaseStatus: "PRE-PPP • RECOVERY",
+      milestones: [
+        { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "gap" },
+      ],
+      executiveObservation: "",
+    };
+    const doc: FacilityDocumentation = {
+      facilitySlug: "kaysakat",
+      facilityName: "KAYSAKAT Treatment Plant",
+      submittedCount: 1,
+      requiredCount: 14,
+      compliancePercent: 7,
+      submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
+    };
+    const result = generateExecutiveContent(
+      [facility],
+      baseSummary,
+      [doc],
+      new Date("2026-08-01")
+    );
+    expect(result.nextGateAction).toContain("TBD");
+    expect(result.nextGateAction).not.toContain("2026-01-01");
+    expect(result.nextGateAction).not.toContain("Invalid Date");
+    expect(result.gateImplication).toContain("TBD");
+    expect(result.gateImplication).not.toContain("2026-01-01");
+    expect(result.gateImplication).not.toContain("Invalid Date");
+    expect(result.facilityObservations.kaysakat).not.toContain("2026-01-01");
+  });
+
+  it("derives the PPP start month and year from the real date (no hard-coded 2026)", () => {
+    const facility: FacilityData = {
+      slug: "eastbay",
+      name: "EASTBAY Phase 2 Treatment Plant",
+      shortName: "EASTBAY PH-2 TP",
+      color: "#10B981",
+      pppStartDate: "2027-03-01",
+      currentPhase: "PRE-PPP",
+      phaseStatus: "PRE-PPP • GATE READY",
+      milestones: [
+        { code: "M1", name: "T&C Complete", phase: "PRE-PPP", status: "achieved" },
+      ],
+      executiveObservation: "",
+    };
+    const doc: FacilityDocumentation = {
+      facilitySlug: "eastbay",
+      facilityName: "EASTBAY Phase 2 Treatment Plant",
+      submittedCount: 4,
+      requiredCount: 14,
+      compliancePercent: 29,
+      submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
+    };
+    const result = generateExecutiveContent(
+      [facility],
+      baseSummary,
+      [doc],
+      new Date("2026-08-01")
+    );
+    expect(result.nextGateAction).toContain("March 2027");
+    expect(result.nextGateAction).not.toContain("2026-01-01");
+  });
+});

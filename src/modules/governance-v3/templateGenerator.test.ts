@@ -653,3 +653,47 @@ describe("Deck scope — exactly the approved three slides", () => {
     expect(graphicFrames).toBe(1); // the 14-row documentation matrix
   });
 });
+
+describe("Missing PPP start date — safe TBD rendering", () => {
+  it("renders TBD labels and hides date-positioned markers instead of fabricating a date", async () => {
+    const data = createTestData();
+    const kaysakat = data.facilities.find((f) => f.slug === "kaysakat")!;
+    kaysakat.pppStartDate = "";
+
+    const slide1 = await generateSlideXml(1, data);
+    const slide2 = await generateSlideXml(2, data);
+
+    // Labels show TBD, never a fabricated date.
+    expect(slide1).toContain("PPP START  TBD");
+    expect(slide2).toContain("PPP START • TBD");
+    expect(slide1).not.toContain("JAN 01, 2026");
+    expect(slide2).not.toContain("JAN 01, 2026");
+
+    // Slide 1: KAYSAKAT's TODAY marker is hidden (not positioned from a fake date).
+    const shapes1 = parseSlideShapes(slide1);
+    const kaysakatMarkerDot = shapes1.find((s) => s.name === "KAYSAKAT TP Today Marker Dot");
+    const kaysakatMarkerLine = shapes1.find((s) => s.name === "KAYSAKAT TP Today Marker Line");
+    expect(kaysakatMarkerDot).toBeDefined();
+    expect(kaysakatMarkerLine).toBeDefined();
+    expect(kaysakatMarkerDot!.visible).toBe(false);
+    expect(kaysakatMarkerLine!.visible).toBe(false);
+    // Other facilities still get a visible TODAY marker.
+    expect(shapes1.find((s) => s.name === "AGLIPAY STP Today Marker Dot")!.visible).toBe(true);
+
+    // Slide 2: KAYSAKAT's phase segments, PPP START line, and TODAY dot are hidden.
+    const shapes2 = parseSlideShapes(slide2);
+    for (const name of [
+      "KAYSAKAT TP Phase Segment 1",
+      "KAYSAKAT TP Phase Segment 2",
+      "KAYSAKAT TP Phase Segment 3",
+      "KAYSAKAT TP PPP Start Line",
+      "KAYSAKAT TP Today Dot",
+    ]) {
+      const shape = shapes2.find((s) => s.name === name);
+      expect(shape).toBeDefined();
+      expect(shape!.visible).toBe(false);
+    }
+    // Dated facilities keep their timeline geometry.
+    expect(shapes2.find((s) => s.name === "AGLIPAY STP Phase Segment 2")!.visible).toBe(true);
+  });
+});

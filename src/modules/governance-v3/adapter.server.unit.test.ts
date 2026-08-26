@@ -253,3 +253,38 @@ describe("Slide 3 documentation readiness — real uploaded TOC evidence", () =>
     expect(result.milestoneFileCount).toBe(1);
   });
 });
+
+describe("governance_deliverable_status structural validation is preserved (non-fatal at fetch)", () => {
+  const canonicalToc = Array.from({ length: 14 }, (_, i) => (i + 1).toString());
+  const facilities = ["aglipay", "htt", "eastbay", "kaysakat"];
+
+  function completeRows() {
+    const rows: any[] = [];
+    for (const f of facilities) {
+      for (const toc of canonicalToc) {
+        rows.push({ facilitySlug: f, tocItem: toc, status: "missing" });
+      }
+    }
+    return rows;
+  }
+
+  it("still throws when canonical rows are missing (validator itself unchanged)", async () => {
+    const mod: any = await import("./adapter.server");
+    const validate = mod.validateCanonicalDeliverableStatuses;
+    const rows = completeRows().filter((r) => !(r.facilitySlug === "kaysakat" && r.tocItem === "9"));
+    expect(() => validate(rows, facilities, canonicalToc)).toThrow(/DATA INTEGRITY/);
+  });
+
+  it("passes when exactly 56 canonical rows exist", async () => {
+    const mod: any = await import("./adapter.server");
+    const validate = mod.validateCanonicalDeliverableStatuses;
+    expect(() => validate(completeRows(), facilities, canonicalToc)).not.toThrow();
+  });
+
+  it("does not fail on unrelated facility rows", async () => {
+    const mod: any = await import("./adapter.server");
+    const validate = mod.validateCanonicalDeliverableStatuses;
+    const rows = [...completeRows(), { facilitySlug: "fifth", tocItem: "1", status: "missing" }];
+    expect(() => validate(rows, facilities, canonicalToc)).not.toThrow();
+  });
+});

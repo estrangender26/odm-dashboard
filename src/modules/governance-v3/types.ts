@@ -39,7 +39,7 @@ export interface FacilityData {
   name: string;
   shortName: string;
   color: string;
-  pppStartDate: string;  // ISO date YYYY-MM-DD
+  pppStartDate: string;  // ISO date YYYY-MM-DD; "" when no PPP start is recorded (TBD)
   currentPhase: PhaseType;
   phaseStatus: FacilityPhaseStatus;
   milestones: MilestoneData[];

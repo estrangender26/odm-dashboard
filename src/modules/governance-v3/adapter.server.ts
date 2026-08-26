@@ -475,12 +475,22 @@ export async function fetchGovernanceV3Data(
   const milestoneStates = await fetchMilestoneStates(facilitySlugs);
   const deliverableStatuses = await fetchDeliverableStatuses(facilitySlugs);
 
-  // Hard structural guard: every selected facility must have exactly one row per canonical TOC item.
-  validateCanonicalDeliverableStatuses(
-    deliverableStatuses,
-    PRESENTATION_FACILITIES,
-    GOVERNANCE_TOC_ITEMS as unknown as readonly string[]
-  );
+  // Structural guard (best-effort): every selected facility should have exactly
+  // one row per canonical TOC item. Slide 3 submission truth comes from
+  // governance_uploads/governance_files, so status-table drift must NOT make the
+  // deck unavailable — the guard is preserved and surfaced as a warning instead.
+  try {
+    validateCanonicalDeliverableStatuses(
+      deliverableStatuses,
+      PRESENTATION_FACILITIES,
+      GOVERNANCE_TOC_ITEMS as unknown as readonly string[]
+    );
+  } catch (error) {
+    console.warn(
+      "[GOV-V3] governance_deliverable_status incomplete or drifted; continuing with upload-based Slide 3 evidence.",
+      error instanceof Error ? error.message : String(error)
+    );
+  }
 
   const uploads = await fetchUploads(facilitySlugs);
 
@@ -500,7 +510,7 @@ export async function fetchGovernanceV3Data(
       name: dbFacility.name,
       shortName: dbFacility.shortName || dbFacility.name,
       color: getFacilityColor(index),
-      pppStartDate: derivePppStartDate(dbFacility.slug, milestoneStates) || "2026-01-01",
+      pppStartDate: derivePppStartDate(dbFacility.slug, milestoneStates) ?? "",
       currentPhase,
       phaseStatus,
       milestones,

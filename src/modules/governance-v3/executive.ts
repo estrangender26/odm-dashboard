@@ -5,6 +5,17 @@
 
 import type { FacilityData, PortfolioSummary, FacilityDocumentation, ExecutiveContent } from "./types";
 
+/**
+ * Human-readable PPP start for commentary. Returns "TBD" when no real PPP start
+ * date is recorded so commentary never references a fabricated date.
+ */
+function pppStartDescription(pppStartDate: string): string {
+  if (!pppStartDate) return "TBD";
+  const d = new Date(pppStartDate);
+  if (Number.isNaN(d.getTime())) return "TBD";
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
 export function generateExecutiveContent(
   facilities: FacilityData[],
   summary: PortfolioSummary,
@@ -13,10 +24,12 @@ export function generateExecutiveContent(
 ): ExecutiveContent {
   const reportingDateObj = new Date(reportingDate);
   
-  // Categorize facilities by actual status vs PPP start date
+  // Categorize facilities by actual status vs PPP start date.
+  // A facility without a recorded PPP start date is treated as pre-PPP
+  // (never "PPP started") and never produces commentary from a fake date.
   const facilitiesWithCorrectedStatus = facilities.map(f => {
-    const pppStart = new Date(f.pppStartDate);
-    const isPppStarted = pppStart <= reportingDateObj;
+    const pppStart = f.pppStartDate ? new Date(f.pppStartDate) : null;
+    const isPppStarted = pppStart !== null && !Number.isNaN(pppStart.getTime()) && pppStart <= reportingDateObj;
     return {
       ...f,
       effectivePhase: isPppStarted ? f.currentPhase : "PRE-PPP" as const,
@@ -60,14 +73,14 @@ export function generateExecutiveContent(
     // Future-PPP facilities drive the pre-PPP readiness gate.
     if (futurePppFacilities.length > 0) {
       const names = futurePppFacilities.map(f => f.shortName.split(" ")[0]).join(" and ");
-      const pppMonths = [...new Set(futurePppFacilities.map(f =>
-        new Date(f.pppStartDate).toLocaleDateString("en-US", { month: "long" })
+      const pppStarts = [...new Set(futurePppFacilities.map(f =>
+        pppStartDescription(f.pppStartDate)
       ))].join(" and ");
       const anyRecovery = futurePppFacilities.some(f => f.phaseStatus.includes("RECOVERY"));
       const task = anyRecovery
         ? "close remaining Pre-PPP readiness gaps"
         : "finalise Pre-PPP commissioning readiness";
-      return `Next gate: ${task} for ${names} before the ${pppMonths} 2026 PPP start.`;
+      return `Next gate: ${task} for ${names} before the ${pppStarts} PPP start.`;
     }
 
     return "Next gate: Continue milestone progression and maintain BAU governance.";
@@ -80,10 +93,10 @@ export function generateExecutiveContent(
   
   if (futurePppFacilities.length > 0) {
     const names = futurePppFacilities.map(f => f.shortName.split(" ")[0]).join(" and ");
-    const pppDates = [...new Set(futurePppFacilities.map(f => 
-      new Date(f.pppStartDate).toLocaleDateString("en-US", { month: "long" })
+    const pppStarts = [...new Set(futurePppFacilities.map(f =>
+      pppStartDescription(f.pppStartDate)
     ))].join(" and ");
-    gateImplication = `${names} must complete pre-PPP readiness before their ${pppDates} 2026 PPP start.`;
+    gateImplication = `${names} must complete pre-PPP readiness before their ${pppStarts} PPP start.`;
   }
   
   // Slide 3: Documentation Headline
