@@ -256,6 +256,20 @@ export function isShapeVisible(shape: XmlElement): boolean {
 }
 
 /**
+ * Recolor the first solid-fill swatch in a shape (spPr fill for dots/rails,
+ * run text color for symbols). Used to build the yellow "in progress" visual
+ * from a cloned green achieved dot / white check symbol.
+ */
+export function setFirstSrgbClr(shape: XmlElement, hex: string): void {
+  const fills = shape.getElementsByTagNameNS(
+    "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "srgbClr"
+  );
+  if (fills.length === 0) return;
+  (fills[0] as XmlElement).setAttribute("val", hex);
+}
+
+/**
  * Move a shape to the end of its parent (the slide's shape tree) so it paints
  * above everything earlier in the tree. Used to guarantee milestone markers
  * always render above their facility's rail line regardless of where the

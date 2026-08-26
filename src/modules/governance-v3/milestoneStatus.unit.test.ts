@@ -237,3 +237,47 @@ describe("aggregatePortfolioSummary — portfolio math without a database", () =
     expect(summaryB).not.toEqual(summaryA);
   });
 });
+
+describe("determineMilestoneStatus — authoritative in-progress (yellow)", () => {
+  it("marks a milestone in progress when customPct is between 0 and 100 and no completion is evidenced", () => {
+    const s = state({ customPct: 50, compDate: null });
+    expect(determineMilestoneStatus("M5", s, REPORTING)).toBe("in_progress");
+  });
+
+  it("does NOT mark in progress from calendar position alone (customPct null, planned date passed)", () => {
+    const s = state({ pppDate: "2026-03-13", compDate: null, customPct: null });
+    expect(determineMilestoneStatus("M5", s, REPORTING)).toBe("gap");
+  });
+
+  it("does NOT mark in progress when customPct is 0 or null", () => {
+    expect(determineMilestoneStatus("M5", state({ customPct: 0 }), REPORTING)).toBe("upcoming");
+    expect(determineMilestoneStatus("M5", state({ customPct: null }), REPORTING)).toBe("upcoming");
+  });
+
+  it("does NOT mark in progress when customPct is 100 without a completion date (progress evidence incomplete)", () => {
+    const s = state({ customPct: 100, compDate: null });
+    expect(determineMilestoneStatus("M5", s, REPORTING)).toBe("upcoming");
+  });
+
+  it("does NOT treat a future compDate as in-progress evidence (no started evidence)", () => {
+    const s = state({ compDate: "2026-09-01", customPct: null });
+    expect(determineMilestoneStatus("M5", s, REPORTING)).toBe("upcoming");
+  });
+
+  it("keeps completion evidence dominant: compDate wins over customPct", () => {
+    const s = state({ compDate: "2026-06-01", customPct: 60 });
+    expect(determineMilestoneStatus("M5", s, REPORTING)).toBe("achieved");
+  });
+
+  it("keeps in-progress dominant over the calendar-derived gap", () => {
+    const s = state({ pppDate: "2026-03-13", compDate: null, customPct: 40 });
+    expect(determineMilestoneStatus("M5", s, REPORTING)).toBe("in_progress");
+  });
+
+  it("matches the production AGLIPAY/HTT M5 rows: future compDate, customPct null → upcoming", () => {
+    const aglipayM5 = state({ facilitySlug: "aglipay", milestoneId: "M5", pppDate: null, compDate: "2026-09-01", customPct: null });
+    const httM5 = state({ facilitySlug: "htt", milestoneId: "M5", pppDate: null, compDate: "2026-09-13", customPct: null });
+    expect(determineMilestoneStatus("M5", aglipayM5, new Date("2026-08-26T00:00:00Z"))).toBe("upcoming");
+    expect(determineMilestoneStatus("M5", httM5, new Date("2026-08-26T00:00:00Z"))).toBe("upcoming");
+  });
+});
