@@ -60,6 +60,17 @@ describe("Legacy governance UI — editable milestone status dropdown", () => {
     expect(legacy).toContain("ST[facility].ms[mid].readyStatus=rawRS;");
   });
 
+  it("updates the local milestone state on Save so the chip persists before any reload", () => {
+    expect(legacy).toContain("ST[f].ms[mId].readyStatus=v.readyStatus;");
+  });
+
+  it("keeps a status-only edit from touching compDate/pppDate/customPct in the payload", () => {
+    // The payload only carries readyStatus when the other fields are undefined.
+    expect(legacy).toContain("readyStatus:changes.readyStatus!==undefined?changes.readyStatus:undefined");
+    expect(legacy).toContain("compDate:changes.compDate!==undefined?changes.compDate:undefined");
+    expect(legacy).toContain("customPct:changes.pct!==undefined?changes.pct:undefined");
+  });
+
   it("does not reintroduce the React GovernanceDashboard component", () => {
     expect(legacy).not.toContain("GovernanceDashboard");
   });
@@ -75,5 +86,21 @@ describe("Legacy /api/governance/state endpoint — readyStatus whitelist (boot.
   it("rejects invalid readyStatus server-side on the legacy endpoint", () => {
     expect(boot).toMatch(/if \(readyStatus !== undefined && readyStatus !== null && !isValidManualStatus\(readyStatus\)\)/);
     expect(boot).toContain('"Invalid readyStatus. Allowed: achieved, in_progress, planned_open, upcoming, null."');
+  });
+
+  it("GET state reload returns ready_status for every milestone row", () => {
+    expect(boot).toMatch(/SELECT id, facility_slug, milestone_id, ppp_date, comp_date, custom_pct, ready_status, remarks, updated_at, updated_by/);
+  });
+
+  it("UPDATE persists ready_status: undefined leaves it unchanged, null clears it, valid string sets it", () => {
+    // The guard is `!== undefined` (never a truthy `if (readyStatus)`), so null is
+    // handled explicitly: undefined -> unchanged, null -> NULL, string -> value.
+    expect(boot).toMatch(/readyStatus !== undefined\) setParts\.push\("ready_status = " \+ \(readyStatus === null \? 'NULL' : "'" \+ readyStatus \+ "'"\)\)/);
+    expect(boot).not.toMatch(/if \(readyStatus\) \{/);
+  });
+
+  it("INSERT persists ready_status on new milestone rows", () => {
+    expect(boot).toContain("facility_slug, milestone_id, comp_date, custom_pct, ppp_date, ready_status, updated_at");
+    expect(boot).toContain("readyStatus !== undefined ? readyStatus : null");
   });
 });
