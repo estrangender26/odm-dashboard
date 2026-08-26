@@ -70,7 +70,7 @@ describe("generateExecutiveContent", () => {
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.htt).toContain("HTT: Active PPP with 79% documentation compliance");
+    expect(result.facilityObservations.htt).toContain("HTT: Active PPP at 79% compliance");
     expect(result.facilityObservations.htt).toContain("3 TOC deliverables missing");
     expect(result.facilityObservations.htt).toContain("11 milestone files");
     expect(result.facilityObservations.htt).toContain("1 reference");
@@ -93,7 +93,7 @@ describe("generateExecutiveContent", () => {
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.eastbay).toContain("EASTBAY: Pre-PPP readiness with 50% documentation compliance");
+    expect(result.facilityObservations.eastbay).toContain("EASTBAY: Pre-PPP readiness at 50% compliance");
     expect(result.facilityObservations.eastbay).toContain("7 TOC deliverables missing");
     expect(result.facilityObservations.eastbay).toContain("7 milestone files");
     expect(result.facilityObservations.eastbay).toContain("1 reference");
@@ -114,7 +114,7 @@ describe("generateExecutiveContent", () => {
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.aglipay).toContain("AGLIPAY: Active PPP with 21% documentation compliance");
+    expect(result.facilityObservations.aglipay).toContain("AGLIPAY: Active PPP at 21% compliance");
     expect(result.facilityObservations.aglipay).toContain("11 TOC deliverables missing");
     expect(result.facilityObservations.aglipay).toContain("3 milestone files");
     expect(result.facilityObservations.aglipay).toContain("1 reference");
@@ -135,7 +135,7 @@ describe("generateExecutiveContent", () => {
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.kaysakat).toContain("KAYSAKAT: Pre-PPP readiness with 7% documentation compliance");
+    expect(result.facilityObservations.kaysakat).toContain("KAYSAKAT: Pre-PPP readiness at 7% compliance");
     expect(result.facilityObservations.kaysakat).toContain("13 TOC deliverables missing");
     expect(result.facilityObservations.kaysakat).toContain("1 milestone file");
     expect(result.facilityObservations.kaysakat).toContain("1 reference");
@@ -440,5 +440,68 @@ describe("Missing PPP start date — no fabricated dates in commentary", () => {
     );
     expect(result.nextGateAction).toContain("March 2027");
     expect(result.nextGateAction).not.toContain("2026-01-01");
+  });
+});
+
+describe("Commentary rendering budget (fits fixed slide boxes)", () => {
+  const smokeDocs = () => {
+    const counts: Record<string, number> = { kaysakat: 1, eastbay: 5, aglipay: 3, htt: 11 };
+    return (Object.keys(counts) as Array<keyof typeof counts>).map((slug) => {
+      const submittedCount = counts[slug];
+      return {
+        facilitySlug: slug,
+        facilityName: slug.toUpperCase() + (slug === "eastbay" ? " PH-2 TP" : " STP"),
+        submittedCount,
+        requiredCount: 14,
+        compliancePercent: Math.round((submittedCount / 14) * 100),
+        submissions: Array.from({ length: 14 }, (_, i) => ({
+          tocId: (i + 1).toString(),
+          submitted: i < submittedCount,
+          documentCount: i < submittedCount ? 1 : 0,
+        })),
+        referenceCount: 1,
+        milestoneFileCount: submittedCount,
+      };
+    }) as FacilityDocumentation[];
+  };
+
+  const smokeFacilities = () => [
+    makeFacility("aglipay", "AGLIPAY STP", "2026-03-13", "PPP", "PPP ACTIVE", 21),
+    makeFacility("htt", "HTT STP", "2026-03-13", "PPP", "PPP ACTIVE", 79),
+    makeFacility("eastbay", "EASTBAY PH-2 TP", "2026-09-01", "PPP", "PPP ACTIVE", 36),
+    makeFacility("kaysakat", "KAYSAKAT TP", "2026-09-01", "PRE-PPP", "PRE-PPP • RECOVERY", 7),
+  ];
+
+  it("keeps the slide 3 executive note within its box budget (<= 150 chars at 12pt)", () => {
+    const facilities = smokeFacilities();
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      { ...baseSummary, totalDocumentsSubmitted: 20, portfolioCompliancePercent: 36 },
+      smokeDocs(),
+      new Date("2026-08-26")
+    );
+    expect(result.portfolioObservation.length).toBeLessThanOrEqual(150);
+    // The note still carries the real numbers and the gap list.
+    expect(result.portfolioObservation).toContain("36%");
+    expect(result.portfolioObservation).toContain("20 of 56");
+    expect(result.portfolioObservation).toContain("KAYSAKAT 13");
+    expect(result.portfolioObservation).toContain("HTT leads at 79%");
+  });
+
+  it("keeps facility observations on a single line inside the row box (<= 120 chars at 11pt)", () => {
+    const facilities = smokeFacilities();
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      { ...baseSummary, totalDocumentsSubmitted: 20, portfolioCompliancePercent: 36 },
+      smokeDocs(),
+      new Date("2026-08-26")
+    );
+    for (const obs of Object.values(result.facilityObservations)) {
+      expect(obs.length).toBeLessThanOrEqual(120);
+    }
+    // Data is preserved in the compact wording.
+    expect(result.facilityObservations.kaysakat).toContain("KAYSAKAT: Pre-PPP readiness at 7% compliance");
+    expect(result.facilityObservations.kaysakat).toContain("13 TOC deliverables missing");
+    expect(result.facilityObservations.kaysakat).toContain("1 reference");
   });
 });

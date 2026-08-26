@@ -132,7 +132,7 @@ function createTestData(): GovernanceV3Presentation {
       gateImplication: "Kaysakat and Eastbay reach PPP on 01 September. Eastbay is ready; Kaysakat must close commissioning and defect milestones before the gate.",
       documentationHeadline: "Documentation readiness is 34%; HTT carries the portfolio",
       documentationSubtitle: "Final acceptance requires a fully compliant O&M Manual under the Standard Governance Framework",
-      portfolioObservation: "Portfolio documentation readiness is 34% (19 of 56 deliverables). AGLIPAY has the lowest compliance and remains the highest onboarding risk. A recovery plan is required before the next governance review.",
+      portfolioObservation: "Portfolio documentation readiness is 34% (19 of 56). Outstanding gaps: AGLIPAY 11, KAYSAKAT 13, EASTBAY 10. Focus on closing remaining gaps.",
       facilityObservations: {
         aglipay: "AGLIPAY: Active PPP with 21% documentation compliance; immediate recovery required.",
         htt: "HTT: Active PPP with 79% documentation compliance.",
@@ -211,7 +211,7 @@ describe("Governance V3 template generator", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const expected = [
-      { slide: 1, total: 148, sp: 146, gf: 0 },
+      { slide: 1, total: 154, sp: 152, gf: 0 },
       { slide: 2, total: 65, sp: 63, gf: 0 },
       { slide: 3, total: 17, sp: 14, gf: 1 },
     ];
@@ -476,22 +476,48 @@ describe("Slide 1 — data-driven milestone symbols", () => {
     const xml = await generateSlideXml(1, createTestData());
     const shapes = parseSlideShapes(xml);
 
-    // AGLIPAY: M4 = gap (!), M5 = ahead (cyan ✓), M6 = upcoming (○)
+    // AGLIPAY: M4 = gap (!), M5 = achieved ahead -> achieved visual (green ✓), M6 = upcoming (○)
     const aglipayGap = shapeAt(shapes, 5891213, 2352675);
     expect(aglipayGap.some((s) => s.name === "Milestone gap Dot" && s.visible)).toBe(true);
     const aglipayGapSymbol = shapeAt(shapes, 5919788, 2362200);
     expect(aglipayGapSymbol.some((s) => s.name === "Milestone gap Symbol" && s.visible && s.text.includes("!"))).toBe(true);
+    // Three-state treatment: ahead-of-plan renders with the achieved visuals.
     const aglipayAhead = shapeAt(shapes, 6891338, 2352675);
-    expect(aglipayAhead.some((s) => s.name === "Milestone ahead Dot" && s.visible)).toBe(true);
+    expect(aglipayAhead.some((s) => s.name.startsWith("Milestone achieved Dot") && s.visible)).toBe(true);
+    expect(aglipayAhead.some((s) => s.name === "Milestone ahead Dot" && s.visible)).toBe(false);
+    expect(shapeAt(shapes, 6919913, 2362200).some((s) => s.name.startsWith("Milestone achieved Symbol") && s.visible && s.text.includes("✓"))).toBe(true);
     const aglipayUpcoming = shapeAt(shapes, 7891463, 2352675);
     expect(aglipayUpcoming.some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
     // no symbol shape exists for an upcoming milestone
     expect(shapeAt(shapes, 7915913, 2362200).filter((s) => s.visible && s.text.trim() !== "")).toHaveLength(0);
 
     // KAYSAKAT: M1 achieved, M2 gap, M4 upcoming
-    expect(shapeAt(shapes, 2890838, 4752975).some((s) => s.name === "Milestone achieved Dot" && s.visible)).toBe(true);
+    expect(shapeAt(shapes, 2890838, 4752975).some((s) => s.name.startsWith("Milestone achieved Dot") && s.visible)).toBe(true);
     expect(shapeAt(shapes, 3890963, 4752975).some((s) => s.name === "Milestone gap Dot" && s.visible)).toBe(true);
     expect(shapeAt(shapes, 5891213, 4752975).some((s) => s.name === "Milestone upcoming Dot" && s.visible)).toBe(true);
+  });
+
+  it("removes the 'Achieved ahead of plan' visual state and legend entry", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    const shapes = parseSlideShapes(xml);
+    // No ahead shape is visible anywhere (rails or legend).
+    for (const s of shapes) {
+      if (s.name.startsWith("Milestone ahead")) {
+        expect(s.visible).toBe(false);
+      }
+    }
+    // The removed legend entry is hidden.
+    const legendAhead = shapes.find((s) => s.name === "Legend ahead");
+    expect(legendAhead).toBeDefined();
+    expect(legendAhead!.visible).toBe(false);
+    // The three retained legend entries stay visible.
+    for (const name of ["Legend achieved", "Legend gap", "Legend upcoming"]) {
+      expect(shapes.find((s) => s.name === name)!.visible).toBe(true);
+    }
+    // The legend no longer advertises the ahead state to the reader: no visible
+    // text run claims "Achieved ahead of plan".
+    const visibleText = shapes.filter((s) => s.visible).map((s) => s.text).join(" ");
+    expect(visibleText).not.toContain("Achieved ahead of plan");
   });
 
   it("does not let calendar-driven gaps masquerade as achievement on the rail", async () => {
@@ -695,5 +721,91 @@ describe("Missing PPP start date — safe TBD rendering", () => {
     }
     // Dated facilities keep their timeline geometry.
     expect(shapes2.find((s) => s.name === "AGLIPAY STP Phase Segment 2")!.visible).toBe(true);
+  });
+});
+
+describe("Slide 1 — milestone rail alignment", () => {
+  const RAIL_CONST = { x0: 2771775, width: 8505825, height: 38100, dotHeight: 266700 };
+  const DOT_YS: Record<string, number> = {
+    aglipay: 2352675, htt: 3152775, eastbay: 3952875, kaysakat: 4752975,
+  };
+  const COL_XS = [2890838, 3890963, 4891088, 5891213, 6891338, 7891463, 8891588, 9891713, 10891838];
+
+  it("keeps every rail centered on its markers with identical geometry across rows", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    const shapes = parseSlideShapes(xml);
+    const railGeos: Array<{ x: number; y: number; cx: number }> = [];
+    for (const [slug, dotY] of Object.entries(DOT_YS)) {
+      const prefix = slug === "eastbay" ? "EASTBAY PH-2 TP" : slug === "kaysakat" ? "KAYSAKAT TP" : slug === "htt" ? "HTT STP" : "AGLIPAY STP";
+      const rail = shapes.find((s) => s.name === `${prefix} Milestone Rail`);
+      expect(rail).toBeDefined();
+      // rail center y == dot center y
+      expect(rail!.y + RAIL_CONST.height / 2).toBe(dotY + RAIL_CONST.dotHeight / 2);
+      railGeos.push({ x: rail!.x, y: rail!.y, cx: 0 });
+    }
+    // identical x0 and (implicitly) width across all four rows
+    expect(new Set(railGeos.map((r) => r.x))).toEqual(new Set([RAIL_CONST.x0]));
+    // every visible dot in a row is vertically centered on that rail
+    for (const dotY of Object.values(DOT_YS)) {
+      const rowDots = shapes.filter((s) => /^Milestone (achieved|gap|upcoming) Dot( Clone \d+)?$/.test(s.name) && s.visible && s.y === dotY);
+      expect(rowDots).toHaveLength(9);
+      for (const dot of rowDots) {
+        expect(dot.y + RAIL_CONST.dotHeight / 2).toBe(dotY + RAIL_CONST.dotHeight / 2);
+      }
+    }
+  });
+
+  it("places markers horizontally under their M1–M9 column headers", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    const shapes = parseSlideShapes(xml);
+    for (let i = 1; i <= 9; i++) {
+      const header = shapes.find((s) => s.name === `M${i} Code`);
+      expect(header).toBeDefined();
+      const headerCenterX = header!.x + 847725 / 2;
+      // every row has a dot at this column, centered under the header
+      for (const dotY of Object.values(DOT_YS)) {
+        const dot = shapes.find((s) => /^Milestone (achieved|gap|upcoming) Dot( Clone \d+)?$/.test(s.name) && s.visible && s.y === dotY && s.x === COL_XS[i - 1]);
+        expect(dot).toBeDefined();
+        expect(Math.abs(dot!.x + RAIL_CONST.dotHeight / 2 - headerCenterX)).toBeLessThanOrEqual(5000);
+      }
+    }
+  });
+
+  it("keeps markers and commentary clear of the legend and NEXT GATE", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    const shapes = parseSlideShapes(xml);
+    const legendTop = 5476875;
+    // Lowest marker bottom stays above the legend row.
+    const markerBottoms = shapes
+      .filter((s) => s.name.startsWith("Milestone ") && s.visible && s.y < 5000000)
+      .map((s) => s.y + 266700);
+    expect(Math.max(...markerBottoms)).toBeLessThan(legendTop);
+    // Facility comparison (commentary) boxes stay above the legend row.
+    for (const name of ["AGLIPAY STP Comparison", "HTT STP Comparison", "EASTBAY PH-2 TP Comparison", "KAYSAKAT TP Comparison"]) {
+      const box = shapes.find((s) => s.name === name);
+      expect(box).toBeDefined();
+      expect(box!.y + 209550).toBeLessThan(legendTop);
+    }
+  });
+});
+
+describe("Slide 3 — executive note fits its allocated box", () => {
+  it("keeps the generated note within the box text budget (<= 150 chars)", async () => {
+    const xml = await generateSlideXml(3, createTestData());
+    const shapes = parseSlideShapes(xml);
+    const note = shapes.find((s) => s.name === "DELIVERABLES_EXECUTIVE_NOTE");
+    expect(note).toBeDefined();
+    expect(note!.text.length).toBeLessThanOrEqual(150);
+  });
+
+  it("does not overlap the KAYSAKAT card or the footer region", async () => {
+    const xml = await generateSlideXml(3, createTestData());
+    const shapes = parseSlideShapes(xml);
+    const note = shapes.find((s) => s.name === "DELIVERABLES_EXECUTIVE_NOTE")!;
+    const kaysakat = shapes.find((s) => s.name === "COMP_KAYSAKAT")!;
+    const footer = shapes.find((s) => s.name === "GOV_FOOTER_SOURCE")!;
+    // note box starts below the KAYSAKAT card and ends above the footer
+    expect(note.y).toBeGreaterThan(kaysakat.y + 581025);
+    expect(note.y + 1143000).toBeLessThan(footer.y);
   });
 });

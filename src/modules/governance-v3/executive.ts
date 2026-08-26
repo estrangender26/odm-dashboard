@@ -103,33 +103,50 @@ export function generateExecutiveContent(
   const portfolioPct = summary.portfolioCompliancePercent;
   const docHeadline = `Documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables submitted)`;
   
-  // Slide 3: Data-driven Portfolio Observation
-  const laggard = [...facilityDocs].sort((a, b) => a.compliancePercent - b.compliancePercent)[0];
-  const leader = [...facilityDocs].sort((a, b) => b.compliancePercent - a.compliancePercent)[0];
-
+  // Slide 3: Data-driven Portfolio Observation (compact: must fit the fixed
+  // executive note box on slide 3 — ~150 chars at 12pt).
   const missingByFacility = facilityDocs.map(d => ({
     name: d.facilityName,
     missing: d.requiredCount - d.submittedCount,
     refs: d.referenceCount,
   }));
   const facilitiesWithGaps = missingByFacility.filter(f => f.missing > 0);
+  const shortName = (name: string) => name.split(" ")[0];
 
-  let portfolioObservation = `Portfolio documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables). `;
+  const observationParts: string[] = [
+    `Portfolio documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired}).`,
+  ];
   if (facilitiesWithGaps.length > 0) {
-    const gapText = facilitiesWithGaps
-      .map(f => `${f.name}: ${f.missing} missing${f.refs > 0 ? `, ${f.refs} reference${f.refs === 1 ? "" : "s"}` : ""}`)
-      .join("; ");
-    portfolioObservation += `Outstanding gaps: ${gapText}. `;
+    const gapList = facilitiesWithGaps
+      .slice()
+      .sort((a, b) => b.missing - a.missing)
+      .map(f => `${shortName(f.name)} ${f.missing}`)
+      .join(", ");
+    observationParts.push(`Outstanding gaps: ${gapList}.`);
   }
-  if (laggard && laggard.compliancePercent === 0 && laggard.requiredCount > 0) {
-    portfolioObservation += `${laggard.facilityName} has no submitted TOC deliverables and remains the highest onboarding risk. A recovery plan is required before the next governance review.`;
-  } else if (leader && leader.compliancePercent >= 75 && facilitiesWithGaps.length < facilityDocs.length) {
-    portfolioObservation += `${leader.facilityName} leads portfolio readiness at ${leader.compliancePercent}%.`;
+
+  const laggard = [...facilityDocs].sort((a, b) => a.compliancePercent - b.compliancePercent)[0];
+  const leader = [...facilityDocs].sort((a, b) => b.compliancePercent - a.compliancePercent)[0];
+
+  let closing = "";
+  if (facilitiesWithGaps.length === 0) {
+    closing = " All facilities have submitted every TOC deliverable.";
+  } else if (laggard && laggard.compliancePercent === 0 && laggard.requiredCount > 0) {
+    closing = ` ${shortName(laggard.facilityName)} has no submissions — highest onboarding risk.`;
+  } else if (leader && leader.compliancePercent >= 75) {
+    closing = ` ${shortName(leader.facilityName)} leads at ${leader.compliancePercent}%.`;
   } else {
-    portfolioObservation += "Focus on closing the remaining deliverables before the next review.";
+    closing = " Focus on closing remaining gaps.";
   }
+
+  const joined = observationParts.join(" ");
+  // The note box fits ~5 lines at 12pt; only append the closing sentence when
+  // the combined text stays within that budget (never shrink the font).
+  const portfolioObservation = joined.length + closing.length <= 150 ? joined + closing : joined;
   
-  // Facility-specific observations - data-driven from actual missing TOC items and file counts
+  // Facility-specific observations - data-driven from actual missing TOC items
+  // and file counts. Kept compact so each observation stays on a single line
+  // inside its row box (no wrap into the legend/NEXT GATE area).
   function buildFacilityObservation(facility: typeof facilitiesWithCorrectedStatus[0], doc: FacilityDocumentation): string {
     const shortName = facility.shortName.split(" ")[0];
     const pct = doc.compliancePercent;
@@ -144,7 +161,7 @@ export function generateExecutiveContent(
     const refClause = doc.referenceCount > 0
       ? `${doc.referenceCount} reference${doc.referenceCount === 1 ? "" : "s"}`
       : "no references";
-    return `${shortName}: ${phaseLabel} with ${pct}% documentation compliance; ${missingClause}; ${fileClause} and ${refClause} on record.`;
+    return `${shortName}: ${phaseLabel} at ${pct}% compliance; ${missingClause}; ${fileClause}, ${refClause}.`;
   }
 
   const facilityObservations: Record<string, string> = {};
