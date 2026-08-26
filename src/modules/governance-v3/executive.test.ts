@@ -505,3 +505,31 @@ describe("Commentary rendering budget (fits fixed slide boxes)", () => {
     expect(result.facilityObservations.kaysakat).toContain("1 reference");
   });
 });
+
+describe("NEXT GATE reflects manual ready_status overrides via canonical statuses", () => {
+  it("drops the SAP-PM gate when manual 'achieved' closes M4/M5 for the active PPP facilities", () => {
+    const facilities = [
+      makeFacility("aglipay", "AGLIPAY STP", "2026-03-13", "PPP", "PPP ACTIVE", 21, [
+        { code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "achieved" },
+        { code: "M5", name: "PM/PdM execution started", phase: "PPP", status: "achieved" },
+      ]),
+      makeFacility("htt", "HTT STP", "2026-03-13", "PPP", "PPP ACTIVE", 79, [
+        { code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "achieved" },
+        { code: "M5", name: "PM/PdM execution started", phase: "PPP", status: "achieved" },
+      ]),
+      makeFacility("eastbay", "EASTBAY PH-2 TP", "2026-09-01", "PPP", "PPP ACTIVE", 36),
+      makeFacility("kaysakat", "KAYSAKAT TP", "2026-09-01", "PRE-PPP", "PRE-PPP • RECOVERY", 7, [
+        { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "gap" },
+      ]),
+    ];
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-26")
+    );
+    expect(result.nextGateAction).not.toContain("complete SAP-PM task list setup");
+    // The future-PPP gate for KAYSAKAT still derives from its real gap.
+    expect(result.nextGateAction).toContain("KAYSAKAT");
+  });
+});

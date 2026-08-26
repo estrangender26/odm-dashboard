@@ -163,31 +163,13 @@ function takeShape(
 }
 
 /**
- * TEMPORARY MANUAL PRESENTATION OVERRIDE — Slide 1 milestone rail ONLY.
- *
- * Confirmed operational truth (production smoke test): PM/PdM execution has
- * already started at AGLIPAY STP and HTT STP, so M5 ("PM/PdM execution
- * started") must render ACHIEVED (green) on Slide 1 for both facilities.
- *
- * The backend does not yet prove this: governance_milestone_state for both
- * rows has no comp_date <= reporting date and no custom_pct, so the
- * data-driven status is "upcoming". This override is a manual
- * presentation-layer correction ONLY: it changes how the Slide 1 rail renders
- * these two milestones and does NOT modify milestone truth, other facilities,
- * Slides 2/3, or any database record.
- *
- * REMOVE THIS OVERRIDE once authoritative backend data records M5 completion
- * (comp_date <= reporting date or equivalent) for AGLIPAY and HTT.
+ * Milestone statuses are canonical, data-driven values produced by the
+ * governance adapter (automatic derivation with the optional manual
+ * ready_status override). The rail renderer only consumes them — no
+ * facility-specific hard-coding lives here.
  */
-const SLIDE1_TEMPORARY_M5_OVERRIDE: Record<string, Record<string, MilestoneStatus>> = {
-  aglipay: { M5: "achieved" },
-  htt: { M5: "achieved" },
-};
-
 function milestoneStatusesFor(facility: FacilityData): MilestoneStatus[] {
-  const override = SLIDE1_TEMPORARY_M5_OVERRIDE[facility.slug];
   return MILESTONE_CODES.map((code) => {
-    if (override?.[code]) return override[code];
     const m = facility.milestones.find((mm) => mm.code === code);
     return m ? m.status : "upcoming";
   });

@@ -25,6 +25,7 @@ import type {
 } from "./types";
 import { MILESTONES, GOVERNANCE_TOC_ITEMS, PRESENTATION_FACILITIES, getFacilityColor } from "./theme";
 import { generateExecutiveContent } from "./executive";
+import { manualStatusToMilestoneStatus } from "./milestoneStatusManual";
 
 /**
  * Derive PPP start date from milestone states
@@ -90,6 +91,12 @@ export function determineMilestoneStatus(
   reportingDate: Date
 ): MilestoneStatus {
   if (!state) return "upcoming";
+
+  // 1) Valid manual ready_status override wins over the automatic derivation.
+  //    The dropdown is an explicit status override, never a rewrite of the
+  //    underlying evidence (compDate/pppDate/customPct stay untouched).
+  const manual = manualStatusToMilestoneStatus(state.readyStatus);
+  if (manual) return manual;
 
   const reportingIso = reportingDate.toISOString().split("T")[0];
 
@@ -322,7 +329,7 @@ async function fetchUploads(facilitySlugs: string[]): Promise<UploadRow[]> {
 /**
  * Build facility milestone data
  */
-function buildMilestones(
+export function buildMilestones(
   facilitySlug: string,
   states: MilestoneStateRow[],
   reportingDate: Date
