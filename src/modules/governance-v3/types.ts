@@ -7,8 +7,9 @@ import type { MilestoneCode } from "./theme";
 
 // Milestone Status Types
 export type MilestoneStatus = 
-  | "achieved"      // ✓ navy - completed as planned
-  | "achieved_ahead" // ✓ green - completed before planned
+  | "achieved"      // ✓ green - completed (or completed before planned)
+  | "achieved_ahead" // ✓ green - completed before planned (presentation maps to achieved)
+  | "in_progress"   // … yellow - authoritative evidence activity started, not complete
   | "gap"           // ! red - planned by now, still open
   | "upcoming";     // ○ gray - future milestone
 

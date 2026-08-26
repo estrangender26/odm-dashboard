@@ -211,7 +211,7 @@ describe("Governance V3 template generator", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const expected = [
-      { slide: 1, total: 154, sp: 152, gf: 0 },
+      { slide: 1, total: 157, sp: 155, gf: 0 },  // 148 template + 6 rail clones + 3 in-progress legend shapes
       { slide: 2, total: 65, sp: 63, gf: 0 },
       { slide: 3, total: 17, sp: 14, gf: 1 },
     ];
@@ -807,5 +807,90 @@ describe("Slide 3 — executive note fits its allocated box", () => {
     // note box starts below the KAYSAKAT card and ends above the footer
     expect(note.y).toBeGreaterThan(kaysakat.y + 581025);
     expect(note.y + 1143000).toBeLessThan(footer.y);
+  });
+});
+
+describe("Slide 1 — in-progress (yellow) state", () => {
+  function firstSrgbClrAt(xml: string, namePrefix: string, x: number, y: number): string | null {
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+    const sps = doc.getElementsByTagName("p:sp");
+    for (let i = 0; i < sps.length; i++) {
+      const sp = sps[i] as unknown as Element;
+      const cNvPr = sp.getElementsByTagName("p:cNvPr")[0];
+      const name = cNvPr?.getAttribute("name") || "";
+      if (!name.startsWith(namePrefix)) continue;
+      const off = sp.getElementsByTagName("a:off")[0];
+      if (!off) continue;
+      if (Number(off.getAttribute("x")) === x && Number(off.getAttribute("y")) === y) {
+        const vis = cNvPr.getAttribute("visible");
+        if (vis === "0") return null;
+        const srgb = sp.getElementsByTagName("a:srgbClr")[0];
+        return srgb?.getAttribute("val") ?? null;
+      }
+    }
+    return null;
+  }
+
+  it("renders an in-progress milestone as a yellow dot with the in-progress symbol", async () => {
+    const data = createTestData();
+    const aglipay = data.facilities.find((f) => f.slug === "aglipay")!;
+    aglipay.milestones = aglipay.milestones.map((m) =>
+      m.code === "M5" ? { ...m, status: "in_progress" as const } : m
+    );
+    const xml = await generateSlideXml(1, data);
+
+    // Yellow dot at AGLIPAY M5 column (rail row y=2352675) and navy "…" symbol.
+    const dotFill = firstSrgbClrAt(xml, "Milestone achieved Dot", 6891338, 2352675);
+    expect(dotFill).toBe("FFC000");
+    const symbolFill = firstSrgbClrAt(xml, "Milestone achieved Symbol", 6919913, 2362200);
+    expect(symbolFill).toBe("071B3D");
+    const shapes = parseSlideShapes(xml);
+    const sym = shapeAt(shapes, 6919913, 2362200).find((s) => s.visible);
+    expect(sym?.text).toContain("…");
+    // Other achieved milestones remain green.
+    expect(firstSrgbClrAt(xml, "Milestone achieved Dot", 2890838, 2352675)).toBe("169873");
+  });
+
+  it("does NOT render any yellow rail marker when the backend has no in-progress evidence", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    // The legend always carries the yellow in-progress entry; the rail area
+    // (y < 5,000,000 EMU) must contain no yellow fill without evidence.
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+    const sps = doc.getElementsByTagName("p:sp");
+    let yellowInRail = 0;
+    for (let i = 0; i < sps.length; i++) {
+      const sp = sps[i] as unknown as Element;
+      const off = sp.getElementsByTagName("a:off")[0];
+      if (!off || Number(off.getAttribute("y")) >= 5000000) continue;
+      const srgb = sp.getElementsByTagName("a:srgbClr")[0];
+      if (srgb?.getAttribute("val") === "FFC000") yellowInRail++;
+    }
+    expect(yellowInRail).toBe(0);
+  });
+
+  it("updates the legend to Achieved | In progress | Planned by now | Upcoming", async () => {
+    const xml = await generateSlideXml(1, createTestData());
+    const shapes = parseSlideShapes(xml);
+    const stripText = (name: string) => shapes.find((s) => s.name === name && s.visible)?.text ?? "";
+    // The new "In progress" legend entry is present with the yellow dot.
+    expect(stripText("Legend in progress")).toContain("In progress");
+    const legendDot = shapeAt(shapes, 3200400, 5476875).find((s) => s.visible);
+    expect(legendDot).toBeDefined();
+    expect(firstSrgbClrAt(xml, "Milestone in_progress Dot", 3200400, 5476875)).toBe("FFC000");
+    // Left-to-right order: Achieved | In progress | Planned | Upcoming.
+    const order: Array<{ name: string; x: number }> = [
+      { name: "Legend achieved", x: 990600 },
+      { name: "Legend in progress", x: 3543300 },
+      { name: "Legend gap", x: 6496050 },
+      { name: "Legend upcoming", x: 9229725 },
+    ];
+    for (const entry of order) {
+      const s = shapes.find((shape) => shape.name === entry.name && shape.visible);
+      expect(s).toBeDefined();
+      expect(s!.x).toBe(entry.x);
+    }
+    // The ahead entry is still removed from the visible legend.
+    const visibleText = shapes.filter((s) => s.visible).map((s) => s.text).join(" ");
+    expect(visibleText).not.toContain("Achieved ahead of plan");
   });
 });

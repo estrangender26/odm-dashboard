@@ -66,16 +66,23 @@ interface UploadRow {
 }
 
 /**
- * Determine milestone status based on dates and completion.
+ * Determine milestone status based on dates, completion, and progress evidence.
  *
  * Achievement is evidence-driven: a milestone is only achieved when a completion
  * date (compDate) is present AND that date is at or before the reporting date.
  * A completion recorded after TODAY is not yet evidenced, so calendar position
  * alone never marks a milestone achieved.
  *
- * If the milestone has a PPP target date and that date is at or before the
- * reporting date but the milestone is not yet completed, it is a gap
- * ("planned by now — still open"). Otherwise it remains upcoming.
+ * In-progress is evidence-driven too: governance_milestone_state.customPct is
+ * the dashboard's authoritative progress field (same rule the S-curve uses:
+ * customPct ?? (compDate ? 100 : 0)). A value strictly between 0 and 100 with
+ * no evidenced completion means the activity has authoritatively started but is
+ * not yet complete. Calendar position alone never marks a milestone
+ * in-progress, and a future compDate is not treated as started evidence.
+ *
+ * If the milestone has a PPP target date at or before the reporting date and
+ * is not in progress, it is a gap ("planned by now — still open"). Otherwise
+ * it remains upcoming.
  */
 export function determineMilestoneStatus(
   _milestoneId: string,
@@ -93,6 +100,17 @@ export function determineMilestoneStatus(
       return "achieved_ahead";
     }
     return "achieved";
+  }
+
+  // Authoritative in-progress evidence: 0 < customPct < 100 without an
+  // evidenced completion. This is the dashboard's own progress rule.
+  if (
+    state.customPct !== null &&
+    state.customPct !== undefined &&
+    state.customPct > 0 &&
+    state.customPct < 100
+  ) {
+    return "in_progress";
   }
 
   if (state.pppDate && state.pppDate <= reportingIso) {

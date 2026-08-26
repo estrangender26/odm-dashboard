@@ -2,26 +2,31 @@
  * Slide 1 milestone rail renderer.
  *
  * Makes the per-facility M1..M9 milestone status symbols fully data-driven
- * using ONLY the approved three visual states:
+ * using the approved four visual states:
  *
  *   achieved (and achieved ahead of plan) → green dot + white ✓
+ *   in_progress (authoritative backend evidence, customPct 0..100) → yellow
+ *       dot + navy … (activity started, not yet complete)
  *   gap ("planned by now — still open")   → light dot + red outline + red !
  *   upcoming                              → light dot + gray outline, no icon
  *
  * The "achieved ahead of plan" state keeps its underlying milestone truth
  * (the status is never recalculated) but maps to the achieved visual
  * treatment; the cyan "ahead" visual state and its legend entry are removed.
+ * The yellow in-progress visual is only produced when the backend supplies
+ * authoritative progress evidence (0 < customPct < 100 without completion) —
+ * calendar position alone never renders yellow.
  *
  * Rendering guarantees:
  * - every marker is placed at its canonical M1..M9 column x, centered
  *   vertically on the facility rail;
  * - markers are re-appended to the end of the shape tree so they always paint
  *   ABOVE the rail (the rail never paints a stripe across a marker);
- * - unused template shapes (including all "ahead" shapes and the removed
- *   legend entry) are hidden so no stale or duplicate symbol leaks through.
+ * - unused template shapes (including all "ahead" shapes) are hidden so no
+ *   stale or duplicate symbol leaks through.
  */
 
-import { NS, getShapeName } from "../../framework";
+import { NS, getShapeName, setShapeText } from "../../framework";
 import type { XmlDocument, XmlElement } from "../../framework";
 import type { FacilityData, MilestoneStatus } from "../../../governance-v3/types";
 import {
@@ -33,19 +38,29 @@ import {
   cloneShape,
   findShapesByName,
   getShapeOff,
+  setFirstSrgbClr,
   setShapeOff,
   setShapeVisible,
 } from "./slideLayout";
 
 const MILESTONE_CODES = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9"] as const;
 
+/** Yellow "in progress" visual: amber filled dot with a navy ellipsis. */
+const IN_PROGRESS = {
+  dotFill: "FFC000",
+  symbolFill: "071B3D",
+  glyph: "…",
+} as const;
+
 /**
- * Approved three-state visual mapping. "achieved_ahead" keeps its milestone
- * truth but renders with the achieved visual (green dot + white check).
+ * Approved four-state visual mapping. "achieved_ahead" keeps its milestone
+ * truth but renders with the achieved visual; "in_progress" is built from the
+ * achieved dot/symbol shapes and recolored to the yellow treatment.
  */
 const STATUS_TO_SHAPE: Record<MilestoneStatus, { dot: string; symbol: string | null }> = {
   achieved: { dot: "Milestone achieved Dot", symbol: "Milestone achieved Symbol" },
   achieved_ahead: { dot: "Milestone achieved Dot", symbol: "Milestone achieved Symbol" },
+  in_progress: { dot: "Milestone achieved Dot", symbol: "Milestone achieved Symbol" },
   gap: { dot: "Milestone gap Dot", symbol: "Milestone gap Symbol" },
   upcoming: { dot: "Milestone upcoming Dot", symbol: null },
 };
@@ -165,6 +180,60 @@ function hideAheadVisualState(doc: XmlDocument): void {
   }
 }
 
+/** Find a shape by name at a specific row y (legend row). */
+function legendShape(doc: XmlDocument, name: string, targetY: number): XmlElement | undefined {
+  return findShapesByName(doc, name).find((s) => getShapeOff(s).y === targetY);
+}
+
+/**
+ * Update the Slide 1 legend to the approved four states in lifecycle order:
+ *
+ *   Achieved | In progress | Planned by now — still open | Upcoming milestone
+ *
+ * The "Planned by now" entry moves into the slot freed by the removed
+ * "Achieved ahead of plan" entry; the new "In progress" entry is built from
+ * the achieved legend visuals recolored to the yellow treatment (amber dot,
+ * navy ellipsis) and takes the vacated "gap" slot.
+ */
+function renderInProgressLegend(doc: XmlDocument): void {
+  const stripY = 5486400;
+  const dotY = 5476875;
+
+  const achievedStrip = legendShape(doc, "Legend achieved", stripY);
+  const achievedDot = legendShape(doc, "Milestone achieved Dot", dotY);
+  const achievedSymbol = legendShape(doc, "Milestone achieved Symbol", stripY);
+  const gapStrip = legendShape(doc, "Legend gap", stripY);
+  const gapDot = legendShape(doc, "Milestone gap Dot", dotY);
+  const gapSymbol = legendShape(doc, "Milestone gap Symbol", stripY);
+  if (!achievedStrip || !achievedDot || !achievedSymbol || !gapStrip || !gapDot || !gapSymbol) {
+    return;
+  }
+
+  // 1) Move the "Planned by now — still open" entry into the freed "ahead" slot.
+  setShapeOff(gapStrip, 6496050, stripY);
+  setShapeOff(gapDot, 6153150, dotY);
+  setShapeOff(gapSymbol, 6181725, stripY);
+
+  // 2) Build the "In progress" entry from the achieved visuals, recolored to
+  //    the yellow treatment, in the vacated "gap" slot.
+  const inProgressStrip = cloneShape(doc, achievedStrip, "Legend in progress");
+  setShapeText(inProgressStrip, "In progress");
+  setShapeOff(inProgressStrip, 3543300, stripY);
+
+  const inProgressDot = cloneShape(doc, achievedDot, "Milestone in_progress Dot");
+  setFirstSrgbClr(inProgressDot, IN_PROGRESS.dotFill);
+  setShapeOff(inProgressDot, 3200400, dotY);
+
+  const inProgressSymbol = cloneShape(doc, achievedSymbol, "Milestone in_progress Symbol");
+  setShapeText(inProgressSymbol, IN_PROGRESS.glyph);
+  setFirstSrgbClr(inProgressSymbol, IN_PROGRESS.symbolFill);
+  setShapeOff(inProgressSymbol, 3228975, stripY);
+
+  for (const shape of [inProgressStrip, inProgressDot, inProgressSymbol]) {
+    setShapeVisible(shape, true);
+  }
+}
+
 /**
  * Render the data-driven milestone symbols for every facility rail on slide 1.
  * Shapes that are not needed for the current state (including all "ahead"
@@ -182,9 +251,11 @@ export function renderMilestoneSymbols(doc: XmlDocument, facilities: FacilityDat
 
     for (let col = 0; col < MILESTONE_CODES.length; col++) {
       const status = statuses[col];
-      // Three-state visual treatment: achieved_ahead keeps its milestone truth
-      // but renders with the achieved visuals (green dot + white check).
-      const visualStatus: MilestoneStatus = status === "achieved_ahead" ? "achieved" : status;
+      // Visual treatment: achieved_ahead and in_progress keep their milestone
+      // truth but source their shapes from the achieved visuals. in_progress is
+      // recolored to the yellow treatment after placement.
+      const visualStatus: MilestoneStatus =
+        status === "achieved_ahead" || status === "in_progress" ? "achieved" : status;
       const colX = RAIL_MILESTONE_XS[col];
       const need = STATUS_TO_SHAPE[visualStatus];
 
@@ -198,6 +269,9 @@ export function renderMilestoneSymbols(doc: XmlDocument, facilities: FacilityDat
         // Paint above the facility rail: prevents the rail bar from striping
         // markers that were repositioned from an earlier z-order slot.
         appendShapeToEnd(dot.el);
+        if (status === "in_progress") {
+          setFirstSrgbClr(dot.el, IN_PROGRESS.dotFill);
+        }
       }
 
       if (need.symbol) {
@@ -209,6 +283,10 @@ export function renderMilestoneSymbols(doc: XmlDocument, facilities: FacilityDat
           symbol.rowY = dotY;
           symbol.colX = colX;
           appendShapeToEnd(symbol.el);
+          if (status === "in_progress") {
+            setShapeText(symbol.el, IN_PROGRESS.glyph);
+            setFirstSrgbClr(symbol.el, IN_PROGRESS.symbolFill);
+          }
         }
       }
     }
@@ -221,4 +299,5 @@ export function renderMilestoneSymbols(doc: XmlDocument, facilities: FacilityDat
   }
 
   hideAheadVisualState(doc);
+  renderInProgressLegend(doc);
 }

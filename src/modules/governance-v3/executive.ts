@@ -55,13 +55,13 @@ export function generateExecutiveContent(
 
     // PPP facilities with incomplete planned-now milestones drive the immediate next gate.
     const pppIncomplete = activePppFacilities.filter(f => {
-      const incompleteMs = f.milestones.filter(m => m.status === "gap" || m.status === "upcoming");
+      const incompleteMs = f.milestones.filter(m => m.status === "gap" || m.status === "upcoming" || m.status === "in_progress");
       return incompleteMs.length > 0;
     });
 
     if (pppIncomplete.length > 0) {
       const names = pppIncomplete.map(f => f.shortName.split(" ")[0]).join(" and ");
-      const incompleteCodes = [...new Set(pppIncomplete.flatMap(f => f.milestones.filter(m => m.status === "gap" || m.status === "upcoming").map(m => m.code)))];
+      const incompleteCodes = [...new Set(pppIncomplete.flatMap(f => f.milestones.filter(m => m.status === "gap" || m.status === "upcoming" || m.status === "in_progress").map(m => m.code)))];
       const task = incompleteCodes.includes("M4") || incompleteCodes.includes("M5")
         ? "complete SAP-PM task list setup"
         : incompleteCodes.includes("M1") || incompleteCodes.includes("M2") || incompleteCodes.includes("M3")
