@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeAll } from "vitest";
 import type { FacilityDocumentation } from "./types";
+import { aggregatePortfolioSummary } from "./adapter.server";
 
 let calculateFacilityDocumentation: (
   facilitySlug: string,
@@ -143,5 +144,112 @@ describe("calculateFacilityDocumentation", () => {
         expect(result.submissions.find(s => s.tocId === tocId)?.submitted).toBe(false);
       }
     }
+  });
+});
+
+describe("Slide 3 documentation readiness — real uploaded TOC evidence", () => {
+  it("maps TOC identifiers in multiple canonical forms to the same submission", () => {
+    const result = calculateFacilityDocumentation("htt", "HTT STP", [], [
+      makeUpload({ facilitySlug: "htt", tocItem: "TOC-08", category: "TOC-08" }),
+      makeUpload({ facilitySlug: "htt", tocItem: "08", category: "08" }),
+      makeUpload({ facilitySlug: "htt", tocItem: "toc-8", category: "toc-8" }),
+    ]);
+    expect(result.submissions.find(s => s.tocId === "8")?.submitted).toBe(true);
+    expect(result.submissions.find(s => s.tocId === "8")?.documentCount).toBe(3);
+    expect(result.submittedCount).toBe(1);
+  });
+
+  it("counts only governance_uploads/governance_files evidence — status-table rows alone are not submissions", () => {
+    // The third argument (deliverable status rows) is deliberately ignored:
+    // Slide 3 submitted checkmarks come from real uploads only.
+    const statusRows = [
+      { facilitySlug: "htt", tocItem: "1", status: "approved" },
+      { facilitySlug: "htt", tocItem: "2", status: "approved" },
+      { facilitySlug: "htt", tocItem: "3", status: "approved" },
+    ] as any[];
+    const result = calculateFacilityDocumentation("htt", "HTT STP", statusRows, []);
+    expect(result.submittedCount).toBe(0);
+    expect(result.compliancePercent).toBe(0);
+  });
+
+  it("produces the exact approved facility compliance percentages from evidence", () => {
+    const scenarios = [
+      { slug: "kaysakat", name: "KAYSAKAT TP", submitted: ["8"], pct: 7 },
+      { slug: "eastbay", name: "EASTBAY PH-2 TP", submitted: ["2", "7", "8", "12"], pct: 29 },
+      { slug: "aglipay", name: "AGLIPAY STP", submitted: ["8", "11", "12"], pct: 21 },
+      { slug: "htt", name: "HTT STP", submitted: ["1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "12"], pct: 79 },
+    ];
+    for (const scenario of scenarios) {
+      const uploads = scenario.submitted.map(tocId =>
+        makeUpload({
+          facilitySlug: scenario.slug,
+          milestoneId: "M1",
+          tocItem: `TOC-${tocId.padStart(2, "0")}`,
+          category: `TOC-${tocId.padStart(2, "0")}`,
+          fileName: `${tocId}.pdf`,
+        })
+      );
+      uploads.push(makeUpload({
+        facilitySlug: scenario.slug,
+        milestoneId: "__ref",
+        tocItem: "TOC-01",
+        category: "references",
+        fileName: "reference.pdf",
+      }));
+      const result = calculateFacilityDocumentation(scenario.slug, scenario.name, [], uploads);
+      expect(result.submittedCount).toBe(scenario.submitted.length);
+      expect(result.requiredCount).toBe(14);
+      expect(result.compliancePercent).toBe(scenario.pct);
+      expect(result.referenceCount).toBe(1);
+    }
+  });
+
+  it("rolls facility submissions up into the portfolio summary (19/56 = 34%)", () => {
+    const docs = [
+      { facilitySlug: "kaysakat", submittedCount: 1, requiredCount: 14, referenceCount: 1, milestoneFileCount: 1 },
+      { facilitySlug: "eastbay", submittedCount: 4, requiredCount: 14, referenceCount: 1, milestoneFileCount: 4 },
+      { facilitySlug: "aglipay", submittedCount: 3, requiredCount: 14, referenceCount: 1, milestoneFileCount: 3 },
+      { facilitySlug: "htt", submittedCount: 11, requiredCount: 14, referenceCount: 1, milestoneFileCount: 11 },
+    ] as unknown as Parameters<typeof aggregatePortfolioSummary>[1];
+    const facilities = [
+      { slug: "aglipay", currentPhase: "PPP", phaseStatus: "PPP ACTIVE" },
+      { slug: "htt", currentPhase: "PPP", phaseStatus: "PPP ACTIVE" },
+      { slug: "eastbay", currentPhase: "PRE-PPP", phaseStatus: "PRE-PPP • GATE READY" },
+      { slug: "kaysakat", currentPhase: "PRE-PPP", phaseStatus: "PRE-PPP • RECOVERY" },
+    ] as unknown as Parameters<typeof aggregatePortfolioSummary>[0];
+
+    const summary = aggregatePortfolioSummary(facilities, docs);
+    expect(summary.totalDocumentsSubmitted).toBe(19);
+    expect(summary.totalDocumentsRequired).toBe(56);
+    expect(summary.portfolioCompliancePercent).toBe(34);
+    expect(summary.totalReferenceFiles).toBe(4);
+    expect(summary.totalMilestoneFiles).toBe(19);
+  });
+
+  it("different facility evidence records produce different documentation output", () => {
+    const kaysakat = calculateFacilityDocumentation("kaysakat", "KAYSAKAT TP", [], [
+      makeUpload({ facilitySlug: "kaysakat", tocItem: "TOC-08", category: "TOC-08" }),
+    ]);
+    const htt = calculateFacilityDocumentation("htt", "HTT STP", [], [
+      makeUpload({ facilitySlug: "htt", tocItem: "TOC-01", category: "TOC-01" }),
+      makeUpload({ facilitySlug: "htt", tocItem: "TOC-08", category: "TOC-08" }),
+    ]);
+    expect(kaysakat).not.toEqual(htt);
+    expect(kaysakat.submittedCount).not.toBe(htt.submittedCount);
+    expect(kaysakat.compliancePercent).not.toBe(htt.compliancePercent);
+  });
+
+  it("keeps reference files out of the TOC matrix while tracking them separately", () => {
+    const result = calculateFacilityDocumentation("eastbay", "EASTBAY PH-2 TP", [], [
+      makeUpload({ facilitySlug: "eastbay", milestoneId: "__ref", tocItem: "TOC-02", category: "references", fileName: "ref-a.pdf" }),
+      makeUpload({ facilitySlug: "eastbay", milestoneId: "__ref", tocItem: "TOC-07", category: "references", fileName: "ref-b.pdf" }),
+      makeUpload({ facilitySlug: "eastbay", milestoneId: "M1", tocItem: "TOC-08", category: "TOC-08", fileName: "evidence.pdf" }),
+    ]);
+    expect(result.submittedCount).toBe(1);
+    expect(result.submissions.find(s => s.tocId === "2")?.submitted).toBe(false);
+    expect(result.submissions.find(s => s.tocId === "7")?.submitted).toBe(false);
+    expect(result.submissions.find(s => s.tocId === "8")?.submitted).toBe(true);
+    expect(result.referenceCount).toBe(2);
+    expect(result.milestoneFileCount).toBe(1);
   });
 });

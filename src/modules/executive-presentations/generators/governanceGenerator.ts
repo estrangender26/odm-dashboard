@@ -21,9 +21,28 @@ import {
   type XmlDocument,
 } from "../framework";
 import type { GovernanceV3Presentation } from "../../governance-v3/types";
+import { renderMilestoneSymbols } from "./governance/milestoneRail";
+import {
+  PHASE_WINDOWS,
+  addMonths,
+  getShapeOff,
+  miniXForMonthOffset,
+  monthDiff,
+  setShapeOff,
+  setShapeWidth,
+  timelineXForDate,
+} from "./governance/slideLayout";
 
 const TEMPLATE_FILENAME = "GovernanceExecutive.pptx";
 const FACILITY_ORDER = ["aglipay", "htt", "eastbay", "kaysakat"];
+
+/** Shape-name prefixes used by the template for per-facility markers. */
+const FACILITY_SHAPE_PREFIX: Record<string, string> = {
+  aglipay: "AGLIPAY STP",
+  htt: "HTT STP",
+  eastbay: "EASTBAY PH-2 TP",
+  kaysakat: "KAYSAKAT TP",
+};
 
 function formatDateLong(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
@@ -54,6 +73,82 @@ function formatMonthYearUpper(dateStr: string): string {
 
 function formatTodayLabel(dateStr: string): string {
   return `TODAY • ${formatDateUpper(dateStr)}`;
+}
+
+/**
+ * Move each facility's red TODAY marker on the Slide 1 mini phase bar to the
+ * position implied by the reporting date relative to that facility's actual
+ * PPP start date. The marker is 76200 EMU wide (dot) with a 19050 EMU line
+ * centered on the same x.
+ */
+function updateSlide1TodayMarkers(doc: XmlDocument, data: GovernanceV3Presentation): void {
+  const { facilities, reportingDate } = data;
+  for (const facility of facilities) {
+    const prefix = FACILITY_SHAPE_PREFIX[facility.slug];
+    if (!prefix) continue;
+    const dot = findShapeByName(doc, `${prefix} Today Marker Dot`);
+    const line = findShapeByName(doc, `${prefix} Today Marker Line`);
+    if (!dot && !line) continue;
+    const offset = monthDiff(facility.pppStartDate, reportingDate);
+    const x = miniXForMonthOffset(offset);
+    if (dot) setShapeOff(dot, x - 38100, getShapeOff(dot).y);
+    if (line) setShapeOff(line, x - 9525, getShapeOff(line).y);
+  }
+}
+
+/**
+ * Reposition a Slide 2 phase segment between two ISO dates on the calendar
+ * timeline, preserving its row y and height.
+ */
+function positionSegment(
+  shape: NonNullable<ReturnType<typeof findShapeByName>>,
+  fromIso: string,
+  toIso: string
+): void {
+  const x1 = timelineXForDate(fromIso);
+  const x2 = timelineXForDate(toIso);
+  setShapeOff(shape, x1, getShapeOff(shape).y);
+  setShapeWidth(shape, Math.max(0, x2 - x1));
+}
+
+/**
+ * Make the Slide 2 timeline fully data-driven:
+ * - each facility's three phase segments are sized from its actual PPP start
+ *   date using the approved windows (PRE-PPP = start−8mo..start, PPP =
+ *   start..start+12mo, POST-PPP = start+12mo..start+20mo);
+ * - the PPP START line and the TODAY dot are placed from the real dates;
+ * - the prominent TODAY line is placed from the reporting date.
+ */
+function updateSlide2Timeline(doc: XmlDocument, data: GovernanceV3Presentation): void {
+  const { facilities, reportingDate } = data;
+  const todayX = timelineXForDate(reportingDate);
+
+  const prominentLine = findShapeByName(doc, "Prominent Today Line");
+  if (prominentLine) {
+    setShapeOff(prominentLine, todayX - 19050, getShapeOff(prominentLine).y);
+  }
+
+  for (const facility of facilities) {
+    const prefix = FACILITY_SHAPE_PREFIX[facility.slug];
+    if (!prefix) continue;
+
+    const start = facility.pppStartDate;
+    const preStart = addMonths(start, -PHASE_WINDOWS.preMonths);
+    const pppEnd = addMonths(start, PHASE_WINDOWS.pppMonths);
+    const postEnd = addMonths(start, PHASE_WINDOWS.postMonths);
+
+    const seg1 = findShapeByName(doc, `${prefix} Phase Segment 1`);
+    const seg2 = findShapeByName(doc, `${prefix} Phase Segment 2`);
+    const seg3 = findShapeByName(doc, `${prefix} Phase Segment 3`);
+    const startLine = findShapeByName(doc, `${prefix} PPP Start Line`);
+    const todayDot = findShapeByName(doc, `${prefix} Today Dot`);
+
+    if (seg1) positionSegment(seg1, preStart, start);
+    if (seg2) positionSegment(seg2, start, pppEnd);
+    if (seg3) positionSegment(seg3, pppEnd, postEnd);
+    if (startLine) setShapeOff(startLine, timelineXForDate(start), getShapeOff(startLine).y);
+    if (todayDot) setShapeOff(todayDot, todayX - 85725, getShapeOff(todayDot).y);
+  }
 }
 
 function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
@@ -128,6 +223,10 @@ function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
     throw new Error('[TEMPLATE] Required shape "Action Text" not found on slide 1.');
   }
   setShapeText(actionShape, executive.nextGateAction);
+
+  // Data-driven milestone symbols and TODAY markers.
+  renderMilestoneSymbols(doc, facilities);
+  updateSlide1TodayMarkers(doc, data);
 }
 
 function updateSlide2(doc: XmlDocument, data: GovernanceV3Presentation): void {
@@ -202,6 +301,9 @@ function updateSlide2(doc: XmlDocument, data: GovernanceV3Presentation): void {
     );
   }
   setShapeText(gateShape, executive.gateImplication);
+
+  // Data-driven phase segments, PPP START lines, and TODAY markers.
+  updateSlide2Timeline(doc, data);
 }
 
 function facilityPanelLabel(facilityShortName: string): string {

@@ -265,3 +265,105 @@ describe("generateExecutiveContent", () => {
     expect(result2.nextGateAction).not.toContain("HTT");
   });
 });
+
+describe("Data-derived NEXT GATE and GATE IMPLICATION", () => {
+  const fourFacilities = () => [
+    makeFacility("aglipay", "AGLIPAY STP", "2026-03-13", "PPP", "PPP ACTIVE", 21, [
+      { code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "gap" },
+    ]),
+    makeFacility("htt", "HTT STP", "2026-03-13", "PPP", "PPP ACTIVE", 79, [
+      { code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "gap" },
+    ]),
+    makeFacility("eastbay", "EASTBAY PH-2 TP", "2026-09-01", "PRE-PPP", "PRE-PPP • GATE READY", 29, [
+      { code: "M1", name: "T&C Complete", phase: "PRE-PPP", status: "achieved" },
+    ]),
+    makeFacility("kaysakat", "KAYSAKAT TP", "2026-09-01", "PRE-PPP", "PRE-PPP • RECOVERY", 7, [
+      { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "gap" },
+    ]),
+  ];
+
+  it("derives NEXT GATE from actual open milestones, not hard-coded text", () => {
+    const facilities = fourFacilities();
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-01")
+    );
+    expect(result.nextGateAction).toContain("complete SAP-PM task list setup");
+    expect(result.nextGateAction).toContain("AGLIPAY");
+    expect(result.nextGateAction).toContain("HTT");
+  });
+
+  it("changes NEXT GATE when the underlying milestone state changes", () => {
+    const facilities = fourFacilities();
+    // Move every facility's PPP start into the past and close all open
+    // milestones → no gaps, no future-PPP gate → fallback statement.
+    for (const f of facilities) {
+      f.facility.pppStartDate = "2026-03-13";
+      f.facility.currentPhase = "PPP";
+      f.facility.phaseStatus = "PPP ACTIVE";
+    }
+    facilities[0].facility.milestones = [{ code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "achieved" }];
+    facilities[1].facility.milestones = [{ code: "M4", name: "PM task lists in SAP-PM", phase: "PPP", status: "achieved" }];
+    facilities[2].facility.milestones = [
+      { code: "M1", name: "T&C Complete", phase: "PRE-PPP", status: "achieved" },
+      { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "achieved" },
+      { code: "M3", name: "Punchlist Closed", phase: "PRE-PPP", status: "achieved" },
+    ];
+    facilities[3].facility.milestones = [
+      { code: "M1", name: "T&C Complete", phase: "PRE-PPP", status: "achieved" },
+      { code: "M2", name: "Commissioning", phase: "PRE-PPP", status: "achieved" },
+      { code: "M3", name: "Punchlist Closed", phase: "PRE-PPP", status: "achieved" },
+    ];
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-01")
+    );
+    expect(result.nextGateAction).not.toContain("complete SAP-PM task list setup");
+    expect(result.nextGateAction).not.toContain("close remaining Pre-PPP readiness gaps");
+    expect(result.nextGateAction).toContain("Next gate: Continue milestone progression");
+  });
+
+  it("derives GATE IMPLICATION from future-PPP facilities and their real PPP start months", () => {
+    const facilities = fourFacilities();
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-01")
+    );
+    expect(result.gateImplication).toContain("EASTBAY");
+    expect(result.gateImplication).toContain("KAYSAKAT");
+    expect(result.gateImplication).toContain("September 2026");
+  });
+
+  it("changes GATE IMPLICATION when no facility is still pre-PPP", () => {
+    const facilities = fourFacilities();
+    facilities[2].facility.pppStartDate = "2026-03-13";
+    facilities[2].facility.currentPhase = "PPP";
+    facilities[2].facility.phaseStatus = "PPP ACTIVE";
+    facilities[3].facility.pppStartDate = "2026-03-13";
+    facilities[3].facility.currentPhase = "PPP";
+    facilities[3].facility.phaseStatus = "PPP ACTIVE";
+    const result = generateExecutiveContent(
+      facilities.map(f => f.facility),
+      baseSummary,
+      facilities.map(f => f.doc),
+      new Date("2026-08-01")
+    );
+    expect(result.gateImplication).not.toContain("EASTBAY and KAYSAKAT");
+  });
+
+  it("produces different commentary for different facility records (no stale text)", () => {
+    const low = makeFacility("kaysakat", "KAYSAKAT TP", "2026-09-01", "PRE-PPP", "PRE-PPP • RECOVERY", 7);
+    const high = makeFacility("htt", "HTT STP", "2026-03-13", "PPP", "PPP ACTIVE", 79);
+    const resultLow = generateExecutiveContent([low.facility], baseSummary, [low.doc], new Date("2026-08-01"));
+    const resultHigh = generateExecutiveContent([high.facility], baseSummary, [high.doc], new Date("2026-08-01"));
+    expect(resultLow.facilityObservations.kaysakat).not.toBe(resultHigh.facilityObservations.htt);
+    expect(resultLow.facilityObservations.kaysakat).toContain("7%");
+    expect(resultHigh.facilityObservations.htt).toContain("79%");
+  });
+});

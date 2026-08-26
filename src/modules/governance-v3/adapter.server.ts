@@ -29,7 +29,7 @@ import { generateExecutiveContent } from "./executive";
 /**
  * Derive PPP start date from milestone states
  */
-function derivePppStartDate(facilitySlug: string, states: MilestoneStateRow[]): string | null {
+export function derivePppStartDate(facilitySlug: string, states: MilestoneStateRow[]): string | null {
   const facilityStates = states.filter(s => s.facilitySlug === facilitySlug);
   const dates = facilityStates
     .map(s => s.pppDate)
@@ -66,29 +66,37 @@ interface UploadRow {
 }
 
 /**
- * Determine milestone status based on dates and completion
+ * Determine milestone status based on dates and completion.
+ *
+ * Achievement is evidence-driven: a milestone is only achieved when a completion
+ * date (compDate) is present AND that date is at or before the reporting date.
+ * A completion recorded after TODAY is not yet evidenced, so calendar position
+ * alone never marks a milestone achieved.
+ *
+ * If the milestone has a PPP target date and that date is at or before the
+ * reporting date but the milestone is not yet completed, it is a gap
+ * ("planned by now — still open"). Otherwise it remains upcoming.
  */
-function determineMilestoneStatus(
+export function determineMilestoneStatus(
   _milestoneId: string,
   state: MilestoneStateRow | undefined,
   reportingDate: Date
 ): MilestoneStatus {
   if (!state) return "upcoming";
 
-  if (state.compDate) {
-    const completed = new Date(state.compDate);
-    const planned = state.pppDate ? new Date(state.pppDate) : null;
+  const reportingIso = reportingDate.toISOString().split("T")[0];
+
+  if (state.compDate && state.compDate <= reportingIso) {
+    const completed = new Date(state.compDate + "T12:00:00");
+    const planned = state.pppDate ? new Date(state.pppDate + "T12:00:00") : null;
     if (planned && completed < planned) {
       return "achieved_ahead";
     }
     return "achieved";
   }
 
-  if (state.pppDate) {
-    const planned = new Date(state.pppDate);
-    if (planned <= reportingDate) {
-      return "gap";
-    }
+  if (state.pppDate && state.pppDate <= reportingIso) {
+    return "gap";
   }
 
   return "upcoming";
@@ -97,7 +105,7 @@ function determineMilestoneStatus(
 /**
  * Determine facility phase status
  */
-function determinePhaseStatus(
+export function determinePhaseStatus(
   milestones: MilestoneData[],
   phase: PhaseType
 ): FacilityPhaseStatus {
@@ -325,7 +333,7 @@ function buildMilestones(
 /**
  * Determine current phase based on milestone completion
  */
-function determineCurrentPhase(milestones: MilestoneData[]): PhaseType {
+export function determineCurrentPhase(milestones: MilestoneData[]): PhaseType {
   const prePppComplete = milestones
     .filter(m => m.phase === "PRE-PPP")
     .every(m => m.status === "achieved" || m.status === "achieved_ahead");
@@ -420,6 +428,39 @@ export function calculateFacilityDocumentation(
 }
 
 /**
+ * Aggregate the portfolio-level summary from ordered facility data.
+ *
+ * Pure function so the portfolio math (submitted/required, compliance %,
+ * reference/milestone file roll-ups) can be unit-tested without a database.
+ */
+export function aggregatePortfolioSummary(
+  facilities: FacilityData[],
+  orderedDocumentation: FacilityDocumentation[]
+): PortfolioSummary {
+  const totalDocumentsSubmitted = orderedDocumentation.reduce((sum, d) => sum + d.submittedCount, 0);
+  const totalDocumentsRequired = orderedDocumentation.reduce((sum, d) => sum + d.requiredCount, 0);
+  const portfolioCompliancePercent = totalDocumentsRequired > 0
+    ? Math.round((totalDocumentsSubmitted / totalDocumentsRequired) * 100)
+    : 0;
+  const totalReferenceFiles = orderedDocumentation.reduce((sum, d) => sum + d.referenceCount, 0);
+  const totalMilestoneFiles = orderedDocumentation.reduce((sum, d) => sum + d.milestoneFileCount, 0);
+
+  return {
+    totalFacilities: facilities.length,
+    facilitiesInPrePpp: facilities.filter(f => f.currentPhase === "PRE-PPP").length,
+    facilitiesInPpp: facilities.filter(f => f.currentPhase === "PPP").length,
+    facilitiesInPostPpp: facilities.filter(f => f.currentPhase === "POST-PPP").length,
+    gateReadyCount: facilities.filter(f => f.phaseStatus === "PRE-PPP • GATE READY").length,
+    recoveryCount: facilities.filter(f => f.phaseStatus === "PRE-PPP • RECOVERY").length,
+    totalDocumentsSubmitted,
+    totalDocumentsRequired,
+    portfolioCompliancePercent,
+    totalReferenceFiles,
+    totalMilestoneFiles,
+  };
+}
+
+/**
  * Fetch and transform governance data for V3 presentation
  */
 export async function fetchGovernanceV3Data(
@@ -477,27 +518,7 @@ export async function fetchGovernanceV3Data(
     return doc;
   });
 
-  const totalDocumentsSubmitted = orderedDocumentation.reduce((sum, d) => sum + d.submittedCount, 0);
-  const totalDocumentsRequired = orderedDocumentation.reduce((sum, d) => sum + d.requiredCount, 0);
-  const portfolioCompliancePercent = totalDocumentsRequired > 0
-    ? Math.round((totalDocumentsSubmitted / totalDocumentsRequired) * 100)
-    : 0;
-  const totalReferenceFiles = orderedDocumentation.reduce((sum, d) => sum + d.referenceCount, 0);
-  const totalMilestoneFiles = orderedDocumentation.reduce((sum, d) => sum + d.milestoneFileCount, 0);
-
-  const summaryInput: PortfolioSummary = {
-    totalFacilities: facilities.length,
-    facilitiesInPrePpp: facilities.filter(f => f.currentPhase === "PRE-PPP").length,
-    facilitiesInPpp: facilities.filter(f => f.currentPhase === "PPP").length,
-    facilitiesInPostPpp: facilities.filter(f => f.currentPhase === "POST-PPP").length,
-    gateReadyCount: facilities.filter(f => f.phaseStatus === "PRE-PPP • GATE READY").length,
-    recoveryCount: facilities.filter(f => f.phaseStatus === "PRE-PPP • RECOVERY").length,
-    totalDocumentsSubmitted,
-    totalDocumentsRequired,
-    portfolioCompliancePercent,
-    totalReferenceFiles,
-    totalMilestoneFiles,
-  };
+  const summaryInput = aggregatePortfolioSummary(facilities, orderedDocumentation);
 
   const executive = generateExecutiveContent(facilities, summaryInput, orderedDocumentation, effectiveDate);
 
