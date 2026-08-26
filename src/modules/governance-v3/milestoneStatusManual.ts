@@ -68,3 +68,24 @@ export function manualStatusToMilestoneStatus(
       return null;
   }
 }
+
+/**
+ * Ordered dropdown options for the milestone status selector (Auto first).
+ * The Governance dashboard renders exactly these five options; the value ""
+ * represents Auto (clears the override to null on save).
+ */
+export const STATUS_DROPDOWN_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "", label: MANUAL_STATUS_LABELS.auto },
+  { value: "achieved", label: MANUAL_STATUS_LABELS.achieved },
+  { value: "in_progress", label: MANUAL_STATUS_LABELS.in_progress },
+  { value: "planned_open", label: MANUAL_STATUS_LABELS.planned_open },
+  { value: "upcoming", label: MANUAL_STATUS_LABELS.upcoming },
+];
+
+/**
+ * Resolve a dropdown selection into the value stored in pending edit state:
+ * "" (Auto) -> null (clears the override), otherwise the approved value.
+ */
+export function resolvePendingReadyStatus(value: string): ManualMilestoneStatus | null {
+  return value === "" ? null : (value as ManualMilestoneStatus);
+}

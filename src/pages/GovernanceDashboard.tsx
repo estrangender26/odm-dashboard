@@ -10,6 +10,7 @@ import {
 } from "@contracts/upload-limits";
 import { deleteFileWithVerification, shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
 import { GOVERNANCE_MILESTONES, isMilestoneCompleteAsOf } from "@/modules/governance/governanceConfig";
+import { STATUS_DROPDOWN_OPTIONS, resolvePendingReadyStatus } from "@/modules/governance-v3/milestoneStatusManual";
 import type { ManualMilestoneStatus } from "@/modules/governance-v3/milestoneStatusManual";
 
 /* ── Banner (replaces alert) ── */
@@ -477,7 +478,7 @@ export default function GovernanceDashboard() {
   const onStatusChange = (mId: string, value: string) => {
     setPendingMilestones(prev => ({
       ...prev,
-      [mId]: { ...prev[mId], readyStatus: value === "" ? null : (value as ManualMilestoneStatus) },
+      [mId]: { ...prev[mId], readyStatus: resolvePendingReadyStatus(value) },
     }));
   };
 
@@ -1036,11 +1037,9 @@ export default function GovernanceDashboard() {
                           style={{ height: 38, minWidth: 170 }}
                           title="Manual presentation status override (Auto = derive from evidence)"
                         >
-                          <option value="">Auto</option>
-                          <option value="achieved">Achieved</option>
-                          <option value="in_progress">In progress</option>
-                          <option value="planned_open">Planned by now — still open</option>
-                          <option value="upcoming">Upcoming</option>
+                          {STATUS_DROPDOWN_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
                         </select>
                       );
 
