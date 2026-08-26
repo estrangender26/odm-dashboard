@@ -15,6 +15,7 @@ import {
   loadSlideXml,
   resolveExecutiveTemplatePath,
   saveSlideXml,
+  setCellFill,
   setCellText,
   setShapeParagraphText,
   setShapeText,
@@ -23,13 +24,18 @@ import {
 import type { GovernanceV3Presentation } from "../../governance-v3/types";
 import { renderMilestoneSymbols } from "./governance/milestoneRail";
 import {
+  DOC_PRESENCE_CELL_COLORS,
   FACILITY_SHAPE_PREFIX,
+  PHASE_CARD_COLORS,
   PHASE_WINDOWS,
   addMonths,
   alignMilestoneRails,
+  effectivePhaseFromDates,
   getShapeOff,
   miniXForMonthOffset,
   monthDiff,
+  setAllSrgbClr,
+  setShapeFillAndAccent,
   setShapeOff,
   setShapeVisible,
   setShapeWidth,
@@ -191,6 +197,7 @@ function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
   const facilityConfig = [
     {
       slug: "aglipay",
+      labelAreaShape: "AGLIPAY STP Label Area",
       nameShape: "AGLIPAY STP Name",
       phaseShape: "AGLIPAY STP Phase",
       detailShape: "AGLIPAY STP Phase Detail",
@@ -198,6 +205,7 @@ function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
     },
     {
       slug: "htt",
+      labelAreaShape: "HTT STP Label Area",
       nameShape: "HTT STP Name",
       phaseShape: "HTT STP Phase",
       detailShape: "HTT STP Phase Detail",
@@ -205,6 +213,7 @@ function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
     },
     {
       slug: "eastbay",
+      labelAreaShape: "EASTBAY PH-2 TP Label Area",
       nameShape: "EASTBAY PH-2 TP Name",
       phaseShape: "EASTBAY PH-2 TP Phase",
       detailShape: "EASTBAY PH-2 TP Phase Detail",
@@ -212,6 +221,7 @@ function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
     },
     {
       slug: "kaysakat",
+      labelAreaShape: "KAYSAKAT TP Label Area",
       nameShape: "KAYSAKAT TP Name",
       phaseShape: "KAYSAKAT TP Phase",
       detailShape: "KAYSAKAT TP Phase Detail",
@@ -223,13 +233,24 @@ function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
     const facility = facilities.find((f) => f.slug === cfg.slug);
     if (!facility) continue;
 
+    const labelArea = findShapeByName(doc, cfg.labelAreaShape);
     const nameShape = findShapeByName(doc, cfg.nameShape);
     const phaseShape = findShapeByName(doc, cfg.phaseShape);
     const detailShape = findShapeByName(doc, cfg.detailShape);
     const observationShape = findShapeByName(doc, cfg.observationShape);
 
+    // Facility card color = project PHASE (PPP start + reporting date), never
+    // readiness/compliance/risk/milestone status.
+    const phase = effectivePhaseFromDates(facility.pppStartDate, reportingDate);
+    const card = PHASE_CARD_COLORS[phase];
+    if (labelArea) setShapeFillAndAccent(labelArea, card.fill, card.accent);
     if (nameShape) setShapeText(nameShape, facility.shortName.toUpperCase());
-    if (phaseShape) setShapeText(phaseShape, facility.phaseStatus);
+    if (phaseShape) {
+      setShapeText(phaseShape, `${phase} • IN PROGRESS`);
+      // Recolor every text swatch (defRPr + run rPr) so no stale default color
+      // (e.g. the template's red for KAYSAKAT) survives.
+      setAllSrgbClr(phaseShape, card.text);
+    }
     if (detailShape)
       setShapeText(detailShape, `PPP START  ${formatDateUpper(facility.pppStartDate)}`);
     if (observationShape)
@@ -442,7 +463,10 @@ function updateSlide3(doc: XmlDocument, data: GovernanceV3Presentation): void {
       const docItem = facilityDocumentation.find((d) => d.facilitySlug === slug);
       const submission = docItem?.submissions.find((s) => s.tocId === tocId);
       const submitted = submission?.submitted ?? false;
-      setCellText(cells[facilityIndex + 1], submitted ? "✓" : "—");
+      const cell = cells[facilityIndex + 1];
+      setCellText(cell, submitted ? "✓" : "—");
+      // Cell background = document presence only (green=submitted, red/pink=missing).
+      setCellFill(cell, submitted ? DOC_PRESENCE_CELL_COLORS.submitted : DOC_PRESENCE_CELL_COLORS.missing);
     }
   }
 
