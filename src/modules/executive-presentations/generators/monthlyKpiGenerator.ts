@@ -159,20 +159,249 @@ function getSlide12KpiFillColor(
   }
 }
 
+function formatDisplayValue(key: ScorecardKpiKey, value: number | null): string {
+  if (!isPresentNumber(value)) return "";
+  if (key === "mttrDays") return String(Math.round(value));
+  if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
+    const pct = String(Math.round(value));
+    const cmShare = 100 - value;
+    if (cmShare <= 0) return `${pct}% (No CM)`;
+    return `${pct}% (${(value / cmShare).toFixed(1)}:1)`;
+  }
+  return `${Math.round(value)}%`;
+}
+
 function formatMonthlyValue(
   key: ScorecardKpiKey,
   value: MonthlyKpiValue
 ): string {
-  if (!isPresentNumber(value.value)) return "";
-  if (key === "mttrDays") return value.value.toFixed(2);
-  if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
-    const pct = value.value.toFixed(1);
-    const cmShare = 100 - value.value;
-    if (cmShare <= 0) return `${pct}% (No CM)`;
-    return `${pct}% (${(value.value / cmShare).toFixed(1)}:1)`;
-  }
-  return `${value.value.toFixed(2)}%`;
+  return formatDisplayValue(key, value.value);
 }
+
+function formatThresholdTargetDescription(rule: import("../../monthly-kpi/kpiThresholds").KpiThresholdRule): string {
+  if (rule.dataExistsGreen) {
+    return "Data exists";
+  }
+  if (rule.twoSided) {
+    const min = rule.green.min ?? rule.amber.min;
+    const max = rule.green.max ?? rule.amber.max;
+    if (min != null && max != null) {
+      return `${min}%–${max}%`;
+    }
+  }
+  if (rule.green.min != null) {
+    if (rule.key === "facilityUptime") {
+      return `=${rule.green.min}${rule.unit === "%" ? "%" : ""}`;
+    }
+    return `≥${rule.green.min}${rule.unit === "%" ? "%" : ""}`;
+  }
+  return "";
+}
+
+function formatMonthRanges(months: number[]): string {
+  if (months.length === 0) return "";
+  if (months.length === 1) {
+    return MONTH_NAMES[months[0] - 1]?.slice(0, 3) ?? `M${months[0]}`;
+  }
+  const isContiguous = months.every((m, i) => i === 0 || m === months[i - 1] + 1);
+  const first = MONTH_NAMES[months[0] - 1]?.slice(0, 3) ?? `M${months[0]}`;
+  const last = MONTH_NAMES[months[months.length - 1] - 1]?.slice(0, 3) ?? `M${months[months.length - 1]}`;
+  if (isContiguous) {
+    return `${first}–${last}`;
+  }
+  return months.map((m) => MONTH_NAMES[m - 1]?.slice(0, 3) ?? `M${m}`).join(", ");
+}
+
+function getMetricDisplayName(key: ScorecardKpiKey): string {
+  switch (key) {
+    case "pmCompliance":
+      return "PM compliance";
+    case "budgetSpend":
+      return "budget spend";
+    case "pmCmWorkOrderRatio":
+      return "PM:CM WO ratio";
+    case "pmCmCostRatio":
+      return "PM:CM cost ratio";
+    case "facilityUptime":
+      return "facility uptime";
+    case "mttrDays":
+      return "MTTR";
+  }
+}
+
+function getMonthlyExceptionDescription(key: ScorecardKpiKey, hasRed: boolean, hasAmber: boolean): string {
+  if (key === "budgetSpend") {
+    return "was outside the target range";
+  }
+  if (hasRed && hasAmber) {
+    return "was below target";
+  }
+  if (hasRed) {
+    return "was below target";
+  }
+  return "was below target";
+}
+
+interface KpiExceptionInfo {
+  key: ScorecardKpiKey;
+  monthlyExceptionMonths: number[];
+  monthlyRedMonths: number[];
+  monthlyAmberMonths: number[];
+  ytdStatus: import("../../monthly-kpi/kpiThresholds").KpiEvaluationStatus["status"];
+  ytdValue: number | null;
+}
+
+function gatherKpiExceptions(
+  bu: BusinessUnitScorecard,
+  reportingMonth: number,
+  config: MonthlyKpiThresholdConfig = DEFAULT_THRESHOLD_CONFIG
+): KpiExceptionInfo[] {
+  const result: KpiExceptionInfo[] = [];
+  for (const key of TABLE_METRICS) {
+    if (key === "mttrDays") continue; // valid MTTR is green under current config
+    const monthlyExceptionMonths: number[] = [];
+    const monthlyRedMonths: number[] = [];
+    const monthlyAmberMonths: number[] = [];
+    for (let month = 1; month <= reportingMonth; month++) {
+      const trend = bu.monthlyTrend.find((t) => t.month === month);
+      const value = trend?.values[key];
+      if (!value || !isPresentNumber(value.value)) continue;
+      const status = evaluateKpiStatus(key, value.value, config).status;
+      if (status === "red" || status === "amber") {
+        monthlyExceptionMonths.push(month);
+        if (status === "red") monthlyRedMonths.push(month);
+        else monthlyAmberMonths.push(month);
+      }
+    }
+    const ytdValue = bu.ytd[key];
+    const ytdStatus = ytdValue && isPresentNumber(ytdValue.value)
+      ? evaluateKpiStatus(key, ytdValue.value, config).status
+      : "missing";
+    if (monthlyExceptionMonths.length > 0 || ytdStatus === "red" || ytdStatus === "amber") {
+      result.push({
+        key,
+        monthlyExceptionMonths,
+        monthlyRedMonths,
+        monthlyAmberMonths,
+        ytdStatus,
+        ytdValue: ytdValue?.value ?? null,
+      });
+    }
+  }
+  return result;
+}
+
+function generateSlide1Commentary(
+  bu: BusinessUnitScorecard,
+  reportingMonth: number,
+  config: MonthlyKpiThresholdConfig = DEFAULT_THRESHOLD_CONFIG
+): string {
+  const exceptions = gatherKpiExceptions(bu, reportingMonth, config);
+  if (exceptions.length === 0) {
+    return "All reported KPIs are within target/acceptable bands.";
+  }
+
+  const clauses: string[] = [];
+  const ratioKeys = ["pmCmWorkOrderRatio", "pmCmCostRatio"] as const;
+  const ratioExceptions = exceptions.filter((e) =>
+    (ratioKeys as readonly string[]).includes(e.key)
+  );
+  const nonRatioExceptions = exceptions.filter((e) =>
+    !(ratioKeys as readonly string[]).includes(e.key)
+  );
+
+  if (ratioExceptions.length === 2) {
+    const wo = ratioExceptions.find((e) => e.key === "pmCmWorkOrderRatio")!;
+    const cost = ratioExceptions.find((e) => e.key === "pmCmCostRatio")!;
+    const allRatioMonths = Array.from(
+      new Set([...wo.monthlyExceptionMonths, ...cost.monthlyExceptionMonths])
+    ).sort((a, b) => a - b);
+    const hasMonthly = allRatioMonths.length > 0;
+    const hasYtd = wo.ytdStatus !== "green" || cost.ytdStatus !== "green";
+    let clause = "PM:CM ratios ";
+    if (hasMonthly) {
+      const allMonths = allRatioMonths.length === reportingMonth;
+      const mostMonths = !allMonths && allRatioMonths.length > reportingMonth / 2;
+      const monthDesc = allMonths
+        ? "throughout the period"
+        : mostMonths
+        ? "in most months"
+        : `in ${formatMonthRanges(allRatioMonths)}`;
+      clause += `were below benchmark ${monthDesc} and `;
+    }
+    clause += "remain below benchmark";
+    if (hasYtd) {
+      const woFormatted = formatDisplayValue("pmCmWorkOrderRatio", wo.ytdValue);
+      const costFormatted = formatDisplayValue("pmCmCostRatio", cost.ytdValue);
+      const woRule = config.pmCmWorkOrderRatio;
+      const costRule = config.pmCmCostRatio;
+      const woTarget = formatThresholdTargetDescription(woRule);
+      const costTarget = formatThresholdTargetDescription(costRule);
+      clause += `, with YTD WO ratio at ${woFormatted} vs ${woTarget} target and YTD cost ratio at ${costFormatted} vs ${costTarget} target`;
+    }
+    clauses.push(clause);
+  } else if (ratioExceptions.length === 1) {
+    const info = ratioExceptions[0];
+    const rule = config[info.key];
+    const target = formatThresholdTargetDescription(rule);
+    const metricName = getMetricDisplayName(info.key);
+    const hasMonthly = info.monthlyExceptionMonths.length > 0;
+    const hasYtd = info.ytdStatus === "red" || info.ytdStatus === "amber";
+    let clause = "";
+    if (hasMonthly) {
+      const allMonths = info.monthlyExceptionMonths.length === reportingMonth;
+      const mostMonths = !allMonths && info.monthlyExceptionMonths.length > reportingMonth / 2;
+      const monthDesc = allMonths
+        ? "throughout the period"
+        : mostMonths
+        ? "in most months"
+        : `in ${formatMonthRanges(info.monthlyExceptionMonths)}`;
+      clause = `${metricName} was below benchmark ${monthDesc}`;
+    }
+    if (hasYtd && isPresentNumber(info.ytdValue)) {
+      const ytdFormatted = formatDisplayValue(info.key, info.ytdValue);
+      const ytdClause = `YTD ${ytdFormatted} vs ${target} target`;
+      clause = clause ? `${clause}; ${ytdClause}` : `${metricName} ${ytdClause}`;
+    }
+    if (clause) clauses.push(clause);
+  }
+
+  for (const info of nonRatioExceptions) {
+    const rule = config[info.key];
+    const target = formatThresholdTargetDescription(rule);
+    const metricName = getMetricDisplayName(info.key);
+    const hasMonthly = info.monthlyExceptionMonths.length > 0;
+    const hasYtd = info.ytdStatus === "red" || info.ytdStatus === "amber";
+    let clause = "";
+    if (hasMonthly) {
+      const allMonths = info.monthlyExceptionMonths.length === reportingMonth;
+      const mostMonths = !allMonths && info.monthlyExceptionMonths.length > reportingMonth / 2;
+      const monthDesc = allMonths
+        ? "throughout the period"
+        : mostMonths
+        ? "in most months"
+        : `in ${formatMonthRanges(info.monthlyExceptionMonths)}`;
+      const description = getMonthlyExceptionDescription(
+        info.key,
+        info.monthlyRedMonths.length > 0,
+        info.monthlyAmberMonths.length > 0
+      );
+      clause = `${metricName} ${description} ${monthDesc}`;
+    }
+    if (hasYtd && isPresentNumber(info.ytdValue)) {
+      const ytdFormatted = formatDisplayValue(info.key, info.ytdValue);
+      const ytdClause = `YTD ${ytdFormatted} vs ${target} target`;
+      clause = clause ? `${clause}; ${ytdClause}` : `${metricName} ${ytdClause}`;
+    }
+    if (clause) clauses.push(clause);
+  }
+
+  if (clauses.length === 0) {
+    return "All reported KPIs are within target/acceptable bands.";
+  }
+  return "Key exceptions: " + clauses.join("; ") + ".";
+}
+
 
 
 /**
@@ -391,7 +620,8 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   // Slide 1; that note belongs on subsequent slides.
   const readoutShape = findShapeByName(doc, "Executive Readout");
   if (readoutShape) {
-    setShapeText(readoutShape, data.executive.slide1Observation);
+    const commentary = generateSlide1Commentary(selectedBu, reportingMonth);
+    setShapeText(readoutShape, commentary);
     setShapeY(readoutShape, readoutTop);
   }
 
@@ -547,7 +777,10 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
       const value =
         bu?.ytd[key] ?? { value: null, status: "no-data", formatted: "No Data" };
       const cell = cells[m + 1];
-      setCellText(cell, value.formatted);
+      const displayText = isPresentNumber(value.value)
+        ? formatDisplayValue(key, value.value)
+        : value.formatted;
+      setCellText(cell, displayText);
       setCellFill(cell, getSlide12KpiFillColor(key, value));
     }
   }
@@ -559,7 +792,10 @@ function updateSlide2(doc: XmlDocument, data: MonthlyKpiPresentation): void {
     const key = TABLE_METRICS[m];
     const value = data.portfolioYtd[key];
     const cell = portfolioCells[m + 1];
-    setCellText(cell, value.formatted);
+    const displayText = isPresentNumber(value.value)
+      ? formatDisplayValue(key, value.value)
+      : value.formatted;
+    setCellText(cell, displayText);
     setCellFill(cell, getSlide12KpiFillColor(key, value));
   }
 

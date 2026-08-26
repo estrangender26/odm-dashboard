@@ -389,12 +389,118 @@ describe("generateMonthlyKpiPresentation", () => {
     }
   });
 
-  it("renders executive readout text", async () => {
+  it("renders exception-based executive readout text", async () => {
     const blob = await generateMonthlyKpiPresentation(createTestData());
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string");
-    expect(xml).toContain("AMD-EZ YTD performance:");
+    expect(xml).toBeDefined();
+    expect(xml).toContain("Key exceptions:");
+    expect(xml).toContain("PM:CM ratios remain below benchmark");
+    expect(xml).toContain("PM compliance YTD 98% vs ≥98% target");
+  });
+
+  it("rounds KPI values for executive display on Slide 1", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      pmCompliance: 98.38,
+      budgetSpend: 95.72,
+      pmCmWorkOrderRatio: 84.3,
+      pmCmCostRatio: 74.8,
+      mttrDays: 63.64,
+      facilityUptime: 100,
+    });
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    const matrix = getTableMatrix(xml);
+
+    expect(matrix.some((row) => row.includes("98%"))).toBe(true);
+    expect(matrix.some((row) => row.includes("96%"))).toBe(true);
+    expect(matrix.some((row) => row.includes("84% (5.4:1)"))).toBe(true);
+    expect(matrix.some((row) => row.includes("75% (3.0:1)"))).toBe(true);
+    expect(matrix.some((row) => row.includes("64"))).toBe(true);
+    expect(matrix.some((row) => row.includes("100%"))).toBe(true);
+    expect(xml).not.toContain("98.38%");
+    expect(xml).not.toContain("95.72%");
+    expect(xml).not.toContain("63.64");
+  });
+
+  it("rounds KPI values for executive display on Slide 2", async () => {
+    const blob = await generateMonthlyKpiPresentation(createTestData());
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide2.xml")?.async("string") ?? "";
+    const matrix = getTableMatrix(xml);
+
+    const ytdAllRow = matrix.find((row) => row[0] === "YTD (ALL BUs)");
+    expect(ytdAllRow).toBeDefined();
+    expect(ytdAllRow![1]).toBe("95%");
+    expect(ytdAllRow![2]).toBe("54%");
+    expect(ytdAllRow![3]).toBe("83% (4.9:1)");
+    expect(ytdAllRow![4]).toBe("71% (2.4:1)");
+    expect(ytdAllRow![5]).toBe("27");
+    expect(ytdAllRow![6]).toBe("100%"); // 99.77 rounded to whole number
+  });
+
+  it("generates an all-green commentary when every KPI is within target", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      pmCompliance: 98,
+      budgetSpend: 100,
+      pmCmWorkOrderRatio: 86,
+      pmCmCostRatio: 80,
+      mttrDays: 63.64,
+      facilityUptime: 100,
+    });
+    const selected = data.buScorecards.find((b) => b.businessUnit === data.selectedBusinessUnit);
+    if (selected) {
+      selected.ytd.pmCompliance = { value: 98, status: "success", formatted: "98.00%" };
+      selected.ytd.budgetSpend = { value: 100, status: "success", formatted: "100.00%" };
+      selected.ytd.pmCmWorkOrderRatio = { value: 86, status: "success", formatted: "86.0%" };
+      selected.ytd.pmCmCostRatio = { value: 80, status: "success", formatted: "80.0%" };
+      selected.ytd.mttrDays = { value: 64, status: "success", formatted: "64.00 days" };
+      selected.ytd.facilityUptime = { value: 100, status: "success", formatted: "100.00%" };
+    }
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    expect(xml).toContain("All reported KPIs are within target/acceptable bands.");
+    expect(xml).not.toContain("Key exceptions:");
+  });
+
+  it("generates red exception commentary and month ranges", async () => {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      pmCompliance: 85,
+      budgetSpend: 85,
+      pmCmWorkOrderRatio: 70,
+      pmCmCostRatio: 40,
+      mttrDays: 63.64,
+      facilityUptime: 98,
+    });
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    expect(xml).toContain("Key exceptions:");
+    expect(xml).toContain("PM compliance was below target");
+    expect(xml).toContain("budget spend was outside the target range");
+    expect(xml).toContain("PM:CM ratios");
+  });
+
+  it("uses formatted fallback for no-data YTD values on Slide 2", async () => {
+    const data = createTestData();
+    data.portfolioYtd.pmCompliance = { value: null, status: "no-data", formatted: "No Data" };
+    data.portfolioYtd.mttrDays = { value: null, status: "no-data", formatted: "No Data" };
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide2.xml")?.async("string") ?? "";
+    const matrix = getTableMatrix(xml);
+    const ytdAllRow = matrix.find((row) => row[0] === "YTD (ALL BUs)");
+    expect(ytdAllRow).toBeDefined();
+    expect(ytdAllRow![1]).toBe("No Data");
+    expect(ytdAllRow![5]).toBe("No Data");
   });
 });
 
