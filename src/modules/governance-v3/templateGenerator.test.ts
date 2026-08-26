@@ -14,17 +14,20 @@ const APPROVED_CELLS: Record<string, number[]> = {
 const TOC_ITEMS = Array.from({ length: 14 }, (_, i) => (i + 1).toString());
 
 function makeFacilityDocumentation(slug: string) {
+  const submittedCount = APPROVED_CELLS[slug].length;
   return {
     facilitySlug: slug,
     facilityName: slug.toUpperCase(),
-    submittedCount: APPROVED_CELLS[slug].length,
+    submittedCount,
     requiredCount: 14,
-    compliancePercent: Math.round((APPROVED_CELLS[slug].length / 14) * 100),
+    compliancePercent: Math.round((submittedCount / 14) * 100),
     submissions: TOC_ITEMS.map((tocId) => ({
       tocId,
       submitted: APPROVED_CELLS[slug].includes(Number(tocId)),
       documentCount: APPROVED_CELLS[slug].includes(Number(tocId)) ? 1 : 0,
     })),
+    referenceCount: 1,
+    milestoneFileCount: submittedCount,
   };
 }
 
@@ -94,6 +97,8 @@ function createTestData(): GovernanceV3Presentation {
       totalDocumentsSubmitted: 19,
       totalDocumentsRequired: 56,
       portfolioCompliancePercent: 34,
+      totalReferenceFiles: 4,
+      totalMilestoneFiles: 19,
     },
     executive: {
       headline: "Portfolio PPP Status",

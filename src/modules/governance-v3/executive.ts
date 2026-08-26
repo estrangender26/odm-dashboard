@@ -30,7 +30,9 @@ export function generateExecutiveContent(
   
   // Dynamic subtitle with facility breakdown and date
   const formattedDate = reportingDateObj.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-  const fullSubtitle = `2 facilities in PPP execution; 2 in pre-PPP readiness | ${formattedDate}`;
+  const pppCount = facilities.filter(f => f.currentPhase === "PPP" || f.currentPhase === "POST-PPP").length;
+  const prePppCount = facilities.filter(f => f.currentPhase === "PRE-PPP").length;
+  const fullSubtitle = `${pppCount} ${pppCount === 1 ? "facility" : "facilities"} in PPP execution; ${prePppCount} ${prePppCount === 1 ? "facility" : "facilities"} in pre-PPP readiness | ${formattedDate}`;
   
   // Slide 1: Next Gate
   // Build an action-oriented next-gate statement from current milestone/phase state.
@@ -86,32 +88,50 @@ export function generateExecutiveContent(
   
   // Slide 3: Documentation Headline
   const portfolioPct = summary.portfolioCompliancePercent;
-  const docHeadline = `Documentation readiness is ${portfolioPct}%; ${portfolioPct >= 50 ? 'portfolio is on track' : 'significant gaps remain'}`;
+  const docHeadline = `Documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables submitted)`;
   
-  // Slide 3: Tightened Portfolio Observation
+  // Slide 3: Data-driven Portfolio Observation
   const laggard = [...facilityDocs].sort((a, b) => a.compliancePercent - b.compliancePercent)[0];
-  
-  let portfolioObservation = "Documentation submission ongoing across all facilities.";
-  if (laggard && laggard.compliancePercent === 0) {
-    portfolioObservation = `Portfolio documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables). ${laggard.facilityName} has no submitted TOC deliverables and remains the highest onboarding risk. A recovery plan is required before the next governance review.`;
+  const leader = [...facilityDocs].sort((a, b) => b.compliancePercent - a.compliancePercent)[0];
+
+  const missingByFacility = facilityDocs.map(d => ({
+    name: d.facilityName,
+    missing: d.requiredCount - d.submittedCount,
+    refs: d.referenceCount,
+  }));
+  const facilitiesWithGaps = missingByFacility.filter(f => f.missing > 0);
+
+  let portfolioObservation = `Portfolio documentation readiness is ${portfolioPct}% (${summary.totalDocumentsSubmitted} of ${summary.totalDocumentsRequired} deliverables). `;
+  if (facilitiesWithGaps.length > 0) {
+    const gapText = facilitiesWithGaps
+      .map(f => `${f.name}: ${f.missing} missing${f.refs > 0 ? `, ${f.refs} reference${f.refs === 1 ? "" : "s"}` : ""}`)
+      .join("; ");
+    portfolioObservation += `Outstanding gaps: ${gapText}. `;
+  }
+  if (laggard && laggard.compliancePercent === 0 && laggard.requiredCount > 0) {
+    portfolioObservation += `${laggard.facilityName} has no submitted TOC deliverables and remains the highest onboarding risk. A recovery plan is required before the next governance review.`;
+  } else if (leader && leader.compliancePercent >= 75 && facilitiesWithGaps.length < facilityDocs.length) {
+    portfolioObservation += `${leader.facilityName} leads portfolio readiness at ${leader.compliancePercent}%.`;
+  } else {
+    portfolioObservation += "Focus on closing the remaining deliverables before the next review.";
   }
   
-  // Facility-specific observations - tier-based, data-driven executive wording
+  // Facility-specific observations - data-driven from actual missing TOC items and file counts
   function buildFacilityObservation(facility: typeof facilitiesWithCorrectedStatus[0], doc: FacilityDocumentation): string {
     const shortName = facility.shortName.split(" ")[0];
     const pct = doc.compliancePercent;
     const phaseLabel = facility.effectivePhase === "PPP" ? "Active PPP" : "Pre-PPP readiness";
-    let implication: string;
-    if (pct >= 75) {
-      implication = "Leads portfolio readiness. Focus remaining effort on closing the outstanding governance deliverables.";
-    } else if (pct >= 30) {
-      implication = "Progressing but still requires focused documentation closure.";
-    } else if (pct >= 10) {
-      implication = "Requires accelerated documentation recovery before the next gate.";
-    } else {
-      implication = "Early-stage readiness; immediate completion of core governance documentation is required.";
-    }
-    return `${shortName}: ${phaseLabel} with ${pct}% documentation compliance; ${implication}`;
+    const missingItems = doc.submissions.filter(s => !s.submitted).map(s => `TOC-${s.tocId}`);
+    const missingClause = missingItems.length > 0
+      ? `${missingItems.length} TOC deliverable${missingItems.length === 1 ? "" : "s"} missing`
+      : "all TOC deliverables submitted";
+    const fileClause = doc.milestoneFileCount > 0
+      ? `${doc.milestoneFileCount} milestone file${doc.milestoneFileCount === 1 ? "" : "s"}`
+      : "no milestone files";
+    const refClause = doc.referenceCount > 0
+      ? `${doc.referenceCount} reference${doc.referenceCount === 1 ? "" : "s"}`
+      : "no references";
+    return `${shortName}: ${phaseLabel} with ${pct}% documentation compliance; ${missingClause}; ${fileClause} and ${refClause} on record.`;
   }
 
   const facilityObservations: Record<string, string> = {};

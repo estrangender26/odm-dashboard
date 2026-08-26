@@ -23,6 +23,8 @@ function makeFacility(
       submitted: i < submittedCount,
       documentCount: i < submittedCount ? 1 : 0,
     })),
+    referenceCount: 1,
+    milestoneFileCount: submittedCount,
   };
   const facility: FacilityData = {
     slug,
@@ -48,10 +50,12 @@ const baseSummary: PortfolioSummary = {
   totalDocumentsSubmitted: 19,
   totalDocumentsRequired: 56,
   portfolioCompliancePercent: 34,
+  totalReferenceFiles: 4,
+  totalMilestoneFiles: 19,
 };
 
 describe("generateExecutiveContent", () => {
-  it("uses the high-compliance implication for facilities at or above 75%", () => {
+  it("reports the actual high-compliance facility state including missing files and references", () => {
     const { facility, doc } = makeFacility(
       "htt",
       "HTT STP",
@@ -62,17 +66,19 @@ describe("generateExecutiveContent", () => {
     );
     const result = generateExecutiveContent(
       [facility],
-      { ...baseSummary, totalDocumentsSubmitted: 11, totalDocumentsRequired: 14, portfolioCompliancePercent: 79 },
+      { ...baseSummary, totalDocumentsSubmitted: 11, totalDocumentsRequired: 14, portfolioCompliancePercent: 79, totalReferenceFiles: 1, totalMilestoneFiles: 11 },
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.htt).toContain("Leads portfolio readiness");
-    expect(result.facilityObservations.htt).toContain("outstanding governance deliverables");
+    expect(result.facilityObservations.htt).toContain("HTT: Active PPP with 79% documentation compliance");
+    expect(result.facilityObservations.htt).toContain("3 TOC deliverables missing");
+    expect(result.facilityObservations.htt).toContain("11 milestone files");
+    expect(result.facilityObservations.htt).toContain("1 reference");
     expect(result.facilityObservations.htt).not.toContain("as-built");
     expect(result.facilityObservations.htt).not.toContain("handover");
   });
 
-  it("uses the mid-compliance implication for facilities between 30% and 74%", () => {
+  it("reports the actual mid-compliance facility state including missing files and references", () => {
     const { facility, doc } = makeFacility(
       "eastbay",
       "EASTBAY PH-2 TP",
@@ -83,16 +89,17 @@ describe("generateExecutiveContent", () => {
     );
     const result = generateExecutiveContent(
       [facility],
-      { ...baseSummary, totalDocumentsSubmitted: 7, totalDocumentsRequired: 14, portfolioCompliancePercent: 50 },
+      { ...baseSummary, totalDocumentsSubmitted: 7, totalDocumentsRequired: 14, portfolioCompliancePercent: 50, totalReferenceFiles: 1, totalMilestoneFiles: 7 },
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.eastbay).toContain(
-      "Progressing but still requires focused documentation closure"
-    );
+    expect(result.facilityObservations.eastbay).toContain("EASTBAY: Pre-PPP readiness with 50% documentation compliance");
+    expect(result.facilityObservations.eastbay).toContain("7 TOC deliverables missing");
+    expect(result.facilityObservations.eastbay).toContain("7 milestone files");
+    expect(result.facilityObservations.eastbay).toContain("1 reference");
   });
 
-  it("uses the low-compliance implication for facilities between 10% and 29%", () => {
+  it("reports the actual low-compliance facility state including missing files and references", () => {
     const { facility, doc } = makeFacility(
       "aglipay",
       "AGLIPAY STP",
@@ -103,16 +110,17 @@ describe("generateExecutiveContent", () => {
     );
     const result = generateExecutiveContent(
       [facility],
-      { ...baseSummary, totalDocumentsSubmitted: 3, totalDocumentsRequired: 14, portfolioCompliancePercent: 21 },
+      { ...baseSummary, totalDocumentsSubmitted: 3, totalDocumentsRequired: 14, portfolioCompliancePercent: 21, totalReferenceFiles: 1, totalMilestoneFiles: 3 },
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.aglipay).toContain(
-      "Requires accelerated documentation recovery before the next gate"
-    );
+    expect(result.facilityObservations.aglipay).toContain("AGLIPAY: Active PPP with 21% documentation compliance");
+    expect(result.facilityObservations.aglipay).toContain("11 TOC deliverables missing");
+    expect(result.facilityObservations.aglipay).toContain("3 milestone files");
+    expect(result.facilityObservations.aglipay).toContain("1 reference");
   });
 
-  it("uses the very-low-compliance implication for facilities below 10%", () => {
+  it("reports the actual very-low-compliance facility state including missing files and references", () => {
     const { facility, doc } = makeFacility(
       "kaysakat",
       "KAYSAKAT TP",
@@ -123,13 +131,14 @@ describe("generateExecutiveContent", () => {
     );
     const result = generateExecutiveContent(
       [facility],
-      { ...baseSummary, totalDocumentsSubmitted: 1, totalDocumentsRequired: 14, portfolioCompliancePercent: 7 },
+      { ...baseSummary, totalDocumentsSubmitted: 1, totalDocumentsRequired: 14, portfolioCompliancePercent: 7, totalReferenceFiles: 1, totalMilestoneFiles: 1 },
       [doc],
       new Date("2026-08-01")
     );
-    expect(result.facilityObservations.kaysakat).toContain(
-      "Early-stage readiness; immediate completion of core governance documentation is required"
-    );
+    expect(result.facilityObservations.kaysakat).toContain("KAYSAKAT: Pre-PPP readiness with 7% documentation compliance");
+    expect(result.facilityObservations.kaysakat).toContain("13 TOC deliverables missing");
+    expect(result.facilityObservations.kaysakat).toContain("1 milestone file");
+    expect(result.facilityObservations.kaysakat).toContain("1 reference");
   });
 
   it("changes next-gate wording when PPP facilities have incomplete M4/M5 milestones", () => {
@@ -153,6 +162,8 @@ describe("generateExecutiveContent", () => {
       requiredCount: 14,
       compliancePercent: 79,
       submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
     };
     const result = generateExecutiveContent(
       [facility],
@@ -185,6 +196,8 @@ describe("generateExecutiveContent", () => {
       requiredCount: 14,
       compliancePercent: 21,
       submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
     };
     const result = generateExecutiveContent(
       [facility],
@@ -215,6 +228,8 @@ describe("generateExecutiveContent", () => {
       requiredCount: 14,
       compliancePercent: 7,
       submissions: [],
+      referenceCount: 1,
+      milestoneFileCount: 0,
     };
     const result = generateExecutiveContent(
       [facility],
@@ -233,7 +248,7 @@ describe("generateExecutiveContent", () => {
     ]);
     const result1 = generateExecutiveContent(
       [f1.facility],
-      { ...baseSummary, totalDocumentsSubmitted: 11, totalDocumentsRequired: 14, portfolioCompliancePercent: 79 },
+      { ...baseSummary, totalDocumentsSubmitted: 1, totalDocumentsRequired: 14, portfolioCompliancePercent: 7 },
       [f1.doc],
       new Date("2026-08-01")
     );
@@ -242,7 +257,7 @@ describe("generateExecutiveContent", () => {
     const f2 = makeFacility("eastbay", "EASTBAY PH-2 TP", "2026-09-01", "PRE-PPP", "PRE-PPP • RECOVERY", 29);
     const result2 = generateExecutiveContent(
       [f2.facility],
-      { ...baseSummary, totalDocumentsSubmitted: 4, totalDocumentsRequired: 14, portfolioCompliancePercent: 29 },
+      { ...baseSummary, totalDocumentsSubmitted: 1, totalDocumentsRequired: 14, portfolioCompliancePercent: 7 },
       [f2.doc],
       new Date("2026-08-01")
     );

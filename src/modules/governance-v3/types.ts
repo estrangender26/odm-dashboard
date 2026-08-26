@@ -61,6 +61,8 @@ export interface FacilityDocumentation {
   submittedCount: number;
   requiredCount: number;
   compliancePercent: number;
+  referenceCount: number;
+  milestoneFileCount: number;
 }
 
 // Portfolio Summary
@@ -75,6 +77,8 @@ export interface PortfolioSummary {
   totalDocumentsSubmitted: number;
   totalDocumentsRequired: number;
   portfolioCompliancePercent: number;
+  totalReferenceFiles: number;
+  totalMilestoneFiles: number;
 }
 
 // Executive Content - auto-generated
