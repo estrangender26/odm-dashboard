@@ -1567,7 +1567,7 @@ app.get("/api/governance/state/:facilitySlug", async (c) => {
     const db = getDb();
     // Raw SQL matching actual migration columns (avoid schema drift)
     const states = await db.execute(sql`
-      SELECT id, facility_slug, milestone_id, ppp_date, comp_date, custom_pct, updated_at, updated_by
+      SELECT id, facility_slug, milestone_id, ppp_date, comp_date, custom_pct, ready_status, remarks, updated_at, updated_by
       FROM governance_milestone_state
       WHERE facility_slug = ${facilitySlug}
     `);
@@ -1738,9 +1738,9 @@ app.post("/api/governance/state/:facilitySlug", async (c) => {
       console.log('[SAVE-BE] INSERT: pp='+sanitizedPP+' cd='+sanitizedCD);
       await db.execute(sql`
         INSERT INTO governance_milestone_state
-          (facility_slug, milestone_id, comp_date, custom_pct, ppp_date, updated_at)
+          (facility_slug, milestone_id, comp_date, custom_pct, ppp_date, ready_status, updated_at)
         VALUES
-          (${facilitySlug}, ${milestoneId}, ${sanitizedCD !== undefined ? sanitizedCD : null}, ${customPct !== undefined ? customPct : null}, ${sanitizedPP !== undefined ? sanitizedPP : null}, ${now})
+          (${facilitySlug}, ${milestoneId}, ${sanitizedCD !== undefined ? sanitizedCD : null}, ${customPct !== undefined ? customPct : null}, ${sanitizedPP !== undefined ? sanitizedPP : null}, ${readyStatus !== undefined ? readyStatus : null}, ${now})
       `);
       // Verify
       const verify = await db.execute(sql`
