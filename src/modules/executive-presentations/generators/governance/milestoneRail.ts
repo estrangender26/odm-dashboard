@@ -38,8 +38,9 @@ import {
   cloneShape,
   findShapesByName,
   getShapeOff,
-  setFirstSrgbClr,
+  setRunTextColor,
   setShapeOff,
+  setShapeSolidFill,
   setShapeVisible,
 } from "./slideLayout";
 
@@ -161,21 +162,46 @@ function takeShape(
   return shape;
 }
 
+/**
+ * TEMPORARY MANUAL PRESENTATION OVERRIDE — Slide 1 milestone rail ONLY.
+ *
+ * Confirmed operational truth (production smoke test): PM/PdM execution has
+ * already started at AGLIPAY STP and HTT STP, so M5 ("PM/PdM execution
+ * started") must render ACHIEVED (green) on Slide 1 for both facilities.
+ *
+ * The backend does not yet prove this: governance_milestone_state for both
+ * rows has no comp_date <= reporting date and no custom_pct, so the
+ * data-driven status is "upcoming". This override is a manual
+ * presentation-layer correction ONLY: it changes how the Slide 1 rail renders
+ * these two milestones and does NOT modify milestone truth, other facilities,
+ * Slides 2/3, or any database record.
+ *
+ * REMOVE THIS OVERRIDE once authoritative backend data records M5 completion
+ * (comp_date <= reporting date or equivalent) for AGLIPAY and HTT.
+ */
+const SLIDE1_TEMPORARY_M5_OVERRIDE: Record<string, Record<string, MilestoneStatus>> = {
+  aglipay: { M5: "achieved" },
+  htt: { M5: "achieved" },
+};
+
 function milestoneStatusesFor(facility: FacilityData): MilestoneStatus[] {
+  const override = SLIDE1_TEMPORARY_M5_OVERRIDE[facility.slug];
   return MILESTONE_CODES.map((code) => {
+    if (override?.[code]) return override[code];
     const m = facility.milestones.find((mm) => mm.code === code);
     return m ? m.status : "upcoming";
   });
 }
 
 /**
- * Hide every "ahead" visual shape (rails and legend) plus the removed
- * "Achieved ahead of plan" legend entry.
+ * Completely remove every residual "ahead" visual shape (rail markers and the
+ * legend dot/symbol/strip) so no "Achieved ahead of plan" shape or text remains
+ * anywhere in the generated slide.
  */
-function hideAheadVisualState(doc: XmlDocument): void {
+function removeAheadVisualState(doc: XmlDocument): void {
   for (const name of ["Milestone ahead Dot", "Milestone ahead Symbol", "Legend ahead"]) {
     for (const shape of findShapesByName(doc, name)) {
-      setShapeVisible(shape, false);
+      shape.parentNode?.removeChild(shape);
     }
   }
 }
@@ -221,12 +247,12 @@ function renderInProgressLegend(doc: XmlDocument): void {
   setShapeOff(inProgressStrip, 3543300, stripY);
 
   const inProgressDot = cloneShape(doc, achievedDot, "Milestone in_progress Dot");
-  setFirstSrgbClr(inProgressDot, IN_PROGRESS.dotFill);
+  setShapeSolidFill(inProgressDot, IN_PROGRESS.dotFill);
   setShapeOff(inProgressDot, 3200400, dotY);
 
   const inProgressSymbol = cloneShape(doc, achievedSymbol, "Milestone in_progress Symbol");
   setShapeText(inProgressSymbol, IN_PROGRESS.glyph);
-  setFirstSrgbClr(inProgressSymbol, IN_PROGRESS.symbolFill);
+  setRunTextColor(inProgressSymbol, IN_PROGRESS.symbolFill);
   setShapeOff(inProgressSymbol, 3228975, stripY);
 
   for (const shape of [inProgressStrip, inProgressDot, inProgressSymbol]) {
@@ -270,7 +296,7 @@ export function renderMilestoneSymbols(doc: XmlDocument, facilities: FacilityDat
         // markers that were repositioned from an earlier z-order slot.
         appendShapeToEnd(dot.el);
         if (status === "in_progress") {
-          setFirstSrgbClr(dot.el, IN_PROGRESS.dotFill);
+          setShapeSolidFill(dot.el, IN_PROGRESS.dotFill);
         }
       }
 
@@ -285,7 +311,7 @@ export function renderMilestoneSymbols(doc: XmlDocument, facilities: FacilityDat
           appendShapeToEnd(symbol.el);
           if (status === "in_progress") {
             setShapeText(symbol.el, IN_PROGRESS.glyph);
-            setFirstSrgbClr(symbol.el, IN_PROGRESS.symbolFill);
+            setRunTextColor(symbol.el, IN_PROGRESS.symbolFill);
           }
         }
       }
@@ -298,6 +324,6 @@ export function renderMilestoneSymbols(doc: XmlDocument, facilities: FacilityDat
     }
   }
 
-  hideAheadVisualState(doc);
+  removeAheadVisualState(doc);
   renderInProgressLegend(doc);
 }
