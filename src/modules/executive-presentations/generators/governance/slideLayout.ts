@@ -35,6 +35,26 @@ export const FACILITY_RAIL_DOT_YS: Record<string, number> = {
   kaysakat: 4752975,
 };
 
+/** Shape-name prefixes used by the template for per-facility markers/rails. */
+export const FACILITY_SHAPE_PREFIX: Record<string, string> = {
+  aglipay: "AGLIPAY STP",
+  htt: "HTT STP",
+  eastbay: "EASTBAY PH-2 TP",
+  kaysakat: "KAYSAKAT TP",
+};
+
+/**
+ * Milestone rail geometry. The rail is a thin horizontal bar that must pass
+ * exactly through the vertical center of every milestone marker: rail center y
+ * == dot center y. All four facility rows use identical geometry.
+ */
+export const RAIL = {
+  x0: 2771775,
+  width: 8505825,
+  height: 38100,
+  dotHeight: 266700,
+} as const;
+
 /** Horizontal/vertical offset of the status symbol text shape from its dot. */
 export const SYMBOL_DX = 28575;
 export const SYMBOL_DY = 9525;
@@ -233,6 +253,35 @@ export function isShapeVisible(shape: XmlElement): boolean {
   if (!cNvPr) return true;
   const visible = cNvPr.getAttribute("visible");
   return visible === null || visible !== "0";
+}
+
+/**
+ * Move a shape to the end of its parent (the slide's shape tree) so it paints
+ * above everything earlier in the tree. Used to guarantee milestone markers
+ * always render above their facility's rail line regardless of where the
+ * underlying template shape originally sat in the z-order.
+ */
+export function appendShapeToEnd(shape: XmlElement): void {
+  if (shape.parentNode) {
+    shape.parentNode.appendChild(shape);
+  }
+}
+
+/**
+ * Deterministically reposition every facility's milestone rail so the rail
+ * passes exactly through the vertical center of its markers, with identical
+ * geometry across all four rows (rail center y == dot center y).
+ */
+export function alignMilestoneRails(doc: XmlDocument): void {
+  for (const [slug, dotY] of Object.entries(FACILITY_RAIL_DOT_YS)) {
+    const prefix = FACILITY_SHAPE_PREFIX[slug];
+    if (!prefix) continue;
+    const rail = findShapesByName(doc, `${prefix} Milestone Rail`)[0];
+    if (!rail) continue;
+    const railY = dotY + RAIL.dotHeight / 2 - RAIL.height / 2;
+    setShapeOff(rail, RAIL.x0, railY);
+    setShapeWidth(rail, RAIL.width);
+  }
 }
 
 /**

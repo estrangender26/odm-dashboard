@@ -23,8 +23,10 @@ import {
 import type { GovernanceV3Presentation } from "../../governance-v3/types";
 import { renderMilestoneSymbols } from "./governance/milestoneRail";
 import {
+  FACILITY_SHAPE_PREFIX,
   PHASE_WINDOWS,
   addMonths,
+  alignMilestoneRails,
   getShapeOff,
   miniXForMonthOffset,
   monthDiff,
@@ -36,14 +38,6 @@ import {
 
 const TEMPLATE_FILENAME = "GovernanceExecutive.pptx";
 const FACILITY_ORDER = ["aglipay", "htt", "eastbay", "kaysakat"];
-
-/** Shape-name prefixes used by the template for per-facility markers. */
-const FACILITY_SHAPE_PREFIX: Record<string, string> = {
-  aglipay: "AGLIPAY STP",
-  htt: "HTT STP",
-  eastbay: "EASTBAY PH-2 TP",
-  kaysakat: "KAYSAKAT TP",
-};
 
 function formatDateLong(dateStr: string): string {
   if (!dateStr) return "TBD";
@@ -248,7 +242,9 @@ function updateSlide1(doc: XmlDocument, data: GovernanceV3Presentation): void {
   }
   setShapeText(actionShape, executive.nextGateAction);
 
-  // Data-driven milestone symbols and TODAY markers.
+  // Data-driven milestone symbols and TODAY markers. The rails are aligned
+  // deterministically first so markers sit centered on them.
+  alignMilestoneRails(doc);
   renderMilestoneSymbols(doc, facilities);
   updateSlide1TodayMarkers(doc, data);
 }
