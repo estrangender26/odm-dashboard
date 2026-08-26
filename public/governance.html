@@ -1493,6 +1493,9 @@ Object.entries(PH).forEach(function(e){var pk=e[0],pv=e[1];
     }
     var stSel=document.createElement('select');
     stSel.style.cssText='padding:2px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:10px;font-family:Inter,sans-serif;max-width:150px;background:#fff;color:#0f172a;margin-top:3px;display:block;margin-left:auto;margin-right:auto;';
+    // Dropdown is an EDIT-mode control only — hidden in view mode so the
+    // original compact row layout and the status chip are preserved.
+    stSel.style.display=EDIT_MODE?'block':'none';
     stSel.disabled=!EDIT_MODE;stSel.title='Manual status override (Auto = derive from evidence)';
     [['','Auto'],['achieved','Achieved'],['in_progress','In progress'],['planned_open','Planned by now — still open'],['upcoming','Upcoming']].forEach(function(o){
       var oEl=document.createElement('option');oEl.value=o[0];oEl.textContent=o[1];stSel.appendChild(oEl);

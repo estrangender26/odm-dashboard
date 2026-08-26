@@ -40,6 +40,12 @@ describe("Legacy governance UI — editable milestone status dropdown", () => {
     expect(legacy).toContain("{readyStatus:ev.target.value===''?null:ev.target.value}");
   });
 
+  it("shows the status dropdown only in Edit mode (hidden in view mode)", () => {
+    expect(legacy).toContain("stSel.style.display=EDIT_MODE?'block':'none';");
+    // The select is a child of the STATUS cell but must not be visible in view mode.
+    expect(legacy).toContain("c7.appendChild(stSel)");
+  });
+
   it("merge-updates pending state so a status change never clobbers a pending compDate", () => {
     expect(legacy).toContain("Object.assign({},PENDING[f2].ms[mid],{readyStatus:");
     expect(legacy).toContain("Object.assign({},PENDING[f].ms[mid],{compDate:");
