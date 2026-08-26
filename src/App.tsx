@@ -11,6 +11,7 @@ import SmpDashboard from "./pages/SmpDashboard";
 import OmManualsLibrary from "./pages/OmManualsLibrary";
 import ScorecardDashboard from "./pages/ScorecardDashboard";
 import PostPlanningInsights from "./pages/PostPlanningInsights";
+import GovernanceDashboard from "./pages/GovernanceDashboard";
 import PresentationCenter from "./pages/PresentationCenter";
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
       <Route path="/gantt/p/:slug" element={<PrimaveraLiteProjectPage />} />
       <Route path="/smp-dashboard" element={<SmpDashboard />} />
       <Route path="/om-manuals-library" element={<OmManualsLibrary />} />
+      <Route path="/governance" element={<GovernanceDashboard />} />
       <Route path="/scorecard-kpi" element={<ScorecardDashboard />} />
       <Route
         path="/post-planning-insights"

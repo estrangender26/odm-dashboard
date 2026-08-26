@@ -369,3 +369,33 @@ describe("Facility isolation for manual statuses (buildMilestones)", () => {
     expect(aglipayMs.status).toBe("achieved");
   });
 });
+
+describe("Status dropdown options (shared with the Governance dashboard)", () => {
+  it("exposes exactly the five approved options in order (Auto first)", async () => {
+    const { STATUS_DROPDOWN_OPTIONS, MANUAL_STATUS_LABELS } = await import("./milestoneStatusManual");
+    expect(STATUS_DROPDOWN_OPTIONS.map((o) => o.value)).toEqual(["", "achieved", "in_progress", "planned_open", "upcoming"]);
+    expect(STATUS_DROPDOWN_OPTIONS.map((o) => o.label)).toEqual([
+      MANUAL_STATUS_LABELS.auto,
+      MANUAL_STATUS_LABELS.achieved,
+      MANUAL_STATUS_LABELS.in_progress,
+      MANUAL_STATUS_LABELS.planned_open,
+      MANUAL_STATUS_LABELS.upcoming,
+    ]);
+    expect(STATUS_DROPDOWN_OPTIONS.map((o) => o.label)).toEqual([
+      "Auto",
+      "Achieved",
+      "In progress",
+      "Planned by now — still open",
+      "Upcoming",
+    ]);
+  });
+
+  it("resolves a dropdown selection: Auto -> null, approved value -> itself", async () => {
+    const { resolvePendingReadyStatus } = await import("./milestoneStatusManual");
+    expect(resolvePendingReadyStatus("")).toBeNull();
+    expect(resolvePendingReadyStatus("achieved")).toBe("achieved");
+    expect(resolvePendingReadyStatus("in_progress")).toBe("in_progress");
+    expect(resolvePendingReadyStatus("planned_open")).toBe("planned_open");
+    expect(resolvePendingReadyStatus("upcoming")).toBe("upcoming");
+  });
+});
