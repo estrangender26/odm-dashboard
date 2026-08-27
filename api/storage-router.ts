@@ -8,8 +8,6 @@ import {
   docFolders,
   governanceFacilities,
   governanceUploads,
-  projectsWithoutPPP,
-  projectWithoutPPPFiles,
   smpDocuments,
   storageUploadIntents,
   type User,
@@ -42,7 +40,7 @@ const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
 
 export const storageRouter = new Hono();
 
-const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "project_without_ppp_files"]);
+const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents"]);
 const authorizeSchema = z.object({
   module: z.enum(STORAGE_MODULES),
   originalFilename: z.string().trim().min(1).max(255),
@@ -122,13 +120,6 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
     if (!rows.length) throw new Error("SMP document not found.");
     return { documentId };
   }
-  if (module === "projects_without_ppp") {
-    const projectId = Number(target.projectId);
-    if (!Number.isInteger(projectId) || projectId <= 0) throw new Error("A valid project is required.");
-    const rows = await db.select({ id: projectsWithoutPPP.id }).from(projectsWithoutPPP).where(eq(projectsWithoutPPP.id, projectId)).limit(1);
-    if (!rows.length) throw new Error("Project not found.");
-    return { projectId };
-  }
 
   const facilitySlug = normalizedSegment(target.facilitySlug, "facility", 50);
   const milestoneId = normalizeGovernanceMilestoneId(target.milestoneId);
@@ -151,14 +142,12 @@ function buildObjectPath(module: StorageModule, target: Record<string, unknown>,
   const id = randomUUID();
   if (module === "om") return `v1/folder-${target.folderId}/${id}`;
   if (module === "smp") return `v1/document-${target.documentId}/${id}`;
-  if (module === "projects_without_ppp") return `v1/project-${target.projectId}/${id}`;
   return `v1/${target.facilitySlug}/${target.milestoneId}/${id}`;
 }
 
 function getSourceFromModule(module: StorageModule): StorageFileSource {
   if (module === "om") return "doc_files";
   if (module === "smp") return "smp_documents";
-  if (module === "projects_without_ppp") return "project_without_ppp_files";
   return "governance_uploads";
 }
 
@@ -611,25 +600,6 @@ storageRouter.post("/uploads/finalize", async (c) => {
         }).returning({ id: docFiles.id });
         persistedId = inserted[0].id;
         persistedSource = "doc_files";
-      } else if (intent.module === "projects_without_ppp") {
-        const inserted = await tx.insert(projectWithoutPPPFiles).values({
-          projectId: Number(target.projectId),
-          fileName: intent.originalFilename,
-          fileType: intent.expectedMimeType,
-          fileSize: actualSize,
-          fileData: null,
-          uploadedBy: intent.requestedBy ? "authenticated" : "anonymous",
-          storageProvider: "supabase",
-          storageBucket: intent.expectedBucket,
-          storagePath: intent.expectedPath,
-          storageSize: actualSize,
-          storageMimeType: actualMime,
-          storageEtag: info.etag,
-          storageUploadedAt: now,
-          uploadedAt: now,
-        }).returning({ id: projectWithoutPPPFiles.id });
-        persistedId = inserted[0].id;
-        persistedSource = "project_without_ppp_files";
       } else if (intent.module === "smp") {
         const inserted = await tx.insert(smpDocuments).values({
           code: target.code || `SMP-${Date.now()}`,

@@ -232,39 +232,6 @@ export default function Home() {
             </span>
           </Link>
 
-          {/* Projects without PPP */}
-          <Link
-            to="/projects-without-ppp"
-            className={navCardClassName}
-            style={navCardStyle}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg, #0B1D44 0%, #005BAC 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
-                🏗️
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0B1D44', lineHeight: 1.3, margin: 0 }}>Projects without PPP</h3>
-                  <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#005BAC', color: '#fff', textTransform: 'uppercase', letterSpacing: '0.5px' }}>New</span>
-                </div>
-                <p style={{ fontSize: 12, color: '#8BA3B8', margin: '4px 0 0' }}>
-                  Masterdata submission portal for projects without PPP packages.
-                </p>
-              </div>
-            </div>
-            <p style={{ fontSize: 14, color: '#5A6B7D', lineHeight: 1.6, margin: '0 0 14px' }}>
-              Submit project masterdata, manage tracking IDs, PS codes, work packages, and attach supporting documents to Supabase storage.
-            </p>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#DBEAFE', color: '#005BAC' }}>Masterdata</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#FEF3C7', color: '#D97706' }}>Submit</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: '#D1FAE5', color: '#059669' }}>Supabase Storage</span>
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#005BAC', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Open Portal →
-            </span>
-          </Link>
-
           {/* O&M Manuals Library */}
           <Link
             to="/om-manuals-library"

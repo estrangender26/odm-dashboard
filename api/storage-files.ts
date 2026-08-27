@@ -5,7 +5,6 @@ import {
   governanceMilestoneState,
   governanceUploads,
   smpDocuments,
-  projectWithoutPPPFiles,
 } from "@db/schema";
 import type { StorageFileSource } from "@contracts/storage";
 import { db } from "./queries/connection";
@@ -64,19 +63,6 @@ export async function getStoredFileRecord(
     }).from(governanceFiles).where(eq(governanceFiles.id, id)).limit(1);
     return rows[0] ? { source, ...rows[0] } : null;
   }
-  if (source === "project_without_ppp_files") {
-    const rows = await db.select({
-      id: projectWithoutPPPFiles.id,
-      fileName: projectWithoutPPPFiles.fileName,
-      mimeType: projectWithoutPPPFiles.storageMimeType,
-      legacyData: projectWithoutPPPFiles.fileData,
-      storageBucket: projectWithoutPPPFiles.storageBucket,
-      storagePath: projectWithoutPPPFiles.storagePath,
-      storageSize: projectWithoutPPPFiles.storageSize,
-      storageMimeType: projectWithoutPPPFiles.storageMimeType,
-    }).from(projectWithoutPPPFiles).where(eq(projectWithoutPPPFiles.id, id)).limit(1);
-    return rows[0] ? { source, ...rows[0] } : null;
-  }
   if (source === "smp_documents") {
     const rows = await db.select({
       id: smpDocuments.id,
@@ -110,9 +96,6 @@ export async function deleteStoredFileRecord(source: StorageFileSource, id: numb
     });
   }
   if (source === "governance_files") return db.delete(governanceFiles).where(eq(governanceFiles.id, id));
-  if (source === "project_without_ppp_files") {
-    return db.delete(projectWithoutPPPFiles).where(eq(projectWithoutPPPFiles.id, id));
-  }
   if (source === "smp_documents") {
     return db.update(smpDocuments).set({
       fileData: null,
