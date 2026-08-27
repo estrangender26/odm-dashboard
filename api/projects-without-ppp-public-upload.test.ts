@@ -275,8 +275,11 @@ describe("projects_without_ppp PUBLIC (anonymous) upload security", () => {
       }),
     );
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body).toEqual({ success: true, fileId: 5, source: "project_without_ppp_files" });
+    const body = await response.json() as { success: boolean; fileId: number; source: string; deleteCapability?: string };
+    expect(body).toMatchObject({ success: true, fileId: 5, source: "project_without_ppp_files" });
+    // The uploader's own finalize response carries the governed delete
+    // capability bound to this file (never exposed in dashboard responses).
+    expect(body.deleteCapability).toBeTruthy();
     // The persisted row uses the intent's targetContext projectId; the caller
     // has no way to supply a project id at finalize time.
     expect(Number(mocks.insertedFileValues.projectId)).toBe(1);

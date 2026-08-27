@@ -82,3 +82,80 @@ export function hashCapabilityToken(token: string): string {
     .update(token)
     .digest('hex');
 }
+
+/* ─── Projects without PPP — governed FILE DELETION capability ───
+   Issued to the uploader at finalize/attach time; binds deletion to exactly
+   one file + one project. Verifying requires the matching file row, so a
+   capability for File A can never delete File B (or a different project).
+   NEVER returned in dashboard/history API responses — only in the uploader's
+   own finalize/attach response. */
+
+export const PWP_DELETE_CAPABILITY_OP = "pwp-file-delete" as const;
+export const PWP_DELETE_CAPABILITY_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export interface DeleteCapabilityClaims {
+  jti: string;
+  iat: number;
+  exp: number;
+  op: typeof PWP_DELETE_CAPABILITY_OP;
+  fileId: number;
+  projectId: number;
+}
+
+export function generateDeleteCapabilityClaims(
+  fileId: number,
+  projectId: number,
+): DeleteCapabilityClaims {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    jti: randomUUID(),
+    iat: now,
+    exp: now + Math.floor(PWP_DELETE_CAPABILITY_TTL_MS / 1000),
+    op: PWP_DELETE_CAPABILITY_OP,
+    fileId,
+    projectId,
+  };
+}
+
+export function signDeleteCapability(claims: DeleteCapabilityClaims): string {
+  const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  const signature = createHmac("sha256", env.appSecret)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+/**
+ * Verifies signature, operation and expiry, then binds the capability to the
+ * exact file/project pair. Returns the claims on success, null otherwise.
+ */
+export function verifyDeleteCapability(
+  token: string,
+  expected: { fileId: number; projectId: number },
+): DeleteCapabilityClaims | null {
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+
+  try {
+    const expectedSig = createHmac("sha256", env.appSecret)
+      .update(payload)
+      .digest();
+    const actualSig = Buffer.from(signature, "base64url");
+    if (actualSig.length !== expectedSig.length || !timingSafeEqual(actualSig, expectedSig)) {
+      return null;
+    }
+
+    const claims = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as DeleteCapabilityClaims;
+
+    if (claims.op !== PWP_DELETE_CAPABILITY_OP) return null;
+    if (typeof claims.exp !== "number" || claims.exp < Date.now() / 1000) return null;
+    if (claims.fileId !== expected.fileId) return null;
+    if (claims.projectId !== expected.projectId) return null;
+
+    return claims;
+  } catch {
+    return null;
+  }
+}

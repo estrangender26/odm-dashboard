@@ -70,6 +70,12 @@ const mocks = vi.hoisted(() => {
     attachOnSuccess: null as null | ((data: unknown) => void),
     attachOnError: null as null | ((e: Error) => void),
     attachShouldFail: false,
+    detailFiles: [] as Array<Record<string, unknown>>,
+    deleteInputs: [] as Record<string, unknown>[],
+    adminDeleteInputs: [] as Record<string, unknown>[],
+    deleteOnError: null as null | ((e: Error) => void),
+    adminDeleteOnError: null as null | ((e: Error) => void),
+    useAuthResult: { user: null as { role: string } | null },
   };
 });
 
@@ -90,6 +96,10 @@ vi.mock("@/lib/direct-storage-upload", () => ({
   shouldUseDirectStorage: (...args: unknown[]) => mocks.shouldUseDirectStorage(...args),
   uploadFileDirect: (...args: unknown[]) => mocks.uploadFileDirect(...args),
   storageFileUrl: (_source: string, id: number, action: string) => `/api/storage/files/x/${id}/${action}`,
+}));
+
+vi.mock("@/hooks/useAuth", () => ({
+  useAuth: () => mocks.useAuthResult,
 }));
 
 vi.mock("@/providers/trpc", () => {
@@ -114,7 +124,7 @@ vi.mock("@/providers/trpc", () => {
                       mocks.dashboardPayload.items.find((i) => i.id === input?.id) ??
                       mocks.dashboardPayload.items[0],
                     status: "not_submitted",
-                    files: [],
+                    files: mocks.detailFiles,
                   },
                   isLoading: false,
                 }
@@ -130,9 +140,37 @@ vi.mock("@/providers/trpc", () => {
                 if (mocks.attachShouldFail) {
                   mocks.attachOnError?.(new Error("simulated upload failure"));
                 } else {
-                  mocks.attachOnSuccess?.({ fileId: 999 });
+                  mocks.attachOnSuccess?.({ fileId: 999, deleteCapability: "cap-999" });
                 }
               },
+              onSuccess: options?.onSuccess,
+              onError: options?.onError,
+            };
+          },
+        },
+        deleteMasterdataFile: {
+          useMutation: (options?: { onSuccess?: (data: unknown) => void; onError?: (e: Error) => void }) => {
+            mocks.deleteOnError = options?.onError ?? null;
+            return {
+              mutate: (input: Record<string, unknown>) => {
+                mocks.deleteInputs.push(input);
+                options?.onSuccess?.({ fileId: input.fileId, status: "not_submitted" });
+              },
+              isPending: false,
+              onSuccess: options?.onSuccess,
+              onError: options?.onError,
+            };
+          },
+        },
+        adminDeleteMasterdataFile: {
+          useMutation: (options?: { onSuccess?: (data: unknown) => void; onError?: (e: Error) => void }) => {
+            mocks.adminDeleteOnError = options?.onError ?? null;
+            return {
+              mutate: (input: Record<string, unknown>) => {
+                mocks.adminDeleteInputs.push(input);
+                options?.onSuccess?.({ fileId: input.fileId, status: "not_submitted" });
+              },
+              isPending: false,
               onSuccess: options?.onSuccess,
               onError: options?.onError,
             };
@@ -146,12 +184,32 @@ vi.mock("@/providers/trpc", () => {
 import type { LatestSubmissionSummary, MasterdataSubmissionStatus, ProjectWithoutPPPRow } from "@/modules/projects-without-ppp/types";
 import ProjectsWithoutPPPMonitoringPage from "./ProjectsWithoutPPPMonitoringPage";
 
+// jsdom in this environment does not provide window.localStorage; shim it so
+// the page's delete-capability retention can be exercised.
+if (!window.localStorage) {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => { store.set(k, v); },
+      removeItem: (k: string) => { store.delete(k); },
+      clear: () => { store.clear(); },
+    },
+  });
+}
+
 describe("ProjectsWithoutPPPMonitoringPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.shouldUseDirectStorage.mockResolvedValue(false);
     mocks.attachShouldFail = false;
     mocks.attachInputs = [];
+    mocks.deleteInputs = [];
+    mocks.adminDeleteInputs = [];
+    mocks.detailFiles = [];
+    mocks.useAuthResult = { user: null };
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -406,5 +464,123 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     expect(screen.queryByText(/Mark as Submitted/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Mark as Not Submitted/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/submission status/i)).not.toBeInTheDocument();
+  });
+
+  it("submitted row shows Files / Latest Submission / Submitted By; not-submitted shows 0 / — / —", async () => {
+    mocks.dashboardPayload = {
+      ...mocks.dashboardPayload,
+      items: mocks.dashboardPayload.items.map((p, i) =>
+        i === 0
+          ? { ...p, status: "submitted", fileCount: 2, latestSubmission: { id: 7, fileName: "latest.xlsx", fileSize: 4, submittedBy: "Public Project Submission", submittedAt: new Date("2026-08-27T00:00:00Z") } }
+          : p,
+      ),
+    };
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const submittedRow = screen.getByText("RR18-TEST-001").closest("tr")!;
+    expect(within(submittedRow).getByText("latest.xlsx")).toBeInTheDocument();
+    expect(within(submittedRow).getByText("Public Project Submission")).toBeInTheDocument();
+    expect(within(submittedRow).getAllByText("2").length).toBeGreaterThan(0);
+
+    const notSubmittedRow = screen.getByText("RR18-TEST-002").closest("tr")!;
+    expect(within(notSubmittedRow).getAllByText("0").length).toBeGreaterThan(0); // Files = 0
+    expect(within(notSubmittedRow).getAllByText("—").length).toBeGreaterThan(0); // Latest / Submitted By = —
+  });
+
+  it("View History opens the history modal without any inline panel", async () => {
+    mocks.detailFiles = [
+      { id: 7, projectId: 1, fileName: "latest.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 4, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "Public Project Submission", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: null, current: true },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const historyButton = buttons.find((b) => b.textContent === "View History");
+    await userEvent.click(historyButton!);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Submission History")).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/RR18-TEST-001/).length).toBeGreaterThan(0);
+    expect(within(dialog).getByText("latest.xlsx")).toBeInTheDocument();
+    expect(within(dialog).getByText("Public Project Submission")).toBeInTheDocument();
+    // Download action present; no inline panel below the table.
+    expect(within(dialog).getByRole("link", { name: /Download/ }).getAttribute("href")).toContain("/api/storage/files/x/7/download");
+    expect(screen.queryByText(/Submission Files/)).not.toBeInTheDocument();
+  });
+
+  it("Delete is hidden for a visitor without a capability or admin role", async () => {
+    mocks.detailFiles = [
+      { id: 7, projectId: 1, fileName: "latest.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 4, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "Public Project Submission", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: null, current: true },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    const dialog = await screen.findByRole("dialog");
+    // No stored capability and not admin -> no Delete control.
+    expect(within(dialog).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("Delete is available to the uploader who retains the capability; confirmation + success invalidates", async () => {
+    window.localStorage.setItem("odm-pwp-delete-cap:v1:7", "cap-token-7");
+    mocks.detailFiles = [
+      { id: 7, projectId: 1, fileName: "latest.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 4, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "Public Project Submission", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: null, current: true },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    const dialog = await screen.findByRole("dialog");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    // Confirmation dialog: filename, project, warning, Cancel / Delete File.
+    const confirm = await screen.findByText(/Delete this uploaded masterdata file\?/);
+    expect(confirm).toBeInTheDocument();
+    const confirmDialog = confirm.closest('[role="dialog"]') as HTMLElement;
+    expect(within(confirmDialog).getByText("latest.xlsx")).toBeInTheDocument();
+    expect(within(confirmDialog).getByText(/stored file will be removed/i)).toBeInTheDocument();
+
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "Delete File" }));
+    await waitFor(() => {
+      expect(mocks.deleteInputs.length).toBe(1);
+    });
+    expect(mocks.deleteInputs[0]).toEqual({ fileId: 7, deleteCapability: "cap-token-7" });
+    // Success closes the confirmation and invalidates dashboard + detail.
+    await waitFor(() => {
+      expect(screen.queryByText(/Delete this uploaded masterdata file\?/)).not.toBeInTheDocument();
+    });
+    expect(mocks.dashboardInvalidate).toHaveBeenCalled();
+    expect(mocks.detailInvalidate).toHaveBeenCalled();
+  });
+
+  it("Cancel keeps the file (no delete call)", async () => {
+    window.localStorage.setItem("odm-pwp-delete-cap:v1:7", "cap-token-7");
+    mocks.detailFiles = [
+      { id: 7, projectId: 1, fileName: "latest.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 4, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "Public Project Submission", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: null, current: true },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const confirmDialog = (await screen.findByText(/Delete this uploaded masterdata file\?/)).closest('[role="dialog"]') as HTMLElement;
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "Cancel" }));
+    expect(mocks.deleteInputs.length).toBe(0);
+    expect(mocks.adminDeleteInputs.length).toBe(0);
+  });
+
+  it("admin can delete any file through the admin path without a capability", async () => {
+    mocks.useAuthResult = { user: { role: "admin" } };
+    mocks.detailFiles = [
+      { id: 7, projectId: 1, fileName: "latest.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 4, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "Public Project Submission", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: null, current: true },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const confirmDialog = (await screen.findByText(/Delete this uploaded masterdata file\?/)).closest('[role="dialog"]') as HTMLElement;
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "Delete File" }));
+    await waitFor(() => {
+      expect(mocks.adminDeleteInputs.length).toBe(1);
+    });
+    expect(mocks.adminDeleteInputs[0]).toEqual({ fileId: 7 });
+    expect(mocks.dashboardInvalidate).toHaveBeenCalled();
+    expect(mocks.detailInvalidate).toHaveBeenCalled();
   });
 });
