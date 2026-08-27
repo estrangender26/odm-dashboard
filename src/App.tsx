@@ -12,7 +12,6 @@ import OmManualsLibrary from "./pages/OmManualsLibrary";
 import ScorecardDashboard from "./pages/ScorecardDashboard";
 import PostPlanningInsights from "./pages/PostPlanningInsights";
 import PresentationCenter from "./pages/PresentationCenter";
-import ProjectsWithoutPPPPage from "./pages/ProjectsWithoutPPPPage";
 
 export default function App() {
   return (
@@ -32,7 +31,6 @@ export default function App() {
         element={<PostPlanningInsights />}
       />
       <Route path="/presentation-center" element={<PresentationCenter />} />
-      <Route path="/projects-without-ppp" element={<ProjectsWithoutPPPPage />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

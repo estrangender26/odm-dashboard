@@ -311,53 +311,6 @@ export const storageUploadIntents = pgTable("storage_upload_intents", {
   index("storage_upload_intents_user_idx").on(table.requestedBy),
 ]);
 
-/* ── Projects without PPP ── */
-export const projectsWithoutPPP = pgTable("projects_without_ppp", {
-  id: serial("id").primaryKey(),
-  trackingId: varchar("tracking_id", { length: 50 }).notNull().unique(),
-  psCode: varchar("ps_code", { length: 50 }).notNull(),
-  codingMask: varchar("coding_mask", { length: 50 }),
-  projectPhase: varchar("project_phase", { length: 50 }).notNull(),
-  latestMilestone: varchar("latest_milestone", { length: 50 }),
-  subPhase: varchar("sub_phase", { length: 50 }),
-  pmHeadline: varchar("pm_headline", { length: 255 }),
-  workPackage: varchar("work_package", { length: 500 }),
-  contractPackage: varchar("contract_package", { length: 500 }),
-  contractor: varchar("contractor", { length: 255 }),
-  majorProjectTag: varchar("major_project_tag", { length: 100 }),
-  constructionManager: varchar("construction_manager", { length: 255 }),
-  projectManager: varchar("project_manager", { length: 255 }),
-  withLSPs: boolean("with_ls_ps").notNull().default(false),
-  amdGridHead: varchar("amd_grid_head", { length: 255 }),
-  submittedBy: varchar("submitted_by", { length: 255 }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [
-  index("pwp_tracking_id_idx").on(table.trackingId),
-  index("pwp_ps_code_idx").on(table.psCode),
-  index("pwp_phase_idx").on(table.projectPhase),
-  index("pwp_tag_idx").on(table.majorProjectTag),
-]);
-
-export const projectWithoutPPPFiles = pgTable("project_without_ppp_files", {
-  id: serial("id").primaryKey(),
-  projectId: integer("project_id").notNull().references(() => projectsWithoutPPP.id, { onDelete: "cascade" }),
-  fileName: varchar("file_name", { length: 255 }).notNull(),
-  fileType: varchar("file_type", { length: 100 }),
-  fileSize: integer("file_size"),
-  fileData: text("file_data"),
-  uploadedBy: varchar("uploaded_by", { length: 255 }),
-  uploadedAt: timestamp("uploaded_at").defaultNow(),
-  ...storageMetadataColumns(),
-}, (table) => [
-  index("pwp_files_project_idx").on(table.projectId),
-]);
-
-export type ProjectWithoutPPP = typeof projectsWithoutPPP.$inferSelect;
-export type InsertProjectWithoutPPP = typeof projectsWithoutPPP.$inferInsert;
-export type ProjectWithoutPPPFile = typeof projectWithoutPPPFiles.$inferSelect;
-export type InsertProjectWithoutPPPFile = typeof projectWithoutPPPFiles.$inferInsert;
-
 /* ── Gantt Chart Saved Projects ── */
 export const ganttProjects = pgTable("gantt_projects", {
   id: serial("id").primaryKey(),

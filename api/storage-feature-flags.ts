@@ -12,7 +12,6 @@ export function getStorageFeatureFlags(
     om: parseBooleanFlag(source.SUPABASE_STORAGE_OM_ENABLED),
     governance: parseBooleanFlag(source.SUPABASE_STORAGE_GOVERNANCE_ENABLED),
     smp: parseBooleanFlag(source.SUPABASE_STORAGE_SMP_ENABLED),
-    projects_without_ppp: parseBooleanFlag(source.SUPABASE_STORAGE_PROJECTS_WITHOUT_PPP_ENABLED),
   };
 }
 
@@ -20,7 +19,6 @@ const MODULE_FLAG_KEY: Record<StorageModule, keyof StorageFeatureFlags> = {
   om: "om",
   governance: "governance",
   smp: "smp",
-  projects_without_ppp: "projects_without_ppp",
 };
 
 export function isStorageUploadEnabled(
