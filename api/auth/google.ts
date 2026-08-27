@@ -179,18 +179,17 @@ export function createOAuthCallbackHandler() {
       }
 
       // Cryptographic verification of the provider identity (server-side).
+      // The raw verified email + email_verified flag are passed through so the
+      // one-time OWNER bootstrap can match OWNER_GOOGLE_EMAIL exactly; the
+      // persisted identity remains the immutable Google sub.
       const identity = await verifyGoogleIdToken(tokenResp.id_token);
-
-      const email =
-        identity.email && identity.emailVerified
-          ? identity.email
-          : `${identity.sub}@google.placeholder.local`;
 
       const user = await upsertUserByProvider({
         provider: "google",
         subject: identity.sub,
         name: identity.name ?? "Google User",
-        email,
+        email: identity.email,
+        emailVerified: identity.emailVerified,
         avatar: identity.picture,
         lastSignInAt: new Date(),
       });

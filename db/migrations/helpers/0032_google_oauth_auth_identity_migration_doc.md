@@ -22,10 +22,22 @@ fingerprint and can be dropped only in a later, separately-approved migration.
 
 ## OWNER identity authority
 
-`OWNER_GOOGLE_SUB` (the immutable Google `sub`). Server-side only: the
-verified id_token `sub` is compared against it in `upsertUserByProvider`.
-A non-OWNER Google account always receives `role=user`; the frontend cannot
-influence role assignment. `adminQuery` remains the enforcement boundary.
+The immutable Google `sub` (persisted in `auth_subject`) is the ongoing
+authorization authority. Server-side only: the verified id_token `sub` is
+compared in `upsertUserByProvider`; a non-OWNER Google account always receives
+`role=user`; the frontend cannot influence role assignment. `adminQuery`
+remains the enforcement boundary.
+
+First-login bootstrap (no `sub` knowledge required before login):
+
+- If `OWNER_GOOGLE_SUB` is configured, it is the sole first-login authority.
+- If `OWNER_GOOGLE_SUB` is NOT configured, `OWNER_GOOGLE_EMAIL` (a verified
+  `email_verified === true` id_token email that exactly matches) bootstraps
+  the OWNER: the single legacy role=admin row is reconciled in place with the
+  verified `sub`. Ambiguity (multiple legacy admin rows) or an accidental
+  pre-bootstrap ordinary Google row fails closed — nothing is merged or
+  deleted automatically. After reconciliation the persisted (google, sub) row
+  is the identity; email is not the ongoing boundary.
 
 ## Session
 

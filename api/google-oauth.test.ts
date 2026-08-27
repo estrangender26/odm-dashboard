@@ -204,12 +204,14 @@ describe("Google OAuth (OWNER/admin auth)", () => {
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).not.toContain("kimi_sid");
 
-    // Verified identity passed through to the server-side user upsert.
+    // Verified identity passed through to the server-side user upsert
+    // (email + email_verified reach the bootstrap logic; sub is the identity).
     expect(hoisted.upsertCalls).toHaveLength(1);
     expect(hoisted.upsertCalls[0]).toMatchObject({
       provider: "google",
       subject: "google-sub-owner",
       email: "owner@example.com",
+      emailVerified: true,
     });
   });
 
