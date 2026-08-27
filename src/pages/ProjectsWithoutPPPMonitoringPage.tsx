@@ -241,6 +241,17 @@ export default function ProjectsWithoutPPPMonitoringPage() {
     setUploadModalOpen(true);
   }, []);
 
+  // Row-level Upload: select the project as the active project AND open the
+  // Upload Masterdata modal immediately — no intermediate detail-panel step.
+  const handleRowUpload = useCallback(
+    (id: number) => {
+      setSelectedId(id);
+      setBanner(null);
+      openUploadModal();
+    },
+    [openUploadModal],
+  );
+
   const onUploadModalOpenChange = useCallback(
     (open: boolean) => {
       // While an upload is in progress, user-initiated closes (Escape, overlay
@@ -505,11 +516,11 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                       <td className="px-3 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() => openDetail(row.id)}
+                          onClick={() => handleRowUpload(row.id)}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-white hover:opacity-90"
                           style={{ background: row.status === "submitted" ? "#005BAC" : "#D97706" }}
                         >
-                          {row.status === "submitted" ? "View / Upload" : "Upload"}
+                          Upload
                         </button>
                       </td>
                     </tr>
@@ -568,29 +579,6 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                       <div className="text-xs font-medium text-[#0B1D44] mt-0.5 break-words">{value ?? "—"}</div>
                     </div>
                   ))}
-                </div>
-
-                {/* Upload action (opens the centered modal — no inline form) */}
-                <div
-                  className="mb-5 rounded-xl border px-4 py-3 flex items-center justify-between gap-4 flex-wrap"
-                  style={{ borderColor: "#D6DFE8", background: "#F8FAFC" }}
-                >
-                  <div>
-                    <div className="text-sm font-bold text-[#0B1D44]">
-                      {detail.status === "submitted" ? "Add or replace masterdata" : "Upload masterdata"}
-                    </div>
-                    <div className="text-[11px] text-[#5A6B7D] mt-0.5">
-                      Excel (.xlsx, .xls) and PDF (.pdf) · maximum 150 MB
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={openUploadModal}
-                    className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90"
-                    style={{ background: "#005BAC" }}
-                  >
-                    {detail.status === "submitted" ? "📤 Add / Replace Masterdata" : "📤 Upload Masterdata"}
-                  </button>
                 </div>
 
                 {/* Files */}
