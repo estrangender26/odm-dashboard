@@ -311,7 +311,11 @@ export default function ProjectsWithoutPPPMonitoringPage() {
   }, []);
 
   const canDeleteFile = useCallback(
-    (file: ProjectMasterdataFile) => isAdmin || Boolean(getStoredDeleteCapability(file.id)),
+    // OWNER/admin may delete ANY file (current or superseded, with or without
+    // a local delete capability). Public users may delete only their own
+    // CURRENT files when the browser retains the valid delete capability —
+    // superseded (historical) evidence is protected from public deletion.
+    (file: ProjectMasterdataFile) => isAdmin || (file.current && Boolean(getStoredDeleteCapability(file.id))),
     [isAdmin],
   );
 

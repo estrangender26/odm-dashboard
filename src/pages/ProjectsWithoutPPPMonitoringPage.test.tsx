@@ -75,7 +75,8 @@ const mocks = vi.hoisted(() => {
     adminDeleteInputs: [] as Record<string, unknown>[],
     deleteOnError: null as null | ((e: Error) => void),
     adminDeleteOnError: null as null | ((e: Error) => void),
-    useAuthResult: { user: null as { role: string } | null },
+    adminDeleteShouldFail: false,
+    useAuthResult: { user: null as { role: string; name?: string } | null },
   };
 });
 
@@ -168,7 +169,11 @@ vi.mock("@/providers/trpc", () => {
             return {
               mutate: (input: Record<string, unknown>) => {
                 mocks.adminDeleteInputs.push(input);
-                options?.onSuccess?.({ fileId: input.fileId, status: "not_submitted" });
+                if (mocks.adminDeleteShouldFail) {
+                  options?.onError?.(new Error("simulated admin delete failure"));
+                } else {
+                  options?.onSuccess?.({ fileId: input.fileId, status: "not_submitted" });
+                }
               },
               isPending: false,
               onSuccess: options?.onSuccess,
@@ -207,6 +212,7 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     mocks.attachInputs = [];
     mocks.deleteInputs = [];
     mocks.adminDeleteInputs = [];
+    mocks.adminDeleteShouldFail = false;
     mocks.detailFiles = [];
     mocks.useAuthResult = { user: null };
     window.localStorage.clear();
@@ -582,6 +588,64 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     expect(mocks.adminDeleteInputs[0]).toEqual({ fileId: 7 });
     expect(mocks.dashboardInvalidate).toHaveBeenCalled();
     expect(mocks.detailInvalidate).toHaveBeenCalled();
+  });
+
+  it("an authenticated non-admin user sees no Delete for a legacy file without a capability", async () => {
+    mocks.useAuthResult = { user: { role: "user", name: "PM User" } };
+    mocks.detailFiles = [
+      { id: 7, projectId: 1, fileName: "pre-pr397.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 4, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "Public Project Submission", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: null, current: true },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("admin sees Delete for a superseded file, but a capability-holding public user does not", async () => {
+    const superseded = { id: 8, projectId: 1, fileName: "superseded-legacy.pdf", fileType: "application/pdf", fileSize: 100, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "Public Project Submission", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: new Date(), current: false };
+
+    // Public uploader retains a capability but the file is superseded -> no Delete.
+    window.localStorage.setItem("odm-pwp-delete-cap:v1:8", "cap-8");
+    mocks.detailFiles = [superseded];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    let buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    cleanup();
+
+    // Admin sees Delete for the superseded file.
+    mocks.useAuthResult = { user: { role: "admin" } };
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("a failed admin delete keeps the confirmation open and shows the error", async () => {
+    mocks.useAuthResult = { user: { role: "admin" } };
+    mocks.adminDeleteShouldFail = true;
+    mocks.detailFiles = [
+      { id: 7, projectId: 1, fileName: "latest.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 4, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "Public Project Submission", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: null, current: true },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const confirmDialog = (await screen.findByText(/Delete this uploaded masterdata file\?/)).closest('[role="dialog"]') as HTMLElement;
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "Delete File" }));
+
+    await waitFor(() => {
+      expect(mocks.adminDeleteInputs.length).toBe(1);
+    });
+    // Error shown and the confirmation dialog remains open; no invalidation.
+    expect(within(confirmDialog).getByText(/simulated admin delete failure/)).toBeInTheDocument();
+    expect(screen.getByText(/Delete this uploaded masterdata file\?/)).toBeInTheDocument();
+    expect(mocks.dashboardInvalidate).not.toHaveBeenCalled();
+    expect(mocks.detailInvalidate).not.toHaveBeenCalled();
   });
 
   // ── Operational UX polish ────────────────────────────────────────────────
