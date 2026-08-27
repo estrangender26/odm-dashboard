@@ -41,6 +41,10 @@ import { getClientIdentifier, getRateLimitForClient } from "./lib/client-ip";
 
 const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
 
+// System-owned submitter label persisted for public (anonymous) masterdata
+// submissions, which have no users-table row.
+const PUBLIC_SUBMITTER_LABEL = "Public Project Submission";
+
 export const storageRouter = new Hono();
 
 const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "project_without_ppp_files"]);
@@ -365,11 +369,11 @@ storageRouter.post("/uploads/authorize", async (c) => {
       return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
     }
 
-    // Masterdata submittal uploads are governed: they require an authenticated
-    // user. Public/anonymous uploads are not accepted for this module.
-    if (input.module === "projects_without_ppp" && !user) {
-      return c.json({ error: "Authentication required to upload masterdata." }, 401);
-    }
+    // Masterdata submittal uploads are PUBLIC: anonymous callers are supported
+    // through the repository's existing capability-token architecture (bound
+    // to one project + one intent; finalize required for persisted evidence).
+    // Anonymous callers are rate-limited below; validation (format/MIME/size)
+    // and the existing Supabase RLS/revoke posture remain in force.
 
     // Rate limiting for anonymous users
     if (!user) {
@@ -637,9 +641,11 @@ storageRouter.post("/uploads/finalize", async (c) => {
         persistedId = inserted[0].id;
         persistedSource = "smp_documents";
       } else if (intent.module === "projects_without_ppp") {
+        // Public (anonymous) uploads have no users-table row: persist a neutral
+        // system-owned submitter label rather than a fabricated personal name.
         const submitter = intent.requestedBy
           ? (await tx.select({ name: users.name }).from(users).where(eq(users.id, intent.requestedBy)).limit(1))[0]?.name ?? null
-          : null;
+          : PUBLIC_SUBMITTER_LABEL;
         const inserted = await tx.insert(projectWithoutPPPFiles).values({
           projectId: Number(target.projectId),
           fileName: intent.originalFilename,

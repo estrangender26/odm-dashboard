@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
-import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 import {
@@ -135,7 +134,6 @@ const TABLE_HEADERS: { key: string; label: string; minWidth: number }[] = [
 ];
 
 export default function ProjectsWithoutPPPMonitoringPage() {
-  const { isAuthenticated } = useAuth();
   const [banner, setBanner] = useState<{ type: "error" | "success" | "info"; message: string } | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -257,27 +255,21 @@ export default function ProjectsWithoutPPPMonitoringPage() {
     [isUploading],
   );
 
-  const handleFileSelected = useCallback(
-    (file: File | undefined) => {
-      if (!file) return;
-      if (!isAuthenticated) {
-        setModalError("Sign in is required to upload masterdata.");
-        return;
-      }
-      const clientError = validateMasterdataFile(file);
-      if (clientError) {
-        setModalError(clientError.message);
-        return;
-      }
-      if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
-        setModalError(MAX_UPLOAD_ERROR_MESSAGE);
-        return;
-      }
-      setSelectedFile(file);
-      setModalError(null);
-    },
-    [isAuthenticated],
-  );
+  const handleFileSelected = useCallback((file: File | undefined) => {
+    if (!file) return;
+    // Public upload: no sign-in required. Validation is the same for all users.
+    const clientError = validateMasterdataFile(file);
+    if (clientError) {
+      setModalError(clientError.message);
+      return;
+    }
+    if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
+      setModalError(MAX_UPLOAD_ERROR_MESSAGE);
+      return;
+    }
+    setSelectedFile(file);
+    setModalError(null);
+  }, []);
 
   const finishUploadSuccess = useCallback(() => {
     setBanner({ type: "success", message: "Masterdata file uploaded — project marked as Submitted." });

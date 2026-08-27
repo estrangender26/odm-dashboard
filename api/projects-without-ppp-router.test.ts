@@ -456,6 +456,15 @@ t("projectsWithoutPPP router + bootstrap (integration)", () => {
       userCaller.projectsWithoutPPP.supersedeMasterdataFile({ fileId: file.id }),
     ).rejects.toThrow(/Insufficient permissions/i);
   });
+
+  it("anonymous supersede remains rejected (public upload does not grant supersede)", async () => {
+    const project = await dashboardRow("RR18-0616-01-01");
+    const detail = await userCaller.projectsWithoutPPP.detail({ id: project.id });
+    const file = detail!.files[0];
+    await expect(
+      anonymousCaller.projectsWithoutPPP.supersedeMasterdataFile({ fileId: file.id }),
+    ).rejects.toThrow(/Authentication required/i);
+  });
 });
 
 async function dashboardRow(trackingId: string) {
