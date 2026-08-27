@@ -10,6 +10,12 @@ import {
   isUploadFileSizeAllowed,
 } from "@contracts/upload-limits";
 import { validateUploadDescriptor } from "./storage-validation";
+import { getSupabaseStorageAdmin } from "./supabase-storage";
+import {
+  generateDeleteCapabilityClaims,
+  signDeleteCapability,
+  verifyDeleteCapability,
+} from "./upload-capability";
 import {
   computeSubmissionAggregates,
   countDistinctProjectsSubmittedInWindow,
@@ -282,7 +288,11 @@ export const projectsWithoutPPPRouter = createRouter({
           storageUploadedAt: hasStorageEvidence ? now : null,
         })
         .returning({ id: projectWithoutPPPFiles.id });
-      return { fileId: result[0].id };
+      // Governed deletion capability for the uploader of this record.
+      const deleteCapability = signDeleteCapability(
+        generateDeleteCapabilityClaims(result[0].id, input.projectId),
+      );
+      return { fileId: result[0].id, deleteCapability };
     }),
 
   /**
@@ -328,4 +338,125 @@ export const projectsWithoutPPPRouter = createRouter({
         alreadySuperseded: false,
       };
     }),
+
+  /**
+   * Governed deletion by the uploader. Requires a delete capability issued at
+   * upload finalize time and bound to exactly this file + project. A generic
+   * visitor who knows the file/project ID alone is REJECTED. Superseded
+   * (historical) evidence is protected from public deletion — only the
+   * OWNER/admin path may delete it.
+   */
+  deleteMasterdataFile: publicQuery
+    .input(
+      z.object({
+        fileId: z.number().int().positive(),
+        deleteCapability: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const files = await db
+        .select({
+          id: projectWithoutPPPFiles.id,
+          projectId: projectWithoutPPPFiles.projectId,
+          supersededAt: projectWithoutPPPFiles.supersededAt,
+          storageBucket: projectWithoutPPPFiles.storageBucket,
+          storagePath: projectWithoutPPPFiles.storagePath,
+          fileName: projectWithoutPPPFiles.fileName,
+        })
+        .from(projectWithoutPPPFiles)
+        .where(eq(projectWithoutPPPFiles.id, input.fileId))
+        .limit(1);
+      const file = files[0];
+      if (!file) throw new Error("File not found.");
+
+      // Capability must be valid AND bound to this exact file + project.
+      const claims = verifyDeleteCapability(input.deleteCapability, {
+        fileId: file.id,
+        projectId: file.projectId,
+      });
+      if (!claims) {
+        throw new Error("Delete authorization required.");
+      }
+
+      // Historical evidence is protected from ordinary public deletion.
+      if (file.supersededAt !== null) {
+        throw new Error("Superseded files cannot be deleted publicly.");
+      }
+
+      await deleteMasterdataEvidence(file.id, file.storageBucket, file.storagePath);
+
+      const remaining = await db
+        .select({ id: projectWithoutPPPFiles.id })
+        .from(projectWithoutPPPFiles)
+        .where(
+          and(
+            eq(projectWithoutPPPFiles.projectId, file.projectId),
+            isNull(projectWithoutPPPFiles.supersededAt),
+          ),
+        );
+      return {
+        fileId: file.id,
+        projectId: file.projectId,
+        status: deriveProjectSubmissionStatus(remaining.length),
+      };
+    }),
+
+  /**
+   * Separately authorized OWNER/admin deletion path: may delete ANY file,
+   * including superseded historical evidence.
+   */
+  adminDeleteMasterdataFile: adminQuery
+    .input(z.object({ fileId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const files = await db
+        .select({
+          id: projectWithoutPPPFiles.id,
+          projectId: projectWithoutPPPFiles.projectId,
+          storageBucket: projectWithoutPPPFiles.storageBucket,
+          storagePath: projectWithoutPPPFiles.storagePath,
+          fileName: projectWithoutPPPFiles.fileName,
+        })
+        .from(projectWithoutPPPFiles)
+        .where(eq(projectWithoutPPPFiles.id, input.fileId))
+        .limit(1);
+      const file = files[0];
+      if (!file) throw new Error("File not found.");
+
+      await deleteMasterdataEvidence(file.id, file.storageBucket, file.storagePath);
+
+      const remaining = await db
+        .select({ id: projectWithoutPPPFiles.id })
+        .from(projectWithoutPPPFiles)
+        .where(
+          and(
+            eq(projectWithoutPPPFiles.projectId, file.projectId),
+            isNull(projectWithoutPPPFiles.supersededAt),
+          ),
+        );
+      return {
+        fileId: file.id,
+        projectId: file.projectId,
+        status: deriveProjectSubmissionStatus(remaining.length),
+      };
+    }),
 });
+
+/**
+ * Removes the Supabase storage object (when storage-backed, so no orphaned
+ * bucket objects) and then deletes the submission record.
+ */
+async function deleteMasterdataEvidence(
+  fileId: number,
+  storageBucket: string | null,
+  storagePath: string | null,
+) {
+  if (storageBucket && storagePath) {
+    const { error } = await getSupabaseStorageAdmin()
+      .storage.from(storageBucket)
+      .remove([storagePath]);
+    if (error) {
+      throw new Error(`Storage deletion failed: ${error.message}`);
+    }
+  }
+  await db.delete(projectWithoutPPPFiles).where(eq(projectWithoutPPPFiles.id, fileId));
+}

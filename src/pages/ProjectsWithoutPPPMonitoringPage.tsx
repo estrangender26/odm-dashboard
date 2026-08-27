@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
+import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 import {
@@ -12,20 +13,55 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { MAX_UPLOAD_ERROR_MESSAGE, MAX_UPLOAD_FILE_SIZE_BYTES } from "@contracts/upload-limits";
-import { shouldUseDirectStorage, uploadFileDirect } from "@/lib/direct-storage-upload";
+import { shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
 import {
   LS_PS_LABELS,
   MODULE_TITLE,
   STORAGE_MODULE,
+  STORAGE_SOURCE,
   SUBMISSION_STATUS_LABELS,
   formatDateTime,
   formatFileSize,
 } from "@/modules/projects-without-ppp/constants";
 import { validateMasterdataFile } from "@/modules/projects-without-ppp/validation";
 import type {
+  ProjectMasterdataFile,
   ProjectWithoutPPPRow,
   ProjectWithoutPPPDetail,
 } from "@/modules/projects-without-ppp/types";
+
+// Governed deletion capability (issued to the uploader at finalize time) is
+// retained in the uploader's browser only — never surfaced in dashboard API
+// responses to other visitors.
+const DELETE_CAP_STORAGE_PREFIX = "odm-pwp-delete-cap:v1:";
+
+function deleteCapKey(fileId: number) {
+  return `${DELETE_CAP_STORAGE_PREFIX}${fileId}`;
+}
+
+function getStoredDeleteCapability(fileId: number): string | null {
+  try {
+    return window.localStorage.getItem(deleteCapKey(fileId));
+  } catch {
+    return null;
+  }
+}
+
+function storeDeleteCapability(fileId: number, capability: string) {
+  try {
+    window.localStorage.setItem(deleteCapKey(fileId), capability);
+  } catch {
+    // Best effort; the upload still succeeded.
+  }
+}
+
+function clearStoredDeleteCapability(fileId: number) {
+  try {
+    window.localStorage.removeItem(deleteCapKey(fileId));
+  } catch {
+    // Best effort.
+  }
+}
 
 function StatusBadge({ status }: { status: "submitted" | "not_submitted" }) {
   const submitted = status === "submitted";
@@ -134,6 +170,9 @@ const TABLE_HEADERS: { key: string; label: string; minWidth: number }[] = [
 ];
 
 export default function ProjectsWithoutPPPMonitoringPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
   const [banner, setBanner] = useState<{ type: "error" | "success" | "info"; message: string } | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -151,6 +190,9 @@ export default function ProjectsWithoutPPPMonitoringPage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectMasterdataFile | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
   const { data: dashboardData, isLoading } = trpc.projectsWithoutPPP.dashboard.useQuery(undefined, {
@@ -163,7 +205,12 @@ export default function ProjectsWithoutPPPMonitoringPage() {
   const detail: ProjectWithoutPPPDetail | null = detailQuery.data ?? null;
 
   const attachMut = trpc.projectsWithoutPPP.attachMasterdataFile.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Preserve the governed deletion capability for the uploader's browser.
+      const res = data as { fileId?: number; deleteCapability?: string } | undefined;
+      if (res?.fileId && res.deleteCapability) {
+        storeDeleteCapability(res.fileId, res.deleteCapability);
+      }
       setBanner({ type: "success", message: "Masterdata file uploaded — project marked as Submitted." });
       setIsUploading(false);
       setUploadModalOpen(false);
@@ -255,6 +302,68 @@ export default function ProjectsWithoutPPPMonitoringPage() {
     [isUploading],
   );
 
+  // ── Submission history + governed delete handlers ────────────────────────
+  const openHistory = useCallback((id: number) => {
+    setSelectedId(id);
+    setBanner(null);
+    setHistoryModalOpen(true);
+  }, []);
+
+  const canDeleteFile = useCallback(
+    (file: ProjectMasterdataFile) => isAdmin || Boolean(getStoredDeleteCapability(file.id)),
+    [isAdmin],
+  );
+
+  const deleteFileMut = trpc.projectsWithoutPPP.deleteMasterdataFile.useMutation({
+    onSuccess: () => {
+      if (deleteTarget) clearStoredDeleteCapability(deleteTarget.id);
+      setDeleteTarget(null);
+      setDeleteError(null);
+      setBanner({ type: "success", message: "Masterdata file deleted." });
+      void utils.projectsWithoutPPP.dashboard.invalidate();
+      if (selectedId !== null) void utils.projectsWithoutPPP.detail.invalidate({ id: selectedId });
+    },
+    onError: (e) => {
+      setDeleteError(e.message || "Failed to delete the masterdata file.");
+    },
+  });
+
+  const adminDeleteFileMut = trpc.projectsWithoutPPP.adminDeleteMasterdataFile.useMutation({
+    onSuccess: () => {
+      if (deleteTarget) clearStoredDeleteCapability(deleteTarget.id);
+      setDeleteTarget(null);
+      setDeleteError(null);
+      setBanner({ type: "success", message: "Masterdata file deleted." });
+      void utils.projectsWithoutPPP.dashboard.invalidate();
+      if (selectedId !== null) void utils.projectsWithoutPPP.detail.invalidate({ id: selectedId });
+    },
+    onError: (e) => {
+      setDeleteError(e.message || "Failed to delete the masterdata file.");
+    },
+  });
+
+  const requestDelete = useCallback(
+    (file: ProjectMasterdataFile) => {
+      setDeleteError(null);
+      setDeleteTarget(file);
+    },
+    [],
+  );
+
+  const confirmDelete = useCallback(() => {
+    if (!deleteTarget) return;
+    if (isAdmin) {
+      adminDeleteFileMut.mutate({ fileId: deleteTarget.id });
+      return;
+    }
+    const capability = getStoredDeleteCapability(deleteTarget.id);
+    if (!capability) {
+      setDeleteError("Delete authorization required for this file.");
+      return;
+    }
+    deleteFileMut.mutate({ fileId: deleteTarget.id, deleteCapability: capability });
+  }, [deleteTarget, isAdmin, adminDeleteFileMut, deleteFileMut]);
+
   const handleFileSelected = useCallback((file: File | undefined) => {
     if (!file) return;
     // Public upload: no sign-in required. Validation is the same for all users.
@@ -292,7 +401,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
     try {
       const useStorage = await shouldUseDirectStorage(STORAGE_MODULE);
       if (useStorage) {
-        await uploadFileDirect({
+        const result = await uploadFileDirect({
           module: STORAGE_MODULE,
           file,
           target: { projectId: selectedId },
@@ -301,6 +410,10 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             setUploadLabel(`Uploading "${file.name}" to Storage... ${pct}%`);
           },
         });
+        // Retain the governed deletion capability in the uploader's browser.
+        if (result.deleteCapability && result.fileId) {
+          storeDeleteCapability(result.fileId, result.deleteCapability);
+        }
         finishUploadSuccess();
         void utils.projectsWithoutPPP.dashboard.invalidate();
         void utils.projectsWithoutPPP.detail.invalidate({ id: selectedId });
@@ -493,14 +606,24 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{submitterLabel(row)}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => handleRowUpload(row.id)}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-white hover:opacity-90"
-                          style={{ background: row.status === "submitted" ? "#005BAC" : "#D97706" }}
-                        >
-                          Upload
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleRowUpload(row.id)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-white hover:opacity-90"
+                            style={{ background: row.status === "submitted" ? "#005BAC" : "#D97706" }}
+                          >
+                            Upload
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openHistory(row.id)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold border hover:bg-gray-50"
+                            style={{ borderColor: "#D6DFE8", color: "#005BAC" }}
+                          >
+                            View History
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -613,6 +736,136 @@ export default function ProjectsWithoutPPPMonitoringPage() {
               style={{ background: "#005BAC" }}
             >
               {isUploading ? "Uploading…" : "Upload"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Submission History modal — centered dialog, no inline expansion */}
+      <Dialog open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Submission History</DialogTitle>
+            <DialogDescription>
+              {detailProject
+                ? `${detailProject.projectName ?? "Project"} — ${detailProject.trackingId}`
+                : "Project submission history"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead>
+                <tr style={{ background: "#F8FAFC" }}>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>File Name</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Status</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Submitted By</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Submitted At</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>File Size</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!detail ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400">Loading submission history…</td>
+                  </tr>
+                ) : detail.files.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400">No masterdata files have been submitted yet.</td>
+                  </tr>
+                ) : (
+                  detail.files.map((file) => (
+                    <tr key={file.id} style={{ borderTop: "1px solid #EFF3F7" }}>
+                      <td className="px-3 py-2 font-semibold text-[#0B1D44]">{file.fileName}</td>
+                      <td className="px-3 py-2">
+                        {file.current ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#D1FAE5", color: "#047857" }}>Current</span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#E2E8F0", color: "#475569" }}>Superseded</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-[#475569]">{file.uploadedBy || "—"}</td>
+                      <td className="px-3 py-2 text-[#475569] whitespace-nowrap">{formatDateTime(file.submittedAt)}</td>
+                      <td className="px-3 py-2 text-[#475569]">{formatFileSize(file.fileSize)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={storageFileUrl(STORAGE_SOURCE, file.id, "download")}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-[#005BAC] hover:bg-blue-100 inline-block"
+                          >
+                            ⬇ Download
+                          </a>
+                          {canDeleteFile(file) && (
+                            <button
+                              type="button"
+                              onClick={() => requestDelete(file)}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-red-50 text-red-700 hover:bg-red-100"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation — no accidental single-click deletion */}
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteError(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete masterdata file?</DialogTitle>
+            <DialogDescription>
+              Delete this uploaded masterdata file?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="text-xs text-[#0B1D44] space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[#5A6B7D]">File</span>
+              <span className="font-semibold text-right break-all">{deleteTarget?.fileName ?? "—"}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[#5A6B7D]">Project</span>
+              <span className="font-semibold text-right">
+                {detailProject ? `${detailProject.projectName ?? ""} (${detailProject.trackingId})` : "—"}
+              </span>
+            </div>
+          </div>
+
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            ⚠️ Warning: the stored file will be removed. This cannot be undone.
+          </p>
+
+          {deleteError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+              ⚠️ {deleteError}
+            </div>
+          )}
+
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
+              className="px-4 py-2 rounded-lg text-xs font-bold text-[#5A6B7D] border hover:bg-gray-50"
+              style={{ borderColor: "#D6DFE8" }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmDelete}
+              disabled={deleteFileMut.isPending || adminDeleteFileMut.isPending}
+              className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
+              style={{ background: "#DC2626" }}
+            >
+              Delete File
             </button>
           </DialogFooter>
         </DialogContent>

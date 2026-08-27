@@ -36,7 +36,7 @@ import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-featur
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
 import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
-import { generateCapabilityClaims, signCapabilityClaims, verifyCapabilityToken, hashCapabilityToken } from "./upload-capability";
+import { generateCapabilityClaims, generateDeleteCapabilityClaims, signCapabilityClaims, signDeleteCapability, verifyCapabilityToken, hashCapabilityToken } from "./upload-capability";
 import { getClientIdentifier, getRateLimitForClient } from "./lib/client-ip";
 
 const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
@@ -690,7 +690,19 @@ storageRouter.post("/uploads/finalize", async (c) => {
       return { fileId: persistedId, source: persistedSource };
     });
     
-    return c.json({ success: true, fileId: result.fileId, source: result.source });
+    // Governed deletion capability: issued ONLY to the uploader (their own
+    // finalize response). Binds deletion to exactly this file + project.
+    const response: Record<string, unknown> = {
+      success: true,
+      fileId: result.fileId,
+      source: result.source,
+    };
+    if (intent.module === "projects_without_ppp") {
+      response.deleteCapability = signDeleteCapability(
+        generateDeleteCapabilityClaims(result.fileId, Number(target.projectId)),
+      );
+    }
+    return c.json(response);
   } catch (error: any) {
     const message = error?.message || "Finalize failed.";
     return c.json({ error: message }, 400);

@@ -291,7 +291,7 @@ export async function uploadFileDirect(options: {
         intentId: authorization.intentId,
         capabilityToken,
       }),
-    }).then(parseJson) as { success: true; fileId: number; source: string };
+    }).then(parseJson) as { success: true; fileId: number; source: string; deleteCapability?: string };
     
     clearResumeAuthorization(resumeKey);
     return result;

@@ -18,6 +18,7 @@ const { runProjectsWithoutPPPBootstrap } = await import("./projects-without-ppp-
 const { db } = await import("./queries/connection");
 const { projectsWithoutPPP, projectWithoutPPPFiles } = await import("@db/schema");
 const { PROJECTS_WITHOUT_PPP_FIXTURE } = await import("@db/fixtures/projects-without-ppp");
+const { generateDeleteCapabilityClaims, signDeleteCapability } = await import("./upload-capability");
 const { storageRouter } = await import("./storage-router");
 const { eq } = await import("drizzle-orm");
 
@@ -464,6 +465,120 @@ t("projectsWithoutPPP router + bootstrap (integration)", () => {
     await expect(
       anonymousCaller.projectsWithoutPPP.supersedeMasterdataFile({ fileId: file.id }),
     ).rejects.toThrow(/Authentication required/i);
+  });
+
+  it("file ID alone cannot authorize public deletion", async () => {
+    const project = await dashboardRow("RR18-0616-01-01");
+    const detail = await userCaller.projectsWithoutPPP.detail({ id: project.id });
+    const file = detail!.files[0];
+    await expect(
+      anonymousCaller.projectsWithoutPPP.deleteMasterdataFile({ fileId: file.id, deleteCapability: "garbage-token" }),
+    ).rejects.toThrow(/Delete authorization required/i);
+    // File still exists.
+    const after = await userCaller.projectsWithoutPPP.detail({ id: project.id });
+    expect(after!.files.some((f) => f.id === file.id)).toBe(true);
+  });
+
+  it("deleting 1 of 2 current files keeps the project Submitted with fileCount 1", async () => {
+    const project = await dashboardRow("RR23-0047-03-04");
+    const a = await userCaller.projectsWithoutPPP.attachMasterdataFile({
+      projectId: project.id,
+      fileName: "a.xlsx",
+      fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      fileSize: 3,
+      fileData: Buffer.from("aaa").toString("base64"),
+    });
+    const b = await userCaller.projectsWithoutPPP.attachMasterdataFile({
+      projectId: project.id,
+      fileName: "b.pdf",
+      fileType: "application/pdf",
+      fileSize: 3,
+      fileData: Buffer.from("bbb").toString("base64"),
+    });
+    void a;
+
+    const before = await userCaller.projectsWithoutPPP.dashboard();
+    expect(before.kpis.submitted).toBeGreaterThanOrEqual(1);
+
+    const capA = signDeleteCapability(generateDeleteCapabilityClaims(a.fileId, project.id));
+    await anonymousCaller.projectsWithoutPPP.deleteMasterdataFile({ fileId: a.fileId, deleteCapability: capA });
+
+    const after = await userCaller.projectsWithoutPPP.dashboard();
+    const row = after.items.find((r) => r.trackingId === project.trackingId)!;
+    expect(row.status).toBe("submitted");
+    expect(row.fileCount).toBe(1);
+    expect(after.kpis.submitted).toBeGreaterThanOrEqual(1);
+
+    // Cleanup the remaining file.
+    const capB = signDeleteCapability(generateDeleteCapabilityClaims(b.fileId, project.id));
+    await anonymousCaller.projectsWithoutPPP.deleteMasterdataFile({ fileId: b.fileId, deleteCapability: capB });
+  });
+
+  it("deleting the only current file derives Not Submitted and updates KPIs", async () => {
+    const project = await dashboardRow("RR18-0616-01-01");
+    const attached = await userCaller.projectsWithoutPPP.attachMasterdataFile({
+      projectId: project.id,
+      fileName: "only.xlsx",
+      fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      fileSize: 5,
+      fileData: Buffer.from("only-").toString("base64"),
+    });
+
+    const before = await userCaller.projectsWithoutPPP.dashboard();
+    expect(before.kpis.submitted).toBeGreaterThanOrEqual(1);
+    expect(before.items.find((r) => r.trackingId === project.trackingId)!.status).toBe("submitted");
+
+    const cap = signDeleteCapability(generateDeleteCapabilityClaims(attached.fileId, project.id));
+    const result = await anonymousCaller.projectsWithoutPPP.deleteMasterdataFile({
+      fileId: attached.fileId,
+      deleteCapability: cap,
+    });
+    expect(result.status).toBe("not_submitted");
+
+    const after = await userCaller.projectsWithoutPPP.dashboard();
+    const row = after.items.find((r) => r.trackingId === project.trackingId)!;
+    expect(row.status).toBe("not_submitted");
+    expect(row.fileCount).toBe(0);
+    // Submitted count decreased by exactly 1 vs the pre-delete state.
+    expect(after.kpis.submitted).toBe(before.kpis.submitted - 1);
+    expect(after.kpis.notSubmitted).toBe(before.kpis.notSubmitted + 1);
+    expect(after.kpis.submissionRate).toBe(
+      before.kpis.totalProjects > 0 ? Math.round((after.kpis.submitted / before.kpis.totalProjects) * 100) : 0,
+    );
+  });
+
+  it("superseded evidence is protected from public deletion but OWNER/admin can delete it", async () => {
+    const project = await dashboardRow("RR18-0616-01-01");
+    const attached = await userCaller.projectsWithoutPPP.attachMasterdataFile({
+      projectId: project.id,
+      fileName: "hist.xlsx",
+      fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      fileSize: 4,
+      fileData: Buffer.from("hist").toString("base64"),
+    });
+    await adminCaller.projectsWithoutPPP.supersedeMasterdataFile({ fileId: attached.fileId });
+
+    const cap = signDeleteCapability(generateDeleteCapabilityClaims(attached.fileId, project.id));
+    await expect(
+      anonymousCaller.projectsWithoutPPP.deleteMasterdataFile({ fileId: attached.fileId, deleteCapability: cap }),
+    ).rejects.toThrow(/Superseded files cannot be deleted publicly/i);
+
+    // Admin path can delete historical evidence.
+    const result = await adminCaller.projectsWithoutPPP.adminDeleteMasterdataFile({ fileId: attached.fileId });
+    expect(result.fileId).toBe(attached.fileId);
+  });
+
+  it("admin can delete any file without a capability", async () => {
+    const project = await dashboardRow("RR18-0616-01-01");
+    const attached = await userCaller.projectsWithoutPPP.attachMasterdataFile({
+      projectId: project.id,
+      fileName: "admin-del.xlsx",
+      fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      fileSize: Buffer.from("admin-del").length,
+      fileData: Buffer.from("admin-del").toString("base64"),
+    });
+    const result = await adminCaller.projectsWithoutPPP.adminDeleteMasterdataFile({ fileId: attached.fileId });
+    expect(result.fileId).toBe(attached.fileId);
   });
 });
 
