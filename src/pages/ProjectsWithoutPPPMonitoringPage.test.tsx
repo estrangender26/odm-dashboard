@@ -92,10 +92,6 @@ vi.mock("@/lib/direct-storage-upload", () => ({
   storageFileUrl: (_source: string, id: number, action: string) => `/api/storage/files/x/${id}/${action}`,
 }));
 
-vi.mock("@/hooks/useAuth", () => ({
-  useAuth: () => ({ isAuthenticated: true, user: { name: "Test User" } }),
-}));
-
 vi.mock("@/providers/trpc", () => {
   return {
     trpc: {
@@ -155,6 +151,7 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     vi.clearAllMocks();
     mocks.shouldUseDirectStorage.mockResolvedValue(false);
     mocks.attachShouldFail = false;
+    mocks.attachInputs = [];
   });
 
   afterEach(() => {
@@ -357,6 +354,34 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     // Modal stays open so the user can retry.
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(mocks.dashboardInvalidate).not.toHaveBeenCalled();
+  });
+
+  it("public upload: the modal shows no sign-in-required message", async () => {
+    const dialog = await openUploadModal();
+    expect(within(dialog).queryByText(/Sign in is required/i)).not.toBeInTheDocument();
+    // Upload controls are present without any authenticated user.
+    expect(within(dialog).getByRole("button", { name: "Upload" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("public upload: upload is usable without an authenticated user and updates the dashboard", async () => {
+    // No useAuth mock exists in this suite — the page renders with no user at
+    // all, exactly like a public visitor.
+    const dialog = await openUploadModal();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, masterdataFile());
+    await userEvent.click(within(dialog).getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => {
+      expect(mocks.attachInputs.length).toBe(1);
+    });
+    expect(mocks.attachInputs[0].fileName).toBe("masterdata.xlsx");
+    // Success closes the modal and still invalidates dashboard + detail.
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(mocks.dashboardInvalidate).toHaveBeenCalled();
+    expect(mocks.detailInvalidate).toHaveBeenCalled();
   });
 
   it("after a successful upload the project derives as Submitted and the KPI Submitted count rises", async () => {
