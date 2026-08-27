@@ -13,12 +13,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { MAX_UPLOAD_ERROR_MESSAGE, MAX_UPLOAD_FILE_SIZE_BYTES } from "@contracts/upload-limits";
-import { shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
+import { shouldUseDirectStorage, uploadFileDirect } from "@/lib/direct-storage-upload";
 import {
   LS_PS_LABELS,
   MODULE_TITLE,
   STORAGE_MODULE,
-  STORAGE_SOURCE,
   SUBMISSION_STATUS_LABELS,
   formatDateTime,
   formatFileSize,
@@ -219,16 +218,6 @@ export default function ProjectsWithoutPPPMonitoringPage() {
     setAmdFilter("");
     setLsPsFilter("");
     setStatusFilter("");
-  }, []);
-
-  const openDetail = useCallback((id: number) => {
-    setSelectedId(id);
-    setBanner(null);
-  }, []);
-
-  const closeDetail = useCallback(() => {
-    setSelectedId(null);
-    setBanner(null);
   }, []);
 
   // ── Upload modal handlers ────────────────────────────────────────────────
@@ -473,9 +462,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                   filteredRows.map((row) => (
                     <tr
                       key={row.id}
-                      className="hover:bg-[#F8FAFC] cursor-pointer"
                       style={{ borderTop: "1px solid #EFF3F7" }}
-                      onClick={() => openDetail(row.id)}
                     >
                       <td className="px-3 py-2.5 font-bold text-[#005BAC] whitespace-nowrap">{row.trackingId}</td>
                       <td className="px-3 py-2.5 text-[#334155] whitespace-nowrap">{row.psCode}</td>
@@ -530,114 +517,6 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             </table>
           </div>
         </section>
-
-        {/* Project detail — read-only viewer (upload lives in the row-level modal) */}
-        {selectedId !== null && (
-          <section className="rounded-xl border mt-4" style={{ background: "#FFFFFF", borderColor: "#D6DFE8" }}>
-            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#EFF3F7" }}>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-sm font-bold text-[#0B1D44]">
-                  {detailProject?.trackingId ?? "Project"} — Masterdata Submittal
-                </h2>
-                {detail && <StatusBadge status={detail.status} />}
-              </div>
-              <button
-                type="button"
-                onClick={closeDetail}
-                className="text-lg leading-none text-gray-400 hover:text-gray-600"
-                aria-label="Close detail"
-              >
-                ×
-              </button>
-            </div>
-
-            {detailQuery.isLoading ? (
-              <div className="p-8 text-center text-sm text-gray-400">Loading project detail…</div>
-            ) : detail ? (
-              <div className="p-5">
-                {/* Reference metadata (OWNER-controlled, read-only for normal users) */}
-                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-5 gap-y-3 mb-5">
-                  {[
-                    ["Tracking ID", detailProject?.trackingId],
-                    ["PS Code", detailProject?.psCode],
-                    ["Coding Mask", detailProject?.codingMask],
-                    ["Project Phase", detailProject?.projectPhase],
-                    ["Latest Milestone", detailProject?.latestMilestone],
-                    ["PM Headline", detailProject?.pmHeadline],
-                    ["Work Package", detailProject?.workPackage],
-                    ["Contract Package", detailProject?.contractPackage],
-                    ["Contractor", detailProject?.contractor],
-                    ["Major Project Tag", detailProject?.majorProjectTag],
-                    ["Construction Manager", detailProject?.constructionManager],
-                    ["Project Manager", detailProject?.projectManager],
-                    ["LS/PS", detailProject ? (detailProject.withLSPs ? LS_PS_LABELS.yes : LS_PS_LABELS.no) : null],
-                    ["AMD Grid Head", detailProject?.amdGridHead],
-                    ["Project Name", detailProject?.projectName],
-                  ].map(([label, value]) => (
-                    <div key={String(label)}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8BA3B8]">{label}</div>
-                      <div className="text-xs font-medium text-[#0B1D44] mt-0.5 break-words">{value ?? "—"}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Files */}
-                <h3 className="text-xs font-bold uppercase tracking-wide text-[#5A6B7D] mb-2">
-                  Submission Files ({detail.files.length})
-                </h3>
-                {detail.files.length === 0 ? (
-                  <div className="text-xs text-gray-400 py-3">No masterdata files have been submitted yet.</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-left text-xs">
-                      <thead>
-                        <tr style={{ background: "#F8FAFC" }}>
-                          <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Filename</th>
-                          <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Format</th>
-                          <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Size</th>
-                          <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Submitted By</th>
-                          <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Submitted Date</th>
-                          <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Status</th>
-                          <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.files.map((file) => (
-                          <tr key={file.id} style={{ borderTop: "1px solid #EFF3F7" }}>
-                            <td className="px-3 py-2 font-semibold text-[#0B1D44]">{file.fileName}</td>
-                            <td className="px-3 py-2 uppercase text-[#475569]">
-                              {file.storageMimeType === "application/pdf" || file.fileType === "application/pdf" ? "PDF" : "Excel"}
-                            </td>
-                            <td className="px-3 py-2 text-[#475569]">{formatFileSize(file.fileSize)}</td>
-                            <td className="px-3 py-2 text-[#475569]">{file.uploadedBy || "—"}</td>
-                            <td className="px-3 py-2 text-[#475569] whitespace-nowrap">{formatDateTime(file.submittedAt)}</td>
-                            <td className="px-3 py-2">
-                              {file.current ? (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#D1FAE5", color: "#047857" }}>Current</span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#E2E8F0", color: "#475569" }}>Superseded</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap">
-                              <a
-                                href={storageFileUrl(STORAGE_SOURCE, file.id, "download")}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-[#005BAC] hover:bg-blue-100 inline-block"
-                              >
-                                ⬇ Download
-                              </a>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-sm text-gray-400">Project not found.</div>
-            )}
-          </section>
-        )}
       </main>
 
       {/* Upload Masterdata modal — centered dialog in front of the dashboard */}
