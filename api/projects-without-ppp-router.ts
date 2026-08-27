@@ -4,6 +4,10 @@ import { db } from "./queries/connection";
 import { projectsWithoutPPP, projectWithoutPPPFiles } from "@db/schema";
 import { authedQuery, createRouter, publicQuery } from "./middleware";
 import { projectWithoutPPPSchema } from "../src/modules/projects-without-ppp/validation";
+import {
+  MAX_UPLOAD_ERROR_MESSAGE,
+  isBase64UploadSizeAllowed,
+} from "@contracts/upload-limits";
 
 // Tables are created exclusively through the standard Drizzle migration
 // journal (db/migrations/0031_projects_without_ppp.sql). The router must not
@@ -137,6 +141,7 @@ export const projectsWithoutPPPRouter = createRouter({
       fileName: z.string().min(1).max(255),
       fileType: z.string().optional(),
       fileSize: z.number().int().nonnegative().optional(),
+      fileData: z.string().refine(isBase64UploadSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE).optional(),
       storageBucket: z.string().optional(),
       storagePath: z.string().optional(),
       storageMimeType: z.string().optional(),
@@ -149,6 +154,9 @@ export const projectsWithoutPPPRouter = createRouter({
         fileName: input.fileName,
         fileType: input.fileType || null,
         fileSize: input.fileSize || null,
+        // Legacy fallback attachments persist their contents in file_data so
+        // they remain retrievable; storage-backed records keep file_data NULL.
+        fileData: input.storageBucket ? null : (input.fileData || null),
         uploadedBy: ctx.user?.name || null,
         storageBucket: input.storageBucket || null,
         storagePath: input.storagePath || null,

@@ -98,11 +98,12 @@ export default function ProjectsWithoutPPPPage() {
   });
 
   const attachFileMut = trpc.projectsWithoutPPP.attachFileRecord.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       setUploadProgress(100);
       setTimeout(() => setIsUploading(false), 500);
       setBanner({ type: "success", message: "Attachment recorded" });
       void utils.projectsWithoutPPP.list.invalidate();
+      void utils.projectsWithoutPPP.get.invalidate({ id: variables.projectId });
     },
     onError: () => { setIsUploading(false); setBanner({ type: "error", message: "Failed to record attachment" }); },
   });
@@ -172,6 +173,7 @@ export default function ProjectsWithoutPPPPage() {
           onProgress: (pct) => { setUploadProgress(Math.max(5, pct)); setUploadLabel(`Uploading "${file.name}" directly to Storage... ${pct}%`); },
         });
         await utils.projectsWithoutPPP.list.invalidate();
+        await utils.projectsWithoutPPP.get.invalidate({ id: selectedProject.id });
         setUploadProgress(100);
         setBanner({ type: "success", message: `Attachment "${file.name}" uploaded` });
         setTimeout(() => setIsUploading(false), 500);
@@ -197,11 +199,12 @@ export default function ProjectsWithoutPPPPage() {
         fileName: file.name,
         fileType: file.type,
         fileSize: file.size,
+        fileData: base64,
       });
     };
     reader.onerror = () => { setIsUploading(false); setBanner({ type: "error", message: `Failed to read "${file.name}"` }); };
     reader.readAsDataURL(file);
-  }, [isUploading, selectedProject, utils.projectsWithoutPPP.list, attachFileMut]);
+  }, [isUploading, selectedProject, utils.projectsWithoutPPP.list, utils.projectsWithoutPPP.get, attachFileMut]);
 
   const handleDownload = useCallback((fileId: number, fileName: string) => {
     window.open(storageFileUrl("project_without_ppp_files", fileId, "download"), "_blank", "noopener,noreferrer");
