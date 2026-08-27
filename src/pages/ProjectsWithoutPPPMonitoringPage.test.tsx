@@ -110,11 +110,13 @@ vi.mock("@/providers/trpc", () => {
           useQuery: () => ({ data: mocks.dashboardPayload, isLoading: false }),
         },
         detail: {
-          useQuery: (_input: unknown, options?: { enabled?: boolean }) =>
+          useQuery: (input: { id?: number }, options?: { enabled?: boolean }) =>
             options?.enabled
               ? {
                   data: {
-                    project: mocks.dashboardPayload.items[0],
+                    project:
+                      mocks.dashboardPayload.items.find((i) => i.id === input?.id) ??
+                      mocks.dashboardPayload.items[0],
                     status: "not_submitted",
                     files: [],
                   },
@@ -159,16 +161,20 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     cleanup();
   });
 
-  // Opens the first project's detail panel, then the Upload Masterdata modal.
-  async function openUploadModal() {
+  // Opens the Upload Masterdata modal with ONE click on a row-level Upload
+  // button (rowIndex 0 = first project). No intermediate detail step is used.
+  async function openUploadModal(rowIndex = 0) {
     render(createElement(ProjectsWithoutPPPMonitoringPage));
     const buttons = Array.from(document.querySelectorAll("button"));
-    const rowAction = buttons.find((b) => b.textContent === "Upload");
-    expect(rowAction).toBeTruthy();
-    await userEvent.click(rowAction!);
-    const openButton = screen.getByRole("button", { name: /Upload Masterdata/ });
-    await userEvent.click(openButton);
+    const rowActions = buttons.filter((b) => b.textContent === "Upload");
+    const target = rowActions[rowIndex];
+    expect(target).toBeTruthy();
+    await userEvent.click(target!);
     return await screen.findByRole("dialog");
+  }
+
+  function rowUploadButtons() {
+    return Array.from(document.querySelectorAll("button")).filter((b) => b.textContent === "Upload");
   }
 
   function masterdataFile() {
@@ -209,7 +215,7 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     expect(screen.getByText(/Showing 1 of 50 projects/)).toBeInTheDocument();
   });
 
-  it("clicking Upload Masterdata opens a centered modal dialog in front of the dashboard", async () => {
+  it("clicking the row Upload button opens the centered modal immediately with a single click", async () => {
     const dialog = await openUploadModal();
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveAttribute("role", "dialog");
@@ -218,26 +224,27 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     // The dashboard remains rendered behind the overlay.
     expect(screen.getByText("Total Projects")).toBeInTheDocument();
     expect(within(dialog).getByText("Upload Masterdata")).toBeInTheDocument();
+    // The file input lives inside the modal — no inline form anywhere.
+    expect(document.querySelector('input[type="file"]')).toBeInTheDocument();
   });
 
-  it("does not render the upload form inline when the modal is closed", async () => {
+  it("does not render the upload form inline and has no intermediate Upload button", async () => {
     render(createElement(ProjectsWithoutPPPMonitoringPage));
     // No file input and no allowed-formats text anywhere before the modal opens.
     expect(document.querySelector('input[type="file"]')).toBeNull();
     expect(screen.queryByText(/Allowed formats/)).not.toBeInTheDocument();
+    // No separate blue "Upload Masterdata" button exists (single upload control
+    // is the row-level Upload button).
+    expect(screen.queryByRole("button", { name: /Upload Masterdata/ })).not.toBeInTheDocument();
 
-    // Open the detail panel only — still no inline form.
-    const buttons = Array.from(document.querySelectorAll("button"));
-    const rowAction = buttons.find((b) => b.textContent === "Upload");
-    await userEvent.click(rowAction!);
-    expect(document.querySelector('input[type="file"]')).toBeNull();
-    expect(screen.queryByText(/Allowed formats/)).not.toBeInTheDocument();
-
-    // The modal hosts the file input.
-    await userEvent.click(screen.getByRole("button", { name: /Upload Masterdata/ }));
+    // One click on the row Upload button opens the modal directly.
+    await userEvent.click(rowUploadButtons()[0]);
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/Allowed formats: Excel \(\.xlsx, \.xls\) and PDF \(\.pdf\)\. Maximum file size: 150 MB\./)).toBeInTheDocument();
     expect(document.querySelector('input[type="file"]')).toBeInTheDocument();
+    // Still no duplicate Upload button anywhere (only the row-level ones).
+    expect(screen.queryByRole("button", { name: /Upload Masterdata/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Add or replace masterdata/i)).not.toBeInTheDocument();
   });
 
   it("modal shows the selected project context (name, tracking id, formats, size)", async () => {
@@ -245,6 +252,23 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     expect(within(dialog).getByText("RR18-TEST-001")).toBeInTheDocument(); // Tracking ID row
     expect(within(dialog).getAllByText(/Project RR18-TEST-001/).length).toBeGreaterThan(0); // name (description + row)
     expect(within(dialog).getByText(/Maximum file size: 150 MB\./)).toBeInTheDocument();
+  });
+
+  it("different row Upload buttons open the modal with the correct project context", async () => {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    // Row 1 -> project RR18-TEST-001
+    await userEvent.click(rowUploadButtons()[0]);
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("RR18-TEST-001")).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/Project RR18-TEST-001/).length).toBeGreaterThan(0);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // Row 3 -> project RR18-TEST-003
+    await userEvent.click(rowUploadButtons()[2]);
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("RR18-TEST-003")).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/Project RR18-TEST-003/).length).toBeGreaterThan(0);
   });
 
   it("Cancel closes the modal", async () => {
