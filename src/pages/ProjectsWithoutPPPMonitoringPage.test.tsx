@@ -70,6 +70,7 @@ const mocks = vi.hoisted(() => {
     attachOnSuccess: null as null | ((data: unknown) => void),
     attachOnError: null as null | ((e: Error) => void),
     attachShouldFail: false,
+    detailFiles: [] as Array<Record<string, unknown>>,
   };
 });
 
@@ -118,7 +119,7 @@ vi.mock("@/providers/trpc", () => {
                       mocks.dashboardPayload.items.find((i) => i.id === input?.id) ??
                       mocks.dashboardPayload.items[0],
                     status: "not_submitted",
-                    files: [],
+                    files: mocks.detailFiles,
                   },
                   isLoading: false,
                 }
@@ -155,6 +156,7 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     vi.clearAllMocks();
     mocks.shouldUseDirectStorage.mockResolvedValue(false);
     mocks.attachShouldFail = false;
+    mocks.detailFiles = [];
   });
 
   afterEach(() => {
@@ -245,6 +247,83 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     // Still no duplicate Upload button anywhere (only the row-level ones).
     expect(screen.queryByRole("button", { name: /Upload Masterdata/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/Add or replace masterdata/i)).not.toBeInTheDocument();
+  });
+
+  it("detail panel is read-only: no inline upload section and no blue Upload CTA", async () => {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    // Open the detail panel via the existing row interaction (click the row body).
+    await userEvent.click(screen.getByText("RR18-TEST-001"));
+    const detailSection = screen.getByText("RR18-TEST-001 — Masterdata Submittal").closest("section");
+    expect(detailSection).toBeTruthy();
+    const detail = within(detailSection!);
+
+    // Read-only reference metadata is rendered inside the detail panel.
+    for (const label of ["Tracking ID", "PS Code", "Coding Mask", "Project Phase", "Latest Milestone", "PM Headline", "Work Package", "Contract Package", "Contractor", "Major Project Tag", "Construction Manager", "Project Manager", "LS/PS", "AMD Grid Head", "Project Name"]) {
+      expect(detail.getByText(label)).toBeInTheDocument();
+    }
+    // Submission files section heading is present.
+    expect(detail.getByText(/Submission Files \(0\)/)).toBeInTheDocument();
+
+    // No inline upload section / CTA anywhere in the detail panel.
+    expect(detail.queryByRole("button", { name: /Upload Masterdata/ })).not.toBeInTheDocument();
+    expect(detail.queryByRole("button", { name: /Add \/ Replace Masterdata/ })).not.toBeInTheDocument();
+    expect(detail.queryByText(/^Upload masterdata$/i)).not.toBeInTheDocument();
+    expect(detail.queryByText(/Allowed formats/)).not.toBeInTheDocument();
+    expect(detail.queryByRole("button", { name: "Upload" })).not.toBeInTheDocument();
+    // No file input and no modal are open.
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("submission file history still renders in the read-only detail panel", async () => {
+    mocks.detailFiles = [
+      {
+        id: 11,
+        projectId: 1,
+        fileName: "legacy-masterdata.pdf",
+        fileType: "application/pdf",
+        fileSize: 2048,
+        storageBucket: null,
+        storagePath: null,
+        storageMimeType: "application/pdf",
+        uploadedBy: "Test User",
+        uploadedAt: new Date("2026-08-01T00:00:00Z"),
+        submittedAt: new Date("2026-08-01T00:00:00Z"),
+        supersededAt: null,
+        current: true,
+      },
+      {
+        id: 12,
+        projectId: 1,
+        fileName: "superseded.xlsx",
+        fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        fileSize: 1024,
+        storageBucket: null,
+        storagePath: null,
+        storageMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        uploadedBy: "Test User",
+        uploadedAt: new Date("2026-07-01T00:00:00Z"),
+        submittedAt: new Date("2026-07-01T00:00:00Z"),
+        supersededAt: new Date("2026-08-01T00:00:00Z"),
+        current: false,
+      },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    await userEvent.click(screen.getByText("RR18-TEST-001"));
+    expect(screen.getByText(/Submission Files \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText("legacy-masterdata.pdf")).toBeInTheDocument();
+    expect(screen.getByText("superseded.xlsx")).toBeInTheDocument();
+    expect(screen.getByText("Current")).toBeInTheDocument();
+    expect(screen.getByText("Superseded")).toBeInTheDocument();
+    // Download links remain available for current and historical files.
+    const downloads = screen.getAllByRole("link", { name: /Download/ });
+    expect(downloads.map((a) => a.getAttribute("href"))).toEqual([
+      "/api/storage/files/x/11/download",
+      "/api/storage/files/x/12/download",
+    ]);
+    // No upload UI in the detail panel even when files exist.
+    expect(screen.queryByRole("button", { name: /Upload Masterdata/ })).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
   });
 
   it("modal shows the selected project context (name, tracking id, formats, size)", async () => {
