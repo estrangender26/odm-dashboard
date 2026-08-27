@@ -583,4 +583,124 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     expect(mocks.dashboardInvalidate).toHaveBeenCalled();
     expect(mocks.detailInvalidate).toHaveBeenCalled();
   });
+
+  // ── Operational UX polish ────────────────────────────────────────────────
+
+  function filterSection() {
+    return screen.getByText(/Showing 50 of 50 projects/).closest("section") as HTMLElement;
+  }
+
+  it("filters are ordered Status, PM, CM, AMD, Phase, Tag, Contractor, LS/PS after Search", () => {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const labels = Array.from(filterSection().querySelectorAll("label span"))
+      .map((s) => s.textContent?.trim())
+      .filter(Boolean);
+    expect(labels.slice(0, 3)).toEqual(["Search", "Status", "Project Manager"]);
+    expect(labels.slice(1)).toEqual([
+      "Status",
+      "Project Manager",
+      "Construction Manager",
+      "AMD Grid Head",
+      "Project Phase",
+      "Major Project Tag",
+      "Contractor",
+      "LS/PS",
+    ]);
+  });
+
+  it("Status filter uses human-readable values (Submitted / Not Submitted)", () => {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const selects = Array.from(filterSection().querySelectorAll("select"));
+    const statusSelect = selects[0];
+    const options = Array.from(statusSelect.options).map((o) => o.textContent);
+    expect(options).toContain("Submitted");
+    expect(options).toContain("Not Submitted");
+    expect(options).not.toContain("submitted");
+    expect(options).not.toContain("not_submitted");
+  });
+
+  it("LS/PS filter uses human-readable values (With LS/PS / No LS/PS)", () => {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const selects = Array.from(filterSection().querySelectorAll("select"));
+    const lspsSelect = selects[selects.length - 1];
+    const options = Array.from(lspsSelect.options).map((o) => o.textContent);
+    expect(options).toContain("With LS/PS");
+    expect(options).toContain("No LS/PS");
+    expect(options).not.toContain("yes");
+    expect(options).not.toContain("no");
+  });
+
+  it("table columns are in the operational order", () => {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const headers = Array.from(document.querySelectorAll("thead th")).map((th) => th.textContent?.trim());
+    expect(headers).toEqual([
+      "Tracking ID",
+      "Masterdata Status",
+      "Project Name",
+      "Project Phase",
+      "Project Manager",
+      "Construction Manager",
+      "AMD Grid Head",
+      "Files",
+      "Latest Submission",
+      "Submitted By",
+      "PS Code",
+      "Major Project Tag",
+      "Contractor",
+      "Work Package",
+      "LS/PS",
+      "Action",
+    ]);
+  });
+
+  it("Tracking ID column is sticky on horizontal scroll and the table header is sticky", () => {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const firstTh = document.querySelector("thead th")!;
+    expect(firstTh.className).toContain("sticky");
+    expect(firstTh.className).toContain("left-0");
+    const firstTd = document.querySelector("tbody tr td")!;
+    expect(firstTd.className).toContain("sticky");
+    expect(firstTd.className).toContain("left-0");
+    const otherTh = document.querySelectorAll("thead th")[1]!;
+    expect(otherTh.className).toContain("sticky");
+    expect(otherTh.className).toContain("top-0");
+    const wrapper = document.querySelector("table")!.parentElement!;
+    expect(wrapper.className).toContain("overflow-auto");
+    expect(wrapper.className).toContain("max-h-");
+  });
+
+  it("history modal sorts Current first then newest-first, superseded last", async () => {
+    mocks.detailFiles = [
+      { id: 1, projectId: 1, fileName: "superseded-old.pdf", fileType: "application/pdf", fileSize: 100, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "A", uploadedAt: new Date(), submittedAt: new Date("2026-08-01T00:00:00Z"), supersededAt: new Date(), current: false },
+      { id: 2, projectId: 1, fileName: "current-new.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 100, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "A", uploadedAt: new Date(), submittedAt: new Date("2026-08-27T00:00:00Z"), supersededAt: null, current: true },
+      { id: 3, projectId: 1, fileName: "current-old.pdf", fileType: "application/pdf", fileSize: 100, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "A", uploadedAt: new Date(), submittedAt: new Date("2026-08-26T00:00:00Z"), supersededAt: null, current: true },
+      { id: 4, projectId: 1, fileName: "superseded-new.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 100, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "A", uploadedAt: new Date(), submittedAt: new Date("2026-08-25T00:00:00Z"), supersededAt: new Date(), current: false },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    const dialog = await screen.findByRole("dialog");
+    const filenames = Array.from(dialog.querySelectorAll("tbody tr td:first-child")).map((td) => td.textContent?.trim());
+    expect(filenames).toEqual(["current-new.xlsx", "current-old.pdf", "superseded-new.xlsx", "superseded-old.pdf"]);
+  });
+
+  it("long filenames in history are truncated with a full-name tooltip", async () => {
+    const longName = "very-long-masterdata-filename-" + "x".repeat(200) + ".xlsx";
+    mocks.detailFiles = [
+      { id: 1, projectId: 1, fileName: longName, fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileSize: 100, storageBucket: null, storagePath: null, storageMimeType: null, uploadedBy: "A", uploadedAt: new Date(), submittedAt: new Date(), supersededAt: null, current: true },
+    ];
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    await userEvent.click(buttons.find((b) => b.textContent === "View History")!);
+    const dialog = await screen.findByRole("dialog");
+    const cell = within(dialog).getByText(longName);
+    expect(cell.className).toContain("truncate");
+    expect(cell.getAttribute("title")).toBe(longName);
+  });
+
+  it("upload modal shows no-account and post-upload outcome helper text", async () => {
+    const dialog = await openUploadModal();
+    expect(within(dialog).getByText(/No account required/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/will be marked Submitted after the upload is finalized/)).toBeInTheDocument();
+  });
 });
