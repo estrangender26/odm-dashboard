@@ -1,9 +1,17 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { MAX_UPLOAD_ERROR_MESSAGE, MAX_UPLOAD_FILE_SIZE_BYTES } from "@contracts/upload-limits";
 import { shouldUseDirectStorage, storageFileUrl, uploadFileDirect } from "@/lib/direct-storage-upload";
 import {
@@ -84,32 +92,6 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
   );
 }
 
-function ProgressOverlay({ visible, label, progress }: { visible: boolean; label: string; progress?: number }) {
-  if (!visible) return null;
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(13,33,55,0.55)", backdropFilter: "blur(2px)" }}>
-      <div className="bg-white rounded-xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4 min-w-[260px]">
-        <div className="relative w-14 h-14">
-          <div className="absolute inset-0 rounded-full border-4 border-gray-200" />
-          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 animate-spin" style={{ animationDuration: "0.8s" }} />
-        </div>
-        <div className="text-center">
-          <p className="text-sm font-bold text-gray-800">{label}</p>
-        </div>
-        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-300 ease-out"
-            style={{
-              width: progress !== undefined ? `${Math.min(100, Math.max(5, progress))}%` : "60%",
-              background: "linear-gradient(90deg, #2563EB 0%, #3B82F6 50%, #2563EB 100%)",
-            }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function FilterSelect({ label, value, options, onChange }: {
   label: string;
   value: string;
@@ -169,7 +151,9 @@ export default function ProjectsWithoutPPPMonitoringPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadLabel, setUploadLabel] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
   const { data: dashboardData, isLoading } = trpc.projectsWithoutPPP.dashboard.useQuery(undefined, {
@@ -183,15 +167,20 @@ export default function ProjectsWithoutPPPMonitoringPage() {
 
   const attachMut = trpc.projectsWithoutPPP.attachMasterdataFile.useMutation({
     onSuccess: () => {
-      setUploadProgress(100);
       setBanner({ type: "success", message: "Masterdata file uploaded — project marked as Submitted." });
-      setTimeout(() => setIsUploading(false), 500);
+      setIsUploading(false);
+      setUploadModalOpen(false);
+      setSelectedFile(null);
+      setModalError(null);
+      setUploadProgress(0);
+      setUploadLabel("");
       void utils.projectsWithoutPPP.dashboard.invalidate();
       if (selectedId !== null) void utils.projectsWithoutPPP.detail.invalidate({ id: selectedId });
     },
     onError: (e) => {
+      // Keep the modal open and surface the error inside it.
       setIsUploading(false);
-      setBanner({ type: "error", message: e.message || "Failed to record masterdata upload." });
+      setModalError(e.message || "Failed to record masterdata upload.");
     },
   });
 
@@ -242,82 +231,121 @@ export default function ProjectsWithoutPPPMonitoringPage() {
     setBanner(null);
   }, []);
 
-  const handleFileChosen = useCallback(
-    async (file: File | undefined) => {
-      if (!file) return;
-      if (selectedId === null) {
-        setBanner({ type: "error", message: "Select a project first." });
-        return;
+  // ── Upload modal handlers ────────────────────────────────────────────────
+  const openUploadModal = useCallback(() => {
+    // Reopening always starts from a clean form state.
+    setSelectedFile(null);
+    setModalError(null);
+    setUploadProgress(0);
+    setUploadLabel("");
+    setUploadModalOpen(true);
+  }, []);
+
+  const onUploadModalOpenChange = useCallback(
+    (open: boolean) => {
+      // While an upload is in progress, user-initiated closes (Escape, overlay
+      // click, close button) are ignored so the upload cannot be interrupted.
+      if (!open && isUploading) return;
+      setUploadModalOpen(open);
+      if (!open) {
+        setSelectedFile(null);
+        setModalError(null);
+        setUploadProgress(0);
+        setUploadLabel("");
       }
+    },
+    [isUploading],
+  );
+
+  const handleFileSelected = useCallback(
+    (file: File | undefined) => {
+      if (!file) return;
       if (!isAuthenticated) {
-        setBanner({ type: "error", message: "Sign in is required to upload masterdata." });
+        setModalError("Sign in is required to upload masterdata.");
         return;
       }
       const clientError = validateMasterdataFile(file);
       if (clientError) {
-        setBanner({ type: "error", message: clientError.message });
+        setModalError(clientError.message);
         return;
       }
       if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
-        setBanner({ type: "error", message: MAX_UPLOAD_ERROR_MESSAGE });
+        setModalError(MAX_UPLOAD_ERROR_MESSAGE);
         return;
       }
-      setIsUploading(true);
-      setUploadProgress(0);
-      setUploadLabel(`Preparing "${file.name}"...`);
-      try {
-        const useStorage = await shouldUseDirectStorage(STORAGE_MODULE);
-        if (useStorage) {
-          await uploadFileDirect({
-            module: STORAGE_MODULE,
-            file,
-            target: { projectId: selectedId },
-            onProgress: (pct) => {
-              setUploadProgress(Math.max(5, pct));
-              setUploadLabel(`Uploading "${file.name}" to Storage... ${pct}%`);
-            },
-          });
-          setBanner({ type: "success", message: "Masterdata file uploaded — project marked as Submitted." });
-          setUploadProgress(100);
-          setTimeout(() => setIsUploading(false), 500);
-          void utils.projectsWithoutPPP.dashboard.invalidate();
-          void utils.projectsWithoutPPP.detail.invalidate({ id: selectedId });
-          return;
-        }
-
-        const reader = new FileReader();
-        reader.onprogress = (ev) => {
-          if (ev.lengthComputable) {
-            setUploadProgress(Math.round((ev.loaded / ev.total) * 50));
-            setUploadLabel(`Reading "${file.name}"... ${Math.round((ev.loaded / ev.total) * 100)}%`);
-          }
-        };
-        reader.onload = () => {
-          setUploadProgress(60);
-          setUploadLabel(`Saving "${file.name}"...`);
-          const dataUrl = reader.result as string;
-          const commaIndex = dataUrl.indexOf(",");
-          const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
-          attachMut.mutate({
-            projectId: selectedId,
-            fileName: file.name,
-            fileType: file.type || "application/octet-stream",
-            fileSize: file.size,
-            fileData: base64,
-          });
-        };
-        reader.onerror = () => {
-          setIsUploading(false);
-          setBanner({ type: "error", message: "Failed to read the selected file." });
-        };
-        reader.readAsDataURL(file);
-      } catch (error) {
-        setIsUploading(false);
-        setBanner({ type: "error", message: error instanceof Error ? error.message : "Upload failed." });
-      }
+      setSelectedFile(file);
+      setModalError(null);
     },
-    [selectedId, isAuthenticated, attachMut, utils],
+    [isAuthenticated],
   );
+
+  const finishUploadSuccess = useCallback(() => {
+    setBanner({ type: "success", message: "Masterdata file uploaded — project marked as Submitted." });
+    setIsUploading(false);
+    setUploadModalOpen(false);
+    setSelectedFile(null);
+    setModalError(null);
+    setUploadProgress(0);
+    setUploadLabel("");
+  }, []);
+
+  const startUpload = useCallback(async () => {
+    const file = selectedFile;
+    if (!file) return;
+    if (selectedId === null) return;
+    setIsUploading(true);
+    setModalError(null);
+    setUploadProgress(0);
+    setUploadLabel(`Preparing "${file.name}"...`);
+    try {
+      const useStorage = await shouldUseDirectStorage(STORAGE_MODULE);
+      if (useStorage) {
+        await uploadFileDirect({
+          module: STORAGE_MODULE,
+          file,
+          target: { projectId: selectedId },
+          onProgress: (pct) => {
+            setUploadProgress(Math.max(5, pct));
+            setUploadLabel(`Uploading "${file.name}" to Storage... ${pct}%`);
+          },
+        });
+        finishUploadSuccess();
+        void utils.projectsWithoutPPP.dashboard.invalidate();
+        void utils.projectsWithoutPPP.detail.invalidate({ id: selectedId });
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onprogress = (ev) => {
+        if (ev.lengthComputable) {
+          setUploadProgress(Math.round((ev.loaded / ev.total) * 50));
+          setUploadLabel(`Reading "${file.name}"... ${Math.round((ev.loaded / ev.total) * 100)}%`);
+        }
+      };
+      reader.onload = () => {
+        setUploadProgress(60);
+        setUploadLabel(`Saving "${file.name}"...`);
+        const dataUrl = reader.result as string;
+        const commaIndex = dataUrl.indexOf(",");
+        const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
+        attachMut.mutate({
+          projectId: selectedId,
+          fileName: file.name,
+          fileType: file.type || "application/octet-stream",
+          fileSize: file.size,
+          fileData: base64,
+        });
+      };
+      reader.onerror = () => {
+        setIsUploading(false);
+        setModalError("Failed to read the selected file.");
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      setIsUploading(false);
+      setModalError(error instanceof Error ? error.message : "Upload failed.");
+    }
+  }, [selectedFile, selectedId, attachMut, utils, finishUploadSuccess]);
 
   const submitterLabel = (row: ProjectWithoutPPPRow) =>
     row.latestSubmission?.submittedBy || "—";
@@ -542,39 +570,26 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                   ))}
                 </div>
 
-                {/* Upload area */}
+                {/* Upload action (opens the centered modal — no inline form) */}
                 <div
-                  className="rounded-xl border-2 border-dashed px-5 py-5 mb-5 flex items-center justify-between gap-4 flex-wrap"
-                  style={{ borderColor: "#CBD5E1", background: "#F8FAFC" }}
+                  className="mb-5 rounded-xl border px-4 py-3 flex items-center justify-between gap-4 flex-wrap"
+                  style={{ borderColor: "#D6DFE8", background: "#F8FAFC" }}
                 >
                   <div>
                     <div className="text-sm font-bold text-[#0B1D44]">
-                      {detail.status === "submitted" ? "Add or replace masterdata" : "Upload Masterdata"}
+                      {detail.status === "submitted" ? "Add or replace masterdata" : "Upload masterdata"}
                     </div>
                     <div className="text-[11px] text-[#5A6B7D] mt-0.5">
-                      Accepted formats: Excel (.xlsx, .xls) and PDF (.pdf). Maximum file size: 150 MB.
-                      Multiple files may be attached; existing history is preserved.
+                      Excel (.xlsx, .xls) and PDF (.pdf) · maximum 150 MB
                     </div>
                   </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      void handleFileChosen(file);
-                      e.target.value = "";
-                    }}
-                  />
                   <button
                     type="button"
-                    disabled={isUploading}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
+                    onClick={openUploadModal}
+                    className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90"
                     style={{ background: "#005BAC" }}
                   >
-                    {isUploading ? "Uploading…" : detail.status === "submitted" ? "📤 Add / Replace Masterdata" : "📤 Upload Masterdata"}
+                    {detail.status === "submitted" ? "📤 Add / Replace Masterdata" : "📤 Upload Masterdata"}
                   </button>
                 </div>
 
@@ -637,7 +652,113 @@ export default function ProjectsWithoutPPPMonitoringPage() {
         )}
       </main>
 
-      <ProgressOverlay visible={isUploading} label={uploadLabel} progress={uploadProgress} />
+      {/* Upload Masterdata modal — centered dialog in front of the dashboard */}
+      <Dialog open={uploadModalOpen} onOpenChange={onUploadModalOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upload Masterdata</DialogTitle>
+            <DialogDescription>
+              {detailProject
+                ? `${detailProject.projectName ?? "Project"} — ${detailProject.trackingId}`
+                : "Select an Excel or PDF masterdata file"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Selected project context */}
+          <div className="flex flex-col gap-1 text-xs text-[#0B1D44]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[#5A6B7D]">Project</span>
+              <span className="font-semibold text-right">{detailProject?.projectName ?? "—"}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[#5A6B7D]">Tracking ID</span>
+              <span className="font-semibold">{detailProject?.trackingId ?? "—"}</span>
+            </div>
+          </div>
+
+          {/* Allowed formats / size */}
+          <p className="text-xs text-[#5A6B7D]">
+            Allowed formats: Excel (.xlsx, .xls) and PDF (.pdf). Maximum file size: 150 MB.
+          </p>
+
+          {/* File picker / drop area */}
+          <label
+            className="block rounded-xl border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors hover:bg-gray-50"
+            style={{ borderColor: selectedFile ? "#059669" : "#CBD5E1", background: "#F8FAFC" }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const dropped = e.dataTransfer.files?.[0];
+              if (dropped) handleFileSelected(dropped);
+            }}
+          >
+            <input
+              type="file"
+              accept=".xlsx,.xls,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                handleFileSelected(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            {selectedFile ? (
+              <span className="flex flex-col items-center gap-1">
+                <span className="text-sm font-bold text-[#0B1D44] break-all">{selectedFile.name}</span>
+                <span className="text-xs text-[#5A6B7D]">{formatFileSize(selectedFile.size)}</span>
+              </span>
+            ) : (
+              <span className="text-xs text-[#5A6B7D]">
+                Click to choose a file or drag &amp; drop it here
+              </span>
+            )}
+          </label>
+
+          {/* Validation / upload error */}
+          {modalError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+              ⚠️ {modalError}
+            </div>
+          )}
+
+          {/* Upload progress */}
+          {isUploading && (
+            <div className="flex flex-col gap-1">
+              <div className="text-xs text-[#5A6B7D]">{uploadLabel}</div>
+              <div className="h-2 rounded-full overflow-hidden bg-gray-200">
+                <div
+                  className="h-full rounded-full transition-all duration-300 ease-out"
+                  style={{
+                    width: `${Math.min(100, Math.max(5, uploadProgress))}%`,
+                    background: "linear-gradient(90deg, #2563EB 0%, #3B82F6 50%, #2563EB 100%)",
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => onUploadModalOpenChange(false)}
+              disabled={isUploading}
+              className="px-4 py-2 rounded-lg text-xs font-bold text-[#5A6B7D] border hover:bg-gray-50 disabled:opacity-50"
+              style={{ borderColor: "#D6DFE8" }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void startUpload()}
+              disabled={!selectedFile || isUploading}
+              className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
+              style={{ background: "#005BAC" }}
+            >
+              {isUploading ? "Uploading…" : "Upload"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AIAssistant
         contextType="help"
         metadata={{

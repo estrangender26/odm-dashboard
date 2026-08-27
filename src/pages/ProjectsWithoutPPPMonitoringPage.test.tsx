@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -68,6 +68,8 @@ const mocks = vi.hoisted(() => {
     shouldUseDirectStorage: vi.fn(),
     attachInputs: [] as Record<string, unknown>[],
     attachOnSuccess: null as null | ((data: unknown) => void),
+    attachOnError: null as null | ((e: Error) => void),
+    attachShouldFail: false,
   };
 });
 
@@ -123,10 +125,15 @@ vi.mock("@/providers/trpc", () => {
         attachMasterdataFile: {
           useMutation: (options?: { onSuccess?: (data: unknown) => void; onError?: (e: Error) => void }) => {
             mocks.attachOnSuccess = options?.onSuccess ?? null;
+            mocks.attachOnError = options?.onError ?? null;
             return {
               mutate: (input: Record<string, unknown>) => {
                 mocks.attachInputs.push(input);
-                mocks.attachOnSuccess?.({ fileId: 999 });
+                if (mocks.attachShouldFail) {
+                  mocks.attachOnError?.(new Error("simulated upload failure"));
+                } else {
+                  mocks.attachOnSuccess?.({ fileId: 999 });
+                }
               },
               onSuccess: options?.onSuccess,
               onError: options?.onError,
@@ -145,11 +152,32 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.shouldUseDirectStorage.mockResolvedValue(false);
+    mocks.attachShouldFail = false;
   });
 
   afterEach(() => {
     cleanup();
   });
+
+  // Opens the first project's detail panel, then the Upload Masterdata modal.
+  async function openUploadModal() {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const rowAction = buttons.find((b) => b.textContent === "Upload");
+    expect(rowAction).toBeTruthy();
+    await userEvent.click(rowAction!);
+    const openButton = screen.getByRole("button", { name: /Upload Masterdata/ });
+    await userEvent.click(openButton);
+    return await screen.findByRole("dialog");
+  }
+
+  function masterdataFile() {
+    return new File(
+      [new Uint8Array([0x50, 0x4b, 0x03, 0x04])],
+      "masterdata.xlsx",
+      { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+    );
+  }
 
   it("renders the 50 pre-populated project rows without any create-project control", async () => {
     render(createElement(ProjectsWithoutPPPMonitoringPage));
@@ -181,35 +209,94 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
     expect(screen.getByText(/Showing 1 of 50 projects/)).toBeInTheDocument();
   });
 
-  it("exposes an Upload action for a Not Submitted project and uploads masterdata, updating KPIs", async () => {
-    const { container } = render(createElement(ProjectsWithoutPPPMonitoringPage));
-    // Open the first project detail.
-    const uploadButtons = container.querySelectorAll("button");
-    const firstUpload = Array.from(uploadButtons).find((b) => b.textContent === "Upload");
-    expect(firstUpload).toBeTruthy();
-    await userEvent.click(firstUpload!);
+  it("clicking Upload Masterdata opens a centered modal dialog in front of the dashboard", async () => {
+    const dialog = await openUploadModal();
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute("role", "dialog");
+    // Radix Dialog portals the content to document.body, in front of the page.
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeInTheDocument();
+    // The dashboard remains rendered behind the overlay.
+    expect(screen.getByText("Total Projects")).toBeInTheDocument();
+    expect(within(dialog).getByText("Upload Masterdata")).toBeInTheDocument();
+  });
 
-    // Detail panel shows the upload area (heading + button).
-    expect(screen.getAllByText(/Upload Masterdata/).length).toBeGreaterThan(0);
+  it("does not render the upload form inline when the modal is closed", async () => {
+    render(createElement(ProjectsWithoutPPPMonitoringPage));
+    // No file input and no allowed-formats text anywhere before the modal opens.
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.queryByText(/Allowed formats/)).not.toBeInTheDocument();
 
-    // Simulate selecting an approved Excel file via the hidden input.
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    // Open the detail panel only — still no inline form.
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const rowAction = buttons.find((b) => b.textContent === "Upload");
+    await userEvent.click(rowAction!);
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.queryByText(/Allowed formats/)).not.toBeInTheDocument();
+
+    // The modal hosts the file input.
+    await userEvent.click(screen.getByRole("button", { name: /Upload Masterdata/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Allowed formats: Excel \(\.xlsx, \.xls\) and PDF \(\.pdf\)\. Maximum file size: 150 MB\./)).toBeInTheDocument();
+    expect(document.querySelector('input[type="file"]')).toBeInTheDocument();
+  });
+
+  it("modal shows the selected project context (name, tracking id, formats, size)", async () => {
+    const dialog = await openUploadModal();
+    expect(within(dialog).getByText("RR18-TEST-001")).toBeInTheDocument(); // Tracking ID row
+    expect(within(dialog).getAllByText(/Project RR18-TEST-001/).length).toBeGreaterThan(0); // name (description + row)
+    expect(within(dialog).getByText(/Maximum file size: 150 MB\./)).toBeInTheDocument();
+  });
+
+  it("Cancel closes the modal", async () => {
+    const dialog = await openUploadModal();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("Escape closes the modal when no upload is in progress", async () => {
+    await openUploadModal();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("a successful upload closes the modal and still invalidates dashboard + detail", async () => {
+    const dialog = await openUploadModal();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     expect(input).toBeTruthy();
     expect(input.accept).toContain(".xlsx");
 
-    const file = new File(
-      [new Uint8Array([0x50, 0x4b, 0x03, 0x04])],
-      "masterdata.xlsx",
-      { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-    );
-    await userEvent.upload(input, file);
+    await userEvent.upload(input, masterdataFile());
+    // Selected file details appear inside the modal.
+    expect(within(dialog).getByText("masterdata.xlsx")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(mocks.attachInputs.length).toBe(1);
     });
     expect(mocks.attachInputs[0].fileName).toBe("masterdata.xlsx");
     expect(mocks.attachInputs[0].projectId).toBe(1);
+
+    // Modal closes automatically on success.
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
     expect(mocks.dashboardInvalidate).toHaveBeenCalled();
     expect(mocks.detailInvalidate).toHaveBeenCalled();
+  });
+
+  it("a failed upload keeps the modal open and displays the error", async () => {
+    mocks.attachShouldFail = true;
+    const dialog = await openUploadModal();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, masterdataFile());
+    await userEvent.click(within(dialog).getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText(/simulated upload failure/)).toBeInTheDocument();
+    });
+    // Modal stays open so the user can retry.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(mocks.dashboardInvalidate).not.toHaveBeenCalled();
   });
 
   it("after a successful upload the project derives as Submitted and the KPI Submitted count rises", async () => {
