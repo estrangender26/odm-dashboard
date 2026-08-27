@@ -129,9 +129,10 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
 function FilterSelect({ label, value, options, onChange }: {
   label: string;
   value: string;
-  options: string[];
+  options: Array<string | { value: string; label: string }>;
   onChange: (v: string) => void;
 }) {
+  const normalized = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
   return (
     <label className="flex flex-col gap-0.5 min-w-[130px]">
       <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8BA3B8]">{label}</span>
@@ -142,8 +143,8 @@ function FilterSelect({ label, value, options, onChange }: {
         style={{ borderColor: "#D6DFE8" }}
       >
         <option value="">All</option>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
+        {normalized.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
     </label>
@@ -152,20 +153,20 @@ function FilterSelect({ label, value, options, onChange }: {
 
 const TABLE_HEADERS: { key: string; label: string; minWidth: number }[] = [
   { key: "trackingId", label: "Tracking ID", minWidth: 140 },
-  { key: "psCode", label: "PS Code", minWidth: 100 },
-  { key: "projectName", label: "Project Name", minWidth: 220 },
-  { key: "workPackage", label: "Work Package", minWidth: 200 },
-  { key: "projectPhase", label: "Project Phase", minWidth: 110 },
-  { key: "contractor", label: "Contractor", minWidth: 200 },
-  { key: "majorProjectTag", label: "Major Project Tag", minWidth: 130 },
-  { key: "constructionManager", label: "Construction Manager", minWidth: 140 },
-  { key: "projectManager", label: "Project Manager", minWidth: 130 },
-  { key: "amdGridHead", label: "AMD Grid Head", minWidth: 140 },
-  { key: "withLSPs", label: "LS/PS", minWidth: 80 },
   { key: "status", label: "Masterdata Status", minWidth: 130 },
+  { key: "projectName", label: "Project Name", minWidth: 220 },
+  { key: "projectPhase", label: "Project Phase", minWidth: 110 },
+  { key: "projectManager", label: "Project Manager", minWidth: 130 },
+  { key: "constructionManager", label: "Construction Manager", minWidth: 140 },
+  { key: "amdGridHead", label: "AMD Grid Head", minWidth: 140 },
   { key: "fileCount", label: "Files", minWidth: 70 },
   { key: "latestSubmission", label: "Latest Submission", minWidth: 170 },
   { key: "submittedBy", label: "Submitted By", minWidth: 130 },
+  { key: "psCode", label: "PS Code", minWidth: 100 },
+  { key: "majorProjectTag", label: "Major Project Tag", minWidth: 130 },
+  { key: "contractor", label: "Contractor", minWidth: 200 },
+  { key: "workPackage", label: "Work Package", minWidth: 200 },
+  { key: "withLSPs", label: "LS/PS", minWidth: 80 },
   { key: "action", label: "Action", minWidth: 130 },
 ];
 
@@ -457,6 +458,16 @@ export default function ProjectsWithoutPPPMonitoringPage() {
 
   const detailProject = detail?.project ?? null;
 
+  // History ordering: Current files first, then newest Submitted At first;
+  // superseded files follow, also newest first. Frontend-only sorting.
+  const sortedHistoryFiles = useMemo(() => {
+    const files = detail?.files ?? [];
+    return [...files].sort((a, b) => {
+      if (a.current !== b.current) return a.current ? -1 : 1;
+      return new Date(b.submittedAt ?? 0).getTime() - new Date(a.submittedAt ?? 0).getTime();
+    });
+  }, [detail]);
+
   return (
     <div className="min-h-screen" style={{ background: "#F4F6F9", fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif" }}>
       {/* Header */}
@@ -522,28 +533,44 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                 style={{ borderColor: "#D6DFE8" }}
               />
             </label>
+            <FilterSelect
+              label="Status"
+              value={statusFilter}
+              options={[
+                { value: "submitted", label: "Submitted" },
+                { value: "not_submitted", label: "Not Submitted" },
+              ]}
+              onChange={setStatusFilter}
+            />
+            <FilterSelect label="Project Manager" value={pmFilter} options={filterOptions?.projectManagers ?? []} onChange={setPmFilter} />
+            <FilterSelect label="Construction Manager" value={cmFilter} options={filterOptions?.constructionManagers ?? []} onChange={setCmFilter} />
+            <FilterSelect label="AMD Grid Head" value={amdFilter} options={filterOptions?.amdGridHeads ?? []} onChange={setAmdFilter} />
             <FilterSelect label="Project Phase" value={phaseFilter} options={filterOptions?.projectPhases ?? []} onChange={setPhaseFilter} />
             <FilterSelect label="Major Project Tag" value={tagFilter} options={filterOptions?.majorProjectTags ?? []} onChange={setTagFilter} />
             <FilterSelect label="Contractor" value={contractorFilter} options={filterOptions?.contractors ?? []} onChange={setContractorFilter} />
-            <FilterSelect label="Construction Manager" value={cmFilter} options={filterOptions?.constructionManagers ?? []} onChange={setCmFilter} />
-            <FilterSelect label="Project Manager" value={pmFilter} options={filterOptions?.projectManagers ?? []} onChange={setPmFilter} />
-            <FilterSelect label="AMD Grid Head" value={amdFilter} options={filterOptions?.amdGridHeads ?? []} onChange={setAmdFilter} />
-            <FilterSelect label="LS/PS" value={lsPsFilter} options={["yes", "no"]} onChange={setLsPsFilter} />
-            <FilterSelect label="Status" value={statusFilter} options={["submitted", "not_submitted"]} onChange={setStatusFilter} />
+            <FilterSelect
+              label="LS/PS"
+              value={lsPsFilter}
+              options={[
+                { value: "yes", label: "With LS/PS" },
+                { value: "no", label: "No LS/PS" },
+              ]}
+              onChange={setLsPsFilter}
+            />
           </div>
         </section>
 
         {/* Monitoring table */}
         <section className="rounded-xl border overflow-hidden" style={{ background: "#FFFFFF", borderColor: "#D6DFE8" }}>
-          <div className="overflow-x-auto">
+          <div className="max-h-[65vh] overflow-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
                 <tr style={{ background: "#F8FAFC" }}>
-                  {TABLE_HEADERS.map((h) => (
+                  {TABLE_HEADERS.map((h, index) => (
                     <th
                       key={h.key}
-                      className="px-3 py-2.5 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] whitespace-nowrap border-b"
-                      style={{ minWidth: h.minWidth, borderColor: "#E2E8F0" }}
+                      className={`px-3 py-2.5 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] whitespace-nowrap border-b sticky top-0 ${index === 0 ? "sticky left-0 z-30" : "z-20"}`}
+                      style={{ minWidth: h.minWidth, borderColor: "#E2E8F0", background: index === 0 ? "#F8FAFC" : "#F8FAFC" }}
                     >
                       {h.label}
                     </th>
@@ -569,10 +596,9 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                       key={row.id}
                       style={{ borderTop: "1px solid #EFF3F7" }}
                     >
-                      <td className="px-3 py-2.5 font-bold text-[#005BAC] whitespace-nowrap">{row.trackingId}</td>
-                      <td className="px-3 py-2.5 text-[#334155] whitespace-nowrap">{row.psCode}</td>
+                      <td className="px-3 py-2.5 font-bold text-[#005BAC] whitespace-nowrap sticky left-0 z-10" style={{ background: "#FFFFFF" }}>{row.trackingId}</td>
+                      <td className="px-3 py-2.5"><StatusBadge status={row.status} /></td>
                       <td className="px-3 py-2.5 text-[#0B1D44] font-semibold min-w-[220px]">{row.projectName || "—"}</td>
-                      <td className="px-3 py-2.5 text-[#475569] min-w-[200px]">{row.workPackage || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span
                           className="px-2 py-0.5 rounded-full text-[10px] font-bold"
@@ -584,13 +610,9 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                           {row.projectPhase}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 text-[#475569] min-w-[200px]">{row.contractor || "—"}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{row.majorProjectTag || "—"}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{row.constructionManager || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.projectManager || "—"}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{row.constructionManager || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.amdGridHead || "—"}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{row.withLSPs ? LS_PS_LABELS.yes : LS_PS_LABELS.no}</td>
-                      <td className="px-3 py-2.5"><StatusBadge status={row.status} /></td>
                       <td className="px-3 py-2.5 text-center font-bold text-[#0B1D44]">{row.fileCount}</td>
                       <td className="px-3 py-2.5 text-[#475569] whitespace-nowrap">
                         {row.latestSubmission ? (
@@ -605,6 +627,11 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                         )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{submitterLabel(row)}</td>
+                      <td className="px-3 py-2.5 text-[#334155] whitespace-nowrap">{row.psCode}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{row.majorProjectTag || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#475569] min-w-[200px]">{row.contractor || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#475569] min-w-[200px]">{row.workPackage || "—"}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{row.withLSPs ? LS_PS_LABELS.yes : LS_PS_LABELS.no}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5">
                           <button
@@ -661,6 +688,9 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           {/* Allowed formats / size */}
           <p className="text-xs text-[#5A6B7D]">
             Allowed formats: Excel (.xlsx, .xls) and PDF (.pdf). Maximum file size: 150 MB.
+          </p>
+          <p className="text-xs text-[#5A6B7D]">
+            No account required. The project will be marked Submitted after the upload is finalized.
           </p>
 
           {/* File picker / drop area */}
@@ -770,14 +800,16 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                   <tr>
                     <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400">Loading submission history…</td>
                   </tr>
-                ) : detail.files.length === 0 ? (
+                ) : sortedHistoryFiles.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400">No masterdata files have been submitted yet.</td>
                   </tr>
                 ) : (
-                  detail.files.map((file) => (
+                  sortedHistoryFiles.map((file) => (
                     <tr key={file.id} style={{ borderTop: "1px solid #EFF3F7" }}>
-                      <td className="px-3 py-2 font-semibold text-[#0B1D44]">{file.fileName}</td>
+                      <td className="px-3 py-2 font-semibold text-[#0B1D44] max-w-[240px]">
+                        <span className="block truncate" title={file.fileName}>{file.fileName}</span>
+                      </td>
                       <td className="px-3 py-2">
                         {file.current ? (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#D1FAE5", color: "#047857" }}>Current</span>
