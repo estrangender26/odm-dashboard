@@ -531,7 +531,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           </div>
         </section>
 
-        {/* Project detail / upload */}
+        {/* Project detail — read-only viewer (upload lives in the row-level modal) */}
         {selectedId !== null && (
           <section className="rounded-xl border mt-4" style={{ background: "#FFFFFF", borderColor: "#D6DFE8" }}>
             <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#EFF3F7" }}>
