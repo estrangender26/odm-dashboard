@@ -100,7 +100,7 @@ vi.mock("./lib/env", () => ({
   },
 }));
 
-vi.mock("./kimi/auth", () => ({
+vi.mock("./auth/authenticate", () => ({
   authenticateRequest: vi.fn(() => Promise.reject(new Error("No auth"))), // anonymous caller
 }));
 

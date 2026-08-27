@@ -2,11 +2,10 @@ import { z } from "zod";
 
 const schema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-  appId: z.string().min(1, "APP_ID is required"),
   appSecret: z.string().min(1, "APP_SECRET is required"),
-  ownerUnionId: z.string().optional(),
-  kimiAuthUrl: z.string().default("https://auth.kimi.com"),
-  kimiOpenUrl: z.string().default("https://open.kimi.com"),
+  googleOAuthClientId: z.string().optional(),
+  googleOAuthClientSecret: z.string().optional(),
+  ownerGoogleSub: z.string().optional(),
   supabaseUrl: z.string().url().optional(),
   supabaseServiceRoleKey: z.string().min(1).optional(),
   supabaseStorageUrl: z.string().url().optional(),
@@ -15,11 +14,10 @@ const schema = z.object({
 export function createEnv(source: NodeJS.ProcessEnv = process.env) {
   const raw = {
     DATABASE_URL: source.DATABASE_URL,
-    appId: source.APP_ID,
     appSecret: source.APP_SECRET,
-    ownerUnionId: source.OWNER_UNION_ID,
-    kimiAuthUrl: source.KIMI_AUTH_URL,
-    kimiOpenUrl: source.KIMI_OPEN_URL,
+    googleOAuthClientId: source.GOOGLE_OAUTH_CLIENT_ID,
+    googleOAuthClientSecret: source.GOOGLE_OAUTH_CLIENT_SECRET,
+    ownerGoogleSub: source.OWNER_GOOGLE_SUB,
     supabaseUrl: source.SUPABASE_URL,
     supabaseServiceRoleKey: source.SUPABASE_SERVICE_ROLE_KEY,
     supabaseStorageUrl: source.SUPABASE_STORAGE_URL,

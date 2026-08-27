@@ -60,7 +60,7 @@ vi.mock("./supabase-storage", () => ({
   })),
 }));
 
-vi.mock("./kimi/auth", () => ({
+vi.mock("./auth/authenticate", () => ({
   authenticateRequest: vi.fn(),
 }));
 
@@ -84,7 +84,7 @@ import { documentsRouter } from "./documents-router";
 import { governanceFilesRouter } from "./governance-files-router";
 import { governanceRouter } from "./governance-router";
 import { smpRouter } from "./smp-router";
-import { authenticateRequest } from "./kimi/auth";
+import { authenticateRequest } from "./auth/authenticate";
 
 const deletionTestRouter = createRouter({
   documents: documentsRouter,

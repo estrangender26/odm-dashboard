@@ -18,6 +18,8 @@ export const users = pgTable("users", {
   avatar: varchar("avatar", { length: 500 }),
   role: varchar("role", { length: 50 }).notNull().default("user"),
   unionId: varchar("union_id", { length: 255 }),
+  authProvider: varchar("auth_provider", { length: 32 }),
+  authSubject: varchar("auth_subject", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
   lastSignInAt: timestamp("last_sign_in_at").defaultNow(),
 });

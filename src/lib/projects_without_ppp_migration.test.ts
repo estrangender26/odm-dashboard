@@ -18,13 +18,20 @@ const entry = journal.entries.find(
 );
 
 describe("0031 Projects without PPP migration (content + journal)", () => {
-  it("is registered as the final journal entry with a unique tag", () => {
+  it("is registered as a journal entry with a unique tag", () => {
     expect(entry).toBeDefined();
-    expect(entry!.idx).toBe(journal.entries.length - 1);
+    expect(entry!.idx).toBe(31);
     expect(entry!.when).toBe(1791312000014);
     // PR #389's reverted 0031 used when = 1791312000013; ours must be newer so
     // the migrator applies it on the already-#389-migrated production DB.
     expect(entry!.when).toBeGreaterThan(1791312000013);
+  });
+
+  it("0032 Google OAuth auth identity is registered as the final journal entry", () => {
+    const last = journal.entries[journal.entries.length - 1];
+    expect(last.tag).toBe("0032_google_oauth_auth_identity");
+    expect(last.idx).toBe(journal.entries.length - 1);
+    expect(last.when).toBeGreaterThan(entry!.when);
   });
 
   it("journal entries are ordered by idx and non-decreasing when", () => {
