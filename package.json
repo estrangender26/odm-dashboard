@@ -17,7 +17,7 @@
     "db:push": "drizzle-kit push",
     "tasks:duplicate-cleanup:dry-run": "node --import tsx scripts/tasks-duplicate-cleanup-dry-run.ts",
     "projects-without-ppp:bootstrap": "node --import tsx scripts/projects-without-ppp-bootstrap.ts",
-    "projects-without-ppp:bootstrap:dry-run": "node --import tsx scripts/projects-without-ppp-bootstrap.ts --dry-run",
+    "projects-without-ppp:bootstrap:apply": "node --import tsx scripts/projects-without-ppp-bootstrap.ts --apply",
     "build:auto-push": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && rm -rf dist/templates && cp -R src/modules/governance-v3/templates dist/templates && bash scripts/auto-push.sh \"Build auto-push\""
   },
   "dependencies": {

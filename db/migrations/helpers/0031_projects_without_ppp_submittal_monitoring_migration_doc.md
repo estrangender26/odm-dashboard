@@ -18,7 +18,13 @@ place. The production Drizzle ledger therefore still records a
   production database, while a fresh database applies it as the final journal
   entry.
 - The SQL is fully idempotent: `CREATE TABLE IF NOT EXISTS`,
-  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`.
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`,
+  and the RLS/revoke statements (`ENABLE ROW LEVEL SECURITY` / `REVOKE ALL
+  PRIVILEGES ... FROM anon, authenticated` are no-ops on re-run).
+- Supabase RLS/revoke posture mirrors migrations 0024/0028: the backend
+  connects via the postgres role (BYPASSRLS) so application authorization is
+  unaffected; direct PostgREST access by `anon`/`authenticated` is disabled.
+  No policies are created and `service_role` is not modified.
 - No `DROP` statements. Destructive operations (e.g. dropping inert tables)
   require a separate dry-run and explicit approval.
 
@@ -26,13 +32,17 @@ place. The production Drizzle ledger therefore still records a
 
 ### Fresh database
 All journal entries 0000..0031 apply; 0031 creates both tables with the
-evolved columns (`project_name`, `submitted_at`, `superseded_at`) and indexes.
+evolved columns (`project_name`, `submitted_at`, `superseded_at`), indexes,
+and the RLS/revoke posture.
 
 ### Production database containing inert PR #389 tables
 Ledger max `created_at` = 1791312000013; the new entry (1791312000014) is
 newer, so 0031 runs: `CREATE TABLE IF NOT EXISTS` is a no-op, then the three
-`ADD COLUMN IF NOT EXISTS` statements and the two new indexes apply. Existing
-submission/file history is untouched.
+`ADD COLUMN IF NOT EXISTS` statements, the two new indexes, and the RLS/revoke
+statements apply. Existing submission/file history is untouched. The
+`anon`/`authenticated` roles must exist (they do on the Supabase-hosted
+production database); the lifecycle test creates them on the disposable DB for
+the same reason migrations 0024/0028 already REVOKE from them.
 
 ## Execution
 

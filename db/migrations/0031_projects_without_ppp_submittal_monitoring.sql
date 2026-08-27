@@ -70,3 +70,14 @@ ALTER TABLE public.project_without_ppp_files ADD COLUMN IF NOT EXISTS superseded
 
 CREATE INDEX IF NOT EXISTS pwp_files_project_idx ON public.project_without_ppp_files (project_id);
 CREATE INDEX IF NOT EXISTS pwp_files_current_idx ON public.project_without_ppp_files (project_id, superseded_at);
+
+-- Supabase RLS/revoke posture (mirrors migrations 0024 and 0028): the backend
+-- connects through the postgres role (which bypasses RLS) so application
+-- authorization is unaffected, while direct PostgREST access by the anon and
+-- authenticated roles is disabled. No policies are created; service_role is
+-- not modified. Both statements are idempotent (ENABLE RLS and REVOKE are
+-- no-ops on re-run).
+ALTER TABLE public.projects_without_ppp ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_without_ppp_files ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE public.projects_without_ppp FROM anon, authenticated;
+REVOKE ALL PRIVILEGES ON TABLE public.project_without_ppp_files FROM anon, authenticated;

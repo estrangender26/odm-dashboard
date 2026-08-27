@@ -78,7 +78,7 @@ describe("0031 Projects without PPP migration (content + journal)", () => {
   });
 
   describe("already-#389-migrated production starting condition", () => {
-    it("is fully additive and idempotent (no DROP, no ALTER without IF NOT EXISTS)", () => {
+    it("is fully additive and idempotent (no DROP, no non-idempotent ALTER)", () => {
       // Evaluate executable SQL only; comments may mention the word "drop".
       const executableSql = migration
         .split("\n")
@@ -86,14 +86,37 @@ describe("0031 Projects without PPP migration (content + journal)", () => {
         .join("\n");
       expect(executableSql).not.toMatch(/DROP\s+TABLE/i);
       expect(executableSql).not.toMatch(/DROP\s+COLUMN/i);
-      // Every ALTER TABLE adds columns idempotently.
+      // Every column-adding ALTER is idempotent (ADD COLUMN IF NOT EXISTS);
+      // RLS/REVOKE ALTERs are idempotent by nature.
       const alters = executableSql.match(/ALTER TABLE[^;]+;/g) ?? [];
-      expect(alters.length).toBeGreaterThanOrEqual(3);
-      for (const alter of alters) {
+      const columnAlters = alters.filter((a) => a.includes("ADD COLUMN"));
+      expect(columnAlters.length).toBeGreaterThanOrEqual(3);
+      for (const alter of columnAlters) {
         expect(alter).toContain("ADD COLUMN IF NOT EXISTS");
       }
       // Every CREATE TABLE / INDEX is guarded with IF NOT EXISTS.
       expect(executableSql).not.toMatch(/CREATE (TABLE|INDEX) (?!.*IF NOT EXISTS)/);
+    });
+
+    it("enables RLS and revokes anon/authenticated privileges on both tables (Supabase posture)", () => {
+      const executableSql = migration
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("--"))
+        .join("\n");
+      expect(executableSql).toContain(
+        "ALTER TABLE public.projects_without_ppp ENABLE ROW LEVEL SECURITY;",
+      );
+      expect(executableSql).toContain(
+        "ALTER TABLE public.project_without_ppp_files ENABLE ROW LEVEL SECURITY;",
+      );
+      expect(executableSql).toContain(
+        "REVOKE ALL PRIVILEGES ON TABLE public.projects_without_ppp FROM anon, authenticated;",
+      );
+      expect(executableSql).toContain(
+        "REVOKE ALL PRIVILEGES ON TABLE public.project_without_ppp_files FROM anon, authenticated;",
+      );
+      // The posture must not include permissive anon/authenticated policies.
+      expect(executableSql).not.toMatch(/CREATE\s+POLICY/i);
     });
 
     it("reuses the inert PR #389 table names instead of creating new ones", () => {

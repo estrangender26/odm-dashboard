@@ -152,6 +152,47 @@ async function columnExists(client: postgres.Sql<Record<string, unknown>>, table
   return rows.length > 0;
 }
 
+async function ensureSupabaseRoles(client: postgres.Sql<Record<string, unknown>>): Promise<void> {
+  // Historical migrations and 0031's RLS posture REVOKE privileges from
+  // Supabase roles; create them so the migration applies on the disposable
+  // local database.
+  await client.unsafe(`
+    DO $$ BEGIN
+      CREATE ROLE anon NOLOGIN;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    DO $$ BEGIN
+      CREATE ROLE authenticated NOLOGIN;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  `);
+}
+
+async function assertRlsPosture(client: postgres.Sql<Record<string, unknown>>) {
+  const rls = await client`
+    SELECT relname, relrowsecurity
+    FROM pg_class
+    WHERE relnamespace = 'public'::regnamespace
+      AND relname IN ('projects_without_ppp', 'project_without_ppp_files')
+    ORDER BY relname
+  `;
+  const priv = await client`
+    SELECT
+      has_table_privilege('anon', 'public.projects_without_ppp', 'SELECT') AS anon_select_p,
+      has_table_privilege('anon', 'public.project_without_ppp_files', 'SELECT') AS anon_select_f,
+      has_table_privilege('authenticated', 'public.projects_without_ppp', 'INSERT') AS auth_insert_p,
+      has_table_privilege('authenticated', 'public.project_without_ppp_files', 'DELETE') AS auth_delete_f
+  `;
+  const rlsMap = new Map<string, boolean>(rls.map((r) => [r.relname, r.relrowsecurity]));
+  const row = priv[0];
+  const ok =
+    rlsMap.get("projects_without_ppp") === true &&
+    rlsMap.get("project_without_ppp_files") === true &&
+    row.anon_select_p === false &&
+    row.anon_select_f === false &&
+    row.auth_insert_p === false &&
+    row.auth_delete_f === false;
+  return { ok, rlsMap, row };
+}
+
 async function scenarioFresh(): Promise<string> {
   const dbName = "pwp_fresh_" + Date.now();
   await createDatabase(dbName);
@@ -161,16 +202,7 @@ async function scenarioFresh(): Promise<string> {
 
   await withClient(dbName, async (client) => {
     await seedLegacyPrerequisiteTables(client);
-    // Historical migrations REVOKE privileges from Supabase roles; create them
-    // so the full journal applies on the disposable local database.
-    await client.unsafe(`
-      DO $$ BEGIN
-        CREATE ROLE anon NOLOGIN;
-      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-      DO $$ BEGIN
-        CREATE ROLE authenticated NOLOGIN;
-      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-    `);
+    await ensureSupabaseRoles(client);
     await seedLedger(client, []); // fresh: empty ledger table
   });
 
@@ -192,6 +224,7 @@ async function scenarioFresh(): Promise<string> {
     const tables = await client`
       SELECT to_regclass('public.projects_without_ppp') AS p, to_regclass('public.project_without_ppp_files') AS f
     `;
+    const posture = await assertRlsPosture(client);
     const pass =
       ledger.length === journal.entries.length &&
       newEntryCount === 1 &&
@@ -199,8 +232,9 @@ async function scenarioFresh(): Promise<string> {
       tables[0].f !== null &&
       hasProjectName &&
       hasSubmittedAt &&
-      hasSupersededAt;
-    return `Scenario 1 (fresh DB): ${pass ? "PASS" : "FAIL"} — ledger=${ledger.length}/${journal.entries.length}, new0031=${newEntryCount}, project_name=${hasProjectName}, submitted_at=${hasSubmittedAt}, superseded_at=${hasSupersededAt}`;
+      hasSupersededAt &&
+      posture.ok;
+    return `Scenario 1 (fresh DB): ${pass ? "PASS" : "FAIL"} — ledger=${ledger.length}/${journal.entries.length}, new0031=${newEntryCount}, project_name=${hasProjectName}, submitted_at=${hasSubmittedAt}, superseded_at=${hasSupersededAt}, rls=${posture.ok}`;
   });
   return ok;
 }
@@ -218,6 +252,7 @@ async function scenarioProductionInert(): Promise<{ message: string; dbName: str
 
   await withClient(dbName, async (client) => {
     await client.unsafe(PR389_INERT_TABLES_SQL);
+    await ensureSupabaseRoles(client);
     // Simulated existing production data: one project + one submission file.
     await client.unsafe(`
       INSERT INTO public.projects_without_ppp (tracking_id, ps_code, project_phase)
@@ -245,14 +280,16 @@ async function scenarioProductionInert(): Promise<{ message: string; dbName: str
     const hasSupersededAt = await columnExists(client, "project_without_ppp_files", "superseded_at");
     const project = await client`SELECT COUNT(*)::int AS n FROM public.projects_without_ppp WHERE tracking_id = 'RR18-0616-01-01'`;
     const files = await client`SELECT COUNT(*)::int AS n FROM public.project_without_ppp_files`;
+    const posture = await assertRlsPosture(client);
     const pass =
       newEntryCount === 1 &&
       hasProjectName &&
       hasSubmittedAt &&
       hasSupersededAt &&
       project[0].n === 1 &&
-      files[0].n === 1;
-    return `Scenario 2 (production with inert PR #389 tables): ${pass ? "PASS" : "FAIL"} — new0031=${newEntryCount}, project_name=${hasProjectName}, submitted_at=${hasSubmittedAt}, superseded_at=${hasSupersededAt}, data preserved projects=${project[0].n}/1 files=${files[0].n}/1`;
+      files[0].n === 1 &&
+      posture.ok;
+    return `Scenario 2 (production with inert PR #389 tables): ${pass ? "PASS" : "FAIL"} — new0031=${newEntryCount}, project_name=${hasProjectName}, submitted_at=${hasSubmittedAt}, superseded_at=${hasSupersededAt}, data preserved projects=${project[0].n}/1 files=${files[0].n}/1, rls=${posture.ok}`;
   });
   return { message, dbName };
 }
@@ -269,8 +306,9 @@ async function scenarioIdempotent(dbName: string): Promise<string> {
   return withClient(dbName, async (client) => {
     const ledger = await readLedger(client);
     const newEntryCount = ledger.filter((w) => w === NEW_ENTRY_WHEN).length;
-    const pass = newEntryCount === 1;
-    return `Scenario 3 (idempotency): ${pass ? "PASS" : "FAIL"} — new0031=${newEntryCount} after second run`;
+    const posture = await assertRlsPosture(client);
+    const pass = newEntryCount === 1 && posture.ok;
+    return `Scenario 3 (idempotency): ${pass ? "PASS" : "FAIL"} — new0031=${newEntryCount} after second run, rls=${posture.ok}`;
   });
 }
 

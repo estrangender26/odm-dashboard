@@ -33,3 +33,18 @@ GROUP BY created_at;
 --    only created/evolved, never dropped). Confirm the tables still exist.
 SELECT to_regclass('public.projects_without_ppp') AS projects_table,
        to_regclass('public.project_without_ppp_files') AS files_table;
+
+-- 6. Supabase RLS posture: ROW LEVEL SECURITY is enabled on both tables.
+SELECT relname, relrowsecurity AS rls_enabled
+FROM pg_class
+WHERE relnamespace = 'public'::regnamespace
+  AND relname IN ('projects_without_ppp', 'project_without_ppp_files')
+ORDER BY relname;
+
+-- 7. Supabase RLS posture: anon and authenticated have NO privileges on the
+--    tables (all four checks must return false).
+SELECT
+  has_table_privilege('anon', 'public.projects_without_ppp', 'SELECT')        AS anon_select_projects,
+  has_table_privilege('anon', 'public.project_without_ppp_files', 'SELECT')   AS anon_select_files,
+  has_table_privilege('authenticated', 'public.projects_without_ppp', 'INSERT') AS auth_insert_projects,
+  has_table_privilege('authenticated', 'public.project_without_ppp_files', 'DELETE') AS auth_delete_files;

@@ -18,6 +18,13 @@ import type { AuthoritativeProjectWithoutPPP } from "@db/fixtures/projects-witho
 import { projectsWithoutPPP } from "@db/schema";
 import type { DrizzleDB } from "./queries/connection";
 
+/**
+ * Minimal query surface used by the bootstrap. Both the database client and a
+ * drizzle transaction satisfy it, so the apply phase can run inside a single
+ * transaction without leaking transaction-specific types.
+ */
+type BootstrapExecutor = Pick<DrizzleDB, "select" | "insert" | "update">;
+
 export type ProjectsWithoutPPPBootstrapReport = {
   mode: "dry-run" | "apply";
   expectedSourceRecords: number;
@@ -82,17 +89,13 @@ export async function runProjectsWithoutPPPBootstrap(
   database: DrizzleDB,
   options: { dryRun?: boolean } = {},
 ): Promise<ProjectsWithoutPPPBootstrapReport> {
+  // Safe by default: mutation requires an explicit apply mode.
   const dryRun = options.dryRun !== false;
   const mode = dryRun ? "dry-run" : "apply";
 
   // Hard programmatic invariant: the embedded dataset must be exactly 50
   // records with 50 unique Tracking IDs. Any disagreement aborts the run.
   const { recordCount, uniqueTrackingIds } = assertAuthoritativeProjectFixture();
-
-  const existing = await database
-    .select({ trackingId: projectsWithoutPPP.trackingId })
-    .from(projectsWithoutPPP);
-  const existingByTrackingId = new Map(existing.map((row) => [row.trackingId, row]));
 
   const trackingIds = PROJECTS_WITHOUT_PPP_FIXTURE.map((r) => r.trackingId);
   const seen = new Set<string>();
@@ -102,38 +105,82 @@ export async function runProjectsWithoutPPPBootstrap(
     return false;
   });
 
-  let inserts = 0;
-  let updates = 0;
-  let unchanged = 0;
+  // Compute the upsert plan (read-only). Each fixture record maps to either an
+  // insert or an update; project IDs are never recreated (updates keep the row),
+  // so submission/file history (linked by project_id) is never touched.
+  const plan = async (executor: BootstrapExecutor) => {
+    const existing = await executor
+      .select({ trackingId: projectsWithoutPPP.trackingId })
+      .from(projectsWithoutPPP);
+    const existingByTrackingId = new Map(existing.map((row) => [row.trackingId, row]));
 
-  for (const record of PROJECTS_WITHOUT_PPP_FIXTURE) {
-    const current = existingByTrackingId.get(record.trackingId);
-    if (!current) {
-      inserts += 1;
-      if (!dryRun) {
-        await database.insert(projectsWithoutPPP).values(toDbRow(record));
+    let inserts = 0;
+    let updates = 0;
+    let unchanged = 0;
+    const changes: { record: AuthoritativeProjectWithoutPPP; kind: "insert" | "update" }[] = [];
+
+    for (const record of PROJECTS_WITHOUT_PPP_FIXTURE) {
+      const current = existingByTrackingId.get(record.trackingId);
+      if (!current) {
+        inserts += 1;
+        changes.push({ record, kind: "insert" });
+        continue;
       }
-      continue;
+      const existingRow = await executor
+        .select()
+        .from(projectsWithoutPPP)
+        .where(eq(projectsWithoutPPP.trackingId, record.trackingId))
+        .limit(1);
+      const existingRecord = existingRow[0];
+      if (existingRecord && referenceValuesChanged(existingRecord, record)) {
+        updates += 1;
+        changes.push({ record, kind: "update" });
+      } else {
+        unchanged += 1;
+      }
     }
 
-    const existingRow = await database
-      .select()
-      .from(projectsWithoutPPP)
-      .where(eq(projectsWithoutPPP.trackingId, record.trackingId))
-      .limit(1);
-    const existingRecord = existingRow[0];
-    if (existingRecord && referenceValuesChanged(existingRecord, record)) {
-      updates += 1;
-      if (!dryRun) {
-        await database
+    return { inserts, updates, unchanged, changes };
+  };
+
+  const executeChanges = async (
+    executor: BootstrapExecutor,
+    changes: { record: AuthoritativeProjectWithoutPPP; kind: "insert" | "update" }[],
+  ) => {
+    for (const change of changes) {
+      if (change.kind === "insert") {
+        await executor.insert(projectsWithoutPPP).values(toDbRow(change.record));
+      } else {
+        await executor
           .update(projectsWithoutPPP)
-          .set({ ...toDbRow(record), updatedAt: sql`now()` })
-          .where(eq(projectsWithoutPPP.trackingId, record.trackingId));
+          .set({ ...toDbRow(change.record), updatedAt: sql`now()` })
+          .where(eq(projectsWithoutPPP.trackingId, change.record.trackingId));
       }
-    } else {
-      unchanged += 1;
     }
+  };
+
+  if (dryRun) {
+    // Read-only: compute the plan but write nothing.
+    const counts = await plan(database);
+    return {
+      mode,
+      expectedSourceRecords: recordCount,
+      valid: uniqueTrackingIds,
+      invalid: recordCount - uniqueTrackingIds,
+      duplicateTrackingIds,
+      inserts: counts.inserts,
+      updates: counts.updates,
+      unchanged: counts.unchanged,
+    };
   }
+
+  // Apply phase: one transaction. Any failed row rolls back the whole apply so
+  // the project reference set is never left partially populated.
+  const counts = await database.transaction(async (tx) => {
+    const txPlan = await plan(tx);
+    await executeChanges(tx, txPlan.changes);
+    return txPlan;
+  });
 
   return {
     mode,
@@ -141,9 +188,9 @@ export async function runProjectsWithoutPPPBootstrap(
     valid: uniqueTrackingIds,
     invalid: recordCount - uniqueTrackingIds,
     duplicateTrackingIds,
-    inserts,
-    updates,
-    unchanged,
+    inserts: counts.inserts,
+    updates: counts.updates,
+    unchanged: counts.unchanged,
   };
 }
 

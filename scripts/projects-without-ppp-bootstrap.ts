@@ -1,22 +1,33 @@
 /**
  * Projects without PPP — authoritative OWNER-data bootstrap CLI.
  *
- * Usage (explicit execution command; NOT a casual normal-user seed action):
- *   npm run projects-without-ppp:bootstrap               # apply
- *   npm run projects-without-ppp:bootstrap -- --dry-run  # preview only
+ * SAFE BY DEFAULT: the command never mutates unless --apply is passed.
+ *
+ * Usage:
+ *   npm run projects-without-ppp:bootstrap                  # dry-run only
+ *   npm run projects-without-ppp:bootstrap:apply            # --apply (mutates)
+ *   npm run projects-without-ppp:bootstrap -- --apply       # equivalent
  *
  * Dry-run reports: expected source records (50), valid, duplicate Tracking
- * IDs, inserts, updates, unchanged, invalid. Repeated execution is idempotent
- * and never deletes submission/file history.
+ * IDs, inserts, updates, unchanged, invalid. Apply runs in ONE transaction and
+ * is idempotent; it never deletes submission/file history. The target database
+ * fingerprint is printed before any mutation (credentials are never exposed).
  */
 import "dotenv/config";
 import { runProjectsWithoutPPPBootstrap, formatBootstrapReport } from "../api/projects-without-ppp-bootstrap";
-import { getDb } from "../api/queries/connection";
+import { getConnectionFingerprint, getDatabaseUrl, getDb } from "../api/queries/connection";
 
 async function main() {
-  const dryRun = process.argv.includes("--dry-run");
+  // Explicit apply mode is the ONLY way to mutate; bare invocation is dry-run.
+  const apply = process.argv.includes("--apply");
+  const dryRun = !apply;
+
   if (dryRun) {
-    console.log("[bootstrap] dry-run mode — no changes will be written.");
+    console.log("[bootstrap] DRY-RUN mode — no changes will be written. Pass --apply to execute.");
+  } else {
+    console.log(
+      `[bootstrap] APPLY mode — target database: ${getConnectionFingerprint(getDatabaseUrl())}`,
+    );
   }
 
   const database = getDb();
@@ -35,7 +46,11 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    console.log("[bootstrap] OK — authoritative fixture invariants satisfied.");
+    console.log(
+      dryRun
+        ? "[bootstrap] OK — authoritative fixture invariants satisfied (dry-run; nothing written)."
+        : "[bootstrap] OK — authoritative fixture applied in a single transaction.",
+    );
   } finally {
     // The process exits immediately after; no explicit client teardown needed.
   }

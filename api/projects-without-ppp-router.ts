@@ -245,11 +245,18 @@ export const projectsWithoutPPPRouter = createRouter({
         throw new Error("Masterdata file content is required.");
       }
 
-      // Cross-check the declared size against the actual payload when the
-      // fallback base64 content is provided.
+      // Strict base64 validation for the fallback payload: the decoded byte
+      // size must be determinable, must match the declared file size, and must
+      // stay within the canonical 150 MB boundary (the zod refine already
+      // rejects over-limit decoded payloads). No magic-byte/content inspection
+      // is performed anywhere in the repository — this is extension/MIME and
+      // size validation only.
       if (hasFallbackData && input.fileData) {
         const decodedSize = getDecodedBase64ByteLength(input.fileData);
-        if (decodedSize !== null && decodedSize !== input.fileSize) {
+        if (decodedSize === null) {
+          throw new Error("Masterdata file content is not valid base64.");
+        }
+        if (decodedSize !== input.fileSize) {
           throw new Error("Masterdata file size does not match the declared size.");
         }
       }

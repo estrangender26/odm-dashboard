@@ -143,6 +143,65 @@ t("projectsWithoutPPP router + bootstrap (integration)", () => {
     expect(count.length).toBe(0); // dry-run must not write
   });
 
+  it("bootstrap defaults to dry-run — bare invocation must not mutate", async () => {
+    const report = await runProjectsWithoutPPPBootstrap(db); // no options
+    expect(report.mode).toBe("dry-run");
+    expect(report.inserts).toBe(50);
+    const count = await db.select({ id: projectsWithoutPPP.id }).from(projectsWithoutPPP);
+    expect(count.length).toBe(0); // nothing written without explicit apply
+  });
+
+  it("bootstrap apply is transactional — a mid-apply failure rolls back everything", async () => {
+    // Force the LAST fixture record's insert to fail so the transaction must
+    // roll back all 50 inserts, leaving no partial population.
+    const client = postgres(TEST_DB_URL, { ssl: false, prepare: false, max: 1 });
+    try {
+      await client.unsafe(`
+        CREATE OR REPLACE FUNCTION pwp_reject_last() RETURNS trigger AS $$
+        BEGIN
+          RAISE EXCEPTION 'simulated mid-apply failure';
+        END $$ LANGUAGE plpgsql;
+        CREATE TRIGGER pwp_reject_last_trigger
+        BEFORE INSERT ON public.projects_without_ppp
+        FOR EACH ROW
+        WHEN (NEW.tracking_id = 'RR18-0870-01-01')
+        EXECUTE FUNCTION pwp_reject_last();
+      `);
+    } finally {
+      await client.end();
+    }
+
+    try {
+      // postgres-js wraps the SQL error; the trigger message lives on the cause.
+      await runProjectsWithoutPPPBootstrap(db, { dryRun: false }).then(
+        () => {
+          throw new Error("expected the simulated mid-apply failure to abort the apply");
+        },
+        (error: unknown) => {
+          const e = error as { message?: string; cause?: { message?: string } };
+          const messages = [e?.message, e?.cause?.message, String(error)].join(" ");
+          expect(messages).toMatch(/simulated mid-apply failure/);
+        },
+      );
+    } finally {
+      const client2 = postgres(TEST_DB_URL, { ssl: false, prepare: false, max: 1 });
+      try {
+        await client2.unsafe(`
+          DROP TRIGGER IF EXISTS pwp_reject_last_trigger ON public.projects_without_ppp;
+          DROP FUNCTION IF EXISTS pwp_reject_last();
+        `);
+      } finally {
+        await client2.end();
+      }
+    }
+
+    const count = await db.select({ id: projectsWithoutPPP.id }).from(projectsWithoutPPP);
+    expect(count.length).toBe(0); // no partial population after rollback
+
+    // Restore the empty baseline so the following apply test starts fresh.
+    await resetDatabase();
+  });
+
   it("bootstrap apply populates exactly 50 projects", async () => {
     const report = await runProjectsWithoutPPPBootstrap(db, { dryRun: false });
     expect(report.mode).toBe("apply");
@@ -343,6 +402,50 @@ t("projectsWithoutPPP router + bootstrap (integration)", () => {
         fileData: Buffer.alloc(1).toString("base64"),
       }),
     ).rejects.toThrow(/150 MB/);
+  });
+
+  it("rejects malformed base64 fallback content (strict decode)", async () => {
+    const project = await dashboardRow("RR23-0047-03-04");
+    await expect(
+      userCaller.projectsWithoutPPP.attachMasterdataFile({
+        projectId: project.id,
+        fileName: "masterdata.pdf",
+        fileType: "application/pdf",
+        fileSize: 8,
+        fileData: "!!!not-base64-at-all!!!",
+      }),
+    ).rejects.toThrow(/not valid base64/i);
+  });
+
+  it("rejects valid base64 whose decoded size does not match the declared size", async () => {
+    const project = await dashboardRow("RR23-0047-03-04");
+    const payload = Buffer.from("0123456789").toString("base64"); // 10 bytes
+    await expect(
+      userCaller.projectsWithoutPPP.attachMasterdataFile({
+        projectId: project.id,
+        fileName: "masterdata.xlsx",
+        fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        fileSize: 999, // wrong declared size
+        fileData: payload,
+      }),
+    ).rejects.toThrow(/size does not match/i);
+  });
+
+  it("accepts valid base64 with a matching declared size", async () => {
+    const project = await dashboardRow("RR23-0047-03-04");
+    const payload = Buffer.from("masterdata-content-123").toString("base64");
+    const attached = await userCaller.projectsWithoutPPP.attachMasterdataFile({
+      projectId: project.id,
+      fileName: "supplement.pdf",
+      fileType: "application/pdf",
+      fileSize: Buffer.from("masterdata-content-123").length,
+      fileData: payload,
+    });
+    expect(attached.fileId).toBeGreaterThan(0);
+    // Cleanup: remove the just-attached evidence so later assertions are stable.
+    await db
+      .delete(projectWithoutPPPFiles)
+      .where(eq(projectWithoutPPPFiles.id, attached.fileId));
   });
 
   it("supersede is admin-only (normal users forbidden)", async () => {
