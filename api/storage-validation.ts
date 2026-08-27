@@ -32,6 +32,10 @@ const EXTENSIONS_BY_MODULE: Record<StorageModule, ReadonlySet<string>> = {
   om: new Set(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "png", "jpg", "jpeg", "gif", "svg", "webp", "txt", "csv", "json", "zip", "html", "htm", "xhtml"]),
   governance: new Set(["pdf", "doc", "docx", "xls", "xlsx", "png", "jpg", "jpeg", "zip", "rar", "txt", "csv", "ppt", "pptx"]),
   smp: new Set(["pdf"]),
+  // Masterdata submittal formats: Excel (.xlsx, and .xls only because the
+  // repository already validates it via application/vnd.ms-excel) and PDF.
+  // No unrelated arbitrary file types are accepted.
+  projects_without_ppp: new Set(["xlsx", "xls", "pdf"]),
 };
 
 export function normalizeGovernanceMilestoneId(value: unknown) {

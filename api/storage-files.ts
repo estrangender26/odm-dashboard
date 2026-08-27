@@ -4,6 +4,7 @@ import {
   governanceFiles,
   governanceMilestoneState,
   governanceUploads,
+  projectWithoutPPPFiles,
   smpDocuments,
 } from "@db/schema";
 import type { StorageFileSource } from "@contracts/storage";
@@ -75,6 +76,19 @@ export async function getStoredFileRecord(
       storageMimeType: smpDocuments.storageMimeType,
     }).from(smpDocuments).where(eq(smpDocuments.id, id)).limit(1);
     return rows[0]?.fileName ? { source, ...rows[0], fileName: rows[0].fileName } : null;
+  }
+  if (source === "project_without_ppp_files") {
+    const rows = await db.select({
+      id: projectWithoutPPPFiles.id,
+      fileName: projectWithoutPPPFiles.fileName,
+      mimeType: projectWithoutPPPFiles.fileType,
+      legacyData: projectWithoutPPPFiles.fileData,
+      storageBucket: projectWithoutPPPFiles.storageBucket,
+      storagePath: projectWithoutPPPFiles.storagePath,
+      storageSize: projectWithoutPPPFiles.storageSize,
+      storageMimeType: projectWithoutPPPFiles.storageMimeType,
+    }).from(projectWithoutPPPFiles).where(eq(projectWithoutPPPFiles.id, id)).limit(1);
+    return rows[0] ? { source, ...rows[0] } : null;
   }
   // Remaining source values are handled by the switch exhaustive check at build time
   return null;

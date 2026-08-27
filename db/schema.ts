@@ -722,3 +722,65 @@ export type LihokCorporateDocumentVersion = typeof lihokCorporateDocumentVersion
 export type InsertLihokCorporateDocumentVersion = typeof lihokCorporateDocumentVersions.$inferInsert;
 export type LihokCorporateDocumentAuditEntry = typeof lihokCorporateDocumentAudit.$inferSelect;
 export type InsertLihokCorporateDocumentAuditEntry = typeof lihokCorporateDocumentAudit.$inferInsert;
+
+/* ─── Projects without PPP — Master Data Submittal Monitoring ───
+   Project reference data is OWNER-controlled (populated only through the
+   authoritative bootstrap loader, never by normal users). Masterdata
+   submission status is DERIVED from project_without_ppp_files evidence —
+   there is no manually editable status column. */
+
+export const projectsWithoutPPP = pgTable("projects_without_ppp", {
+  id: serial("id").primaryKey(),
+  trackingId: varchar("tracking_id", { length: 50 }).notNull().unique(),
+  psCode: varchar("ps_code", { length: 50 }).notNull(),
+  codingMask: varchar("coding_mask", { length: 50 }),
+  projectPhase: varchar("project_phase", { length: 50 }).notNull(),
+  latestMilestone: varchar("latest_milestone", { length: 50 }),
+  // sub_phase exists in the inert PR #389 production table; retained additively.
+  subPhase: varchar("sub_phase", { length: 50 }),
+  pmHeadline: varchar("pm_headline", { length: 255 }),
+  projectName: varchar("project_name", { length: 255 }),
+  workPackage: varchar("work_package", { length: 500 }),
+  contractPackage: varchar("contract_package", { length: 500 }),
+  contractor: varchar("contractor", { length: 255 }),
+  majorProjectTag: varchar("major_project_tag", { length: 100 }),
+  constructionManager: varchar("construction_manager", { length: 255 }),
+  projectManager: varchar("project_manager", { length: 255 }),
+  withLSPs: boolean("with_ls_ps").notNull().default(false),
+  amdGridHead: varchar("amd_grid_head", { length: 255 }),
+  // submitted_by exists in the inert PR #389 production table; it is no longer
+  // the source of truth for submission attribution (see project_without_ppp_files).
+  submittedBy: varchar("submitted_by", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("pwp_tracking_id_idx").on(table.trackingId),
+  index("pwp_ps_code_idx").on(table.psCode),
+  index("pwp_phase_idx").on(table.projectPhase),
+  index("pwp_tag_idx").on(table.majorProjectTag),
+]);
+
+export type ProjectWithoutPPP = typeof projectsWithoutPPP.$inferSelect;
+export type InsertProjectWithoutPPP = typeof projectsWithoutPPP.$inferInsert;
+
+export const projectWithoutPPPFiles = pgTable("project_without_ppp_files", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projectsWithoutPPP.id, { onDelete: "cascade" }),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  fileType: varchar("file_type", { length: 100 }),
+  fileSize: integer("file_size"),
+  fileData: text("file_data"),
+  uploadedBy: varchar("uploaded_by", { length: 255 }),
+  uploadedAt: timestamp("uploaded_at").defaultNow(),
+  // submittedAt is the submission evidence timestamp; current evidence is
+  // defined as superseded_at IS NULL (no manually editable status column).
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  supersededAt: timestamp("superseded_at"),
+  ...storageMetadataColumns(),
+}, (table) => [
+  index("pwp_files_project_idx").on(table.projectId),
+  index("pwp_files_current_idx").on(table.projectId, table.supersededAt),
+]);
+
+export type ProjectWithoutPPPFile = typeof projectWithoutPPPFiles.$inferSelect;
+export type InsertProjectWithoutPPPFile = typeof projectWithoutPPPFiles.$inferInsert;
