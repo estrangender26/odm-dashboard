@@ -546,6 +546,8 @@ describe("ProjectsWithoutPPPMonitoringPage", () => {
       expect(mocks.deleteInputs.length).toBe(1);
     });
     expect(mocks.deleteInputs[0]).toEqual({ fileId: 7, deleteCapability: "cap-token-7" });
+    // Public capability deletion must NOT route to the admin mutation.
+    expect(mocks.adminDeleteInputs.length).toBe(0);
     // Success closes the confirmation and invalidates dashboard + detail.
     await waitFor(() => {
       expect(screen.queryByText(/Delete this uploaded masterdata file\?/)).not.toBeInTheDocument();
