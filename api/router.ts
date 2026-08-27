@@ -9,6 +9,7 @@ import { primaveraLiteRouter } from "./primavera-lite-router";
 import { aiRouter } from "./ai-router";
 import { githubRouter } from "./github-router";
 import { smpRouter } from "./smp-router";
+import { projectsWithoutPPPRouter } from "./projects-without-ppp-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -24,6 +25,7 @@ export const appRouter = createRouter({
   ai: aiRouter,
   github: githubRouter,
   smp: smpRouter,
+  projectsWithoutPPP: projectsWithoutPPPRouter,
 });
 
 export type AppRouter = typeof appRouter;

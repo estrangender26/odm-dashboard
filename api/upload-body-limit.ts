@@ -19,6 +19,7 @@ const LARGE_UPLOAD_TRPC_PROCEDURES = new Set([
   "govFiles.upload",
   "smp.create",
   "smp.update",
+  "projectsWithoutPPP.attachMasterdataFile",
 ]);
 
 export function isLargeUploadRequestPath(path: string): boolean {

@@ -16,3 +16,17 @@ If a KPI exists in data/import logic but is hidden from a specific UI section, a
 ## General Product Intent Rule
 
 Before changing visible UI behavior, table columns, KPI visibility, dashboard layout, or export structure, inspect the current implementation and ask whether the behavior is intentional when there is ambiguity.
+
+## Projects without PPP — Masterdata Submittal Monitoring
+
+Decision:
+This is a monitoring dashboard, not a project CRUD portal. The 50-project population is OWNER-controlled authoritative data (bootstrap-only, no normal-user create/edit/delete). Masterdata submission status ("Submitted"/"Not Submitted") is always DERIVED from actual current submission files (`project_without_ppp_files` with `superseded_at IS NULL`); there is no manually editable status column and no manual completion percentage.
+
+Context:
+PR #389 implemented the wrong product (full project CRUD with demo data) and was reverted via PR #390. The inert production tables from PR #389 remain and are reused additively by migration 0031.
+
+Agent rule:
+- Do not add project create/edit/delete controls, masterdata-category configuration, or manual status/completion editing to this module.
+- KPI counts projects (not files): two files on one project still count as one Submitted project.
+- Reference-data updates through the bootstrap must never delete submission/file history.
+- Public file deletion for this module is forbidden; removal of current evidence is the admin-only `supersede` flow (history preserved).

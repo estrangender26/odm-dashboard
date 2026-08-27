@@ -8,8 +8,11 @@ import {
   docFolders,
   governanceFacilities,
   governanceUploads,
+  projectWithoutPPPFiles,
+  projectsWithoutPPP,
   smpDocuments,
   storageUploadIntents,
+  users,
   type User,
 } from "@db/schema";
 import {
@@ -40,7 +43,7 @@ const SUPABASE_SIGNED_TUS_PATH = "/storage/v1/upload/resumable/sign";
 
 export const storageRouter = new Hono();
 
-const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents"]);
+const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "project_without_ppp_files"]);
 const authorizeSchema = z.object({
   module: z.enum(STORAGE_MODULES),
   originalFilename: z.string().trim().min(1).max(255),
@@ -120,6 +123,13 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
     if (!rows.length) throw new Error("SMP document not found.");
     return { documentId };
   }
+  if (module === "projects_without_ppp") {
+    const projectId = Number(target.projectId);
+    if (!Number.isInteger(projectId) || projectId <= 0) throw new Error("A valid project is required.");
+    const rows = await db.select({ id: projectsWithoutPPP.id }).from(projectsWithoutPPP).where(eq(projectsWithoutPPP.id, projectId)).limit(1);
+    if (!rows.length) throw new Error("Project not found.");
+    return { projectId };
+  }
 
   const facilitySlug = normalizedSegment(target.facilitySlug, "facility", 50);
   const milestoneId = normalizeGovernanceMilestoneId(target.milestoneId);
@@ -142,12 +152,14 @@ function buildObjectPath(module: StorageModule, target: Record<string, unknown>,
   const id = randomUUID();
   if (module === "om") return `v1/folder-${target.folderId}/${id}`;
   if (module === "smp") return `v1/document-${target.documentId}/${id}`;
+  if (module === "projects_without_ppp") return `v1/project-${target.projectId}/${id}`;
   return `v1/${target.facilitySlug}/${target.milestoneId}/${id}`;
 }
 
 function getSourceFromModule(module: StorageModule): StorageFileSource {
   if (module === "om") return "doc_files";
   if (module === "smp") return "smp_documents";
+  if (module === "projects_without_ppp") return "project_without_ppp_files";
   return "governance_uploads";
 }
 
@@ -351,6 +363,12 @@ storageRouter.post("/uploads/authorize", async (c) => {
     
     if (!isUploadFileSizeAllowed(input.fileSize)) {
       return c.json({ error: MAX_UPLOAD_ERROR_MESSAGE }, 413);
+    }
+
+    // Masterdata submittal uploads are governed: they require an authenticated
+    // user. Public/anonymous uploads are not accepted for this module.
+    if (input.module === "projects_without_ppp" && !user) {
+      return c.json({ error: "Authentication required to upload masterdata." }, 401);
     }
 
     // Rate limiting for anonymous users
@@ -618,6 +636,29 @@ storageRouter.post("/uploads/finalize", async (c) => {
         }).returning({ id: smpDocuments.id });
         persistedId = inserted[0].id;
         persistedSource = "smp_documents";
+      } else if (intent.module === "projects_without_ppp") {
+        const submitter = intent.requestedBy
+          ? (await tx.select({ name: users.name }).from(users).where(eq(users.id, intent.requestedBy)).limit(1))[0]?.name ?? null
+          : null;
+        const inserted = await tx.insert(projectWithoutPPPFiles).values({
+          projectId: Number(target.projectId),
+          fileName: intent.originalFilename,
+          fileType: intent.expectedMimeType,
+          fileSize: actualSize,
+          fileData: null,
+          uploadedBy: submitter,
+          uploadedAt: now,
+          submittedAt: now,
+          storageProvider: "supabase",
+          storageBucket: intent.expectedBucket,
+          storagePath: intent.expectedPath,
+          storageSize: actualSize,
+          storageMimeType: actualMime,
+          storageEtag: info.etag,
+          storageUploadedAt: now,
+        }).returning({ id: projectWithoutPPPFiles.id });
+        persistedId = inserted[0].id;
+        persistedSource = "project_without_ppp_files";
       } else {
         const inserted = await tx.insert(governanceUploads).values({
           facilitySlug: target.facilitySlug,
@@ -740,6 +781,10 @@ storageRouter.get("/files/:source/:id/:action", async (c) => {
 storageRouter.post("/files/delete/prepare", async (c) => {
   try {
     const input = z.object({ source: sourceSchema, id: z.number().int().positive() }).parse(await c.req.json());
+    // Project masterdata files are never publicly deletable.
+    if (input.source === "project_without_ppp_files") {
+      return c.json({ error: "Project masterdata files cannot be deleted through the public endpoint." }, 403);
+    }
     const record = await getStoredFileRecord(input.source, input.id);
     if (!record) return c.json({ error: "File not found." }, 404);
     const expiresAt = Date.now() + 5 * 60_000;
@@ -762,6 +807,10 @@ storageRouter.post("/files/delete/confirm", async (c) => {
     const payload = verifyDeletePayload(confirmationToken);
     if (!payload || !payload.sessionId) return c.json({ error: "Delete confirmation is invalid or expired." }, 409);
     const source = sourceSchema.parse(payload.source);
+    // Project masterdata files are never publicly deletable.
+    if (source === "project_without_ppp_files") {
+      return c.json({ error: "Project masterdata files cannot be deleted through the public endpoint." }, 403);
+    }
     const id = Number(payload.id);
     const record = await getStoredFileRecord(source, id);
     if (!record) return c.json({ error: "File not found." }, 404);
