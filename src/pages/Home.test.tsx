@@ -6,7 +6,12 @@ import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  useAuthResult: { user: null as { role: string; name: string; avatar?: string } | null, isAuthenticated: false },
+  logout: vi.fn(),
+  useAuthResult: {
+    user: null as { role: string; name: string; avatar?: string } | null,
+    isAuthenticated: false,
+    logout: vi.fn(),
+  },
 }));
 
 vi.mock("@/hooks/useAuth", () => ({
@@ -60,9 +65,9 @@ describe("Home hidden OWNER entry (5 clicks on the logo within a rolling 3s wind
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
-    mocks.useAuthResult = { user: null, isAuthenticated: false };
+    mocks.useAuthResult = { user: null, isAuthenticated: false, logout: mocks.logout };
+    mocks.logout.mockClear();
   });
-
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
@@ -141,6 +146,35 @@ describe("Home hidden OWNER entry (5 clicks on the logo within a rolling 3s wind
     expect(body).not.toMatch(/admin/i);
     expect(body).not.toMatch(/owner/i);
     expect(body).not.toMatch(/sign in/i);
+  });
+
+  it("authenticated Home renders an accessible Sign out control that calls logout", () => {
+    mocks.useAuthResult = {
+      user: { role: "admin", name: "Gerald Balucan" },
+      isAuthenticated: true,
+      logout: mocks.logout,
+    };
+    renderHome();
+
+    // Avatar/name stay visible; the account menu is the anchor.
+    expect(screen.getByText("Gerald Balucan")).toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "Account menu" });
+    expect(trigger).toBeInTheDocument();
+
+    // Opening the menu exposes exactly one action: Sign out.
+    // (Radix dropdowns toggle on pointerdown; items select on click.)
+    fireEvent.pointerDown(trigger);
+    const signOutItem = screen.getByRole("menuitem", { name: "Sign out" });
+    expect(signOutItem).toBeInTheDocument();
+
+    fireEvent.click(signOutItem);
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it("unauthenticated Home does not show the account menu / Sign out", () => {
+    renderHome();
+    expect(screen.queryByRole("button", { name: "Account menu" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sign out/)).not.toBeInTheDocument();
   });
 
   it("normal public dashboard content remains intact", () => {

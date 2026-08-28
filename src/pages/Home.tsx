@@ -1,12 +1,19 @@
 import { Link, useNavigate } from "react-router";
 import { useRef } from "react";
+import { LogOut } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { LOGIN_PATH } from "@/const";
 
 export default function Home() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
 
   // Hidden OWNER entry: 5 clicks on the dashboard logo/title within a rolling
@@ -60,10 +67,27 @@ export default function Home() {
           <div className="flex items-center gap-2 ml-auto flex-shrink-0">
             <Link to="/help" className="text-xs font-medium px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition">Help</Link>
             {isAuthenticated && user && (
-              <div className="flex items-center gap-2 text-xs">
-                <img src={user.avatar || undefined} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />
-                <span className="hidden sm:inline max-w-[100px] truncate">{user.name}</span>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Account menu"
+                    className="flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 hover:bg-white/10 transition cursor-pointer"
+                  >
+                    <img src={user.avatar || undefined} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                    <span className="hidden sm:inline max-w-[100px] truncate">{user.name}</span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={logout}
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Sign out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
         </div>

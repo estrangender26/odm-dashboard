@@ -354,4 +354,13 @@ describe("Google OAuth (OWNER/admin auth)", () => {
     } as never);
     await expect(caller.auth.me()).rejects.toThrow(/Authentication required/);
   });
+
+  it("anonymous logout is rejected (authedQuery boundary)", async () => {
+    const { appRouter } = await import("./router");
+    const caller = appRouter.createCaller({
+      req: new Request("http://localhost/api/trpc"),
+      resHeaders: new Headers(),
+    } as never);
+    await expect(caller.auth.logout()).rejects.toThrow(/Authentication required/);
+  });
 });
