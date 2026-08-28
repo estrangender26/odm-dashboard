@@ -57,7 +57,7 @@ vi.mock("./storage-files", () => ({
   deleteStoredFileRecord: mocks.deleteStoredFileRecord,
 }));
 
-vi.mock("./kimi/auth", () => ({
+vi.mock("./auth/authenticate", () => ({
   authenticateRequest: vi.fn(() => Promise.reject(new Error("No auth"))),
 }));
 

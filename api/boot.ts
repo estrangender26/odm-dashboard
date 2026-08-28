@@ -13,7 +13,12 @@ import { storageRouter } from "./storage-router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { assertPreviewSecretConfigured } from "@/modules/gantt/primavera-lite/previewToken";
-import { authenticateRequest, createOAuthCallbackHandler } from "./kimi/auth";
+import { authenticateRequest } from "./auth/authenticate";
+import {
+  buildAuthorizeUrl,
+  createOAuthCallbackHandler,
+  isGoogleOAuthConfigured,
+} from "./auth/google";
 import { Paths } from "@contracts/constants";
 import {
   MAX_UPLOAD_ERROR_MESSAGE,
@@ -300,18 +305,15 @@ app.use("*", async (c, next) => {
 logBootStage("registering OAuth routes");
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
-// OAuth authorize — redirects to Kimi login
-app.get("/api/oauth/authorize", (c) => {
-  const redirectUri = `${new URL(c.req.url).origin}${Paths.oauthCallback}`;
-  const state = btoa(redirectUri);
-  const params = new URLSearchParams({
-    client_id: env.appId,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "profile",
-    state,
-  });
-  return c.redirect(`${env.kimiAuthUrl}/api/oauth/authorize?${params.toString()}`, 302);
+// OAuth authorize — redirects to Google. OWNER/admin login entry only;
+// the public Projects without PPP workflow never touches this route.
+app.get("/api/oauth/authorize", async (c) => {
+  if (!isGoogleOAuthConfigured()) {
+    return c.json({ error: "Google OAuth is not configured" }, 503);
+  }
+  const origin = new URL(c.req.url).origin;
+  const authorizeUrl = await buildAuthorizeUrl(origin);
+  return c.redirect(authorizeUrl, 302);
 });
 
 logBootStage("registering static HTML dashboard routes");
@@ -1877,9 +1879,9 @@ app.route("/api/presentation-files", presentationFilesRouter);
 
 logBootStage("registering tRPC and API fallback routes");
 
-/* CORS for tRPC — allow Kimi static deployment and local dev */
+/* CORS for tRPC — production origin and local dev */
 app.use("/api/trpc/*", cors({
-  origin: ["https://oduhiajrfyneq.kimi.page", "https://dashboard.onrender.com", "http://localhost:3000", "http://localhost:5173"],
+  origin: ["https://dashboard.onrender.com", "http://localhost:3000", "http://localhost:5173"],
   allowMethods: ["GET", "POST", "OPTIONS"],
   allowHeaders: ["Content-Type", "x-trpc-source"],
   credentials: true,

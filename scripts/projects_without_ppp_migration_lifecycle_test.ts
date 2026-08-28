@@ -253,6 +253,22 @@ async function scenarioProductionInert(): Promise<{ message: string; dbName: str
   await withClient(dbName, async (client) => {
     await client.unsafe(PR389_INERT_TABLES_SQL);
     await ensureSupabaseRoles(client);
+    // Production also has the users table (created outside the journal) with
+    // the legacy OWNER row; required by migration 0032 (Google auth identity).
+    await client.unsafe(`
+      CREATE TABLE IF NOT EXISTS public.users (
+        id serial PRIMARY KEY,
+        name varchar(255) NOT NULL,
+        email varchar(255) NOT NULL UNIQUE,
+        avatar varchar(500),
+        role varchar(50) NOT NULL DEFAULT 'user',
+        union_id varchar(255),
+        created_at timestamp DEFAULT now(),
+        last_sign_in_at timestamp DEFAULT now()
+      );
+      INSERT INTO public.users (id, name, email, role, union_id)
+      VALUES (1, 'Gerald Balucan', 'owner@example.com', 'admin', 'legacy-kimi-union-id');
+    `);
     // Simulated existing production data: one project + one submission file.
     await client.unsafe(`
       INSERT INTO public.projects_without_ppp (tracking_id, ps_code, project_phase)

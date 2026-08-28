@@ -1,8 +1,17 @@
 import * as jose from "jose";
 import { env } from "../lib/env";
-import type { SessionPayload } from "./types";
 
 const JWT_ALG = "HS256";
+
+/**
+ * Provider-neutral session payload. `sub` is the immutable provider subject
+ * (e.g. Google `sub`); `provider` identifies the OAuth provider (e.g.
+ * "google"). Replaces the Kimi-era { unionId, clientId } payload.
+ */
+export type SessionPayload = {
+  sub: string;
+  provider: string;
+};
 
 function getSessionSecret() {
   if (!env.appSecret) {
@@ -34,12 +43,12 @@ export async function verifySessionToken(
     const { payload } = await jose.jwtVerify(token, secret, {
       algorithms: [JWT_ALG],
     });
-    const { unionId, clientId } = payload;
-    if (!unionId || !clientId) {
+    const { sub, provider } = payload;
+    if (!sub || !provider) {
       console.warn("[session] JWT payload missing required fields.");
       return null;
     }
-    return { unionId, clientId } as SessionPayload;
+    return { sub, provider } as SessionPayload;
   } catch (error) {
     console.warn("[session] JWT verification failed:", error);
     return null;

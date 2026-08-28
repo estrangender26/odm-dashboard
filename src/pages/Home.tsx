@@ -1,10 +1,37 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
+import { useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
+import { LOGIN_PATH } from "@/const";
 
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+
+  // Hidden OWNER entry: 5 clicks on the dashboard logo/title within 3 seconds
+  // navigates to /login. Invisible by design — no counter, toast, tooltip, or
+  // console output. Convenience only; security stays on Google OAuth +
+  // server-side role assignment.
+  const ownerClickCount = useRef(0);
+  const ownerClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleOwnerLogoClick = () => {
+    ownerClickCount.current += 1;
+    if (ownerClickTimer.current) clearTimeout(ownerClickTimer.current);
+    ownerClickTimer.current = setTimeout(() => {
+      ownerClickCount.current = 0;
+      ownerClickTimer.current = null;
+    }, 3000);
+    if (ownerClickCount.current >= 5) {
+      ownerClickCount.current = 0;
+      if (ownerClickTimer.current) {
+        clearTimeout(ownerClickTimer.current);
+        ownerClickTimer.current = null;
+      }
+      navigate(LOGIN_PATH);
+    }
+  };
   const navCardClassName =
     "block rounded-xl border p-5 no-underline text-inherit cursor-pointer transition-all duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none md:hover:-translate-y-0.5 md:hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#005BAC]/35 focus-visible:ring-offset-2 active:translate-y-0 active:shadow-sm";
   const navCardStyle = {
@@ -19,7 +46,7 @@ export default function Home() {
       {/* Programs Header */}
       <header style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', backgroundSize: '200% 200%', color: '#fff', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
+          <Link to="/" onClick={handleOwnerLogoClick} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
             <ProgramsEngineeringLogo size={72} borderRadius={8} />
             <div className="min-w-0">
               <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>

@@ -28,7 +28,7 @@ import {
   MAX_UPLOAD_ERROR_MESSAGE,
   isUploadFileSizeAllowed,
 } from "@contracts/upload-limits";
-import { authenticateRequest } from "./kimi/auth";
+import { authenticateRequest } from "./auth/authenticate";
 import { env } from "./lib/env";
 import { deepEqualJson } from "./lib/json-equality";
 import { db } from "./queries/connection";

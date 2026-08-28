@@ -580,6 +580,27 @@ t("projectsWithoutPPP router + bootstrap (integration)", () => {
     const result = await adminCaller.projectsWithoutPPP.adminDeleteMasterdataFile({ fileId: attached.fileId });
     expect(result.fileId).toBe(attached.fileId);
   });
+
+  it("anonymous adminDeleteMasterdataFile is rejected (adminQuery boundary)", async () => {
+    const project = await dashboardRow("RR18-0616-01-01");
+    const detail = await userCaller.projectsWithoutPPP.detail({ id: project.id });
+    const file = detail!.files[0];
+    await expect(
+      anonymousCaller.projectsWithoutPPP.adminDeleteMasterdataFile({ fileId: file.id }),
+    ).rejects.toThrow(/Authentication required/i);
+    // File still exists — the admin boundary held.
+    const after = await userCaller.projectsWithoutPPP.detail({ id: project.id });
+    expect(after!.files.some((f) => f.id === file.id)).toBe(true);
+  });
+
+  it("non-admin adminDeleteMasterdataFile is rejected (FORBIDDEN)", async () => {
+    const project = await dashboardRow("RR18-0616-01-01");
+    const detail = await userCaller.projectsWithoutPPP.detail({ id: project.id });
+    const file = detail!.files[0];
+    await expect(
+      userCaller.projectsWithoutPPP.adminDeleteMasterdataFile({ fileId: file.id }),
+    ).rejects.toThrow(/Insufficient permissions/i);
+  });
 });
 
 async function dashboardRow(trackingId: string) {

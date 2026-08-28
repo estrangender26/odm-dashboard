@@ -1,5 +1,7 @@
 export const Session = {
-  cookieName: "kimi_sid",
+  // Provider-neutral session cookie. Renamed from "kimi_sid" when Kimi auth
+  // was retired; existing Kimi sessions are intentionally invalidated.
+  cookieName: "odm_sid",
   maxAgeMs: 365 * 24 * 60 * 60 * 1000,
 } as const;
 
