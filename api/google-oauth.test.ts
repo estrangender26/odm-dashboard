@@ -85,7 +85,7 @@ describe("Google OAuth (OWNER/admin auth)", () => {
 
   it("authorize builds a Google OAuth request (no Kimi references)", async () => {
     const { buildAuthorizeUrl, verifyOAuthState } = await import("./auth/google");
-    const url = new URL(await buildAuthorizeUrl("https://odm-dashboard.onrender.com"));
+    const url = new URL(await buildAuthorizeUrl("https://odm-dashboard.onrender.com/api/oauth/callback"));
 
     expect(url.origin).toBe("https://accounts.google.com");
     expect(url.pathname).toBe("/o/oauth2/v2/auth");
@@ -213,6 +213,61 @@ describe("Google OAuth (OWNER/admin auth)", () => {
       email: "owner@example.com",
       emailVerified: true,
     });
+  });
+
+  it("production Render-proxied callback uses the exact HTTPS redirect URI end to end", async () => {
+    // NODE_ENV=production: the app must derive the public HTTPS origin from
+    // trusted proxy headers even though the internal request is HTTP.
+    vi.stubEnv("NODE_ENV", "production");
+    const { createOAuthCallbackHandler, createOAuthState } = await import("./auth/google");
+    const app = new Hono();
+    app.get("/api/oauth/callback", createOAuthCallbackHandler());
+
+    // State was created (authorize time) bound to the canonical HTTPS callback.
+    const state = await createOAuthState("https://odm-dashboard.onrender.com/api/oauth/callback");
+    const res = await app.request(
+      "http://odm-dashboard.onrender.com/api/oauth/callback?code=auth-code&state=" + encodeURIComponent(state),
+      {
+        headers: {
+          host: "odm-dashboard.onrender.com",
+          "x-forwarded-proto": "https",
+        },
+      },
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("odm_sid=");
+    expect(setCookie).toContain("HttpOnly");
+    expect(hoisted.upsertCalls).toHaveLength(1);
+    expect(hoisted.upsertCalls[0]).toMatchObject({
+      provider: "google",
+      subject: "google-sub-owner",
+    });
+  });
+
+  it("production callback rejects a state bound to the http (non-canonical) redirect URI", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { createOAuthCallbackHandler, createOAuthState } = await import("./auth/google");
+    const app = new Hono();
+    app.get("/api/oauth/callback", createOAuthCallbackHandler());
+
+    // The pre-fix behavior: state bound to the INTERNAL http origin. Production
+    // must reject it because the canonical URI is https.
+    const state = await createOAuthState("http://odm-dashboard.onrender.com/api/oauth/callback");
+    const res = await app.request(
+      "http://odm-dashboard.onrender.com/api/oauth/callback?code=auth-code&state=" + encodeURIComponent(state),
+      {
+        headers: {
+          host: "odm-dashboard.onrender.com",
+          "x-forwarded-proto": "https",
+        },
+      },
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid OAuth state" });
+    expect(hoisted.upsertCalls).toHaveLength(0);
   });
 
   it("a non-owner Google subject still passes through as google provider (role decided server-side)", async () => {

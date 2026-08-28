@@ -4,8 +4,8 @@ import * as jose from "jose";
 import { randomUUID } from "node:crypto";
 import { env } from "../lib/env";
 import { getSessionCookieOptions } from "../lib/cookies";
+import { getOAuthRedirectUri } from "../lib/public-origin";
 import { Session } from "@contracts/constants";
-import { Paths } from "@contracts/constants";
 import { Errors } from "@contracts/errors";
 import { signSessionToken } from "./session";
 import { upsertUserByProvider } from "../queries/users";
@@ -75,11 +75,10 @@ export async function verifyOAuthState(
   }
 }
 
-export async function buildAuthorizeUrl(origin: string): Promise<string> {
+export async function buildAuthorizeUrl(redirectUri: string): Promise<string> {
   if (!isGoogleOAuthConfigured()) {
     throw Errors.internal("Google OAuth is not configured.");
   }
-  const redirectUri = `${origin}${Paths.oauthCallback}`;
   const state = await createOAuthState(redirectUri);
   const params = new URLSearchParams({
     client_id: env.googleOAuthClientId!,
@@ -166,9 +165,11 @@ export function createOAuthCallbackHandler() {
     }
 
     try {
-      // Validate state: signature + expiry, and bind the redirect URI.
+      // Validate state: signature + expiry, and bind the redirect URI. The
+      // expected URI is resolved from the SAME canonical public origin used to
+      // build the authorize URL, so the values can never disagree.
       const stateRedirectUri = await verifyOAuthState(state);
-      const expectedRedirectUri = `${new URL(c.req.url).origin}${Paths.oauthCallback}`;
+      const expectedRedirectUri = getOAuthRedirectUri(c.req.raw);
       if (!stateRedirectUri || stateRedirectUri !== expectedRedirectUri) {
         return c.json({ error: "invalid OAuth state" }, 400);
       }
