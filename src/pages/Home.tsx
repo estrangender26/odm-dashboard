@@ -78,7 +78,10 @@ export default function Home() {
                     <span className="hidden sm:inline max-w-[100px] truncate">{user.name}</span>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuContent
+                  align="end"
+                  className="w-48 z-[110]"
+                >
                   <DropdownMenuItem
                     onClick={logout}
                     className="cursor-pointer text-destructive focus:text-destructive"

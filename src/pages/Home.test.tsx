@@ -167,6 +167,11 @@ describe("Home hidden OWNER entry (5 clicks on the logo within a rolling 3s wind
     const signOutItem = screen.getByRole("menuitem", { name: "Sign out" });
     expect(signOutItem).toBeInTheDocument();
 
+    // The menu content must layer above the sticky header (z-index 100).
+    const content = signOutItem.closest('[data-slot="dropdown-menu-content"]');
+    expect(content).not.toBeNull();
+    expect(content!.className).toContain("z-[110]");
+
     fireEvent.click(signOutItem);
     expect(mocks.logout).toHaveBeenCalledTimes(1);
   });
