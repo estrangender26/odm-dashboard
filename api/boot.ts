@@ -19,6 +19,7 @@ import {
   createOAuthCallbackHandler,
   isGoogleOAuthConfigured,
 } from "./auth/google";
+import { getOAuthRedirectUri } from "./lib/public-origin";
 import { Paths } from "@contracts/constants";
 import {
   MAX_UPLOAD_ERROR_MESSAGE,
@@ -311,8 +312,10 @@ app.get("/api/oauth/authorize", async (c) => {
   if (!isGoogleOAuthConfigured()) {
     return c.json({ error: "Google OAuth is not configured" }, 503);
   }
-  const origin = new URL(c.req.url).origin;
-  const authorizeUrl = await buildAuthorizeUrl(origin);
+  // Canonical public redirect URI (https behind Render's proxy) used for the
+  // Google redirect_uri AND the signed state binding.
+  const redirectUri = getOAuthRedirectUri(c.req.raw);
+  const authorizeUrl = await buildAuthorizeUrl(redirectUri);
   return c.redirect(authorizeUrl, 302);
 });
 

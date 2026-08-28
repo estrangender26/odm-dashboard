@@ -9,26 +9,30 @@ export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  // Hidden OWNER entry: 5 clicks on the dashboard logo/title within 3 seconds
-  // navigates to /login. Invisible by design — no counter, toast, tooltip, or
-  // console output. Convenience only; security stays on Google OAuth +
-  // server-side role assignment.
-  const ownerClickCount = useRef(0);
-  const ownerClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Hidden OWNER entry: 5 clicks on the dashboard logo/title within a rolling
+  // 3-second window navigates to /login. Invisible by design — no counter,
+  // toast, tooltip, or console output. Convenience only; security stays on
+  // Google OAuth + server-side role assignment.
+  //
+  // Reliability notes:
+  // - preventDefault() stops the surrounding React Router Link from running its
+  //   own navigate("/") after this handler — previously the Link navigation
+  //   fired after navigate(LOGIN_PATH) on the 5th click and clobbered it, so
+  //   the gesture appeared dead. With preventDefault, React Router's
+  //   useLinkClickHandler skips its navigation entirely and no router work
+  //   (re-render/remount) can interfere with click accumulation.
+  // - A true rolling 3-second window: clicks older than 3s are dropped, so the
+  //   five clicks must all fall within any 3-second span. No timer state is
+  //   needed; the array is reset after a successful trigger.
+  const ownerClicks = useRef<number[]>([]);
 
-  const handleOwnerLogoClick = () => {
-    ownerClickCount.current += 1;
-    if (ownerClickTimer.current) clearTimeout(ownerClickTimer.current);
-    ownerClickTimer.current = setTimeout(() => {
-      ownerClickCount.current = 0;
-      ownerClickTimer.current = null;
-    }, 3000);
-    if (ownerClickCount.current >= 5) {
-      ownerClickCount.current = 0;
-      if (ownerClickTimer.current) {
-        clearTimeout(ownerClickTimer.current);
-        ownerClickTimer.current = null;
-      }
+  const handleOwnerLogoClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    const now = Date.now();
+    ownerClicks.current = ownerClicks.current.filter((t) => now - t < 3000);
+    ownerClicks.current.push(now);
+    if (ownerClicks.current.length >= 5) {
+      ownerClicks.current = [];
       navigate(LOGIN_PATH);
     }
   };
