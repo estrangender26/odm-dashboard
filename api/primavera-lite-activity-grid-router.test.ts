@@ -165,18 +165,57 @@ describe("Primavera Lite PR3 Activity Grid", () => {
     await expect(caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: activity.activity.id })).rejects.toThrow(/WBS node is archived/i);
   });
 
+  it("F-03: duplicate active Activity IDs are rejected on create", async () => {
+    const project = await createProject("PR3 Duplicate Create");
+    let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const first = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "First", activityId: "AID-1" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    await expect(
+      caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Second", activityId: "AID-1" } })
+    ).rejects.toThrow(/same Activity ID already exists/i);
+  });
+
+  it("F-03: duplicate active Activity IDs are rejected on update", async () => {
+    const project = await createProject("PR3 Duplicate Update");
+    let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const first = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "First", activityId: "AID-1" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const second = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Second", activityId: "AID-2" } });
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    await expect(
+      caller.primaveraLite.updateActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: second.activity.id, changes: { activityId: "AID-1" } })
+    ).rejects.toThrow(/same Activity ID already exists/i);
+  });
+
+  it("F-03: blank and whitespace-only Activity IDs normalize to NULL; case is preserved", async () => {
+    const project = await createProject("PR3 ID Normalization");
+    let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const blank = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Blank", activityId: "   " } });
+    expect(blank.activity.activityId).toBeNull();
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const padded = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Padded", activityId: " A-100 " } });
+    expect(padded.activity.activityId).toBe("A-100");
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
+    const lower = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Lower", activityId: "a-100" } });
+    expect(lower.activity.activityId).toBe("a-100"); // case-sensitive: distinct from "A-100"
+  });
+
   it("refuses to restore an activity if its activityId collides with an active activity", async () => {
     const project = await createProject("PR3 Restore Collision");
     let loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
-    const first = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Active Same ID", activityId: "AID-1" } });
+    const first = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "To Archive", activityId: "AID-1" } });
     loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
-    const second = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "To Archive", activityId: "AID-1" } });
-    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor });
-    const dryRun = await caller.primaveraLite.archiveActivityDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: second.activity.id });
-    await caller.primaveraLite.archiveActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: second.activity.id, previewToken: dryRun.previewToken, confirmed: true });
+    const dryRun = await caller.primaveraLite.archiveActivityDryRun({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: first.activity.id });
+    await caller.primaveraLite.archiveActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: first.activity.id, previewToken: dryRun.previewToken, confirmed: true });
 
+    // Archived IDs do not reserve the identifier: a new active row may reuse it.
     loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
-    await expect(caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: second.activity.id })).rejects.toThrow(/same Activity ID already exists/i);
+    const second = await caller.primaveraLite.createActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activity: { activityName: "Active Same ID", activityId: "AID-1" } });
+    expect(second.activity.activityId).toBe("AID-1");
+
+    // Restoring the archived row now collides with the active one.
+    loaded = await caller.primaveraLite.load({ slug: project.project.slug, access: project.editor, includeArchived: true });
+    await expect(caller.primaveraLite.restoreActivity({ slug: project.project.slug, access: project.editor, expectedRevision: loaded.revision, activityId: first.activity.id })).rejects.toThrow(/same Activity ID already exists/i);
   });
 
   it("preserves all activity fields during restore", async () => {

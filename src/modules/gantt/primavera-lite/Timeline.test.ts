@@ -293,12 +293,12 @@ describe("Timeline", () => {
     expect(html).not.toContain('data-testid="cpm-bar"');
   });
 
-  it("M1. renders a zero-duration CPM span as a milestone diamond, not a bar", () => {
+  it("F-05. renders a zero-duration CPM task span as a bar, not a milestone diamond", () => {
     const html = renderToStaticMarkup(createElement(Timeline, { activities: [
       { ...base, activityName: "ZeroDur", activityType: "task", originalDurationDays: 0, earlyStart: "2026-08-20", earlyFinish: "2026-08-20" },
     ] }));
-    expect(html).toContain('data-testid="cpm-milestone"');
-    expect(html).not.toContain('data-testid="cpm-bar"');
+    expect(html).toContain('data-testid="cpm-bar"');
+    expect(html).not.toContain('data-testid="cpm-milestone"');
   });
 
   it("M1. keeps a critical CPM milestone identifiable as CPM, critical and milestone", () => {
@@ -356,5 +356,91 @@ describe("Timeline", () => {
     expect(html).toContain("bg-red-600");
     expect(html).toContain("Critical");
     expect(html).toContain("Planned");
+  });
+});
+
+describe("F-04 / F-12 timeline truth", () => {
+  it("never colors a planned bar by criticality; critical styling belongs to CPM/chip", () => {
+    // Active zero-float work with a planned pair: planned bar stays blue, the
+    // current-critical chip carries the red treatment.
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, id: 1, totalFloatDays: 0, earlyStart: "2026-08-13", earlyFinish: "2026-08-17",
+        plannedStart: "2026-08-13", plannedFinish: "2026-08-17" },
+    ] }));
+    expect(html).toContain('data-testid="planned-bar"');
+    expect(html).toContain("bg-blue-600");
+    expect(html).toContain('data-testid="critical-chip"');
+    expect(html).toContain("bg-red-600");
+    expect(html).not.toContain("Critical planned");
+  });
+
+  it("does not present a completed activity as current-critical (F-04)", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, id: 1, totalFloatDays: 0, percentComplete: 100,
+        plannedStart: "2026-08-13", plannedFinish: "2026-08-17",
+        actualStart: "2026-08-14", actualFinish: "2026-08-16", earlyStart: "2026-08-14", earlyFinish: "2026-08-16" },
+    ] }));
+    expect(html).toContain('data-testid="planned-bar"');
+    expect(html).toContain('data-testid="actual-bar"');
+    // Float remains zero (math untouched) but no current-critical chip appears.
+    expect(html).not.toContain('data-testid="critical-chip"');
+  });
+
+  it("marks CPM output as stale when the schedule is out of date (F-12)", () => {
+    const fresh = renderToStaticMarkup(createElement(Timeline, { activities: [
+      { ...base, id: 1, earlyStart: "2026-08-18", earlyFinish: "2026-08-22" },
+    ] }));
+    const stale = renderToStaticMarkup(createElement(Timeline, { scheduleOutOfDate: true, activities: [
+      { ...base, id: 1, earlyStart: "2026-08-18", earlyFinish: "2026-08-22" },
+    ] }));
+    expect(fresh).not.toContain("opacity-60");
+    expect(stale).toContain("opacity-60");
+    expect(stale).toContain("Stale — re-run schedule");
+  });
+
+  it("keeps archived rows aligned as greyed empty rows when shown (F-12)", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { showArchived: true, activities: [
+      { ...base, id: 1, plannedStart: "2026-08-13", plannedFinish: "2026-08-17" },
+      { ...base, id: 2, sortOrder: 1, activityName: "Gone", archivedAt: "2026-08-01T00:00:00.000Z" },
+    ] }));
+    expect(html).toContain("Archived");
+    expect(html).toContain("bg-slate-50");
+    // Both rows render (same row count as the grid when archived are shown).
+    expect((html.match(/Highlight /g) || []).length).toBe(2);
+  });
+
+  it("renders a +n d / -n d lag label on dependency lines, not to scale (F-12)", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { dependencies: [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 2 },
+    ], activities: [
+      { ...base, id: 1, plannedStart: "2026-08-13", plannedFinish: "2026-08-17" },
+      { ...base, id: 2, sortOrder: 1, activityName: "Second", plannedStart: "2026-08-18", plannedFinish: "2026-08-19" },
+    ] }));
+    expect(html).toContain("+2 d");
+    const noLag = renderToStaticMarkup(createElement(Timeline, { dependencies: [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+    ], activities: [
+      { ...base, id: 1, plannedStart: "2026-08-13", plannedFinish: "2026-08-17" },
+      { ...base, id: 2, sortOrder: 1, activityName: "Second", plannedStart: "2026-08-18", plannedFinish: "2026-08-19" },
+    ] }));
+    expect(noLag).not.toContain("+0 d");
+    expect(noLag).not.toContain("<text");
+    const neg = renderToStaticMarkup(createElement(Timeline, { dependencies: [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "SS", lagDays: -1 },
+    ], activities: [
+      { ...base, id: 1, plannedStart: "2026-08-13", plannedFinish: "2026-08-17" },
+      { ...base, id: 2, sortOrder: 1, activityName: "Second", plannedStart: "2026-08-18", plannedFinish: "2026-08-19" },
+    ] }));
+    expect(neg).toContain("-1 d");
+  });
+
+  it("keeps the exact dependency connector geometry for planned activities (regression)", () => {
+    const html = renderToStaticMarkup(createElement(Timeline, { dependencies: [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+    ], activities: [
+      { ...base, id: 1, plannedStart: "2026-08-13", plannedFinish: "2026-08-17" },
+      { ...base, id: 2, sortOrder: 1, activityName: "Second", plannedStart: "2026-08-18", plannedFinish: "2026-08-19" },
+    ] }));
+    expect(html).toContain('d="M 112 20 H 120 V 60 H 112"');
   });
 });

@@ -390,6 +390,12 @@ describe("Primavera Lite Calendar Management", () => {
   it("changing default calendar changes unassigned activity dates after Run Schedule", async () => {
     const p = await createProject("Cal Default Semantics");
     let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.admin });
+    // F-09: the Data Date is the schedule anchor (plannedStart is informational).
+    await caller.primaveraLite.updateProjectMeta({
+      slug: p.project.slug, access: p.admin, expectedRevision: loaded.revision,
+      changes: { dataDate: "2026-08-10" },
+    });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.admin });
     const satCal = await caller.primaveraLite.createCalendar({
       slug: p.project.slug, access: p.admin, expectedRevision: loaded.revision,
       calendar: { name: "Sat Week", workingDays: [1, 2, 3, 4, 5, 6] },

@@ -134,15 +134,18 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
     // FS + 2 lag: P finishes Fri 2026-08-14 -> 2 lag days -> S_FS starts Wed 2026-08-19
     expect(map.get(2)!.earlyStart).toBe("2026-08-19");
 
-    // SS - 1 lag: S_SS starts 1 working day before P start -> Fri 2026-08-07
-    expect(map.get(3)!.earlyStart).toBe("2026-08-07");
+    // SS - 1 lag: network start is 1 working day before P start (Fri 2026-08-07),
+    // but the Data Date floor (2026-08-10) governs remaining work: ES = 2026-08-10
+    expect(map.get(3)!.earlyStart).toBe("2026-08-10");
 
     // FF 0 lag: S_FF finish >= P finish (2026-08-14). Dur=2 => ES = 2026-08-13
     expect(map.get(4)!.earlyStart).toBe("2026-08-13");
     expect(map.get(4)!.earlyFinish).toBe("2026-08-14");
 
-    // SF 0 lag: S_SF finish >= P start (2026-08-10). Dur=2 => ES = 2026-08-07
-    expect(map.get(5)!.earlyFinish).toBe("2026-08-10");
+    // SF 0 lag: S_SF finish >= P start (2026-08-10). Dur=2, Data Date floor 2026-08-10
+    // => ES = 2026-08-10, EF = 2026-08-11 (lead is clamped by the Data Date floor)
+    expect(map.get(5)!.earlyFinish).toBe("2026-08-11");
+    expect(map.get(5)!.earlyStart).toBe("2026-08-10");
   });
 
   it("handles milestones and open ends correctly", () => {
@@ -284,13 +287,14 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
     expect(map3.get(102)!.earlyStart).toBe("2026-08-13");  // Thu (2 working days: Thu, Fri)
   });
 
-  it("follows deterministic anchor priority: data_date -> earliest plannedStart -> explicit scheduleDate", () => {
+  it("follows deterministic anchor priority: data_date -> explicit scheduleDate (planned dates are never anchors)", () => {
     const actWithPlanned: ScheduleActivityInput = {
       id: 1,
       wbsNodeId: 1,
       activityName: "Act With Planned",
       originalDurationDays: 1,
       plannedStart: "2026-03-02",
+      plannedFinish: "2026-03-02",
     };
     const actWithoutPlanned: ScheduleActivityInput = {
       id: 2,
@@ -299,7 +303,8 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       originalDurationDays: 1,
     };
 
-    // 1. projectDataDate ("2026-02-02") overrides both plannedStart ("2026-03-02") and scheduleDate ("2026-04-01") for actWithoutPlanned
+    // 1. projectDataDate ("2026-02-02") overrides scheduleDate ("2026-04-01") for
+    //    every open activity; plannedStart ("2026-03-02") is ignored entirely.
     const res1 = runScheduleEngine(
       "2026-02-02",
       "2026-04-01",
@@ -308,9 +313,11 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       [actWithPlanned, actWithoutPlanned],
       []
     );
+    expect(res1.find((r) => r.id === 1)!.earlyStart).toBe("2026-02-02");
     expect(res1.find((r) => r.id === 2)!.earlyStart).toBe("2026-02-02");
 
-    // 2. null projectDataDate -> earliest plannedStart ("2026-03-02") overrides explicit scheduleDate ("2026-04-01") for actWithoutPlanned
+    // 2. null projectDataDate -> explicit scheduleDate ("2026-04-01"); plannedStart
+    //    still ignored.
     const res2 = runScheduleEngine(
       null,
       "2026-04-01",
@@ -319,33 +326,24 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       [actWithPlanned, actWithoutPlanned],
       []
     );
-    expect(res2.find((r) => r.id === 2)!.earlyStart).toBe("2026-03-02");
-
-    // 3. null projectDataDate and null plannedStart -> explicit scheduleDate ("2026-04-01") is used for actWithoutPlanned
-    const res3 = runScheduleEngine(
-      null,
-      "2026-04-01",
-      [monFriCalendar],
-      1,
-      [actWithoutPlanned],
-      []
-    );
-    expect(res3[0].earlyStart).toBe("2026-04-01");
+    expect(res2.find((r) => r.id === 1)!.earlyStart).toBe("2026-04-01");
+    expect(res2.find((r) => r.id === 2)!.earlyStart).toBe("2026-04-01");
   });
 
-  it("throws a controlled error when all three anchors (data_date, plannedStart, scheduleDate) are absent/invalid", () => {
+  it("throws a controlled error when both anchors (data_date, scheduleDate) are absent/invalid", () => {
     const baseAct: ScheduleActivityInput = {
       id: 1,
       wbsNodeId: 1,
       activityName: "No Anchor Test",
       originalDurationDays: 1,
+      plannedStart: "2026-03-02",
     };
     expect(() =>
       runScheduleEngine(null, null, [monFriCalendar], 1, [baseAct], [])
-    ).toThrow(/no valid project data_date, plannedStart, or scheduleDate anchor available/i);
+    ).toThrow(/no valid project data_date or scheduleDate anchor available/i);
     expect(() =>
       runScheduleEngine("invalid-date", "bad-date", [monFriCalendar], 1, [baseAct], [])
-    ).toThrow(/no valid project data_date, plannedStart, or scheduleDate anchor available/i);
+    ).toThrow(/no valid project data_date or scheduleDate anchor available/i);
   });
   it("uses Actual Finish as FS predecessor anchor and propagates through chained successors", () => {
     // PR345 acceptance scenario network:
@@ -434,17 +432,20 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
       { id: 2, predecessorActivityId: 1, successorActivityId: 3, dependencyType: "SF", lagDays: 0 },
     ];
 
-    // Data Date: 2026-08-13 (Thu)
+    // Data Date: 2026-08-13 (Thu). The Data Date floor governs remaining work,
+    // so successors whose network dates precede the floor move to the floor.
     const res = runScheduleEngine("2026-08-13", "2026-08-13", [monFriCalendar], 1, activities, dependencies);
     const map = new Map(res.map((r) => [r.id, r]));
 
-    // SS + 1 lag anchored to P's Actual Start (2026-08-11 Tue -> +1 working day -> 2026-08-12 Wed)
-    expect(map.get(2)!.earlyStart).toBe("2026-08-12");
-    expect(map.get(2)!.earlyFinish).toBe("2026-08-13");
+    // SS + 1 lag anchored to P's Actual Start (2026-08-11 Tue -> +1 working day ->
+    // 2026-08-12 Wed), clamped by the Data Date floor -> 2026-08-13 Thu
+    expect(map.get(2)!.earlyStart).toBe("2026-08-13");
+    expect(map.get(2)!.earlyFinish).toBe("2026-08-14");
 
-    // SF 0 lag anchored to P's Actual Start (2026-08-11 Tue finish -> dur 2 -> ES = 2026-08-10 Mon)
-    expect(map.get(3)!.earlyFinish).toBe("2026-08-11");
-    expect(map.get(3)!.earlyStart).toBe("2026-08-10");
+    // SF 0 lag anchored to P's Actual Start (2026-08-11 Tue), clamped by the Data
+    // Date floor -> ES = 2026-08-13, EF = 2026-08-14
+    expect(map.get(3)!.earlyFinish).toBe("2026-08-14");
+    expect(map.get(3)!.earlyStart).toBe("2026-08-13");
   });
 
   it("supports actual-finish anchoring for FF relationships with lag", () => {
@@ -479,13 +480,15 @@ describe("Primavera Lite Scheduling Engine (Pure CPM)", () => {
     const res = runScheduleEngine("2026-08-13", "2026-08-13", [monFriCalendar], 1, activities, dependencies);
     const map = new Map(res.map((r) => [r.id, r]));
 
-    // FF + 1 lag: P actual finish 2026-08-13 Thu -> EF req = 2026-08-14 Fri. Dur 3 -> ES = 2026-08-12 Wed
-    expect(map.get(2)!.earlyFinish).toBe("2026-08-14");
-    expect(map.get(2)!.earlyStart).toBe("2026-08-12");
+    // FF + 1 lag: P actual finish 2026-08-13 Thu -> EF req = 2026-08-14 Fri. Dur 3
+    // -> network ES 2026-08-12, Data Date floor 2026-08-13 => ES 2026-08-13, EF 2026-08-17
+    expect(map.get(2)!.earlyFinish).toBe("2026-08-17");
+    expect(map.get(2)!.earlyStart).toBe("2026-08-13");
 
-    // FF - 1 lag: P actual finish 2026-08-13 Thu -> EF req = 2026-08-12 Wed. Dur 2 -> ES = 2026-08-11 Tue
-    expect(map.get(3)!.earlyFinish).toBe("2026-08-12");
-    expect(map.get(3)!.earlyStart).toBe("2026-08-11");
+    // FF - 1 lag: P actual finish 2026-08-13 Thu -> EF req = 2026-08-12 Wed. Dur 2
+    // -> network ES 2026-08-11, clamped by the Data Date floor => ES 2026-08-13, EF 2026-08-14
+    expect(map.get(3)!.earlyFinish).toBe("2026-08-14");
+    expect(map.get(3)!.earlyStart).toBe("2026-08-13");
   });
 
   it("handles weekend working-day span correctly (5 working days crossing weekend = 7 calendar days)", () => {
@@ -624,5 +627,159 @@ describe("PR345 exact production reproduction", () => {
     expect(activities[1].plannedFinish).toBeNull();
     expect(activities[2].plannedStart).toBeNull();
     expect(activities[2].plannedFinish).toBeNull();
+  });
+});
+
+describe("F-01 Data Date floor / F-09 classical CPM semantics", () => {
+  it("applies the Data Date floor to a successor of a completed predecessor (F-01)", () => {
+    // Data Date 2026-08-10; predecessor completed with actualFinish 2026-08-04.
+    // The successor must not schedule before the Data Date.
+    const activities: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "DoneP", originalDurationDays: 2, percentComplete: 100, actualStart: "2026-08-03", actualFinish: "2026-08-04" },
+      { id: 2, wbsNodeId: 1, activityName: "S", originalDurationDays: 3 },
+    ];
+    const deps: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+    ];
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, deps);
+    const map = new Map(res.map((r) => [r.id, r]));
+    expect(map.get(2)!.earlyStart).toBe("2026-08-10");
+    expect(map.get(2)!.earlyFinish).toBe("2026-08-12");
+    // Completed predecessor keeps its historical actuals.
+    expect(map.get(1)!.earlyStart).toBe("2026-08-03");
+    expect(map.get(1)!.earlyFinish).toBe("2026-08-04");
+  });
+
+  it("applies the Data Date floor to an unfinished root activity (F-01)", () => {
+    const activities: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "Root", originalDurationDays: 5, plannedStart: "2026-08-03" },
+    ];
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, []);
+    // plannedStart (2026-08-03) is ignored; the floor governs.
+    expect(res[0].earlyStart).toBe("2026-08-10");
+    expect(res[0].earlyFinish).toBe("2026-08-14");
+  });
+
+  it("floors a partially complete activity's remaining work at the Data Date (F-01)", () => {
+    const activities: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "InProg", originalDurationDays: 10, percentComplete: 60, actualStart: "2026-07-28", remainingDurationDays: 2 },
+    ];
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, []);
+    expect(res[0].earlyStart).toBe("2026-08-10");
+    expect(res[0].earlyFinish).toBe("2026-08-11");
+    // Actual Start remains the historical fact it is.
+    expect(res[0].earlyStart).not.toBe("2026-07-28");
+  });
+
+  it("plannedStart before the CPM result does not pull Early Start earlier (F-09)", () => {
+    const build = (plannedStart: string | null) => {
+      const activities: ScheduleActivityInput[] = [
+        { id: 1, wbsNodeId: 1, activityName: "P", originalDurationDays: 2, plannedStart },
+        { id: 2, wbsNodeId: 1, activityName: "S", originalDurationDays: 2 },
+      ];
+      const deps: ScheduleDependencyInput[] = [
+        { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+      ];
+      return runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, deps);
+    };
+    const withEarlyPlanned = new Map(build("2026-08-01").map((r) => [r.id, r]));
+    const withoutPlanned = new Map(build(null).map((r) => [r.id, r]));
+    expect(withEarlyPlanned.get(1)!.earlyStart).toBe(withoutPlanned.get(1)!.earlyStart);
+    expect(withEarlyPlanned.get(1)!.earlyFinish).toBe(withoutPlanned.get(1)!.earlyFinish);
+    expect(withEarlyPlanned.get(2)!.earlyStart).toBe(withoutPlanned.get(2)!.earlyStart);
+  });
+
+  it("plannedStart after the CPM result does not push Early Start later (F-09)", () => {
+    const activities: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "P", originalDurationDays: 2 },
+      { id: 2, wbsNodeId: 1, activityName: "S", originalDurationDays: 1, plannedStart: "2026-08-20" },
+    ];
+    const deps: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 },
+    ];
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, deps);
+    const map = new Map(res.map((r) => [r.id, r]));
+    // Network says S starts 2026-08-12 (after P finishes 2026-08-11); the planned
+    // commitment 2026-08-20 is informational and must not bind Early Start.
+    expect(map.get(2)!.earlyStart).toBe("2026-08-12");
+    expect(map.get(2)!.earlyFinish).toBe("2026-08-12");
+  });
+
+  it("plannedFinish never influences CPM output (F-09)", () => {
+    const a1: ScheduleActivityInput = { id: 1, wbsNodeId: 1, activityName: "A", originalDurationDays: 5, plannedStart: "2026-08-10", plannedFinish: "2026-09-30" };
+    const a2: ScheduleActivityInput = { id: 1, wbsNodeId: 1, activityName: "A", originalDurationDays: 5 };
+    const r1 = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, [a1], []);
+    const r2 = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, [a2], []);
+    expect(r1[0].earlyStart).toBe(r2[0].earlyStart);
+    expect(r1[0].earlyFinish).toBe(r2[0].earlyFinish);
+  });
+
+  it("the engine never trusts arbitrary status strings (F-10)", () => {
+    // status='completed' with percentComplete < 100 must NOT be treated as
+    // completed — completion is the canonical progress fact (percentComplete 100).
+    const activities: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "Lies", originalDurationDays: 5, status: "completed", percentComplete: 20 },
+    ];
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, []);
+    expect(res[0].earlyStart).toBe("2026-08-10");
+    // Remaining work at 20% of a 5-day task is 4 working days (Mon..Thu), NOT zero.
+    expect(res[0].earlyFinish).toBe("2026-08-13");
+  });
+});
+
+describe("adversarial regression (frozen design §10)", () => {
+  it("scenario 16: two equal-length parallel paths are both critical", () => {
+    // A -> B (3d) and A -> C (3d) then B -> D, C -> D. Both B and C are critical.
+    const activities: ScheduleActivityInput[] = [
+      { id: 10, wbsNodeId: 1, activityName: "A", originalDurationDays: 1 },
+      { id: 20, wbsNodeId: 1, activityName: "B", originalDurationDays: 3 },
+      { id: 30, wbsNodeId: 1, activityName: "C", originalDurationDays: 3 },
+      { id: 40, wbsNodeId: 1, activityName: "D", originalDurationDays: 1 },
+    ];
+    const deps: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 10, successorActivityId: 20, dependencyType: "FS", lagDays: 0 },
+      { id: 2, predecessorActivityId: 10, successorActivityId: 30, dependencyType: "FS", lagDays: 0 },
+      { id: 3, predecessorActivityId: 20, successorActivityId: 40, dependencyType: "FS", lagDays: 0 },
+      { id: 4, predecessorActivityId: 30, successorActivityId: 40, dependencyType: "FS", lagDays: 0 },
+    ];
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, deps);
+    const map = new Map(res.map((r) => [r.id, r]));
+    for (const id of [10, 20, 30, 40]) {
+      expect(map.get(id)!.isCritical, `activity ${id}`).toBe(true);
+      expect(map.get(id)!.totalFloatDays).toBe(0);
+    }
+  });
+
+  it("scenario 1/2/3 consolidated: DD floor governs successors, partial progress, and leads", () => {
+    // Completed P (finish before DD) -> S; S with SS -2 lead; T in progress.
+    const activities: ScheduleActivityInput[] = [
+      { id: 1, wbsNodeId: 1, activityName: "P", originalDurationDays: 2, percentComplete: 100, actualStart: "2026-08-03", actualFinish: "2026-08-04" },
+      { id: 2, wbsNodeId: 1, activityName: "S", originalDurationDays: 2 },
+    ];
+    const deps: ScheduleDependencyInput[] = [
+      { id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "SS", lagDays: -2 },
+    ];
+    const res = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, activities, deps);
+    const s = res.find((r) => r.id === 2)!;
+    // Negative lead would place S on 2026-08-05, but the Data Date floor wins.
+    expect(s.earlyStart).toBe("2026-08-10");
+    expect(s.earlyFinish).toBe("2026-08-11");
+    // Completed predecessor keeps historical actuals.
+    expect(res.find((r) => r.id === 1)!.earlyStart).toBe("2026-08-03");
+    expect(res.find((r) => r.id === 1)!.earlyFinish).toBe("2026-08-04");
+  });
+
+  it("scenario 7/8: one-day task keeps ES===EF as a task; explicit milestone stays a milestone", () => {
+    const task = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, [
+      { id: 1, wbsNodeId: 1, activityName: "OneDay", originalDurationDays: 1 },
+    ], []);
+    expect(task[0].earlyStart).toBe("2026-08-10");
+    expect(task[0].earlyFinish).toBe("2026-08-10");
+
+    const ms = runScheduleEngine("2026-08-10", "2026-08-10", [monFriCalendar], 1, [
+      { id: 2, wbsNodeId: 1, activityName: "Gate", activityType: "milestone", originalDurationDays: 0 },
+    ], []);
+    expect(ms[0].earlyStart).toBe("2026-08-10");
+    expect(ms[0].earlyFinish).toBe("2026-08-10");
   });
 });

@@ -114,10 +114,18 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
       access: p.editor,
       expectedRevision: loaded.revision,
       activityId: created.activity.id,
-      changes: { actualStart: "2026-08-11", actualFinish: "2026-08-12" },
+      changes: { actualStart: "2026-08-11" },
     });
     expect(res.activity.actualStart).toBe("2026-08-11");
-    expect(res.activity.actualFinish).toBe("2026-08-12");
+    const res2 = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug,
+      access: p.editor,
+      expectedRevision: res.revision,
+      activityId: created.activity.id,
+      // Recording an Actual Finish is the explicit completion transition (F-10).
+      changes: { actualFinish: "2026-08-12", percentComplete: 100 },
+    });
+    expect(res2.activity.actualFinish).toBe("2026-08-12");
     // planned dates preserved untouched
     expect(res.activity.plannedStart).toBe("2026-08-10");
     expect(res.activity.plannedFinish).toBe("2026-08-13");
@@ -132,7 +140,7 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
       access: p.editor,
       expectedRevision: loaded.revision,
       activityId: created.activity.id,
-      changes: { actualStart: "2026-08-01", actualFinish: "2026-08-02" },
+      changes: { actualStart: "2026-08-01", actualFinish: "2026-08-02", percentComplete: 100 },
     });
     loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
     const cleared = await caller.primaveraLite.updateActivity({
@@ -350,7 +358,7 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
       access: p.editor,
       expectedRevision: loaded.revision,
       activityId: created.activity.id,
-      changes: { actualStart: "2026-08-11", actualFinish: "2026-08-12" },
+      changes: { actualStart: "2026-08-11", actualFinish: "2026-08-12", percentComplete: 100 },
     });
     loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
     const sched = await caller.primaveraLite.runSchedule({
@@ -380,7 +388,7 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
     let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
     const completed = await caller.primaveraLite.updateActivity({
       slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
-      activityId: created.activity.id, changes: { actualFinish: "2026-08-12", percentComplete: 25 },
+      activityId: created.activity.id, changes: { actualFinish: "2026-08-12", percentComplete: 100 },
     });
     expect(completed.activity.actualFinish).toBe("2026-08-12");
     expect(completed.activity.percentComplete).toBe(100);
@@ -507,7 +515,7 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
       access: p.editor,
       expectedRevision: loaded.revision,
       activityId: t1.activity.id,
-      changes: { actualFinish: "2026-08-12" },
+      changes: { actualFinish: "2026-08-12", percentComplete: 100 },
     });
     loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
 
@@ -589,7 +597,7 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
       access: p.editor,
       expectedRevision: loaded.revision,
       activityId: created.activity.id,
-      changes: { actualFinish: "2026-08-14" },
+      changes: { actualFinish: "2026-08-14", percentComplete: 100 },
     });
     expect(manualSuccess.activity.actualFinish).toBe("2026-08-14");
     expect(manualSuccess.activity.percentComplete).toBe(100);
@@ -666,7 +674,7 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
       access: p.editor,
       expectedRevision: loaded.revision,
       activityId: actA.activity.id,
-      changes: { actualFinish: PR345_MANUAL_ACTUAL_FINISH },
+      changes: { actualFinish: PR345_MANUAL_ACTUAL_FINISH, percentComplete: 100 },
     });
     expect(aManual.activity.actualFinish).toBe(PR345_MANUAL_ACTUAL_FINISH);
     expect(aManual.activity.percentComplete).toBe(100);
@@ -881,5 +889,85 @@ describe("Primavera Lite PR7 Date & Progress Editing", () => {
     expect(bAfterSched.plannedFinish).toBe("2026-08-19");
     expect(cAfterSched.plannedStart).toBe("2026-08-13");
     expect(cAfterSched.plannedFinish).toBe("2026-08-14");
+  });
+
+  it("F-10: explicit contradictions are rejected — completed status with 0%", async () => {
+    const p = await createProject("PR7 V1 Completed Zero");
+    const created = await createActivity(p.editor, p.project.slug, p.project.revision, { activityName: "Task" });
+    const loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    await expect(
+      caller.primaveraLite.updateActivity({
+        slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+        activityId: created.activity.id, changes: { status: "completed", percentComplete: 0 },
+      })
+    ).rejects.toThrow(/Completed status requires 100% complete/);
+  });
+
+  it("F-10: Actual Finish with <100% is rejected; the explicit transition (AF + 100%) completes", async () => {
+    const p = await createProject("PR7 V2 Finish Partial");
+    const created = await createActivity(p.editor, p.project.slug, p.project.revision, { activityName: "Task", percentComplete: 25 });
+    const loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    await expect(
+      caller.primaveraLite.updateActivity({
+        slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+        activityId: created.activity.id, changes: { actualFinish: "2026-08-14" },
+      })
+    ).rejects.toThrow(/Actual Finish requires 100% complete/);
+
+    const done = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+      activityId: created.activity.id, changes: { actualFinish: "2026-08-14", percentComplete: 100 },
+    });
+    expect(done.activity.actualFinish).toBe("2026-08-14");
+    expect(done.activity.percentComplete).toBe(100);
+  });
+
+  it("F-10: unknown status and in-progress/not-started contradictions are rejected", async () => {
+    const p = await createProject("PR7 V5/V6/V7 Status");
+    const created = await createActivity(p.editor, p.project.slug, p.project.revision, { activityName: "Task" });
+    const loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    await expect(
+      caller.primaveraLite.updateActivity({
+        slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+        activityId: created.activity.id, changes: { status: "done" },
+      })
+    ).rejects.toThrow(/Unknown activity status/);
+    await expect(
+      caller.primaveraLite.updateActivity({
+        slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+        activityId: created.activity.id, changes: { status: "in-progress", percentComplete: 0 },
+      })
+    ).rejects.toThrow(/In-progress status requires progress strictly between 0% and 100%/);
+    await expect(
+      caller.primaveraLite.updateActivity({
+        slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+        activityId: created.activity.id, changes: { status: "not-started", percentComplete: 30 },
+      })
+    ).rejects.toThrow(/Not-started status cannot have progress or actual dates/);
+  });
+
+  it("F-10: T2 un-completion clears Actual Finish, derives remaining and derives status", async () => {
+    const p = await createProject("PR7 T2 Uncomplete");
+    await caller.primaveraLite.updateProjectMeta({
+      slug: p.project.slug, access: p.admin, expectedRevision: p.project.revision,
+      changes: { dataDate: "2026-08-13" },
+    });
+    let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const created = await createActivity(p.editor, p.project.slug, loaded.revision, { activityName: "Task", percentComplete: 0 });
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const completed = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+      activityId: created.activity.id, changes: { percentComplete: 100 },
+    });
+    expect(completed.activity.actualFinish).toBe("2026-08-13");
+    loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
+    const reduced = await caller.primaveraLite.updateActivity({
+      slug: p.project.slug, access: p.editor, expectedRevision: loaded.revision,
+      activityId: created.activity.id, changes: { percentComplete: 60, remainingDurationDays: 2 },
+    });
+    expect(reduced.activity.percentComplete).toBe(60);
+    expect(reduced.activity.actualFinish).toBeNull();
+    expect(reduced.activity.remainingDurationDays).toBe(2);
+    expect(reduced.activity.status).toBe("in-progress");
   });
 });

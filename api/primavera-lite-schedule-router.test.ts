@@ -104,6 +104,11 @@ describe("Primavera Lite PR6 Scheduling Engine & runSchedule mutation", () => {
 
   it("calculates and persists CPM fields, updates lastScheduledAt, bumps revision by 1, and records an atomic scheduling event", async () => {
     const p = await createProject("PR6 CPM Flow");
+    // F-09: plannedStart is informational; the Data Date is the schedule anchor.
+    await caller.primaveraLite.updateProjectMeta({
+      slug: p.project.slug, access: p.admin, expectedRevision: p.project.revision,
+      changes: { dataDate: "2026-08-10" },
+    });
     let loaded = await caller.primaveraLite.load({ slug: p.project.slug, access: p.editor });
 
     // Add A -> B -> C network

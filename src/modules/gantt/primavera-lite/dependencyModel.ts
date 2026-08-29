@@ -42,6 +42,8 @@ export type DependencyGeometry = {
   endX: number;
   endY: number;
   path: string;
+  /** Lag value rendered as a small +n d / -n d label chip, never to scale (F-12). */
+  lagLabel: string | null;
 };
 
 export function dependencyLineGeometry(
@@ -54,6 +56,9 @@ export function dependencyLineGeometry(
   for (const dependency of dependencies) {
     const predecessor = byId.get(dependency.predecessorActivityId);
     const successor = byId.get(dependency.successorActivityId);
+    // plannedDates() resolves the activity's rendered primary span (planned pair
+    // first, CPM early pair only as fallback), so dependency lines always attach
+    // to the visible bars (F-12).
     const predDates = predecessor && plannedDates(predecessor);
     const succDates = successor && plannedDates(successor);
     if (!predecessor || !successor || !predDates || !succDates) continue;
@@ -66,8 +71,10 @@ export function dependencyLineGeometry(
     const startY = rowIndex.get(predecessor.id)! * SCHEDULE_ROW_HEIGHT + SCHEDULE_ROW_HEIGHT / 2;
     const endY = rowIndex.get(successor.id)! * SCHEDULE_ROW_HEIGHT + SCHEDULE_ROW_HEIGHT / 2;
     const bendX = startX + Math.max(8, (endX - startX) / 2);
+    const lagLabel =
+      dependency.lagDays === 0 ? null : `${dependency.lagDays > 0 ? "+" : ""}${dependency.lagDays} d`;
     geometry.push({ id: dependency.id, type: dependency.dependencyType, startX, startY, endX, endY,
-      path: `M ${startX} ${startY} H ${bendX} V ${endY} H ${endX}` });
+      path: `M ${startX} ${startY} H ${bendX} V ${endY} H ${endX}`, lagLabel });
   }
   return geometry;
 }

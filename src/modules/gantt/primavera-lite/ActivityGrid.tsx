@@ -40,6 +40,10 @@ type Props = {
   onActivityHighlight?: (activityId: number | null) => void;
   verticalScrollTop?: number;
   onVerticalScroll?: (scrollTop: number) => void;
+  /** Archived-row visibility is lifted to the page so the timeline can mirror
+   *  the exact row set and keep vertical alignment (F-12). */
+  showArchived?: boolean;
+  onShowArchivedChange?: (show: boolean) => void;
 };
 
 export default function ActivityGrid(props: Props) {
@@ -47,11 +51,17 @@ export default function ActivityGrid(props: Props) {
   const utils = trpc.useUtils();
   const queryInput = { slug, access };
   const { canEdit } = activityGridPermissions(role);
-  const [showArchived, setShowArchived] = useState(false);
+  const [internalShowArchived, setInternalShowArchived] = useState(false);
+  const showArchived = props.showArchived ?? internalShowArchived;
+  const setShowArchived = (value: boolean) => {
+    if (props.onShowArchivedChange) props.onShowArchivedChange(value);
+    else setInternalShowArchived(value);
+  };
   const leafNodes = useMemo(() => wbsNodes.filter((node) => node.isLeaf && !node.archivedAt), [wbsNodes]);
   const activities = useMemo(() => sortActivities(props.activities).filter((a) => showArchived || !a.archivedAt), [props.activities, showArchived]);
   const hasArchived = useMemo(() => props.activities.some((a) => a.archivedAt), [props.activities]);
   const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState<"task" | "milestone">("task");
   const [newWbs, setNewWbs] = useState<number | null>(leafNodes[0]?.id ?? null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<string>("");
@@ -168,7 +178,7 @@ export default function ActivityGrid(props: Props) {
 
   function submitEdit(
     activity: ActivityGridRow,
-    field: EditableTextField | EditableNumericField | EditableDateField | "calendarId",
+    field: EditableTextField | EditableNumericField | EditableDateField | "calendarId" | "activityType",
     rawValue: string
   ) {
     const isDateField = isDateFieldName(field);
@@ -180,6 +190,9 @@ export default function ActivityGrid(props: Props) {
       value = Number(rawValue);
     } else if (field === "calendarId") {
       value = rawValue ? Number(rawValue) : null;
+    } else if (field === "activityId") {
+      // F-03 canonical normalization: trim; empty -> NULL; preserve case otherwise.
+      value = rawValue.trim() === "" ? null : rawValue.trim();
     } else {
       value = rawValue;
     }
@@ -272,14 +285,15 @@ export default function ActivityGrid(props: Props) {
         <div className="flex flex-wrap items-end gap-2 rounded border bg-white p-3">
           <div className="min-w-64 flex-1"><label className="text-xs font-medium">Activity name</label><Input value={newName} onChange={(e) => setNewName(e.target.value)} /></div>
           <div><label className="block text-xs font-medium">WBS</label><select className="h-9 rounded border px-2" value={selectedNewWbs ?? ""} onChange={(e) => setNewWbs(Number(e.target.value))}>{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></div>
-          <Button disabled={!newName.trim() || selectedNewWbs === null || createActivity.isPending} onClick={() => createActivity.mutate({ slug, access, expectedRevision, wbsNodeId: selectedNewWbs!, activity: { activityName: newName.trim() } })}><Plus className="mr-1 h-4 w-4" />Add Activity</Button>
+          <div><label className="block text-xs font-medium">Type</label><select className="h-9 rounded border px-2" value={newType} onChange={(e) => setNewType(e.target.value as "task" | "milestone")}><option value="task">Task</option><option value="milestone">Milestone</option></select></div>
+          <Button disabled={!newName.trim() || selectedNewWbs === null || createActivity.isPending} onClick={() => createActivity.mutate({ slug, access, expectedRevision, wbsNodeId: selectedNewWbs!, activity: { activityName: newName.trim(), activityType: newType } })}><Plus className="mr-1 h-4 w-4" />Add Activity</Button>
         </div>
       )}
       {message && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">{message}{conflict && <span> Your attempted value is preserved; retry the highlighted edit.</span>}</div>}
       <div ref={rowsViewportRef} onScroll={(event) => props.onVerticalScroll?.(event.currentTarget.scrollTop)}
         className="max-h-[520px] overflow-auto rounded border bg-white" data-testid="activity-grid-scroll-viewport">
         <table className="w-full min-w-[2200px] text-sm">
-          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">WBS</th><th className="p-2">Planned start</th><th className="p-2">Planned finish</th><th className="p-2">Actual start</th><th className="p-2">Actual finish</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">% complete</th><th className="p-2">Early start</th><th className="p-2">Early finish</th><th className="p-2">Late start</th><th className="p-2">Late finish</th><th className="p-2">Total float</th><th className="w-16 p-2">Archive</th></tr></thead>
+          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">Type</th><th className="p-2">WBS</th><th className="p-2">Planned start</th><th className="p-2">Planned finish</th><th className="p-2">Actual start</th><th className="p-2">Actual finish</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">% complete</th><th className="p-2">Early start</th><th className="p-2">Early finish</th><th className="p-2">Late start</th><th className="p-2">Late finish</th><th className="p-2">Total float</th><th className="w-16 p-2">Archive</th></tr></thead>
           <tbody>{activities.map((activity) => (
             <tr key={activity.id} draggable={canEdit && !activity.archivedAt} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)}
               onMouseEnter={() => props.onActivityHighlight?.(activity.id)} onMouseLeave={() => props.onActivityHighlight?.(null)}
@@ -287,6 +301,7 @@ export default function ActivityGrid(props: Props) {
               style={{ height: SCHEDULE_ROW_HEIGHT }} className={`border-t transition-colors ${props.highlightedActivityId === activity.id ? "bg-blue-50" : ""} ${activity.archivedAt ? "bg-slate-50 text-slate-500" : ""}`}>
               <td className="p-2 text-slate-400">{canEdit && <GripVertical className="h-4 w-4 cursor-grab" />}</td>
               <td className="p-1">{editableCell(activity, "activityId")}</td><td className="p-1">{editableCell(activity, "activityName")}</td>
+              <td className="p-1">{activity.archivedAt ? <span className="px-2">{activity.activityType ?? "task"}</span> : <select disabled={!canEdit} value={activity.activityType ?? "task"} onChange={(e) => submitEdit(activity, "activityType", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none"><option value="task">Task</option><option value="milestone">Milestone</option></select>}</td>
               <td className="p-1">{activity.archivedAt ? <span className="px-2">{leafNodes.find((n) => n.id === activity.wbsNodeId)?.code ?? "—"}</span> : <select disabled={!canEdit} value={activity.wbsNodeId} onChange={(e) => submitEdit(activity, "wbsNodeId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none">{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select>}</td>
               <td className="p-1">{editableDateCell(activity, "plannedStart")}</td>
               <td className="p-1">{editableDateCell(activity, "plannedFinish")}</td>

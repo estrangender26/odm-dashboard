@@ -130,11 +130,28 @@ export function activityTimelineModel(activity: TimelineActivity): ActivityTimel
   return { planned, cpm, primary, actual: actualState(activity), progress: progressState(activity) };
 }
 
-export function isMilestone(
-  activity: TimelineActivity,
-  dates: { start: Date; finish: Date } | null | undefined = plannedDates(activity)
-): boolean {
-  return activity.activityType === "milestone" || Boolean(dates && differenceInCalendarDays(dates.finish, dates.start) === 0);
+/**
+ * Milestone identity comes ONLY from the explicit activity type (F-05). A
+ * normal one-working-day task has plannedStart === plannedFinish under the
+ * inclusive working-day convention and must remain a task bar, never a
+ * milestone diamond. The optional dates parameter is retained only for
+ * call-site compatibility and is intentionally ignored.
+ */
+export function isMilestone(activity: TimelineActivity): boolean {
+  return activity.activityType === "milestone";
+}
+
+/**
+ * F-04: current-critical means "on the current remaining-work critical path".
+ * Uses the canonical completion predicate (percentComplete === 100 AND a
+ * recorded Actual Finish) instead of a loose Timeline-specific expression, so
+ * completed activities — which legitimately retain zero float — are never
+ * presented as current-critical.
+ */
+export function isCurrentCritical(activity: TimelineActivity): boolean {
+  const p = progressState(activity);
+  const completed = p.isComplete && p.hasActualFinish;
+  return !completed && (activity.totalFloatDays ?? 0) <= 0 && activity.earlyStart != null;
 }
 
 export function timelineRange(activities: TimelineActivity[], dataDate?: TimelineDate, today = new Date()) {
