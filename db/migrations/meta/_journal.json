@@ -232,6 +232,13 @@
       "tag": "0032_google_oauth_auth_identity",
       "when": 1791312000020,
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "tag": "0033_smp_controlled_documents",
+      "when": 1791312000027,
+      "breakpoints": true
     }
   ]
 }

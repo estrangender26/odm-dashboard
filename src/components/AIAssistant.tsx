@@ -808,21 +808,35 @@ function buildDataContext(
       ctx += `Total Documents: ${data.length}\n`;
 
       const statusMap: Record<string, number> = {};
+      const familyMap: Record<string, number> = {};
       const equipMap: Record<string, number> = {};
+      const criticalityMap: Record<string, number> = {};
       const respMap: Record<string, number> = {};
 
       data.forEach((r: any) => {
         const st = r.Status || r.status || "Unknown";
         statusMap[st] = (statusMap[st] || 0) + 1;
+        const fm = r.Family || r.family || "Unknown";
+        familyMap[fm] = (familyMap[fm] || 0) + 1;
         const eq =
           r.EquipmentType ||
           r.equipmentType ||
-          r.System ||
-          r.system ||
+          r.AssetType ||
+          r.assetType ||
+          r.FacilityType ||
+          r.facilityType ||
           "Unknown";
         equipMap[eq] = (equipMap[eq] || 0) + 1;
+        const cr = r.Criticality || r.criticality || "Unknown";
+        criticalityMap[cr] = (criticalityMap[cr] || 0) + 1;
         const resp =
-          r.Responsible || r.responsible || r.Owner || r.owner || "Unknown";
+          r.DocumentOwner ||
+          r.documentOwner ||
+          r.Owner ||
+          r.owner ||
+          r.Responsible ||
+          r.responsible ||
+          "Unknown";
         respMap[resp] = (respMap[resp] || 0) + 1;
       });
 
@@ -831,7 +845,15 @@ function buildDataContext(
         ctx += `- ${s}: ${c}\n`;
       });
 
-      ctx += `\nEquipment Types:\n`;
+      ctx += `\nSMP Families:\n`;
+      Object.entries(familyMap)
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .slice(0, 10)
+        .forEach(([f, c]) => {
+          ctx += `- ${f}: ${c}\n`;
+        });
+
+      ctx += `\nEquipment / Asset Types:\n`;
       Object.entries(equipMap)
         .sort(([, a], [, b]) => (b as number) - (a as number))
         .slice(0, 10)
@@ -839,7 +861,12 @@ function buildDataContext(
           ctx += `- ${e}: ${c}\n`;
         });
 
-      ctx += `\nResponsible Parties:\n`;
+      ctx += `\nCriticality:\n`;
+      Object.entries(criticalityMap).forEach(([c, n]) => {
+        ctx += `- ${c}: ${n}\n`;
+      });
+
+      ctx += `\nDocument Owners:\n`;
       Object.entries(respMap)
         .sort(([, a], [, b]) => (b as number) - (a as number))
         .slice(0, 10)

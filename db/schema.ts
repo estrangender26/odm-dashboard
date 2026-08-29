@@ -262,21 +262,47 @@ export const docFiles = pgTable("doc_files", {
 
 /* ── Gantt Task Dependencies ── */
 
-/* ── SMP Documents ── */
+/* ── SMP Documents ──
+ *
+ * Controlled engineering-document repository. Each row is one SMP document
+ * series identified by its reference number (`code`). Revisions of the series
+ * live in `smp_document_revisions`; the file/storage columns on this row
+ * mirror the CURRENT revision (and legacy rows predating the revision model
+ * carry their file here directly). The original uploaded PDF is always the
+ * authoritative controlled document and is never rewritten in place.
+ */
 export const smpDocuments = pgTable("smp_documents", {
   id: serial("id").primaryKey(),
-  code: varchar("code", { length: 50 }).notNull(),
-  title: varchar("title", { length: 500 }).notNull(),
-  revision: varchar("revision", { length: 50 }).default("Rev. 1"),
+  // Document identity
+  code: varchar("code", { length: 50 }).notNull(), // Reference number, e.g. MW-ENGG-SP-1.0
+  title: varchar("title", { length: 500 }).notNull(), // SMP title
+  smpId: varchar("smp_id", { length: 100 }),
+  smpFamily: varchar("smp_family", { length: 255 }),
+  revision: varchar("revision", { length: 50 }).default("Rev. 1"), // current revision label
+  effectivityDate: date("effectivity_date"),
+  documentOwner: varchar("document_owner", { length: 255 }),
+  preparedBy: varchar("prepared_by", { length: 255 }),
+  reviewedBy: varchar("reviewed_by", { length: 255 }),
+  approvedBy: varchar("approved_by", { length: 255 }),
+  // Classification / applicability
+  assetName: varchar("asset_name", { length: 255 }),
+  assetType: varchar("asset_type", { length: 255 }),
   equipmentType: varchar("equipment_type", { length: 100 }),
+  facilityType: varchar("facility_type", { length: 255 }),
+  applicability: jsonb("applicability"), // flexible subtype/tag list, e.g. ["All", "Belt"]
+  criticality: varchar("criticality", { length: 20 }), // ABC criticality rating
+  // Legacy fields (kept for backward compatibility)
   system: varchar("system", { length: 100 }),
   dateIssued: varchar("date_issued", { length: 20 }),
   nextReview: varchar("next_review", { length: 20 }),
   status: varchar("status", { length: 50 }).default("Active"),
   responsibleParty: varchar("responsible_party", { length: 255 }),
+  // File mirror (current revision) / legacy file
   fileData: text("file_data"),
   fileType: varchar("file_type", { length: 100 }),
   fileName: varchar("file_name", { length: 255 }),
+  uploadedBy: varchar("uploaded_by", { length: 255 }),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   ...storageMetadataColumns(),
@@ -284,7 +310,128 @@ export const smpDocuments = pgTable("smp_documents", {
   index("smp_equip_idx").on(table.equipmentType),
   index("smp_system_idx").on(table.system),
   index("smp_status_idx").on(table.status),
+  index("smp_family_idx").on(table.smpFamily),
+  index("smp_facility_type_idx").on(table.facilityType),
+  index("smp_criticality_idx").on(table.criticality),
 ]);
+
+/* ── SMP Document Revisions ──
+ *
+ * One row per uploaded revision of an SMP. The original PDF object in Storage
+ * is immutable; a new revision is a new row, never an overwrite of a previous
+ * one. Status distinguishes the current revision from superseded history.
+ */
+export const smpDocumentRevisions = pgTable("smp_document_revisions", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull().references(() => smpDocuments.id, { onDelete: "cascade" }),
+  revision: varchar("revision", { length: 50 }).notNull(), // label, e.g. "Rev. 0"
+  revisionNumber: integer("revision_number").notNull().default(0),
+  status: varchar("status", { length: 32 }).notNull().default("current"), // current | superseded
+  effectivityDate: date("effectivity_date"),
+  supersededByRevisionId: integer("superseded_by_revision_id").references((): AnyPgColumn => smpDocumentRevisions.id, { onDelete: "set null" }),
+  originalFileName: varchar("original_file_name", { length: 255 }),
+  fileType: varchar("file_type", { length: 100 }),
+  fileSize: bigint("file_size", { mode: "number" }),
+  uploadedBy: varchar("uploaded_by", { length: 255 }),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  ...storageMetadataColumns(),
+}, (table) => [
+  unique("smp_document_revisions_document_revision_unique").on(table.documentId, table.revision),
+  index("smp_document_revisions_document_idx").on(table.documentId),
+  index("smp_document_revisions_status_idx").on(table.documentId, table.status),
+]);
+
+/* ── SMP Families ──
+ *
+ * Data-driven family catalog. The seven approved Manila Water SMP families are
+ * seeded by migration 0033; future families are added as data, not frontend
+ * code.
+ */
+export const smpFamilies = pgTable("smp_families", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull().unique(),
+  code: varchar("code", { length: 100 }).unique(),
+  typicalEquipment: jsonb("typical_equipment"), // array of typical equipment strings
+  suggestedTags: jsonb("suggested_tags"), // suggested subtype/applicability tags
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+/* ── SMP Sections ──
+ *
+ * Structured procedure sections (Document Control, Objective, Scope, ...).
+ * Sections are data rows; future SMPs may define different section counts.
+ */
+export const smpSections = pgTable("smp_sections", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull().references(() => smpDocuments.id, { onDelete: "cascade" }),
+  sectionKey: varchar("section_key", { length: 64 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body"),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("smp_sections_document_idx").on(table.documentId),
+]);
+
+/* ── SMP Tasks ──
+ *
+ * Structured maintenance tasks. `category` selects the structure:
+ *   operator_driven | technician_pm | technician_cbm | corrective
+ * Corrective tasks additionally use `failureMode`. Applicability is expressed
+ * through `smp_task_applicability` tags, never per-subtype columns.
+ */
+export const smpTasks = pgTable("smp_tasks", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull().references(() => smpDocuments.id, { onDelete: "cascade" }),
+  revisionId: integer("revision_id").references(() => smpDocumentRevisions.id, { onDelete: "set null" }),
+  category: varchar("category", { length: 32 }).notNull(),
+  responsibilityType: varchar("responsibility_type", { length: 32 }),
+  maintenanceClass: varchar("maintenance_class", { length: 32 }),
+  taskText: text("task_text").notNull(),
+  frequency: varchar("frequency", { length: 100 }),
+  toolsMaterials: text("tools_materials"),
+  safetyControls: text("safety_controls"),
+  fieldCaptureData: jsonb("field_capture_data"),
+  escalationTrigger: text("escalation_trigger"),
+  failureMode: text("failure_mode"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("smp_tasks_document_idx").on(table.documentId),
+  index("smp_tasks_category_idx").on(table.documentId, table.category),
+]);
+
+/* ── SMP Task Applicability ──
+ *
+ * Flexible subtype/equipment applicability tags for structured tasks
+ * (e.g. All, Belt, Filter, Screw, Volute, Decanter, PLC, SCADA, UPS,
+ * Pneumatic, Turbo, Screw Blower, MV, LV, VFD-driven, Grease, Oil).
+ */
+export const smpTaskApplicability = pgTable("smp_task_applicability", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => smpTasks.id, { onDelete: "cascade" }),
+  tag: varchar("tag", { length: 100 }).notNull(),
+}, (table) => [
+  index("smp_task_applicability_task_idx").on(table.taskId),
+  index("smp_task_applicability_tag_idx").on(table.tag),
+]);
+
+export type SmpDocument = typeof smpDocuments.$inferSelect;
+export type InsertSmpDocument = typeof smpDocuments.$inferInsert;
+export type SmpDocumentRevision = typeof smpDocumentRevisions.$inferSelect;
+export type InsertSmpDocumentRevision = typeof smpDocumentRevisions.$inferInsert;
+export type SmpFamily = typeof smpFamilies.$inferSelect;
+export type InsertSmpFamily = typeof smpFamilies.$inferInsert;
+export type SmpSection = typeof smpSections.$inferSelect;
+export type InsertSmpSection = typeof smpSections.$inferInsert;
+export type SmpTask = typeof smpTasks.$inferSelect;
+export type InsertSmpTask = typeof smpTasks.$inferInsert;
+export type SmpTaskApplicability = typeof smpTaskApplicability.$inferSelect;
+export type InsertSmpTaskApplicability = typeof smpTaskApplicability.$inferInsert;
 
 export const storageUploadIntents = pgTable("storage_upload_intents", {
   id: uuid("id").primaryKey(),

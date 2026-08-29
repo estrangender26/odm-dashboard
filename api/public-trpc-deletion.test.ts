@@ -18,9 +18,14 @@ vi.mock("./queries/connection", () => ({
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(() => Promise.resolve(mocks.dbSelectResult)),
-        })),
+        where: vi.fn(() => {
+          // Supports both limit-terminated and bare awaited selects.
+          const chain: any = {
+            limit: vi.fn(() => Promise.resolve(mocks.dbSelectResult)),
+            then: (resolve: (value: any) => void) => resolve(mocks.dbSelectResult),
+          };
+          return chain;
+        }),
       })),
     })),
     delete: vi.fn((table: any) => ({

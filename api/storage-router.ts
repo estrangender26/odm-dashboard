@@ -11,6 +11,7 @@ import {
   projectWithoutPPPFiles,
   projectsWithoutPPP,
   smpDocuments,
+  smpDocumentRevisions,
   storageUploadIntents,
   users,
   type User,
@@ -33,6 +34,7 @@ import { env } from "./lib/env";
 import { deepEqualJson } from "./lib/json-equality";
 import { db } from "./queries/connection";
 import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-feature-flags";
+import { normalizeSmpRevisionLabel, parseSmpRevisionNumber, validateSmpRevisionUnique } from "./smp-logic";
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
 import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
@@ -47,7 +49,7 @@ const PUBLIC_SUBMITTER_LABEL = "Public Project Submission";
 
 export const storageRouter = new Hono();
 
-const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "project_without_ppp_files"]);
+const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "smp_document_revisions", "project_without_ppp_files"]);
 const authorizeSchema = z.object({
   module: z.enum(STORAGE_MODULES),
   originalFilename: z.string().trim().min(1).max(255),
@@ -125,7 +127,9 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
     if (!Number.isInteger(documentId) || documentId <= 0) throw new Error("A valid SMP document is required.");
     const rows = await db.select({ id: smpDocuments.id }).from(smpDocuments).where(eq(smpDocuments.id, documentId)).limit(1);
     if (!rows.length) throw new Error("SMP document not found.");
-    return { documentId };
+    const revision = target.revision == null ? undefined : String(target.revision).trim().slice(0, 50) || undefined;
+    const effectivityDate = target.effectivityDate == null ? undefined : String(target.effectivityDate).trim().slice(0, 10) || undefined;
+    return { documentId, revision, effectivityDate };
   }
   if (module === "projects_without_ppp") {
     const projectId = Number(target.projectId);
@@ -162,7 +166,7 @@ function buildObjectPath(module: StorageModule, target: Record<string, unknown>,
 
 function getSourceFromModule(module: StorageModule): StorageFileSource {
   if (module === "om") return "doc_files";
-  if (module === "smp") return "smp_documents";
+  if (module === "smp") return "smp_document_revisions";
   if (module === "projects_without_ppp") return "project_without_ppp_files";
   return "governance_uploads";
 }
@@ -623,11 +627,36 @@ storageRouter.post("/uploads/finalize", async (c) => {
         persistedId = inserted[0].id;
         persistedSource = "doc_files";
       } else if (intent.module === "smp") {
-        const inserted = await tx.insert(smpDocuments).values({
-          code: target.code || `SMP-${Date.now()}`,
-          title: intent.originalFilename.replace(/\.[^.]+$/, ""),
-          fileName: intent.originalFilename,
+        // A governed upload creates an immutable REVISION row for the target
+        // document series. The previous current revision is superseded (never
+        // overwritten) and the series row mirrors the new current revision.
+        const documentId = Number(target.documentId);
+        const revisionLabel = normalizeSmpRevisionLabel(target.revision);
+        const revisionNumber = parseSmpRevisionNumber(revisionLabel);
+        const existing = await tx.select({
+          id: smpDocumentRevisions.id,
+          revision: smpDocumentRevisions.revision,
+          status: smpDocumentRevisions.status,
+        }).from(smpDocumentRevisions).where(eq(smpDocumentRevisions.documentId, documentId));
+        const duplicateError = validateSmpRevisionUnique(existing.map((r) => r.revision), revisionLabel);
+        if (duplicateError) throw new Error(duplicateError);
+        const effectivityDate = target.effectivityDate ? String(target.effectivityDate).slice(0, 10) : null;
+        const uploaderName = intent.requestedBy
+          ? (await db.select({ name: users.name }).from(users).where(eq(users.id, intent.requestedBy)).limit(1))[0]?.name ?? null
+          : null;
+        const inserted = await tx.insert(smpDocumentRevisions).values({
+          documentId,
+          revision: revisionLabel,
+          revisionNumber,
+          status: "current",
+          effectivityDate,
+          originalFileName: intent.originalFilename,
           fileType: intent.expectedMimeType,
+          fileSize: actualSize,
+          uploadedBy: uploaderName,
+          uploadedAt: now,
+          createdAt: now,
+          updatedAt: now,
           storageProvider: "supabase",
           storageBucket: intent.expectedBucket,
           storagePath: intent.expectedPath,
@@ -635,11 +664,34 @@ storageRouter.post("/uploads/finalize", async (c) => {
           storageMimeType: actualMime,
           storageEtag: info.etag,
           storageUploadedAt: now,
-          createdAt: now,
+        }).returning({ id: smpDocumentRevisions.id });
+        const revisionId = inserted[0].id;
+        await tx.update(smpDocumentRevisions).set({
+          status: "superseded",
+          supersededByRevisionId: revisionId,
           updatedAt: now,
-        }).returning({ id: smpDocuments.id });
-        persistedId = inserted[0].id;
-        persistedSource = "smp_documents";
+        }).where(and(
+          eq(smpDocumentRevisions.documentId, documentId),
+          eq(smpDocumentRevisions.status, "current"),
+        ));
+        await tx.update(smpDocuments).set({
+          revision: revisionLabel,
+          fileName: intent.originalFilename,
+          fileType: intent.expectedMimeType,
+          status: "Active",
+          uploadedBy: uploaderName,
+          uploadedAt: now,
+          updatedAt: now,
+          storageProvider: "supabase",
+          storageBucket: intent.expectedBucket,
+          storagePath: intent.expectedPath,
+          storageSize: actualSize,
+          storageMimeType: actualMime,
+          storageEtag: info.etag,
+          storageUploadedAt: now,
+        }).where(eq(smpDocuments.id, documentId));
+        persistedId = revisionId;
+        persistedSource = "smp_document_revisions";
       } else if (intent.module === "projects_without_ppp") {
         // Public (anonymous) uploads have no users-table row: persist a neutral
         // system-owned submitter label rather than a fabricated personal name.
