@@ -27,9 +27,9 @@ describe("0031 Projects without PPP migration (content + journal)", () => {
     expect(entry!.when).toBeGreaterThan(1791312000013);
   });
 
-  it("0036 activity-id uniqueness is registered as the final journal entry", () => {
+  it("0037 baseline RLS hardening is registered as the final journal entry", () => {
     const last = journal.entries[journal.entries.length - 1];
-    expect(last.tag).toBe("0036_primavera_activity_id_unique");
+    expect(last.tag).toBe("0037_primavera_baseline_rls");
     expect(last.idx).toBe(journal.entries.length - 1);
     expect(last.when).toBeGreaterThan(entry!.when);
   });
