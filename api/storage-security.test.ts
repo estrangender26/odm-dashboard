@@ -102,12 +102,23 @@ describe("direct Storage security boundaries", () => {
     expect(fileRoutes).not.toContain("isStorageUploadEnabled");
   });
 
-  it("makes an SMP legacy replacement authoritative without deleting its old Storage object", () => {
+  it("removes base64 file replacement from SMP metadata mutations (files change only via governed revision uploads)", () => {
     const source = readFileSync(join(root, "api/smp-router.ts"), "utf8");
-    const updateRoute = source.slice(source.indexOf("/* ── 4. UPDATE ── */"), source.indexOf("/* ── 5. DELETE ── */"));
-    expect(updateRoute).toContain("if (data.fileData !== undefined)");
-    expect(updateRoute).toContain("clean.storagePath = null");
+    const updateRoute = source.slice(source.indexOf("update: authedQuery"), source.indexOf("/* ── Staged deletion"));
+    expect(updateRoute).not.toContain("fileData");
+    expect(updateRoute).not.toContain("fileName");
+    expect(updateRoute).not.toContain("storagePath = null");
     expect(updateRoute).not.toContain("getSupabaseStorageAdmin");
+  });
+
+  it("creates immutable SMP revision rows on finalize instead of inserting orphan documents", () => {
+    const storageSource = readFileSync(join(root, "api/storage-router.ts"), "utf8");
+    const smpFinalize = storageSource.slice(storageSource.indexOf('intent.module === "smp"'));
+    expect(smpFinalize).toContain("smpDocumentRevisions");
+    expect(smpFinalize).toContain('status: "superseded"');
+    expect(smpFinalize).toContain("supersededByRevisionId");
+    expect(smpFinalize).not.toContain("SMP-${Date.now()}");
+    expect(smpFinalize).not.toContain("code: target.code");
   });
 
   it("supports both authenticated and anonymous resume with capability verification", () => {

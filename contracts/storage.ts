@@ -25,4 +25,5 @@ export type StorageFileSource =
   | "governance_uploads"
   | "governance_files"
   | "smp_documents"
+  | "smp_document_revisions"
   | "project_without_ppp_files";

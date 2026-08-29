@@ -1,211 +1,511 @@
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "./queries/connection";
-import { smpDocuments } from "@db/schema";
+import {
+  smpDocuments,
+  smpDocumentRevisions,
+  smpDeletionRecords,
+  smpFamilies,
+  smpSections,
+  smpTasks,
+  smpTaskApplicability,
+} from "@db/schema";
 import { authedQuery, createRouter, publicQuery } from "./middleware";
 import {
-  MAX_UPLOAD_ERROR_MESSAGE,
-  isBase64UploadSizeAllowed,
-} from "@contracts/upload-limits";
+  buildSmpListWhere,
+  normalizeSmpCodeKey,
+  resolveSmpDetailRevision,
+  type SmpListInput,
+} from "./smp-logic";
 import { getSupabaseStorageAdmin } from "./supabase-storage";
 
-// ── Auto-create smp_documents table if it doesn't exist ──
-async function ensureSmpTable() {
-  try {
-    await db.execute(sql.raw(`SELECT 1 FROM smp_documents LIMIT 1`));
-  } catch {
-    console.log("[SMP] Creating smp_documents table...");
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS smp_documents (
-        id SERIAL PRIMARY KEY,
-        code VARCHAR(50) NOT NULL,
-        title VARCHAR(500) NOT NULL,
-        revision VARCHAR(50) DEFAULT 'Rev. 1',
-        equipment_type VARCHAR(100),
-        system VARCHAR(100),
-        date_issued VARCHAR(20),
-        next_review VARCHAR(20),
-        status VARCHAR(50) DEFAULT 'Active',
-        responsible_party VARCHAR(255),
-        file_data TEXT,
-        file_type VARCHAR(100),
-        file_name VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `));
-    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS smp_equip_idx ON smp_documents(equipment_type)`));
-    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS smp_system_idx ON smp_documents(system)`));
-    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS smp_status_idx ON smp_documents(status)`));
-    console.log("[SMP] smp_documents table created.");
-  }
-}
+/**
+ * SMP controlled-document repository.
+ *
+ * A row in `smp_documents` is one document SERIES identified by its reference
+ * number (`code`); the database enforces uniqueness on the normalized
+ * reference-number identity (migration 0034 `code_key` + unique index).
+ * Approved PDF revisions are immutable rows in `smp_document_revisions`; the
+ * file columns on the series row mirror the current revision. Structured
+ * procedure data (`smp_sections`, `smp_tasks`) is scoped to a specific
+ * revision so content from different revisions can never mix.
+ *
+ * Reads are public; every mutation requires authentication. Destructive
+ * deletion is staged through the `smp_deletion_records` ledger (prepare +
+ * confirm) so failures are explicit and retryable — no partial silent
+ * success, and no claim of atomicity across Postgres and Supabase Storage.
+ */
 
-const smpMetadataSelection = {
-  id: smpDocuments.id,
-  code: smpDocuments.code,
-  title: smpDocuments.title,
-  revision: smpDocuments.revision,
-  equipmentType: smpDocuments.equipmentType,
-  system: smpDocuments.system,
-  dateIssued: smpDocuments.dateIssued,
-  nextReview: smpDocuments.nextReview,
-  status: smpDocuments.status,
-  responsibleParty: smpDocuments.responsibleParty,
-  fileType: smpDocuments.fileType,
-  fileName: smpDocuments.fileName,
-  storagePath: smpDocuments.storagePath,
-  storageSize: smpDocuments.storageSize,
-  storageMimeType: smpDocuments.storageMimeType,
-  createdAt: smpDocuments.createdAt,
-  updatedAt: smpDocuments.updatedAt,
+const applicabilitySchema = z.array(z.string().trim().min(1).max(100)).max(50).optional();
+
+const listInputSchema = z.object({
+  search: z.string().max(200).optional(),
+  family: z.string().max(255).optional(),
+  equipmentType: z.string().max(255).optional(),
+  facilityType: z.string().max(255).optional(),
+  criticality: z.string().max(20).optional(),
+  revision: z.string().max(50).optional(),
+  status: z.string().max(50).optional(),
+});
+
+const metadataSchema = {
+  code: z.string().trim().min(1).max(50),
+  title: z.string().trim().min(1).max(500),
+  smpId: z.string().trim().max(100).optional(),
+  // Literal family text as documented in the approved PDF (preserved verbatim).
+  smpFamily: z.string().trim().max(255).optional(),
+  // Optional canonical family catalog relation (separate from literal text).
+  familyId: z.number().int().positive().optional(),
+  assetName: z.string().trim().max(255).optional(),
+  assetType: z.string().trim().max(255).optional(),
+  equipmentType: z.string().trim().max(255).optional(),
+  facilityType: z.string().trim().max(255).optional(),
+  applicability: applicabilitySchema,
+  criticality: z.string().trim().max(20).optional(),
+  documentOwner: z.string().trim().max(255).optional(),
+  preparedBy: z.string().trim().max(255).optional(),
+  reviewedBy: z.string().trim().max(255).optional(),
+  approvedBy: z.string().trim().max(255).optional(),
 };
 
-export const smpRouter = createRouter({
-  /* ── 1. LIST ALL ── */
-  list: publicQuery.query(async () => {
-    await ensureSmpTable();
-    const rows = await db.select(smpMetadataSelection).from(smpDocuments).orderBy(smpDocuments.code);
-    return { items: rows, count: rows.length };
-  }),
+type SmpDocumentRow = typeof smpDocuments.$inferSelect;
 
-  /* ── 2. GET SINGLE ── */
-  get: authedQuery
-    .input(z.object({ id: z.number() }))
+function toNullableString(value: string | undefined | null): string | null {
+  return value?.trim() ? value.trim() : null;
+}
+
+function toNullableStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+type FamilyNameMap = Map<number, string>;
+
+async function loadFamilyNameMap(): Promise<FamilyNameMap> {
+  const rows = await db.select({ id: smpFamilies.id, name: smpFamilies.name }).from(smpFamilies);
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+function mapDocumentRow(row: SmpDocumentRow, familyNames: FamilyNameMap, extra?: {
+  revisionCount?: number;
+  hasCurrentRevision?: boolean;
+}) {
+  return {
+    id: row.id,
+    code: row.code,
+    smpId: row.smpId,
+    title: row.title,
+    // Literal family text as documented (never rewritten).
+    smpFamily: row.smpFamily,
+    familyId: row.familyId,
+    canonicalFamily: row.familyId != null ? (familyNames.get(row.familyId) ?? null) : null,
+    assetName: row.assetName,
+    assetType: row.assetType,
+    equipmentType: row.equipmentType,
+    facilityType: row.facilityType,
+    applicability: toNullableStringArray(row.applicability),
+    criticality: row.criticality,
+    documentOwner: row.documentOwner,
+    preparedBy: row.preparedBy,
+    reviewedBy: row.reviewedBy,
+    approvedBy: row.approvedBy,
+    effectivityDate: row.effectivityDate,
+    revision: row.revision,
+    status: row.status,
+    system: row.system,
+    dateIssued: row.dateIssued,
+    nextReview: row.nextReview,
+    responsibleParty: row.responsibleParty,
+    hasFile: Boolean(row.fileName),
+    fileName: row.fileName,
+    fileType: row.fileType,
+    uploadedBy: row.uploadedBy,
+    uploadedAt: row.uploadedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    revisionCount: extra?.revisionCount ?? 0,
+    hasCurrentRevision: extra?.hasCurrentRevision ?? false,
+  };
+}
+
+export const smpRouter = createRouter({
+  /* ── Library list with search + filters (public read) ── */
+  list: publicQuery
+    .input(listInputSchema)
     .query(async ({ input }) => {
-      await ensureSmpTable();
-      const rows = await db.select().from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
-      return rows[0] || null;
+      const where = buildSmpListWhere(input as SmpListInput);
+      const rows = await db.select().from(smpDocuments)
+        .where(where)
+        .orderBy(smpDocuments.code);
+
+      const ids = rows.map((r) => r.id);
+      const revisionSummary: Map<number, { count: number; hasCurrent: boolean }> = new Map();
+      if (ids.length > 0) {
+        const grouped = await db.select({
+          documentId: smpDocumentRevisions.documentId,
+          count: smpDocumentRevisions.id,
+          status: smpDocumentRevisions.status,
+        }).from(smpDocumentRevisions).where(inArray(smpDocumentRevisions.documentId, ids));
+        for (const g of grouped) {
+          const prev = revisionSummary.get(g.documentId) ?? { count: 0, hasCurrent: false };
+          prev.count += 1;
+          if (g.status === "current") prev.hasCurrent = true;
+          revisionSummary.set(g.documentId, prev);
+        }
+      }
+
+      const familyNames = await loadFamilyNameMap();
+      const items = rows.map((row) => {
+        const summary = revisionSummary.get(row.id);
+        return mapDocumentRow(row, familyNames, {
+          revisionCount: summary?.count ?? 0,
+          hasCurrentRevision: summary?.hasCurrent ?? false,
+        });
+      });
+
+      // Data-driven filter options derived from ALL persisted records (not the
+      // filtered subset) so filters remain usable while one is active.
+      const filterRows = await db.select({
+        family: smpDocuments.smpFamily,
+        equipmentType: smpDocuments.equipmentType,
+        facilityType: smpDocuments.facilityType,
+        criticality: smpDocuments.criticality,
+        revision: smpDocuments.revision,
+        status: smpDocuments.status,
+      }).from(smpDocuments);
+
+      const unique = (values: Array<string | null>) => [...new Set(values.filter((v): v is string => Boolean(v)))].sort();
+      const filters = {
+        families: unique(filterRows.map((r) => r.family)),
+        equipmentTypes: unique(filterRows.map((r) => r.equipmentType)),
+        facilityTypes: unique(filterRows.map((r) => r.facilityType)),
+        criticalities: unique(filterRows.map((r) => r.criticality)),
+        revisions: unique(filterRows.map((r) => r.revision)),
+        // Controlled-document lifecycle states plus any legacy persisted values.
+        statuses: [...new Set(["current", "superseded", ...unique(filterRows.map((r) => r.status))])],
+      };
+
+      return { items, count: items.length, total: filterRows.length, filters };
     }),
 
-  /* ── 3. CREATE ── */
-  create: authedQuery
+  /* ── Single document detail (public read).
+     Structured procedure data is scoped to one revision: `revisionId` selects
+     a specific revision; otherwise the CURRENT revision (or the latest when
+     no revision is current) is used. Legacy documents without revisions have
+     no structured data. ── */
+  get: publicQuery
     .input(z.object({
-      code: z.string().min(1),
-      title: z.string().min(1),
-      revision: z.string().optional(),
-      equipmentType: z.string().optional(),
-      system: z.string().optional(),
-      dateIssued: z.string().optional(),
-      nextReview: z.string().optional(),
-      status: z.string().optional(),
-      responsibleParty: z.string().optional(),
-      fileData: z.string().refine(isBase64UploadSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE).optional(),
-      fileType: z.string().optional(),
-      fileName: z.string().optional(),
+      id: z.number().int().positive(),
+      revisionId: z.number().int().positive().optional(),
     }))
-    .mutation(async ({ input }) => {
-      await ensureSmpTable();
+    .query(async ({ input }) => {
+      const rows = await db.select().from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
+      const document = rows[0];
+      if (!document) return null;
+
+      const revisions = (await db.select().from(smpDocumentRevisions)
+        .where(eq(smpDocumentRevisions.documentId, input.id))
+        .orderBy(desc(smpDocumentRevisions.revisionNumber), desc(smpDocumentRevisions.id)))
+        .map((r) => ({ ...r, hasFile: Boolean(r.originalFileName) }));
+
+      const resolvedRevision = resolveSmpDetailRevision(revisions, input.revisionId);
+      if (input.revisionId != null && !resolvedRevision) {
+        throw new Error(`Revision ${input.revisionId} does not belong to this SMP document.`);
+      }
+      const resolvedRevisionId = resolvedRevision?.id ?? null;
+
+      // Structured content is ALWAYS scoped to the resolved revision so data
+      // from different revisions can never mix.
+      const sections = resolvedRevision
+        ? await db.select().from(smpSections)
+            .where(and(
+              eq(smpSections.documentId, input.id),
+              eq(smpSections.revisionId, resolvedRevision.id),
+            ))
+            .orderBy(smpSections.position, smpSections.id)
+        : [];
+
+      const taskRows = resolvedRevision
+        ? await db.select().from(smpTasks)
+            .where(and(
+              eq(smpTasks.documentId, input.id),
+              eq(smpTasks.revisionId, resolvedRevision.id),
+            ))
+            .orderBy(smpTasks.category, smpTasks.displayOrder, smpTasks.id)
+        : [];
+
+      const tagMap: Map<number, string[]> = new Map();
+      if (taskRows.length > 0) {
+        const tags = await db.select().from(smpTaskApplicability)
+          .where(inArray(smpTaskApplicability.taskId, taskRows.map((t) => t.id)));
+        for (const tag of tags) {
+          const list = tagMap.get(tag.taskId) ?? [];
+          list.push(tag.tag);
+          tagMap.set(tag.taskId, list);
+        }
+      }
+
+      const tasks = taskRows.map((task) => ({
+        ...task,
+        applicabilityTags: tagMap.get(task.id) ?? [],
+        fieldCaptureData: task.fieldCaptureData == null ? null : task.fieldCaptureData,
+      }));
+
+      const familyNames = await loadFamilyNameMap();
+      return {
+        document: mapDocumentRow(document, familyNames, {
+          revisionCount: revisions.length,
+          hasCurrentRevision: revisions.some((r) => r.status === "current"),
+        }),
+        revisions,
+        resolvedRevisionId,
+        sections,
+        tasks,
+      };
+    }),
+
+  /* ── Data-driven family catalog (public read) ── */
+  families: publicQuery.query(async () => {
+    const rows = await db.select().from(smpFamilies).orderBy(smpFamilies.sortOrder, smpFamilies.name);
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      code: row.code,
+      typicalEquipment: toNullableStringArray(row.typicalEquipment),
+      suggestedTags: toNullableStringArray(row.suggestedTags),
+      sortOrder: row.sortOrder,
+    }));
+  }),
+
+  /* ── Create a document series (authenticated, metadata only).
+     The new-document UPLOAD flow does NOT use this procedure: it creates the
+     series atomically with its first revision at storage finalize, so a
+     failed upload leaves no orphan series behind. ── */
+  create: authedQuery
+    .input(z.object(metadataSchema))
+    .mutation(async ({ input, ctx }) => {
+      const existing = await db.select({ id: smpDocuments.id })
+        .from(smpDocuments)
+        .where(eq(smpDocuments.codeKey, normalizeSmpCodeKey(input.code)))
+        .limit(1);
+      if (existing.length > 0) {
+        throw new Error(`An SMP with reference number "${input.code}" already exists.`);
+      }
+      const now = new Date();
       const result = await db.insert(smpDocuments).values({
         code: input.code,
+        codeKey: normalizeSmpCodeKey(input.code),
         title: input.title,
-        revision: input.revision || "Rev. 1",
-        equipmentType: input.equipmentType || null,
-        system: input.system || null,
-        dateIssued: input.dateIssued || null,
-        nextReview: input.nextReview || null,
-        status: input.status || "Active",
-        responsibleParty: input.responsibleParty || null,
-        fileData: input.fileData || null,
-        fileType: input.fileType || null,
-        fileName: input.fileName || null,
-      }).returning(smpMetadataSelection);
-      return result[0];
+        smpId: toNullableString(input.smpId),
+        smpFamily: toNullableString(input.smpFamily),
+        familyId: input.familyId ?? null,
+        assetName: toNullableString(input.assetName),
+        assetType: toNullableString(input.assetType),
+        equipmentType: toNullableString(input.equipmentType),
+        facilityType: toNullableString(input.facilityType),
+        applicability: input.applicability?.length ? input.applicability : null,
+        criticality: toNullableString(input.criticality),
+        documentOwner: toNullableString(input.documentOwner),
+        preparedBy: toNullableString(input.preparedBy),
+        reviewedBy: toNullableString(input.reviewedBy),
+        approvedBy: toNullableString(input.approvedBy),
+        status: "Active",
+        uploadedBy: ctx.user?.name ?? null,
+        uploadedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      }).returning();
+      const familyNames = await loadFamilyNameMap();
+      return mapDocumentRow(result[0], familyNames);
     }),
 
-  /* ── 4. UPDATE ── */
+  /* ── Update metadata (authenticated). File/revision/status changes are NOT
+     accepted here: they happen only through governed revision uploads. ── */
   update: authedQuery
     .input(z.object({
-      id: z.number(),
-      code: z.string().optional(),
-      title: z.string().optional(),
-      revision: z.string().optional(),
-      equipmentType: z.string().optional(),
-      system: z.string().optional(),
-      dateIssued: z.string().optional(),
-      nextReview: z.string().optional(),
-      status: z.string().optional(),
-      responsibleParty: z.string().optional(),
-      fileData: z.string().refine(isBase64UploadSizeAllowed, MAX_UPLOAD_ERROR_MESSAGE).optional(),
-      fileType: z.string().optional(),
-      fileName: z.string().optional(),
+      id: z.number().int().positive(),
+      code: metadataSchema.code.optional(),
+      title: metadataSchema.title.optional(),
+      smpId: metadataSchema.smpId,
+      smpFamily: metadataSchema.smpFamily,
+      familyId: metadataSchema.familyId,
+      assetName: metadataSchema.assetName,
+      assetType: metadataSchema.assetType,
+      equipmentType: metadataSchema.equipmentType,
+      facilityType: metadataSchema.facilityType,
+      applicability: metadataSchema.applicability,
+      criticality: metadataSchema.criticality,
+      documentOwner: metadataSchema.documentOwner,
+      preparedBy: metadataSchema.preparedBy,
+      reviewedBy: metadataSchema.reviewedBy,
+      approvedBy: metadataSchema.approvedBy,
     }))
     .mutation(async ({ input }) => {
-      await ensureSmpTable();
       const { id, ...data } = input;
-      const clean: Record<string, any> = {};
-      if (data.code !== undefined) clean.code = data.code;
+      if (data.code !== undefined) {
+        const dup = await db.select({ id: smpDocuments.id })
+          .from(smpDocuments)
+          .where(and(
+            eq(smpDocuments.codeKey, normalizeSmpCodeKey(data.code)),
+            ne(smpDocuments.id, id),
+          ))
+          .limit(1);
+        if (dup.length > 0) {
+          throw new Error(`An SMP with reference number "${data.code}" already exists.`);
+        }
+      }
+      const clean: Record<string, unknown> = { updatedAt: new Date() };
+      if (data.code !== undefined) {
+        clean.code = data.code;
+        clean.codeKey = normalizeSmpCodeKey(data.code);
+      }
       if (data.title !== undefined) clean.title = data.title;
-      if (data.revision !== undefined) clean.revision = data.revision;
-      if (data.equipmentType !== undefined) clean.equipmentType = data.equipmentType || null;
-      if (data.system !== undefined) clean.system = data.system || null;
-      if (data.dateIssued !== undefined) clean.dateIssued = data.dateIssued || null;
-      if (data.nextReview !== undefined) clean.nextReview = data.nextReview || null;
-      if (data.status !== undefined) clean.status = data.status;
-      if (data.responsibleParty !== undefined) clean.responsibleParty = data.responsibleParty || null;
-      if (data.fileData !== undefined) {
-        clean.fileData = data.fileData || null;
-        // A deliberate legacy replacement becomes authoritative without
-        // deleting the previous Storage object during feature-flag rollback.
-        clean.storageProvider = null;
-        clean.storageBucket = null;
-        clean.storagePath = null;
-        clean.storageSize = null;
-        clean.storageMimeType = null;
-        clean.storageEtag = null;
-        clean.storageUploadedAt = null;
-      }
-      if (data.fileType !== undefined) clean.fileType = data.fileType || null;
-      if (data.fileName !== undefined) clean.fileName = data.fileName || null;
-      clean.updatedAt = new Date();
-      const result = await db
-        .update(smpDocuments)
-        .set(clean)
-        .where(eq(smpDocuments.id, id))
-        .returning(smpMetadataSelection);
-      return result[0];
+      if (data.smpId !== undefined) clean.smpId = toNullableString(data.smpId);
+      if (data.smpFamily !== undefined) clean.smpFamily = toNullableString(data.smpFamily);
+      if (data.familyId !== undefined) clean.familyId = data.familyId ?? null;
+      if (data.assetName !== undefined) clean.assetName = toNullableString(data.assetName);
+      if (data.assetType !== undefined) clean.assetType = toNullableString(data.assetType);
+      if (data.equipmentType !== undefined) clean.equipmentType = toNullableString(data.equipmentType);
+      if (data.facilityType !== undefined) clean.facilityType = toNullableString(data.facilityType);
+      if (data.applicability !== undefined) clean.applicability = data.applicability?.length ? data.applicability : null;
+      if (data.criticality !== undefined) clean.criticality = toNullableString(data.criticality);
+      if (data.documentOwner !== undefined) clean.documentOwner = toNullableString(data.documentOwner);
+      if (data.preparedBy !== undefined) clean.preparedBy = toNullableString(data.preparedBy);
+      if (data.reviewedBy !== undefined) clean.reviewedBy = toNullableString(data.reviewedBy);
+      if (data.approvedBy !== undefined) clean.approvedBy = toNullableString(data.approvedBy);
+      const result = await db.update(smpDocuments).set(clean).where(eq(smpDocuments.id, id)).returning();
+      if (!result[0]) throw new Error("SMP document not found.");
+      const familyNames = await loadFamilyNameMap();
+      return mapDocumentRow(result[0], familyNames);
     }),
 
-  /* ── 5. DELETE ── */
-  delete: authedQuery
-    .input(z.object({ id: z.number() }))
+  /* ── Staged deletion (authenticated, destructive).
+     deletePrepare snapshots the storage objects and records a ledger row;
+     deleteConfirm removes the remaining objects and then deletes the DB row.
+     Storage removal and the DB delete are deliberately NOT atomic; the ledger
+     records progress so a failure is explicit and the operation can be
+     retried idempotently. ── */
+  deletePrepare: authedQuery
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const documentRows = await db.select({
+        id: smpDocuments.id,
+        bucket: smpDocuments.storageBucket,
+        path: smpDocuments.storagePath,
+      }).from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
+      const document = documentRows[0];
+      if (!document) throw new Error("SMP document not found.");
+
+      const revisions = await db.select({
+        bucket: smpDocumentRevisions.storageBucket,
+        path: smpDocumentRevisions.storagePath,
+      }).from(smpDocumentRevisions).where(eq(smpDocumentRevisions.documentId, input.id));
+
+      const objects = [
+        ...revisions.map((r) => ({ bucket: r.bucket, path: r.path })),
+        ...(document.bucket && document.path ? [{ bucket: document.bucket, path: document.path }] : []),
+      ].filter((o): o is { bucket: string; path: string } => Boolean(o.bucket && o.path));
+
+      const deletionToken = randomUUID();
+      const now = new Date();
+      const inserted = await db.insert(smpDeletionRecords).values({
+        documentId: input.id,
+        tokenHash: hashToken(deletionToken),
+        status: "pending",
+        objects,
+        removedObjects: [],
+        createdBy: ctx.user?.name ?? null,
+        createdAt: now,
+        updatedAt: now,
+      }).returning({ id: smpDeletionRecords.id });
+
+      return {
+        recordId: inserted[0].id,
+        deletionToken,
+        objectCount: objects.length,
+      };
+    }),
+
+  deleteConfirm: authedQuery
+    .input(z.object({
+      recordId: z.number().int().positive(),
+      deletionToken: z.string().min(1),
+    }))
     .mutation(async ({ input }) => {
-      await ensureSmpTable();
-      const rows = await db.select({ bucket: smpDocuments.storageBucket, path: smpDocuments.storagePath })
-        .from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
-      if (rows[0]?.bucket && rows[0]?.path) {
-        const { error } = await getSupabaseStorageAdmin().storage.from(rows[0].bucket).remove([rows[0].path]);
-        if (error) throw new Error(`Storage deletion failed: ${error.message}`);
+      const records = await db.select().from(smpDeletionRecords)
+        .where(and(
+          eq(smpDeletionRecords.id, input.recordId),
+          eq(smpDeletionRecords.tokenHash, hashToken(input.deletionToken)),
+        ))
+        .limit(1);
+      const record = records[0];
+      if (!record) throw new Error("Deletion record not found or token invalid.");
+
+      // Idempotent: a completed deletion is a success, never re-executed.
+      if (record.status === "completed") {
+        return { status: "completed", documentId: record.documentId };
       }
-      await db.delete(smpDocuments).where(eq(smpDocuments.id, input.id));
-      return { deleted: true, id: input.id };
+
+      const objects = Array.isArray(record.objects)
+        ? (record.objects as Array<{ bucket: string; path: string }>)
+        : [];
+      const removed = new Set(Array.isArray(record.removedObjects) ? (record.removedObjects as string[]) : []);
+      const now = new Date();
+
+      // Phase 1: remove the storage objects that have not been removed yet.
+      for (const object of objects) {
+        if (!object.bucket || !object.path || removed.has(object.path)) continue;
+        const { error } = await getSupabaseStorageAdmin().storage
+          .from(object.bucket)
+          .remove([object.path]);
+        if (error) {
+          await db.update(smpDeletionRecords).set({
+            status: "storage_failed",
+            removedObjects: [...removed],
+            failureReason: `Storage deletion failed for ${object.path}: ${error.message}`,
+            updatedAt: now,
+          }).where(eq(smpDeletionRecords.id, record.id));
+          throw new Error(
+            `Storage deletion failed for ${object.path}: ${error.message}. ` +
+            "No database rows were removed. Retry the same token to continue.",
+          );
+        }
+        removed.add(object.path);
+      }
+
+      // Phase 2: all storage objects removed — delete the document series row
+      // (cascades revisions, sections, tasks, applicability tags).
+      try {
+        const deleted = await db.delete(smpDocuments)
+          .where(eq(smpDocuments.id, record.documentId))
+          .returning({ id: smpDocuments.id });
+        if (!deleted.length) throw new Error("SMP document was not found during deletion.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Database deletion failed.";
+        await db.update(smpDeletionRecords).set({
+          status: "db_failed",
+          removedObjects: [...removed],
+          failureReason: `Storage objects removed, but database deletion failed: ${message}`,
+          updatedAt: now,
+        }).where(eq(smpDeletionRecords.id, record.id));
+        throw new Error(
+          `Storage objects were removed, but the database deletion failed: ${message}. ` +
+          "Retry the same token to complete the deletion.",
+        );
+      }
+
+      await db.update(smpDeletionRecords).set({
+        status: "completed",
+        removedObjects: [...removed],
+        completedAt: now,
+        updatedAt: now,
+      }).where(eq(smpDeletionRecords.id, record.id));
+
+      return { status: "completed", documentId: record.documentId };
     }),
-
-  /* ── 6. SEED (load 15 demo docs) ── */
-  seed: publicQuery.mutation(async () => {
-    await ensureSmpTable();
-    const existing = await db.select().from(smpDocuments);
-    if (existing.length > 0) return { seeded: false, reason: "Documents already exist" };
-
-    const demos = [
-      { code: "SMP-EQP-001", title: "Pump Preventive Maintenance - Monthly", revision: "Rev. 2", equipmentType: "Pumps", system: "Water Supply", dateIssued: "2024-01-15", nextReview: "2025-01-15", status: "Active", responsibleParty: "Maintenance" },
-      { code: "SMP-EQP-002", title: "Motor Bearing Inspection - Quarterly", revision: "Rev. 1", equipmentType: "Motors", system: "Electrical", dateIssued: "2024-03-20", nextReview: "2025-03-20", status: "Active", responsibleParty: "Maintenance" },
-      { code: "SMP-EQP-003", title: "Blower Vibration Check - Weekly", revision: "Rev. 3", equipmentType: "Blowers", system: "Aeration", dateIssued: "2023-06-10", nextReview: "2024-06-10", status: "Under Review", responsibleParty: "Engineering" },
-      { code: "SMP-EQP-004", title: "Valve Inspection and Lubrication - Monthly", revision: "Rev. 1", equipmentType: "Valves", system: "Water Supply", dateIssued: "2024-02-01", nextReview: "2025-02-01", status: "Active", responsibleParty: "Operations" },
-      { code: "SMP-EQP-005", title: "Generator Load Test - Monthly", revision: "Rev. 2", equipmentType: "Generators", system: "Backup Power", dateIssued: "2024-01-10", nextReview: "2025-01-10", status: "Active", responsibleParty: "Electrical" },
-      { code: "SMP-EQP-006", title: "Transformer Oil Analysis - Annual", revision: "Rev. 1", equipmentType: "Transformers", system: "Electrical", dateIssued: "2023-08-15", nextReview: "2024-08-15", status: "Expired", responsibleParty: "Electrical" },
-      { code: "SMP-EQP-007", title: "Flow Meter Calibration - Quarterly", revision: "Rev. 2", equipmentType: "Instrumentation", system: "SCADA", dateIssued: "2024-04-01", nextReview: "2025-04-01", status: "Active", responsibleParty: "Instrumentation" },
-      { code: "SMP-PLC-001", title: "PLC/SCADA System Backup - Monthly", revision: "Rev. 4", equipmentType: "PLC / SCADA", system: "Automation", dateIssued: "2024-01-01", nextReview: "2025-01-01", status: "Active", responsibleParty: "IT/Automation" },
-      { code: "SMP-HVC-001", title: "HVAC Filter Replacement - Monthly", revision: "Rev. 1", equipmentType: "HVAC", system: "Building", dateIssued: "2024-02-15", nextReview: "2025-02-15", status: "Active", responsibleParty: "Facilities" },
-      { code: "SMP-EQP-008", title: "Compressor Oil Change - Quarterly", revision: "Rev. 2", equipmentType: "Compressors", system: "Air Supply", dateIssued: "2024-03-01", nextReview: "2025-03-01", status: "Active", responsibleParty: "Maintenance" },
-      { code: "SMP-CHM-001", title: "Chemical Dosing Pump Calibration - Monthly", revision: "Rev. 1", equipmentType: "Chemical Dosing", system: "Treatment", dateIssued: "2024-01-20", nextReview: "2025-01-20", status: "Active", responsibleParty: "Chemical" },
-      { code: "SMP-FLT-001", title: "Sand Filter Backwash Procedure - Weekly", revision: "Rev. 3", equipmentType: "Filters", system: "Treatment", dateIssued: "2023-09-01", nextReview: "2024-09-01", status: "Under Review", responsibleParty: "Operations" },
-      { code: "SMP-EQP-009", title: "UV System Lamp Replacement - Annual", revision: "Rev. 1", equipmentType: "UV / Disinfection", system: "Disinfection", dateIssued: "2024-05-01", nextReview: "2025-05-01", status: "Active", responsibleParty: "Maintenance" },
-      { code: "SMP-TNK-001", title: "Tank Internal Inspection - Annual", revision: "Rev. 2", equipmentType: "Tanks", system: "Storage", dateIssued: "2023-11-01", nextReview: "2024-11-01", status: "Under Review", responsibleParty: "Engineering" },
-      { code: "SMP-SCR-001", title: "Bar Screen Cleaning - Daily", revision: "Rev. 1", equipmentType: "Screens", system: "Inlet", dateIssued: "2024-06-01", nextReview: "2025-06-01", status: "Active", responsibleParty: "Operations" },
-    ];
-
-    await db.insert(smpDocuments).values(demos);
-    return { seeded: true, count: demos.length };
-  }),
 });

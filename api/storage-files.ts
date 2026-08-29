@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   docFiles,
   governanceFiles,
@@ -6,6 +6,7 @@ import {
   governanceUploads,
   projectWithoutPPPFiles,
   smpDocuments,
+  smpDocumentRevisions,
 } from "@db/schema";
 import type { StorageFileSource } from "@contracts/storage";
 import { db } from "./queries/connection";
@@ -77,6 +78,19 @@ export async function getStoredFileRecord(
     }).from(smpDocuments).where(eq(smpDocuments.id, id)).limit(1);
     return rows[0]?.fileName ? { source, ...rows[0], fileName: rows[0].fileName } : null;
   }
+  if (source === "smp_document_revisions") {
+    const rows = await db.select({
+      id: smpDocumentRevisions.id,
+      fileName: smpDocumentRevisions.originalFileName,
+      mimeType: smpDocumentRevisions.fileType,
+      legacyData: sql<string | null>`NULL`,
+      storageBucket: smpDocumentRevisions.storageBucket,
+      storagePath: smpDocumentRevisions.storagePath,
+      storageSize: smpDocumentRevisions.storageSize,
+      storageMimeType: smpDocumentRevisions.storageMimeType,
+    }).from(smpDocumentRevisions).where(eq(smpDocumentRevisions.id, id)).limit(1);
+    return rows[0]?.fileName ? { source, ...rows[0], fileName: rows[0].fileName } : null;
+  }
   if (source === "project_without_ppp_files") {
     const rows = await db.select({
       id: projectWithoutPPPFiles.id,
@@ -124,6 +138,22 @@ export async function deleteStoredFileRecord(source: StorageFileSource, id: numb
       storageUploadedAt: null,
       updatedAt: new Date(),
     }).where(and(eq(smpDocuments.id, id)));
+  }
+  if (source === "smp_document_revisions") {
+    // The revision row is retained for history; only its file is removed.
+    return db.update(smpDocumentRevisions).set({
+      originalFileName: null,
+      fileType: null,
+      fileSize: null,
+      storageProvider: null,
+      storageBucket: null,
+      storagePath: null,
+      storageSize: null,
+      storageMimeType: null,
+      storageEtag: null,
+      storageUploadedAt: null,
+      updatedAt: new Date(),
+    }).where(and(eq(smpDocumentRevisions.id, id)));
   }
   // Remaining source values are handled by the switch exhaustive check at build time
 }

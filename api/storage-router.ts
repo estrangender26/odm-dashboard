@@ -1,7 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm"
-import { sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   docFiles,
@@ -11,6 +10,7 @@ import {
   projectWithoutPPPFiles,
   projectsWithoutPPP,
   smpDocuments,
+  smpDocumentRevisions,
   storageUploadIntents,
   users,
   type User,
@@ -33,6 +33,7 @@ import { env } from "./lib/env";
 import { deepEqualJson } from "./lib/json-equality";
 import { db } from "./queries/connection";
 import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-feature-flags";
+import { finalizeSmpRevision, type SmpFinalizeTx } from "./smp-finalize";
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
 import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
@@ -47,7 +48,7 @@ const PUBLIC_SUBMITTER_LABEL = "Public Project Submission";
 
 export const storageRouter = new Hono();
 
-const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "project_without_ppp_files"]);
+const sourceSchema = z.enum(["doc_files", "governance_uploads", "governance_files", "smp_documents", "smp_document_revisions", "project_without_ppp_files"]);
 const authorizeSchema = z.object({
   module: z.enum(STORAGE_MODULES),
   originalFilename: z.string().trim().min(1).max(255),
@@ -122,10 +123,48 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
   }
   if (module === "smp") {
     const documentId = Number(target.documentId);
-    if (!Number.isInteger(documentId) || documentId <= 0) throw new Error("A valid SMP document is required.");
-    const rows = await db.select({ id: smpDocuments.id }).from(smpDocuments).where(eq(smpDocuments.id, documentId)).limit(1);
-    if (!rows.length) throw new Error("SMP document not found.");
-    return { documentId };
+    if (Number.isInteger(documentId) && documentId > 0) {
+      // Revision upload against an existing document series.
+      const rows = await db.select({ id: smpDocuments.id }).from(smpDocuments).where(eq(smpDocuments.id, documentId)).limit(1);
+      if (!rows.length) throw new Error("SMP document not found.");
+      const revision = target.revision == null ? undefined : String(target.revision).trim().slice(0, 50) || undefined;
+      const effectivityDate = target.effectivityDate == null ? undefined : String(target.effectivityDate).trim().slice(0, 10) || undefined;
+      return { documentId, revision, effectivityDate };
+    }
+    // New-document first revision: the upload target carries the full
+    // controlled-document metadata; the series is created atomically with its
+    // first revision at finalize, so a failed upload leaves no orphan series.
+    const code = String(target.code ?? "").trim();
+    const title = String(target.title ?? "").trim();
+    if (!code || code.length > 50) throw new Error("A valid SMP reference number is required for a new document upload.");
+    if (!title || title.length > 500) throw new Error("A valid SMP title is required for a new document upload.");
+    const sliceOrUndefined = (value: unknown, max: number) =>
+      value == null ? undefined : (String(value).trim().slice(0, max) || undefined);
+    const familyId = Number(target.familyId) > 0 ? Number(target.familyId) : null;
+    return {
+      isNew: true,
+      code,
+      title,
+      smpId: sliceOrUndefined(target.smpId, 100),
+      smpFamily: sliceOrUndefined(target.smpFamily, 255),
+      familyId,
+      assetName: sliceOrUndefined(target.assetName, 255),
+      assetType: sliceOrUndefined(target.assetType, 255),
+      equipmentType: sliceOrUndefined(target.equipmentType, 255),
+      facilityType: sliceOrUndefined(target.facilityType, 255),
+      applicability: typeof target.applicability === "string"
+        ? target.applicability.split(",").map((v) => v.trim().slice(0, 100)).filter(Boolean).slice(0, 50)
+        : Array.isArray(target.applicability)
+          ? target.applicability.map((v) => String(v).trim().slice(0, 100)).filter(Boolean).slice(0, 50)
+          : undefined,
+      criticality: sliceOrUndefined(target.criticality, 20),
+      documentOwner: sliceOrUndefined(target.documentOwner, 255),
+      preparedBy: sliceOrUndefined(target.preparedBy, 255),
+      reviewedBy: sliceOrUndefined(target.reviewedBy, 255),
+      approvedBy: sliceOrUndefined(target.approvedBy, 255),
+      revision: sliceOrUndefined(target.revision, 50),
+      effectivityDate: sliceOrUndefined(target.effectivityDate, 10),
+    };
   }
   if (module === "projects_without_ppp") {
     const projectId = Number(target.projectId);
@@ -155,14 +194,19 @@ function safeObjectFilename(fileName: string) {
 function buildObjectPath(module: StorageModule, target: Record<string, unknown>, originalFilename: string) {
   const id = randomUUID();
   if (module === "om") return `v1/folder-${target.folderId}/${id}`;
-  if (module === "smp") return `v1/document-${target.documentId}/${id}`;
+  if (module === "smp") {
+    const documentId = Number(target.documentId);
+    return Number.isInteger(documentId) && documentId > 0
+      ? `v1/document-${documentId}/${id}`
+      : `v1/smp-new/${id}`;
+  }
   if (module === "projects_without_ppp") return `v1/project-${target.projectId}/${id}`;
   return `v1/${target.facilitySlug}/${target.milestoneId}/${id}`;
 }
 
 function getSourceFromModule(module: StorageModule): StorageFileSource {
   if (module === "om") return "doc_files";
-  if (module === "smp") return "smp_documents";
+  if (module === "smp") return "smp_document_revisions";
   if (module === "projects_without_ppp") return "project_without_ppp_files";
   return "governance_uploads";
 }
@@ -599,6 +643,7 @@ storageRouter.post("/uploads/finalize", async (c) => {
       
       let persistedId: number;
       let persistedSource: StorageFileSource;
+      let smpDocumentId: number | null = null;
       
       if (intent.module === "om") {
         const inserted = await tx.insert(docFiles).values({
@@ -623,23 +668,72 @@ storageRouter.post("/uploads/finalize", async (c) => {
         persistedId = inserted[0].id;
         persistedSource = "doc_files";
       } else if (intent.module === "smp") {
-        const inserted = await tx.insert(smpDocuments).values({
-          code: target.code || `SMP-${Date.now()}`,
-          title: intent.originalFilename.replace(/\.[^.]+$/, ""),
-          fileName: intent.originalFilename,
-          fileType: intent.expectedMimeType,
-          storageProvider: "supabase",
-          storageBucket: intent.expectedBucket,
-          storagePath: intent.expectedPath,
-          storageSize: actualSize,
-          storageMimeType: actualMime,
-          storageEtag: info.etag,
-          storageUploadedAt: now,
-          createdAt: now,
-          updatedAt: now,
-        }).returning({ id: smpDocuments.id });
-        persistedId = inserted[0].id;
-        persistedSource = "smp_documents";
+        // A governed upload creates an immutable REVISION row for the target
+        // document series. New-document uploads create the series and its
+        // first revision ATOMICALLY inside this transaction, so a failed
+        // upload/finalize leaves no orphan series behind.
+        //
+        // Ordering invariant (see api/smp-finalize.ts): the previous current
+        // revision is superseded BEFORE the new revision is inserted, so the
+        // new revision can never match the supersede predicate and can never
+        // supersede itself. After a successful finalize there is exactly one
+        // current revision per document series.
+        const uploaderName = intent.requestedBy
+          ? (await db.select({ name: users.name }).from(users).where(eq(users.id, intent.requestedBy)).limit(1))[0]?.name ?? null
+          : null;
+
+        const smpTx: SmpFinalizeTx = {
+          selectRevisions: (documentId) => tx.select({
+            id: smpDocumentRevisions.id,
+            revision: smpDocumentRevisions.revision,
+            status: smpDocumentRevisions.status,
+          }).from(smpDocumentRevisions).where(eq(smpDocumentRevisions.documentId, documentId)),
+          selectDocumentByCodeKey: (codeKey) => tx.select({ id: smpDocuments.id })
+            .from(smpDocuments).where(eq(smpDocuments.codeKey, codeKey)).limit(1),
+          insertDocument: async (values) =>
+            (await tx.insert(smpDocuments).values(values as any).returning({ id: smpDocuments.id }))[0],
+          supersedeCurrentRevisions: (documentId) => tx.update(smpDocumentRevisions).set({
+            status: "superseded",
+            supersededByRevisionId: null,
+            updatedAt: now,
+          }).where(and(
+            eq(smpDocumentRevisions.documentId, documentId),
+            eq(smpDocumentRevisions.status, "current"),
+          )).returning({ id: smpDocumentRevisions.id }),
+          insertRevision: async (values) =>
+            (await tx.insert(smpDocumentRevisions).values(values as any).returning({ id: smpDocumentRevisions.id }))[0],
+          backfillSupersededBy: async (revisionIds, newRevisionId) => {
+            await tx.update(smpDocumentRevisions).set({
+              supersededByRevisionId: newRevisionId,
+              updatedAt: now,
+            }).where(inArray(smpDocumentRevisions.id, revisionIds));
+          },
+          updateDocumentMirror: async (documentId, values) => {
+            await tx.update(smpDocuments).set(values as any).where(eq(smpDocuments.id, documentId));
+          },
+        };
+
+        const { documentId, revisionId } = await finalizeSmpRevision(smpTx, {
+          documentId: Number(target.documentId) > 0 ? Number(target.documentId) : undefined,
+          target,
+          originalFilename: intent.originalFilename,
+          mimeType: actualMime,
+          size: actualSize,
+          storage: {
+            provider: "supabase",
+            bucket: intent.expectedBucket,
+            path: intent.expectedPath,
+            size: actualSize,
+            mimeType: actualMime,
+            etag: info.etag ?? null,
+            uploadedAt: now,
+          },
+          now,
+          uploaderName,
+        });
+        persistedId = revisionId;
+        persistedSource = "smp_document_revisions";
+        smpDocumentId = documentId;
       } else if (intent.module === "projects_without_ppp") {
         // Public (anonymous) uploads have no users-table row: persist a neutral
         // system-owned submitter label rather than a fabricated personal name.
@@ -687,7 +781,7 @@ storageRouter.post("/uploads/finalize", async (c) => {
         persistedSource = "governance_uploads";
       }
       
-      return { fileId: persistedId, source: persistedSource };
+      return { fileId: persistedId, source: persistedSource, smpDocumentId };
     });
     
     // Governed deletion capability: issued ONLY to the uploader (their own
@@ -697,6 +791,9 @@ storageRouter.post("/uploads/finalize", async (c) => {
       fileId: result.fileId,
       source: result.source,
     };
+    if (result.smpDocumentId != null) {
+      response.documentId = result.smpDocumentId;
+    }
     if (intent.module === "projects_without_ppp") {
       response.deleteCapability = signDeleteCapability(
         generateDeleteCapabilityClaims(result.fileId, Number(target.projectId)),

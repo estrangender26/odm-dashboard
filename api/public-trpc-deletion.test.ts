@@ -18,9 +18,14 @@ vi.mock("./queries/connection", () => ({
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(() => Promise.resolve(mocks.dbSelectResult)),
-        })),
+        where: vi.fn(() => {
+          // Supports both limit-terminated and bare awaited selects.
+          const chain: any = {
+            limit: vi.fn(() => Promise.resolve(mocks.dbSelectResult)),
+            then: (resolve: (value: any) => void) => resolve(mocks.dbSelectResult),
+          };
+          return chain;
+        }),
       })),
     })),
     delete: vi.fn((table: any) => ({
@@ -31,6 +36,11 @@ vi.mock("./queries/connection", () => ({
     update: vi.fn(() => ({
       set: vi.fn(() => ({
         where: vi.fn(() => Promise.resolve(mocks.dbUpdateResult)),
+      })),
+    })),
+    insert: vi.fn(() => ({
+      values: vi.fn(() => ({
+        returning: vi.fn(() => Promise.resolve([{ id: 1 }])),
       })),
     })),
     execute: vi.fn(() => Promise.resolve({})),
@@ -167,10 +177,16 @@ describe("BEHAVIORAL TESTS: tRPC destructive procedures", () => {
       await expect(caller.governance.deleteUpload({ id: 103 })).rejects.toThrow(TRPCError);
     });
 
-    it("smp.delete rejects with UNAUTHORIZED", async () => {
+    it("smp.deletePrepare rejects with UNAUTHORIZED", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
-      await expect(caller.smp.delete({ id: 104 })).rejects.toThrow(TRPCError);
+      await expect(caller.smp.deletePrepare({ id: 104 })).rejects.toThrow(TRPCError);
+    });
+
+    it("smp.deleteConfirm rejects with UNAUTHORIZED", async () => {
+      const ctx = createUnauthCtx();
+      const caller = deletionTestRouter.createCaller(ctx);
+      await expect(caller.smp.deleteConfirm({ recordId: 1, deletionToken: "token" })).rejects.toThrow(TRPCError);
     });
 
     it("govFiles.delete rejects with UNAUTHORIZED", async () => {
@@ -241,16 +257,35 @@ describe("BEHAVIORAL TESTS: tRPC destructive procedures", () => {
       });
     });
 
-    describe("smp.delete", () => {
-      it("deletes legacy SMP without calling Supabase", async () => {
-        mocks.dbSelectResult = [{ bucket: null, path: null }];
+    describe("smp.deletePrepare / deleteConfirm", () => {
+      it("prepares a recorded deletion without touching storage", async () => {
+        mocks.dbSelectResult = [{ id: 104, bucket: null, path: null }];
+
+        const ctx = createAuthCtx();
+        const caller = deletionTestRouter.createCaller(ctx);
+        const result = await caller.smp.deletePrepare({ id: 104 });
+
+        expect(result).toMatchObject({ recordId: 1, objectCount: 0 });
+        expect(typeof result.deletionToken).toBe("string");
+        expect(mocks.storageFrom).not.toHaveBeenCalled();
+      });
+
+      it("confirms a completed staged deletion", async () => {
+        mocks.dbSelectResult = [{
+          id: 1,
+          documentId: 104,
+          tokenHash: "any",
+          status: "pending",
+          objects: [],
+          removedObjects: [],
+        }];
         mocks.dbDeleteResult = [{ id: 104 }];
 
         const ctx = createAuthCtx();
         const caller = deletionTestRouter.createCaller(ctx);
-        const result = await caller.smp.delete({ id: 104 });
+        const result = await caller.smp.deleteConfirm({ recordId: 1, deletionToken: "any" });
 
-        expect(result).toEqual({ deleted: true, id: 104 });
+        expect(result).toEqual({ status: "completed", documentId: 104 });
       });
     });
   });
