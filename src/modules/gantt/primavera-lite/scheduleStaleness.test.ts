@@ -59,3 +59,30 @@ describe("schedule staleness", () => {
     })).toBe(true);
   });
 });
+
+describe("schedule staleness after F-09/F-10 (planned dates are informational)", () => {
+  it("plannedStart and plannedFinish edits are NOT stale-driving", () => {
+    expect(isCpmDrivingEvent({
+      entityType: "activity", action: "update", beforeData: { plannedStart: "2026-08-01" }, afterData: { plannedStart: "2026-08-20" },
+    })).toBe(false);
+    expect(isCpmDrivingEvent({
+      entityType: "activity", action: "update", beforeData: { plannedFinish: "2026-08-01" }, afterData: { plannedFinish: "2026-08-20" },
+    })).toBe(false);
+  });
+
+  it("status edits are NOT stale-driving (status is derived from progress)", () => {
+    expect(isCpmDrivingEvent({
+      entityType: "activity", action: "update", beforeData: { status: null }, afterData: { status: "completed" },
+    })).toBe(false);
+  });
+
+  it("genuine scheduling inputs remain stale-driving", () => {
+    for (const field of ["activityType", "calendarId", "originalDurationDays", "remainingDurationDays", "actualStart", "actualFinish", "percentComplete"]) {
+      expect(isCpmDrivingEvent({
+        entityType: "activity", action: "update",
+        beforeData: { [field]: field === "calendarId" ? 1 : "before" },
+        afterData: { [field]: field === "calendarId" ? 2 : "after" },
+      }), field).toBe(true);
+    }
+  });
+});

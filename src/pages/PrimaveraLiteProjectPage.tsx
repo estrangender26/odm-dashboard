@@ -46,6 +46,9 @@ export default function PrimaveraLiteProjectPage() {
   const [highlightedActivityId, setHighlightedActivityId] = useState<number | null>(null);
   const [scheduleScrollTop, setScheduleScrollTop] = useState(0);
   const [dataDateDraft, setDataDateDraft] = useState("");
+  // Archived-row visibility is shared with the timeline so row alignment is
+  // preserved when archived rows are shown (F-12).
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     if (access) {
@@ -263,12 +266,15 @@ export default function PrimaveraLiteProjectPage() {
               onRevisionChange={setExpectedRevision} onRefresh={() => refetch()}
               onEditingChange={setIsEditingActivity} highlightedActivityId={highlightedActivityId}
               onActivityHighlight={setHighlightedActivityId} verticalScrollTop={scheduleScrollTop}
-              onVerticalScroll={setScheduleScrollTop} />
+              onVerticalScroll={setScheduleScrollTop}
+              showArchived={showArchived} onShowArchivedChange={setShowArchived} />
 
             <Timeline activities={data.activities} dataDate={data.project.dataDate}
               dependencies={data.dependencies}
               highlightedActivityId={highlightedActivityId} onActivityHighlight={setHighlightedActivityId}
-              verticalScrollTop={scheduleScrollTop} onVerticalScroll={setScheduleScrollTop} />
+              verticalScrollTop={scheduleScrollTop} onVerticalScroll={setScheduleScrollTop}
+              showArchived={showArchived}
+              scheduleOutOfDate={data.project?.scheduleOutOfDate ?? false} />
 
             <DependencyPanel slug={slug} access={access} role={data.role} expectedRevision={expectedRevision}
               activities={data.activities} dependencies={data.dependencies}

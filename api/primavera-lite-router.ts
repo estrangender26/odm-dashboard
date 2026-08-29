@@ -39,9 +39,9 @@ import {
   workingDaysEqual,
 } from "@/modules/gantt/primavera-lite/calendarModel";
 import {
-  autoActualFinishFromDataDate,
-  percentAfterClearingActualFinish,
-} from "@/modules/gantt/primavera-lite/activityGridModel";
+  resolveProgress,
+  type ProgressFields,
+} from "@/modules/gantt/primavera-lite/progressModel";
 
 const MAX_NAME_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
@@ -121,9 +121,47 @@ const restoreProjectInputSchema = z.object({
   actorName: z.string().max(MAX_ACTOR_NAME_LENGTH).optional(),
 });
 
+/**
+ * Canonical Activity ID normalization (F-03):
+ * 1. input string; 2. trim surrounding whitespace; 3. empty -> NULL;
+ * 4. otherwise preserve exact case and content. Active non-null IDs are unique
+ * per project (DB partial unique index is the concurrency-safe authority).
+ */
+function canonicalizeActivityId(value: unknown): string | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s === "" ? null : s;
+}
+
+/** Unsaved constraints are rejected rather than persisted-and-ignored (F-02). */
+function rejectUnsupportedConstraint(value: unknown): boolean {
+  const v = value == null ? null : String(value).trim();
+  return v == null || v === "";
+}
+
+// No .transform() on optional fields: zod v4 materializes absent keys through
+// transforms, which would defeat the empty-changes refine and the no-op guard.
+const unsupportedConstraintTypeSchema = z
+  .string()
+  .max(20)
+  .optional()
+  .nullable()
+  .refine((v) => rejectUnsupportedConstraint(v), {
+    message: "Constraints are not supported yet; remove constraintType",
+  });
+
+const unsupportedConstraintDateSchema = dateStringSchema
+  .optional()
+  .nullable()
+  .refine((v) => rejectUnsupportedConstraint(v), {
+    message: "Constraints are not supported yet; remove constraintDate",
+  });
+
 const activityInputSchema = z.object({
   activityName: z.string().trim().min(1).max(500),
-  activityId: z.string().max(100).optional().nullable(),
+  // Canonical Activity ID normalization (F-03) happens in the router write path
+  // (canonicalizeActivityId): trim -> empty -> NULL -> preserve case otherwise.
+  activityId: z.string().trim().max(100).optional().nullable(),
   activityType: z.string().max(20).optional().nullable(),
   originalDurationDays: z.number().int().min(0).optional().nullable(),
   remainingDurationDays: z.number().int().min(0).optional().nullable(),
@@ -133,8 +171,8 @@ const activityInputSchema = z.object({
   actualFinish: dateStringSchema.optional().nullable(),
   percentComplete: z.number().int().min(0).max(100).optional().nullable(),
   status: z.string().max(50).optional().nullable(),
-  constraintType: z.string().max(20).optional().nullable(),
-  constraintDate: dateStringSchema.optional().nullable(),
+  constraintType: unsupportedConstraintTypeSchema,
+  constraintDate: unsupportedConstraintDateSchema,
   notes: z.string().max(MAX_NOTES_LENGTH).optional().nullable(),
   calendarId: z.number().int().positive().optional().nullable(),
 });
@@ -856,6 +894,47 @@ async function loadActiveActivityCalendarIds(
   return rows.map((row) => row.calendarId);
 }
 
+/**
+ * F-08: a baseline is a snapshot of one successfully calculated schedule
+ * version. Returns whether the project has ever been scheduled and whether the
+ * current schedule is out of date (reuses the audit-event staleness rule).
+ */
+async function projectScheduleFreshness(
+  q: import("drizzle-orm/pg-core").PgDatabase<any, any, any>,
+  projectId: number
+): Promise<{ everScheduled: boolean; outOfDate: boolean }> {
+  const scheduleEvents = await q
+    .select({ projectRevision: ganttProjectEvents.projectRevision })
+    .from(ganttProjectEvents)
+    .where(
+      and(
+        eq(ganttProjectEvents.projectId, projectId),
+        eq(ganttProjectEvents.entityType, "project"),
+        eq(ganttProjectEvents.action, "schedule")
+      )
+    )
+    .orderBy(sql`${ganttProjectEvents.projectRevision} DESC`)
+    .limit(1);
+  const lastScheduledRevision = scheduleEvents[0]?.projectRevision ?? null;
+  if (lastScheduledRevision == null) return { everScheduled: false, outOfDate: false };
+  const subsequentEvents = await q
+    .select({
+      entityType: ganttProjectEvents.entityType,
+      action: ganttProjectEvents.action,
+      beforeData: ganttProjectEvents.beforeData,
+      afterData: ganttProjectEvents.afterData,
+      projectRevision: ganttProjectEvents.projectRevision,
+    })
+    .from(ganttProjectEvents)
+    .where(
+      and(
+        eq(ganttProjectEvents.projectId, projectId),
+        sql`${ganttProjectEvents.projectRevision} > ${lastScheduledRevision}`
+      )
+    );
+  return { everScheduled: true, outOfDate: isScheduleOutOfDate(lastScheduledRevision, subsequentEvents) };
+}
+
 async function calendarIsScheduleRelevant(
   tx: PgTransaction<any, any, any>,
   projectId: number,
@@ -1432,8 +1511,7 @@ export const primaveraLiteRouter = createRouter({
               lateStart: s.lateStart,
               lateFinish: s.lateFinish,
               totalFloatDays: s.totalFloatDays,
-              freeFloatDays: s.freeFloatDays,
-              updatedAt: now,
+              freeFloatDays: s.freeFloatDays,              updatedAt: now,
               updatedByName: input.actorName ?? "Anonymous",
             })
             .where(
@@ -1443,6 +1521,16 @@ export const primaveraLiteRouter = createRouter({
               )
             );
         }
+
+        // F-04: critical count covers the CURRENT remaining-work critical path
+        // only; completed activities (percentComplete === 100) are excluded
+        // while retaining their (legitimately zero) float.
+        const completedActivityIds = new Set(
+          activitiesRow.filter((a) => a.percentComplete === 100).map((a) => a.id)
+        );
+        const criticalCount = scheduled.filter(
+          (s) => s.totalFloatDays <= 0 && !completedActivityIds.has(s.id)
+        ).length;
 
         const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
         accessCtx.projectRevision = newRevision;
@@ -1466,7 +1554,7 @@ export const primaveraLiteRouter = createRouter({
           null,
           {
             scheduledCount: scheduled.length,
-            criticalCount: scheduled.filter((s) => s.totalFloatDays <= 0).length,
+            criticalCount,
             dataDate: projectRow.dataDate ?? null,
           }
         );
@@ -1474,7 +1562,7 @@ export const primaveraLiteRouter = createRouter({
         return {
           project: updatedProject,
           scheduledCount: scheduled.length,
-          criticalCount: scheduled.filter((s) => s.totalFloatDays <= 0).length,
+          criticalCount,
         };
       });
 
@@ -1705,27 +1793,73 @@ export const primaveraLiteRouter = createRouter({
           }
         }
 
-        let percentComplete = input.activity.percentComplete ?? 0;
-        let actualStart = input.activity.actualStart ? toIsoDateString(input.activity.actualStart) : null;
-        let actualFinish = input.activity.actualFinish ? toIsoDateString(input.activity.actualFinish) : null;
-
-        if (actualFinish != null) {
-          percentComplete = 100;
-        } else if (percentComplete === 100) {
-          const autoFinish = autoActualFinishFromDataDate(projectRow.dataDate, actualStart);
-          if (!autoFinish.ok) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: autoFinish.error });
-          }
-          actualFinish = autoFinish.actualFinish;
-        } else {
-          actualFinish = null;
+        // Canonical completion/progress resolution (F-10). The create flow
+        // sanctions recording an explicit Actual Finish as completion; every
+        // explicit contradiction is rejected by the shared progress model.
+        const progressCurrent: ProgressFields = {
+          percentComplete: 0,
+          actualStart: null,
+          actualFinish: null,
+          status: null,
+          remainingDurationDays: 0,
+          originalDurationDays,
+        };
+        // Only explicitly provided fields are passed as changes so the
+        // create-mode completion sanction can see "no explicit % supplied".
+        const progressChanges: Partial<ProgressFields> = {};
+        if (input.activity.percentComplete !== undefined) progressChanges.percentComplete = input.activity.percentComplete;
+        if (input.activity.actualStart !== undefined) progressChanges.actualStart = toIsoDateString(input.activity.actualStart);
+        if (input.activity.actualFinish !== undefined) progressChanges.actualFinish = toIsoDateString(input.activity.actualFinish);
+        if (input.activity.status !== undefined) progressChanges.status = input.activity.status;
+        if (input.activity.remainingDurationDays !== undefined) progressChanges.remainingDurationDays = input.activity.remainingDurationDays;
+        const progressResult = resolveProgress({
+          current: progressCurrent,
+          changes: progressChanges,
+          dataDate: projectRow.dataDate,
+          mode: "create",
+        });
+        if (!progressResult.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: progressResult.error });
         }
+        const resolved = {
+          percentComplete: progressResult.values?.percentComplete ?? progressChanges.percentComplete ?? 0,
+          actualStart: progressResult.values?.actualStart !== undefined
+            ? progressResult.values.actualStart
+            : (progressChanges.actualStart ?? null),
+          actualFinish: progressResult.values?.actualFinish !== undefined
+            ? progressResult.values.actualFinish
+            : (progressChanges.actualFinish ?? null),
+          status: progressResult.values?.status !== undefined ? progressResult.values.status : null,
+          remainingDurationDays: progressResult.values?.remainingDurationDays !== undefined
+            ? progressResult.values.remainingDurationDays
+            : (progressChanges.remainingDurationDays ?? 0),
+        };
 
         if (plannedStart && plannedFinish && plannedStart > plannedFinish) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Planned start must be on or before planned finish" });
         }
-        if (actualStart && actualFinish && actualStart > actualFinish) {
+        if (resolved.actualStart && resolved.actualFinish && resolved.actualStart > resolved.actualFinish) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Actual start must be on or before actual finish" });
+        }
+
+        // F-03: active non-null Activity IDs are unique per project. Pre-check
+        // for a friendly CONFLICT; the partial unique index remains the final
+        // concurrency-safe authority (violation mapped to the same CONFLICT).
+        const canonicalActivityId = canonicalizeActivityId(input.activity.activityId);
+        if (canonicalActivityId != null) {
+          const [duplicate] = await tx
+            .select({ id: ganttActivities.id })
+            .from(ganttActivities)
+            .where(
+              and(
+                eq(ganttActivities.projectId, accessCtx.projectId),
+                eq(ganttActivities.activityId, canonicalActivityId),
+                isNull(ganttActivities.archivedAt)
+              )
+            );
+          if (duplicate) {
+            throw new TRPCError({ code: "CONFLICT", message: "An active activity with the same Activity ID already exists" });
+          }
         }
 
         const [orderRow] = await tx
@@ -1737,30 +1871,39 @@ export const primaveraLiteRouter = createRouter({
             isNull(ganttActivities.archivedAt)
           ));
 
-        const [activity] = await tx
-          .insert(ganttActivities)
-          .values({
-            projectId: accessCtx.projectId,
-            wbsNodeId,
-            activityName: input.activity.activityName,
-            activityId: (input.activity.activityId ?? null) as any,
-            activityType: (input.activity.activityType ?? "task") as any,
-            sortOrder: orderRow?.next ?? 0,
-            calendarId: input.activity.calendarId ?? null,
-            originalDurationDays: originalDurationDays as any,
-            remainingDurationDays: (input.activity.remainingDurationDays ?? 0) as any,
-            plannedStart: (plannedStart ?? null) as any,
-            plannedFinish: (plannedFinish ?? null) as any,
-            actualStart: (actualStart ?? null) as any,
-            actualFinish: (actualFinish ?? null) as any,
-            percentComplete: percentComplete as any,
-            status: (input.activity.status ?? null) as any,
-            constraintType: (input.activity.constraintType ?? null) as any,
-            constraintDate: (input.activity.constraintDate ?? null) as any,
-            notes: (input.activity.notes ?? null) as any,
-            updatedByName: input.actorName ?? "Anonymous",
-          } as any)
-          .returning();
+        let createdActivity;
+        try {
+          [createdActivity] = await tx
+            .insert(ganttActivities)
+            .values({
+              projectId: accessCtx.projectId,
+              wbsNodeId,
+              activityName: input.activity.activityName,
+              activityId: (canonicalActivityId ?? null) as any,
+              activityType: (input.activity.activityType ?? "task") as any,
+              sortOrder: orderRow?.next ?? 0,
+              calendarId: input.activity.calendarId ?? null,
+              originalDurationDays: originalDurationDays as any,
+              remainingDurationDays: resolved.remainingDurationDays as any,
+              plannedStart: (plannedStart ?? null) as any,
+              plannedFinish: (plannedFinish ?? null) as any,
+              actualStart: (resolved.actualStart ?? null) as any,
+              actualFinish: (resolved.actualFinish ?? null) as any,
+              percentComplete: resolved.percentComplete as any,
+              status: (resolved.status ?? null) as any,
+              constraintType: null,
+              constraintDate: null,
+              notes: (input.activity.notes ?? null) as any,
+              updatedByName: input.actorName ?? "Anonymous",
+            } as any)
+            .returning();
+        } catch (err: any) {
+          if (err?.code === "23505" || err?.cause?.code === "23505") {
+            throw new TRPCError({ code: "CONFLICT", message: "An active activity with the same Activity ID already exists" });
+          }
+          throw err;
+        }
+        const activity = createdActivity;
 
         const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
         accessCtx.projectRevision = newRevision;
@@ -1960,67 +2103,85 @@ export const primaveraLiteRouter = createRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Planned start must be on or before planned finish" });
         }
 
-        // Actual Start / Actual Finish / % Complete synchronization
-        let effActualStart = changes.actualStart !== undefined ? toIsoDateString(changes.actualStart) : toIsoDateString(activity.actualStart);
-        let effActualFinish = changes.actualFinish !== undefined ? toIsoDateString(changes.actualFinish) : toIsoDateString(activity.actualFinish);
-        const currentPercent = activity.percentComplete ?? 0;
+        // Actual Start / Actual Finish / % Complete / status / remaining
+        // synchronization — canonical shared progress model (F-10). Explicit
+        // contradictions are rejected; only T1/T2 deliberate transitions and
+        // derived status/remaining values are applied.
+        const effOriginalDuration =
+          setData.originalDurationDays !== undefined
+            ? (setData.originalDurationDays as number)
+            : activity.originalDurationDays ?? 0;
+        const progressCurrent: ProgressFields = {
+          percentComplete: activity.percentComplete ?? 0,
+          actualStart: toIsoDateString(activity.actualStart),
+          actualFinish: toIsoDateString(activity.actualFinish),
+          status: activity.status,
+          remainingDurationDays: activity.remainingDurationDays,
+          originalDurationDays: effOriginalDuration,
+        };
+        const progressChanges: Partial<ProgressFields> = {};
+        if (changes.actualStart !== undefined) progressChanges.actualStart = toIsoDateString(changes.actualStart);
+        if (changes.actualFinish !== undefined) progressChanges.actualFinish = toIsoDateString(changes.actualFinish);
+        if (changes.percentComplete !== undefined) progressChanges.percentComplete = changes.percentComplete;
+        if (changes.status !== undefined) progressChanges.status = changes.status;
+        if (changes.remainingDurationDays !== undefined) progressChanges.remainingDurationDays = changes.remainingDurationDays;
 
-        if (changes.actualStart !== undefined) {
-          setData.actualStart = effActualStart;
+        const progressResult = resolveProgress({
+          current: progressCurrent,
+          changes: progressChanges,
+          dataDate: projectRow.dataDate,
+          mode: "update",
+        });
+        if (!progressResult.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: progressResult.error });
+        }
+        if (!progressResult.noop && progressResult.values) {
+          if (progressResult.values.percentComplete !== undefined) setData.percentComplete = progressResult.values.percentComplete;
+          if (progressResult.values.actualStart !== undefined) setData.actualStart = progressResult.values.actualStart;
+          if (progressResult.values.actualFinish !== undefined) setData.actualFinish = progressResult.values.actualFinish;
+          if (progressResult.values.status !== undefined) setData.status = progressResult.values.status;
+          if (progressResult.values.remainingDurationDays !== undefined) {
+            setData.remainingDurationDays = progressResult.values.remainingDurationDays;
+          }
         }
 
-        if (changes.actualFinish !== undefined) {
-          if (changes.actualFinish != null && String(changes.actualFinish).trim() !== "") {
-            effActualFinish = toIsoDateString(changes.actualFinish);
-            setData.actualFinish = effActualFinish;
-            setData.percentComplete = 100;
-          } else {
-            // Clearing Actual Finish
-            effActualFinish = null;
-            setData.actualFinish = null;
-            if (changes.percentComplete !== undefined && changes.percentComplete !== null) {
-              if (changes.percentComplete < 100) {
-                setData.percentComplete = changes.percentComplete;
-              } else {
-                setData.percentComplete = percentAfterClearingActualFinish(effActualStart, changes.percentComplete);
-              }
-            } else if (currentPercent === 100) {
-              setData.percentComplete = percentAfterClearingActualFinish(effActualStart);
+        // F-03: update collision check (excluding self) + unique-index backstop.
+        if (changes.activityId !== undefined) {
+          const canonicalActivityId = canonicalizeActivityId(changes.activityId);
+          setData.activityId = canonicalActivityId;
+          if (canonicalActivityId != null) {
+            const [duplicate] = await tx
+              .select({ id: ganttActivities.id })
+              .from(ganttActivities)
+              .where(
+                and(
+                  eq(ganttActivities.projectId, accessCtx.projectId),
+                  eq(ganttActivities.activityId, canonicalActivityId),
+                  isNull(ganttActivities.archivedAt),
+                  ne(ganttActivities.id, activity.id)
+                )
+              );
+            if (duplicate) {
+              throw new TRPCError({ code: "CONFLICT", message: "An active activity with the same Activity ID already exists" });
             }
           }
-        } else if (changes.percentComplete !== undefined && changes.percentComplete !== null) {
-          if (changes.percentComplete === 100) {
-            setData.percentComplete = 100;
-            if (effActualFinish == null) {
-              const autoFinish = autoActualFinishFromDataDate(projectRow.dataDate, effActualStart);
-              if (!autoFinish.ok) {
-                throw new TRPCError({ code: "BAD_REQUEST", message: autoFinish.error });
-              }
-              effActualFinish = autoFinish.actualFinish;
-              setData.actualFinish = effActualFinish;
-            }
-          } else if (changes.percentComplete < 100) {
-            setData.percentComplete = changes.percentComplete;
-            effActualFinish = null;
-            setData.actualFinish = null;
-          }
-        } else if (changes.percentComplete === null) {
-          setData.percentComplete = 0;
-          effActualFinish = null;
-          setData.actualFinish = null;
-        }
-
-        if (effActualStart && effActualFinish && effActualStart > effActualFinish) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Actual start must be on or before actual finish" });
         }
 
         setData.revision = sql`${ganttActivities.revision} + 1`;
 
-        const [updated] = await tx
-          .update(ganttActivities)
-          .set(setData)
-          .where(eq(ganttActivities.id, activity.id))
-          .returning();
+        let updated;
+        try {
+          [updated] = await tx
+            .update(ganttActivities)
+            .set(setData)
+            .where(eq(ganttActivities.id, activity.id))
+            .returning();
+        } catch (err: any) {
+          if (err?.code === "23505" || err?.cause?.code === "23505") {
+            throw new TRPCError({ code: "CONFLICT", message: "An active activity with the same Activity ID already exists" });
+          }
+          throw err;
+        }
 
         if (changes.wbsNodeId !== undefined && changes.wbsNodeId !== activity.wbsNodeId) {
           await normalizeActivityOrder(tx, accessCtx.projectId, activity.wbsNodeId);
@@ -2257,15 +2418,18 @@ export const primaveraLiteRouter = createRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot restore activity while its WBS node is archived" });
         }
 
-        // Reject if restoring would create a duplicate user-visible activityId within the project.
-        if (activity.activityId != null) {
+        // Reject if restoring would create a duplicate user-visible activityId
+        // within the project (F-03 canonical comparison; the partial unique
+        // index is the backstop).
+        const canonicalRestoredId = canonicalizeActivityId(activity.activityId);
+        if (canonicalRestoredId != null) {
           const [duplicate] = await tx
             .select({ id: ganttActivities.id })
             .from(ganttActivities)
             .where(
               and(
                 eq(ganttActivities.projectId, accessCtx.projectId),
-                eq(ganttActivities.activityId, activity.activityId),
+                eq(ganttActivities.activityId, canonicalRestoredId),
                 isNull(ganttActivities.archivedAt)
               )
             );
@@ -3315,6 +3479,21 @@ export const primaveraLiteRouter = createRouter({
           throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
         }
 
+        // F-08: no baseline without a fresh successful schedule.
+        const freshness = await projectScheduleFreshness(tx, accessCtx.projectId);
+        if (!freshness.everScheduled) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Run the schedule before capturing a baseline.",
+          });
+        }
+        if (freshness.outOfDate) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Schedule is out of date; run the schedule before capturing a baseline.",
+          });
+        }
+
         const activities = await tx
           .select()
           .from(ganttActivities)
@@ -3422,6 +3601,22 @@ export const primaveraLiteRouter = createRouter({
         .from(ganttBaselines)
         .where(and(eq(ganttBaselines.id, input.baselineId), eq(ganttBaselines.projectId, accessCtx.projectId)));
       if (!baseline) throw new TRPCError({ code: "NOT_FOUND", message: "Baseline not found" });
+
+      // F-08: never present variances computed against a stale (or never
+      // scheduled) current schedule.
+      const freshness = await projectScheduleFreshness(db, accessCtx.projectId);
+      if (!freshness.everScheduled) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Run the schedule before comparing baseline variances.",
+        });
+      }
+      if (freshness.outOfDate) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Schedule is out of date; run the schedule before comparing baseline variances.",
+        });
+      }
 
       const snapshots = await db
         .select()

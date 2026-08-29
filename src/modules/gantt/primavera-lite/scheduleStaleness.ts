@@ -8,9 +8,13 @@ export type ScheduleAuditEvent = {
   projectRevision?: number | null;
 };
 
+// Genuine CPM scheduling inputs only (F-09/F-10). plannedStart/plannedFinish are
+// informational user commitments the engine never reads, and status is derived
+// from canonical progress fields, so none of them can change any Run Schedule
+// output and therefore must not mark the schedule stale.
 const CPM_ACTIVITY_FIELDS = new Set([
   "activityType", "calendarId", "originalDurationDays", "remainingDurationDays",
-  "plannedStart", "plannedFinish", "actualStart", "actualFinish", "percentComplete", "status",
+  "actualStart", "actualFinish", "percentComplete",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

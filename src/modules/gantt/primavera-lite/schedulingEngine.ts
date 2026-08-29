@@ -13,7 +13,12 @@
  * - Milestones (0-duration activities)
  * - Open ends (default start at Data Date / default finish at Project Finish)
  * - Data Date handling & basic progress-aware scheduling
- * - Anchor priority: valid project data_date -> earliest valid plannedStart -> explicit scheduleDate
+ * - Anchor priority: valid project data_date -> explicit scheduleDate
+ *   (plannedStart/plannedFinish are informational user commitments and are
+ *   NEVER read by the engine — no ES clamp, no anchor, no completed fallback)
+ * - Data Date floor: no remaining/unfinished work schedules before the first
+ *   working day on or after the project Data Date (F-01). Completed historical
+ *   actuals are never moved.
  * - Graph cycle detection
  */
 
@@ -285,7 +290,9 @@ export function fromWorkingDayIndex(workIdx: number, cal: ScheduleCalendarInput)
 
 export function getWorkingDuration(act: ScheduleActivityInput): number {
   if (act.activityType?.toLowerCase() === "milestone") return 0;
-  if (act.percentComplete === 100 || act.status?.toLowerCase() === "completed") return 0;
+  // Completion is a canonical progress fact: percentComplete === 100. Arbitrary
+  // status strings never drive scheduling (F-10).
+  if (act.percentComplete === 100) return 0;
   if (
     act.remainingDurationDays !== undefined &&
     act.remainingDurationDays !== null &&
@@ -416,29 +423,18 @@ export function runScheduleEngine(
   // 1. Validate against cycles and determine topological processing order
   const order = topologicalSort(activities, dependencies);
 
-  // 2. Anchor priority: valid project data_date -> earliest valid plannedStart -> explicit scheduleDate
+  // 2. Anchor priority (F-09): valid project data_date -> explicit scheduleDate.
+  //    plannedStart/plannedFinish are informational and never anchor the schedule.
   let anchorDateStr: string | null = null;
   if (isValidISOString(projectDataDate)) {
     anchorDateStr = projectDataDate!.trim();
-  } else {
-    let earliest: string | null = null;
-    for (const act of activities) {
-      if (isValidISOString(act.plannedStart)) {
-        if (!earliest || act.plannedStart!.trim() < earliest) {
-          earliest = act.plannedStart!.trim();
-        }
-      }
-    }
-    if (earliest) {
-      anchorDateStr = earliest;
-    } else if (isValidISOString(scheduleDate)) {
-      anchorDateStr = scheduleDate!.trim();
-    }
+  } else if (isValidISOString(scheduleDate)) {
+    anchorDateStr = scheduleDate!.trim();
   }
 
   if (!anchorDateStr) {
     throw new Error(
-      "Cannot schedule project: no valid project data_date, plannedStart, or scheduleDate anchor available"
+      "Cannot schedule project: no valid project data_date or scheduleDate anchor available"
     );
   }
 
@@ -469,17 +465,12 @@ export function runScheduleEngine(
     const anchorWorkDay = nextWorkingDay(anchorDay, cal);
     const incoming = incomingMap.get(act.id) || [];
 
-    if (act.percentComplete === 100 || act.status?.toLowerCase() === "completed") {
-      const esStr = isValidISOString(act.actualStart)
-        ? act.actualStart!
-        : isValidISOString(act.plannedStart)
-        ? act.plannedStart!
-        : anchorDateStr;
-      const efStr = isValidISOString(act.actualFinish)
-        ? act.actualFinish!
-        : isValidISOString(act.plannedFinish)
-        ? act.plannedFinish!
-        : esStr;
+    // Completed activities are historical facts: ES/EF come from actual dates
+    // (anchor fallback only when no actual start exists). plannedStart/
+    // plannedFinish are NEVER read, and the Data Date floor never applies.
+    if (act.percentComplete === 100) {
+      const esStr = isValidISOString(act.actualStart) ? act.actualStart! : anchorDateStr;
+      const efStr = isValidISOString(act.actualFinish) ? act.actualFinish! : esStr;
       const es = dateToCalendarDay(esStr);
       const ef = dateToCalendarDay(efStr);
       ES_day_map.set(act.id, es);
@@ -487,23 +478,8 @@ export function runScheduleEngine(
       continue;
     }
 
-    let baseES_day = anchorWorkDay;
-    if (incoming.length === 0) {
-      if (isValidISOString(act.plannedStart)) {
-        const plannedDay = nextWorkingDay(dateToCalendarDay(act.plannedStart!), cal);
-        baseES_day = Math.max(anchorWorkDay, plannedDay);
-      } else {
-        baseES_day = anchorWorkDay;
-      }
-    } else {
-      if (isValidISOString(act.plannedStart)) {
-        baseES_day = nextWorkingDay(dateToCalendarDay(act.plannedStart!), cal);
-      } else {
-        baseES_day = -Infinity;
-      }
-    }
-
-    let ES_day = baseES_day;
+    // Network-derived Early Start (per-type FS/SS/FF/SF + lag math, unchanged).
+    let ES_day = -Infinity;
     for (const dep of incoming) {
       const pred = actMap.get(dep.predecessorActivityId)!;
       const predEF = EF_day_map.get(pred.id)!;
@@ -520,7 +496,7 @@ export function runScheduleEngine(
       const predFinishAnchor = predActualFinishDay != null ? predActualFinishDay : predEF;
       const predStartAnchor = predActualStartDay != null ? predActualStartDay : predES;
 
-      let constrDay = baseES_day;
+      let constrDay = -Infinity;
       if (dep.dependencyType === "FS") {
         constrDay = shiftWorkingDays(predFinishAnchor + 1, lag, cal);
       } else if (dep.dependencyType === "SS") {
@@ -536,7 +512,23 @@ export function runScheduleEngine(
         ES_day = constrDay;
       }
     }
-    if (ES_day === -Infinity) ES_day = anchorWorkDay;
+
+    // Data Date floor (F-01): no remaining work before the first working day on
+    // or after the project Data Date. Applies to every unfinished activity,
+    // including successors of completed predecessors and negative-lag leads.
+    if (ES_day < anchorWorkDay) ES_day = anchorWorkDay;
+
+    // Actual-progress floor: remaining work of an in-progress activity never
+    // schedules before its recorded Actual Start.
+    if (
+      act.percentComplete != null &&
+      act.percentComplete > 0 &&
+      act.percentComplete < 100 &&
+      isValidISOString(act.actualStart)
+    ) {
+      const actualStartDay = dateToCalendarDay(act.actualStart!);
+      if (actualStartDay > ES_day) ES_day = actualStartDay;
+    }
 
     const EF_day = dur === 0 ? ES_day : addWorkingDays(ES_day, dur, cal);
     ES_day_map.set(act.id, ES_day);
@@ -557,7 +549,7 @@ export function runScheduleEngine(
     const efDay = EF_day_map.get(act.id)!;
     const esDay = ES_day_map.get(act.id)!;
 
-    if (act.percentComplete === 100 || act.status?.toLowerCase() === "completed") {
+    if (act.percentComplete === 100) {
       LF_day_map.set(act.id, efDay);
       LS_day_map.set(act.id, esDay);
       continue;

@@ -2,7 +2,7 @@ import { format } from "date-fns";
 import { describe, expect, it } from "vitest";
 import { SCHEDULE_ROW_HEIGHT, sortActivities } from "./activityGridModel";
 import {
-  activityTimelineModel, actualDates, actualState, cpmSpan, headerTicks, isMilestone,
+  activityTimelineModel, actualDates, actualState, cpmSpan, headerTicks, isCurrentCritical, isMilestone,
   plannedDates, plannedSpan, progressState, timelinePosition, timelineRange, timelineSpan,
 } from "./timelineModel";
 
@@ -22,11 +22,13 @@ describe("timelineModel", () => {
     expect(actualDates({ ...activity, actualStart: "2026-08-01" })).toBeNull();
     expect(actualDates({ ...activity, actualStart: "2026-08-01", actualFinish: "2026-08-02" })).not.toBeNull();
   });
-  it("recognizes explicit and valid same-day milestones", () => {
+  it("recognizes milestones ONLY by explicit activity type (F-05)", () => {
     expect(isMilestone({ ...activity, activityType: "milestone" })).toBe(true);
     expect(isMilestone({ ...activity, activityType: "task" })).toBe(false);
-    const sameDay = plannedDates({ ...activity, plannedStart: "2026-08-04", plannedFinish: "2026-08-04" });
-    expect(isMilestone({ ...activity, activityType: "task" }, sameDay)).toBe(true);
+    // A normal one-working-day task has plannedStart === plannedFinish under the
+    // inclusive working-day convention but must NOT become a milestone.
+    expect(isMilestone({ ...activity, activityType: "task" })).toBe(false);
+    expect(isMilestone({ ...activity, activityType: "milestone" })).toBe(true);
   });
   it("builds a padded project range without calculating missing dates", () => {
     const range = timelineRange([{ ...activity, plannedStart: "2026-08-10", plannedFinish: "2026-08-12" }], "2026-08-11", new Date("2026-08-11T12:00:00Z"));
@@ -229,25 +231,38 @@ describe("timelineModel representation states", () => {
   });
 
   /**
-   * M1 regression: milestone-ness is a property of the activity and its span,
-   * not of which field the span came from. A CPM-sourced span must still be
-   * recognized as a milestone so the view can draw a diamond rather than a bar.
+   * F-05: milestone-ness is a property of the explicit activity type only.
+   * A CPM-sourced span is a milestone when the activity is typed milestone;
+   * a zero-duration TASK (early start === early finish) is a task bar.
    */
-  it("M1. recognizes milestones on a CPM-sourced span, not just a planned one", () => {
+  it("M1. recognizes explicit milestones on a CPM-sourced span; zero-duration tasks stay tasks", () => {
     const explicit = { ...activity, activityType: "milestone", earlyStart: "2026-08-20", earlyFinish: "2026-08-20" };
     const model = activityTimelineModel(explicit);
     expect(model.primary?.source).toBe("cpm");
-    expect(isMilestone(explicit, model.primary!.span)).toBe(true);
+    expect(isMilestone(explicit)).toBe(true);
 
-    // Zero-duration CPM span (same early start/finish) is a milestone by geometry.
+    // Zero-duration CPM span on a TASK is NOT a milestone under F-05.
     const zeroDuration = { ...activity, activityType: "task", earlyStart: "2026-08-20", earlyFinish: "2026-08-20" };
     const zeroModel = activityTimelineModel(zeroDuration);
     expect(zeroModel.primary?.source).toBe("cpm");
-    expect(isMilestone(zeroDuration, zeroModel.primary!.span)).toBe(true);
+    expect(isMilestone(zeroDuration)).toBe(false);
 
     // A multi-day CPM span is not a milestone unless explicitly typed.
     const spanned = { ...activity, activityType: "task", earlyStart: "2026-08-20", earlyFinish: "2026-08-24" };
-    expect(isMilestone(spanned, activityTimelineModel(spanned).primary!.span)).toBe(false);
+    expect(isMilestone(spanned)).toBe(false);
+  });
+
+  it("F-04: current-critical excludes completed activities while keeping active zero-float work critical", () => {
+    const activeCritical = { ...activity, totalFloatDays: 0, earlyStart: "2026-08-10", earlyFinish: "2026-08-11", percentComplete: 0 };
+    expect(isCurrentCritical(activeCritical)).toBe(true);
+    const floaty = { ...activeCritical, totalFloatDays: 3 };
+    expect(isCurrentCritical(floaty)).toBe(false);
+    // Completed: percentComplete 100 AND Actual Finish — zero float but not current-critical.
+    const completedRow = { ...activeCritical, percentComplete: 100, actualStart: "2026-08-10", actualFinish: "2026-08-11" };
+    expect(isCurrentCritical(completedRow)).toBe(false);
+    // 100% without an Actual Finish is NOT completed (anomalous) — still unfinished.
+    const noFinish = { ...activeCritical, percentComplete: 100, actualStart: null, actualFinish: null };
+    expect(isCurrentCritical(noFinish)).toBe(true);
   });
 
   it("PR345 exact smoke: Timeline/grid/CPM fields agree after Run Schedule", () => {

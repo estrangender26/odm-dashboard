@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { SCHEDULE_ROW_HEIGHT, sortActivities, type ActivityGridRow } from "./activityGridModel";
 import { dependencyLineGeometry, type DependencyRow } from "./dependencyModel";
 import {
-  ZOOM_PIXELS_PER_DAY, activityTimelineModel, headerTicks, isMilestone,
+  ZOOM_PIXELS_PER_DAY, activityTimelineModel, headerTicks, isCurrentCritical, isMilestone,
   parseTimelineDate, timelinePosition, timelineRange, timelineSpan, type TimelineZoom,
 } from "./timelineModel";
 
@@ -17,10 +17,18 @@ type Props = {
   dependencies?: DependencyRow[];
   /** Initial view scale; primarily useful for deterministic rendering/tests. */
   initialZoom?: TimelineZoom;
+  /** When the grid shows archived rows, the timeline renders them as greyed
+   *  empty rows so vertical row alignment is preserved (F-12). */
+  showArchived?: boolean;
+  /** When true, CPM-sourced bars visibly indicate the stale schedule (F-12). */
+  scheduleOutOfDate?: boolean | null;
 };
 
-export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll, dependencies = [], initialZoom = "week" }: Props) {
-  const activities = useMemo(() => sortActivities(input).filter((a) => !a.archivedAt), [input]);
+export default function Timeline({ activities: input, dataDate, highlightedActivityId, onActivityHighlight, verticalScrollTop, onVerticalScroll, dependencies = [], initialZoom = "week", showArchived = false, scheduleOutOfDate = false }: Props) {
+  const activities = useMemo(
+    () => sortActivities(input).filter((a) => showArchived || !a.archivedAt),
+    [input, showArchived]
+  );
   const [zoom, setZoom] = useState<TimelineZoom>(initialZoom);
   const [fitPixelsPerDay, setFitPixelsPerDay] = useState<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -51,17 +59,19 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
     <section className="space-y-3" aria-label="Activity timeline">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4">
-          <div><h3 className="text-sm font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Read-only schedule dates</p></div>
+          <div><h3 className="text-sm font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Planned (solid) · Scheduled/CPM (dashed) · Actual — read-only</p></div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-blue-600"></span> Planned</span>
-            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-red-600"></span> Critical planned</span>
-            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-emerald-600"></span> Actual</span>
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-transparent"></span> CPM</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded border border-dashed border-red-600 bg-transparent"></span> Critical CPM</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-red-600"></span> Critical chip (current path)</span>
+            <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-emerald-600"></span> Actual</span>
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-3 w-3 rotate-45 border-2 border-blue-700 bg-blue-500"></span> Planned milestone</span>
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-3 w-3 rotate-45 border-2 border-dashed border-slate-500 bg-transparent"></span> CPM milestone</span>
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="inline-flex items-center"><span className="h-2 w-2 rounded-full bg-emerald-600" /><span className="-ml-px text-[10px] leading-none text-emerald-700">▸</span></span> Open actual</span>
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 overflow-hidden rounded bg-blue-600"><span className="block h-full w-1/2 bg-white/55"></span></span> Shaded = % complete</span>
             <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded bg-amber-300/70" style={{ backgroundImage: "repeating-linear-gradient(135deg, transparent 0 3px, rgb(146 64 14 / 0.45) 3px 5px)" }}></span> Unresolved progress</span>
+            {scheduleOutOfDate && <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="h-2.5 w-4 rounded border border-dashed border-slate-500 bg-transparent opacity-50"></span> Stale — re-run schedule</span>}
           </div>
         </div>
         <div className="flex flex-wrap gap-1" aria-label="Timeline zoom">
@@ -90,13 +100,23 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                   <path d={line.path} fill="none" stroke="currentColor" strokeWidth="1.5" markerEnd="url(#dependency-arrow)" />
                   <circle cx={line.startX} cy={line.startY} r="3" fill="currentColor" />
                   <circle cx={line.endX} cy={line.endY} r="3" fill="white" stroke="currentColor" strokeWidth="1.5" />
+                  {line.lagLabel && (
+                    <g className="fill-white stroke-slate-400">
+                      <rect x={line.startX + 4} y={line.startY - 16} width={line.lagLabel.length * 7 + 6} height={14} rx={3} strokeWidth={1} />
+                      <text x={line.startX + 7} y={line.startY - 5.5} fontSize={9} fill="#334155" stroke="none">{line.lagLabel}</text>
+                    </g>
+                  )}
                 </g>)}
               </svg>
               {activities.map((activity, rowIndex) => {
                 const { primary, actual, progress } = activityTimelineModel(activity);
                 const isPlanned = primary?.source === "planned";
                 const highlighted = highlightedActivityId === activity.id;
-                const isCritical = (activity.totalFloatDays ?? 0) <= 0 && activity.earlyStart != null;
+                const archived = Boolean(activity.archivedAt);
+                // F-04: current-critical means "on the current remaining-work
+                // critical path" (canonical completion predicate — completed
+                // activities are never presented as current-critical).
+                const currentCritical = !archived && isCurrentCritical(activity);
                 const unresolvedCompletion = progress.isComplete && !progress.hasActualFinish;
                 const hasOpenActual = actual.kind === "open";
                 // Progress is truthful only when a real Actual Finish exists. The two
@@ -107,33 +127,40 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                 const actualStateLabel = actual.kind === "closed"
                   ? "Actual Start and Actual Finish recorded"
                   : hasOpenActual ? "Actual Start recorded, no Actual Finish" : "no actual dates recorded";
-                const activityLabel = unresolvedCompletion
-                  ? `Highlight ${activity.activityName}; ${hasOpenActual ? "100% complete, Actual Start recorded and no Actual Finish" : "100% complete, no actual dates recorded"}`
-                  : `Highlight ${activity.activityName}; ${progressLabel}; ${actualStateLabel}`;
+                const activityLabel = archived
+                  ? `Highlight ${activity.activityName}; archived`
+                  : unresolvedCompletion
+                    ? `Highlight ${activity.activityName}; ${hasOpenActual ? "100% complete, Actual Start recorded and no Actual Finish" : "100% complete, no actual dates recorded"}`
+                    : `Highlight ${activity.activityName}; ${progressLabel}; ${actualStateLabel}`;
                 return (
                   <button key={activity.id} type="button" aria-label={activityLabel}
                     onMouseEnter={() => onActivityHighlight?.(activity.id)} onMouseLeave={() => onActivityHighlight?.(null)} onFocus={() => onActivityHighlight?.(activity.id)}
-                    className={`absolute left-0 z-20 w-full border-b text-left transition-colors ${highlighted ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                    className={`absolute left-0 z-20 w-full border-b text-left transition-colors ${highlighted ? "bg-blue-50" : archived ? "bg-slate-50" : "hover:bg-slate-50"}`}
                     style={{ top: rowIndex * SCHEDULE_ROW_HEIGHT, height: SCHEDULE_ROW_HEIGHT }}>
-                    {primary && (isMilestone(activity, primary.span) ? (
+                    {archived ? (
+                      <span aria-hidden="true" className="absolute left-2 top-3 text-xs text-slate-400">Archived</span>
+                    ) : (
+                    <>
+                    {primary && (isMilestone(activity) ? (
                       /* A milestone stays a diamond whatever its span source; only the fill
                          distinguishes a planned commitment (solid) from CPM output (hollow,
-                         dashed). A milestone is never widened into a duration bar. */
-                      <span data-testid={`${isPlanned ? "planned" : "cpm"}-milestone`} title={`${activity.activityName} milestone${isPlanned ? "" : " (CPM early dates)"}${isCritical ? " (Critical)" : ""}`}
+                         dashed). Critical styling belongs to CPM truth only (F-12). */
+                      <span data-testid={`${isPlanned ? "planned" : "cpm"}-milestone`} title={`${activity.activityName} milestone${isPlanned ? "" : " (CPM early dates)"}${currentCritical ? " (Critical)" : ""}`}
                         aria-hidden="true"
                         className={`absolute top-3 h-4 w-4 rotate-45 border-2 ${isPlanned
-                          ? (isCritical ? "border-red-700 bg-red-500" : "border-blue-700 bg-blue-500")
-                          : `border-dashed bg-transparent ${isCritical ? "border-red-600" : "border-slate-500"}`}`}
+                          ? "border-blue-700 bg-blue-500"
+                          : `border-dashed bg-transparent ${currentCritical ? "border-red-600" : "border-slate-500"} ${scheduleOutOfDate ? "opacity-60" : ""}`}`}
                         style={{ left: timelinePosition(primary.span.start, range.start, pixelsPerDay) - 8 }} />
                     ) : (
                       /* Planned geometry is exactly Planned Start -> Planned Finish and is never
-                         resized by Data Date, % complete or CPM. A CPM-sourced bar is drawn
-                         hollow/dashed so it can never read as a planned commitment. */
-                      <span data-testid={`${isPlanned ? "planned" : "cpm"}-bar`} title={`${activity.activityName}: ${progressLabel}; ${isPlanned ? "planned" : "CPM early"} dates${isCritical ? ` (Critical, ${activity.totalFloatDays ?? 0}d float)` : ""}`}
+                         resized by Data Date, % complete or CPM, and never colored by criticality.
+                         A CPM-sourced bar is drawn hollow/dashed so it can never read as a planned
+                         commitment; it carries the critical/stale treatments (F-12). */
+                      <span data-testid={`${isPlanned ? "planned" : "cpm"}-bar`} title={`${activity.activityName}: ${progressLabel}; ${isPlanned ? "planned" : "CPM early"} dates${currentCritical ? ` (Critical, ${activity.totalFloatDays ?? 0}d float)` : ""}`}
                         aria-hidden="true"
                         className={`absolute top-2 h-3 overflow-hidden rounded ${isPlanned
-                          ? (isCritical ? "bg-red-600" : "bg-blue-600")
-                          : `border border-dashed bg-transparent ${isCritical ? "border-red-600" : "border-slate-500"}`}`}
+                          ? "bg-blue-600"
+                          : `border border-dashed bg-transparent ${currentCritical ? "border-red-600" : "border-slate-500"} ${scheduleOutOfDate ? "opacity-60" : ""}`}`}
                         style={{ left: timelinePosition(primary.span.start, range.start, pixelsPerDay), width: timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) }}>
                         {isPlanned && (unresolvedCompletion ? (
                           <span data-testid="unresolved-completion-treatment" aria-hidden="true" className="block h-full bg-amber-300/70" style={{ backgroundImage: "repeating-linear-gradient(135deg, transparent 0 3px, rgb(146 64 14 / 0.45) 3px 5px)" }} />
@@ -162,7 +189,16 @@ export default function Timeline({ activities: input, dataDate, highlightedActiv
                         {hasOpenActual ? "100% · Actual Finish open" : "100% · no actual dates"}
                       </span>
                     )}
+                    {currentCritical && (
+                      <span data-testid="critical-chip" aria-hidden="true"
+                        className="absolute top-0 z-40 whitespace-nowrap rounded bg-red-600 px-1 text-[10px] font-medium leading-[15px] text-white"
+                        style={{ left: primary ? timelinePosition(primary.span.start, range.start, pixelsPerDay) + timelineSpan(primary.span.start, primary.span.finish, pixelsPerDay) + 4 : 8 }}>
+                        Critical
+                      </span>
+                    )}
                     {!primary && actual.kind === "none" && <span aria-hidden="true" className="absolute left-2 top-3 text-xs text-muted-foreground">No dates</span>}
+                    </>
+                    )}
                   </button>
                 );
               })}
