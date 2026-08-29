@@ -246,6 +246,13 @@
       "tag": "0034_smp_revision_safe_structured_and_identity",
       "when": 1791312000034,
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "tag": "0035_smp_one_current_revision",
+      "when": 1791312000041,
+      "breakpoints": true
     }
   ]
 }

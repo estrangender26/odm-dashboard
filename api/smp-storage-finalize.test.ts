@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { smpDocuments, smpDocumentRevisions } from "@db/schema";
+import { smpDocuments, smpDocumentRevisions, storageUploadIntents } from "@db/schema";
 
 /**
  * Focused test of the governed SMP upload finalize branch:
@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   updateSets: [] as any[],
   updateTables: [] as any[],
   updateReturning: [] as any[],
+  smpUpdateReturning: [] as any[],
   infoResult: null as any,
   storageFrom: vi.fn(),
 }));
@@ -69,7 +70,9 @@ vi.mock("./queries/connection", () => ({
               mocks.updateSets.push(values);
               return {
                 where: vi.fn(() => ({
-                  returning: vi.fn(async () => mocks.updateReturning),
+                  returning: vi.fn(async () =>
+                    table === storageUploadIntents ? mocks.updateReturning : mocks.smpUpdateReturning,
+                  ),
                 })),
               };
             }),
@@ -216,6 +219,8 @@ describe("SMP storage finalize — revision governance", () => {
     mocks.insertReturning = [{ id: 1 }];
     // Claim update (intent status transition) must return a row.
     mocks.updateReturning = [{ id: "claim-ok" }];
+    // No previous current revision by default (supersede returns no rows).
+    mocks.smpUpdateReturning = [];
   });
 
   it("creates an immutable current revision row for an existing-series upload", async () => {
@@ -253,12 +258,22 @@ describe("SMP storage finalize — revision governance", () => {
       { id: 7, revision: "Rev. 0", status: "current" },
       { id: 8, revision: "Rev. 1", status: "superseded" },
     ];
+    // The previous current revision (id 7) is captured by the pre-insert
+    // supersede; the backfill then points it at the new revision.
+    mocks.smpUpdateReturning = [{ id: 7 }];
 
     const res = await storageRouter.request(makeFinalizeRequest(intent.id, token));
     expect(res.status).toBe(200);
 
+    // The pre-insert supersede carries no pointer yet (the new id does not
+    // exist at that point) — and crucially the predicate runs BEFORE the new
+    // revision exists, so the new revision can never supersede itself.
     const supersedeSet = mocks.updateSets.find((s: any) => s.status === "superseded");
-    expect(supersedeSet).toMatchObject({ status: "superseded", supersededByRevisionId: 1 });
+    expect(supersedeSet).toMatchObject({ status: "superseded", supersededByRevisionId: null });
+
+    // The backfill points the previous current revision at the new revision.
+    const backfillSet = mocks.updateSets.find((s: any) => s.supersededByRevisionId === 1);
+    expect(backfillSet).toBeDefined();
 
     const mirrorSet = mocks.updateSets.find((s: any) => s.revision === "Rev. 2");
     expect(mirrorSet).toMatchObject({

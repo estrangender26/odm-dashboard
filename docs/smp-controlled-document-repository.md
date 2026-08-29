@@ -87,14 +87,19 @@ files are immutable revision objects in the existing governed Supabase Storage f
   PLC, MV, VFD-driven, …). No per-subtype columns.
 
 Upload flow reuses the existing governed storage architecture (TUS + signed URLs +
-capability intents): the `smp` finalize branch now creates a revision row, supersedes the
-previous current revision, and mirrors the new revision onto the series row.
+capability intents): the `smp` finalize flow (extracted into `api/smp-finalize.ts`) creates a
+revision row, supersedes the previous current revision, and mirrors the new revision onto the
+series row. Ordering guarantees the new revision can never supersede itself: the previous
+current revision(s) are superseded BEFORE the new revision is inserted (the supersede
+predicate cannot match a row that does not exist yet), and the backfill that points the
+previous revision(s) at the new one runs by captured ids with the new id defensively
+excluded. After a successful finalize there is exactly one current revision per series.
 
 PDFs remain the authoritative controlled documents. No PDF extraction is performed; the PDFs
 are uploaded manually after implementation. Structured procedure tables are empty until a
 future ingestion step fills them — the UI renders honest empty states.
 
-## 3. Database / schema changes (migrations 0033 + 0034, additive)
+## 3. Database / schema changes (migrations 0033 + 0034 + 0035, additive)
 
 **0033** (`0033_smp_controlled_documents.sql`):
 - `CREATE TABLE IF NOT EXISTS smp_documents` (full shape; replaces the runtime-created table
@@ -121,18 +126,26 @@ future ingestion step fills them — the UI renders honest empty states.
   deliberately NOT atomic; progress is recorded, confirmations are idempotent/retryable),
   with RLS.
 
+**0035** (`0035_smp_one_current_revision.sql`, PR #404 second-pass fix):
+- Partial unique index `smp_document_revisions_one_current_idx` on `(document_id)` WHERE
+  `status = 'current'` — the database enforces at most one current revision per document
+  series. A read-only preflight guard detects existing violations and fails the migration
+  loudly instead of modifying production history.
+- Mirrored in `db/schema.ts`.
+
 ### Production migration instructions
 - Deploy the branch to Render. Production boot runs `drizzle-orm migrate` on
   `db/migrations` (see `api/queries/connection.ts` `ensureDbReady`), which applies
-  `0033_smp_controlled_documents.sql` and `0034_smp_revision_safe_structured_and_identity.sql`
-  automatically.
+  `0033_smp_controlled_documents.sql`, `0034_smp_revision_safe_structured_and_identity.sql`,
+  and `0035_smp_one_current_revision.sql` automatically.
 - 0034 requires that no reference-number duplicates and no unattributed sections/tasks exist;
-  it fails the boot loudly otherwise (manual reconciliation first). Both migrations are
-  additive; no manual SQL is required in the normal case. Verify via Render logs
+  0035 requires at most one current revision per document series. Both fail the boot loudly
+  otherwise (manual reconciliation first). All migrations are additive; no manual SQL is
+  required in the normal case. Verify via Render logs
   (`[db] migration finish; verified tasks.procedure_familiarity`) and by opening
   `/smp-dashboard` (empty library state).
 - Rollback is not needed for additive migrations; if a problem occurs, redeploy the
-  previous commit (columns/tables added by 0033/0034 are unused by the old code).
+  previous commit (columns/tables added by 0033/0034/0035 are unused by the old code).
 
 ## 4. Behavior changes
 - `smp.seed` removed; "Load Demo" removed; hard-coded filter lists removed (filters are

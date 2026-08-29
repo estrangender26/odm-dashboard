@@ -11,6 +11,7 @@ import {
   normalizeSmpRevisionLabel,
   parseSmpRevisionNumber,
   resolveSmpDetailRevision,
+  resolveSupersessionBackfill,
   validateSmpRevisionUnique,
 } from "./smp-logic";
 
@@ -91,6 +92,21 @@ describe("SMP revision-scoped structured data", () => {
     expect(rev0!.revision).toBe("Rev. 0");
     // Rev. 1 content is never reachable while Rev. 0 is selected.
     expect(resolveSmpDetailRevision(revisions, 1)!.id).not.toBe(2);
+  });
+});
+
+describe("SMP supersession backfill planning", () => {
+  it("never lets a revision be its own predecessor (no self-supersession)", () => {
+    // Normal case: previous current (7) points at the new revision (8).
+    expect(resolveSupersessionBackfill([7], 8)).toEqual([7]);
+    // Defensive: if the new revision id somehow appeared in the captured set,
+    // it is excluded — a revision can never supersede itself.
+    expect(resolveSupersessionBackfill([8], 8)).toEqual([]);
+    expect(resolveSupersessionBackfill([7, 8, 9], 8)).toEqual([7, 9]);
+    // No previous current revision → nothing to backfill.
+    expect(resolveSupersessionBackfill([], 8)).toEqual([]);
+    // Duplicate ids are deduplicated.
+    expect(resolveSupersessionBackfill([7, 7], 8)).toEqual([7]);
   });
 });
 

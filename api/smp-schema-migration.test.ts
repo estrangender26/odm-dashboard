@@ -22,6 +22,10 @@ function migrationSource34() {
   return readFileSync(join(root, "db/migrations/0034_smp_revision_safe_structured_and_identity.sql"), "utf8");
 }
 
+function migrationSource35() {
+  return readFileSync(join(root, "db/migrations/0035_smp_one_current_revision.sql"), "utf8");
+}
+
 describe("SMP controlled-document schema", () => {
   it("exports the controlled-document tables", () => {
     const source = schemaSource();
@@ -207,5 +211,32 @@ describe("migration 0034 (revision-safe structured data + identity + deletion le
     expect(sql).not.toMatch(/DROP\s+COLUMN/i);
     expect(sql).not.toMatch(/TRUNCATE\s+TABLE/i);
     expect(sql).not.toMatch(/DELETE\s+FROM/i);
+  });
+});
+
+describe("migration 0035 (one current revision per document series)", () => {
+  it("is registered in the drizzle journal", () => {
+    expect(journal().entries.some((e) => e.tag === "0035_smp_one_current_revision")).toBe(true);
+  });
+
+  it("creates the partial unique index at the database level", () => {
+    const sql = migrationSource35();
+    expect(sql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "smp_document_revisions_one_current_idx"');
+    expect(sql).toContain('ON "smp_document_revisions" ("document_id")');
+    expect(sql).toContain('WHERE "status" = \'current\'');
+  });
+
+  it("preflights existing violations and fails loudly instead of modifying history", () => {
+    const sql = migrationSource35();
+    expect(sql).toContain("RAISE EXCEPTION");
+    expect(sql).toMatch(/multiple current revisions detected/);
+    expect(sql).not.toMatch(/UPDATE smp_document_revisions/i);
+    expect(sql).not.toMatch(/DELETE FROM smp_document_revisions/i);
+  });
+
+  it("is mirrored in the drizzle schema", () => {
+    const source = schemaSource();
+    expect(source).toContain('uniqueIndex("smp_document_revisions_one_current_idx")');
+    expect(source).toContain("= 'current'");
   });
 });

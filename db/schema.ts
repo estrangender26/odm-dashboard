@@ -345,6 +345,8 @@ export const smpDocumentRevisions = pgTable("smp_document_revisions", {
   unique("smp_document_revisions_document_revision_unique").on(table.documentId, table.revision),
   index("smp_document_revisions_document_idx").on(table.documentId),
   index("smp_document_revisions_status_idx").on(table.documentId, table.status),
+  // At most one current revision per document series (migration 0035).
+  uniqueIndex("smp_document_revisions_one_current_idx").on(table.documentId).where(sql`${table.status} = 'current'`),
 ]);
 
 /* ── SMP Families ──

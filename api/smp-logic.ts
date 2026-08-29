@@ -176,6 +176,19 @@ export type SmpRevisionSummary = {
 };
 
 /**
+ * Resolves which previous current revision ids get backfilled to point at the
+ * newly inserted revision. The ids come from a pre-insert capture, and the
+ * new revision's id is defensively excluded: the new revision can never be
+ * its own predecessor (no self-supersession).
+ */
+export function resolveSupersessionBackfill(
+  previousCurrentIds: ReadonlyArray<number>,
+  newRevisionId: number,
+): number[] {
+  return [...new Set(previousCurrentIds)].filter((id) => id !== newRevisionId);
+}
+
+/**
  * Resolves which revision's structured procedure data a detail request must
  * show. A requested revision must belong to the document (returns null when
  * it does not); otherwise the CURRENT revision is used, falling back to the

@@ -1,7 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm"
-import { sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   docFiles,
@@ -34,7 +33,7 @@ import { env } from "./lib/env";
 import { deepEqualJson } from "./lib/json-equality";
 import { db } from "./queries/connection";
 import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-feature-flags";
-import { normalizeSmpCodeKey, normalizeSmpRevisionLabel, parseSmpRevisionNumber, validateSmpRevisionUnique } from "./smp-logic";
+import { finalizeSmpRevision, type SmpFinalizeTx } from "./smp-finalize";
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
 import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
@@ -672,112 +671,66 @@ storageRouter.post("/uploads/finalize", async (c) => {
         // A governed upload creates an immutable REVISION row for the target
         // document series. New-document uploads create the series and its
         // first revision ATOMICALLY inside this transaction, so a failed
-        // upload/finalize leaves no orphan series behind. The previous
-        // current revision is superseded (never overwritten) and the series
-        // row mirrors the new current revision.
-        const revisionLabel = normalizeSmpRevisionLabel(target.revision);
-        const revisionNumber = parseSmpRevisionNumber(revisionLabel);
-        const effectivityDate = target.effectivityDate ? String(target.effectivityDate).slice(0, 10) : null;
+        // upload/finalize leaves no orphan series behind.
+        //
+        // Ordering invariant (see api/smp-finalize.ts): the previous current
+        // revision is superseded BEFORE the new revision is inserted, so the
+        // new revision can never match the supersede predicate and can never
+        // supersede itself. After a successful finalize there is exactly one
+        // current revision per document series.
         const uploaderName = intent.requestedBy
           ? (await db.select({ name: users.name }).from(users).where(eq(users.id, intent.requestedBy)).limit(1))[0]?.name ?? null
           : null;
 
-        let documentId: number;
-        if (Number(target.documentId) > 0) {
-          documentId = Number(target.documentId);
-        } else {
-          // NEW document series: created here, atomically with the revision.
-          const code = String(target.code ?? "").trim();
-          const title = String(target.title ?? "").trim();
-          if (!code || !title) throw new Error("Reference number and title are required for a new SMP.");
-          const dup = await tx.select({ id: smpDocuments.id }).from(smpDocuments)
-            .where(eq(smpDocuments.codeKey, normalizeSmpCodeKey(code))).limit(1);
-          if (dup.length > 0) {
-            throw new Error(`An SMP with reference number "${code}" already exists.`);
-          }
-          const insertedDoc = await tx.insert(smpDocuments).values({
-            code,
-            codeKey: normalizeSmpCodeKey(code),
-            title,
-            smpId: target.smpId ?? null,
-            smpFamily: target.smpFamily ?? null,
-            familyId: target.familyId ?? null,
-            assetName: target.assetName ?? null,
-            assetType: target.assetType ?? null,
-            equipmentType: target.equipmentType ?? null,
-            facilityType: target.facilityType ?? null,
-            applicability: typeof target.applicability === "string"
-              ? target.applicability.split(",").map((v) => v.trim()).filter(Boolean)
-              : (Array.isArray(target.applicability) && target.applicability.length
-                  ? target.applicability
-                  : null),
-            criticality: target.criticality ?? null,
-            documentOwner: target.documentOwner ?? null,
-            preparedBy: target.preparedBy ?? null,
-            reviewedBy: target.reviewedBy ?? null,
-            approvedBy: target.approvedBy ?? null,
-            status: "Active",
-            uploadedBy: uploaderName,
-            uploadedAt: now,
-            createdAt: now,
+        const smpTx: SmpFinalizeTx = {
+          selectRevisions: (documentId) => tx.select({
+            id: smpDocumentRevisions.id,
+            revision: smpDocumentRevisions.revision,
+            status: smpDocumentRevisions.status,
+          }).from(smpDocumentRevisions).where(eq(smpDocumentRevisions.documentId, documentId)),
+          selectDocumentByCodeKey: (codeKey) => tx.select({ id: smpDocuments.id })
+            .from(smpDocuments).where(eq(smpDocuments.codeKey, codeKey)).limit(1),
+          insertDocument: async (values) =>
+            (await tx.insert(smpDocuments).values(values as any).returning({ id: smpDocuments.id }))[0],
+          supersedeCurrentRevisions: (documentId) => tx.update(smpDocumentRevisions).set({
+            status: "superseded",
+            supersededByRevisionId: null,
             updatedAt: now,
-          }).returning({ id: smpDocuments.id });
-          documentId = insertedDoc[0].id;
-        }
+          }).where(and(
+            eq(smpDocumentRevisions.documentId, documentId),
+            eq(smpDocumentRevisions.status, "current"),
+          )).returning({ id: smpDocumentRevisions.id }),
+          insertRevision: async (values) =>
+            (await tx.insert(smpDocumentRevisions).values(values as any).returning({ id: smpDocumentRevisions.id }))[0],
+          backfillSupersededBy: async (revisionIds, newRevisionId) => {
+            await tx.update(smpDocumentRevisions).set({
+              supersededByRevisionId: newRevisionId,
+              updatedAt: now,
+            }).where(inArray(smpDocumentRevisions.id, revisionIds));
+          },
+          updateDocumentMirror: async (documentId, values) => {
+            await tx.update(smpDocuments).set(values as any).where(eq(smpDocuments.id, documentId));
+          },
+        };
 
-        const existing = await tx.select({
-          id: smpDocumentRevisions.id,
-          revision: smpDocumentRevisions.revision,
-          status: smpDocumentRevisions.status,
-        }).from(smpDocumentRevisions).where(eq(smpDocumentRevisions.documentId, documentId));
-        const duplicateError = validateSmpRevisionUnique(existing.map((r) => r.revision), revisionLabel);
-        if (duplicateError) throw new Error(duplicateError);
-        const inserted = await tx.insert(smpDocumentRevisions).values({
-          documentId,
-          revision: revisionLabel,
-          revisionNumber,
-          status: "current",
-          effectivityDate,
-          originalFileName: intent.originalFilename,
-          fileType: intent.expectedMimeType,
-          fileSize: actualSize,
-          uploadedBy: uploaderName,
-          uploadedAt: now,
-          createdAt: now,
-          updatedAt: now,
-          storageProvider: "supabase",
-          storageBucket: intent.expectedBucket,
-          storagePath: intent.expectedPath,
-          storageSize: actualSize,
-          storageMimeType: actualMime,
-          storageEtag: info.etag,
-          storageUploadedAt: now,
-        }).returning({ id: smpDocumentRevisions.id });
-        const revisionId = inserted[0].id;
-        await tx.update(smpDocumentRevisions).set({
-          status: "superseded",
-          supersededByRevisionId: revisionId,
-          updatedAt: now,
-        }).where(and(
-          eq(smpDocumentRevisions.documentId, documentId),
-          eq(smpDocumentRevisions.status, "current"),
-        ));
-        await tx.update(smpDocuments).set({
-          revision: revisionLabel,
-          fileName: intent.originalFilename,
-          fileType: intent.expectedMimeType,
-          status: "Active",
-          uploadedBy: uploaderName,
-          uploadedAt: now,
-          updatedAt: now,
-          storageProvider: "supabase",
-          storageBucket: intent.expectedBucket,
-          storagePath: intent.expectedPath,
-          storageSize: actualSize,
-          storageMimeType: actualMime,
-          storageEtag: info.etag,
-          storageUploadedAt: now,
-        }).where(eq(smpDocuments.id, documentId));
+        const { documentId, revisionId } = await finalizeSmpRevision(smpTx, {
+          documentId: Number(target.documentId) > 0 ? Number(target.documentId) : undefined,
+          target,
+          originalFilename: intent.originalFilename,
+          mimeType: actualMime,
+          size: actualSize,
+          storage: {
+            provider: "supabase",
+            bucket: intent.expectedBucket,
+            path: intent.expectedPath,
+            size: actualSize,
+            mimeType: actualMime,
+            etag: info.etag ?? null,
+            uploadedAt: now,
+          },
+          now,
+          uploaderName,
+        });
         persistedId = revisionId;
         persistedSource = "smp_document_revisions";
         smpDocumentId = documentId;
