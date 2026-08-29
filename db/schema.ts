@@ -275,9 +275,11 @@ export const smpDocuments = pgTable("smp_documents", {
   id: serial("id").primaryKey(),
   // Document identity
   code: varchar("code", { length: 50 }).notNull(), // Reference number, e.g. MW-ENGG-SP-1.0
+  codeKey: varchar("code_key", { length: 50 }).notNull().default(""), // lower(trim(code)) — uniqueness identity, maintained by trigger 0034
   title: varchar("title", { length: 500 }).notNull(), // SMP title
   smpId: varchar("smp_id", { length: 100 }),
-  smpFamily: varchar("smp_family", { length: 255 }),
+  smpFamily: varchar("smp_family", { length: 255 }), // literal family text as documented in the PDF
+  familyId: integer("family_id").references(() => smpFamilies.id, { onDelete: "set null" }), // optional canonical catalog relation
   revision: varchar("revision", { length: 50 }).default("Rev. 1"), // current revision label
   effectivityDate: date("effectivity_date"),
   documentOwner: varchar("document_owner", { length: 255 }),
@@ -313,6 +315,8 @@ export const smpDocuments = pgTable("smp_documents", {
   index("smp_family_idx").on(table.smpFamily),
   index("smp_facility_type_idx").on(table.facilityType),
   index("smp_criticality_idx").on(table.criticality),
+  index("smp_family_id_idx").on(table.familyId),
+  uniqueIndex("smp_documents_code_key_unique").on(table.codeKey),
 ]);
 
 /* ── SMP Document Revisions ──
@@ -361,11 +365,14 @@ export const smpFamilies = pgTable("smp_families", {
 /* ── SMP Sections ──
  *
  * Structured procedure sections (Document Control, Objective, Scope, ...).
- * Sections are data rows; future SMPs may define different section counts.
+ * Sections are data rows scoped to a specific document REVISION: content from
+ * different revisions can never mix. Future SMPs may define different section
+ * counts.
  */
 export const smpSections = pgTable("smp_sections", {
   id: serial("id").primaryKey(),
   documentId: integer("document_id").notNull().references(() => smpDocuments.id, { onDelete: "cascade" }),
+  revisionId: integer("revision_id").notNull().references(() => smpDocumentRevisions.id, { onDelete: "cascade" }),
   sectionKey: varchar("section_key", { length: 64 }).notNull(),
   title: varchar("title", { length: 255 }).notNull(),
   body: text("body"),
@@ -374,11 +381,13 @@ export const smpSections = pgTable("smp_sections", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("smp_sections_document_idx").on(table.documentId),
+  index("smp_sections_revision_idx").on(table.revisionId),
 ]);
 
 /* ── SMP Tasks ──
  *
- * Structured maintenance tasks. `category` selects the structure:
+ * Structured maintenance tasks scoped to a specific document REVISION.
+ * `category` selects the structure:
  *   operator_driven | technician_pm | technician_cbm | corrective
  * Corrective tasks additionally use `failureMode`. Applicability is expressed
  * through `smp_task_applicability` tags, never per-subtype columns.
@@ -386,7 +395,7 @@ export const smpSections = pgTable("smp_sections", {
 export const smpTasks = pgTable("smp_tasks", {
   id: serial("id").primaryKey(),
   documentId: integer("document_id").notNull().references(() => smpDocuments.id, { onDelete: "cascade" }),
-  revisionId: integer("revision_id").references(() => smpDocumentRevisions.id, { onDelete: "set null" }),
+  revisionId: integer("revision_id").notNull().references(() => smpDocumentRevisions.id, { onDelete: "cascade" }),
   category: varchar("category", { length: 32 }).notNull(),
   responsibilityType: varchar("responsibility_type", { length: 32 }),
   maintenanceClass: varchar("maintenance_class", { length: 32 }),
@@ -402,6 +411,7 @@ export const smpTasks = pgTable("smp_tasks", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("smp_tasks_document_idx").on(table.documentId),
+  index("smp_tasks_revision_idx").on(table.revisionId),
   index("smp_tasks_category_idx").on(table.documentId, table.category),
 ]);
 
@@ -432,6 +442,34 @@ export type SmpTask = typeof smpTasks.$inferSelect;
 export type InsertSmpTask = typeof smpTasks.$inferInsert;
 export type SmpTaskApplicability = typeof smpTaskApplicability.$inferSelect;
 export type InsertSmpTaskApplicability = typeof smpTaskApplicability.$inferInsert;
+
+/* ── SMP Deletion Records ──
+ *
+ * Ledger for staged, recorded document deletion. Storage object removal and
+ * the database row delete are deliberately NOT atomic across Postgres and
+ * Supabase Storage; this ledger records progress so failures are explicit,
+ * retryable, and never silently partial.
+ */
+export const smpDeletionRecords = pgTable("smp_deletion_records", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+  status: varchar("status", { length: 32 }).notNull().default("pending"), // pending | storage_failed | db_failed | completed
+  objects: jsonb("objects").notNull().default([]), // [{ bucket, path }] snapshot
+  removedObjects: jsonb("removed_objects").notNull().default([]), // paths already removed
+  failureReason: text("failure_reason"),
+  createdBy: varchar("created_by", { length: 255 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [
+  index("smp_deletion_records_document_idx").on(table.documentId),
+  index("smp_deletion_records_status_idx").on(table.status),
+  index("smp_deletion_records_token_idx").on(table.tokenHash),
+]);
+
+export type SmpDeletionRecord = typeof smpDeletionRecords.$inferSelect;
+export type InsertSmpDeletionRecord = typeof smpDeletionRecords.$inferInsert;
 
 export const storageUploadIntents = pgTable("storage_upload_intents", {
   id: uuid("id").primaryKey(),

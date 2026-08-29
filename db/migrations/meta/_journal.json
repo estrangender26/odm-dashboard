@@ -239,6 +239,13 @@
       "tag": "0033_smp_controlled_documents",
       "when": 1791312000027,
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "tag": "0034_smp_revision_safe_structured_and_identity",
+      "when": 1791312000034,
+      "breakpoints": true
     }
   ]
 }

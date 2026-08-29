@@ -7,8 +7,10 @@ import {
   buildSmpListWhere,
   getSmpListCriteria,
   isSmpLifecycleStatus,
+  normalizeSmpCodeKey,
   normalizeSmpRevisionLabel,
   parseSmpRevisionNumber,
+  resolveSmpDetailRevision,
   validateSmpRevisionUnique,
 } from "./smp-logic";
 
@@ -40,6 +42,55 @@ describe("SMP revision governance logic", () => {
     expect(validateSmpRevisionUnique(["Rev. 0", "Rev. 1"], "  rev. 1  ")).toContain("already exists");
     expect(validateSmpRevisionUnique(["Rev. 0"], "Rev. 1")).toBeNull();
     expect(validateSmpRevisionUnique([], "Rev. 0")).toBeNull();
+  });
+});
+
+describe("SMP reference-number identity", () => {
+  it("normalizes reference numbers case- and whitespace-insensitively", () => {
+    expect(normalizeSmpCodeKey("MW-ENGG-SP-1.0")).toBe("mw-engg-sp-1.0");
+    expect(normalizeSmpCodeKey("  mw-engg-sp-1.0  ")).toBe("mw-engg-sp-1.0");
+    expect(normalizeSmpCodeKey("MW-ENGG-SP-1.0")).toBe(normalizeSmpCodeKey("mw-engg-sp-1.0"));
+    expect(normalizeSmpCodeKey("")).toBe("");
+  });
+});
+
+describe("SMP revision-scoped structured data", () => {
+  const revisions = [
+    { id: 1, revision: "Rev. 0", revisionNumber: 0, status: "superseded" },
+    { id: 2, revision: "Rev. 1", revisionNumber: 1, status: "current" },
+  ];
+
+  it("defaults to the current revision", () => {
+    expect(resolveSmpDetailRevision(revisions)?.id).toBe(2);
+  });
+
+  it("falls back to the latest revision when nothing is current", () => {
+    expect(resolveSmpDetailRevision([
+      { id: 1, revision: "Rev. 0", revisionNumber: 0, status: "superseded" },
+    ])?.id).toBe(1);
+  });
+
+  it("returns null for legacy documents without revisions", () => {
+    expect(resolveSmpDetailRevision([])).toBeNull();
+  });
+
+  it("respects an explicitly requested revision", () => {
+    expect(resolveSmpDetailRevision(revisions, 1)?.id).toBe(1);
+    expect(resolveSmpDetailRevision(revisions, 2)?.id).toBe(2);
+  });
+
+  it("never resolves a revision that does not belong to the document", () => {
+    expect(resolveSmpDetailRevision(revisions, 99)).toBeNull();
+  });
+
+  it("cannot mix Rev. 0 and Rev. 1 content: requesting Rev. 0 resolves to Rev. 0 only", () => {
+    const rev0 = resolveSmpDetailRevision(revisions, 1);
+    expect(rev0).not.toBeNull();
+    // The resolved id is the single scoping key for sections/tasks queries.
+    expect(rev0!.id).toBe(1);
+    expect(rev0!.revision).toBe("Rev. 0");
+    // Rev. 1 content is never reachable while Rev. 0 is selected.
+    expect(resolveSmpDetailRevision(revisions, 1)!.id).not.toBe(2);
   });
 });
 

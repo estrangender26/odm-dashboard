@@ -1,9 +1,11 @@
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "./queries/connection";
 import {
   smpDocuments,
   smpDocumentRevisions,
+  smpDeletionRecords,
   smpFamilies,
   smpSections,
   smpTasks,
@@ -12,6 +14,8 @@ import {
 import { authedQuery, createRouter, publicQuery } from "./middleware";
 import {
   buildSmpListWhere,
+  normalizeSmpCodeKey,
+  resolveSmpDetailRevision,
   type SmpListInput,
 } from "./smp-logic";
 import { getSupabaseStorageAdmin } from "./supabase-storage";
@@ -20,14 +24,17 @@ import { getSupabaseStorageAdmin } from "./supabase-storage";
  * SMP controlled-document repository.
  *
  * A row in `smp_documents` is one document SERIES identified by its reference
- * number (`code`). Approved PDF revisions are immutable rows in
- * `smp_document_revisions`; the file columns on the series row mirror the
- * current revision. Structured procedure data lives in `smp_sections`,
- * `smp_tasks` and `smp_task_applicability`.
+ * number (`code`); the database enforces uniqueness on the normalized
+ * reference-number identity (migration 0034 `code_key` + unique index).
+ * Approved PDF revisions are immutable rows in `smp_document_revisions`; the
+ * file columns on the series row mirror the current revision. Structured
+ * procedure data (`smp_sections`, `smp_tasks`) is scoped to a specific
+ * revision so content from different revisions can never mix.
  *
  * Reads are public; every mutation requires authentication. Destructive
- * operations stay behind the authenticated guard and remove Storage objects
- * through the same governed path as the rest of the application.
+ * deletion is staged through the `smp_deletion_records` ledger (prepare +
+ * confirm) so failures are explicit and retryable — no partial silent
+ * success, and no claim of atomicity across Postgres and Supabase Storage.
  */
 
 const applicabilitySchema = z.array(z.string().trim().min(1).max(100)).max(50).optional();
@@ -46,7 +53,10 @@ const metadataSchema = {
   code: z.string().trim().min(1).max(50),
   title: z.string().trim().min(1).max(500),
   smpId: z.string().trim().max(100).optional(),
+  // Literal family text as documented in the approved PDF (preserved verbatim).
   smpFamily: z.string().trim().max(255).optional(),
+  // Optional canonical family catalog relation (separate from literal text).
+  familyId: z.number().int().positive().optional(),
   assetName: z.string().trim().max(255).optional(),
   assetType: z.string().trim().max(255).optional(),
   equipmentType: z.string().trim().max(255).optional(),
@@ -70,7 +80,18 @@ function toNullableStringArray(value: unknown): string[] {
   return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
 }
 
-function mapDocumentRow(row: SmpDocumentRow, extra?: {
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+type FamilyNameMap = Map<number, string>;
+
+async function loadFamilyNameMap(): Promise<FamilyNameMap> {
+  const rows = await db.select({ id: smpFamilies.id, name: smpFamilies.name }).from(smpFamilies);
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+function mapDocumentRow(row: SmpDocumentRow, familyNames: FamilyNameMap, extra?: {
   revisionCount?: number;
   hasCurrentRevision?: boolean;
 }) {
@@ -79,7 +100,10 @@ function mapDocumentRow(row: SmpDocumentRow, extra?: {
     code: row.code,
     smpId: row.smpId,
     title: row.title,
+    // Literal family text as documented (never rewritten).
     smpFamily: row.smpFamily,
+    familyId: row.familyId,
+    canonicalFamily: row.familyId != null ? (familyNames.get(row.familyId) ?? null) : null,
     assetName: row.assetName,
     assetType: row.assetType,
     equipmentType: row.equipmentType,
@@ -135,9 +159,10 @@ export const smpRouter = createRouter({
         }
       }
 
+      const familyNames = await loadFamilyNameMap();
       const items = rows.map((row) => {
         const summary = revisionSummary.get(row.id);
-        return mapDocumentRow(row, {
+        return mapDocumentRow(row, familyNames, {
           revisionCount: summary?.count ?? 0,
           hasCurrentRevision: summary?.hasCurrent ?? false,
         });
@@ -168,9 +193,16 @@ export const smpRouter = createRouter({
       return { items, count: items.length, total: filterRows.length, filters };
     }),
 
-  /* ── Single document detail (public read) ── */
+  /* ── Single document detail (public read).
+     Structured procedure data is scoped to one revision: `revisionId` selects
+     a specific revision; otherwise the CURRENT revision (or the latest when
+     no revision is current) is used. Legacy documents without revisions have
+     no structured data. ── */
   get: publicQuery
-    .input(z.object({ id: z.number().int().positive() }))
+    .input(z.object({
+      id: z.number().int().positive(),
+      revisionId: z.number().int().positive().optional(),
+    }))
     .query(async ({ input }) => {
       const rows = await db.select().from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
       const document = rows[0];
@@ -181,13 +213,31 @@ export const smpRouter = createRouter({
         .orderBy(desc(smpDocumentRevisions.revisionNumber), desc(smpDocumentRevisions.id)))
         .map((r) => ({ ...r, hasFile: Boolean(r.originalFileName) }));
 
-      const sections = await db.select().from(smpSections)
-        .where(eq(smpSections.documentId, input.id))
-        .orderBy(smpSections.position, smpSections.id);
+      const resolvedRevision = resolveSmpDetailRevision(revisions, input.revisionId);
+      if (input.revisionId != null && !resolvedRevision) {
+        throw new Error(`Revision ${input.revisionId} does not belong to this SMP document.`);
+      }
+      const resolvedRevisionId = resolvedRevision?.id ?? null;
 
-      const taskRows = await db.select().from(smpTasks)
-        .where(eq(smpTasks.documentId, input.id))
-        .orderBy(smpTasks.category, smpTasks.displayOrder, smpTasks.id);
+      // Structured content is ALWAYS scoped to the resolved revision so data
+      // from different revisions can never mix.
+      const sections = resolvedRevision
+        ? await db.select().from(smpSections)
+            .where(and(
+              eq(smpSections.documentId, input.id),
+              eq(smpSections.revisionId, resolvedRevision.id),
+            ))
+            .orderBy(smpSections.position, smpSections.id)
+        : [];
+
+      const taskRows = resolvedRevision
+        ? await db.select().from(smpTasks)
+            .where(and(
+              eq(smpTasks.documentId, input.id),
+              eq(smpTasks.revisionId, resolvedRevision.id),
+            ))
+            .orderBy(smpTasks.category, smpTasks.displayOrder, smpTasks.id)
+        : [];
 
       const tagMap: Map<number, string[]> = new Map();
       if (taskRows.length > 0) {
@@ -206,12 +256,14 @@ export const smpRouter = createRouter({
         fieldCaptureData: task.fieldCaptureData == null ? null : task.fieldCaptureData,
       }));
 
+      const familyNames = await loadFamilyNameMap();
       return {
-        document: mapDocumentRow(document, {
+        document: mapDocumentRow(document, familyNames, {
           revisionCount: revisions.length,
           hasCurrentRevision: revisions.some((r) => r.status === "current"),
         }),
         revisions,
+        resolvedRevisionId,
         sections,
         tasks,
       };
@@ -230,21 +282,28 @@ export const smpRouter = createRouter({
     }));
   }),
 
-  /* ── Create a document series (authenticated, metadata only) ── */
+  /* ── Create a document series (authenticated, metadata only).
+     The new-document UPLOAD flow does NOT use this procedure: it creates the
+     series atomically with its first revision at storage finalize, so a
+     failed upload leaves no orphan series behind. ── */
   create: authedQuery
     .input(z.object(metadataSchema))
     .mutation(async ({ input, ctx }) => {
       const existing = await db.select({ id: smpDocuments.id })
-        .from(smpDocuments).where(eq(smpDocuments.code, input.code)).limit(1);
+        .from(smpDocuments)
+        .where(eq(smpDocuments.codeKey, normalizeSmpCodeKey(input.code)))
+        .limit(1);
       if (existing.length > 0) {
         throw new Error(`An SMP with reference number "${input.code}" already exists.`);
       }
       const now = new Date();
       const result = await db.insert(smpDocuments).values({
         code: input.code,
+        codeKey: normalizeSmpCodeKey(input.code),
         title: input.title,
         smpId: toNullableString(input.smpId),
         smpFamily: toNullableString(input.smpFamily),
+        familyId: input.familyId ?? null,
         assetName: toNullableString(input.assetName),
         assetType: toNullableString(input.assetType),
         equipmentType: toNullableString(input.equipmentType),
@@ -261,7 +320,8 @@ export const smpRouter = createRouter({
         createdAt: now,
         updatedAt: now,
       }).returning();
-      return mapDocumentRow(result[0]);
+      const familyNames = await loadFamilyNameMap();
+      return mapDocumentRow(result[0], familyNames);
     }),
 
   /* ── Update metadata (authenticated). File/revision/status changes are NOT
@@ -273,6 +333,7 @@ export const smpRouter = createRouter({
       title: metadataSchema.title.optional(),
       smpId: metadataSchema.smpId,
       smpFamily: metadataSchema.smpFamily,
+      familyId: metadataSchema.familyId,
       assetName: metadataSchema.assetName,
       assetType: metadataSchema.assetType,
       equipmentType: metadataSchema.equipmentType,
@@ -289,17 +350,24 @@ export const smpRouter = createRouter({
       if (data.code !== undefined) {
         const dup = await db.select({ id: smpDocuments.id })
           .from(smpDocuments)
-          .where(and(eq(smpDocuments.code, data.code), ne(smpDocuments.id, id)))
+          .where(and(
+            eq(smpDocuments.codeKey, normalizeSmpCodeKey(data.code)),
+            ne(smpDocuments.id, id),
+          ))
           .limit(1);
         if (dup.length > 0) {
           throw new Error(`An SMP with reference number "${data.code}" already exists.`);
         }
       }
       const clean: Record<string, unknown> = { updatedAt: new Date() };
-      if (data.code !== undefined) clean.code = data.code;
+      if (data.code !== undefined) {
+        clean.code = data.code;
+        clean.codeKey = normalizeSmpCodeKey(data.code);
+      }
       if (data.title !== undefined) clean.title = data.title;
       if (data.smpId !== undefined) clean.smpId = toNullableString(data.smpId);
       if (data.smpFamily !== undefined) clean.smpFamily = toNullableString(data.smpFamily);
+      if (data.familyId !== undefined) clean.familyId = data.familyId ?? null;
       if (data.assetName !== undefined) clean.assetName = toNullableString(data.assetName);
       if (data.assetType !== undefined) clean.assetType = toNullableString(data.assetType);
       if (data.equipmentType !== undefined) clean.equipmentType = toNullableString(data.equipmentType);
@@ -312,36 +380,132 @@ export const smpRouter = createRouter({
       if (data.approvedBy !== undefined) clean.approvedBy = toNullableString(data.approvedBy);
       const result = await db.update(smpDocuments).set(clean).where(eq(smpDocuments.id, id)).returning();
       if (!result[0]) throw new Error("SMP document not found.");
-      return mapDocumentRow(result[0]);
+      const familyNames = await loadFamilyNameMap();
+      return mapDocumentRow(result[0], familyNames);
     }),
 
-  /* ── Delete a document series (authenticated, destructive). Storage objects
-     of every revision are removed through the governed Storage client. ── */
-  delete: authedQuery
+  /* ── Staged deletion (authenticated, destructive).
+     deletePrepare snapshots the storage objects and records a ledger row;
+     deleteConfirm removes the remaining objects and then deletes the DB row.
+     Storage removal and the DB delete are deliberately NOT atomic; the ledger
+     records progress so a failure is explicit and the operation can be
+     retried idempotently. ── */
+  deletePrepare: authedQuery
     .input(z.object({ id: z.number().int().positive() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const documentRows = await db.select({
+        id: smpDocuments.id,
+        bucket: smpDocuments.storageBucket,
+        path: smpDocuments.storagePath,
+      }).from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
+      const document = documentRows[0];
+      if (!document) throw new Error("SMP document not found.");
+
       const revisions = await db.select({
         bucket: smpDocumentRevisions.storageBucket,
         path: smpDocumentRevisions.storagePath,
       }).from(smpDocumentRevisions).where(eq(smpDocumentRevisions.documentId, input.id));
 
-      const documentRows = await db.select({
-        bucket: smpDocuments.storageBucket,
-        path: smpDocuments.storagePath,
-      }).from(smpDocuments).where(eq(smpDocuments.id, input.id)).limit(1);
-
       const objects = [
         ...revisions.map((r) => ({ bucket: r.bucket, path: r.path })),
-        ...(documentRows[0] ? [{ bucket: documentRows[0].bucket, path: documentRows[0].path }] : []),
-      ].filter((o) => o.bucket && o.path);
+        ...(document.bucket && document.path ? [{ bucket: document.bucket, path: document.path }] : []),
+      ].filter((o): o is { bucket: string; path: string } => Boolean(o.bucket && o.path));
 
-      for (const object of objects) {
-        const { error } = await getSupabaseStorageAdmin().storage
-          .from(object.bucket!).remove([object.path!]);
-        if (error) throw new Error(`Storage deletion failed: ${error.message}`);
+      const deletionToken = randomUUID();
+      const now = new Date();
+      const inserted = await db.insert(smpDeletionRecords).values({
+        documentId: input.id,
+        tokenHash: hashToken(deletionToken),
+        status: "pending",
+        objects,
+        removedObjects: [],
+        createdBy: ctx.user?.name ?? null,
+        createdAt: now,
+        updatedAt: now,
+      }).returning({ id: smpDeletionRecords.id });
+
+      return {
+        recordId: inserted[0].id,
+        deletionToken,
+        objectCount: objects.length,
+      };
+    }),
+
+  deleteConfirm: authedQuery
+    .input(z.object({
+      recordId: z.number().int().positive(),
+      deletionToken: z.string().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const records = await db.select().from(smpDeletionRecords)
+        .where(and(
+          eq(smpDeletionRecords.id, input.recordId),
+          eq(smpDeletionRecords.tokenHash, hashToken(input.deletionToken)),
+        ))
+        .limit(1);
+      const record = records[0];
+      if (!record) throw new Error("Deletion record not found or token invalid.");
+
+      // Idempotent: a completed deletion is a success, never re-executed.
+      if (record.status === "completed") {
+        return { status: "completed", documentId: record.documentId };
       }
 
-      const deleted = await db.delete(smpDocuments).where(eq(smpDocuments.id, input.id)).returning({ id: smpDocuments.id });
-      return { deleted: deleted.length > 0, id: input.id };
+      const objects = Array.isArray(record.objects)
+        ? (record.objects as Array<{ bucket: string; path: string }>)
+        : [];
+      const removed = new Set(Array.isArray(record.removedObjects) ? (record.removedObjects as string[]) : []);
+      const now = new Date();
+
+      // Phase 1: remove the storage objects that have not been removed yet.
+      for (const object of objects) {
+        if (!object.bucket || !object.path || removed.has(object.path)) continue;
+        const { error } = await getSupabaseStorageAdmin().storage
+          .from(object.bucket)
+          .remove([object.path]);
+        if (error) {
+          await db.update(smpDeletionRecords).set({
+            status: "storage_failed",
+            removedObjects: [...removed],
+            failureReason: `Storage deletion failed for ${object.path}: ${error.message}`,
+            updatedAt: now,
+          }).where(eq(smpDeletionRecords.id, record.id));
+          throw new Error(
+            `Storage deletion failed for ${object.path}: ${error.message}. ` +
+            "No database rows were removed. Retry the same token to continue.",
+          );
+        }
+        removed.add(object.path);
+      }
+
+      // Phase 2: all storage objects removed — delete the document series row
+      // (cascades revisions, sections, tasks, applicability tags).
+      try {
+        const deleted = await db.delete(smpDocuments)
+          .where(eq(smpDocuments.id, record.documentId))
+          .returning({ id: smpDocuments.id });
+        if (!deleted.length) throw new Error("SMP document was not found during deletion.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Database deletion failed.";
+        await db.update(smpDeletionRecords).set({
+          status: "db_failed",
+          removedObjects: [...removed],
+          failureReason: `Storage objects removed, but database deletion failed: ${message}`,
+          updatedAt: now,
+        }).where(eq(smpDeletionRecords.id, record.id));
+        throw new Error(
+          `Storage objects were removed, but the database deletion failed: ${message}. ` +
+          "Retry the same token to complete the deletion.",
+        );
+      }
+
+      await db.update(smpDeletionRecords).set({
+        status: "completed",
+        removedObjects: [...removed],
+        completedAt: now,
+        updatedAt: now,
+      }).where(eq(smpDeletionRecords.id, record.id));
+
+      return { status: "completed", documentId: record.documentId };
     }),
 });

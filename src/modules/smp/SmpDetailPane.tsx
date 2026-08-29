@@ -105,6 +105,7 @@ const TASK_ORDER: SmpTaskCategory[] = ["operator_driven", "technician_pm", "tech
 export function SmpDetailPane({
   detail,
   isAuthenticated,
+  onSelectRevision,
   onEditMetadata,
   onUploadRevision,
   onDelete,
@@ -112,6 +113,7 @@ export function SmpDetailPane({
 }: {
   detail: SmpDetail;
   isAuthenticated: boolean;
+  onSelectRevision: (revisionId: number | null) => void;
   onEditMetadata: () => void;
   onUploadRevision: () => void;
   onDelete: () => void;
@@ -126,6 +128,14 @@ export function SmpDetailPane({
   );
   const latestRevision: SmpRevision | null = revisions[0] ?? null;
   const viewerRevision = currentRevision ?? latestRevision;
+
+  // The revision whose structured procedure data is being shown. The server
+  // resolves the current revision by default; a historical revision can be
+  // selected explicitly and its data never mixes with newer revisions.
+  const dataRevision: SmpRevision | null = useMemo(
+    () => revisions.find((r) => r.id === detail.resolvedRevisionId) ?? null,
+    [revisions, detail.resolvedRevisionId],
+  );
 
   // Legacy rows (no revision rows) keep their file on the series row.
   const viewer = viewerRevision?.hasFile
@@ -230,6 +240,8 @@ export function SmpDetailPane({
         <section className="bg-white border border-gray-200 rounded-lg p-4">
           <SectionHeading>Applicability</SectionHeading>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <InfoField label="SMP Family (as documented)" value={doc.smpFamily} />
+            <InfoField label="Family Classification" value={doc.canonicalFamily ?? null} />
             <InfoField label="Asset Name" value={doc.assetName} />
             <InfoField label="Asset Type" value={doc.assetType} />
             <InfoField label="Equipment Type" value={doc.equipmentType} />
@@ -308,6 +320,23 @@ export function SmpDetailPane({
         {/* Procedure data */}
         <section className="bg-white border border-gray-200 rounded-lg p-4">
           <SectionHeading>Procedure Data</SectionHeading>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[0.65rem] text-gray-400">
+              {dataRevision
+                ? `Showing structured content as of ${dataRevision.revision}${dataRevision.status === "superseded" ? " (superseded)" : ""}.`
+                : revisions.length > 0
+                  ? "No revision selected for structured content."
+                  : "Structured content is revision-scoped and becomes available when revisions exist."}
+            </p>
+            {dataRevision && currentRevision && dataRevision.id !== currentRevision.id && (
+              <button
+                onClick={() => onSelectRevision(null)}
+                className="text-[0.65rem] font-semibold text-blue-600 hover:underline flex-shrink-0 ml-3"
+              >
+                Show current revision data
+              </button>
+            )}
+          </div>
           {detail.sections.length === 0 && detail.tasks.length === 0 ? (
             <EmptyProcedureData />
           ) : (
@@ -400,9 +429,15 @@ export function SmpDetailPane({
                 <tbody>
                   {revisions.map((revision) => {
                     const badge = revisionStatusBadge(revision.status);
+                    const isDataRevision = detail.resolvedRevisionId === revision.id;
                     return (
-                      <tr key={revision.id} className="border-b border-gray-100">
-                        <td className="py-2 pr-3 font-semibold text-gray-800">{revision.revision}</td>
+                      <tr key={revision.id} className={`border-b border-gray-100 ${isDataRevision ? "bg-blue-50/50" : ""}`}>
+                        <td className="py-2 pr-3 font-semibold text-gray-800">
+                          {revision.revision}
+                          {isDataRevision && (
+                            <span className="ml-1.5 text-[0.6rem] font-bold text-blue-600 uppercase">data</span>
+                          )}
+                        </td>
                         <td className="py-2 pr-3">
                           <span
                             className="text-[0.65rem] font-bold px-2 py-0.5 rounded-full"
@@ -415,18 +450,24 @@ export function SmpDetailPane({
                         <td className="py-2 pr-3 text-gray-600">{revision.uploadedBy || "—"}</td>
                         <td className="py-2 pr-3 text-gray-600">{formatSmpDate(revision.uploadedAt)}</td>
                         <td className="py-2">
-                          {revision.hasFile ? (
-                            <a
-                              href={storageFileUrl("smp_document_revisions", revision.id, "view")}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                          <div className="flex items-center gap-2">
+                            {revision.hasFile && (
+                              <a
+                                href={storageFileUrl("smp_document_revisions", revision.id, "view")}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline font-semibold"
+                              >
+                                PDF
+                              </a>
+                            )}
+                            <button
+                              onClick={() => onSelectRevision(isDataRevision ? null : revision.id)}
                               className="text-blue-600 hover:underline font-semibold"
                             >
-                              View
-                            </a>
-                          ) : (
-                            <span className="text-gray-300">—</span>
-                          )}
+                              {isDataRevision ? "Show current" : "View data"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

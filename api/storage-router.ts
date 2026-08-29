@@ -34,7 +34,7 @@ import { env } from "./lib/env";
 import { deepEqualJson } from "./lib/json-equality";
 import { db } from "./queries/connection";
 import { getStorageFeatureFlags, isStorageUploadEnabled } from "./storage-feature-flags";
-import { normalizeSmpRevisionLabel, parseSmpRevisionNumber, validateSmpRevisionUnique } from "./smp-logic";
+import { normalizeSmpCodeKey, normalizeSmpRevisionLabel, parseSmpRevisionNumber, validateSmpRevisionUnique } from "./smp-logic";
 import { deleteStoredFileRecord, getStoredFileRecord } from "./storage-files";
 import { getSupabaseStorageAdmin, getSupabaseStorageConfig } from "./supabase-storage";
 import { getFinalizedStorageSizeError, normalizeGovernanceMilestoneId, validateUploadDescriptor } from "./storage-validation";
@@ -124,12 +124,48 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
   }
   if (module === "smp") {
     const documentId = Number(target.documentId);
-    if (!Number.isInteger(documentId) || documentId <= 0) throw new Error("A valid SMP document is required.");
-    const rows = await db.select({ id: smpDocuments.id }).from(smpDocuments).where(eq(smpDocuments.id, documentId)).limit(1);
-    if (!rows.length) throw new Error("SMP document not found.");
-    const revision = target.revision == null ? undefined : String(target.revision).trim().slice(0, 50) || undefined;
-    const effectivityDate = target.effectivityDate == null ? undefined : String(target.effectivityDate).trim().slice(0, 10) || undefined;
-    return { documentId, revision, effectivityDate };
+    if (Number.isInteger(documentId) && documentId > 0) {
+      // Revision upload against an existing document series.
+      const rows = await db.select({ id: smpDocuments.id }).from(smpDocuments).where(eq(smpDocuments.id, documentId)).limit(1);
+      if (!rows.length) throw new Error("SMP document not found.");
+      const revision = target.revision == null ? undefined : String(target.revision).trim().slice(0, 50) || undefined;
+      const effectivityDate = target.effectivityDate == null ? undefined : String(target.effectivityDate).trim().slice(0, 10) || undefined;
+      return { documentId, revision, effectivityDate };
+    }
+    // New-document first revision: the upload target carries the full
+    // controlled-document metadata; the series is created atomically with its
+    // first revision at finalize, so a failed upload leaves no orphan series.
+    const code = String(target.code ?? "").trim();
+    const title = String(target.title ?? "").trim();
+    if (!code || code.length > 50) throw new Error("A valid SMP reference number is required for a new document upload.");
+    if (!title || title.length > 500) throw new Error("A valid SMP title is required for a new document upload.");
+    const sliceOrUndefined = (value: unknown, max: number) =>
+      value == null ? undefined : (String(value).trim().slice(0, max) || undefined);
+    const familyId = Number(target.familyId) > 0 ? Number(target.familyId) : null;
+    return {
+      isNew: true,
+      code,
+      title,
+      smpId: sliceOrUndefined(target.smpId, 100),
+      smpFamily: sliceOrUndefined(target.smpFamily, 255),
+      familyId,
+      assetName: sliceOrUndefined(target.assetName, 255),
+      assetType: sliceOrUndefined(target.assetType, 255),
+      equipmentType: sliceOrUndefined(target.equipmentType, 255),
+      facilityType: sliceOrUndefined(target.facilityType, 255),
+      applicability: typeof target.applicability === "string"
+        ? target.applicability.split(",").map((v) => v.trim().slice(0, 100)).filter(Boolean).slice(0, 50)
+        : Array.isArray(target.applicability)
+          ? target.applicability.map((v) => String(v).trim().slice(0, 100)).filter(Boolean).slice(0, 50)
+          : undefined,
+      criticality: sliceOrUndefined(target.criticality, 20),
+      documentOwner: sliceOrUndefined(target.documentOwner, 255),
+      preparedBy: sliceOrUndefined(target.preparedBy, 255),
+      reviewedBy: sliceOrUndefined(target.reviewedBy, 255),
+      approvedBy: sliceOrUndefined(target.approvedBy, 255),
+      revision: sliceOrUndefined(target.revision, 50),
+      effectivityDate: sliceOrUndefined(target.effectivityDate, 10),
+    };
   }
   if (module === "projects_without_ppp") {
     const projectId = Number(target.projectId);
@@ -159,7 +195,12 @@ function safeObjectFilename(fileName: string) {
 function buildObjectPath(module: StorageModule, target: Record<string, unknown>, originalFilename: string) {
   const id = randomUUID();
   if (module === "om") return `v1/folder-${target.folderId}/${id}`;
-  if (module === "smp") return `v1/document-${target.documentId}/${id}`;
+  if (module === "smp") {
+    const documentId = Number(target.documentId);
+    return Number.isInteger(documentId) && documentId > 0
+      ? `v1/document-${documentId}/${id}`
+      : `v1/smp-new/${id}`;
+  }
   if (module === "projects_without_ppp") return `v1/project-${target.projectId}/${id}`;
   return `v1/${target.facilitySlug}/${target.milestoneId}/${id}`;
 }
@@ -603,6 +644,7 @@ storageRouter.post("/uploads/finalize", async (c) => {
       
       let persistedId: number;
       let persistedSource: StorageFileSource;
+      let smpDocumentId: number | null = null;
       
       if (intent.module === "om") {
         const inserted = await tx.insert(docFiles).values({
@@ -628,11 +670,61 @@ storageRouter.post("/uploads/finalize", async (c) => {
         persistedSource = "doc_files";
       } else if (intent.module === "smp") {
         // A governed upload creates an immutable REVISION row for the target
-        // document series. The previous current revision is superseded (never
-        // overwritten) and the series row mirrors the new current revision.
-        const documentId = Number(target.documentId);
+        // document series. New-document uploads create the series and its
+        // first revision ATOMICALLY inside this transaction, so a failed
+        // upload/finalize leaves no orphan series behind. The previous
+        // current revision is superseded (never overwritten) and the series
+        // row mirrors the new current revision.
         const revisionLabel = normalizeSmpRevisionLabel(target.revision);
         const revisionNumber = parseSmpRevisionNumber(revisionLabel);
+        const effectivityDate = target.effectivityDate ? String(target.effectivityDate).slice(0, 10) : null;
+        const uploaderName = intent.requestedBy
+          ? (await db.select({ name: users.name }).from(users).where(eq(users.id, intent.requestedBy)).limit(1))[0]?.name ?? null
+          : null;
+
+        let documentId: number;
+        if (Number(target.documentId) > 0) {
+          documentId = Number(target.documentId);
+        } else {
+          // NEW document series: created here, atomically with the revision.
+          const code = String(target.code ?? "").trim();
+          const title = String(target.title ?? "").trim();
+          if (!code || !title) throw new Error("Reference number and title are required for a new SMP.");
+          const dup = await tx.select({ id: smpDocuments.id }).from(smpDocuments)
+            .where(eq(smpDocuments.codeKey, normalizeSmpCodeKey(code))).limit(1);
+          if (dup.length > 0) {
+            throw new Error(`An SMP with reference number "${code}" already exists.`);
+          }
+          const insertedDoc = await tx.insert(smpDocuments).values({
+            code,
+            codeKey: normalizeSmpCodeKey(code),
+            title,
+            smpId: target.smpId ?? null,
+            smpFamily: target.smpFamily ?? null,
+            familyId: target.familyId ?? null,
+            assetName: target.assetName ?? null,
+            assetType: target.assetType ?? null,
+            equipmentType: target.equipmentType ?? null,
+            facilityType: target.facilityType ?? null,
+            applicability: typeof target.applicability === "string"
+              ? target.applicability.split(",").map((v) => v.trim()).filter(Boolean)
+              : (Array.isArray(target.applicability) && target.applicability.length
+                  ? target.applicability
+                  : null),
+            criticality: target.criticality ?? null,
+            documentOwner: target.documentOwner ?? null,
+            preparedBy: target.preparedBy ?? null,
+            reviewedBy: target.reviewedBy ?? null,
+            approvedBy: target.approvedBy ?? null,
+            status: "Active",
+            uploadedBy: uploaderName,
+            uploadedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          }).returning({ id: smpDocuments.id });
+          documentId = insertedDoc[0].id;
+        }
+
         const existing = await tx.select({
           id: smpDocumentRevisions.id,
           revision: smpDocumentRevisions.revision,
@@ -640,10 +732,6 @@ storageRouter.post("/uploads/finalize", async (c) => {
         }).from(smpDocumentRevisions).where(eq(smpDocumentRevisions.documentId, documentId));
         const duplicateError = validateSmpRevisionUnique(existing.map((r) => r.revision), revisionLabel);
         if (duplicateError) throw new Error(duplicateError);
-        const effectivityDate = target.effectivityDate ? String(target.effectivityDate).slice(0, 10) : null;
-        const uploaderName = intent.requestedBy
-          ? (await db.select({ name: users.name }).from(users).where(eq(users.id, intent.requestedBy)).limit(1))[0]?.name ?? null
-          : null;
         const inserted = await tx.insert(smpDocumentRevisions).values({
           documentId,
           revision: revisionLabel,
@@ -692,6 +780,7 @@ storageRouter.post("/uploads/finalize", async (c) => {
         }).where(eq(smpDocuments.id, documentId));
         persistedId = revisionId;
         persistedSource = "smp_document_revisions";
+        smpDocumentId = documentId;
       } else if (intent.module === "projects_without_ppp") {
         // Public (anonymous) uploads have no users-table row: persist a neutral
         // system-owned submitter label rather than a fabricated personal name.
@@ -739,7 +828,7 @@ storageRouter.post("/uploads/finalize", async (c) => {
         persistedSource = "governance_uploads";
       }
       
-      return { fileId: persistedId, source: persistedSource };
+      return { fileId: persistedId, source: persistedSource, smpDocumentId };
     });
     
     // Governed deletion capability: issued ONLY to the uploader (their own
@@ -749,6 +838,9 @@ storageRouter.post("/uploads/finalize", async (c) => {
       fileId: result.fileId,
       source: result.source,
     };
+    if (result.smpDocumentId != null) {
+      response.documentId = result.smpDocumentId;
+    }
     if (intent.module === "projects_without_ppp") {
       response.deleteCapability = signDeleteCapability(
         generateDeleteCapabilityClaims(result.fileId, Number(target.projectId)),

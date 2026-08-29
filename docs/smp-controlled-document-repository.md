@@ -94,8 +94,9 @@ PDFs remain the authoritative controlled documents. No PDF extraction is perform
 are uploaded manually after implementation. Structured procedure tables are empty until a
 future ingestion step fills them — the UI renders honest empty states.
 
-## 3. Database / schema changes (migration 0033, additive)
+## 3. Database / schema changes (migrations 0033 + 0034, additive)
 
+**0033** (`0033_smp_controlled_documents.sql`):
 - `CREATE TABLE IF NOT EXISTS smp_documents` (full shape; replaces the runtime-created table
   for fresh installs) + additive columns: `smp_id`, `smp_family`, `asset_name`, `asset_type`,
   `facility_type`, `applicability` (jsonb), `criticality`, `document_owner`, `prepared_by`,
@@ -107,22 +108,49 @@ future ingestion step fills them — the UI renders honest empty states.
   `anon`/`authenticated`; backend postgres role has BYPASSRLS).
 - Nothing is dropped, renamed, or truncated.
 
+**0034** (`0034_smp_revision_safe_structured_and_identity.sql`, PR #404 review fixes):
+- Reference-number identity: `smp_documents.code_key` (lower/trimmed normalized key),
+  `CREATE UNIQUE INDEX smp_documents_code_key_unique`, and a BEFORE INSERT/UPDATE trigger
+  keeping the key in sync. A read-only duplicate-detection guard runs FIRST and fails the
+  migration loudly (no data discarded, no destructive merge).
+- Revision-scoped structured data: `smp_sections.revision_id` and `smp_tasks.revision_id`
+  become NOT NULL and cascade with their revision; orphan rows fail the migration loudly.
+- Canonical family relation: `smp_documents.family_id` → `smp_families(id)` ON DELETE SET
+  NULL; the literal `smp_family` document text is preserved verbatim.
+- `smp_deletion_records` ledger for staged deletion (storage removal and DB delete are
+  deliberately NOT atomic; progress is recorded, confirmations are idempotent/retryable),
+  with RLS.
+
 ### Production migration instructions
 - Deploy the branch to Render. Production boot runs `drizzle-orm migrate` on
   `db/migrations` (see `api/queries/connection.ts` `ensureDbReady`), which applies
-  `0033_smp_controlled_documents.sql` automatically.
-- No manual SQL is required. Verify via Render logs (`[db] migration finish; verified
-  tasks.procedure_familiarity`) and by opening `/smp-dashboard` (empty library state).
-- Rollback is not needed for an additive migration; if a problem occurs, redeploy the
-  previous commit (columns/tables added by 0033 are unused by the old code).
+  `0033_smp_controlled_documents.sql` and `0034_smp_revision_safe_structured_and_identity.sql`
+  automatically.
+- 0034 requires that no reference-number duplicates and no unattributed sections/tasks exist;
+  it fails the boot loudly otherwise (manual reconciliation first). Both migrations are
+  additive; no manual SQL is required in the normal case. Verify via Render logs
+  (`[db] migration finish; verified tasks.procedure_familiarity`) and by opening
+  `/smp-dashboard` (empty library state).
+- Rollback is not needed for additive migrations; if a problem occurs, redeploy the
+  previous commit (columns/tables added by 0033/0034 are unused by the old code).
 
 ## 4. Behavior changes
 - `smp.seed` removed; "Load Demo" removed; hard-coded filter lists removed (filters are
   populated from persisted data).
 - `smp.create` / `smp.update` no longer accept file payloads; files change only through the
   governed revision-upload flow (`/api/storage/uploads/*`).
+- New-document uploads are ATOMIC: the document series and its first revision are created
+  together at storage finalize, so a failed upload leaves no orphan series and the same
+  reference number can be retried.
+- Staged deletion (`smp.deletePrepare` / `smp.deleteConfirm`): storage objects are removed
+  first, the DB row after, with progress recorded in `smp_deletion_records`; failures are
+  explicit and retries are idempotent. No cross-system atomicity is claimed.
+- Structured procedure data is revision-scoped: `smp.get({ id, revisionId? })` returns
+  sections/tasks for one resolved revision (current by default); historical revision data
+  can never mix with newer revision content.
 - New: `smp.families` (data-driven), revision uploads with supersession, revision history,
-  structured sections/tasks reads, detail page.
+  structured sections/tasks reads, detail page, canonical family classification separate
+  from literal document family text.
 - `smp.create` / `smp.update` remain in the shared large-body path list
   (`api/upload-body-limit.ts`, `src/lib/requestTimeout.ts`) deliberately: the HTTP body guard
   and timeout infra are shared, and keeping them avoids unrelated changes to

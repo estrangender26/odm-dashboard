@@ -72,13 +72,16 @@ export function SmpUploadModal({
   onComplete: (documentId: number | null) => void;
 }) {
   const utils = trpc.useUtils();
-  const createMut = trpc.smp.create.useMutation();
 
   const [form, setForm] = useState({
     code: "",
     title: "",
     smpId: "",
+    // Literal family text as documented in the approved PDF (preserved verbatim).
     smpFamily: document?.smpFamily ?? "",
+    // Optional canonical family catalog classification (separate from the
+    // literal text, so the seven real documents can be entered faithfully).
+    familyId: document?.familyId != null ? String(document.familyId) : "",
     assetName: "",
     assetType: "",
     equipmentType: document?.equipmentType ?? "",
@@ -100,7 +103,7 @@ export function SmpUploadModal({
   const [label, setLabel] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const family = families.find((f) => f.name === form.smpFamily) ?? null;
+  const family = families.find((f) => f.id === Number(form.familyId)) ?? null;
   const suggestedTags = useMemo(() => {
     const fromFamily = family?.suggestedTags ?? [];
     const merged = [...new Set([...fromFamily, ...DEFAULT_APPLICABILITY_TAGS])];
@@ -154,40 +157,42 @@ export function SmpUploadModal({
     }
     setUploading(true);
     try {
-      let documentId: number;
-      if (mode === "new") {
-        setLabel("Saving document metadata...");
-        const created = await createMut.mutateAsync({
-          code: form.code.trim(),
-          title: form.title.trim(),
-          smpId: form.smpId.trim() || undefined,
-          smpFamily: form.smpFamily.trim() || undefined,
-          assetName: form.assetName.trim() || undefined,
-          assetType: form.assetType.trim() || undefined,
-          equipmentType: form.equipmentType.trim() || undefined,
-          facilityType: form.facilityType.trim() || undefined,
-          applicability: tags.length ? tags : undefined,
-          criticality: form.criticality || undefined,
-          documentOwner: form.documentOwner.trim() || undefined,
-          preparedBy: form.preparedBy.trim() || undefined,
-          reviewedBy: form.reviewedBy.trim() || undefined,
-          approvedBy: form.approvedBy.trim() || undefined,
-        });
-        documentId = created.id;
-      } else {
-        if (!document) throw new Error("Missing document context.");
-        documentId = document.id;
-      }
-
       setLabel(`Uploading "${file.name}"...`);
-      await uploadFileDirect({
+      const familyIdValue = form.familyId ? Number(form.familyId) : undefined;
+      // For a NEW document the metadata travels inside the upload target: the
+      // document series and its first revision are created atomically at
+      // storage finalize, so a failed upload leaves NO orphan series behind
+      // and the reference number can be retried cleanly.
+      const result = await uploadFileDirect({
         module: "smp",
         file,
-        target: {
-          documentId,
-          revision: form.revision.trim(),
-          effectivityDate: form.effectivityDate || undefined,
-        },
+        target: mode === "new"
+          ? {
+              code: form.code.trim(),
+              title: form.title.trim(),
+              smpId: form.smpId.trim() || undefined,
+              smpFamily: form.smpFamily.trim() || undefined,
+              familyId: familyIdValue,
+              assetName: form.assetName.trim() || undefined,
+              assetType: form.assetType.trim() || undefined,
+              equipmentType: form.equipmentType.trim() || undefined,
+              facilityType: form.facilityType.trim() || undefined,
+              // Tags travel as a comma-joined string (upload target is a
+              // flat string/number map); the server splits them back.
+              applicability: tags.length ? tags.join(",") : undefined,
+              criticality: form.criticality || undefined,
+              documentOwner: form.documentOwner.trim() || undefined,
+              preparedBy: form.preparedBy.trim() || undefined,
+              reviewedBy: form.reviewedBy.trim() || undefined,
+              approvedBy: form.approvedBy.trim() || undefined,
+              revision: form.revision.trim(),
+              effectivityDate: form.effectivityDate || undefined,
+            }
+          : {
+              documentId: document?.id,
+              revision: form.revision.trim(),
+              effectivityDate: form.effectivityDate || undefined,
+            },
         onProgress: (pct) => {
           setProgress(Math.max(5, pct));
           setLabel(`Uploading "${file.name}"... ${pct}%`);
@@ -195,7 +200,10 @@ export function SmpUploadModal({
       });
       setProgress(100);
       await utils.smp.list.invalidate();
-      onComplete(documentId);
+      const resultDocumentId = mode === "new"
+        ? ((result as { documentId?: number }).documentId ?? null)
+        : (document?.id ?? null);
+      onComplete(resultDocumentId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
       setUploading(false);
@@ -231,14 +239,24 @@ export function SmpUploadModal({
               <input value={form.title} onChange={(e) => set("title")(e.target.value)} placeholder="e.g. Centrifugal Pump System" className={inputClass} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="SMP Family">
-                <select value={form.smpFamily} onChange={(e) => set("smpFamily")(e.target.value)} className={inputClass}>
-                  <option value="">Select family...</option>
+              <Field label="SMP Family (as documented)">
+                <input
+                  value={form.smpFamily}
+                  onChange={(e) => set("smpFamily")(e.target.value)}
+                  placeholder="Literal family text from the PDF, e.g. Blower"
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Canonical Family (optional)">
+                <select value={form.familyId} onChange={(e) => set("familyId")(e.target.value)} className={inputClass}>
+                  <option value="">No classification</option>
                   {families.map((f) => (
-                    <option key={f.id} value={f.name}>{f.name}</option>
+                    <option key={f.id} value={String(f.id)}>{f.name}</option>
                   ))}
                 </select>
               </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <Field label="Equipment Type">
                 <input
                   value={form.equipmentType}
@@ -253,19 +271,19 @@ export function SmpUploadModal({
                   ))}
                 </datalist>
               </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <Field label="Asset Name">
                 <input value={form.assetName} onChange={(e) => set("assetName")(e.target.value)} className={inputClass} />
-              </Field>
-              <Field label="Asset Type">
-                <input value={form.assetType} onChange={(e) => set("assetType")(e.target.value)} className={inputClass} />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Facility Type">
                 <input value={form.facilityType} onChange={(e) => set("facilityType")(e.target.value)} className={inputClass} />
               </Field>
+              <Field label="Asset Type">
+                <input value={form.assetType} onChange={(e) => set("assetType")(e.target.value)} className={inputClass} />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <Field label="ABC Criticality">
                 <select value={form.criticality} onChange={(e) => set("criticality")(e.target.value)} className={inputClass}>
                   <option value="">Select...</option>
@@ -274,19 +292,19 @@ export function SmpUploadModal({
                   ))}
                 </select>
               </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <Field label="Document Owner">
                 <input value={form.documentOwner} onChange={(e) => set("documentOwner")(e.target.value)} className={inputClass} />
               </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <Field label="Prepared By">
                 <input value={form.preparedBy} onChange={(e) => set("preparedBy")(e.target.value)} className={inputClass} />
               </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <Field label="Reviewed By">
                 <input value={form.reviewedBy} onChange={(e) => set("reviewedBy")(e.target.value)} className={inputClass} />
               </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <Field label="Approved By">
                 <input value={form.approvedBy} onChange={(e) => set("approvedBy")(e.target.value)} className={inputClass} />
               </Field>

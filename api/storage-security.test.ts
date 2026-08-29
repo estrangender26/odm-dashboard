@@ -104,7 +104,7 @@ describe("direct Storage security boundaries", () => {
 
   it("removes base64 file replacement from SMP metadata mutations (files change only via governed revision uploads)", () => {
     const source = readFileSync(join(root, "api/smp-router.ts"), "utf8");
-    const updateRoute = source.slice(source.indexOf("update: authedQuery"), source.indexOf("/* ── Delete a document series"));
+    const updateRoute = source.slice(source.indexOf("update: authedQuery"), source.indexOf("/* ── Staged deletion"));
     expect(updateRoute).not.toContain("fileData");
     expect(updateRoute).not.toContain("fileName");
     expect(updateRoute).not.toContain("storagePath = null");

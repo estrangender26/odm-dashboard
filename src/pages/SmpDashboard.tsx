@@ -57,10 +57,12 @@ export default function SmpDashboard() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<SmpFilters>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedRevisionId, setSelectedRevisionId] = useState<number | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadMode, setUploadMode] = useState<"new" | "revision">("new");
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteToken, setDeleteToken] = useState<{ recordId: number; deletionToken: string } | null>(null);
   const [banner, setBanner] = useState<{ type: "error" | "success" | "info"; message: string } | null>(null);
 
   const utils = trpc.useUtils();
@@ -74,7 +76,10 @@ export default function SmpDashboard() {
     revision: filters.revision,
     status: filters.status,
   });
-  const detailQuery = trpc.smp.get.useQuery({ id: selectedId as number }, { enabled: selectedId != null });
+  const detailQuery = trpc.smp.get.useQuery(
+    { id: selectedId as number, revisionId: selectedRevisionId ?? undefined },
+    { enabled: selectedId != null },
+  );
   const familiesQuery = trpc.smp.families.useQuery();
 
   const items = useMemo(() => listQuery.data?.items ?? [], [listQuery.data]);
@@ -97,15 +102,38 @@ export default function SmpDashboard() {
     },
     onError: (e) => setBanner({ type: "error", message: e.message }),
   });
-  const deleteMut = trpc.smp.delete.useMutation({
+
+  // Staged deletion: prepare records the ledger + returns a token; confirm
+  // performs the storage removal and DB delete. A failed confirm can be
+  // retried with the same token (idempotent, recorded progress).
+  const deletePrepareMut = trpc.smp.deletePrepare.useMutation({
+    onSuccess: (data) => {
+      setDeleteToken({ recordId: data.recordId, deletionToken: data.deletionToken });
+      deleteConfirmMut.mutate({ recordId: data.recordId, deletionToken: data.deletionToken });
+    },
+    onError: (e) => setBanner({ type: "error", message: e.message }),
+  });
+  const deleteConfirmMut = trpc.smp.deleteConfirm.useMutation({
     onSuccess: () => {
       utils.smp.list.invalidate();
       setDeleteOpen(false);
+      setDeleteToken(null);
       setSelectedId(null);
+      setSelectedRevisionId(null);
       setBanner({ type: "success", message: "SMP deleted" });
     },
     onError: (e) => setBanner({ type: "error", message: e.message }),
   });
+
+  const requestDelete = useCallback(() => {
+    if (!selectedId) return;
+    if (deleteToken) {
+      // Retry the same recorded deletion (storage failures are resumable).
+      deleteConfirmMut.mutate({ recordId: deleteToken.recordId, deletionToken: deleteToken.deletionToken });
+      return;
+    }
+    deletePrepareMut.mutate({ id: selectedId });
+  }, [selectedId, deleteToken, deletePrepareMut, deleteConfirmMut]);
 
   const clearFilters = useCallback(() => {
     setSearch("");
@@ -119,6 +147,7 @@ export default function SmpDashboard() {
 
   const handleUploadComplete = useCallback((documentId: number | null) => {
     setUploadOpen(false);
+    setSelectedRevisionId(null);
     if (documentId != null) {
       setSelectedId(documentId);
       setBanner({ type: "success", message: "SMP PDF uploaded. The document series now has a current revision." });
@@ -170,7 +199,7 @@ export default function SmpDashboard() {
   }, [detailQuery.data]);
 
   const [editForm, setEditForm] = useState<{
-    code: string; title: string; smpId: string; smpFamily: string; assetName: string;
+    code: string; title: string; smpId: string; smpFamily: string; familyId: string; assetName: string;
     assetType: string; equipmentType: string; facilityType: string; criticality: string;
     documentOwner: string; preparedBy: string; reviewedBy: string; approvedBy: string; applicability: string;
   } | null>(null);
@@ -183,6 +212,7 @@ export default function SmpDashboard() {
       title: d.title,
       smpId: d.smpId || "",
       smpFamily: d.smpFamily || "",
+      familyId: d.familyId != null ? String(d.familyId) : "",
       assetName: d.assetName || "",
       assetType: d.assetType || "",
       equipmentType: d.equipmentType || "",
@@ -199,12 +229,14 @@ export default function SmpDashboard() {
 
   const submitEdit = useCallback(() => {
     if (!editForm || !selectedId) return;
+    const familyId = editForm.familyId ? Number(editForm.familyId) : undefined;
     updateMut.mutate({
       id: selectedId,
       code: editForm.code.trim() || undefined,
       title: editForm.title.trim() || undefined,
       smpId: editForm.smpId.trim() || undefined,
       smpFamily: editForm.smpFamily.trim() || undefined,
+      familyId,
       assetName: editForm.assetName.trim() || undefined,
       assetType: editForm.assetType.trim() || undefined,
       equipmentType: editForm.equipmentType.trim() || undefined,
@@ -301,9 +333,10 @@ export default function SmpDashboard() {
             <SmpDetailPane
               detail={detailQuery.data}
               isAuthenticated={isAuthenticated}
+              onSelectRevision={setSelectedRevisionId}
               onEditMetadata={openEdit}
               onUploadRevision={() => openUpload("revision")}
-              onDelete={() => setDeleteOpen(true)}
+              onDelete={() => { setDeleteToken(null); setDeleteOpen(true); }}
               onDownloadFile={handleDownload}
             />
           ) : (
@@ -351,29 +384,40 @@ export default function SmpDashboard() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">SMP Family</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">SMP Family (as documented)</label>
                 <input value={editForm.smpFamily} onChange={(e) => setEditForm((p) => p && { ...p, smpFamily: e.target.value })} className={inputClass} />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Canonical Family</label>
+                <select value={editForm.familyId} onChange={(e) => setEditForm((p) => p && { ...p, familyId: e.target.value })} className={inputClass}>
+                  <option value="">No classification</option>
+                  {(familiesQuery.data ?? []).map((f) => (
+                    <option key={f.id} value={String(f.id)}>{f.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Equipment Type</label>
                 <input value={editForm.equipmentType} onChange={(e) => setEditForm((p) => p && { ...p, equipmentType: e.target.value })} className={inputClass} />
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Asset Name</label>
                 <input value={editForm.assetName} onChange={(e) => setEditForm((p) => p && { ...p, assetName: e.target.value })} className={inputClass} />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Asset Type</label>
                 <input value={editForm.assetType} onChange={(e) => setEditForm((p) => p && { ...p, assetType: e.target.value })} className={inputClass} />
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Facility Type</label>
                 <input value={editForm.facilityType} onChange={(e) => setEditForm((p) => p && { ...p, facilityType: e.target.value })} className={inputClass} />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Criticality</label>
                 <select value={editForm.criticality} onChange={(e) => setEditForm((p) => p && { ...p, criticality: e.target.value })} className={inputClass}>
@@ -383,22 +427,22 @@ export default function SmpDashboard() {
                   <option value="C">C</option>
                 </select>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Document Owner</label>
                 <input value={editForm.documentOwner} onChange={(e) => setEditForm((p) => p && { ...p, documentOwner: e.target.value })} className={inputClass} />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Prepared By</label>
                 <input value={editForm.preparedBy} onChange={(e) => setEditForm((p) => p && { ...p, preparedBy: e.target.value })} className={inputClass} />
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Reviewed By</label>
                 <input value={editForm.reviewedBy} onChange={(e) => setEditForm((p) => p && { ...p, reviewedBy: e.target.value })} className={inputClass} />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Approved By</label>
                 <input value={editForm.approvedBy} onChange={(e) => setEditForm((p) => p && { ...p, approvedBy: e.target.value })} className={inputClass} />
@@ -432,7 +476,7 @@ export default function SmpDashboard() {
         </ModalShell>
       )}
 
-      {/* Delete confirmation */}
+      {/* Delete confirmation — staged, recorded deletion */}
       {deleteOpen && selectedDoc && (
         <ModalShell title="🗑️ Delete SMP" onClose={() => setDeleteOpen(false)}>
           <p className="text-sm text-gray-700 mb-4">
@@ -441,13 +485,21 @@ export default function SmpDashboard() {
             All revisions ({selectedDoc.revisionCount}) and their stored PDF objects will be permanently removed.
             This action cannot be undone.
           </p>
+          <p className="text-xs text-gray-400 mb-4">
+            Deletion is staged: PDF objects are removed first and the document record after. If a step fails,
+            nothing is silently dropped — you can retry with the same confirmation.
+          </p>
           <div className="flex gap-2">
             <button
-              onClick={() => deleteMut.mutate({ id: selectedDoc.id })}
-              disabled={deleteMut.isPending}
+              onClick={requestDelete}
+              disabled={deletePrepareMut.isPending || deleteConfirmMut.isPending}
               className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-50"
             >
-              {deleteMut.isPending ? "Deleting..." : "Delete SMP"}
+              {(deletePrepareMut.isPending || deleteConfirmMut.isPending)
+                ? "Deleting..."
+                : deleteToken
+                  ? "Retry Deletion"
+                  : "Delete SMP"}
             </button>
             <button onClick={() => setDeleteOpen(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-200">
               Cancel

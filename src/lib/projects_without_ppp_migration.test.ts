@@ -27,9 +27,9 @@ describe("0031 Projects without PPP migration (content + journal)", () => {
     expect(entry!.when).toBeGreaterThan(1791312000013);
   });
 
-  it("0033 SMP controlled documents is registered as the final journal entry", () => {
+  it("0034 SMP revision-safe structured data is registered as the final journal entry", () => {
     const last = journal.entries[journal.entries.length - 1];
-    expect(last.tag).toBe("0033_smp_controlled_documents");
+    expect(last.tag).toBe("0034_smp_revision_safe_structured_and_identity");
     expect(last.idx).toBe(journal.entries.length - 1);
     expect(last.when).toBeGreaterThan(entry!.when);
   });

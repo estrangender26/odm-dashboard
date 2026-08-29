@@ -32,7 +32,9 @@ export interface SmpDocumentListItem {
   code: string; // reference number
   smpId: string | null;
   title: string;
-  smpFamily: string | null;
+  smpFamily: string | null; // literal family text as documented
+  familyId: number | null; // optional canonical family catalog relation
+  canonicalFamily: string | null; // canonical family name when familyId set
   assetName: string | null;
   assetType: string | null;
   equipmentType: string | null;
@@ -64,6 +66,7 @@ export interface SmpDocumentListItem {
 export interface SmpSection {
   id: number;
   documentId: number;
+  revisionId: number; // revision-scoped: content from one revision never mixes
   sectionKey: string;
   title: string;
   body: string | null;
@@ -75,7 +78,7 @@ export type SmpTaskCategory = "operator_driven" | "technician_pm" | "technician_
 export interface SmpTask {
   id: number;
   documentId: number;
-  revisionId: number | null;
+  revisionId: number; // revision-scoped
   category: string;
   responsibilityType: string | null;
   maintenanceClass: string | null;
@@ -93,6 +96,7 @@ export interface SmpTask {
 export interface SmpDetail {
   document: SmpDocumentListItem;
   revisions: SmpRevision[];
+  resolvedRevisionId: number | null;
   sections: SmpSection[];
   tasks: SmpTask[];
 }
@@ -134,6 +138,7 @@ export interface SmpMetadataInput {
   title: string;
   smpId?: string;
   smpFamily?: string;
+  familyId?: number;
   assetName?: string;
   assetType?: string;
   equipmentType?: string;

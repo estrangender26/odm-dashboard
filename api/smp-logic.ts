@@ -8,6 +8,17 @@ import { smpDocuments, smpDocumentRevisions } from "@db/schema";
 
 export const SMP_REVISION_LABEL_MAX_LENGTH = 50;
 export const DEFAULT_SMP_REVISION_LABEL = "Rev. 0";
+export const SMP_CODE_MAX_LENGTH = 50;
+
+/**
+ * Normalizes a reference number for identity comparison. The canonical
+ * reference-number identity is case- and whitespace-insensitive
+ * (lower(trim(code))), matching the database `code_key` maintained by the
+ * migration 0034 trigger and unique index.
+ */
+export function normalizeSmpCodeKey(code: string): string {
+  return String(code ?? "").trim().toLowerCase().slice(0, SMP_CODE_MAX_LENGTH);
+}
 
 /**
  * Normalizes a user-supplied revision label. Absent/empty values fall back to
@@ -155,6 +166,33 @@ export function buildSmpListWhere(input: SmpListInput): SQL | undefined {
 /** True when the status filter value is a controlled-document lifecycle state. */
 export function isSmpLifecycleStatus(status: string): boolean {
   return (SMP_LIFECYCLE_STATUSES as readonly string[]).includes(status);
+}
+
+export type SmpRevisionSummary = {
+  id: number;
+  revision: string;
+  revisionNumber: number;
+  status: string;
+};
+
+/**
+ * Resolves which revision's structured procedure data a detail request must
+ * show. A requested revision must belong to the document (returns null when
+ * it does not); otherwise the CURRENT revision is used, falling back to the
+ * latest revision when no revision is current. Returns null for legacy
+ * documents without revision rows. This guarantees that content from one
+ * revision is never mixed with another: the resolved id scopes every
+ * smp_sections / smp_tasks query.
+ */
+export function resolveSmpDetailRevision(
+  revisions: ReadonlyArray<SmpRevisionSummary>,
+  requestedRevisionId?: number,
+): SmpRevisionSummary | null {
+  if (requestedRevisionId != null) {
+    return revisions.find((r) => r.id === requestedRevisionId) ?? null;
+  }
+  return revisions.find((r) => r.status === "current")
+    ?? (revisions.length > 0 ? revisions[0] : null);
 }
 
 function currentRevisionExists(): SQL {

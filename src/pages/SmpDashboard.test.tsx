@@ -50,7 +50,8 @@ vi.mock("@/providers/trpc", () => ({
       get: { useQuery: vi.fn(() => ({ data: mocks.detailData })) },
       families: { useQuery: vi.fn(() => ({ data: mocks.familiesData })) },
       update: { useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })) },
-      delete: { useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })) },
+      deletePrepare: { useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })) },
+      deleteConfirm: { useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })) },
       create: {
         useMutation: vi.fn(() => ({
           mutateAsync: vi.fn(async () => ({ id: 10 })),
@@ -79,6 +80,8 @@ function makeDoc(overrides: Record<string, unknown>) {
     smpId: null,
     title: "Centrifugal Pump System",
     smpFamily: "Centrifugal Pump System",
+    familyId: 1,
+    canonicalFamily: "Centrifugal Pump System",
     assetName: null,
     assetType: null,
     equipmentType: "end-suction pumps",
@@ -180,14 +183,15 @@ describe("SMP controlled-document dashboard", () => {
     mocks.listData = { items: [makeDoc({})], count: 1, total: 1, filters: EMPTY_FILTERS };
     mocks.detailData = {
       document: makeDoc({}),
+      resolvedRevisionId: 11,
       revisions: [
         { id: 11, documentId: 1, revision: "Rev. 0", revisionNumber: 0, status: "current", effectivityDate: "2026-03-16", supersededByRevisionId: null, originalFileName: "MW-ENGG-SP-1.0.pdf", fileType: "application/pdf", fileSize: 1234, uploadedBy: "Test User", uploadedAt: "2026-03-16T00:00:00.000Z", createdAt: null, updatedAt: null, storageBucket: "smp-library", storagePath: "v1/document-1/x", hasFile: true },
       ],
       sections: [
-        { id: 1, documentId: 1, sectionKey: "objective", title: "Objective", body: "Maintain pump availability.", position: 1 },
+        { id: 1, documentId: 1, revisionId: 11, sectionKey: "objective", title: "Objective", body: "Maintain pump availability.", position: 1 },
       ],
       tasks: [
-        { id: 1, documentId: 1, revisionId: null, category: "operator_driven", responsibilityType: "Operator", maintenanceClass: null, taskText: "Check bearing temperature", frequency: "Daily", toolsMaterials: "Thermometer", safetyControls: "PPE", fieldCaptureData: { temperature: "°C" }, escalationTrigger: "Above 90°C", failureMode: null, displayOrder: 0, applicabilityTags: ["All", "Volute"] },
+        { id: 1, documentId: 1, revisionId: 11, category: "operator_driven", responsibilityType: "Operator", maintenanceClass: null, taskText: "Check bearing temperature", frequency: "Daily", toolsMaterials: "Thermometer", safetyControls: "PPE", fieldCaptureData: { temperature: "°C" }, escalationTrigger: "Above 90°C", failureMode: null, displayOrder: 0, applicabilityTags: ["All", "Volute"] },
       ],
     };
     renderPage();
@@ -206,6 +210,7 @@ describe("SMP controlled-document dashboard", () => {
     mocks.listData = { items: [makeDoc({})], count: 1, total: 1, filters: EMPTY_FILTERS };
     mocks.detailData = {
       document: makeDoc({}),
+      resolvedRevisionId: null,
       revisions: [],
       sections: [],
       tasks: [],
@@ -213,6 +218,33 @@ describe("SMP controlled-document dashboard", () => {
     renderPage();
     fireEvent.click(screen.getAllByText(/MW-ENGG-SP-1\.0/)[0]);
     expect(screen.getByText(/No structured procedure data yet/i)).toBeInTheDocument();
+  });
+
+  it("shows structured content scoped to the resolved revision and never newer data", () => {
+    mocks.listData = { items: [makeDoc({})], count: 1, total: 1, filters: EMPTY_FILTERS };
+    mocks.detailData = {
+      document: makeDoc({}),
+      // The server resolved the request to the HISTORICAL Rev. 0 revision.
+      resolvedRevisionId: 1,
+      revisions: [
+        { id: 1, documentId: 1, revision: "Rev. 0", revisionNumber: 0, status: "superseded", effectivityDate: "2026-03-16", supersededByRevisionId: 2, originalFileName: "MW-ENGG-SP-1.0-r0.pdf", fileType: "application/pdf", fileSize: 1000, uploadedBy: "Test User", uploadedAt: "2026-03-16T00:00:00.000Z", createdAt: null, updatedAt: null, storageBucket: "smp-library", storagePath: "v1/document-1/r0", hasFile: true },
+        { id: 2, documentId: 1, revision: "Rev. 1", revisionNumber: 1, status: "current", effectivityDate: "2026-09-01", supersededByRevisionId: null, originalFileName: "MW-ENGG-SP-1.0-r1.pdf", fileType: "application/pdf", fileSize: 2000, uploadedBy: "Test User", uploadedAt: "2026-09-01T00:00:00.000Z", createdAt: null, updatedAt: null, storageBucket: "smp-library", storagePath: "v1/document-1/r1", hasFile: true },
+      ],
+      sections: [],
+      // Only Rev. 0 content is present: the detail API scoped the query to
+      // the resolved revision, so Rev. 1 content cannot leak into Rev. 0.
+      tasks: [
+        { id: 1, documentId: 1, revisionId: 1, category: "operator_driven", responsibilityType: "Operator", maintenanceClass: null, taskText: "Rev. 0 only task", frequency: "Daily", toolsMaterials: null, safetyControls: null, fieldCaptureData: null, escalationTrigger: null, failureMode: null, displayOrder: 0, applicabilityTags: ["All"] },
+      ],
+    };
+    renderPage();
+    fireEvent.click(screen.getAllByText(/MW-ENGG-SP-1\.0/)[0]);
+    expect(screen.getByText(/Showing structured content as of Rev\. 0/)).toBeInTheDocument();
+    expect(screen.getAllByText("Rev. 0 only task").length).toBeGreaterThan(0);
+    // The data row is Rev. 0; the Rev. 1 row offers "View data" and the
+    // Rev. 0 row offers "Show current" (switch back to current data).
+    expect(screen.getByText("Show current")).toBeInTheDocument();
+    expect(screen.queryByText("Rev. 1 only task")).not.toBeInTheDocument();
   });
 
   it("requires metadata and a PDF before uploading a new document", () => {
