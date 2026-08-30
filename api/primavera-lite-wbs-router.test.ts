@@ -479,13 +479,51 @@ describe("primaveraLite WBS PR2", () => {
   });
 
 
-  it('cannot add child under node with active activity', async () => {
-    const created = await caller.primaveraLite.createProject({ name: 'WBS Parent Activity Block' });
+  it('allows a child WBS node under a node that has an active activity; the activity stays attached', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Child Under Activity Parent' });
     createdProjectIds.push(created.project.id);
     const { token, loaded } = await loadAdmin(created);
     const root = loaded.wbsNodes[0];
 
-    // create an activity on root, making root non-leaf
+    // Assign an activity to the root while it is a leaf.
+    const act = await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      activity: { activityName: 'Root Activity' },
+    });
+    expect(act.activity.wbsNodeId).toBe(root.id);
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const child = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      parentNodeId: root.id,
+      name: 'Child A',
+    });
+
+    expect(child.node.code).toBe('1.1');
+    expect(child.node.parentNodeId).toBe(root.id);
+    expect(child.node.isLeaf).toBe(true);
+
+    // The parent is no longer a leaf, but its activity is untouched.
+    const after = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const updatedRoot = after.wbsNodes.find((n) => n.id === root.id);
+    expect(updatedRoot?.isLeaf).toBe(false);
+    const rootActivity = after.activities.find((a) => a.id === act.activity.id);
+    expect(rootActivity).toBeTruthy();
+    expect(rootActivity?.wbsNodeId).toBe(root.id);
+    expect(rootActivity?.activityName).toBe('Root Activity');
+    expect(rootActivity?.archivedAt).toBeFalsy();
+  });
+
+  it('allows multiple children under a node that has an active activity', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Multiple Children Under Activity Parent' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
     await caller.primaveraLite.createActivity({
       slug: created.project.slug,
       access: token,
@@ -493,16 +531,220 @@ describe("primaveraLite WBS PR2", () => {
       activity: { activityName: 'Root Activity' },
     });
 
-    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
-    await expect(
-      caller.primaveraLite.createWbsNode({
+    const names = ['Child A', 'Child B', 'Child C'];
+    const codes: string[] = [];
+    for (const name of names) {
+      const loadedBefore = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+      const result = await caller.primaveraLite.createWbsNode({
         slug: created.project.slug,
         access: token,
-        expectedRevision: loaded2.revision,
+        expectedRevision: loadedBefore.revision,
         parentNodeId: root.id,
-        name: 'Blocked Child',
+        name,
+      });
+      codes.push(result.node.code);
+    }
+
+    expect(codes).toEqual(['1.1', '1.2', '1.3']);
+
+    const after = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    expect(after.wbsNodes.filter((n) => n.parentNodeId === root.id && !n.archivedAt)).toHaveLength(3);
+    // The activity on the parent survives all three creates.
+    expect(after.activities.find((a) => a.activityName === 'Root Activity')?.wbsNodeId).toBe(root.id);
+    expect(after.wbsNodes.find((n) => n.id === root.id)?.isLeaf).toBe(false);
+  });
+
+  it('allows nested (grandchild) WBS under an activity parent and keeps all assignments', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Nested Under Activity Parent' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      activity: { activityName: 'Root Activity' },
+    });
+
+    const loaded1 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const childA = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded1.revision,
+      parentNodeId: root.id,
+      name: 'Child A',
+    });
+
+    // Put an activity on Child A, then decompose it further with a grandchild.
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const childActivity = await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      activity: { activityName: 'Child A Activity' },
+      wbsNodeId: childA.node.id,
+    });
+
+    const loaded3 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const grandchild = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded3.revision,
+      parentNodeId: childA.node.id,
+      name: 'Grandchild',
+    });
+    expect(grandchild.node.code).toBe('1.1.1');
+
+    const after = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    expect(after.wbsNodes.find((n) => n.id === childA.node.id)?.isLeaf).toBe(false);
+    expect(after.wbsNodes.find((n) => n.id === root.id)?.isLeaf).toBe(false);
+    // Both the parent activity and the child activity remain attached.
+    expect(after.activities.find((a) => a.id === childActivity.activity.id)?.wbsNodeId).toBe(childA.node.id);
+    expect(after.activities.find((a) => a.activityName === 'Root Activity')?.wbsNodeId).toBe(root.id);
+  });
+
+  it('schedules a project whose WBS parents have both activities and children', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Schedule With Activity Parents' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    // Root activity (parent later gains children).
+    const rootAct = await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded.revision,
+      activity: { activityName: 'Root Activity', originalDurationDays: 3 },
+    });
+
+    const loaded1 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const childA = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded1.revision,
+      parentNodeId: root.id,
+      name: 'Child A',
+    });
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const childAct = await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      activity: { activityName: 'Child A Activity', originalDurationDays: 2 },
+      wbsNodeId: childA.node.id,
+    });
+
+    // Decompose Child A further while it already has an activity.
+    const loaded3 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const grandchild = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded3.revision,
+      parentNodeId: childA.node.id,
+      name: 'Grandchild',
+    });
+    expect(grandchild.node.code).toBe('1.1.1');
+
+    const loaded4 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    await expect(
+      caller.primaveraLite.runSchedule({
+        slug: created.project.slug,
+        access: token,
+        expectedRevision: loaded4.revision,
       })
-    ).rejects.toThrow(/node that has activities/);
+    ).resolves.toBeTruthy();
+
+    const after = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    expect(after.project?.scheduleOutOfDate).toBe(false);
+    // Both the parent activity and the child activity were scheduled.
+    const scheduledRoot = after.activities.find((a) => a.id === rootAct.activity.id);
+    const scheduledChild = after.activities.find((a) => a.id === childAct.activity.id);
+    expect(scheduledRoot?.earlyStart).toBeTruthy();
+    expect(scheduledChild?.earlyStart).toBeTruthy();
+  });
+
+  it('archive/restore keeps working for a node that has both activities and children', async () => {
+    const created = await caller.primaveraLite.createProject({ name: 'WBS Archive Activity Parent With Children' });
+    createdProjectIds.push(created.project.id);
+    const { token, loaded } = await loadAdmin(created);
+    const root = loaded.wbsNodes[0];
+
+    const loaded1 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const childA = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded1.revision,
+      parentNodeId: root.id,
+      name: 'Child A',
+    });
+
+    const loaded2 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const childAct = await caller.primaveraLite.createActivity({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded2.revision,
+      activity: { activityName: 'Child A Activity' },
+      wbsNodeId: childA.node.id,
+    });
+
+    const loaded3 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const grandchild = await caller.primaveraLite.createWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded3.revision,
+      parentNodeId: childA.node.id,
+      name: 'Grandchild',
+    });
+
+    const loaded4 = await caller.primaveraLite.load({ slug: created.project.slug, access: token });
+    const dryRun = await caller.primaveraLite.archiveWbsNodeDryRun({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded4.revision,
+      nodeId: childA.node.id,
+    });
+    // The node's own activity plus the descendant node are archived together.
+    expect(dryRun.wouldArchive.activities).toBe(1);
+    expect(dryRun.wouldArchive.wbsNodes).toBe(2);
+
+    await caller.primaveraLite.archiveWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded4.revision,
+      nodeId: childA.node.id,
+      previewToken: dryRun.previewToken,
+      confirmed: true,
+    });
+
+    const archivedRows = await testDb
+      .select({ archivedAt: ganttActivities.archivedAt })
+      .from(ganttActivities)
+      .where(eq(ganttActivities.id, childAct.activity.id));
+    expect(archivedRows[0].archivedAt).toBeTruthy();
+
+    const loaded5 = await caller.primaveraLite.load({ slug: created.project.slug, access: token, includeArchived: true });
+    const restored = await caller.primaveraLite.restoreWbsNode({
+      slug: created.project.slug,
+      access: token,
+      expectedRevision: loaded5.revision,
+      nodeId: childA.node.id,
+      confirmed: true,
+    });
+    expect(restored.node.archivedAt).toBeFalsy();
+
+    const restoredActivityRows = await testDb
+      .select({ archivedAt: ganttActivities.archivedAt })
+      .from(ganttActivities)
+      .where(eq(ganttActivities.id, childAct.activity.id));
+    expect(restoredActivityRows[0].archivedAt).toBeFalsy();
+    // Grandchild restored too.
+    const grandchildRows = await testDb
+      .select({ archivedAt: ganttWbsNodes.archivedAt })
+      .from(ganttWbsNodes)
+      .where(eq(ganttWbsNodes.id, grandchild.node.id));
+    expect(grandchildRows[0].archivedAt).toBeFalsy();
   });
 
   it('cannot move node under node with active activity', async () => {

@@ -76,7 +76,7 @@ function behaviorStub(bucket: CapturedMutation[], kind: "create" | "rename") {
         setTimeout(() => {
           setIsPending(false);
           if (stubModes.create === "error") {
-            opts?.onError?.(new Error("Cannot add a WBS child to a node that has activities"));
+            opts?.onError?.(new Error("Project was updated by another user"));
           } else {
             opts?.onSuccess?.({
               revision: 2,
@@ -95,7 +95,7 @@ function behaviorStub(bucket: CapturedMutation[], kind: "create" | "rename") {
         return;
       }
       if (stubModes[kind] === "error") {
-        opts?.onError?.(new Error(kind === "create" ? "Cannot add a WBS child to a node that has activities" : "Rename failed"));
+        opts?.onError?.(new Error(kind === "create" ? "Project was updated by another user" : "Rename failed"));
         return;
       }
       const res =
@@ -118,7 +118,7 @@ function behaviorStub(bucket: CapturedMutation[], kind: "create" | "rename") {
     const mutateAsync = async (input: CapturedMutation) => {
       bucket.push(input);
       if (stubModes[kind] === "error") {
-        throw new Error(kind === "create" ? "Cannot add a WBS child to a node that has activities" : "Rename failed");
+        throw new Error(kind === "create" ? "Project was updated by another user" : "Rename failed");
       }
       return { revision: 2 };
     };
@@ -388,7 +388,7 @@ describe("WbsTree create child WBS", () => {
 
     expect(captured.create).toHaveLength(1);
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Cannot add a WBS child to a node that has activities"
+      "Project was updated by another user"
     );
     // Draft is preserved and the input stays open so the user can fix/retry.
     expect(screen.getByPlaceholderText("New WBS name")).toHaveValue("Pumps");

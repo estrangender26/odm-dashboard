@@ -1221,8 +1221,12 @@ Archiving a project:
 ### 19.5 Leaf Status
 
 - `is_leaf` is derived: a node with no children is a leaf.
-- Activities may only attach to leaf WBS nodes.
-- If a leaf node gets a child, existing activities must be moved or archived.
+- New activities may only attach to leaf WBS nodes (backend-enforced by `requireActiveLeafWbs`).
+- A node that already has activities may still gain child WBS nodes: existing
+  activities remain attached to the parent (their `wbs_node_id` is unchanged),
+  the parent's `is_leaf` becomes false, and scheduling handles the parent
+  activity and any child activities independently (no rollup aggregation).
+- Archive/restore cascades cover nodes that have both activities and children.
 
 ### 19.6 Deletion/Move Impact Rules
 
@@ -1431,7 +1435,7 @@ All type conversions and FK-behavior changes are deferred to a later dedicated, 
 **Acceptance:**
 - Up to 20 nesting levels.
 - Concurrent move tests pass.
-- Activities can attach only to leaf WBS nodes.
+- New activities can attach only to leaf WBS nodes (existing activities stay attached when a node later gains children).
 - Root-node activities from PR 1 remain loadable and editable.
 - WBS code uniqueness enforced project-wide.
 
