@@ -58,6 +58,16 @@ export default function ActivityGrid(props: Props) {
     else setInternalShowArchived(value);
   };
   const leafNodes = useMemo(() => wbsNodes.filter((node) => node.isLeaf && !node.archivedAt), [wbsNodes]);
+  // A WBS node that gained children after an activity was assigned to it is no
+  // longer a leaf, but its existing activity must stay attached and stay
+  // visible in the WBS cell. The current node is appended as a disabled option
+  // so the cell displays the true assignment; new assignments remain leaf-only.
+  const wbsOptionsFor = (activityWbsNodeId: number | null) => {
+    if (activityWbsNodeId == null) return leafNodes;
+    if (leafNodes.some((n) => n.id === activityWbsNodeId)) return leafNodes;
+    const current = wbsNodes.find((n) => n.id === activityWbsNodeId);
+    return current ? [current, ...leafNodes] : leafNodes;
+  };
   const activities = useMemo(() => sortActivities(props.activities).filter((a) => showArchived || !a.archivedAt), [props.activities, showArchived]);
   const hasArchived = useMemo(() => props.activities.some((a) => a.archivedAt), [props.activities]);
   const [newName, setNewName] = useState("");
@@ -302,7 +312,7 @@ export default function ActivityGrid(props: Props) {
               <td className="p-2 text-slate-400">{canEdit && <GripVertical className="h-4 w-4 cursor-grab" />}</td>
               <td className="p-1">{editableCell(activity, "activityId")}</td><td className="p-1">{editableCell(activity, "activityName")}</td>
               <td className="p-1">{activity.archivedAt ? <span className="px-2">{activity.activityType ?? "task"}</span> : <select disabled={!canEdit} value={activity.activityType ?? "task"} onChange={(e) => submitEdit(activity, "activityType", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none"><option value="task">Task</option><option value="milestone">Milestone</option></select>}</td>
-              <td className="p-1">{activity.archivedAt ? <span className="px-2">{leafNodes.find((n) => n.id === activity.wbsNodeId)?.code ?? "—"}</span> : <select disabled={!canEdit} value={activity.wbsNodeId} onChange={(e) => submitEdit(activity, "wbsNodeId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none">{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select>}</td>
+              <td className="p-1">{activity.archivedAt ? <span className="px-2">{leafNodes.find((n) => n.id === activity.wbsNodeId)?.code ?? "—"}</span> : <select disabled={!canEdit} value={activity.wbsNodeId} onChange={(e) => submitEdit(activity, "wbsNodeId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none">{wbsOptionsFor(activity.wbsNodeId).map((node) => <option key={node.id} value={node.id} disabled={!node.isLeaf}>{node.code} — {node.name}{node.isLeaf ? "" : " (has children)"}</option>)}</select>}</td>
               <td className="p-1">{editableDateCell(activity, "plannedStart")}</td>
               <td className="p-1">{editableDateCell(activity, "plannedFinish")}</td>
               <td className="p-1">{editableDateCell(activity, "actualStart")}</td>

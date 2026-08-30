@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/providers/trpc";
@@ -25,21 +25,50 @@ export default function WbsTree({
 }: WbsTreeProps) {
   const canEdit = role === "admin" || role === "editor";
   const isAdmin = role === "admin";
-  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  // Start with every parent node expanded so a freshly loaded (or hard
+  // reloaded) hierarchy is fully visible instead of appearing collapsed. The
+  // set is initialized once from the first `nodes` snapshot on purpose: later
+  // polls/refetches must NOT re-expand a branch the user collapsed.
+  const [expanded, setExpanded] = useState<Set<number>>(() => {
+    const parents = new Set<number>();
+    for (const node of nodes) {
+      if (node.parentNodeId !== null) parents.add(node.parentNodeId);
+    }
+    return parents;
+  });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [addingParentId, setAddingParentId] = useState<number | null>(null);
   const [newChildName, setNewChildName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // Guards against duplicate create submissions from Enter + blur or a second
+  // Enter while the first request is still in flight (same parent + name).
+  const lastCreateKeyRef = useRef<string | null>(null);
 
   const createNode = trpc.primaveraLite.createWbsNode.useMutation({
     onSuccess: (res) => {
       onRevisionChange(res.revision);
       setAddingParentId(null);
       setNewChildName("");
-      setExpanded((prev) => new Set(prev).add(res.node.parentNodeId ?? res.node.id));
+      lastCreateKeyRef.current = null;
+      // Expand the new node's parent — and the whole ancestor chain — so the
+      // created child is visible once the refreshed tree renders.
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        if (res.node.parentNodeId === null) {
+          next.add(res.node.id);
+        } else {
+          for (const id of ancestorIdsFrom(res.node.parentNodeId)) next.add(id);
+        }
+        return next;
+      });
+      setMessage(null);
       onRefresh();
+    },
+    onError: (err) => {
+      lastCreateKeyRef.current = null;
+      setMessage(err.message);
     },
   });
 
@@ -47,28 +76,35 @@ export default function WbsTree({
     onSuccess: (res) => {
       onRevisionChange(res.revision);
       setEditingId(null);
+      setMessage(null);
       onRefresh();
     },
+    onError: (err) => setMessage(err.message),
   });
 
   const archiveDryRun = trpc.primaveraLite.archiveWbsNodeDryRun.useMutation();
   const archiveNode = trpc.primaveraLite.archiveWbsNode.useMutation({
     onSuccess: (res) => {
       onRevisionChange(res.revision);
+      setMessage(null);
       onRefresh();
     },
+    onError: (err) => setMessage(err.message),
   });
 
   const restoreNode = trpc.primaveraLite.restoreWbsNode.useMutation({
     onSuccess: (res) => {
       onRevisionChange(res.revision);
+      setMessage(null);
       onRefresh();
     },
+    onError: (err) => setMessage(err.message),
   });
 
   const reorderNode = trpc.primaveraLite.reorderWbsNode.useMutation({
     onSuccess: (res) => {
       onRevisionChange(res.revision);
+      setMessage(null);
       onRefresh();
     },
     onError: (err) => setMessage(err.message),
@@ -78,6 +114,7 @@ export default function WbsTree({
     onSuccess: (res) => {
       onRevisionChange(res.revision);
       setExpanded((prev) => new Set(prev).add(res.node.parentNodeId ?? res.node.id));
+      setMessage(null);
       onRefresh();
     },
     onError: (err) => setMessage(err.message),
@@ -108,13 +145,15 @@ export default function WbsTree({
   }
 
   function submitRename(nodeId: number) {
-    if (!editName.trim()) return;
+    const name = editName.trim();
+    if (!name || renameNode.isPending) return;
+    setMessage(null);
     renameNode.mutate({
       slug,
       access,
       expectedRevision,
       nodeId,
-      name: editName.trim(),
+      name,
     });
   }
 
@@ -125,17 +164,26 @@ export default function WbsTree({
   }
 
   function submitAddChild(parentId: number) {
-    if (!newChildName.trim()) return;
+    const name = newChildName.trim();
+    if (!name) {
+      setAddingParentId(null);
+      return;
+    }
+    const key = `${parentId}:${name}`;
+    if (createNode.isPending || lastCreateKeyRef.current === key) return;
+    lastCreateKeyRef.current = key;
+    setMessage(null);
     createNode.mutate({
       slug,
       access,
       expectedRevision,
       parentNodeId: parentId,
-      name: newChildName.trim(),
+      name,
     });
   }
 
   async function handleArchive(nodeId: number) {
+    setMessage(null);
     const dryRun = await archiveDryRun.mutateAsync({
       slug,
       access,
@@ -159,6 +207,7 @@ export default function WbsTree({
   }
 
   function handleRestore(nodeId: number) {
+    setMessage(null);
     restoreNode.mutate({ slug, access, expectedRevision, nodeId, confirmed: true });
   }
 
@@ -171,6 +220,7 @@ export default function WbsTree({
     const currentIndex = siblings.findIndex((n) => n.id === nodeId);
     const newIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
     if (newIndex < 0 || newIndex >= siblings.length) return;
+    setMessage(null);
     reorderNode.mutate({
       slug,
       access,
@@ -182,6 +232,7 @@ export default function WbsTree({
 
   function handleMove(nodeId: number, newParentId: number) {
     if (!newParentId) return;
+    setMessage(null);
     moveNode.mutate({
       slug,
       access,
@@ -213,6 +264,20 @@ export default function WbsTree({
         n.id !== nodeId &&
         n.parentNodeId !== null
     );
+  }
+
+  // Walks from the given parent id up through the display tree and returns the
+  // ids of every ancestor (including the parent itself).
+  function ancestorIdsFrom(parentNodeId: number): number[] {
+    const ids: number[] = [];
+    let currentId: number | null = parentNodeId;
+    while (currentId !== null) {
+      ids.push(currentId);
+      const parent = displayNodes.find((n) => n.id === currentId);
+      if (!parent) break;
+      currentId = parent.parentNodeId;
+    }
+    return ids;
   }
 
   function renderTreeNode(treeNode: TreeNode) {
@@ -381,6 +446,7 @@ export default function WbsTree({
                 if (e.key === "Escape") setAddingParentId(null);
               }}
               autoFocus
+              disabled={createNode.isPending}
               placeholder="New WBS name"
               className="h-7 flex-1 text-sm"
             />

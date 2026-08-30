@@ -2954,10 +2954,12 @@ export const primaveraLiteRouter = createRouter({
         const parent = await getActiveNode(tx, parentNodeId, accessCtx.projectId);
         if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "Parent WBS node not found" });
 
-        const activeActivitiesOnParent = await countActiveNodeActivities(tx, parent.id);
-        if (activeActivitiesOnParent > 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot add a WBS child to a node that has activities" });
-        }
+        // A node with existing activities may still gain children: activities
+        // stay attached to the parent (activity.wbsNodeId is unchanged), the
+        // parent's isLeaf flips to false (child-based), and the scheduling
+        // engine schedules every activity independently, so a parent activity
+        // alongside child activities is fully supported. New activity
+        // assignment remains leaf-only via requireActiveLeafWbs.
 
         const parentCode = parent.code;
         const parentDepth = countCodeSegments(parentCode);
