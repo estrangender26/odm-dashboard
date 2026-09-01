@@ -49,3 +49,65 @@ export function toDateInputValue(value: string | Date | null | undefined): strin
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 10);
 }
+
+
+export type SmpExtractedSection = {
+  sectionKey: string;
+  title: string;
+  body: string;
+  position: number;
+};
+
+export type SmpExtractedTask = {
+  category: string;
+  responsibilityType?: string;
+  maintenanceClass?: string;
+  taskText: string;
+  frequency?: string;
+  toolsMaterials?: string;
+  safetyControls?: string;
+  fieldCaptureData?: string[];
+  escalationTrigger?: string;
+  failureMode?: string;
+  applicabilityTags?: string[];
+  displayOrder: number;
+};
+
+export type SmpExtractionResult = {
+  code: string | null;
+  smpId: string | null;
+  title: string | null;
+  smpFamily: string | null;
+  revision: string | null;
+  effectivityDate: string | null;
+  assetName: string | null;
+  assetType: string | null;
+  equipmentType: string | null;
+  facilityType: string | null;
+  criticality: string | null;
+  documentOwner: string | null;
+  preparedBy: string | null;
+  reviewedBy: string | null;
+  approvedBy: string | null;
+  applicability: string[];
+  sections: SmpExtractedSection[];
+  tasks: SmpExtractedTask[];
+  warnings: string[];
+  isEmpty: boolean;
+};
+
+/** Uploads a PDF to the server for metadata/section/task extraction. */
+export async function extractSmpPdf(file: File): Promise<{ extraction: SmpExtractionResult }> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch("/api/smp/extract", {
+    method: "POST",
+    body: form,
+    credentials: "same-origin",
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `Extraction failed (${response.status}).`);
+  }
+  return data;
+}

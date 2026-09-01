@@ -7,6 +7,7 @@ import {
 
 const LARGE_MULTIPART_UPLOAD_PATHS = new Set([
   "/api/documents/upload",
+  "/api/smp/extract",
 ]);
 
 const LARGE_UPLOAD_REST_PATHS = new Set([
@@ -58,7 +59,8 @@ export function isSharedGanttRequestPath(path: string): boolean {
 
 export function isAffectedUploadRequestPath(path: string): boolean {
   return LARGE_MULTIPART_UPLOAD_PATHS.has(path)
-    || isLargeUploadRequestPath(path);
+    || isLargeUploadRequestPath(path)
+    || path === "/api/smp/extract";
 }
 
 export function getRequestBodyLimitBytes(path: string): number {

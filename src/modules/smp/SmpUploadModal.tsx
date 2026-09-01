@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { MAX_UPLOAD_ERROR_MESSAGE, MAX_UPLOAD_FILE_SIZE_BYTES } from "@contracts/upload-limits";
 import { uploadFileDirect } from "@/lib/direct-storage-upload";
-import { toDateInputValue } from "./smpFormat";
+import { extractSmpPdf, toDateInputValue, type SmpExtractionResult } from "./smpFormat";
 import type { SmpDocumentListItem, SmpFamily } from "./types";
 
 type UploadMode = "new" | "revision";
@@ -103,6 +103,10 @@ export function SmpUploadModal({
   const [label, setLabel] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [extraction, setExtraction] = useState<SmpExtractionResult | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+
   const family = families.find((f) => f.id === Number(form.familyId)) ?? null;
   const suggestedTags = useMemo(() => {
     const fromFamily = family?.suggestedTags ?? [];
@@ -122,8 +126,38 @@ export function SmpUploadModal({
     setCustomTag("");
   };
 
-  const selectFile = (next: File | null) => {
+  const isPdfFile = (f: File) =>
+    f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
+
+  const applyExtraction = (ext: SmpExtractionResult) => {
+    setForm((prev) => ({
+      ...prev,
+      code: prev.code || ext.code || prev.code,
+      title: prev.title || ext.title || prev.title,
+      smpId: prev.smpId || ext.smpId || prev.smpId,
+      smpFamily: prev.smpFamily || ext.smpFamily || prev.smpFamily,
+      assetName: prev.assetName || ext.assetName || prev.assetName,
+      assetType: prev.assetType || ext.assetType || prev.assetType,
+      equipmentType: prev.equipmentType || ext.equipmentType || prev.equipmentType,
+      facilityType: prev.facilityType || ext.facilityType || prev.facilityType,
+      criticality: prev.criticality || ext.criticality || prev.criticality,
+      documentOwner: prev.documentOwner || ext.documentOwner || prev.documentOwner,
+      preparedBy: prev.preparedBy || ext.preparedBy || prev.preparedBy,
+      reviewedBy: prev.reviewedBy || ext.reviewedBy || prev.reviewedBy,
+      approvedBy: prev.approvedBy || ext.approvedBy || prev.approvedBy,
+      revision: ext.revision || prev.revision,
+      effectivityDate: ext.effectivityDate || prev.effectivityDate,
+    }));
+    setTags((prev) => (prev.length > 0 ? prev : ext.applicability));
+    if (mode === "revision" && ext.code && ext.code !== document?.code) {
+      setExtractionError(`PDF reference number (${ext.code}) does not match this document series (${document?.code ?? ""}).`);
+    }
+  };
+
+  const selectFile = async (next: File | null) => {
     setError(null);
+    setExtractionError(null);
+    setExtraction(null);
     if (!next) {
       setFile(null);
       return;
@@ -133,12 +167,26 @@ export function SmpUploadModal({
       setFile(null);
       return;
     }
-    if (next.type && next.type !== "application/pdf" && next.type !== "application/octet-stream") {
+    if (!isPdfFile(next)) {
       setError("Only PDF files are accepted for SMP documents.");
       setFile(null);
       return;
     }
     setFile(next);
+    setExtracting(true);
+    try {
+      const { extraction } = await extractSmpPdf(next);
+      setExtraction(extraction);
+      if (extraction.isEmpty) {
+        setExtractionError("No readable text was found in this PDF. It may be scanned/image-only; please review and fill the form manually.");
+      } else {
+        applyExtraction(extraction);
+      }
+    } catch (err) {
+      setExtractionError(err instanceof Error ? err.message : "PDF extraction failed.");
+    } finally {
+      setExtracting(false);
+    }
   };
 
   const submit = async () => {
@@ -149,6 +197,10 @@ export function SmpUploadModal({
     }
     if (!file) {
       setError("Select the approved PDF to upload.");
+      return;
+    }
+    if (extractionError && !extraction?.isEmpty) {
+      setError(extractionError);
       return;
     }
     if (!form.revision.trim()) {
@@ -187,11 +239,15 @@ export function SmpUploadModal({
               approvedBy: form.approvedBy.trim() || undefined,
               revision: form.revision.trim(),
               effectivityDate: form.effectivityDate || undefined,
+              sections: extraction?.sections,
+              tasks: extraction?.tasks,
             }
           : {
               documentId: document?.id,
               revision: form.revision.trim(),
               effectivityDate: form.effectivityDate || undefined,
+              sections: extraction?.sections,
+              tasks: extraction?.tasks,
             },
         onProgress: (pct) => {
           setProgress(Math.max(5, pct));
@@ -218,6 +274,25 @@ export function SmpUploadModal({
       <div className="space-y-4">
         {error && (
           <div className="px-4 py-3 border border-red-200 bg-red-50 text-red-800 rounded-lg text-sm">⚠️ {error}</div>
+        )}
+
+        {extracting && (
+          <div className="px-4 py-3 border border-blue-200 bg-blue-50 text-blue-800 rounded-lg text-sm flex items-center gap-2">
+            <span className="inline-block w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+            Reading PDF and extracting metadata...
+          </div>
+        )}
+
+        {extractionError && (
+          <div className="px-4 py-3 border border-yellow-300 bg-yellow-50 text-yellow-900 rounded-lg text-sm">
+            ⚠️ {extractionError}
+          </div>
+        )}
+
+        {extraction && !extraction.isEmpty && (
+          <div className="px-4 py-2 border border-green-200 bg-green-50 text-green-800 rounded-lg text-xs">
+            📄 Extracted {extraction.sections.length} section{extraction.sections.length === 1 ? "" : "s"} and {extraction.tasks.length} task{extraction.tasks.length === 1 ? "" : "s"}. Review the pre-filled fields before uploading.
+          </div>
         )}
 
         {mode === "new" ? (

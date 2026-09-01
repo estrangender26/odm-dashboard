@@ -3,7 +3,7 @@ import type { StorageFeatureFlags, StorageModule } from "@contracts/storage";
 import { TUS_CHUNK_SIZE_BYTES } from "@contracts/storage";
 import { MAX_UPLOAD_ERROR_MESSAGE, MAX_UPLOAD_FILE_SIZE_BYTES } from "@contracts/upload-limits";
 
-type UploadTarget = Record<string, string | number | null | undefined>;
+type UploadTarget = Record<string, unknown>;
 
 type Authorization = {
   storageEnabled: true;
@@ -147,13 +147,33 @@ function uploadAbortError(signal: AbortSignal) {
   return signal.reason instanceof Error ? signal.reason : new DOMException("Upload aborted.", "AbortError");
 }
 
+export type FinalizeStorageUploadResult = { success: true; fileId: number; source: string; deleteCapability?: string };
+export type UploadToIntentResult = { intentId: string; capabilityToken?: string; skippedFinalize: true };
+
+export function uploadFileDirect(options: {
+  module: StorageModule;
+  file: File;
+  target: UploadTarget;
+  onProgress?: (percentage: number, bytesUploaded: number, bytesTotal: number) => void;
+  signal?: AbortSignal;
+  skipFinalize?: false;
+}): Promise<FinalizeStorageUploadResult>;
+export function uploadFileDirect(options: {
+  module: StorageModule;
+  file: File;
+  target: UploadTarget;
+  onProgress?: (percentage: number, bytesUploaded: number, bytesTotal: number) => void;
+  signal?: AbortSignal;
+  skipFinalize: true;
+}): Promise<UploadToIntentResult>;
 export async function uploadFileDirect(options: {
   module: StorageModule;
   file: File;
   target: UploadTarget;
   onProgress?: (percentage: number, bytesUploaded: number, bytesTotal: number) => void;
   signal?: AbortSignal;
-}) {
+  skipFinalize?: boolean;
+}): Promise<FinalizeStorageUploadResult | UploadToIntentResult> {
   const { module, file, target, onProgress, signal } = options;
   if (signal?.aborted) throw uploadAbortError(signal);
   if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) throw new Error(MAX_UPLOAD_ERROR_MESSAGE);
@@ -283,6 +303,10 @@ export async function uploadFileDirect(options: {
       }).catch((error) => settle(reject, error));
     });
 
+    if (options.skipFinalize) {
+      return { intentId: authorization.intentId, capabilityToken, skippedFinalize: true as const };
+    }
+
     const result = await fetch("/api/storage/uploads/finalize", {
       method: "POST",
       credentials: "same-origin",
@@ -299,6 +323,15 @@ export async function uploadFileDirect(options: {
     // Keep the scoped authorization and TUS fingerprint so the next attempt can resume.
     throw error;
   }
+}
+
+export async function finalizeStorageUpload(intentId: string, capabilityToken?: string): Promise<FinalizeStorageUploadResult> {
+  return fetch("/api/storage/uploads/finalize", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ intentId, capabilityToken }),
+  }).then(parseJson) as Promise<FinalizeStorageUploadResult>;
 }
 
 export async function deleteFileWithVerification(source: string, id: number) {

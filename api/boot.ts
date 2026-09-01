@@ -9,6 +9,7 @@ import { appRouter } from "./router";
 import { presentationFilesRouter } from "./presentation-files-router";
 import { documentsUploadRouter } from "./documents-router";
 import { storageRouter } from "./storage-router";
+import { extractSmpFromPdf } from "./smp-pdf-extract";
 
 import { createContext } from "./context";
 import { env } from "./lib/env";
@@ -281,6 +282,28 @@ installRequestBodyGuard(app);
 logBootStage("registering document upload routes");
 app.route("/api/documents", documentsUploadRouter);
 app.route("/api/storage", storageRouter);
+
+logBootStage("registering SMP extraction route");
+app.post("/api/smp/extract", async (c) => {
+  try {
+    const user = await authenticateRequest(c.req.raw.headers);
+    const body = await c.req.parseBody({ all: true });
+    const file = body.file;
+    if (!(file instanceof File)) {
+      return c.json({ error: "PDF file is required." }, 400);
+    }
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) {
+      return c.json({ error: "Only PDF files are accepted for SMP documents." }, 400);
+    }
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const extraction = await extractSmpFromPdf(buffer);
+    return c.json({ extraction });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "PDF extraction failed.";
+    return c.json({ error: message }, 400);
+  }
+});
 
 logBootStage("registering API request logger middleware");
 app.use("*", async (c, next) => {
