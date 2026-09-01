@@ -53,6 +53,10 @@ export type SmpFinalizeTx = {
   /** Sets superseded_by_revision_id = newRevisionId for the given ids. */
   backfillSupersededBy(revisionIds: number[], newRevisionId: number): Promise<void>;
   updateDocumentMirror(documentId: number, values: Record<string, unknown>): Promise<void>;
+  /** Insert structured sections for the new revision. */
+  insertSections?(documentId: number, revisionId: number, sections: unknown[]): Promise<void>;
+  /** Insert structured tasks (and their applicability tags) for the new revision. */
+  insertTasks?(documentId: number, revisionId: number, tasks: unknown[]): Promise<void>;
 };
 
 export type SmpFinalizeInput = {
@@ -168,6 +172,18 @@ export async function finalizeSmpRevision(
   );
   if (previousIds.length > 0) {
     await tx.backfillSupersededBy(previousIds, revisionId);
+  }
+
+  // Persist structured sections and tasks extracted from the PDF, scoped to
+  // the new revision. These are optional: uploads without extraction simply
+  // omit the fields.
+  const sections = Array.isArray(target.sections) ? target.sections : [];
+  if (sections.length > 0 && tx.insertSections) {
+    await tx.insertSections(documentId, revisionId, sections);
+  }
+  const tasks = Array.isArray(target.tasks) ? target.tasks : [];
+  if (tasks.length > 0 && tx.insertTasks) {
+    await tx.insertTasks(documentId, revisionId, tasks);
   }
 
   // Mirror the current revision onto the document series row.

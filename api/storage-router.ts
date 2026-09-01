@@ -11,6 +11,9 @@ import {
   projectsWithoutPPP,
   smpDocuments,
   smpDocumentRevisions,
+  smpSections,
+  smpTaskApplicability,
+  smpTasks,
   storageUploadIntents,
   users,
   type User,
@@ -129,7 +132,9 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
       if (!rows.length) throw new Error("SMP document not found.");
       const revision = target.revision == null ? undefined : String(target.revision).trim().slice(0, 50) || undefined;
       const effectivityDate = target.effectivityDate == null ? undefined : String(target.effectivityDate).trim().slice(0, 10) || undefined;
-      return { documentId, revision, effectivityDate };
+      const sections = Array.isArray(target.sections) ? target.sections : undefined;
+      const tasks = Array.isArray(target.tasks) ? target.tasks : undefined;
+      return { documentId, revision, effectivityDate, sections, tasks };
     }
     // New-document first revision: the upload target carries the full
     // controlled-document metadata; the series is created atomically with its
@@ -141,6 +146,8 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
     const sliceOrUndefined = (value: unknown, max: number) =>
       value == null ? undefined : (String(value).trim().slice(0, max) || undefined);
     const familyId = Number(target.familyId) > 0 ? Number(target.familyId) : null;
+    const sections = Array.isArray(target.sections) ? target.sections : undefined;
+    const tasks = Array.isArray(target.tasks) ? target.tasks : undefined;
     return {
       isNew: true,
       code,
@@ -164,6 +171,8 @@ async function validateTarget(module: StorageModule, target: Record<string, unkn
       approvedBy: sliceOrUndefined(target.approvedBy, 255),
       revision: sliceOrUndefined(target.revision, 50),
       effectivityDate: sliceOrUndefined(target.effectivityDate, 10),
+      sections,
+      tasks,
     };
   }
   if (module === "projects_without_ppp") {
@@ -710,6 +719,42 @@ storageRouter.post("/uploads/finalize", async (c) => {
           },
           updateDocumentMirror: async (documentId, values) => {
             await tx.update(smpDocuments).set(values as any).where(eq(smpDocuments.id, documentId));
+          },
+          insertSections: async (documentId, revisionId, sections) => {
+            const values = (sections as Array<Record<string, unknown>>).map((s, idx) => ({
+              documentId,
+              revisionId,
+              sectionKey: String(s.sectionKey ?? `sec_${idx + 1}`).slice(0, 64),
+              title: String(s.title ?? "").slice(0, 255),
+              body: s.body != null ? String(s.body) : null,
+              position: Number(s.position ?? idx),
+            }));
+            if (values.length > 0) await tx.insert(smpSections).values(values as any);
+          },
+          insertTasks: async (documentId, revisionId, tasks) => {
+            for (const [idx, raw] of (tasks as Array<Record<string, unknown>>).entries()) {
+              const inserted = await tx.insert(smpTasks).values({
+                documentId,
+                revisionId,
+                category: String(raw.category ?? "").slice(0, 32),
+                responsibilityType: raw.responsibilityType != null ? String(raw.responsibilityType).slice(0, 32) : null,
+                maintenanceClass: raw.maintenanceClass != null ? String(raw.maintenanceClass).slice(0, 32) : null,
+                taskText: String(raw.taskText ?? ""),
+                frequency: raw.frequency != null ? String(raw.frequency).slice(0, 100) : null,
+                toolsMaterials: raw.toolsMaterials != null ? String(raw.toolsMaterials) : null,
+                safetyControls: raw.safetyControls != null ? String(raw.safetyControls) : null,
+                fieldCaptureData: Array.isArray(raw.fieldCaptureData) ? raw.fieldCaptureData : null,
+                escalationTrigger: raw.escalationTrigger != null ? String(raw.escalationTrigger) : null,
+                failureMode: raw.failureMode != null ? String(raw.failureMode) : null,
+                displayOrder: Number(raw.displayOrder ?? idx),
+              }).returning({ id: smpTasks.id });
+              const tags = Array.isArray(raw.applicabilityTags) ? raw.applicabilityTags : [];
+              if (tags.length > 0) {
+                await tx.insert(smpTaskApplicability).values(
+                  tags.map((tag) => ({ taskId: inserted[0].id, tag: String(tag).slice(0, 100) })),
+                );
+              }
+            }
           },
         };
 

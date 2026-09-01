@@ -10,6 +10,7 @@ import {
   smpSections,
   smpTasks,
   smpTaskApplicability,
+  storageUploadIntents,
 } from "@db/schema";
 import { authedQuery, createRouter, publicQuery } from "./middleware";
 import {
@@ -18,6 +19,7 @@ import {
   resolveSmpDetailRevision,
   type SmpListInput,
 } from "./smp-logic";
+import { extractSmpFromPdf } from "./smp-pdf-extract";
 import { getSupabaseStorageAdmin } from "./supabase-storage";
 
 /**
@@ -281,6 +283,55 @@ export const smpRouter = createRouter({
       sortOrder: row.sortOrder,
     }));
   }),
+
+  /* ── Extract metadata/sections/tasks from a pending SMP PDF upload intent.
+     Reads the already-uploaded Storage object for the intent, parses the PDF,
+     and returns a structured proposal the caller can review before finalize.
+     The intent must be pending, module=smp, and owned by the current user. ── */
+  extractPdf: authedQuery
+    .input(z.object({
+      intentId: z.string().uuid(),
+      capabilityToken: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const intent = await db.query.storageUploadIntents.findFirst({
+        where: eq(storageUploadIntents.id, input.intentId),
+      });
+      if (!intent) throw new Error("Upload intent not found.");
+      if (intent.status !== "pending") throw new Error("Upload intent is no longer active.");
+      if (intent.module !== "smp") throw new Error("This intent is not an SMP upload.");
+
+      // SMP uploads require authentication; verify ownership.
+      if (!intent.requestedBy) {
+        throw new Error("Anonymous SMP extraction is not supported.");
+      }
+      const user = ctx.user;
+      if (!user || user.id !== intent.requestedBy) {
+        throw new Error("You do not own this upload intent.");
+      }
+
+      if (!intent.expectedBucket || !intent.expectedPath) {
+        throw new Error("Upload intent is missing storage location.");
+      }
+      if (intent.expectedMimeType !== "application/pdf") {
+        throw new Error("Only PDF files can be extracted for SMP documents.");
+      }
+
+      const storage = getSupabaseStorageAdmin();
+      const { data, error } = await storage.storage.from(intent.expectedBucket).download(intent.expectedPath);
+      if (error || !data) {
+        throw new Error(`Unable to read uploaded PDF: ${error?.message ?? "unknown error"}`);
+      }
+
+      const buffer = Buffer.from(await data.arrayBuffer());
+      const extraction = await extractSmpFromPdf(buffer);
+
+      return {
+        intentId: intent.id,
+        originalFilename: intent.originalFilename,
+        extraction,
+      };
+    }),
 
   /* ── Create a document series (authenticated, metadata only).
      The new-document UPLOAD flow does NOT use this procedure: it creates the

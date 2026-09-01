@@ -32,8 +32,12 @@ type RevisionRow = {
 class MemoryTx implements SmpFinalizeTx {
   revisions: RevisionRow[] = [];
   documents: Array<{ id: number; code: string; codeKey: string; title: string }> = [];
+  sections: Array<{ documentId: number; revisionId: number; title: string; body: string }> = [];
+  tasks: Array<{ documentId: number; revisionId: number; category: string; taskText: string; applicabilityTags?: string[] }> = [];
   nextRevisionId = 1;
   nextDocumentId = 1;
+  nextSectionId = 1;
+  nextTaskId = 1;
 
   // Mirrors migration 0035: a document series can have at most one current
   // revision.
@@ -86,6 +90,31 @@ class MemoryTx implements SmpFinalizeTx {
   async updateDocumentMirror(documentId: number, values: Record<string, unknown>) {
     const doc = this.documents.find((d) => d.id === documentId);
     if (doc) Object.assign(doc, values);
+  }
+
+  async insertSections(documentId: number, revisionId: number, sections: unknown[]) {
+    for (const raw of sections as Array<Record<string, unknown>>) {
+      this.sections.push({
+        documentId,
+        revisionId,
+        title: String(raw.title ?? ""),
+        body: raw.body != null ? String(raw.body) : "",
+      });
+      this.nextSectionId++;
+    }
+  }
+
+  async insertTasks(documentId: number, revisionId: number, tasks: unknown[]) {
+    for (const raw of tasks as Array<Record<string, unknown>>) {
+      this.tasks.push({
+        documentId,
+        revisionId,
+        category: String(raw.category ?? ""),
+        taskText: String(raw.taskText ?? ""),
+        applicabilityTags: Array.isArray(raw.applicabilityTags) ? raw.applicabilityTags as string[] : undefined,
+      });
+      this.nextTaskId++;
+    }
   }
 
   currentRevisions() {
@@ -222,6 +251,32 @@ describe("SMP revision finalization state semantics", () => {
     expect(tx.currentRevisions()).toHaveLength(1);
   });
 });
+
+it("persists extracted sections and tasks against the new revision", async () => {
+    const tx = new MemoryTx();
+    const sections = [
+      { sectionKey: "sec_1", title: "Purpose", body: "Define scope.", position: 0 },
+      { sectionKey: "sec_2", title: "Safety", body: "LOTO required.", position: 1 },
+    ];
+    const tasks = [
+      { category: "operator_driven", taskText: "Check pressure", displayOrder: 0, applicabilityTags: ["All"] },
+      { category: "technician_pm", taskText: "Lubricate bearings", displayOrder: 1 },
+    ];
+    const { documentId, revisionId } = await runFinalize(tx, {
+      code: "MW-ENGG-SP-9.0",
+      title: "Test",
+      revision: "Rev. 0",
+      sections,
+      tasks,
+    });
+
+    expect(tx.sections).toHaveLength(2);
+    expect(tx.sections.every((s) => s.documentId === documentId && s.revisionId === revisionId)).toBe(true);
+    expect(tx.sections[0]).toMatchObject({ title: "Purpose", body: "Define scope." });
+    expect(tx.tasks).toHaveLength(2);
+    expect(tx.tasks.every((t) => t.documentId === documentId && t.revisionId === revisionId)).toBe(true);
+    expect(tx.tasks[0]).toMatchObject({ category: "operator_driven", taskText: "Check pressure", applicabilityTags: ["All"] });
+  });
 
 describe("SMP finalize source ordering guard", () => {
   const source = readFileSync(join(process.cwd(), "api/smp-finalize.ts"), "utf8");
