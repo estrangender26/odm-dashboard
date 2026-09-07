@@ -2,15 +2,24 @@ import { describe, expect, it } from "vitest";
 import { aggregateMonthlyKpiRecords } from "../src/modules/monthly-kpi/kpiAggregation";
 
 /**
- * Monthly KPI Scorecard — YTD scorecard rules.
+ * Monthly KPI Scorecard — display semantics (final authoritative rule).
  *
- * The selected month is the reporting cutoff. On the scorecard (Summary Matrix
- * rows, the "All Business Units" row, and the Portfolio Average KPI Cards):
- *  - Budget Spend, PM:CM Work Orders, PM:CM Cost, and MTTR are YTD cumulative
- *    values computed from the underlying January-through-selected-month inputs
- *    (never an average of the already-calculated monthly KPIs);
- *  - PM Compliance and Facility Uptime remain the selected month's standalone
- *    value only.
+ * There are two KPI behavior groups:
+ *
+ * GROUP A (Budget Spend, PM:CM Work Orders, PM:CM Cost, MTTR) — YTD/cumulative.
+ * Every scorecard KPI value through the effective reporting month E is the
+ * cumulative result from January through E, always rebuilt from the underlying
+ * source quantities (SUM actual / SUM budget, SUM PM / SUM CM work orders and
+ * costs, SUM downtime / SUM repairs). Monthly percentages/ratios/MTTR are never
+ * averaged to build these values.
+ *
+ * GROUP B (PM Compliance, Facility Uptime) — monthly standalone + YTD-average
+ * card. Each monthly table row is that month's standalone actual, while the
+ * KPI card (and All Business Units row) shows the YTD average of the standalone
+ * monthly values from January through E.
+ *
+ * These tests exercise the shared aggregation that feeds the KPI cards, the
+ * Summary Matrix rows, and the All Business Units row.
  */
 const base = {
   pm_compliance: null,
@@ -63,8 +72,8 @@ function makeMonthValues(month: number): MonthValues {
   };
 }
 
-function makeYearRecords(businessUnit: string) {
-  return Array.from({ length: 12 }, (_, index) => {
+function makeYearRecords(businessUnit: string, months = 12) {
+  return Array.from({ length: months }, (_, index) => {
     const month = index + 1;
     const v = makeMonthValues(month);
     return {
@@ -99,6 +108,7 @@ function sliceRecords(records: Array<Record<string, unknown>>, throughMonth: num
   return records.filter((record) => Number(record.reporting_month) <= throughMonth);
 }
 
+/** Group A expected values: cumulative January-through-month from source inputs. */
 function expectedYtd(records: Array<Record<string, unknown>>, throughMonth: number) {
   const period = sliceRecords(records, throughMonth);
   const pm = sum(period, "pm_work_orders");
@@ -115,6 +125,7 @@ function expectedYtd(records: Array<Record<string, unknown>>, throughMonth: numb
   };
 }
 
+/** Group B expected monthly standalone values. */
 function expectedMonthlyKpi(records: Array<Record<string, unknown>>, month: number) {
   const record = records.find((r) => Number(r.reporting_month) === month)!;
   return {
@@ -123,14 +134,19 @@ function expectedMonthlyKpi(records: Array<Record<string, unknown>>, month: numb
   };
 }
 
-const AMD_EZ = makeYearRecords("AMD-EZ");
-
-function buildAggregateForMonths(records: typeof AMD_EZ, months: number[]) {
-  return months.map((month) => aggregateMonthlyKpiRecords(records, 2026, month));
+/** Group B card expectations: YTD average of standalone monthly values Jan..M. */
+function expectedYtdAverage(records: Array<Record<string, unknown>>, throughMonth: number) {
+  const values = sliceRecords(records, throughMonth).map((record) => expectedMonthlyKpi([record], Number(record.reporting_month)));
+  return {
+    pmCompliance: values.reduce((total, value) => total + value.pmCompliance, 0) / values.length,
+    facilityUptime: values.reduce((total, value) => total + value.facilityUptime, 0) / values.length,
+  };
 }
 
-describe("Monthly KPI Scorecard YTD rules", () => {
-  it("January selected: YTD KPIs equal January values and monthly KPIs equal January values", () => {
+const AMD_EZ = makeYearRecords("AMD-EZ");
+
+describe("Monthly KPI Scorecard display semantics (Group A cumulative, Group B YTD-average card)", () => {
+  it("January selected: Group A values equal January; Group B YTD averages equal January (1 month)", () => {
     const result = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 1);
     const bu = result.byBusinessUnitMap["AMD-EZ"];
     const ytd = expectedYtd(AMD_EZ, 1);
@@ -140,52 +156,53 @@ describe("Monthly KPI Scorecard YTD rules", () => {
     expect(bu.pmCmWorkOrderRatio).toBeCloseTo(ytd.pmCmWorkOrderRatio, 6);
     expect(bu.pmCmCostRatio).toBeCloseTo(ytd.pmCmCostRatio, 6);
     expect(bu.mttrDays).toBeCloseTo(ytd.mttrDays, 6);
+    // A one-month YTD average equals that month's standalone value.
     expect(bu.pmCompliance).toBeCloseTo(monthly.pmCompliance, 6);
     expect(bu.facilityUptime).toBeCloseTo(monthly.facilityUptime, 6);
   });
 
-  it("March selected: the four YTD KPIs are cumulative January-March", () => {
+  it("March selected: Group A cards are Jan-Mar cumulative; Group B cards are Jan-Mar YTD averages", () => {
     const result = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 3);
     const bu = result.byBusinessUnitMap["AMD-EZ"];
     const ytd = expectedYtd(AMD_EZ, 3);
-    const monthly = expectedMonthlyKpi(AMD_EZ, 3);
+    const avg = expectedYtdAverage(AMD_EZ, 3);
 
     expect(bu.budgetSpend).toBeCloseTo(ytd.budgetSpend, 6);
     expect(bu.pmCmWorkOrderRatio).toBeCloseTo(ytd.pmCmWorkOrderRatio, 6);
     expect(bu.pmCmCostRatio).toBeCloseTo(ytd.pmCmCostRatio, 6);
     expect(bu.mttrDays).toBeCloseTo(ytd.mttrDays, 6);
-    // PM Compliance and Facility Uptime remain March-only, never Jan-Mar
-    // averages/cumulative values.
-    expect(bu.pmCompliance).toBeCloseTo(monthly.pmCompliance, 6);
-    expect(bu.facilityUptime).toBeCloseTo(monthly.facilityUptime, 6);
+    // PM Compliance / Facility Uptime cards are YTD averages, NOT March-only.
+    expect(bu.pmCompliance).toBeCloseTo(avg.pmCompliance, 6);
+    expect(bu.pmCompliance).not.toBeCloseTo(expectedMonthlyKpi(AMD_EZ, 3).pmCompliance, 6);
+    expect(bu.facilityUptime).toBeCloseTo(avg.facilityUptime, 6);
   });
 
-  it("September selected: cumulative January-September for the four YTD KPIs", () => {
+  it("September selected: Group A cumulative Jan-Sep; Group B YTD averages Jan-Sep", () => {
     const result = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 9);
     const bu = result.byBusinessUnitMap["AMD-EZ"];
     const ytd = expectedYtd(AMD_EZ, 9);
-    const monthly = expectedMonthlyKpi(AMD_EZ, 9);
+    const avg = expectedYtdAverage(AMD_EZ, 9);
 
     expect(bu.budgetSpend).toBeCloseTo(ytd.budgetSpend, 6);
     expect(bu.pmCmWorkOrderRatio).toBeCloseTo(ytd.pmCmWorkOrderRatio, 6);
     expect(bu.pmCmCostRatio).toBeCloseTo(ytd.pmCmCostRatio, 6);
     expect(bu.mttrDays).toBeCloseTo(ytd.mttrDays, 6);
-    expect(bu.pmCompliance).toBeCloseTo(monthly.pmCompliance, 6);
-    expect(bu.facilityUptime).toBeCloseTo(monthly.facilityUptime, 6);
+    expect(bu.pmCompliance).toBeCloseTo(avg.pmCompliance, 6);
+    expect(bu.facilityUptime).toBeCloseTo(avg.facilityUptime, 6);
   });
 
-  it("December selected: full-year cumulative for the four YTD KPIs", () => {
+  it("December selected: Group A full-year cumulative; Group B full-year YTD averages", () => {
     const result = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 12);
     const bu = result.byBusinessUnitMap["AMD-EZ"];
     const ytd = expectedYtd(AMD_EZ, 12);
+    const avg = expectedYtdAverage(AMD_EZ, 12);
 
     expect(bu.budgetSpend).toBeCloseTo(ytd.budgetSpend, 6);
     expect(bu.pmCmWorkOrderRatio).toBeCloseTo(ytd.pmCmWorkOrderRatio, 6);
     expect(bu.pmCmCostRatio).toBeCloseTo(ytd.pmCmCostRatio, 6);
     expect(bu.mttrDays).toBeCloseTo(ytd.mttrDays, 6);
-    // December-only monthly KPIs.
-    expect(bu.pmCompliance).toBeCloseTo(expectedMonthlyKpi(AMD_EZ, 12).pmCompliance, 6);
-    expect(bu.facilityUptime).toBeCloseTo(expectedMonthlyKpi(AMD_EZ, 12).facilityUptime, 6);
+    expect(bu.pmCompliance).toBeCloseTo(avg.pmCompliance, 6);
+    expect(bu.facilityUptime).toBeCloseTo(avg.facilityUptime, 6);
     expect(bu.mttrDays).not.toBeCloseTo(expectedYtd(AMD_EZ, 11).mttrDays, 6);
   });
 
@@ -204,10 +221,9 @@ describe("Monthly KPI Scorecard YTD rules", () => {
   it("PM:CM Work Orders YTD is built from cumulative underlying PM/CM counts", () => {
     const result = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 6);
     const bu = result.byBusinessUnitMap["AMD-EZ"];
-    const pm = [1, 2, 3, 4, 5, 6].reduce((sum, month) => sum + makeMonthValues(month).pmWo, 0);
-    const cm = [1, 2, 3, 4, 5, 6].reduce((sum, month) => sum + makeMonthValues(month).cmWo, 0);
+    const pm = [1, 2, 3, 4, 5, 6].reduce((acc, month) => acc + makeMonthValues(month).pmWo, 0);
+    const cm = [1, 2, 3, 4, 5, 6].reduce((acc, month) => acc + makeMonthValues(month).cmWo, 0);
     expect(bu.pmCmWorkOrderRatio).toBeCloseTo((pm / (pm + cm)) * 100, 6);
-    // Not the average of the monthly PM:CM percentages.
     const monthlyAverages =
       [1, 2, 3, 4, 5, 6].map((month) => {
         const v = makeMonthValues(month);
@@ -219,8 +235,8 @@ describe("Monthly KPI Scorecard YTD rules", () => {
   it("PM:CM Cost YTD is built from cumulative underlying PM/CM costs", () => {
     const result = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 6);
     const bu = result.byBusinessUnitMap["AMD-EZ"];
-    const pmCost = [1, 2, 3, 4, 5, 6].reduce((sum, month) => sum + makeMonthValues(month).pmCost, 0);
-    const cmCost = [1, 2, 3, 4, 5, 6].reduce((sum, month) => sum + makeMonthValues(month).cmCost, 0);
+    const pmCost = [1, 2, 3, 4, 5, 6].reduce((acc, month) => acc + makeMonthValues(month).pmCost, 0);
+    const cmCost = [1, 2, 3, 4, 5, 6].reduce((acc, month) => acc + makeMonthValues(month).cmCost, 0);
     expect(bu.pmCmCostRatio).toBeCloseTo((pmCost / (pmCost + cmCost)) * 100, 6);
     const monthlyAverages =
       [1, 2, 3, 4, 5, 6].map((month) => {
@@ -233,8 +249,8 @@ describe("Monthly KPI Scorecard YTD rules", () => {
   it("MTTR YTD is recalculated from cumulative downtime/repairs, not an average of monthly MTTR", () => {
     const result = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 5);
     const bu = result.byBusinessUnitMap["AMD-EZ"];
-    const downtime = [1, 2, 3, 4, 5].reduce((sum, month) => sum + makeMonthValues(month).downtime, 0);
-    const repairs = [1, 2, 3, 4, 5].reduce((sum, month) => sum + makeMonthValues(month).repairs, 0);
+    const downtime = [1, 2, 3, 4, 5].reduce((acc, month) => acc + makeMonthValues(month).downtime, 0);
+    const repairs = [1, 2, 3, 4, 5].reduce((acc, month) => acc + makeMonthValues(month).repairs, 0);
     expect(bu.mttrDays).toBeCloseTo(downtime / repairs, 6);
     const averageMonthlyMttr =
       [1, 2, 3, 4, 5].map((month) => {
@@ -274,19 +290,17 @@ describe("Monthly KPI Scorecard portfolio consistency", () => {
     const clarkAgg = result.byBusinessUnitMap["Clark Water"];
     const pya = result.portfolioYearAverage;
 
-    // Non-MTTR portfolio card values are simple averages of the per-BU values.
-    const nonMttrKeys = ["pmCompliance", "facilityUptime", "budgetSpend", "pmCmWorkOrderRatio", "pmCmCostRatio"] as const;
-    const amdEzAsRecord = amdEz as unknown as Record<string, number | null>;
-    const clarkAsRecord = clarkAgg as unknown as Record<string, number | null>;
-    const pyaAsRecord = pya as unknown as Record<string, number | null>;
-    nonMttrKeys.forEach((key) => {
-      const average = ((amdEzAsRecord[key] ?? 0) + (clarkAsRecord[key] ?? 0)) / 2;
-      expect(pyaAsRecord[key]).toBeCloseTo(average, 6);
+    // All non-MTTR portfolio card values are simple averages of the per-BU
+    // values (which themselves already follow Group A cumulative / Group B YTD
+    // average semantics).
+    ["pmCompliance", "facilityUptime", "budgetSpend", "pmCmWorkOrderRatio", "pmCmCostRatio"].forEach((key) => {
+      const average = ((amdEz[key as "pmCompliance"] ?? 0) + (clarkAgg[key as "pmCompliance"] ?? 0)) / 2;
+      expect(pya[key as "pmCompliance"]).toBeCloseTo(average, 6);
     });
-    // ...and every per-BU value already respects the YTD/monthly split, so the
-    // portfolio view can never show a different figure than the table.
-    expect(amdEz.pmCompliance).toBeCloseTo(expectedMonthlyKpi(AMD_EZ, 7).pmCompliance, 6);
-    expect(clarkAgg.pmCompliance).toBeCloseTo(expectedMonthlyKpi(clark, 7).pmCompliance, 6);
+    // ...and every per-BU value already respects the split, so the portfolio
+    // view can never show a different figure than the table/cards.
+    expect(amdEz.pmCompliance).toBeCloseTo(expectedYtdAverage(AMD_EZ, 7).pmCompliance, 6);
+    expect(clarkAgg.pmCompliance).toBeCloseTo(expectedYtdAverage(clark, 7).pmCompliance, 6);
     expect(amdEz.budgetSpend).toBeCloseTo(expectedYtd(AMD_EZ, 7).budgetSpend, 6);
     expect(clarkAgg.budgetSpend).toBeCloseTo(expectedYtd(clark, 7).budgetSpend, 6);
   });
@@ -298,8 +312,6 @@ describe("Monthly KPI Scorecard portfolio consistency", () => {
     const repairs = sum(throughSeven, "repair_count");
     expect(result.portfolioYearAverage.mttrDays).toBeCloseTo(downtime / repairs, 6);
 
-    // The portfolio MTTR changes with the selected month instead of always
-    // reporting the full-year value.
     const march = aggregateMonthlyKpiRecords(allRecords, 2026, 3);
     const throughMarch = allRecords.filter((record) => Number(record.reporting_month) <= 3);
     expect(march.portfolioYearAverage.mttrDays).toBeCloseTo(
@@ -312,46 +324,48 @@ describe("Monthly KPI Scorecard portfolio consistency", () => {
   it("December selection yields the full-year cumulative portfolio figures", () => {
     const december = aggregateMonthlyKpiRecords(allRecords, 2026, 12);
     const annual = aggregateMonthlyKpiRecords(allRecords, 2026);
-    // YTD KPIs at December equal the full-year cumulative value.
     expect(december.portfolioYearAverage.budgetSpend).toBeCloseTo(annual.portfolioYearAverage.budgetSpend ?? 0, 6);
     expect(december.byBusinessUnitMap["AMD-EZ"].budgetSpend).toBeCloseTo(expectedYtd(AMD_EZ, 12).budgetSpend, 6);
     expect(december.byBusinessUnitMap["AMD-EZ"].mttrDays).toBeCloseTo(expectedYtd(AMD_EZ, 12).mttrDays, 6);
-    // Monthly KPIs remain December-only, not annual averages.
-    expect(december.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo(expectedMonthlyKpi(AMD_EZ, 12).pmCompliance, 6);
-    expect(december.byBusinessUnitMap["AMD-EZ"].facilityUptime).toBeCloseTo(expectedMonthlyKpi(AMD_EZ, 12).facilityUptime, 6);
+    // Group B: December cards equal the full-year YTD averages.
+    expect(december.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo(expectedYtdAverage(AMD_EZ, 12).pmCompliance, 6);
+    expect(december.byBusinessUnitMap["AMD-EZ"].facilityUptime).toBeCloseTo(expectedYtdAverage(AMD_EZ, 12).facilityUptime, 6);
+    expect(december.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo(
+      annual.byBusinessUnitMap["AMD-EZ"].pmCompliance ?? 0,
+      6
+    );
   });
 
-  it("future/no-data months keep per-KPI nulls instead of zero-filling", () => {
-    const partial = makeYearRecords("AMD-EZ").slice(0, 5); // January-May only
+  it("no-data months beyond the latest submission keep Group A null and Group B at the YTD window's data", () => {
+    const partial = makeYearRecords("AMD-EZ", 5); // January-May only
     const result = aggregateMonthlyKpiRecords(partial, 2026, 9);
     const bu = result.byBusinessUnitMap["AMD-EZ"];
-    // YTD KPIs carry through the latest available month (<= September)...
+    // Group A carries through the latest available month (<= September).
     expect(bu.budgetSpend).toBeCloseTo(expectedYtd(partial, 5).budgetSpend, 6);
     expect(bu.mttrDays).toBeCloseTo(expectedYtd(partial, 5).mttrDays, 6);
-    // ...while the monthly KPIs have no September source data and stay null.
-    expect(bu.pmCompliance).toBeNull();
-    expect(bu.facilityUptime).toBeNull();
+    // Group B cards are the YTD average through the data window (Jan-May).
+    expect(bu.pmCompliance).toBeCloseTo(expectedYtdAverage(partial, 5).pmCompliance, 6);
+    expect(bu.facilityUptime).toBeCloseTo(expectedYtdAverage(partial, 5).facilityUptime, 6);
   });
 });
 
 describe("Monthly KPI Scorecard month-mapping regression table", () => {
   it("maps January, March, September, and December selections consistently", () => {
-    const aggregates = buildAggregateForMonths(AMD_EZ, [1, 3, 9, 12]);
-    const expectations = [
-      { month: 1, ytd: expectedYtd(AMD_EZ, 1), monthly: expectedMonthlyKpi(AMD_EZ, 1) },
-      { month: 3, ytd: expectedYtd(AMD_EZ, 3), monthly: expectedMonthlyKpi(AMD_EZ, 3) },
-      { month: 9, ytd: expectedYtd(AMD_EZ, 9), monthly: expectedMonthlyKpi(AMD_EZ, 9) },
-      { month: 12, ytd: expectedYtd(AMD_EZ, 12), monthly: expectedMonthlyKpi(AMD_EZ, 12) },
-    ];
+    const aggregates = [1, 3, 9, 12].map((month) => aggregateMonthlyKpiRecords(AMD_EZ, 2026, month));
+    const expectations = [1, 3, 9, 12].map((month) => ({
+      month,
+      ytd: expectedYtd(AMD_EZ, month),
+      avg: expectedYtdAverage(AMD_EZ, month),
+    }));
     aggregates.forEach((result, index) => {
       const bu = result.byBusinessUnitMap["AMD-EZ"];
-      const { month, ytd, monthly } = expectations[index];
+      const { month, ytd, avg } = expectations[index];
       expect(bu.budgetSpend, `month ${month} budgetSpend`).toBeCloseTo(ytd.budgetSpend, 6);
       expect(bu.pmCmWorkOrderRatio, `month ${month} pmCmWorkOrderRatio`).toBeCloseTo(ytd.pmCmWorkOrderRatio, 6);
       expect(bu.pmCmCostRatio, `month ${month} pmCmCostRatio`).toBeCloseTo(ytd.pmCmCostRatio, 6);
       expect(bu.mttrDays, `month ${month} mttrDays`).toBeCloseTo(ytd.mttrDays, 6);
-      expect(bu.pmCompliance, `month ${month} pmCompliance`).toBeCloseTo(monthly.pmCompliance, 6);
-      expect(bu.facilityUptime, `month ${month} facilityUptime`).toBeCloseTo(monthly.facilityUptime, 6);
+      expect(bu.pmCompliance, `month ${month} pmCompliance`).toBeCloseTo(avg.pmCompliance, 6);
+      expect(bu.facilityUptime, `month ${month} facilityUptime`).toBeCloseTo(avg.facilityUptime, 6);
     });
   });
 });

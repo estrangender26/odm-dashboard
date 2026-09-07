@@ -62,11 +62,12 @@ export type BusinessUnitKpiAggregate = MonthlyKpiValues & {
 export type MonthlyKpiAggregateResult = {
   reportingYear: number;
   /**
-   * Per-business-unit values shown by the scorecard Summary Matrix and KPI
-   * cards for the reporting period. When a month is selected, PM Compliance
-   * and Facility Uptime carry that month's standalone value only, while Budget
-   * Spend, PM:CM Work Orders, PM:CM Cost, and MTTR carry their YTD cumulative
-   * value through the selected month. Without a month the full-year value is
+   * Per-business-unit values shown by the scorecard Summary Matrix, KPI cards,
+   * and BU summary rows for the reporting period. When a month is selected
+   * (the effective reporting month), Budget Spend, PM:CM Work Orders, PM:CM
+   * Cost, and MTTR carry their YTD cumulative value through that month, while
+   * PM Compliance and Facility Uptime carry the YTD average of their standalone
+   * monthly values through that month. Without a month the full-year value is
    * produced (YTD keys stay cumulative; PM Compliance and Facility Uptime use
    * their established annual averages).
    */
@@ -648,17 +649,23 @@ function aggregateRecordsForBusinessUnit(
     }
 
     if (MONTHLY_ONLY_KEYS.includes(key)) {
-      // Monthly KPIs (PM Compliance, Facility Uptime) report the selected
-      // month's own result only. The month selector is the reporting cutoff for
-      // these KPIs, matching the monthly imported records table and the Monthly
-      // Actual chart series. They are deliberately NOT averaged or accumulated
-      // across the January-to-selected-month window.
-      const monthRecord = selectedMonthRecord(records, selectedMonth);
-      if (monthRecord && hasRawInputForKpi(key, monthRecord)) {
-        aggregate[key] = computeMonthlyKpiValue(key, monthRecord);
-      } else if (monthRecord && hasImportedKpiValue(monthRecord, key)) {
-        aggregate[key] = normalizeKpiNumber(monthRecord[sourceFieldByKpiKey[key]]);
-      }
+      // PM Compliance and Facility Uptime KPI cards report the YTD average of
+      // the standalone monthly values from January through the effective
+      // (selected) reporting month - never a single month's standalone value.
+      // The monthly imported-records table still shows each month's standalone
+      // value; the card aggregates those monthly results.
+      const kpiRecords = kpiSpecificYtdRecords(key, records, selectedMonth);
+      const values: number[] = [];
+      kpiRecords.forEach((record) => {
+        if (hasRawInputForKpi(key, record)) {
+          const computed = computeMonthlyKpiValue(key, record);
+          if (computed !== null) values.push(computed);
+        } else if (hasImportedKpiValue(record, key)) {
+          const stored = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
+          if (stored !== null) values.push(stored);
+        }
+      });
+      aggregate[key] = averageKpiValues(values);
       return;
     }
 
