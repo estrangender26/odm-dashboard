@@ -1,337 +1,844 @@
 /**
  * Monthly KPI — All Business Units deck (server-only).
  *
- * Programmatic pptxgenjs deck produced when the Presentation Center generates
- * the Monthly KPI Executive Scorecard for ALL BUSINESS UNITS:
+ * The All-Business-Units Monthly KPI Executive deck is generated from a
+ * committed master template that carries three DONOR slides:
  *
- *   Slide 1: cover (All Business Units, effective reporting period)
- *   For each BU in authoritative order:
- *     Slide 2N:  KPI Summary - BU name, effective period, KPI table
- *                (Group A cumulative, Group B YTD average) and commentary
- *                bullets sourced ONLY from that BU's Notes + Situation.
- *     Slide 2N+1: KPI Trends - six native charts (2x3 grid) for the six KPIs
- *                stopping at the effective reporting month.
+ *   slide1  cover donor
+ *   slide2  the authoritative Manila Water "Monthly Reliability KPI
+ *           Scorecard" slide (byte-identical to the master slide used by the
+ *           single-BU executive deck)
+ *   slide3  a Trends donor with six native charts (3 columns x 2 rows,
+ *           dashboard-style combo charts: monthly actual columns + YTD line
+ *           + dashed benchmark reference lines where applicable)
  *
- * The existing template-based single-BU executive deck is untouched.
+ * plus the six chart parts + embedded workbooks the Trends donor references.
+ *
+ * At generation time the server:
+ *   - updates the cover text;
+ *   - for every BU in module-authoritative order clones the Scorecard donor
+ *     (slide2) and replaces only dynamic content (BU name, monthly values,
+ *     YTD values, RAG fills, Notes/Situation commentary bullets);
+ *   - immediately after each Scorecard slide clones the Trends donor (slide3)
+ *     per BU, clones its six chart parts, and rewrites only the chart caches
+ *     (categories + series values) for that BU.
+ *
+ * Output structure: 1 cover + (2 x number of BUs), ordered
+ *   BU1 Scorecard, BU1 Trends, BU2 Scorecard, BU2 Trends, ...
+ *
+ * KPI values reuse the live Monthly KPI scorecard aggregation functions via
+ * allBusinessUnitsData (Group A cumulative Jan->E, Group B YTD average; no
+ * presentation-specific formulas).
  */
 
-import type { AllBusinessUnitsDeckData, BusinessUnitDeckSection, ScorecardKpiKey2 } from "./allBusinessUnitsData";
-import { CHART_LABELS } from "./allBusinessUnitsData";
+import type JSZip from "jszip";
+import {
+  createElementNS,
+  findGraphicFrameByName,
+  findShapeByName,
+  generatePptxBlob,
+  getCells,
+  getElementsByTagNameNS,
+  getTableRows,
+  loadPptxTemplate,
+  loadSlideXml,
+  parseXml,
+  resolveExecutiveTemplatePath,
+  saveSlideXml,
+  serializeXml,
+  setCellFill,
+  setCellText,
+  setShapeText,
+  type XmlDocument,
+  type XmlElement,
+} from "../executive-presentations/framework";
+import {
+  addChartClone,
+  addSlidePart,
+  ensureXlsxDefault,
+  maxChartNumber,
+  removeSlidePart,
+  setPresentationSlideOrder,
+} from "../executive-presentations/framework/slidePackage";
+import {
+  evaluateKpiStatus,
+  getDefaultMonthlyKpiThresholdConfig,
+} from "./kpiThresholds";
+import type {
+  AllBusinessUnitsDeckData,
+  BusinessUnitDeckSection,
+  ScorecardKpiKey2,
+} from "./allBusinessUnitsData";
 
-// pptxgenjs ships as a CommonJS module; be defensive about the default export
-// shape across bundlers.
-import pptxgenjs from "pptxgenjs";
-const PptxGenJS =
-  typeof pptxgenjs === "function"
-    ? pptxgenjs
-    : (pptxgenjs as unknown as { default: typeof pptxgenjs }).default;
+const TEMPLATE_FILENAME = "MonthlyKpiAllBuExecutive.pptx";
 
-type Pptx = InstanceType<typeof pptxgenjs>;
-type Slide = ReturnType<Pptx["addSlide"]>;
+// Namespace of native PowerPoint chart parts.
+const CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart";
 
-const COLORS = {
-  navy: "0B1D44",
-  blue: "005BAC",
-  cyan: "00A8D2",
-  green: "0A9B6E",
-  amber: "D97706",
-  red: "DC2626",
-  gray: "64748B",
-  border: "D6DFE8",
-  white: "FFFFFF",
-  text: "1E293B",
-};
+type PptxZip = JSZip;
 
-const FONTS = {
-  heading: "Arial",
-  body: "Calibri",
-};
+const SCORECARD_KPI_KEYS: ScorecardKpiKey2[] = [
+  "pmCompliance",
+  "budgetSpend",
+  "pmCmWorkOrderRatio",
+  "pmCmCostRatio",
+  "mttrDays",
+  "facilityUptime",
+];
 
-function formatPeriodLabel(month: number, year: number): string {
-  const names = ["January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"];
-  return `${names[month - 1] ?? ""} ${year}`.trim();
+
+const MONTH_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+// RAG fill + text palette used by the approved Manila Water scorecard.
+const RAG_FILL = { green: "A9D18E", amber: "FFD966", red: "FF6B6B", noData: "DDE6F0" };
+
+const DEFAULT_THRESHOLD_CONFIG = getDefaultMonthlyKpiThresholdConfig();
+
+function isPresentNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
-function headerBand(slide: Slide, left: string, right: string) {
-  slide.addShape("rect", { x: 0, y: 0, w: 10, h: 0.9, fill: { color: COLORS.navy } });
-  slide.addText(left, {
-    x: 0.5, y: 0.16, w: 7.5, h: 0.55,
-    fontSize: 20, bold: true, color: COLORS.white, fontFace: FONTS.heading,
-  });
-  slide.addText(right, {
-    x: 7.6, y: 0.3, w: 2.1, h: 0.4,
-    fontSize: 11, color: "D9E6F2", fontFace: FONTS.body, align: "right",
-  });
-}
-
-function buildCoverSlide(pptx: Pptx, data: AllBusinessUnitsDeckData) {
-  const slide = pptx.addSlide();
-  slide.background = { color: COLORS.white };
-  slide.addShape("rect", { x: 0, y: 0, w: 10, h: 1.9, fill: { color: COLORS.navy } });
-  slide.addText("Monthly KPI Scorecard — All Business Units", {
-    x: 0.5, y: 0.45, w: 9, h: 0.75,
-    fontSize: 26, bold: true, color: COLORS.white, fontFace: FONTS.heading,
-  });
-  slide.addText(`Effective reporting period: ${data.effectiveReportingMonthLabel}`, {
-    x: 0.5, y: 1.25, w: 9, h: 0.4,
-    fontSize: 14, color: "D9E6F2", fontFace: FONTS.body,
-  });
-  slide.addText(
-    `Reporting year ${data.reportingYear} · ${data.sections.length} business unit(s) · ` +
-      "values use the live Monthly KPI scorecard semantics",
-    { x: 0.5, y: 3.1, w: 9, h: 0.9, fontSize: 13, color: COLORS.gray, fontFace: FONTS.body }
-  );
-  slide.addText("Prepared from the Monthly KPI Scorecard", {
-    x: 0.5, y: 4.4, w: 9, h: 0.5, fontSize: 12, color: COLORS.gray, fontFace: FONTS.body,
-  });
-}
-
-type Cell = { text: string; options?: Record<string, unknown> };
-
-function headerCell(text: string): Cell {
-  return { text, options: { bold: true, color: COLORS.white, fill: { color: COLORS.navy }, align: "center" as const } };
-}
-
-function bodyCell(text: string, bold = false, align: "left" | "center" = "left"): Cell {
-  return { text, options: { bold, color: bold ? COLORS.navy : COLORS.text, align } };
-}
-
-function summaryTableRows(section: BusinessUnitDeckSection): Cell[][] {
-  const rows: Cell[][] = [
-    [
-      headerCell("KPI"),
-      headerCell("Value"),
-      headerCell("Benchmark"),
+/**
+ * The six Trends panels. `id` is the donor chart number (chart{id}.xml).
+ * `source` selects the trend field of a BusinessUnitTrendPoint.
+ */
+export const TRENDS_PANELS: Array<{
+  id: number;
+  key: ScorecardKpiKey2;
+  title: string;
+  series: Array<
+    | { role: "monthly"; source: keyof BusinessUnitDeckSection["trends"][number] }
+    | { role: "ytdAvg"; source: keyof BusinessUnitDeckSection["trends"][number] }
+    | { role: "ytd"; source: keyof BusinessUnitDeckSection["trends"][number] }
+    | { role: "const"; value: number }
+  >;
+}> = [
+  {
+    id: 1,
+    key: "pmCompliance",
+    title: "PM Compliance (%)",
+    series: [
+      { role: "monthly", source: "pmComplianceMonthly" },
+      { role: "ytdAvg", source: "pmComplianceYtdAverage" },
+      { role: "const", value: 98 },
     ],
-  ];
-  for (const row of section.summary) {
-    rows.push([
-      bodyCell(row.label, true),
-      bodyCell(row.formatted, false, "center"),
-      bodyCell(row.benchmark, false, "center"),
-    ]);
+  },
+  {
+    id: 2,
+    key: "budgetSpend",
+    title: "Budget Spend (%)",
+    series: [
+      { role: "ytd", source: "budgetSpend" },
+      { role: "const", value: 95 },
+      { role: "const", value: 105 },
+    ],
+  },
+  {
+    id: 3,
+    key: "pmCmWorkOrderRatio",
+    title: "PM:CM WO (%)",
+    series: [
+      { role: "ytd", source: "pmCmWorkOrderRatio" },
+      { role: "const", value: 86 },
+    ],
+  },
+  {
+    id: 4,
+    key: "pmCmCostRatio",
+    title: "PM:CM Cost (%)",
+    series: [
+      { role: "ytd", source: "pmCmCostRatio" },
+      { role: "const", value: 80 },
+    ],
+  },
+  {
+    id: 5,
+    key: "mttrDays",
+    title: "MTTR (Days)",
+    series: [{ role: "ytd", source: "mttrDays" }],
+  },
+  {
+    id: 6,
+    key: "facilityUptime",
+    title: "Facility Uptime (%)",
+    series: [
+      { role: "monthly", source: "facilityUptimeMonthly" },
+      { role: "ytdAvg", source: "facilityUptimeYtdAverage" },
+      { role: "const", value: 100 },
+    ],
+  },
+];
+
+// ── Display formatting (same conventions as the approved scorecard) ──
+
+export function formatScorecardCell(
+  key: ScorecardKpiKey2,
+  value: number | null | undefined
+): string {
+  if (!isPresentNumber(value)) return "";
+  if (key === "mttrDays") return String(Math.round(value));
+  if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
+    const pct = Math.round(value);
+    const cmShare = 100 - value;
+    if (cmShare <= 0) return `${pct}% (No CM)`;
+    return `${pct}% (${(value / cmShare).toFixed(1)}:1)`;
   }
-  return rows;
+  return `${Math.round(value)}%`;
 }
 
-function commentaryBullets(section: BusinessUnitDeckSection): string[] {
+export function scorecardCellFill(
+  key: ScorecardKpiKey2,
+  value: number | null | undefined
+): string {
+  if (!isPresentNumber(value)) return RAG_FILL.noData;
+  const status = evaluateKpiStatus(key, value, DEFAULT_THRESHOLD_CONFIG).status;
+  switch (status) {
+    case "green":
+      return RAG_FILL.green;
+    case "amber":
+      return RAG_FILL.amber;
+    case "red":
+      return RAG_FILL.red;
+    default:
+      return RAG_FILL.noData;
+  }
+}
+
+/** Commentary bullets: Notes then Situation, each labeled, deduped. */
+export function buildCommentaryBullets(section: BusinessUnitDeckSection): string[] {
   const bullets: string[] = [];
+  const seen = new Set<string>();
+  const push = (text: string) => {
+    const trimmed = text.trim().replace(/\s+/g, " ");
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    bullets.push(trimmed);
+  };
   if (section.notes) {
-    for (const part of section.notes.split(/\r?\n+/)) {
-      const text = part.trim();
-      if (text) bullets.push(text);
+    for (const part of String(section.notes).split(/\r?\n+/)) {
+      const line = part.trim();
+      if (line) push(`Notes: ${line}`);
     }
   }
-  const seen = new Set(bullets.map((value) => value.toLowerCase()));
   for (const situation of section.situationBullets) {
-    const text = situation.trim();
-    const key = text.toLowerCase();
-    if (text && !seen.has(key)) {
-      seen.add(key);
-      bullets.push(text);
-    }
+    if (situation.trim()) push(`Situation: ${situation.trim()}`);
+  }
+  if (bullets.length === 0) {
+    return ["No commentary recorded for the reporting period."];
   }
   return bullets;
 }
 
-function buildSummarySlide(pptx: Pptx, section: BusinessUnitDeckSection) {
-  const slide = pptx.addSlide();
-  slide.background = { color: COLORS.white };
-  headerBand(
-    slide,
-    `${section.businessUnit} — Monthly KPI Scorecard`,
-    `KPI Summary · ${section.reportingMonthLabel}`
-  );
+// ── Geometry helpers (EMU), mirroring the single-BU generator ──
 
-  const rows = summaryTableRows(section);
-  slide.addTable(rows, {
-    x: 0.5, y: 1.15, w: 9,
-    fontSize: 12,
-    fontFace: FONTS.body,
-    border: { type: "solid", color: COLORS.border, pt: 0.5 },
-    valign: "middle",
-    colW: [4.6, 2.2, 2.2],
-    autoPage: false,
-    rowH: 0.42,
-  });
+function parseEmu(value: string | null | undefined): number {
+  if (!value) return 0;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : 0;
+}
 
-  const bullets = commentaryBullets(section);
-  const bulletTop = 1.15 + rows.length * 0.42 + 0.28;
-  slide.addText("Commentary — Notes & Situation", {
-    x: 0.5, y: bulletTop, w: 9, h: 0.35,
-    fontSize: 13, bold: true, color: COLORS.navy, fontFace: FONTS.heading,
-  });
-  if (bullets.length === 0) {
-    slide.addText("No commentary was recorded for this reporting period.", {
-      x: 0.5, y: bulletTop + 0.42, w: 9, h: 0.4,
-      fontSize: 12, italic: true, color: COLORS.gray, fontFace: FONTS.body,
-    });
-  } else {
-    slide.addText(
-      bullets.slice(0, 9).map((text) => ({ text, options: { bullet: true } })),
-      {
-        x: 0.5, y: bulletTop + 0.42, w: 9, h: 2.7,
-        fontSize: 12, color: COLORS.text, fontFace: FONTS.body, valign: "top",
+function setShapeY(shape: XmlElement, y: number): void {
+  const xfrm = getElementsByTagNameNS(shape, "a", "xfrm")[0];
+  if (!xfrm) return;
+  const off = getElementsByTagNameNS(xfrm, "a", "off")[0];
+  if (off) off.setAttribute("y", String(Math.round(y)));
+}
+
+function setFrameHeight(frame: XmlElement, cy: number): void {
+  const xfrms = [
+    getElementsByTagNameNS(frame, "p", "xfrm")[0],
+    getElementsByTagNameNS(frame, "a", "xfrm")[0],
+  ].filter(Boolean);
+  const xfrm = xfrms[0];
+  if (!xfrm) return;
+  const ext = getElementsByTagNameNS(xfrm, "a", "ext")[0];
+  if (ext) ext.setAttribute("cy", String(Math.round(cy)));
+}
+
+function getTableHeightEmu(rows: XmlElement[]): number {
+  let total = 0;
+  for (const row of rows) total += parseEmu(row.getAttribute("h"));
+  return total;
+}
+
+function deepClone(source: XmlElement): XmlElement {
+  return source.cloneNode(true) as XmlElement;
+}
+
+/**
+ * Normalize KPI data cells (columns 1-6) so injected values render with the
+ * approved body formatting regardless of the template cell that was cloned.
+ * Structural cells (header, Month/YTD/TARGET labels) are preserved.
+ */
+function normalizeDataCellRuns(cell: XmlElement, fontSizeHundredths: number): void {
+  const txBody = getElementsByTagNameNS(cell, "a", "txBody")[0];
+  if (!txBody) return;
+  let bodyPr = getElementsByTagNameNS(txBody, "a", "bodyPr")[0];
+  if (!bodyPr) {
+    bodyPr = createElementNS(cell.ownerDocument as XmlDocument, "a", "bodyPr");
+    txBody.insertBefore(bodyPr, txBody.firstChild);
+  }
+  bodyPr.setAttribute("anchor", "ctr");
+  for (const paragraph of getElementsByTagNameNS(txBody, "a", "p")) {
+    const pPr = getElementsByTagNameNS(paragraph, "a", "pPr")[0];
+    if (pPr) pPr.setAttribute("algn", "ctr");
+    for (const run of getElementsByTagNameNS(paragraph, "a", "r")) {
+      let rPr = getElementsByTagNameNS(run, "a", "rPr")[0];
+      if (!rPr) {
+        rPr = createElementNS(cell.ownerDocument as XmlDocument, "a", "rPr");
+        const t = getElementsByTagNameNS(run, "a", "t")[0];
+        if (t) run.insertBefore(rPr, t);
+        else run.appendChild(rPr);
       }
+      rPr.setAttribute("sz", String(fontSizeHundredths));
+      if (rPr.getAttribute("b") === null) rPr.setAttribute("b", "0");
+      if (rPr.getAttribute("i") === null) rPr.setAttribute("i", "0");
+      if (rPr.getAttribute("u") === null) rPr.setAttribute("u", "none");
+      if (rPr.getAttribute("strike") === null) rPr.setAttribute("strike", "noStrike");
+      rPr.setAttribute("kern", "1200");
+
+      let solidFill = getElementsByTagNameNS(rPr, "a", "solidFill")[0];
+      if (!solidFill) {
+        solidFill = createElementNS(cell.ownerDocument as XmlDocument, "a", "solidFill");
+        rPr.insertBefore(solidFill, rPr.firstChild);
+      }
+      for (const child of [...solidFill.childNodes]) {
+        if ((child as unknown as XmlElement).localName) {
+          solidFill.removeChild(child);
+        }
+      }
+      const srgbClr = createElementNS(cell.ownerDocument as XmlDocument, "a", "srgbClr");
+      srgbClr.setAttribute("val", "172B47");
+      solidFill.appendChild(srgbClr);
+
+      const setTypeface = (name: string) => {
+        const el = getElementsByTagNameNS(rPr, "a", name)[0] ??
+          createElementNS(cell.ownerDocument as XmlDocument, "a", name);
+        el.setAttribute("typeface", "Aptos");
+        if (!el.parentNode) rPr.appendChild(el);
+      };
+      setTypeface("latin");
+      setTypeface("ea");
+      setTypeface("cs");
+    }
+  }
+}
+
+// ── Scorecard slide ──
+
+/**
+ * Populate the clone of the Manila Water scorecard master for one BU.
+ * Only dynamic content changes: title, monthly rows, YTD row, RAG fills,
+ * commentary bullets. Header, TARGET row, legend, footer and geometry are the
+ * template's own.
+ */
+function updateScorecardSlide(
+  doc: XmlDocument,
+  section: BusinessUnitDeckSection
+): void {
+  const titleShape = findShapeByName(doc, "Slide Title");
+  if (titleShape) {
+    setShapeText(titleShape, `Monthly Reliability KPI Scorecard, ${section.businessUnit}`);
+  }
+
+  const tableFrame = findGraphicFrameByName(doc, "AMD-EZ Monthly KPI Scorecard");
+  if (!tableFrame) {
+    throw new Error(
+      '[TEMPLATE] Required frame "AMD-EZ Monthly KPI Scorecard" not found on Scorecard slide.'
     );
   }
-}
+  const rows = getTableRows(tableFrame);
+  if (rows.length < 10) {
+    throw new Error(`[TEMPLATE] Expected at least 10 rows on Scorecard table, found ${rows.length}.`);
+  }
+  const tbl = getElementsByTagNameNS(tableFrame, "a", "tbl")[0];
+  if (!tbl) throw new Error("[TEMPLATE] Scorecard table has no <a:tbl> element.");
 
-type ChartSeries = {
-  name: string;
-  values: number[];
-  color: string;
-};
+  const effectiveMonth = section.reportingMonth;
+  if (effectiveMonth < 1 || effectiveMonth > 12) {
+    throw new Error(`[MONTHLY-KPI] reportingMonth must be 1-12, got ${effectiveMonth}.`);
+  }
 
-function addLineChart(
-  pptx: Pptx,
-  slide: Slide,
-  title: string,
-  categories: string[],
-  series: ChartSeries[],
-  x: number,
-  y: number,
-  w: number,
-  h: number
-) {
-  const chartData = series.map((entry) => ({
-    name: entry.name,
-    labels: categories,
-    values: entry.values,
-  }));
-  // Title rendered as text above the chart area for crisp readability.
-  slide.addText(title, {
-    x, y: y - 0.26, w, h: 0.24,
-    fontSize: 11, bold: true, color: COLORS.navy, fontFace: FONTS.heading,
-  });
-  const ChartType = (pptx as unknown as { ChartType?: { line: unknown } }).ChartType;
-  const chartType = (ChartType && ChartType.line) || "line";
-  slide.addChart(chartType as never, chartData as never, {
-    x, y, w, h,
-    showLegend: series.length > 1,
-    legendPos: "b",
-    legendFontSize: 8,
-    catAxisLabelFontSize: 8,
-    catAxisLabelColor: COLORS.gray,
-    valAxisLabelFontSize: 8,
-    valAxisLabelColor: COLORS.gray,
-    lineSize: 1.75,
-    lineDataSymbol: "circle",
-    lineDataSymbolSize: 5,
-    chartColors: series.map((entry) => entry.color),
-    chartArea: { fill: { color: COLORS.white } },
-    plotArea: { fill: { color: COLORS.white } },
-  });
-}
+  // Trend value lookup per month (null for months after the BU's own last
+  // submitted data point; those rows stay blank like the live scorecard).
+  const trendByMonth = new Map<number, BusinessUnitDeckSection["trends"][number]>();
+  for (const point of section.trends) trendByMonth.set(point.month, point);
 
-function groupASeries(pointKey: keyof BusinessUnitDeckSection["trends"][number], name: string, section: BusinessUnitDeckSection): ChartSeries {
-  return {
-    name,
-    values: section.trends.map((point) => {
-      const value = point[pointKey];
-      return value === null || value === undefined ? Number.NaN : (value as number);
-    }),
-    color: COLORS.blue,
+  const valueAtMonth = (key: ScorecardKpiKey2, month: number): number | null => {
+    const point = trendByMonth.get(month);
+    if (!point) return null;
+    if (key === "pmCompliance") return point.pmComplianceMonthly;
+    if (key === "facilityUptime") return point.facilityUptimeMonthly;
+    return (point[key] as number | null) ?? null;
   };
+
+  // Template provides rows 1-7 (Jan-Jul). Clone the last monthly template row
+  // for reporting months beyond July; drop trailing rows for earlier months.
+  const requiredRowCount = effectiveMonth + 3; // header + months + YTD + TARGET
+  if (rows.length < requiredRowCount) {
+    const sourceRow = rows[7]; // July row
+    const ytdRow = rows[rows.length - 2];
+    const missing = requiredRowCount - rows.length;
+    for (let i = 0; i < missing; i++) {
+      const clone = deepClone(sourceRow);
+      tbl.insertBefore(clone, ytdRow);
+      rows.splice(rows.length - 2, 0, clone);
+    }
+  }
+
+  // Fill monthly rows Jan..effectiveMonth.
+  for (let month = 1; month <= effectiveMonth; month++) {
+    const row = rows[month];
+    const cells = getCells(row);
+    setCellText(cells[0], MONTH_SHORT[month - 1] ?? `M${month}`);
+    for (let m = 0; m < SCORECARD_KPI_KEYS.length; m++) {
+      const key = SCORECARD_KPI_KEYS[m];
+      const value = valueAtMonth(key, month);
+      const cell = cells[m + 1];
+      setCellText(cell, formatScorecardCell(key, value));
+      setCellFill(cell, scorecardCellFill(key, value));
+    }
+  }
+
+  // Remove template rows that fall outside the requested reporting period.
+  const firstTemplateExtraMonth = effectiveMonth + 1;
+  const lastTemplateExtraMonth = Math.min(7, rows.length - 3);
+  for (let month = lastTemplateExtraMonth; month >= firstTemplateExtraMonth; month--) {
+    const row = rows[month];
+    if (row && row.parentNode) tbl.removeChild(row);
+    rows.splice(month, 1);
+  }
+
+  const finalYtdRowIndex = rows.length - 2;
+  const ytdRow = rows[finalYtdRowIndex];
+  const ytdCells = getCells(ytdRow);
+  const summaryByKey = new Map(section.summary.map((row) => [row.key, row.value]));
+  for (let m = 0; m < SCORECARD_KPI_KEYS.length; m++) {
+    const key = SCORECARD_KPI_KEYS[m];
+    const value = summaryByKey.get(key) ?? null;
+    const cell = ytdCells[m + 1];
+    setCellText(cell, formatScorecardCell(key, value));
+    setCellFill(cell, scorecardCellFill(key, value));
+  }
+
+  // Table geometry: scale rows when the natural height exceeds the vertical
+  // budget (12-month decks), exactly like the single-BU generator.
+  const tableFrameXfrm = getElementsByTagNameNS(tableFrame, "p", "xfrm")[0];
+  const tableOff = tableFrameXfrm
+    ? getElementsByTagNameNS(tableFrameXfrm, "a", "off")[0]
+    : null;
+  const tableY = tableOff ? parseEmu(tableOff.getAttribute("y")) : 742950;
+
+  const SLIDE_HEIGHT_EMU = 6858000;
+  const BOTTOM_MARGIN_EMU = 190500;
+  const READOUT_HEIGHT_EMU = 900000;
+  const READOUT_TOP_MARGIN_EMU = 300000;
+  const LEGEND_MIN_HEIGHT_EMU = 900000;
+  const maxTableHeight =
+    SLIDE_HEIGHT_EMU -
+    tableY -
+    READOUT_TOP_MARGIN_EMU -
+    READOUT_HEIGHT_EMU -
+    READOUT_TOP_MARGIN_EMU -
+    BOTTOM_MARGIN_EMU;
+
+  const naturalTableHeight = getTableHeightEmu(rows);
+  let tableActualHeight = naturalTableHeight;
+  let bodyFontSizeHundredths = 1400;
+  if (naturalTableHeight > maxTableHeight) {
+    const scale = maxTableHeight / naturalTableHeight;
+    tableActualHeight = maxTableHeight;
+    bodyFontSizeHundredths = Math.max(1000, Math.round(1400 * scale));
+    for (const row of rows) {
+      const currentH = parseEmu(row.getAttribute("h"));
+      row.setAttribute("h", String(Math.round(currentH * scale)));
+    }
+  }
+
+  for (let r = 0; r < rows.length; r++) {
+    const isHeader = r === 0;
+    const isTarget = r === rows.length - 1;
+    if (isHeader || isTarget) continue;
+    const cells = getCells(rows[r]);
+    for (let c = 1; c < cells.length && c <= SCORECARD_KPI_KEYS.length; c++) {
+      normalizeDataCellRuns(cells[c], bodyFontSizeHundredths);
+    }
+  }
+
+  setFrameHeight(tableFrame, tableActualHeight);
+
+  const readoutTop = tableY + tableActualHeight + READOUT_TOP_MARGIN_EMU;
+
+  const bullets = buildCommentaryBullets(section);
+  setReadoutBullets(doc, bullets, readoutTop, READOUT_TOP_MARGIN_EMU, READOUT_HEIGHT_EMU);
+
+  // Keep the RAG legend aligned with the readout block.
+  const legendShape = findShapeByName(doc, "RAG Legend");
+  if (legendShape) {
+    const xfrm = getElementsByTagNameNS(legendShape, "a", "xfrm")[0];
+    const off = xfrm ? getElementsByTagNameNS(xfrm, "a", "off")[0] : null;
+    const ext = xfrm ? getElementsByTagNameNS(xfrm, "a", "ext")[0] : null;
+    if (off) off.setAttribute("y", String(Math.round(readoutTop)));
+    if (ext) ext.setAttribute("cy", String(LEGEND_MIN_HEIGHT_EMU));
+  }
+
+  // Hide the legacy MTTR methodology note (kept off-slide, as in the master).
+  const mttrNoteShape = findShapeByName(doc, "TextBox 1");
+  if (mttrNoteShape) {
+    setShapeY(mttrNoteShape, SLIDE_HEIGHT_EMU + BOTTOM_MARGIN_EMU);
+  }
 }
 
-function groupBSeries(
-  monthlyKey: keyof BusinessUnitDeckSection["trends"][number],
-  ytdKey: keyof BusinessUnitDeckSection["trends"][number],
-  section: BusinessUnitDeckSection
-): ChartSeries[] {
-  const toValues = (key: keyof BusinessUnitDeckSection["trends"][number]) =>
-    section.trends.map((point) => {
-      const value = point[key];
-      return value === null || value === undefined ? Number.NaN : (value as number);
-    });
-  return [
-    { name: "Monthly Actual", values: toValues(monthlyKey), color: COLORS.cyan },
-    { name: "YTD Average", values: toValues(ytdKey), color: COLORS.blue },
-  ];
+/**
+ * Write Notes/Situation bullets into the "Executive Readout" bullet area.
+ * The first template paragraph already carries the approved bullet char and
+ * autofit behavior; extra paragraphs are clones of it so styling is uniform.
+ */
+function setReadoutBullets(
+  doc: XmlDocument,
+  bullets: string[],
+  readoutTop: number,
+  _topMarginEmu: number,
+  heightEmu: number
+): void {
+  const readoutShape = findShapeByName(doc, "Executive Readout");
+  if (!readoutShape) return;
+  setShapeY(readoutShape, readoutTop);
+
+  const txBody = getElementsByTagNameNS(readoutShape, "p", "txBody")[0];
+  if (!txBody) return;
+
+  const templateParagraph = getElementsByTagNameNS(txBody, "a", "p")[0];
+  if (!templateParagraph) return;
+
+  // Write the bullet texts over the existing paragraphs, cloning the styled
+  // template paragraph when more bullets are needed.
+  for (let i = 0; i < bullets.length; i++) {
+    const live = getElementsByTagNameNS(txBody, "a", "p");
+    if (i < live.length) {
+      setParagraphPlainText(live[i], bullets[i]);
+    } else {
+      const clone = deepClone(templateParagraph);
+      txBody.appendChild(clone);
+      setParagraphPlainText(clone, bullets[i]);
+    }
+  }
+  // Remove leftover paragraphs beyond the bullet block.
+  let live = getElementsByTagNameNS(txBody, "a", "p");
+  while (live.length > bullets.length) {
+    txBody.removeChild(live[live.length - 1]);
+    live = getElementsByTagNameNS(txBody, "a", "p");
+  }
+
+  // Grow the readout box so normAutofit does not shrink longer bullet blocks
+  // below the approved body size.
+  const ext = getElementsByTagNameNS(readoutShape, "a", "ext")[0];
+  if (ext) {
+    const fitted = Math.max(
+      heightEmu,
+      Math.min(Math.max(bullets.length, 1), 9) * 152400
+    );
+    ext.setAttribute("cy", String(Math.round(fitted)));
+  }
 }
 
-function buildTrendsSlide(pptx: Pptx, section: BusinessUnitDeckSection) {
-  const slide = pptx.addSlide();
-  slide.background = { color: COLORS.white };
-  headerBand(
-    slide,
-    `${section.businessUnit} — Monthly KPI Scorecard`,
-    `KPI Trends · ${section.reportingMonthLabel}`
+/** Replace a paragraph's text while preserving pPr + first-run rPr. */
+function setParagraphPlainText(p: XmlElement, text: string): void {
+  const ownerDoc = p.ownerDocument as XmlDocument;
+  const runs = getElementsByTagNameNS(p, "a", "r");
+  const keep = runs[0];
+  for (let i = 1; i < runs.length; i++) p.removeChild(runs[i]);
+  if (keep) {
+    const t = getElementsByTagNameNS(keep, "a", "t")[0];
+    if (t) t.textContent = text;
+    else keep.appendChild(createTextRun(ownerDoc, text));
+  } else {
+    // The approved readout body style (Aptos 14, #111111) mirrors the
+    // template's endParaRPr so injected bullet text matches the master.
+    p.appendChild(createReadoutRun(ownerDoc, text));
+  }
+}
+
+function createReadoutRun(ownerDoc: XmlDocument, text: string): XmlElement {
+  const run = createElementNS(ownerDoc, "a", "r");
+  const rPr = createElementNS(ownerDoc, "a", "rPr");
+  rPr.setAttribute("lang", "en-PH");
+  rPr.setAttribute("sz", "1400");
+  const solidFill = createElementNS(ownerDoc, "a", "solidFill");
+  const srgbClr = createElementNS(ownerDoc, "a", "srgbClr");
+  srgbClr.setAttribute("val", "111111");
+  solidFill.appendChild(srgbClr);
+  rPr.appendChild(solidFill);
+  for (const name of ["latin", "ea", "cs"]) {
+    const el = createElementNS(ownerDoc, "a", name);
+    el.setAttribute("typeface", "Aptos");
+    rPr.appendChild(el);
+  }
+  run.appendChild(rPr);
+  const t = createElementNS(ownerDoc, "a", "t");
+  t.textContent = text;
+  run.appendChild(t);
+  return run;
+}
+
+function createTextRun(ownerDoc: XmlDocument, text: string): XmlElement {
+  const run = createElementNS(ownerDoc, "a", "r");
+  const t = createElementNS(ownerDoc, "a", "t");
+  t.textContent = text;
+  run.appendChild(t);
+  return run;
+}
+
+// ── Cover slide ──
+
+function updateCoverSlide(doc: XmlDocument, data: AllBusinessUnitsDeckData): void {
+  const set = (name: string, text: string) => {
+    const shape = findShapeByName(doc, name);
+    if (shape) setShapeText(shape, text);
+  };
+  set("Cover Title", "Monthly KPI Scorecard — All Business Units");
+  set("Cover Period", `Effective reporting period: ${data.effectiveReportingMonthLabel}`);
+  set(
+    "Cover Meta",
+    `Reporting year ${data.reportingYear} · ${data.sections.length} business unit(s) · values use the live Monthly KPI scorecard semantics`
   );
+  set("Cover Footer", "Prepared from the Monthly KPI Scorecard module — ODM Dashboard");
+}
 
-  const categories = section.trends.map((point) => point.monthLabel);
-  if (categories.length === 0) {
-    slide.addText("No trend data available for the effective reporting period.", {
-      x: 0.5, y: 2.2, w: 9, h: 0.6,
-      fontSize: 14, italic: true, color: COLORS.gray, fontFace: FONTS.body,
+// ── Trends slide ──
+
+function updateTrendsSlide(
+  doc: XmlDocument,
+  section: BusinessUnitDeckSection
+): void {
+  const titleShape = findShapeByName(doc, "Slide Title");
+  if (titleShape) {
+    setShapeText(titleShape, `Monthly Reliability KPI Trends, ${section.businessUnit}`);
+  }
+  const periodShape = findShapeByName(doc, "Slide Period");
+  if (periodShape) {
+    setShapeText(periodShape, `Reporting period: ${section.reportingMonthLabel}`);
+  }
+}
+
+/**
+ * Rewrite one chart part's cached categories + series values for a BU.
+ * Months with no actual data are not fabricated: their value point is simply
+ * omitted (a chart gap), and lagging BUs simply have fewer category points.
+ */
+export function rewriteTrendChartCache(
+  chartXml: string,
+  panel: (typeof TRENDS_PANELS)[number],
+  section: BusinessUnitDeckSection
+): string {
+  const doc = parseXml(chartXml);
+  const points = section.trends;
+  const categories = points.map((p) => p.monthLabel);
+
+  const sers = cElements(doc, "ser");
+  for (let i = 0; i < sers.length; i++) {
+    const spec = panel.series[i];
+    if (!spec) continue;
+    const values = points.map((point) => {
+      if (spec.role === "const") return spec.value;
+      const raw = point[spec.source] as number | null | undefined;
+      return isPresentNumber(raw) ? Math.round(raw * 100) / 100 : null;
     });
-    return;
+    replaceSeriesCache(sers[i], categories, values);
   }
+  return serializeXml(doc);
+}
 
-  const chartWidth = 4.6;
-  const chartHeight = 1.34;
-  const gapX = 0.3;
-  const gapY = 0.16;
-  const originX = 0.35;
-  const originY = 1.3;
-  const positions: Record<ScorecardKpiKey2, { x: number; y: number }> = {
-    pmCompliance: { x: originX, y: originY },
-    budgetSpend: { x: originX + chartWidth + gapX, y: originY },
-    pmCmWorkOrderRatio: { x: originX, y: originY + chartHeight + gapY },
-    pmCmCostRatio: { x: originX + chartWidth + gapX, y: originY + chartHeight + gapY },
-    mttrDays: { x: originX, y: originY + (chartHeight + gapY) * 2 },
-    facilityUptime: { x: originX + chartWidth + gapX, y: originY + (chartHeight + gapY) * 2 },
+function replaceSeriesCache(
+  ser: XmlElement,
+  categories: string[],
+  values: Array<number | null>
+): void {
+  const ownerDoc = ser.ownerDocument as XmlDocument;
+
+  const setPtCount = (cache: XmlElement, count: number) => {
+    const ptCount = cElements(cache, "ptCount")[0];
+    if (ptCount) ptCount.setAttribute("val", String(count));
   };
 
-  const seriesByKey: Record<ScorecardKpiKey2, ChartSeries[]> = {
-    pmCompliance: groupBSeries("pmComplianceMonthly", "pmComplianceYtdAverage", section),
-    budgetSpend: [groupASeries("budgetSpend", "YTD / Cumulative", section)],
-    pmCmWorkOrderRatio: [groupASeries("pmCmWorkOrderRatio", "YTD / Cumulative", section)],
-    pmCmCostRatio: [groupASeries("pmCmCostRatio", "YTD / Cumulative", section)],
-    mttrDays: [groupASeries("mttrDays", "YTD / Cumulative", section)],
-    facilityUptime: groupBSeries("facilityUptimeMonthly", "facilityUptimeYtdAverage", section),
-  };
-
-  const chartOrder: ScorecardKpiKey2[] = [
-    "pmCompliance",
-    "budgetSpend",
-    "pmCmWorkOrderRatio",
-    "pmCmCostRatio",
-    "mttrDays",
-    "facilityUptime",
-  ];
-
-  for (const key of chartOrder) {
-    const pos = positions[key];
-    addLineChart(pptx, slide, CHART_LABELS[key], categories, seriesByKey[key], pos.x, pos.y, chartWidth, chartHeight);
+  // Category cache (c:cat -> multiLvlStrCache/strCache).
+  const cat = cElements(ser, "cat")[0];
+  if (cat) {
+    const catCache =
+      cElements(cat, "multiLvlStrCache")[0] ?? cElements(cat, "strCache")[0];
+    if (catCache) {
+      setPtCount(catCache, categories.length);
+      const level = cElements(catCache, "lvl")[0];
+      const ptsContainer = level ?? catCache;
+      removeChildElements(ptsContainer, "pt");
+      categories.forEach((category, index) => {
+        const pt = createCNs(ownerDoc, "pt");
+        pt.setAttribute("idx", String(index));
+        pt.appendChild(cText(ownerDoc, category));
+        ptsContainer.appendChild(pt);
+      });
+    }
   }
+
+  // Value cache (c:val -> numCache). formatCode/ptCount are preserved.
+  const val = cElements(ser, "val")[0];
+  if (val) {
+    const numCache = cElements(val, "numCache")[0];
+    if (numCache) {
+      setPtCount(numCache, values.filter((v) => v !== null).length);
+      removeChildElements(numCache, "pt");
+      values.forEach((value, index) => {
+        if (value === null) return;
+        const pt = createCNs(ownerDoc, "pt");
+        pt.setAttribute("idx", String(index));
+        pt.appendChild(cText(ownerDoc, String(value)));
+        numCache.appendChild(pt);
+      });
+    }
+  }
+}
+
+function removeChildElements(parent: XmlElement, localName: string): void {
+  for (const child of [...parent.childNodes]) {
+    const el = child as unknown as XmlElement;
+    if (el && el.localName === localName && el.namespaceURI === CHART_NS) {
+      parent.removeChild(child);
+    }
+  }
+}
+
+function cElements(
+  parent: XmlElement | XmlDocument,
+  localName: string
+): XmlElement[] {
+  const out: XmlElement[] = [];
+  const collection = parent.getElementsByTagNameNS(CHART_NS, localName);
+  for (let i = 0; i < collection.length; i++) {
+    out.push(collection[i] as XmlElement);
+  }
+  return out;
+}
+
+function createCNs(ownerDoc: XmlDocument, localName: string): XmlElement {
+  return ownerDoc.createElementNS(CHART_NS, `c:${localName}`) as XmlElement;
+}
+
+function cText(ownerDoc: XmlDocument, text: string): XmlElement {
+  const v = createCNs(ownerDoc, "v");
+  v.textContent = text;
+  return v;
+}
+
+async function updateTrendsChartsForSection(
+  zip: PptxZip,
+  chartNumbers: number[],
+  section: BusinessUnitDeckSection
+): Promise<void> {
+  for (const panel of TRENDS_PANELS) {
+    const chartNumber = chartNumbers[panel.id - 1];
+    const chartPath = `ppt/charts/chart${chartNumber}.xml`;
+    const chartXml = await zip.file(chartPath)?.async("string");
+    if (!chartXml) continue;
+    zip.file(chartPath, rewriteTrendChartCache(chartXml, panel, section));
+  }
+}
+
+// ── Deck assembly ──
+
+const SLIDE_RELS_LAYOUT_ONLY = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout12.xml"/></Relationships>`;
+
+function trendsSlideRels(chartNumbers: number[]): string {
+  const rels = chartNumbers
+    .map(
+      (n, index) =>
+        `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart${n}.xml"/>`
+    )
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}<Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout12.xml"/></Relationships>`;
 }
 
 export async function generateAllBusinessUnitsMonthlyKpiDeck(
   data: AllBusinessUnitsDeckData
 ): Promise<Blob> {
-  const pptx = new PptxGenJS();
-  pptx.layout = "LAYOUT_16x9";
-  pptx.author = "ODM Dashboard";
-  pptx.company = "Program Oversight Center";
-  pptx.title = `Monthly KPI Scorecard — All Business Units — ${data.effectiveReportingMonthLabel}`;
+  const templatePath = resolveExecutiveTemplatePath(TEMPLATE_FILENAME);
+  const zip = await loadPptxTemplate(templatePath);
+  await ensureXlsxDefault(zip);
 
-  buildCoverSlide(pptx, data);
-  for (const section of data.sections) {
-    buildSummarySlide(pptx, section);
-    buildTrendsSlide(pptx, section);
+  // Cover donor (slide1).
+  const coverDoc = await loadSlideXml(zip, "ppt/slides/slide1.xml");
+  updateCoverSlide(coverDoc, data);
+  saveSlideXml(zip, "ppt/slides/slide1.xml", coverDoc);
+
+  const sections = data.sections;
+  const totalSlides = 1 + sections.length * 2;
+
+  if (sections.length === 0) {
+    await removeSlidePart(zip, 2);
+    await removeSlidePart(zip, 3);
+    await setPresentationSlideOrder(zip, [1]);
+    return generatePptxBlob(zip);
   }
 
-  const output = (await pptx.write({ outputType: "nodebuffer" } as never)) as Uint8Array;
-  const arrayBuffer = output.buffer.slice(
-    output.byteOffset,
-    output.byteOffset + output.byteLength
-  ) as ArrayBuffer;
-  return new Blob([arrayBuffer], {
-    type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  });
+  let nextChartNumber = (await maxChartNumber(zip)) + 1;
+
+  // Donor scorecard slide (slide2) and donor trends slide (slide3) serve the
+  // first BU; each further BU receives clones of both donors.
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    const scorecardSlideNumber = 2 + i * 2;
+    const trendsSlideNumber = 3 + i * 2;
+
+    if (i === 0) {
+      const scorecardDoc = await loadSlideXml(zip, `ppt/slides/slide${scorecardSlideNumber}.xml`);
+      updateScorecardSlide(scorecardDoc, section);
+      saveSlideXml(zip, `ppt/slides/slide${scorecardSlideNumber}.xml`, scorecardDoc);
+
+      const trendsDoc = await loadSlideXml(zip, `ppt/slides/slide${trendsSlideNumber}.xml`);
+      updateTrendsSlide(trendsDoc, section);
+      saveSlideXml(zip, `ppt/slides/slide${trendsSlideNumber}.xml`, trendsDoc);
+      await updateTrendsChartsForSection(zip, [1, 2, 3, 4, 5, 6], section);
+      continue;
+    }
+
+    // Scorecard clone.
+    const scorecardDonorXml = await zip.file("ppt/slides/slide2.xml")?.async("string");
+    if (!scorecardDonorXml) throw new Error("[TEMPLATE] Missing Scorecard donor slide.");
+    const scorecardDoc = parseXml(scorecardDonorXml);
+    updateScorecardSlide(scorecardDoc, section);
+    await addSlidePart(
+      zip,
+      scorecardSlideNumber,
+      serializeXml(scorecardDoc),
+      SLIDE_RELS_LAYOUT_ONLY
+    );
+
+    // Trends clone: first clone the six chart parts, then the slide.
+    const chartNumbers: number[] = [];
+    for (let c = 1; c <= 6; c++) {
+      const target = nextChartNumber++;
+      await addChartClone(zip, c, target);
+      chartNumbers.push(target);
+    }
+    const trendsDonorXml = await zip.file("ppt/slides/slide3.xml")?.async("string");
+    if (!trendsDonorXml) throw new Error("[TEMPLATE] Missing Trends donor slide.");
+    const trendsDoc = parseXml(trendsDonorXml);
+    updateTrendsSlide(trendsDoc, section);
+    await addSlidePart(
+      zip,
+      trendsSlideNumber,
+      serializeXml(trendsDoc),
+      trendsSlideRels(chartNumbers)
+    );
+    await updateTrendsChartsForSection(zip, chartNumbers, section);
+  }
+
+  const slideOrder = Array.from({ length: totalSlides }, (_, index) => index + 1);
+  await setPresentationSlideOrder(zip, slideOrder);
+  return generatePptxBlob(zip);
 }
 
-export { formatPeriodLabel, commentaryBullets };
