@@ -31,7 +31,7 @@ import fs from "fs";
 import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
 import { isValidManualStatus } from "../src/modules/governance-v3/milestoneStatusManual";
-import { aggregateMonthlyKpiRecords, computeMonthlyKpiValuesFromRaw, normalizeBusinessUnitLabel, normalizeKpiNumber } from "../src/modules/monthly-kpi/kpiAggregation";
+import { aggregateMonthlyKpiRecords, computeMonthlyKpiValuesFromRaw, normalizeBusinessUnitLabel, normalizeKpiNumber, resolveEffectiveReportingMonth } from "../src/modules/monthly-kpi/kpiAggregation";
 import type { PersistedMonthlyKpiRecord } from "../src/modules/monthly-kpi/kpiAggregation";
 import { installRequestBodyGuard } from "./request-body-guard";
 import {
@@ -612,7 +612,23 @@ async function fetchMonthlyKpiAggregateForResponse(reportingYear: number, report
     WHERE reporting_year = ${reportingYear}
     ORDER BY business_unit ASC, reporting_month ASC
   `);
-  return aggregateMonthlyKpiRecords(rowsFromDb<PersistedMonthlyKpiRecord>(rows), reportingYear, reportingMonth);
+  const records = rowsFromDb<PersistedMonthlyKpiRecord>(rows);
+  // When a reporting month is explicitly requested, resolve the effective
+  // reporting month from the actual submissions: an explicit month is honored
+  // only when it contains a valid scorecard KPI submission; otherwise the
+  // cutoff rolls to the latest submitted month of the year. When no month is
+  // requested (annual export view), the full-year aggregation is preserved.
+  const effectiveReportingMonth =
+    reportingMonth !== undefined && reportingMonth >= 1 && reportingMonth <= 12
+      ? resolveEffectiveReportingMonth(records, reportingMonth)
+      : undefined;
+  const aggregateResult = aggregateMonthlyKpiRecords(records, reportingYear, effectiveReportingMonth ?? undefined);
+  if (effectiveReportingMonth === undefined) return aggregateResult;
+  return {
+    ...aggregateResult,
+    requestedReportingMonth: reportingMonth,
+    effectiveReportingMonth,
+  };
 }
 
 app.get("/api/monthly-kpi/records", async (c) => {

@@ -517,6 +517,61 @@ function hasSubmittedBudgetActualSpend(record: PersistedMonthlyKpiRecord) {
   return (normalizeKpiNumber(record.actual_spend) ?? rawImportedInputValue(record, "actual_spend")) !== null;
 }
 
+// ── Effective reporting month ──
+
+/**
+ * The six KPIs that make up the Monthly KPI Scorecard Summary Matrix and KPI
+ * cards. `scheduleCompliance` and `mtbfDays` are tracked per month but are not
+ * part of the scorecard summary, so they do not make a month "submitted".
+ */
+const scorecardSummaryKeys: MonthlyKpiKey[] = [
+  "pmCompliance",
+  "budgetSpend",
+  "pmCmWorkOrderRatio",
+  "pmCmCostRatio",
+  "mttrDays",
+  "facilityUptime",
+];
+
+function recordHasScorecardSubmission(record: PersistedMonthlyKpiRecord): boolean {
+  return scorecardSummaryKeys.some((key) => hasRawInputForKpi(key, record) || hasImportedKpiValue(record, key));
+}
+
+function monthHasScorecardSubmission(records: PersistedMonthlyKpiRecord[], month: number): boolean {
+  return records.some((record) => Number(record.reporting_month) === month && recordHasScorecardSubmission(record));
+}
+
+/**
+ * Resolves the effective reporting month that the scorecard should be computed
+ * against, given the raw monthly records for one reporting year:
+ *
+ * - If the caller explicitly selects a month that contains a valid scorecard
+ *   KPI submission, that month is the effective reporting month.
+ * - Otherwise (no selection, or the selected month is Not Submitted / contains
+ *   no valid KPI submission), the effective reporting month is the latest
+ *   submitted month of the year. Future/unsubmitted trailing months (for
+ *   example planned-budget-only placeholder rows) never act as the cutoff.
+ *
+ * Returns null only when no month in the provided records carries a valid
+ * scorecard submission. `records` should already be scoped to one reporting
+ * year.
+ */
+export function resolveEffectiveReportingMonth(
+  records: PersistedMonthlyKpiRecord[],
+  selectedMonth?: number
+): number | null {
+  const validSelection =
+    selectedMonth !== undefined &&
+    selectedMonth >= 1 &&
+    selectedMonth <= 12 &&
+    monthHasScorecardSubmission(records, selectedMonth);
+  if (validSelection) return selectedMonth;
+  for (let month = 12; month >= 1; month -= 1) {
+    if (monthHasScorecardSubmission(records, month)) return month;
+  }
+  return null;
+}
+
 export function computeMonthlyKpiValuesFromRaw(record: PersistedMonthlyKpiRecord): Partial<MonthlyKpiValues> {
   const values: Partial<MonthlyKpiValues> = {};
   monthlyKpiKeys.forEach((key) => {

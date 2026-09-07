@@ -180,4 +180,28 @@ describe("Monthly KPI records API", () => {
     expect(importRoute).toContain("normalizeMonthlyKpiRecord(payloadRecord, sourceFileName, fallbackBusinessUnit)");
     expect(normalizer).toContain('input?.business_unit ?? input?.businessUnit ?? fallbackBusinessUnit ?? ""');
   });
+
+  it("resolves the effective reporting month for the aggregates response when a month is requested", () => {
+    const aggregatesQuery = sourceBlock(
+      "async function fetchMonthlyKpiAggregateForResponse",
+      'app.get("/api/monthly-kpi/records"',
+    );
+
+    // The aggregates endpoint must honor an explicit submitted month but roll
+    // an unsubmitted selection (and monthless annual exports keep their
+    // full-year semantics) forward to the latest submitted month of the year.
+    expectInOrder(aggregatesQuery, [
+      "const records = rowsFromDb<PersistedMonthlyKpiRecord>(rows);",
+      "resolveEffectiveReportingMonth(records, reportingMonth)",
+      "aggregateMonthlyKpiRecords(records, reportingYear, effectiveReportingMonth ?? undefined)",
+      "requestedReportingMonth: reportingMonth",
+      "effectiveReportingMonth",
+    ]);
+    expect(aggregatesQuery).toContain("reportingMonth !== undefined && reportingMonth >= 1 && reportingMonth <= 12");
+  });
+
+  it("imports the effective reporting month resolver from the shared aggregation module", () => {
+    expect(bootSource).toContain("resolveEffectiveReportingMonth } from \"../src/modules/monthly-kpi/kpiAggregation\"");
+    expect(bootSource).toContain("import { aggregateMonthlyKpiRecords, computeMonthlyKpiValuesFromRaw, normalizeBusinessUnitLabel, normalizeKpiNumber, resolveEffectiveReportingMonth }");
+  });
 });

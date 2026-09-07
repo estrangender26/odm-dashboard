@@ -1630,8 +1630,9 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     // The audit subtitle explains the distinction between the monthly records
     // table and the YTD/cumulative summary values.
     expect(html).toContain("Monthly table shows actual monthly imported values");
-    expect(html).toContain("Budget Spend, PM:CM ratios, and MTTR summary rows/cards show YTD/cumulative performance through the selected month");
-    expect(html).toContain("PM Compliance and Facility Uptime summary rows/cards show the selected month");
+    expect(html).toContain("Summary rows/cards follow the effective reporting month (the latest submitted month when the selected month is Not Submitted)");
+    expect(html).toContain("Budget Spend, PM:CM ratios, and MTTR show YTD/cumulative performance through that month");
+    expect(html).toContain("PM Compliance and Facility Uptime show that month");
     expect(html).toContain("Planned shutdown completed.");
     expect(html).not.toContain("Schedule Compliance");
     expect(html).not.toContain("MTBF");
