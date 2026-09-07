@@ -31,7 +31,7 @@ import fs from "fs";
 import path from "path";
 import { docFiles, governanceMilestoneState, governanceUploads } from "../db/schema";
 import { isValidManualStatus } from "../src/modules/governance-v3/milestoneStatusManual";
-import { aggregateMonthlyKpiRecords, computeMonthlyKpiValuesFromRaw, normalizeBusinessUnitLabel, normalizeKpiNumber } from "../src/modules/monthly-kpi/kpiAggregation";
+import { aggregateMonthlyKpiRecords, computeMonthlyKpiValuesFromRaw, normalizeBusinessUnitLabel, normalizeKpiNumber, resolveEffectiveReportingMonth } from "../src/modules/monthly-kpi/kpiAggregation";
 import type { PersistedMonthlyKpiRecord } from "../src/modules/monthly-kpi/kpiAggregation";
 import { installRequestBodyGuard } from "./request-body-guard";
 import {
@@ -576,7 +576,7 @@ async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: strin
   return rowsFromDb<Record<string, unknown>>(rows);
 }
 
-async function fetchMonthlyKpiAggregateForResponse(reportingYear: number, reportingMonth?: number) {
+async function fetchMonthlyKpiAggregateForResponse(reportingYear: number, reportingMonth?: number | "latest") {
   const rows = await getDb().execute(sql`
     SELECT
       business_unit,
@@ -612,7 +612,28 @@ async function fetchMonthlyKpiAggregateForResponse(reportingYear: number, report
     WHERE reporting_year = ${reportingYear}
     ORDER BY business_unit ASC, reporting_month ASC
   `);
-  return aggregateMonthlyKpiRecords(rowsFromDb<PersistedMonthlyKpiRecord>(rows), reportingYear, reportingMonth);
+  const records = rowsFromDb<PersistedMonthlyKpiRecord>(rows);
+  // The server is the sole authority for the effective reporting month because
+  // it sees the COMPLETE set of business-unit records for the selected year:
+  //   - an explicit numeric month is honored only when it contains a valid
+  //     scorecard KPI submission in the full portfolio; otherwise the cutoff
+  //     rolls to the latest submitted month of the year;
+  //   - an explicit "latest" request resolves to the latest submitted month of
+  //     the year (used by the page's default/no-user-choice load);
+  //   - no month at all (annual export view) keeps the full-year aggregation.
+  const effectiveReportingMonth =
+    reportingMonth === "latest"
+      ? resolveEffectiveReportingMonth(records)
+      : reportingMonth !== undefined && reportingMonth >= 1 && reportingMonth <= 12
+        ? resolveEffectiveReportingMonth(records, reportingMonth)
+        : undefined;
+  const aggregateResult = aggregateMonthlyKpiRecords(records, reportingYear, effectiveReportingMonth ?? undefined);
+  if (effectiveReportingMonth === undefined) return aggregateResult;
+  return {
+    ...aggregateResult,
+    requestedReportingMonth: reportingMonth,
+    effectiveReportingMonth,
+  };
 }
 
 app.get("/api/monthly-kpi/records", async (c) => {
@@ -640,11 +661,16 @@ app.get("/api/monthly-kpi/aggregates", async (c) => {
       return c.json({ error: "reporting_year query parameter is required" }, 400);
     }
     const reportingMonthParam = c.req.query("reporting_month");
-    let reportingMonth: number | undefined;
-    if (reportingMonthParam) {
-      reportingMonth = Number(reportingMonthParam);
-      if (!Number.isInteger(reportingMonth) || reportingMonth < 1 || reportingMonth > 12) {
-        return c.json({ error: "reporting_month query parameter must be between 1 and 12" }, 400);
+    let reportingMonth: number | "latest" | undefined;
+    if (reportingMonthParam !== undefined && reportingMonthParam !== null && String(reportingMonthParam).trim() !== "") {
+      const rawReportingMonth = String(reportingMonthParam).trim().toLowerCase();
+      if (rawReportingMonth === "latest") {
+        reportingMonth = "latest";
+      } else {
+        reportingMonth = Number(rawReportingMonth);
+        if (!Number.isInteger(reportingMonth) || reportingMonth < 1 || reportingMonth > 12) {
+          return c.json({ error: "reporting_month query parameter must be a month between 1 and 12, or 'latest'" }, 400);
+        }
       }
     }
     return c.json(await fetchMonthlyKpiAggregateForResponse(reportingYear, reportingMonth));

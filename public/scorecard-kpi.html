@@ -426,7 +426,7 @@ select.ctrl-gray{padding:8px 14px;font-size:12px;font-family:inherit;border-radi
       <option value="2026" selected>2026</option>
       <option value="2025">2025</option>
     </select>
-    <select id="monthSel" class="ctrl-gray" onchange="handleReportingContextChange()">
+    <select id="monthSel" class="ctrl-gray" onchange="handleMonthlyReportingMonthChange()">
       <option value="1">January</option><option value="2">February</option><option value="3">March</option>
       <option value="4">April</option><option value="5" selected>May</option><option value="6">June</option>
       <option value="7">July</option><option value="8">August</option><option value="9">September</option>
@@ -774,6 +774,11 @@ var isFetchingSavedRecords = false;
 var isClearingKpiRecords = false;
 var isExportingKpiRecords = false;
 var pendingClearConfirmationResolver = null;
+// Whether the user has actively chosen a reporting month in the month
+// selector. Until the first manual month change the page treats the selector
+// as a default, so the scorecard resolves to the latest submitted month of the
+// selected reporting year.
+var monthlyKpiReportingMonthUserChosen = false;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded',function(){
@@ -1053,6 +1058,11 @@ function handleReportingContextChange(){
   persistDeckContext();
   if(isDefinitionsTabActive())return;
   fetchSavedMonthlyKpiRecords(isSummaryTabActive()?null:selectedBusinessUnitId);
+}
+
+function handleMonthlyReportingMonthChange(){
+  monthlyKpiReportingMonthUserChosen = true;
+  handleReportingContextChange();
 }
 
 function handleBusinessUnitChange(){
@@ -2825,14 +2835,39 @@ function applyPersistedMonthlyKpiRecords(records,options){
   if(BUs.length!==initialCount)refreshBusinessUnitSelectors();
 }
 
+// ===== EFFECTIVE REPORTING MONTH =====
+// The SERVER is the sole authority for the effective reporting month: it
+// resolves the requested month against the COMPLETE set of business-unit
+// records for the selected year and returns effectiveReportingMonth with the
+// aggregates. The client never infers the cutoff from its (possibly BU-scoped)
+// loaded records.
+//   - an explicit user month choice is sent verbatim (reporting_month=N);
+//     the server honors it when N is a valid submitted month in the full
+//     portfolio, otherwise it rolls to the latest submitted month;
+//   - until the user makes a month choice the page sends reporting_month=latest
+//     so the default view resolves to the latest submitted month of the year.
+// After the response the month selector is synced to the server's effective
+// reporting month.
+
 async function fetchMonthlyKpiAggregates(){
   var year = getSelectedYear();
-  var monthValue = getSelectedMonthValue();
-  var monthParam = '&reporting_month='+encodeURIComponent(monthValue);
+  var requestedMonth = getSelectedMonthValue();
+  // Always send the user-requested month. Before the first manual month change
+  // the request is explicitly "latest" so the default view uses the portfolio's
+  // latest submitted month instead of a locally guessed month.
+  var monthParam = monthlyKpiReportingMonthUserChosen
+    ? '&reporting_month='+encodeURIComponent(requestedMonth)
+    : '&reporting_month=latest';
   var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year)+monthParam,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
   var payload = await res.json().catch(function(){return {};});
   if(!res.ok)throw new Error(payload.error || 'Unable to load Monthly KPI aggregates.');
   KpiAggregates = normalizeKpiAggregates(payload);
+  // Reflect the server-authoritative effective reporting month in the selector.
+  var serverEffective = payload && payload.effectiveReportingMonth ? Number(payload.effectiveReportingMonth) : null;
+  if(serverEffective && serverEffective>=1 && serverEffective<=12 && serverEffective!==Number(getSelectedMonthValue())){
+    setSelectValue('monthSel',String(serverEffective));
+    persistDeckContext();
+  }
 }
 
 async function fetchSavedMonthlyKpiRecords(buId,options){
@@ -3036,11 +3071,13 @@ function renderMonthlyRecords(buId){
   var html = '<div class="matrix-title">'+year+' Imported Monthly KPI Records</div>';
   // Audit-note: the monthly records table shows the actual monthly imported KPI
   // values exactly as they came from the workbook. Summary rows and KPI cards
-  // show Budget Spend, PM:CM ratios, and MTTR as YTD/cumulative values through
-  // the selected month, while PM Compliance and Facility Uptime show the
-  // selected month's standalone value. Trend charts show monthly actuals next
-  // to YTD/cumulative or running-average trend lines where applicable.
-  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Monthly table shows actual monthly imported values. Budget Spend, PM:CM ratios, and MTTR summary rows/cards show YTD/cumulative performance through the selected month. PM Compliance and Facility Uptime summary rows/cards show the selected month\u2019s standalone value. Trend charts show monthly actuals alongside YTD/cumulative or running-average trend lines where applicable. Notes preserves imported commentary; Situation explains unavailable monthly values.</div>';
+  // are computed at the effective reporting month - the latest submitted month
+  // whenever the chosen month has no valid submission. Budget Spend, PM:CM
+  // ratios, and MTTR show YTD/cumulative values through that month, while PM
+  // Compliance and Facility Uptime show that month's standalone value. Trend
+  // charts show monthly actuals next to YTD/cumulative or running-average
+  // trend lines where applicable.
+  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Monthly table shows actual monthly imported values. Summary rows/cards follow the effective reporting month (the latest submitted month when the selected month is Not Submitted): Budget Spend, PM:CM ratios, and MTTR show YTD/cumulative performance through that month, while PM Compliance and Facility Uptime show that month\u2019s standalone value. Trend charts show monthly actuals alongside YTD/cumulative or running-average trend lines where applicable. Notes preserves imported commentary; Situation explains unavailable monthly values.</div>';
   html += '<div style="overflow-x:auto"><table class="matrix-table monthly-records-table"><thead><tr>';
   ['Month','PM Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
   html += '<th class="notes-col">Notes</th><th class="situation-col">Situation</th>';
