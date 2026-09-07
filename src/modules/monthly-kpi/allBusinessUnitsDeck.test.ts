@@ -4,7 +4,11 @@ import {
   buildAllBusinessUnitsDeckData,
   normalizeCommentaryBullets,
 } from "./allBusinessUnitsData";
-import { generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
+import {
+  buildCommentaryBullets,
+  formatScorecardCell,
+  generateAllBusinessUnitsMonthlyKpiDeck,
+} from "./allBusinessUnitsDeck";
 import {
   aggregateMonthlyKpiRecords,
   resolveEffectiveReportingMonth,
@@ -161,21 +165,6 @@ function slideCountFromZip(zip: JSZip) {
   return Object.keys(zip.files).filter(name =>
     /^ppt\/slides\/slide\d+\.xml$/.test(name)
   ).length;
-}
-
-async function readSlideTexts(zip: JSZip): Promise<string[]> {
-  const texts: string[] = [];
-  const names = Object.keys(zip.files)
-    .filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name))
-    .sort((a, b) => Number(a.match(/\d+/)?.[0]) - Number(b.match(/\d+/)?.[0]));
-  for (const name of names) {
-    const xml = await zip.file(name)!.async("string");
-    const matches = xml.match(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g) ?? [];
-    texts.push(
-      matches.map(match => match.replace(/<\/?a:t\b[^>]*>/g, "")).join("\n")
-    );
-  }
-  return texts;
 }
 
 describe("All-Business-Units Monthly KPI deck data", () => {
@@ -592,117 +581,390 @@ describe("Situation bullets are factual (no false not-submitted)", () => {
   });
 });
 
-describe("All-Business-Units Monthly KPI deck structure", () => {
-  it("produces one cover slide plus two slides per BU, ordered Summary then Trends per BU", async () => {
+// ─────────────────────────────────────────────────────────────────────────────
+// Manila Water master-clone deck structure (regression suite)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SCORECARD_KPI_KEYS_T = [
+  "pmCompliance",
+  "budgetSpend",
+  "pmCmWorkOrderRatio",
+  "pmCmCostRatio",
+  "mttrDays",
+  "facilityUptime",
+] as const;
+
+function normalizeJoin(value: string): string {
+  return value.replace(/[\s/]+/g, "");
+}
+
+async function orderedSlideXml(zip: JSZip): Promise<{ name: string; xml: string }[]> {
+  const pres = await zip.file("ppt/presentation.xml")!.async("string");
+  const rels = await zip.file("ppt/_rels/presentation.xml.rels")!.async("string");
+  const targetById = new Map<string, string>();
+  for (const m of rels.matchAll(/<Relationship\b[^>]*Id="(rId\d+)"[^>]*Target="([^"]+)"/g)) {
+    targetById.set(m[1], m[2]);
+  }
+  const order: string[] = [];
+  for (const m of pres.matchAll(/<p:sldId\b[^>]*r:id="(rId\d+)"[^>]*\/>/g)) {
+    const target = targetById.get(m[1]);
+    if (target) order.push(target.replace("slides/", "ppt/slides/"));
+  }
+  const slides: { name: string; xml: string }[] = [];
+  for (const name of order) {
+    slides.push({ name, xml: await zip.file(name)!.async("string") });
+  }
+  return slides;
+}
+
+function tableRowTexts(xml: string): string[][] {
+  return [...xml.matchAll(/<a:tr\b[\s\S]*?<\/a:tr>/g)].map((tr) => {
+    const cells = [...tr[0].matchAll(/<a:tc\b[\s\S]*?<\/a:tc>/g)].map((tc) =>
+      [...tc[0].matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+        .map((t) => t[1])
+        .join("")
+    );
+    return cells;
+  });
+}
+
+function shapeTextsByGroup(xml: string, shapeName: string): string[] {
+  const spStart = xml.indexOf(`name="${shapeName}"`);
+  if (spStart < 0) return [];
+  // Walk back to the enclosing <p:sp> start.
+  const spStartTag = xml.lastIndexOf("<p:sp>", spStart);
+  const segment = xml.slice(spStartTag, spStart + 12000);
+  const endIdx = segment.indexOf("</p:sp>");
+  const sp = endIdx >= 0 ? segment.slice(0, endIdx) : segment;
+  return [...sp.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+    .map((t) => t[1])
+    .filter((t) => t.trim().length > 0);
+}
+
+function hasShape(xml: string, shapeName: string): boolean {
+  return xml.includes(`name="${shapeName}"`);
+}
+
+function graphicFrameNames(xml: string): string[] {
+  return [...xml.matchAll(/<p:cNvPr id="\d+" name="([^"]*)"/g)]
+    .map((m) => m[1])
+    .filter((name, i, all) => all.indexOf(name) === i);
+}
+
+async function usesMasterLayout(zip: JSZip, slideName: string, xml: string): Promise<boolean> {
+  // No explicit <p:bg> means the slide inherits the Manila Water master
+  // background (which carries the lower-right logo). The slide must also be
+  // laid out on the committed MW layout (slideLayout12).
+  if (/<p:bg>[\s\S]*?<\/p:bg>/.test(xml)) return false;
+  const relName = slideName.replace("ppt/slides/", "ppt/slides/_rels/") + ".rels";
+  const rels = await zip.file(relName)!.async("string");
+  return rels.includes("slideLayout12.xml");
+}
+
+async function chartPartsForSlide(zip: JSZip, slideName: string): Promise<string[]> {
+  const relName = slideName.replace("ppt/slides/", "ppt/slides/_rels/") + ".rels";
+  const rels = await zip.file(relName)!.async("string");
+  return [...rels.matchAll(/Target="\.\.\/charts\/(chart\d+\.xml)"/g)].map((m) => m[1]);
+}
+
+async function chartCache(zip: JSZip, chartPart: string, seriesIndex: number): Promise<{ cats: string[]; vals: Array<number | null> }> {
+  const xml = await zip.file(`ppt/charts/${chartPart}`)!.async("string");
+  const sers = [...xml.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)].map((m) => m[0]);
+  const ser = sers[seriesIndex];
+  if (!ser) return { cats: [], vals: [] };
+  const catCache = ser.match(/<c:multiLvlStrCache>[\s\S]*?<\/c:multiLvlStrCache>/)?.[0] ?? "";
+  const cats = [...catCache.matchAll(/<c:v>([^<]*)<\/c:v>/g)].map((m) => m[1]);
+  const numCache = ser.match(/<c:numCache>[\s\S]*?<\/c:numCache>/)?.[0] ?? "";
+  const vals = [...numCache.matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v><\/c:pt>/g)].map((m) => ({
+    idx: Number(m[1]),
+    v: Number(m[2]),
+  }));
+  const maxIdx = vals.length ? Math.max(...vals.map((v) => v.idx)) : -1;
+  const out: Array<number | null> = Array.from({ length: maxIdx + 1 }, () => null);
+  for (const { idx, v } of vals) out[idx] = v;
+  return { cats, vals: out };
+}
+
+describe("All-Business-Units deck — Manila Water master-clone structure", () => {
+  it("produces one cover slide plus exactly two slides per BU, ordered Scorecard then Trends per BU", async () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    const slideCount = slideCountFromZip(zip);
-    expect(slideCount).toBe(1 + 2 * data.sections.length);
-    expect(slideCount).toBe(7);
+    expect(slideCountFromZip(zip)).toBe(1 + 2 * data.sections.length);
 
-    const slideTexts = await readSlideTexts(zip);
-    expect(slideTexts[0]).toContain("All Business Units");
-    const expectedOrder: string[] = [];
-    for (const section of data.sections) {
-      expectedOrder.push(
-        `${section.businessUnit} — Monthly KPI Scorecard`,
-        "KPI Summary"
+    const slides = await orderedSlideXml(zip);
+    expect(slides.length).toBe(1 + 2 * data.sections.length);
+    expect(slides[0].xml).toContain("All Business Units");
+    expect(slides[0].xml).toContain(data.effectiveReportingMonthLabel);
+    expect(slides[0].xml).toContain(`${data.sections.length} business unit(s)`);
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const scorecard = slides[1 + i * 2];
+      const trends = slides[2 + i * 2];
+      expect(scorecard.xml).toContain(`Monthly Reliability KPI Scorecard, ${section.businessUnit}`);
+      expect(trends.xml).toContain(`Monthly Reliability KPI Trends, ${section.businessUnit}`);
+      expect(scorecard.xml).toContain("AMD-EZ Monthly KPI Scorecard");
+      expect(trends.xml).not.toContain("AMD-EZ Monthly KPI Scorecard");
+    }
+  });
+
+  it("every Scorecard slide uses the Manila Water master structure and no other slide type is generated", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    const deckText = slides.map((s) => s.xml).join("\n");
+    // No portfolio matrix or issues-matrix slide types.
+    expect(deckText).not.toContain("Reliability KPI Scorecard – All BUs");
+    expect(deckText).not.toContain("Maintenance KPI issues matrix");
+
+    for (let i = 0; i < data.sections.length; i++) {
+      const xml = slides[1 + i * 2].xml;
+      expect(hasShape(xml, "Slide Title")).toBe(true);
+      expect(hasShape(xml, "RAG Legend")).toBe(true);
+      expect(hasShape(xml, "Executive Readout")).toBe(true);
+      expect(graphicFrameNames(xml)).toContain("AMD-EZ Monthly KPI Scorecard");
+      expect(await usesMasterLayout(zip, slides[1 + i * 2].name, xml)).toBe(true);
+    }
+  });
+
+  it("Scorecard tables keep the master header, YTD row, TARGET row and a monthly row per Jan..effective month", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    for (let i = 0; i < data.sections.length; i++) {
+      const xml = slides[1 + i * 2].xml;
+      const rows = tableRowTexts(xml);
+      const effective = data.effectiveReportingMonth;
+      // header + effective months + YTD + TARGET
+      expect(rows.length).toBe(1 + effective + 2);
+      const header = normalizeJoin(rows[0].join("|"));
+      expect(header).toContain("Month");
+      for (const expected of [
+        "PMCompliance",
+        "BudgetSpend",
+        "PM:CMRatio(#ofWO's)",
+        "PM:CMRatio(Cost)",
+        "MTTR*(days)",
+        "FacilityUptime",
+      ]) {
+        expect(header).toContain(expected);
+      }
+      expect(rows[rows.length - 2][0]).toBe("YTD");
+      expect(rows[rows.length - 1][0]).toBe("TARGET");
+      expect(rows[rows.length - 1].slice(1)).toEqual([
+        "≥98%",
+        "95%–105%",
+        "≥86% (6:1)",
+        "≥80% (4:1)",
+        "DOWNWARD",
+        "=100%",
+      ]);
+      // Month column reads Jan..E in order.
+      const months = rows.slice(1, rows.length - 2).map((r) => r[0]);
+      expect(months).toEqual(
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].slice(0, effective)
       );
-      expectedOrder.push(
-        `${section.businessUnit} — Monthly KPI Scorecard`,
-        "KPI Trends"
-      );
     }
-    // Slide texts include each BU summary then its trends before the next BU.
-    for (let index = 0; index < data.sections.length; index += 1) {
-      const section = data.sections[index];
-      const summarySlide = slideTexts[1 + index * 2];
-      const trendsSlide = slideTexts[2 + index * 2];
-      expect(summarySlide).toContain(section.businessUnit);
-      expect(summarySlide).toContain("KPI Summary");
-      expect(summarySlide).not.toContain("KPI Trends");
-      expect(trendsSlide).toContain(section.businessUnit);
-      expect(trendsSlide).toContain("KPI Trends");
-      expect(trendsSlide).not.toContain("KPI Summary");
-    }
-    void expectedOrder;
   });
 
-  it("summary slides carry the BU's Notes/Situation commentary text", async () => {
+  it("monthly table rows are authoritative: Group A rows = cumulative Jan..M, Group B rows = standalone month, YTD row = live aggregate", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const effective = data.effectiveReportingMonth;
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const xml = slides[1 + i * 2].xml;
+      const rows = tableRowTexts(xml);
+      const aggregate = aggregateMonthlyKpiRecords(records, 2026, effective);
+      const live = aggregate.byBusinessUnitMap[section.businessUnit];
+
+      for (let month = 1; month <= effective; month++) {
+        const rowIndex = month; // 1-based below header
+        const cells = rows[rowIndex].slice(1);
+        const trend = section.trends.find((point) => point.month === month);
+        const cumulative = trend ? aggregateMonthlyKpiRecords(records, 2026, month).byBusinessUnitMap[section.businessUnit] : null;
+        for (const key of SCORECARD_KPI_KEYS_T) {
+          const colIndex = SCORECARD_KPI_KEYS_T.indexOf(key);
+          const cell = cells[colIndex] ?? "";
+          // Months after a lagging BU's last submitted month stay blank: the
+          // scorecard never fabricates values for unsubmitted months.
+          const expected = !trend
+            ? ""
+            : (() => {
+                const monthlyCumulative = cumulative ? (cumulative[key] as number | null) : null;
+                const standalone =
+                  key === "pmCompliance" ? trend.pmComplianceMonthly ?? null :
+                  key === "facilityUptime" ? trend.facilityUptimeMonthly ?? null : null;
+                const groupA = key !== "pmCompliance" && key !== "facilityUptime";
+                return formatScorecardCell(
+                  key,
+                  groupA ? monthlyCumulative : (standalone as number | null)
+                );
+              })();
+          expect(cell, `${section.businessUnit} month ${month} ${key}`).toBe(expected);
+        }
+      }
+
+      // YTD row equals the live Monthly KPI aggregate for the BU/month.
+      const ytdCells = rows[rows.length - 2].slice(1);
+      SCORECARD_KPI_KEYS_T.forEach((key, colIndex) => {
+        const expected = formatScorecardCell(key, live ? (live[key] as number | null) : null);
+        expect(ytdCells[colIndex], `${section.businessUnit} YTD ${key}`).toBe(expected);
+      });
+    }
+  });
+
+  it("commentary bullets come only from each BU's Notes + Situation; no threshold-generated 'Key exceptions' text and no leakage", async () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    const slideTexts = await readSlideTexts(zip);
-    const amdEzIndex = data.sections.findIndex(
-      section => section.businessUnit === "AMD-EZ"
-    );
-    expect(slideTexts[1 + amdEzIndex * 2]).toContain(
-      "Transformer overhaul completed."
-    );
-    const clarkIndex = data.sections.findIndex(
-      section => section.businessUnit === "Clark Water"
-    );
-    expect(slideTexts[1 + clarkIndex * 2]).toContain(
-      "MTTR improved after spare parts availability."
-    );
-    // No cross-BU commentary leakage on either summary slide.
-    expect(slideTexts[1 + amdEzIndex * 2]).not.toContain(
-      "spare parts availability"
-    );
-    expect(slideTexts[1 + clarkIndex * 2]).not.toContain(
-      "Transformer overhaul"
-    );
-  });
+    const slides = await orderedSlideXml(zip);
 
-  it("cover, every BU Summary slide, and every BU Trends slide report the one common effective month", async () => {
-    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
-    expect(data.effectiveReportingMonthLabel).toBe("August 2026");
-    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
-    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    const slideTexts = await readSlideTexts(zip);
-    expect(slideTexts[0]).toContain("August 2026"); // cover
-    for (let index = 0; index < data.sections.length; index += 1) {
-      expect(slideTexts[1 + index * 2]).toContain("August 2026"); // Summary header
-      expect(slideTexts[2 + index * 2]).toContain("August 2026"); // Trends header
-      // No lagging BU is relabeled to its own last submitted month.
-      expect(slideTexts[1 + index * 2]).not.toContain("May 2026");
-      expect(slideTexts[1 + index * 2]).not.toContain("June 2026");
-      expect(slideTexts[2 + index * 2]).not.toContain("May 2026");
+    const deckText = slides.map((s) => s.xml).join("\n");
+    expect(deckText.toLowerCase()).not.toContain("key exceptions");
+
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const bullets = shapeTextsByGroup(slides[1 + i * 2].xml, "Executive Readout");
+      const expected = buildCommentaryBullets(section);
+      expect(bullets).toEqual(expected);
+      // Every bullet is a Notes/Situation statement (or the neutral placeholder).
+      for (const bullet of bullets) {
+        expect(
+          bullet.startsWith("Notes:") ||
+            bullet.startsWith("Situation:") ||
+            bullet === "No commentary recorded for the reporting period."
+        ).toBe(true);
+      }
+      // Notes must never leak from a different BU.
+      for (const other of data.sections) {
+        if (other.businessUnit === section.businessUnit) continue;
+        for (const noteLine of (other.notes ?? "").split(/\n+/)) {
+          const trimmed = noteLine.trim();
+          if (trimmed) {
+            expect(bullets.some((b) => b.includes(trimmed))).toBe(false);
+          }
+        }
+      }
     }
-    // Tagum (last submission June) never fabricates Jul/Aug chart categories.
-    const tagumIndex = data.sections.findIndex(
-      section => section.businessUnit === "Tagum Water"
-    );
-    expect(data.sections[tagumIndex].trends.map(point => point.month)).toEqual([
-      1, 2, 3, 4, 5, 6,
-    ]);
   });
 
-  it("every trends slide embeds six charts and every chart title appears", async () => {
+  it("every Trends slide carries six charts plus the shared MW layout/logo, and chart titles match the six KPI panels", async () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    const chartFileCount = Object.keys(zip.files).filter(name =>
-      /^ppt\/charts\/chart\d+\.xml$/.test(name)
-    ).length;
-    expect(chartFileCount).toBe(6 * data.sections.length);
-    const slideTexts = await readSlideTexts(zip);
-    const chartTitles = [
+    const slides = await orderedSlideXml(zip);
+    const chartCount = Object.keys(zip.files).filter((n) => /^ppt\/charts\/chart\d+\.xml$/.test(n)).length;
+    expect(chartCount).toBe(6 * data.sections.length);
+
+    const titles = [
       "PM Compliance (%)",
       "Budget Spend (%)",
-      "PM:CM — Work Orders (%)",
-      "PM:CM — Cost (%)",
+      "PM:CM WO (%)",
+      "PM:CM Cost (%)",
       "MTTR (Days)",
       "Facility Uptime (%)",
     ];
-    for (let index = 0; index < data.sections.length; index += 1) {
-      const trendsText = slideTexts[2 + index * 2];
-      for (const title of chartTitles) {
-        expect(
-          trendsText,
-          `${data.sections[index].businessUnit} should chart ${title}`
-        ).toContain(title);
+    for (let i = 0; i < data.sections.length; i++) {
+      const xml = slides[2 + i * 2].xml;
+      expect(await usesMasterLayout(zip, slides[1 + i * 2].name, xml)).toBe(true);
+      const frames = (xml.match(/<c:chart\b/g) ?? []).length;
+      expect(frames).toBe(6);
+      const chartParts = await chartPartsForSlide(zip, slides[2 + i * 2].name);
+      expect(chartParts.length).toBe(6);
+      for (const title of titles) {
+        expect(xml, `${data.sections[i].businessUnit} should show ${title}`).toContain(title);
+      }
+      // The same Manila Water logo (master background media) is present.
+      expect(zip.file("ppt/media/image1.jpeg")).toBeTruthy();
+    }
+  });
+
+  it("trends chart windows stop at the common effective month (or the BU's real last data month) and never plot future months", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    expect(data.effectiveReportingMonth).toBe(8);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const expectedMonths = section.trends.length;
+      const chartParts = await chartPartsForSlide(zip, slides[2 + i * 2].name);
+      for (const part of chartParts) {
+        const { cats } = await chartCache(zip, part, 0);
+        expect(cats.length).toBe(expectedMonths);
+        expect(cats).not.toContain("Sep");
+        expect(cats).not.toContain("Dec");
+      }
+      // Slide headers still report the common portfolio month, never a relabel.
+      expect(slides[2 + i * 2].xml).toContain(`Reporting period: ${data.effectiveReportingMonthLabel}`);
+    }
+    const tagum = data.sections.find((s) => s.businessUnit === "Tagum Water")!;
+    expect(tagum.trends.length).toBe(6);
+  });
+
+  it("trend charts keep their approved series set: benchmark reference series where applicable, none for MTTR", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    const chartParts = await chartPartsForSlide(zip, slides[2].name);
+    expect(chartParts.length).toBe(6);
+    const seriesCounts: number[] = [];
+    for (const part of chartParts) {
+      const xml = await zip.file(`ppt/charts/${part}`)!.async("string");
+      seriesCounts.push((xml.match(/<c:ser>/g) ?? []).length);
+    }
+    // PM Compliance, Budget, WO, Cost, Uptime carry benchmark series; MTTR has none.
+    expect(seriesCounts).toEqual([3, 3, 2, 2, 1, 3]);
+    const mttrXml = await zip.file(`ppt/charts/${chartParts[4]}`)!.async("string");
+    expect(mttrXml).not.toContain("Benchmark");
+    const budgetXml = await zip.file(`ppt/charts/${chartParts[1]}`)!.async("string");
+    expect(budgetXml).toContain("Benchmark 95%");
+    expect(budgetXml).toContain("Benchmark 105%");
+  });
+
+  it("Group A trend final points and Group B YTD-average final points match the Slide 1 YTD values", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const last = section.trends[section.trends.length - 1];
+      if (!last) continue;
+      const summaryByKey = Object.fromEntries(section.summary.map((r) => [r.key, r.value]));
+      const chartParts = await chartPartsForSlide(zip, slides[2 + i * 2].name);
+      const panelKeys = [
+        "pmCompliance",
+        "budgetSpend",
+        "pmCmWorkOrderRatio",
+        "pmCmCostRatio",
+        "mttrDays",
+        "facilityUptime",
+      ] as const;
+      for (let panel = 0; panel < 6; panel++) {
+        const key = panelKeys[panel];
+        const firstSeries = await chartCache(zip, chartParts[panel], 0);
+        const final = firstSeries.vals[firstSeries.vals.length - 1];
+        // The chart series carrying the YTD value is the 2nd for Group B, 1st for Group A.
+        const secondSeries = await chartCache(zip, chartParts[panel], 1);
+        const ytdValue =
+          key === "pmCompliance" || key === "facilityUptime"
+            ? secondSeries.vals[secondSeries.vals.length - 1]
+            : final;
+        const expectedRaw = summaryByKey[key] as number | null;
+        if (expectedRaw !== null && expectedRaw !== undefined) {
+          expect(Math.abs(Number(ytdValue) - expectedRaw)).toBeLessThanOrEqual(0.6);
+        }
       }
     }
   });

@@ -15,6 +15,7 @@ export const EXECUTIVE_TEMPLATES_DIR = "src/modules/executive-presentations/temp
 export type ExecutiveTemplateName =
   | "ExecutiveMaster.pptx"
   | "MonthlyKpiExecutive.pptx"
+  | "MonthlyKpiAllBuExecutive.pptx"
   | "GovernanceExecutive.pptx";
 
 function candidatePaths(filename: string, importMetaUrl: string): string[] {
