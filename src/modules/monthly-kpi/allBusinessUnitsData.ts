@@ -26,7 +26,10 @@ import {
   resolveEffectiveReportingMonth,
   type PersistedMonthlyKpiRecord,
 } from "./kpiAggregation";
-import { formatThresholdBenchmark, getDefaultMonthlyKpiThresholdConfig } from "./kpiThresholds";
+import {
+  formatThresholdBenchmark,
+  getDefaultMonthlyKpiThresholdConfig,
+} from "./kpiThresholds";
 
 export const ALL_BUSINESS_UNITS_LABEL = "All Business Units";
 
@@ -48,12 +51,32 @@ const SCORECARD_KPI_KEYS: ScorecardKpiKey2[] = [
 ];
 
 const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 const SHORT_MONTH_NAMES = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 const KPI_DISPLAY: Record<ScorecardKpiKey2, string> = {
@@ -137,16 +160,22 @@ function formatValue(key: ScorecardKpiKey2, value: number | null): string {
 
 function benchmarkText(key: ScorecardKpiKey2): string {
   const config = getDefaultMonthlyKpiThresholdConfig();
-  const rule = config[key as keyof ReturnType<typeof getDefaultMonthlyKpiThresholdConfig>];
+  const rule =
+    config[key as keyof ReturnType<typeof getDefaultMonthlyKpiThresholdConfig>];
   return rule ? formatThresholdBenchmark(rule) : "";
 }
 
 /** Split free-form commentary into trimmed, non-empty, de-duplicated bullets. */
-export function normalizeCommentaryBullets(values: Array<string | null | undefined>): string[] {
+export function normalizeCommentaryBullets(
+  values: Array<string | null | undefined>
+): string[] {
   const bullets: string[] = [];
   const seen = new Set<string>();
   const push = (value: string) => {
-    const trimmed = value.trim().replace(/\s+/g, " ").replace(/^[•\-\*\s]+/, "");
+    const trimmed = value
+      .trim()
+      .replace(/\s+/g, " ")
+      .replace(/^[•\-*\s]+/, "");
     if (!trimmed) return;
     const normalized = trimmed.toLowerCase();
     if (seen.has(normalized)) return;
@@ -164,13 +193,20 @@ export function normalizeCommentaryBullets(values: Array<string | null | undefin
   return bullets;
 }
 
-function recordForMonth(records: PersistedMonthlyKpiRecord[], businessUnit: string, year: number, month: number) {
-  return records.find(
-    (record) =>
-      normalizeBusinessUnitLabel(record.business_unit) === businessUnit &&
-      Number(record.reporting_year) === year &&
-      Number(record.reporting_month) === month
-  ) || null;
+function recordForMonth(
+  records: PersistedMonthlyKpiRecord[],
+  businessUnit: string,
+  year: number,
+  month: number
+) {
+  return (
+    records.find(
+      record =>
+        normalizeBusinessUnitLabel(record.business_unit) === businessUnit &&
+        Number(record.reporting_year) === year &&
+        Number(record.reporting_month) === month
+    ) || null
+  );
 }
 
 /** Latest month <= cap in which this BU has a stored KPI value or raw inputs. */
@@ -182,15 +218,23 @@ function latestSubmittedMonthForBusinessUnit(
 ): number {
   for (let month = cap; month >= 1; month -= 1) {
     const record = recordForMonth(records, businessUnit, year, month);
-    if (record && SCORECARD_KPI_KEYS.some((key) => kpiIsPresentForRecord(record, key))) {
+    if (
+      record &&
+      SCORECARD_KPI_KEYS.some(key => kpiIsPresentForRecord(record, key))
+    ) {
       return month;
     }
   }
   return 0;
 }
 
-function kpiIsPresentForRecord(record: PersistedMonthlyKpiRecord, key: ScorecardKpiKey2): boolean {
-  const fieldByKey: Partial<Record<ScorecardKpiKey2, keyof PersistedMonthlyKpiRecord>> = {
+function kpiIsPresentForRecord(
+  record: PersistedMonthlyKpiRecord,
+  key: ScorecardKpiKey2
+): boolean {
+  const fieldByKey: Partial<
+    Record<ScorecardKpiKey2, keyof PersistedMonthlyKpiRecord>
+  > = {
     pmCompliance: "pm_compliance",
     budgetSpend: "budget_spend",
     pmCmWorkOrderRatio: "pm_cm_work_order_ratio",
@@ -199,7 +243,11 @@ function kpiIsPresentForRecord(record: PersistedMonthlyKpiRecord, key: Scorecard
     facilityUptime: "facility_uptime",
   };
   const field = fieldByKey[key];
-  if (field && normalizeKpiNumber(record[field] as number | string | null) !== null) return true;
+  if (
+    field &&
+    normalizeKpiNumber(record[field] as number | string | null) !== null
+  )
+    return true;
   const raw = computeMonthlyKpiValuesFromRaw(record);
   return raw[key] !== undefined && raw[key] !== null;
 }
@@ -231,14 +279,17 @@ function derivedSituationForBusinessUnit(
   // stored KPI value exists. Only genuinely missing KPIs may receive a
   // "not submitted" bullet; neutral reasons are emitted only for the exact
   // authoritative conditions that make the KPI non-computable.
-  const has = (key: ScorecardKpiKey2) => !!record && kpiIsPresentForRecord(record, key);
+  const has = (key: ScorecardKpiKey2) =>
+    !!record && kpiIsPresentForRecord(record, key);
 
   if (!has("pmCompliance")) {
-    if (record && normalizeKpiNumber(record.total_pm_orders) === 0) push("Not Applicable (no PM orders)");
+    if (record && normalizeKpiNumber(record.total_pm_orders) === 0)
+      push("Not Applicable (no PM orders)");
     else push("PM Compliance not submitted");
   }
   if (!has("facilityUptime")) {
-    if (record && normalizeKpiNumber(record.facility_operating_time) === 0) push("Not Applicable (no operating time)");
+    if (record && normalizeKpiNumber(record.facility_operating_time) === 0)
+      push("Not Applicable (no operating time)");
     else push("Facility Uptime not submitted");
   }
   if (!has("budgetSpend")) {
@@ -262,13 +313,16 @@ function derivedSituationForBusinessUnit(
   }
   if (!has("mttrDays")) {
     const repairs = record
-      ? normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs)
+      ? (normalizeKpiNumber(record.repair_count) ??
+        normalizeKpiNumber(record.number_of_repairs))
       : null;
     const downtime = record
-      ? normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime)
+      ? (normalizeKpiNumber(record.mttr_downtime) ??
+        normalizeKpiNumber(record.total_downtime))
       : null;
     const monthlyMttr = record ? normalizeKpiNumber(record.mttr_days) : null;
-    if (repairs === 0 || (downtime === 0 && monthlyMttr === 0)) push("No Qualifying Downtime");
+    if (repairs === 0 || (downtime === 0 && monthlyMttr === 0))
+      push("No Qualifying Downtime");
     else push("MTTR not submitted");
   }
   return reasons;
@@ -282,22 +336,24 @@ export function buildAllBusinessUnitsDeckData(
   const effective = resolveEffectiveReportingMonth(records, requestedMonth);
   const effectiveMonth = effective ?? requestedMonth ?? 0;
 
-  const aggregateAt = (month: number) => aggregateMonthlyKpiRecords(records, reportingYear, month);
-  const effectiveAggregate = effectiveMonth >= 1 ? aggregateAt(effectiveMonth) : null;
+  const aggregateAt = (month: number) =>
+    aggregateMonthlyKpiRecords(records, reportingYear, month);
+  const effectiveAggregate =
+    effectiveMonth >= 1 ? aggregateAt(effectiveMonth) : null;
   const businessUnits = effectiveAggregate
-    ? effectiveAggregate.byBusinessUnit.map((aggregate) => aggregate.businessUnit)
+    ? effectiveAggregate.byBusinessUnit.map(aggregate => aggregate.businessUnit)
     : Array.from(
         new Set(
           records
-            .map((record) => normalizeBusinessUnitLabel(record.business_unit))
+            .map(record => normalizeBusinessUnitLabel(record.business_unit))
             .filter(Boolean)
             .sort((a, b) => a.localeCompare(b))
         )
       );
 
-  const sections = businessUnits.map((businessUnit) => {
+  const sections = businessUnits.map(businessUnit => {
     const buRecords = records.filter(
-      (record) =>
+      record =>
         normalizeBusinessUnitLabel(record.business_unit) === businessUnit &&
         Number(record.reporting_year) === reportingYear
     );
@@ -305,7 +361,12 @@ export function buildAllBusinessUnitsDeckData(
     // window (charts stop there; slide headers still use the common period).
     const buLastSubmitted =
       effectiveMonth >= 1
-        ? latestSubmittedMonthForBusinessUnit(buRecords, businessUnit, reportingYear, effectiveMonth)
+        ? latestSubmittedMonthForBusinessUnit(
+            buRecords,
+            businessUnit,
+            reportingYear,
+            effectiveMonth
+          )
         : 0;
     const reportingMonth = effectiveMonth;
     const reportingMonthLabel =
@@ -316,18 +377,21 @@ export function buildAllBusinessUnitsDeckData(
     let summary: MonthlyKpiKpiValue2[];
     if (effectiveAggregate) {
       const aggregate = effectiveAggregate.byBusinessUnitMap[businessUnit];
-      summary = SCORECARD_KPI_KEYS.map((key) => {
+      summary = SCORECARD_KPI_KEYS.map(key => {
         const value = aggregate ? (aggregate[key] as number | null) : null;
         return {
           key,
           label: KPI_DISPLAY[key],
           value,
-          formatted: value === null || value === undefined ? "No Data" : formatValue(key, value),
+          formatted:
+            value === null || value === undefined
+              ? "No Data"
+              : formatValue(key, value),
           benchmark: benchmarkText(key),
         };
       });
     } else {
-      summary = SCORECARD_KPI_KEYS.map((key) => ({
+      summary = SCORECARD_KPI_KEYS.map(key => ({
         key,
         label: KPI_DISPLAY[key],
         value: null,
@@ -339,27 +403,46 @@ export function buildAllBusinessUnitsDeckData(
     const trends: BusinessUnitTrendPoint[] = [];
     const trendEnd = Math.max(0, Math.min(effectiveMonth, buLastSubmitted));
     for (let month = 1; month <= trendEnd; month += 1) {
-      const monthlyAggregate = aggregateAt(month).byBusinessUnitMap[businessUnit];
-      const record = recordForMonth(buRecords, businessUnit, reportingYear, month);
+      const monthlyAggregate =
+        aggregateAt(month).byBusinessUnitMap[businessUnit];
+      const record = recordForMonth(
+        buRecords,
+        businessUnit,
+        reportingYear,
+        month
+      );
       const standalone = standaloneMonthlyKpis(record);
       trends.push({
         month,
         monthLabel: SHORT_MONTH_NAMES[month - 1] ?? String(month),
         budgetSpend: monthlyAggregate ? monthlyAggregate.budgetSpend : null,
-        pmCmWorkOrderRatio: monthlyAggregate ? monthlyAggregate.pmCmWorkOrderRatio : null,
+        pmCmWorkOrderRatio: monthlyAggregate
+          ? monthlyAggregate.pmCmWorkOrderRatio
+          : null,
         pmCmCostRatio: monthlyAggregate ? monthlyAggregate.pmCmCostRatio : null,
         mttrDays: monthlyAggregate ? monthlyAggregate.mttrDays : null,
         pmComplianceMonthly: standalone.pmCompliance,
         facilityUptimeMonthly: standalone.facilityUptime,
-        pmComplianceYtdAverage: monthlyAggregate ? monthlyAggregate.pmCompliance : null,
-        facilityUptimeYtdAverage: monthlyAggregate ? monthlyAggregate.facilityUptime : null,
+        pmComplianceYtdAverage: monthlyAggregate
+          ? monthlyAggregate.pmCompliance
+          : null,
+        facilityUptimeYtdAverage: monthlyAggregate
+          ? monthlyAggregate.facilityUptime
+          : null,
       });
     }
 
     // Notes and Situation correspond to the effective reporting period record.
     // Earlier-month notes are never silently relabeled as the effective month.
-    const effectiveRecord = recordForMonth(buRecords, businessUnit, reportingYear, effectiveMonth);
-    const notes = effectiveRecord?.notes ? String(effectiveRecord.notes).trim() || null : null;
+    const effectiveRecord = recordForMonth(
+      buRecords,
+      businessUnit,
+      reportingYear,
+      effectiveMonth
+    );
+    const notes = effectiveRecord?.notes
+      ? String(effectiveRecord.notes).trim() || null
+      : null;
     const situationBullets = derivedSituationForBusinessUnit(
       buRecords,
       businessUnit,
