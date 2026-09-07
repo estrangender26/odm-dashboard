@@ -288,3 +288,72 @@ describe("scorecard aggregates at the effective reporting month", () => {
     expect(bu.budgetSpend).toBeCloseTo(expectedYtdAt(year2025, 5).budgetSpend, 6);
   });
 });
+
+describe("server-side resolution over the COMPLETE portfolio (BU-scoped client must not matter)", () => {
+  // Deterministic multi-BU case from the PR #411 review:
+  //   AMD-EZ  submitted January-May only (the BU currently open in the page)
+  //   Clark Water submitted January-August
+  // The server sees every BU, so the portfolio effective month is August.
+  const amdEzThroughMay = makeYearRecords("AMD-EZ", 5);
+  const clarkThroughAugust = makeYearRecords("Clark Water", 8);
+  const portfolio = [...amdEzThroughMay, ...clarkThroughAugust];
+
+  it("resolves the portfolio latest submitted month (August), never the lagging BU's May", () => {
+    // No request month / explicit "latest": portfolio latest = August.
+    expect(resolveEffectiveReportingMonth(portfolio)).toBe(8);
+    // Explicit September (Not Submitted) -> August, NOT the BU-scoped May.
+    expect(resolveEffectiveReportingMonth(portfolio, 9)).toBe(8);
+    expect(resolveEffectiveReportingMonth(portfolio, 12)).toBe(8);
+    // Explicit May and March are valid submitted months in the full portfolio.
+    expect(resolveEffectiveReportingMonth(portfolio, 5)).toBe(5);
+    expect(resolveEffectiveReportingMonth(portfolio, 3)).toBe(3);
+  });
+
+  it("September-requested aggregates equal the August-cutoff portfolio result", () => {
+    const viaRequestedSeptember = aggregateMonthlyKpiRecords(portfolio, 2026, resolveEffectiveReportingMonth(portfolio, 9)!);
+    const viaExplicitAugust = aggregateMonthlyKpiRecords(portfolio, 2026, 8);
+    const viaDefaultLatest = aggregateMonthlyKpiRecords(portfolio, 2026, resolveEffectiveReportingMonth(portfolio)!);
+    ["pmCompliance", "facilityUptime", "budgetSpend", "pmCmWorkOrderRatio", "pmCmCostRatio", "mttrDays"].forEach((key) => {
+      const k = key as "pmCompliance";
+      expect(viaRequestedSeptember.portfolioYearAverage[k]).toBeCloseTo(viaExplicitAugust.portfolioYearAverage[k] as number, 6);
+      expect(viaRequestedSeptember.portfolioYearAverage[k]).toBeCloseTo(viaDefaultLatest.portfolioYearAverage[k] as number, 6);
+    });
+  });
+
+  it("keeps per-BU semantics at the August cutoff (lagging BU YTD through May, monthly KPIs null in August)", () => {
+    const aggregate = aggregateMonthlyKpiRecords(portfolio, 2026, 8);
+    const amdEz = aggregate.byBusinessUnitMap["AMD-EZ"];
+    // AMD-EZ has no August submission, so its monthly KPIs are null there...
+    expect(amdEz.pmCompliance).toBeNull();
+    expect(amdEz.facilityUptime).toBeNull();
+    // ...while its YTD KPIs still accumulate through its own latest data (May).
+    expect(amdEz.budgetSpend).toBeCloseTo(expectedYtdAt(amdEzThroughMay, 5).budgetSpend, 6);
+    expect(amdEz.pmCmWorkOrderRatio).toBeCloseTo(expectedYtdAt(amdEzThroughMay, 5).pmCmWorkOrderRatio, 6);
+    expect(amdEz.mttrDays).toBeCloseTo(expectedYtdAt(amdEzThroughMay, 5).mttrDays, 6);
+
+    // Clark Water is fully submitted through August: monthly KPIs = August
+    // standalone, YTD KPIs = Jan-Aug cumulative.
+    const clark = aggregate.byBusinessUnitMap["Clark Water"];
+    expect(clark.pmCompliance).toBeCloseTo(expectedMonthlyAt(clarkThroughAugust, 8).pmCompliance, 6);
+    expect(clark.facilityUptime).toBeCloseTo(expectedMonthlyAt(clarkThroughAugust, 8).facilityUptime, 6);
+    expect(clark.budgetSpend).toBeCloseTo(expectedYtdAt(clarkThroughAugust, 8).budgetSpend, 6);
+  });
+
+  it("the portfolio August cutoff is used by the cards/All-BU row, not the lagging BU window", () => {
+    const aggregate = aggregateMonthlyKpiRecords(portfolio, 2026, resolveEffectiveReportingMonth(portfolio, 9)!);
+    const pya = aggregate.portfolioYearAverage;
+    // With AMD-EZ absent in August, the portfolio PM Compliance and Facility
+    // Uptime cards are the August values of the BUs that actually submitted
+    // (Clark Water) - never the lagging BU's May figure.
+    expect(pya.pmCompliance).toBeCloseTo(expectedMonthlyAt(clarkThroughAugust, 8).pmCompliance, 6);
+    expect(pya.facilityUptime).toBeCloseTo(expectedMonthlyAt(clarkThroughAugust, 8).facilityUptime, 6);
+    // Portfolio Budget Spend card = average of the per-BU YTD percentages at
+    // the August cutoff: AMD-EZ accumulates through May only, Clark through
+    // August - August never leaks from the lagging BU.
+    const amdEzBudget = aggregate.byBusinessUnitMap["AMD-EZ"].budgetSpend as number;
+    const clarkBudget = aggregate.byBusinessUnitMap["Clark Water"].budgetSpend as number;
+    expect(pya.budgetSpend).toBeCloseTo((amdEzBudget + clarkBudget) / 2, 6);
+    expect(amdEzBudget).toBeCloseTo(expectedYtdAt(amdEzThroughMay, 5).budgetSpend, 6);
+    expect(clarkBudget).toBeCloseTo(expectedYtdAt(clarkThroughAugust, 8).budgetSpend, 6);
+  });
+});

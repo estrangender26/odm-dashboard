@@ -2836,64 +2836,33 @@ function applyPersistedMonthlyKpiRecords(records,options){
 }
 
 // ===== EFFECTIVE REPORTING MONTH =====
-// The scorecard resolves an effective reporting month before requesting the
-// aggregates that drive the Portfolio KPI Cards, the "All Business Units"
-// Summary Matrix row, and the BU summary cards/rows:
-//   - an explicitly chosen month is honored only when it contains a valid
-//     scorecard KPI submission for the selected year;
-//   - otherwise (no user month choice yet, or the chosen month is Not
-//     Submitted) the effective month is the latest submitted month of the
-//     selected reporting year.
-// Unsubmitted trailing months (for example planned-budget-only placeholder
-// rows) never act as the cutoff.
-
-function scorecardMonthHasValidSubmission(year, month){
-  var buIds = Object.keys(MonthlyScoreData || {});
-  for(var i=0;i<buIds.length;i++){
-    var buId = buIds[i];
-    if(!isValidBusinessUnitApiValue(buId))continue;
-    var yearData = MonthlyScoreData[buId] && MonthlyScoreData[buId][year];
-    if(!yearData)continue;
-    var record = yearData[month];
-    if(!record)continue;
-    for(var k=0;k<SummaryMatrixKPIs.length;k++){
-      var key = SummaryMatrixKPIs[k];
-      if(hasImportedKpiValue(record,key) || hasKpiSourceData(record,key))return true;
-    }
-  }
-  return false;
-}
-
-function latestSubmittedScorecardMonth(year){
-  for(var month=12;month>=1;month--){
-    if(scorecardMonthHasValidSubmission(year,month))return month;
-  }
-  return null;
-}
-
-function resolveEffectiveScorecardReportingMonth(year, selectedMonth){
-  if(monthlyKpiReportingMonthUserChosen && selectedMonth>=1 && selectedMonth<=12 && scorecardMonthHasValidSubmission(year,selectedMonth)){
-    return selectedMonth;
-  }
-  return latestSubmittedScorecardMonth(year) || selectedMonth;
-}
+// The SERVER is the sole authority for the effective reporting month: it
+// resolves the requested month against the COMPLETE set of business-unit
+// records for the selected year and returns effectiveReportingMonth with the
+// aggregates. The client never infers the cutoff from its (possibly BU-scoped)
+// loaded records.
+//   - an explicit user month choice is sent verbatim (reporting_month=N);
+//     the server honors it when N is a valid submitted month in the full
+//     portfolio, otherwise it rolls to the latest submitted month;
+//   - until the user makes a month choice the page sends reporting_month=latest
+//     so the default view resolves to the latest submitted month of the year.
+// After the response the month selector is synced to the server's effective
+// reporting month.
 
 async function fetchMonthlyKpiAggregates(){
   var year = getSelectedYear();
-  var selectedMonth = getSelectedMonthValue();
-  var effectiveMonth = resolveEffectiveScorecardReportingMonth(year, selectedMonth);
-  if(effectiveMonth>=1 && effectiveMonth<=12 && effectiveMonth!==selectedMonth){
-    setSelectValue('monthSel',String(effectiveMonth));
-    persistDeckContext();
-  }
-  var monthParam = '&reporting_month='+encodeURIComponent(effectiveMonth);
+  var requestedMonth = getSelectedMonthValue();
+  // Always send the user-requested month. Before the first manual month change
+  // the request is explicitly "latest" so the default view uses the portfolio's
+  // latest submitted month instead of a locally guessed month.
+  var monthParam = monthlyKpiReportingMonthUserChosen
+    ? '&reporting_month='+encodeURIComponent(requestedMonth)
+    : '&reporting_month=latest';
   var res = await fetch('/api/monthly-kpi/aggregates?reporting_year='+encodeURIComponent(year)+monthParam,{cache:'no-store',headers:{'Accept':'application/json','Cache-Control':'no-cache'}});
   var payload = await res.json().catch(function(){return {};});
   if(!res.ok)throw new Error(payload.error || 'Unable to load Monthly KPI aggregates.');
   KpiAggregates = normalizeKpiAggregates(payload);
-  // The server is the authoritative resolver because it sees every BU record.
-  // If its effective reporting month differs from the local resolution, keep
-  // the month selector (and persisted context) in sync with it.
+  // Reflect the server-authoritative effective reporting month in the selector.
   var serverEffective = payload && payload.effectiveReportingMonth ? Number(payload.effectiveReportingMonth) : null;
   if(serverEffective && serverEffective>=1 && serverEffective<=12 && serverEffective!==Number(getSelectedMonthValue())){
     setSelectValue('monthSel',String(serverEffective));

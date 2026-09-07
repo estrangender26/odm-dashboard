@@ -181,23 +181,25 @@ describe("Monthly KPI records API", () => {
     expect(normalizer).toContain('input?.business_unit ?? input?.businessUnit ?? fallbackBusinessUnit ?? ""');
   });
 
-  it("resolves the effective reporting month for the aggregates response when a month is requested", () => {
+  it("resolves the effective reporting month on the server when a month is requested", () => {
     const aggregatesQuery = sourceBlock(
       "async function fetchMonthlyKpiAggregateForResponse",
       'app.get("/api/monthly-kpi/records"',
     );
+    const aggregatesRoute = routeBlock("get", "/api/monthly-kpi/aggregates");
 
-    // The aggregates endpoint must honor an explicit submitted month but roll
-    // an unsubmitted selection (and monthless annual exports keep their
-    // full-year semantics) forward to the latest submitted month of the year.
-    expectInOrder(aggregatesQuery, [
-      "const records = rowsFromDb<PersistedMonthlyKpiRecord>(rows);",
-      "resolveEffectiveReportingMonth(records, reportingMonth)",
-      "aggregateMonthlyKpiRecords(records, reportingYear, effectiveReportingMonth ?? undefined)",
-      "requestedReportingMonth: reportingMonth",
-      "effectiveReportingMonth",
-    ]);
-    expect(aggregatesQuery).toContain("reportingMonth !== undefined && reportingMonth >= 1 && reportingMonth <= 12");
+    // The aggregates endpoint must honor an explicit submitted month, roll an
+    // unsubmitted selection to the latest submitted month of the year, and
+    // support an explicit "latest" request for the default view. Monthless
+    // requests (annual exports) keep their full-year semantics.
+    expect(aggregatesQuery).toContain("const records = rowsFromDb<PersistedMonthlyKpiRecord>(rows);");
+    expect(aggregatesQuery).toContain('reportingMonth === "latest"');
+    expect(aggregatesQuery).toContain("resolveEffectiveReportingMonth(records, reportingMonth)");
+    expect(aggregatesQuery).toContain("aggregateMonthlyKpiRecords(records, reportingYear, effectiveReportingMonth ?? undefined)");
+    expectInOrder(aggregatesQuery, ["requestedReportingMonth: reportingMonth", "effectiveReportingMonth,"]);
+    // The route parser accepts a numeric month 1-12 or the literal "latest".
+    expect(aggregatesRoute).toContain('rawReportingMonth === "latest"');
+    expect(aggregatesRoute).toContain('error: "reporting_month query parameter must be a month between 1 and 12, or \'latest\'"');
   });
 
   it("imports the effective reporting month resolver from the shared aggregation module", () => {
