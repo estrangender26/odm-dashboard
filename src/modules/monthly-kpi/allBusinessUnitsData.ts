@@ -104,7 +104,9 @@ export interface BusinessUnitDeckSection {
   trends: BusinessUnitTrendPoint[];
   notes: string | null;
   situationBullets: string[];
-  /** Effective period actually used for this BU (portfolio E capped by BU data). */
+  /** Slide reporting period: the ONE common portfolio effective month for the
+   * whole deck (never a per-BU relabel). Chart data may stop at the BU's own
+   * last submitted month, but the slide header stays the common period. */
   reportingMonth: number;
   reportingMonthLabel: string;
 }
@@ -225,46 +227,53 @@ function derivedSituationForBusinessUnit(
     if (!reasons.includes(message)) reasons.push(message);
   };
 
-  const pmCompliance = record ? computeMonthlyKpiValuesFromRaw(record).pmCompliance : null;
-  if (pmCompliance === null && record && normalizeKpiNumber(record.total_pm_orders) === 0) push("Not Applicable (no PM orders)");
-  if (pmCompliance === null && !(record && normalizeKpiNumber(record.total_pm_orders) === 0)) push("PM Compliance not submitted");
+  // A KPI is "submitted" for the period when valid raw source data or a valid
+  // stored KPI value exists. Only genuinely missing KPIs may receive a
+  // "not submitted" bullet; neutral reasons are emitted only for the exact
+  // authoritative conditions that make the KPI non-computable.
+  const has = (key: ScorecardKpiKey2) => !!record && kpiIsPresentForRecord(record, key);
 
-  const uptime = record ? computeMonthlyKpiValuesFromRaw(record).facilityUptime : null;
-  if (uptime === null && record && normalizeKpiNumber(record.facility_operating_time) === 0) push("Not Applicable (no operating time)");
-  if (uptime === null && !(record && normalizeKpiNumber(record.facility_operating_time) === 0)) push("Facility Uptime not submitted");
-
-  if (record) {
-    const budget = normalizeKpiNumber(record.budget);
-    if (budget === 0) push("No Budget");
+  if (!has("pmCompliance")) {
+    if (record && normalizeKpiNumber(record.total_pm_orders) === 0) push("Not Applicable (no PM orders)");
+    else push("PM Compliance not submitted");
   }
-  if (record && normalizeKpiNumber(record.actual_spend) === null && normalizeKpiNumber(record.budget) !== 0) {
-    push("Budget Spend not submitted");
+  if (!has("facilityUptime")) {
+    if (record && normalizeKpiNumber(record.facility_operating_time) === 0) push("Not Applicable (no operating time)");
+    else push("Facility Uptime not submitted");
   }
-
-  const pmWo = normalizeKpiNumber(record?.pm_work_orders);
-  const cmWo = normalizeKpiNumber(record?.cm_work_orders);
-  if (record && pmWo !== null && cmWo !== null && (pmWo as number) + (cmWo as number) === 0) push("No Work Orders");
-  if (record && !(pmWo !== null && cmWo !== null && (pmWo as number) + (cmWo as number) === 0)) push("PM:CM Work Orders not submitted");
-
-  const repairs = normalizeKpiNumber(record?.repair_count ?? record?.number_of_repairs);
-  const downtime = normalizeKpiNumber(record?.mttr_downtime ?? record?.total_downtime);
-  if (record && repairs !== null && ((repairs as number) <= 0 || downtime === 0)) push("No Qualifying Downtime");
-  if (record && !(repairs !== null && ((repairs as number) <= 0 || downtime === 0))) push("MTTR not submitted");
-
-  const cmCost = normalizeKpiNumber(record?.cm_cost);
-  if (record && cmCost === 0) push("No CM Cost");
-  if (record && cmCost !== 0) push("PM:CM Cost not submitted");
-
+  if (!has("budgetSpend")) {
+    if (record && normalizeKpiNumber(record.budget) === 0) push("No Budget");
+    else push("Budget Spend not submitted");
+  }
+  if (!has("pmCmWorkOrderRatio")) {
+    const pm = record ? normalizeKpiNumber(record.pm_work_orders) : null;
+    const cm = record ? normalizeKpiNumber(record.cm_work_orders) : null;
+    if (pm === 0 && cm === 0) push("No Work Orders");
+    else push("PM:CM Work Orders not submitted");
+  }
+  if (!has("pmCmCostRatio")) {
+    const cm = record ? normalizeKpiNumber(record.cm_cost) : null;
+    // The ratio is non-computable AND there is definitively no CM cost value
+    // in the record: the authoritative neutral reason is "No CM Cost", never a
+    // false "PM:CM Cost not submitted". A present, non-zero cm_cost with the
+    // PM side also present is computable and therefore already skipped by has().
+    if (cm === 0) push("No CM Cost");
+    else push("PM:CM Cost not submitted");
+  }
+  if (!has("mttrDays")) {
+    const repairs = record
+      ? normalizeKpiNumber(record.repair_count) ?? normalizeKpiNumber(record.number_of_repairs)
+      : null;
+    const downtime = record
+      ? normalizeKpiNumber(record.mttr_downtime) ?? normalizeKpiNumber(record.total_downtime)
+      : null;
+    const monthlyMttr = record ? normalizeKpiNumber(record.mttr_days) : null;
+    if (repairs === 0 || (downtime === 0 && monthlyMttr === 0)) push("No Qualifying Downtime");
+    else push("MTTR not submitted");
+  }
   return reasons;
 }
 
-/**
- * Shape the All-Business-Units deck data.
- *
- * `requestedMonth` is the month chosen in the Presentation Center; when it has
- * no valid portfolio submission the effective month falls back to the latest
- * submitted month of the year (server-authoritative resolution).
- */
 export function buildAllBusinessUnitsDeckData(
   records: PersistedMonthlyKpiRecord[],
   reportingYear: number,
@@ -292,23 +301,31 @@ export function buildAllBusinessUnitsDeckData(
         normalizeBusinessUnitLabel(record.business_unit) === businessUnit &&
         Number(record.reporting_year) === reportingYear
     );
-    // The BU's own last submitted month inside the portfolio effective window.
-    const buCap =
+    // The BU's own last actual submitted month inside the common effective
+    // window (charts stop there; slide headers still use the common period).
+    const buLastSubmitted =
       effectiveMonth >= 1
         ? latestSubmittedMonthForBusinessUnit(buRecords, businessUnit, reportingYear, effectiveMonth)
         : 0;
-    const reportingMonth = buCap > 0 ? buCap : effectiveMonth;
+    const reportingMonth = effectiveMonth;
+    const reportingMonthLabel =
+      effectiveMonth >= 1
+        ? `${MONTH_NAMES[effectiveMonth - 1] ?? ""} ${reportingYear}`.trim()
+        : "";
 
     let summary: MonthlyKpiKpiValue2[];
     if (effectiveAggregate) {
       const aggregate = effectiveAggregate.byBusinessUnitMap[businessUnit];
-      summary = SCORECARD_KPI_KEYS.map((key) => ({
-        key,
-        label: KPI_DISPLAY[key],
-        value: aggregate ? aggregate[key as keyof typeof aggregate] as number | null : null,
-        formatted: aggregate ? formatValue(key, aggregate[key as keyof typeof aggregate] as number | null) : "No Data",
-        benchmark: benchmarkText(key),
-      }));
+      summary = SCORECARD_KPI_KEYS.map((key) => {
+        const value = aggregate ? (aggregate[key] as number | null) : null;
+        return {
+          key,
+          label: KPI_DISPLAY[key],
+          value,
+          formatted: value === null || value === undefined ? "No Data" : formatValue(key, value),
+          benchmark: benchmarkText(key),
+        };
+      });
     } else {
       summary = SCORECARD_KPI_KEYS.map((key) => ({
         key,
@@ -320,7 +337,7 @@ export function buildAllBusinessUnitsDeckData(
     }
 
     const trends: BusinessUnitTrendPoint[] = [];
-    const trendEnd = Math.max(0, Math.min(effectiveMonth, reportingMonth));
+    const trendEnd = Math.max(0, Math.min(effectiveMonth, buLastSubmitted));
     for (let month = 1; month <= trendEnd; month += 1) {
       const monthlyAggregate = aggregateAt(month).byBusinessUnitMap[businessUnit];
       const record = recordForMonth(buRecords, businessUnit, reportingYear, month);
@@ -339,13 +356,15 @@ export function buildAllBusinessUnitsDeckData(
       });
     }
 
-    const effectiveRecord = recordForMonth(buRecords, businessUnit, reportingYear, reportingMonth);
+    // Notes and Situation correspond to the effective reporting period record.
+    // Earlier-month notes are never silently relabeled as the effective month.
+    const effectiveRecord = recordForMonth(buRecords, businessUnit, reportingYear, effectiveMonth);
     const notes = effectiveRecord?.notes ? String(effectiveRecord.notes).trim() || null : null;
     const situationBullets = derivedSituationForBusinessUnit(
       buRecords,
       businessUnit,
       reportingYear,
-      reportingMonth
+      effectiveMonth
     );
 
     return {
@@ -355,11 +374,11 @@ export function buildAllBusinessUnitsDeckData(
       notes,
       situationBullets,
       reportingMonth,
-      reportingMonthLabel: `${MONTH_NAMES[reportingMonth - 1] ?? ""} ${reportingYear}`.trim(),
+      reportingMonthLabel,
     };
   });
 
-  const effectiveLabel =
+  const effectiveMonthLabel =
     effectiveMonth >= 1
       ? `${MONTH_NAMES[effectiveMonth - 1] ?? ""} ${reportingYear}`.trim()
       : `${requestedMonth ?? ""} ${reportingYear}`.trim();
@@ -368,7 +387,7 @@ export function buildAllBusinessUnitsDeckData(
     reportingYear,
     requestedReportingMonth: requestedMonth ?? effectiveMonth,
     effectiveReportingMonth: effectiveMonth,
-    effectiveReportingMonthLabel: effectiveLabel,
+    effectiveReportingMonthLabel: effectiveMonthLabel,
     sections,
   };
 }
