@@ -15,6 +15,8 @@ import {
   normalizeKpiNumber,
   type PersistedMonthlyKpiRecord,
 } from "./kpiAggregation";
+import { buildAllBusinessUnitsDeckData } from "./allBusinessUnitsData";
+import { generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
 import {
   evaluateKpiStatus,
   formatThresholdBenchmark,
@@ -239,16 +241,9 @@ function buildExecutiveReadout(
   };
 }
 
-export async function fetchMonthlyKpiPresentationData(
-  reportingYear: number,
-  reportingMonth: number,
-  selectedBusinessUnit?: string | null
-): Promise<MonthlyKpiPresentation> {
-  const normalizedSelection = selectedBusinessUnit
-    ? normalizeBusinessUnitLabel(selectedBusinessUnit)
-    : ALL_BUSINESS_UNITS_LABEL;
 
-  const result = await db.execute(sql`
+function monthlyKpiYearRowSelect(reportingYear: number) {
+  return sql`
     SELECT
       id,
       business_unit,
@@ -283,14 +278,18 @@ export async function fetchMonthlyKpiPresentationData(
     FROM monthly_kpi_records
     WHERE reporting_year = ${reportingYear}
     ORDER BY business_unit ASC, reporting_month ASC
-  `);
+  `;
+}
 
+async function fetchMonthlyKpiYearRows(
+  reportingYear: number
+): Promise<PersistedMonthlyKpiRecord[]> {
+  const result = await db.execute(monthlyKpiYearRowSelect(reportingYear));
   const rows = rowsFromDb(result);
   if (rows.length === 0) {
     throw new Error("No Monthly KPI records exist for the selected reporting year.");
   }
-
-  const records = rows.map((row) => ({
+  return rows.map((row) => ({
     id: row.id,
     business_unit: row.business_unit,
     reporting_month: row.reporting_month,
@@ -322,6 +321,46 @@ export async function fetchMonthlyKpiPresentationData(
     notes: row.notes,
     raw_imported_values: row.raw_imported_values,
   })) as PersistedMonthlyKpiRecord[];
+}
+
+/**
+ * Generate the All-Business-Units Monthly KPI deck (programmatic pptxgenjs).
+ *
+ * The requested month is the month chosen in the Presentation Center; the
+ * effective reporting month is resolved server-side over the complete yearly
+ * portfolio record set (see resolveEffectiveReportingMonth), so an unsubmitted
+ * requested month falls back to the latest submitted month.
+ */
+export async function generateAllBusinessUnitsMonthlyKpiPptx(
+  reportingYear: number,
+  requestedMonth: number
+): Promise<{
+  blob: Blob;
+  effectiveMonth: number;
+  effectiveMonthLabel: string;
+  businessUnitCount: number;
+}> {
+  const records = await fetchMonthlyKpiYearRows(reportingYear);
+  const data = buildAllBusinessUnitsDeckData(records, reportingYear, requestedMonth);
+  const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+  return {
+    blob,
+    effectiveMonth: data.effectiveReportingMonth,
+    effectiveMonthLabel: data.effectiveReportingMonthLabel,
+    businessUnitCount: data.sections.length,
+  };
+}
+
+export async function fetchMonthlyKpiPresentationData(
+  reportingYear: number,
+  reportingMonth: number,
+  selectedBusinessUnit?: string | null
+): Promise<MonthlyKpiPresentation> {
+  const normalizedSelection = selectedBusinessUnit
+    ? normalizeBusinessUnitLabel(selectedBusinessUnit)
+    : ALL_BUSINESS_UNITS_LABEL;
+
+  const records = await fetchMonthlyKpiYearRows(reportingYear);
 
   const aggregateResult = aggregateMonthlyKpiRecords(records, reportingYear, reportingMonth);
   const allBus = aggregateResult.byBusinessUnit.map((agg) => buildScorecard(records, agg));

@@ -1403,7 +1403,12 @@ async function generateMonthlyKpiExecutiveScorecard(
   const params = new URLSearchParams();
   params.set("reporting_year", String(request.reportingYear));
   params.set("reporting_month", String(request.reportingMonth));
-  if (request.businessUnit && request.businessUnit !== ALL_BUSINESS_UNITS_LABEL) {
+  const isAllBusinessUnits = request.businessUnit === ALL_BUSINESS_UNITS_LABEL;
+  if (isAllBusinessUnits) {
+    // All-Business-Units deck: generated server-side in one run with two
+    // slides per BU (KPI Summary + KPI Trends) via the programmatic pipeline.
+    params.set("all_business_units", "1");
+  } else if (request.businessUnit) {
     params.set("business_unit", request.businessUnit);
   }
 
@@ -1416,7 +1421,9 @@ async function generateMonthlyKpiExecutiveScorecard(
   const dataUrl = await blobToDataUrl(blob);
   const generatedAt = new Date().toISOString();
   const monthName = MONTH_NAMES[request.reportingMonth - 1] ?? String(request.reportingMonth);
-  const name = `Monthly KPI Executive Scorecard - ${monthName} ${request.reportingYear}.pptx`;
+  const name = isAllBusinessUnits
+    ? `Monthly KPI Scorecard - All Business Units - ${monthName} ${request.reportingYear}.pptx`
+    : `Monthly KPI Executive Scorecard - ${monthName} ${request.reportingYear}.pptx`;
 
   return {
     id: `monthly-kpi-executive-${Date.now()}`,

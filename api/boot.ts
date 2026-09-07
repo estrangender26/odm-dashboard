@@ -1906,6 +1906,24 @@ app.get("/api/monthly-kpi/presentation/generate", async (c) => {
 
     console.log("[MONTHLY-KPI-PRESENTATION-GENERATE] Generating deck for", reportingYear, reportingMonth);
 
+    const allBusinessUnitsParam = c.req.query("all_business_units");
+    const generateAllBusinessUnits =
+      allBusinessUnitsParam === "1" || String(allBusinessUnitsParam).toLowerCase() === "true";
+
+    if (generateAllBusinessUnits) {
+      const { generateAllBusinessUnitsMonthlyKpiPptx } = await import("../src/modules/monthly-kpi/adapter.server");
+      const result = await generateAllBusinessUnitsMonthlyKpiPptx(reportingYear, reportingMonth);
+      const arrayBuffer = await result.blob.arrayBuffer();
+      const filename = `Monthly KPI Scorecard - All Business Units - ${result.effectiveMonthLabel}.pptx`;
+      console.log(
+        `[MONTHLY-KPI-PRESENTATION-GENERATE] All-BU deck rendered with effective month ${result.effectiveMonth} for ${result.businessUnitCount} business unit(s) (${result.blob.size} bytes)`
+      );
+      return c.body(arrayBuffer, 200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      });
+    }
+
     const { fetchMonthlyKpiPresentationData } = await import("../src/modules/monthly-kpi/adapter.server");
     const { generateMonthlyKpiPresentation } = await import("../src/modules/monthly-kpi/templateGenerator");
 
