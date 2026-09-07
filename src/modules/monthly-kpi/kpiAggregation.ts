@@ -61,6 +61,15 @@ export type BusinessUnitKpiAggregate = MonthlyKpiValues & {
 
 export type MonthlyKpiAggregateResult = {
   reportingYear: number;
+  /**
+   * Per-business-unit values shown by the scorecard Summary Matrix and KPI
+   * cards for the reporting period. When a month is selected, PM Compliance
+   * and Facility Uptime carry that month's standalone value only, while Budget
+   * Spend, PM:CM Work Orders, PM:CM Cost, and MTTR carry their YTD cumulative
+   * value through the selected month. Without a month the full-year value is
+   * produced (YTD keys stay cumulative; PM Compliance and Facility Uptime use
+   * their established annual averages).
+   */
   byBusinessUnit: BusinessUnitKpiAggregate[];
   byBusinessUnitMap: Record<string, BusinessUnitKpiAggregate>;
   portfolioYearAverage: MonthlyKpiValues;
@@ -584,20 +593,17 @@ function aggregateRecordsForBusinessUnit(
     }
 
     if (MONTHLY_ONLY_KEYS.includes(key)) {
-      // Running average of monthly KPI values up to the selected month.
-      // All KPIs use the same common cutoff (selectedMonth).
-      const kpiRecords = kpiSpecificYtdRecords(key, records, selectedMonth);
-      const values: number[] = [];
-      kpiRecords.forEach((record) => {
-        if (hasRawInputForKpi(key, record)) {
-          const computed = computeMonthlyKpiValue(key, record);
-          if (computed !== null) values.push(computed);
-        } else if (hasImportedKpiValue(record, key)) {
-          const stored = normalizeKpiNumber(record[sourceFieldByKpiKey[key]]);
-          if (stored !== null) values.push(stored);
-        }
-      });
-      aggregate[key] = averageKpiValues(values);
+      // Monthly KPIs (PM Compliance, Facility Uptime) report the selected
+      // month's own result only. The month selector is the reporting cutoff for
+      // these KPIs, matching the monthly imported records table and the Monthly
+      // Actual chart series. They are deliberately NOT averaged or accumulated
+      // across the January-to-selected-month window.
+      const monthRecord = selectedMonthRecord(records, selectedMonth);
+      if (monthRecord && hasRawInputForKpi(key, monthRecord)) {
+        aggregate[key] = computeMonthlyKpiValue(key, monthRecord);
+      } else if (monthRecord && hasImportedKpiValue(monthRecord, key)) {
+        aggregate[key] = normalizeKpiNumber(monthRecord[sourceFieldByKpiKey[key]]);
+      }
       return;
     }
 
@@ -678,10 +684,18 @@ export function aggregateMonthlyKpiRecords(
   }, {});
 
   const portfolioYearAverage = emptyKpiValues();
+  // The "All Business Units" row and the Portfolio Average KPI Cards respect
+  // the same reporting cutoff as the per-Business-Unit rows. For MTTR the
+  // portfolio value is weighted across all BU records (SUM downtime / SUM
+  // repairs) over the months from January through the selected month; when no
+  // month is chosen the full year is used.
+  const portfolioMttrRecords =
+    selectedMonth === undefined
+      ? yearlyRecords
+      : yearlyRecords.filter((record) => Number(record.reporting_month) >= 1 && Number(record.reporting_month) <= selectedMonth);
   monthlyKpiKeys.forEach((key) => {
     if (key === "mttrDays") {
-      // All-BU MTTR = total downtime / total repairs across all yearly records.
-      portfolioYearAverage[key] = mttrWeightedValue(yearlyRecords);
+      portfolioYearAverage[key] = mttrWeightedValue(portfolioMttrRecords);
     } else {
       portfolioYearAverage[key] = averageKpiValues(byBusinessUnit.map((aggregate) => aggregate[key]));
     }

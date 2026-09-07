@@ -231,7 +231,7 @@ describe("aggregateMonthlyKpiRecords", () => {
     }
   });
 
-  it("uses running average up to selected month for PM Compliance", () => {
+  it("keeps PM Compliance at the selected month's standalone value only", () => {
     const result = aggregateMonthlyKpiRecords(
       [
         { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, pm_orders_completed_on_time: 90, total_pm_orders: 100 },
@@ -240,10 +240,12 @@ describe("aggregateMonthlyKpiRecords", () => {
       2026,
       2
     );
-    expect(result.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo((90 + 95) / 2, 2);
+    // PM Compliance is a monthly KPI: February shows February's 95, not the
+    // January-February running average (92.5) and not any YTD cumulative value.
+    expect(result.byBusinessUnitMap["AMD-EZ"].pmCompliance).toBeCloseTo(95, 2);
   });
 
-  it("uses running average up to selected month for Facility Uptime", () => {
+  it("keeps Facility Uptime at the selected month's standalone value only", () => {
     const result = aggregateMonthlyKpiRecords(
       [
         { ...base, business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 1, total_operating_time: 720, total_downtime: 10 },
@@ -252,7 +254,9 @@ describe("aggregateMonthlyKpiRecords", () => {
       2026,
       2
     );
-    expect(result.byBusinessUnitMap["AMD-EZ"].facilityUptime).toBeCloseTo(98.80555555555556, 2);
+    const feb = ((700 - 7) / 700) * 100;
+    expect(result.byBusinessUnitMap["AMD-EZ"].facilityUptime).toBeCloseTo(feb, 2);
+    expect(result.byBusinessUnitMap["AMD-EZ"].facilityUptime).not.toBeCloseTo(98.80555555555556, 2);
   });
 
   it("recomputes PM:CM Work Order Ratio as YTD cumulative", () => {
@@ -506,10 +510,7 @@ describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", (
     const result = aggregateMonthlyKpiRecords(records, 2026, 5);
     const amdEz = result.byBusinessUnitMap["AMD-EZ"];
 
-    // All KPIs should only use Jan-May data, NOT June
-    // PM Compliance: average of Jan-May [100, 98, 97, 99, 96] = 98.0
-    expect(amdEz.pmCompliance).toBeCloseTo(98.0, 1);
-
+    // YTD KPIs use January-May data, NOT June.
     // Budget Spend: cumulative Jan-May (90+95+92+98+94) / 500 * 100 = 93.8
     expect(amdEz.budgetSpend).toBeCloseTo(93.8, 1);
 
@@ -525,8 +526,11 @@ describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", (
     // MTTR: cumulative Jan-May downtime/repairs = 50/10 = 5.0
     expect(amdEz.mttrDays).toBeCloseTo(5.0, 1);
 
-    // Facility Uptime: average of Jan-May [99, 98, 99, 100, 98] = 98.8
-    expect(amdEz.facilityUptime).toBeCloseTo(98.8, 1);
+    // PM Compliance and Facility Uptime are monthly KPIs: May shows May's own
+    // standalone value (96 and 98 respectively), not the Jan-May running
+    // averages (98.0 and 98.8).
+    expect(amdEz.pmCompliance).toBeCloseTo(96, 1);
+    expect(amdEz.facilityUptime).toBeCloseTo(98, 1);
   });
 
   it("includes June for all KPIs when selectedMonth is June (6)", () => {
@@ -544,10 +548,7 @@ describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", (
     const result = aggregateMonthlyKpiRecords(records, 2026, 6);
     const amdEz = result.byBusinessUnitMap["AMD-EZ"];
 
-    // All KPIs should include Jan-June data
-    // PM Compliance: average of [100, 98, 97, 99, 96, 95] = 97.5
-    expect(amdEz.pmCompliance).toBeCloseTo(97.5, 1);
-
+    // YTD KPIs include Jan-June data
     // Budget Spend: cumulative (90+95+92+98+94+91) / 600 * 100 = 560/600 * 100 = 93.33
     expect(amdEz.budgetSpend).toBeCloseTo((560/600)*100, 1);
 
@@ -557,8 +558,11 @@ describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", (
     // MTTR: cumulative (58/12) = 4.833
     expect(amdEz.mttrDays).toBeCloseTo(58/12, 1);
 
-    // Facility Uptime: average of [99, 98, 99, 100, 98, 100] = 99.0
-    expect(amdEz.facilityUptime).toBeCloseTo(99.0, 1);
+    // PM Compliance and Facility Uptime are monthly KPIs: June shows June's own
+    // standalone value (95 and 100 respectively), not the Jan-June running
+    // averages (97.5 and 99.0).
+    expect(amdEz.pmCompliance).toBeCloseTo(95, 1);
+    expect(amdEz.facilityUptime).toBeCloseTo(100, 1);
   });
 
   it("preserves Budget Spend cutoff behavior with numeric zero inside selected period", () => {
@@ -581,7 +585,7 @@ describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", (
     expect(amdEz.budgetSpend).toBeCloseTo(25, 1);
   });
 
-  it("handles blank values within selected period without extending cutoff", () => {
+  it("uses June's PM Compliance value while Budget Spend YTD stops at the latest actual month (May)", () => {
     // June has PM Compliance but no Budget Spend
     // When selectedMonth=6, June PM Compliance should be included
     // But June Budget Spend should be null (blank)
@@ -599,8 +603,9 @@ describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", (
     const result = aggregateMonthlyKpiRecords(records, 2026, 6);
     const amdEz = result.byBusinessUnitMap["AMD-EZ"];
 
-    // PM Compliance includes June (has data): average of 6 months = 97.5
-    expect(amdEz.pmCompliance).toBeCloseTo(97.5, 1);
+    // PM Compliance is a monthly KPI: June shows June's own value (95) even
+    // though earlier months are part of the same reporting year.
+    expect(amdEz.pmCompliance).toBeCloseTo(95, 1);
 
     // Budget Spend should be cumulative through May only (June is blank)
     // (90+95+92+98+94) / 500 * 100 = 93.8
@@ -619,9 +624,9 @@ describe("Common cutoff behavior (all KPIs use selectedMonth as upper bound)", (
     const result = aggregateMonthlyKpiRecords(records, 2026, 6);
     const amdEz = result.byBusinessUnitMap["AMD-EZ"];
 
-    // Both KPIs should stop at June, not include October
-    // PM Compliance: average of [100, 95] = 97.5 (only months 1 and 6)
-    expect(amdEz.pmCompliance).toBeCloseTo(97.5, 1);
+    // No KPI may use data beyond June (October is excluded). PM Compliance is
+    // a monthly KPI, so it shows June's own value (95), not an average.
+    expect(amdEz.pmCompliance).toBeCloseTo(95, 1);
 
     // Budget Spend: cumulative (90+91) / 200 * 100 = 90.5
     expect(amdEz.budgetSpend).toBeCloseTo(90.5, 1);
