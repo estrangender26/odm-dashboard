@@ -1116,6 +1116,112 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(commentaryHtml).not.toContain("Laguna Water");
   });
 
+  it("renders the same values in the Summary Matrix All Business Units row and the Portfolio Average KPI Cards", () => {
+    const scorecardScript = extractScorecardScript();
+    type TestElement = {
+      id: string;
+      value: string;
+      innerHTML: string;
+      addEventListener: () => void;
+      appendChild: () => void;
+      remove: () => void;
+      classList: ReturnType<typeof createClassList>;
+      style: Record<string, string>;
+      querySelector: () => null;
+      querySelectorAll: () => never[];
+    };
+    const elements: Record<string, TestElement> = {};
+    const getElement = (id: string): TestElement => {
+      if (!elements[id]) {
+        elements[id] = {
+          id,
+          value: id === "yearSel" ? "2026" : id === "monthSel" ? "5" : "",
+          innerHTML: "",
+          addEventListener() {},
+          appendChild() {},
+          remove() {},
+          classList: createClassList(id === "t-summary" ? "tc active" : ""),
+          style: {},
+          querySelector() { return null; },
+          querySelectorAll() { return []; },
+        };
+      }
+      return elements[id];
+    };
+    const context = {
+      console,
+      setTimeout,
+      clearTimeout,
+      URLSearchParams,
+      document: {
+        body: getElement("body"),
+        addEventListener() {},
+        createElement() { return getElement("created"); },
+        getElementById: getElement,
+        querySelector(selector: string) {
+          if (selector === ".tc.active") return getElement("t-summary");
+          return getElement("query");
+        },
+        querySelectorAll() { return []; },
+      },
+      localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+      window: {},
+      fetch() {},
+    };
+    vm.createContext(context);
+    vm.runInContext(scorecardScript, context);
+    const runnableContext = context as typeof context & {
+      KpiAggregates: NormalizedAggregateResponse;
+      normalizeKpiAggregates: (aggregates: unknown) => NormalizedAggregateResponse;
+      applyPersistedMonthlyKpiRecords: (records: unknown[], options?: { reset?: boolean }) => void;
+      renderSummary: () => void;
+      renderGauges: (buId: string) => void;
+      getBusinessUnitPanelIdBySection: (buId: string, section: string) => string;
+    };
+
+    // Canned aggregates as returned by /api/monthly-kpi/aggregates for the
+    // selected month. The All Business Units Summary row and the Portfolio
+    // Average KPI Cards both read portfolioYearAverage, so one value per KPI
+    // must render in both places.
+    runnableContext.KpiAggregates = runnableContext.normalizeKpiAggregates({
+      reportingYear: 2026,
+      byBusinessUnit: [
+        { businessUnit: "AMD-EZ", reportingYear: 2026, recordCount: 1, pmCompliance: 98, budgetSpend: 100, pmCmWorkOrderRatio: 90, pmCmCostRatio: 70, mttrDays: 3, facilityUptime: 100 },
+        { businessUnit: "Clark Water", reportingYear: 2026, recordCount: 1, pmCompliance: 97, budgetSpend: 99, pmCmWorkOrderRatio: 88, pmCmCostRatio: 65, mttrDays: 2, facilityUptime: 99.98 },
+      ],
+      byBusinessUnitMap: {
+        "AMD-EZ": { businessUnit: "AMD-EZ", reportingYear: 2026, recordCount: 1, pmCompliance: 98, budgetSpend: 100, pmCmWorkOrderRatio: 90, pmCmCostRatio: 70, mttrDays: 3, facilityUptime: 100 },
+        "Clark Water": { businessUnit: "Clark Water", reportingYear: 2026, recordCount: 1, pmCompliance: 97, budgetSpend: 99, pmCmWorkOrderRatio: 88, pmCmCostRatio: 65, mttrDays: 2, facilityUptime: 99.98 },
+      },
+      portfolioYearAverage: { pmCompliance: 97.5, budgetSpend: 99.5, pmCmWorkOrderRatio: 89, pmCmCostRatio: 67.5, mttrDays: 2.5, facilityUptime: 99.99 },
+      portfolioMonthlyAverages: {},
+    });
+    runnableContext.applyPersistedMonthlyKpiRecords([
+      { business_unit: "AMD-EZ", reporting_year: 2026, reporting_month: 5, pm_compliance: 98 },
+      { business_unit: "Clark Water", reporting_year: 2026, reporting_month: 5, pm_compliance: 97 },
+    ], { reset: true });
+
+    runnableContext.renderSummary();
+    runnableContext.renderGauges("summary");
+
+    const summaryHtml = elements.summaryBody.innerHTML;
+    const aggregateRow = summaryHtml.match(/<tr class="summary-aggregate-row">[\s\S]*?<\/tr>/)?.[0] ?? "";
+    const cardsHtml = elements[runnableContext.getBusinessUnitPanelIdBySection("summary", "gauges")].innerHTML;
+
+    expect(aggregateRow).toContain("All Business Units");
+    // Each portfolio KPI value appears in BOTH the All Business Units table row
+    // and the Portfolio Average KPI Cards - never a different figure.
+    ["97.50", "99.50", "89.00%", "8.1:1", "67.50%", "2.1:1", "2.50", "99.99"].forEach((token) => {
+      expect(aggregateRow, `table row should contain ${token}`).toContain(token);
+      expect(cardsHtml, `cards should contain ${token}`).toContain(token);
+    });
+    // BU rows come from the per-BU aggregates of the same response.
+    expect(summaryHtml).toContain("98.00");
+    expect(summaryHtml).toContain("100.00");
+    expect(summaryHtml).toContain("90.00%");
+    expect(summaryHtml).toContain("70.00%");
+  });
+
   it("loads BU monthly tables by selected business unit and year without a selected-month records filter", async () => {
     const requests: string[] = [];
     const context = createScorecardContext();
@@ -1521,9 +1627,11 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     // Monthly table should NOT contain running-average PM Compliance values.
     expect(html).not.toContain("91.50");
     expect(html).not.toContain("92.50");
-    // The audit subtitle explains the distinction.
+    // The audit subtitle explains the distinction between the monthly records
+    // table and the YTD/cumulative summary values.
     expect(html).toContain("Monthly table shows actual monthly imported values");
-    expect(html).toContain("KPI cards and trend charts show YTD/cumulative or running-average performance");
+    expect(html).toContain("Budget Spend, PM:CM ratios, and MTTR summary rows/cards show YTD/cumulative performance through the selected month");
+    expect(html).toContain("PM Compliance and Facility Uptime summary rows/cards show the selected month");
     expect(html).toContain("Planned shutdown completed.");
     expect(html).not.toContain("Schedule Compliance");
     expect(html).not.toContain("MTBF");
