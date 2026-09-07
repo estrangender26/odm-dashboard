@@ -1617,8 +1617,10 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(html).toContain("MTTR (Days)");
     expect(html).toContain('<th class="notes-col">Notes</th><th class="situation-col">Situation</th>');
     expect(html).toContain("Situation");
-    // The monthly table now displays actual monthly imported values, not
-    // running averages or cumulative/YTD values. Jan=91..May=95.
+    // The monthly scorecard table follows the authoritative display semantics:
+    // PM Compliance / Facility Uptime rows keep each month's standalone actual
+    // (Jan=91..May=95), while Budget Spend / PM:CM / MTTR rows show the
+    // YTD/cumulative result from January through that row's month.
     expect(html).toContain("91.00");
     expect(html).toContain("92.00");
     expect(html).toContain("93.00");
@@ -1627,12 +1629,11 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     // Monthly table should NOT contain running-average PM Compliance values.
     expect(html).not.toContain("91.50");
     expect(html).not.toContain("92.50");
-    // The audit subtitle explains the distinction between the monthly records
-    // table and the YTD/cumulative summary values.
-    expect(html).toContain("Monthly table shows actual monthly imported values");
-    expect(html).toContain("Summary rows/cards follow the effective reporting month (the latest submitted month when the selected month is Not Submitted)");
-    expect(html).toContain("Budget Spend, PM:CM ratios, and MTTR show YTD/cumulative performance through that month");
-    expect(html).toContain("PM Compliance and Facility Uptime show that month");
+    // The audit subtitle explains the row/card semantics.
+    expect(html).toContain("Rows: Budget Spend, PM:CM ratios, and MTTR are YTD/cumulative from January through each row");
+    expect(html).toContain("PM Compliance and Facility Uptime are that month");
+    expect(html).toContain("the four cumulative KPIs repeat the effective month");
+    expect(html).toContain("PM Compliance / Facility Uptime cards show the January-through-effective-month YTD average");
     expect(html).toContain("Planned shutdown completed.");
     expect(html).not.toContain("Schedule Compliance");
     expect(html).not.toContain("MTBF");
@@ -1642,6 +1643,12 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     });
     expect(populatedMonthRow("January")).toContain('<span class="kpi-dual-primary">82.00%</span><span class="kpi-dual-secondary">(4.6:1)</span>');
     expect(populatedMonthRow("January")).toContain('<span class="kpi-dual-primary">65.34%</span><span class="kpi-dual-secondary">(1.9:1)</span>');
+    // February rows are Jan-Feb cumulative, NOT the February monthly actuals:
+    // WO (82+62)/((82+62)+(18+10)) = 83.72%; Cost (6534+6400)/17400 = 74.33%.
+    expect(populatedMonthRow("February")).toContain('<span class="kpi-dual-primary">83.72%</span>');
+    expect(populatedMonthRow("February")).toContain('<span class="kpi-dual-primary">74.33%</span>');
+    expect(populatedMonthRow("February")).not.toContain('86.11%'); // February standalone WO actual
+    expect(populatedMonthRow("February")).not.toContain('86.49%'); // February standalone Cost actual
     const januaryRecord = (runnableContext as any).MonthlyScoreData.ez[2026][1];
     expect(januaryRecord.pmcmWORatio).toBeCloseTo((januaryRecord.pm_work_orders / (januaryRecord.pm_work_orders + januaryRecord.cm_work_orders)) * 100, 2);
     expect(januaryRecord.pmcmCostRatio).toBeCloseTo((januaryRecord.pm_cost / (januaryRecord.pm_cost + januaryRecord.cm_cost)) * 100, 2);
@@ -1782,14 +1789,23 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
 
     expect(situationHtml).toContain('<th class="notes-col">Notes</th><th class="situation-col">Situation</th>');
     expect(situationHtml).not.toContain("No Data");
+    // January: explicit zero submissions are preserved - PM Compliance 0.00 and
+    // cumulative WO/Cost 0.00% (Jan rows equal Jan cumulative).
     expect(januaryRow).toContain(">0.00<");
     expect(januaryRow.match(/<span class="kpi-dual-primary">0\.00%<\/span><span class="kpi-dual-secondary">\(0\.0:1\)<\/span>/g)).toHaveLength(2);
     expect(januaryRow).toContain('<td class="notes-col">Zero values recorded.</td><td class="situation-col">—</td>');
     expect(januaryRow).not.toContain("Not Submitted");
+    // February rows are Jan-Feb cumulative, not the stored monthly ratio:
+    // WO (0+1)/((0+1)+(5+0)) = 16.67%; Cost has no February source so it stays
+    // blank while the situation explains it.
     expect(februaryRow).toContain('class="kpi-missing">—</td>');
-    expect(februaryRow).toContain('<span class="kpi-dual-primary">100.00%</span><span class="kpi-dual-secondary">(No CM)</span>');
+    expect(februaryRow).toContain('<span class="kpi-dual-primary">16.67%</span><span class="kpi-dual-secondary">(0.2:1)</span>');
+    expect(februaryRow).not.toContain("100.00%");
     expect(februaryRow).toContain('<td class="notes-col">Vendor deferral; No Budget</td><td class="situation-col">No Budget; No CM Cost</td>');
     expect(februaryRow.match(/No Budget/g)).toHaveLength(2);
+    // March WO has no source (0/0 work orders) so the row stays blank for WO
+    // while the cumulative Cost row continues: (0+80)/(10+20) = 72.73%.
+    expect(marchRow).toContain('<span class="kpi-dual-primary">72.73%</span>');
     expect(marchRow).toContain('<td class="notes-col">—</td><td class="situation-col">No Work Orders; No Qualifying Downtime</td>');
     expect(aprilRow).toContain('<td class="notes-col">Budget submission received.</td><td class="situation-col">Not Submitted; No Budget</td>');
     expect(aprilRow).not.toContain("Pending");

@@ -149,6 +149,25 @@ function expectedMonthlyAt(records: PersistedMonthlyKpiRecord[], month: number) 
   };
 }
 
+/** Group B card expectation: YTD average of standalone monthly values through the month. */
+function expectedYtdAverageAt(records: PersistedMonthlyKpiRecord[], throughMonth: number) {
+  const period = records.filter(
+    (record) =>
+      Number(record.reporting_month) <= throughMonth &&
+      typeof record.pm_orders_completed_on_time === "number" &&
+      typeof record.total_pm_orders === "number"
+  );
+  const pmValues = period.map((record) => (Number(record.pm_orders_completed_on_time) / Number(record.total_pm_orders)) * 100);
+  const uptimeValues = period.map(
+    (record) =>
+      ((Number(record.facility_operating_time) - Number(record.facility_downtime)) / Number(record.facility_operating_time)) * 100
+  );
+  return {
+    pmCompliance: pmValues.reduce((a, b) => a + b, 0) / pmValues.length,
+    facilityUptime: uptimeValues.reduce((a, b) => a + b, 0) / uptimeValues.length,
+  };
+}
+
 const AMD_EZ = makeYearRecords("AMD-EZ");
 
 describe("resolveEffectiveReportingMonth", () => {
@@ -197,15 +216,17 @@ describe("resolveEffectiveReportingMonth", () => {
 });
 
 describe("scorecard aggregates at the effective reporting month", () => {
-  it("produces August standalone monthly KPIs and Jan-Aug cumulative YTD KPIs", () => {
+  it("produces Jan-Aug cumulative YTD KPIs and Jan-Aug YTD-average PM Compliance/Facility Uptime cards", () => {
     const aggregate = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 8);
     const bu = aggregate.byBusinessUnitMap["AMD-EZ"];
     const ytd = expectedYtdAt(AMD_EZ, 8);
-    const monthly = expectedMonthlyAt(AMD_EZ, 8);
+    const ytdAverage = expectedYtdAverageAt(AMD_EZ, 8);
 
-    // Monthly KPIs = August standalone only.
-    expect(bu.pmCompliance).toBeCloseTo(monthly.pmCompliance, 6);
-    expect(bu.facilityUptime).toBeCloseTo(monthly.facilityUptime, 6);
+    // PM Compliance / Facility Uptime cards are the YTD average of the
+    // standalone monthly values, never August's standalone only.
+    expect(bu.pmCompliance).toBeCloseTo(ytdAverage.pmCompliance, 6);
+    expect(bu.facilityUptime).toBeCloseTo(ytdAverage.facilityUptime, 6);
+    expect(bu.pmCompliance).not.toBeCloseTo(expectedMonthlyAt(AMD_EZ, 8).pmCompliance, 6);
     // Not August's monthly Budget Spend actual (i.e. not (810/200)*100 = 405%).
     expect(bu.budgetSpend).toBeCloseTo(ytd.budgetSpend, 6);
     expect(bu.pmCmWorkOrderRatio).toBeCloseTo(ytd.pmCmWorkOrderRatio, 6);
@@ -253,10 +274,10 @@ describe("scorecard aggregates at the effective reporting month", () => {
     const august = aggregateMonthlyKpiRecords(AMD_EZ, 2026, 8);
     const bu = march.byBusinessUnitMap["AMD-EZ"];
     const ytd = expectedYtdAt(AMD_EZ, 3);
-    const monthly = expectedMonthlyAt(AMD_EZ, 3);
+    const ytdAverage = expectedYtdAverageAt(AMD_EZ, 3);
 
-    expect(bu.pmCompliance).toBeCloseTo(monthly.pmCompliance, 6);
-    expect(bu.facilityUptime).toBeCloseTo(monthly.facilityUptime, 6);
+    expect(bu.pmCompliance).toBeCloseTo(ytdAverage.pmCompliance, 6);
+    expect(bu.facilityUptime).toBeCloseTo(ytdAverage.facilityUptime, 6);
     expect(bu.budgetSpend).toBeCloseTo(ytd.budgetSpend, 6);
     expect(bu.pmCmWorkOrderRatio).toBeCloseTo(ytd.pmCmWorkOrderRatio, 6);
     expect(bu.mttrDays).toBeCloseTo(ytd.mttrDays, 6);
@@ -270,6 +291,7 @@ describe("scorecard aggregates at the effective reporting month", () => {
     const bu = january.byBusinessUnitMap["AMD-EZ"];
     const ytd = expectedYtdAt(AMD_EZ, 1);
     const monthly = expectedMonthlyAt(AMD_EZ, 1);
+    // January: one-month YTD average equals the standalone value.
     expect(bu.pmCompliance).toBeCloseTo(monthly.pmCompliance, 6);
     expect(bu.facilityUptime).toBeCloseTo(monthly.facilityUptime, 6);
     expect(bu.budgetSpend).toBeCloseTo(ytd.budgetSpend, 6);
@@ -284,7 +306,8 @@ describe("scorecard aggregates at the effective reporting month", () => {
     expect(latest2025).toBe(5);
     const aggregate = aggregateMonthlyKpiRecords(year2025, 2025, latest2025);
     const bu = aggregate.byBusinessUnitMap["AMD-EZ"];
-    expect(bu.pmCompliance).toBeCloseTo(expectedMonthlyAt(year2025, 5).pmCompliance, 6);
+    expect(bu.pmCompliance).toBeCloseTo(expectedYtdAverageAt(year2025, 5).pmCompliance, 6);
+    expect(bu.facilityUptime).toBeCloseTo(expectedYtdAverageAt(year2025, 5).facilityUptime, 6);
     expect(bu.budgetSpend).toBeCloseTo(expectedYtdAt(year2025, 5).budgetSpend, 6);
   });
 });
@@ -320,33 +343,38 @@ describe("server-side resolution over the COMPLETE portfolio (BU-scoped client m
     });
   });
 
-  it("keeps per-BU semantics at the August cutoff (lagging BU YTD through May, monthly KPIs null in August)", () => {
+  it("keeps per-BU semantics at the August cutoff (lagging BU Group B card = its own YTD average)", () => {
     const aggregate = aggregateMonthlyKpiRecords(portfolio, 2026, 8);
     const amdEz = aggregate.byBusinessUnitMap["AMD-EZ"];
-    // AMD-EZ has no August submission, so its monthly KPIs are null there...
-    expect(amdEz.pmCompliance).toBeNull();
-    expect(amdEz.facilityUptime).toBeNull();
+    // AMD-EZ has no August submission. Its Group B KPI cards are the YTD
+    // averages through its own latest data (May), never null and never May's
+    // standalone value alone...
+    expect(amdEz.pmCompliance).toBeCloseTo(expectedYtdAverageAt(amdEzThroughMay, 5).pmCompliance, 6);
+    expect(amdEz.facilityUptime).toBeCloseTo(expectedYtdAverageAt(amdEzThroughMay, 5).facilityUptime, 6);
     // ...while its YTD KPIs still accumulate through its own latest data (May).
     expect(amdEz.budgetSpend).toBeCloseTo(expectedYtdAt(amdEzThroughMay, 5).budgetSpend, 6);
     expect(amdEz.pmCmWorkOrderRatio).toBeCloseTo(expectedYtdAt(amdEzThroughMay, 5).pmCmWorkOrderRatio, 6);
     expect(amdEz.mttrDays).toBeCloseTo(expectedYtdAt(amdEzThroughMay, 5).mttrDays, 6);
 
-    // Clark Water is fully submitted through August: monthly KPIs = August
-    // standalone, YTD KPIs = Jan-Aug cumulative.
+    // Clark Water is fully submitted through August: its Group B cards are the
+    // Jan-Aug YTD averages and its YTD KPIs are Jan-Aug cumulative.
     const clark = aggregate.byBusinessUnitMap["Clark Water"];
-    expect(clark.pmCompliance).toBeCloseTo(expectedMonthlyAt(clarkThroughAugust, 8).pmCompliance, 6);
-    expect(clark.facilityUptime).toBeCloseTo(expectedMonthlyAt(clarkThroughAugust, 8).facilityUptime, 6);
+    expect(clark.pmCompliance).toBeCloseTo(expectedYtdAverageAt(clarkThroughAugust, 8).pmCompliance, 6);
+    expect(clark.facilityUptime).toBeCloseTo(expectedYtdAverageAt(clarkThroughAugust, 8).facilityUptime, 6);
     expect(clark.budgetSpend).toBeCloseTo(expectedYtdAt(clarkThroughAugust, 8).budgetSpend, 6);
   });
 
   it("the portfolio August cutoff is used by the cards/All-BU row, not the lagging BU window", () => {
     const aggregate = aggregateMonthlyKpiRecords(portfolio, 2026, resolveEffectiveReportingMonth(portfolio, 9)!);
     const pya = aggregate.portfolioYearAverage;
-    // With AMD-EZ absent in August, the portfolio PM Compliance and Facility
-    // Uptime cards are the August values of the BUs that actually submitted
-    // (Clark Water) - never the lagging BU's May figure.
-    expect(pya.pmCompliance).toBeCloseTo(expectedMonthlyAt(clarkThroughAugust, 8).pmCompliance, 6);
-    expect(pya.facilityUptime).toBeCloseTo(expectedMonthlyAt(clarkThroughAugust, 8).facilityUptime, 6);
+    // Portfolio Group B cards = average of the per-BU YTD averages: AMD-EZ
+    // averages Jan-May while Clark averages Jan-Aug. Neither card equals the
+    // lagging BU's May standalone value nor Clark's August standalone value.
+    const amdEzPm = aggregate.byBusinessUnitMap["AMD-EZ"].pmCompliance as number;
+    const clarkPm = aggregate.byBusinessUnitMap["Clark Water"].pmCompliance as number;
+    expect(pya.pmCompliance).toBeCloseTo((amdEzPm + clarkPm) / 2, 6);
+    expect(amdEzPm).toBeCloseTo(expectedYtdAverageAt(amdEzThroughMay, 5).pmCompliance, 6);
+    expect(clarkPm).toBeCloseTo(expectedYtdAverageAt(clarkThroughAugust, 8).pmCompliance, 6);
     // Portfolio Budget Spend card = average of the per-BU YTD percentages at
     // the August cutoff: AMD-EZ accumulates through May only, Clark through
     // August - August never leaks from the lagging BU.
