@@ -910,25 +910,100 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
     expect(tagum.trends.length).toBe(6);
   });
 
-  it("trend charts keep their approved series set: benchmark reference series where applicable, none for MTTR", async () => {
+  it("Trends chart grid is exactly 3 equal columns x 2 equal rows (dashboard layout)", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    for (let i = 0; i < data.sections.length; i++) {
+      const xml = slides[2 + i * 2].xml;
+      const frames: Array<{ x: number; y: number; w: number; h: number }> = [];
+      for (const m of xml.matchAll(/<p:graphicFrame>([\s\S]*?)<\/p:graphicFrame>/g)) {
+        const off = m[1].match(/<a:off x="(\d+)" y="(\d+)"\/>/);
+        const ext = m[1].match(/<a:ext cx="(\d+)" cy="(\d+)"\/>/);
+        if (off && ext && m[1].includes("<c:chart")) {
+          frames.push({
+            x: Number(off[1]) / 914400,
+            y: Number(off[2]) / 914400,
+            w: Number(ext[1]) / 914400,
+            h: Number(ext[2]) / 914400,
+          });
+        }
+      }
+      expect(frames.length).toBe(6);
+      const topY = Math.min(...frames.map((f) => f.y));
+      const bottomY = Math.max(...frames.map((f) => f.y));
+      const topRow = frames.filter((f) => f.y === topY).sort((a, b) => a.x - b.x);
+      const bottomRow = frames.filter((f) => f.y === bottomY).sort((a, b) => a.x - b.x);
+      expect(topRow.length).toBe(3);
+      expect(bottomRow.length).toBe(3);
+      const widths = frames.map((f) => f.w);
+      expect(Math.max(...widths) - Math.min(...widths)).toBeLessThan(0.02);
+      for (let c = 0; c < 3; c++) {
+        expect(topRow[c].x).toBeCloseTo(bottomRow[c].x, 2);
+      }
+      // Top row sits strictly above the bottom row and the grid stays inside
+      // the logo-safe area.
+      expect(topY).toBeGreaterThan(0.9);
+      expect(bottomY - topY).toBeGreaterThan(1.5);
+      expect(Math.max(...frames.map((f) => f.y + f.h))).toBeLessThan(6.6);
+    }
+  });
+
+  it("combo series structure: Monthly Actual is a column and YTD/YTD-average is a line where both exist", async () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const slides = await orderedSlideXml(zip);
     const chartParts = await chartPartsForSlide(zip, slides[2].name);
     expect(chartParts.length).toBe(6);
-    const seriesCounts: number[] = [];
-    for (const part of chartParts) {
-      const xml = await zip.file(`ppt/charts/${part}`)!.async("string");
-      seriesCounts.push((xml.match(/<c:ser>/g) ?? []).length);
-    }
-    // PM Compliance, Budget, WO, Cost, Uptime carry benchmark series; MTTR has none.
-    expect(seriesCounts).toEqual([3, 3, 2, 2, 1, 3]);
-    const mttrXml = await zip.file(`ppt/charts/${chartParts[4]}`)!.async("string");
-    expect(mttrXml).not.toContain("Benchmark");
-    const budgetXml = await zip.file(`ppt/charts/${chartParts[1]}`)!.async("string");
+    const xmlOf = async (part: string) => zip.file(`ppt/charts/${part}`)!.async("string");
+
+    // PM Compliance: bar group (Monthly Actual) + line group (YTD Average + Benchmark).
+    const pmXml = await xmlOf(chartParts[0]);
+    expect(pmXml).toContain("<c:barChart>");
+    expect(pmXml).toContain('<c:barDir val="col"/>');
+    expect(pmXml).toContain("<c:lineChart>");
+    expect(pmXml).toContain("Monthly Actual");
+    expect(pmXml).toContain("YTD Average");
+    expect(pmXml).toContain("Benchmark ≥98%");
+    expect(pmXml).toContain('prstDash val="dash"');
+
+    // Facility Uptime: same combo shape.
+    const fuXml = await xmlOf(chartParts[5]);
+    expect(fuXml).toContain("<c:barChart>");
+    expect(fuXml).toContain('<c:barDir val="col"/>');
+    expect(fuXml).toContain("Monthly Actual");
+    expect(fuXml).toContain("YTD Average");
+    expect(fuXml).toContain("Benchmark =100%");
+    expect(fuXml).toContain('prstDash val="dash"');
+
+    // Group A panels (Budget/WO/Cost/MTTR): no bars - the authoritative trend
+    // model exposes only the cumulative YTD series for these KPIs, so monthly
+    // bars would be invented presentation data.
+    const budgetXml = await xmlOf(chartParts[1]);
+    expect(budgetXml).not.toContain("<c:barChart>");
     expect(budgetXml).toContain("Benchmark 95%");
     expect(budgetXml).toContain("Benchmark 105%");
+    const woXml = await xmlOf(chartParts[2]);
+    expect(woXml).not.toContain("<c:barChart>");
+    expect(woXml).toContain("Benchmark ≥86%");
+    const costXml = await xmlOf(chartParts[3]);
+    expect(costXml).not.toContain("<c:barChart>");
+    expect(costXml).toContain("Benchmark ≥80%");
+    const mttrXml = await xmlOf(chartParts[4]);
+    expect(mttrXml).not.toContain("<c:barChart>");
+    expect(mttrXml).not.toContain("Benchmark");
+    expect(mttrXml).not.toContain("dash");
+
+    // Every chart still carries its own six series totals (bar group + line
+    // group share the same underlying series).
+    const seriesCounts: number[] = [];
+    for (const part of chartParts) {
+      const xml = await xmlOf(part);
+      seriesCounts.push((xml.match(/<c:ser>/g) ?? []).length);
+    }
+    expect(seriesCounts).toEqual([3, 3, 2, 2, 1, 3]);
   });
 
   it("Group A trend final points and Group B YTD-average final points match the Slide 1 YTD values", async () => {

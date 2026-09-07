@@ -8,7 +8,9 @@
  *   slide2  the authoritative Manila Water "Monthly Reliability KPI
  *           Scorecard" slide (byte-identical to the master slide used by the
  *           single-BU executive deck)
- *   slide3  a Trends donor with six native charts (2x3 grid)
+ *   slide3  a Trends donor with six native charts (3 columns x 2 rows,
+ *           dashboard-style combo charts: monthly actual columns + YTD line
+ *           + dashed benchmark reference lines where applicable)
  *
  * plus the six chart parts + embedded workbooks the Trends donor references.
  *

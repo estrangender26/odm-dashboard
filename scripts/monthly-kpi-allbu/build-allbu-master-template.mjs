@@ -66,7 +66,7 @@ function in2emu(v) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 1. Trends donor slide — six native charts (2x3) built with pptxgenjs
+// 1. Trends donor slide — six native charts (3x2: three equal columns x two rows) built with pptxgenjs and finalized into combo form
 // ═══════════════════════════════════════════════════════════════════
 const CHART_PANELS = [
   {
@@ -123,30 +123,29 @@ const CHART_PANELS = [
 // them to any submitted window (Jan..E). Values are placeholders only.
 const SEED_CATEGORIES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function seedSeriesValues(mode) {
-  if (mode === "const") {
-    const spec = CHART_PANELS.find((p) => p.series.some((s) => s.mode === "const" && s.source === undefined && s.value !== undefined && s.mode === mode));
-    return SEED_CATEGORIES.map(() => 0);
-  }
+function seedSeriesValues() {
   return SEED_CATEGORIES.map((_, i) => 50 + ((i * 7) % 40));
 }
 
-// Geometry for the 2x3 chart grid. Titles sit 0.27 in above each plot box.
+// ── Geometry for the 3x2 chart grid (three equal columns x two rows) ──
+// Three equal chart panels across the top and three equal panels across the
+// bottom, mirroring the live Monthly KPI dashboard Trends view.
 const CHART_GRID = {
-  gapX: 0.35,
-  gapY: 0.16,
-  marginX: 0.4,
-  row1Y: 1.1,
-  chartW: 6.09,
-  chartH: 1.52,
-  titleH: 0.22,
+  marginX: 0.42,
+  gapX: 0.3,
+  row1Y: 1.16,
+  rowGapY: 0.46,
+  chartH: 2.42,
+  titleH: 0.24,
 };
+CHART_GRID.chartW = (13.333 - CHART_GRID.marginX * 2 - CHART_GRID.gapX * 2) / 3;
+CHART_GRID.cols = 3;
 
 function panelPosition(index) {
-  const row = Math.floor(index / 2);
-  const col = index % 2;
+  const row = Math.floor(index / CHART_GRID.cols);
+  const col = index % CHART_GRID.cols;
   const x = CHART_GRID.marginX + col * (CHART_GRID.chartW + CHART_GRID.gapX);
-  const y = CHART_GRID.row1Y + row * (CHART_GRID.chartH + CHART_GRID.gapY);
+  const y = CHART_GRID.row1Y + row * (CHART_GRID.chartH + CHART_GRID.rowGapY);
   return { x, y };
 }
 
@@ -201,9 +200,7 @@ async function buildTrendsDonorZip() {
     });
     const series = panel.series.map((s) => {
       const values =
-        s.mode === "const"
-          ? SEED_CATEGORIES.map(() => s.value)
-          : seedSeriesValues(s.mode);
+        s.mode === "const" ? SEED_CATEGORIES.map(() => s.value) : seedSeriesValues();
       return { name: s.name, labels: SEED_CATEGORIES, values };
     });
     const chartColors = panel.series.map((s) => s.color);
@@ -255,41 +252,109 @@ async function buildTrendsDonorZip() {
       `$1Slide Period$2`
     );
   zip.file("ppt/slides/slide1.xml", slideXml);
-  // Render the benchmark (last, gray) series as thin dashed reference lines.
+
+  // Turn each panel into its final chart form:
+  //  - monthly-actual role  -> clustered COLUMN series in a <c:barChart>
+  //  - ytd / ytd-average    -> LINE series (blue, markers) in a <c:lineChart>
+  //  - benchmark (const)    -> thin dashed GRAY reference line, no markers
+  // Panels without a monthly role keep a single line chart group.
   for (const panel of CHART_PANELS) {
-    const benchIdx = panel.series.map((s) => s.mode).lastIndexOf("const");
-    if (benchIdx < 0) continue;
-    const chartXml = await zip.file(`ppt/charts/chart${panel.id}.xml`).async("string");
-    zip.file(
-      `ppt/charts/chart${panel.id}.xml`,
-      restyleBenchmarkSeries(chartXml, benchIdx)
-    );
+    const chartPath = `ppt/charts/chart${panel.id}.xml`;
+    const chartXml = await zip.file(chartPath).async("string");
+    zip.file(chartPath, finalizePanelChart(chartXml, panel));
   }
   return zip;
 }
 
-/** Recolor + thin + dash the benchmark series inside a chart part. */
-function restyleBenchmarkSeries(chartXml, seriesIndex) {
-  let remaining = seriesIndex;
-  return chartXml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (ser) => {
-    const isBench = remaining === 0;
-    remaining -= 1;
-    if (!isBench) return ser;
-    return ser
+/**
+ * Rebuild a panel chart part produced by pptxgenjs (a single <c:lineChart>
+ * group) into the final dashboard-style form:
+ *
+ *   <c:barChart>  (clustered columns)   — only when the panel has a monthly
+ *                                         actual role (PM Compliance,
+ *                                         Facility Uptime)
+ *   <c:lineChart> (lines)               — YTD / YTD-average + benchmark
+ *
+ * Both groups reference the SAME category/value axes already declared in the
+ * part, which is exactly how PowerPoint stores combo charts.
+ */
+function finalizePanelChart(chartXml, panel) {
+  const lineMatch = chartXml.match(/<c:lineChart>[\s\S]*?<\/c:lineChart>/);
+  if (!lineMatch) return chartXml;
+  const groupXml = lineMatch[0];
+  const inner = groupXml.slice("<c:lineChart>".length, -"</c:lineChart>".length);
+
+  const serBlocks = [...inner.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)].map((m) => m[0]);
+  if (serBlocks.length === 0) return chartXml;
+  const firstSerStart = inner.indexOf("<c:ser>");
+  const lastSerEnd = inner.lastIndexOf("</c:ser>") + "</c:ser>".length;
+  const prefix = inner.slice(0, firstSerStart); // <c:varyColors .../>
+  const suffix = inner.slice(lastSerEnd); // chart dLbls, marker, axId list
+
+  const roles = panel.series.map((s) => s.mode);
+  const barSerials = serBlocks
+    .map((_, i) => i)
+    .filter((i) => roles[i] === "monthly");
+  const lineSerials = serBlocks
+    .map((_, i) => i)
+    .filter((i) => roles[i] !== "monthly");
+
+  const barSers = barSerials.map((origIndex) =>
+    buildBarSeries(serBlocks[origIndex], panel.series[origIndex], barSerials.indexOf(origIndex))
+  );
+  const lineSers = lineSerials.map((origIndex) =>
+    buildLineSeries(serBlocks[origIndex], panel.series[origIndex], barSerials.length + lineSerials.indexOf(origIndex))
+  );
+
+  if (barSers.length === 0) {
+    // Pure line panel (all Group A cumulative panels, MTTR included):
+    // rebuild the single line group with role styling only.
+    const axIds = [...suffix.matchAll(/<c:axId val="\d+"\/>/g)].map((m) => m[0]).join("");
+    const styled = lineSers.join("");
+    const rebuilt = `<c:lineChart>${prefix}${styled}${suffix}</c:lineChart>`;
+    return chartXml.replace(groupXml, rebuilt);
+  }
+
+  const axIds = [...suffix.matchAll(/<c:axId val="\d+"\/>/g)].map((m) => m[0]).join("");
+  const barGroup = `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>${barSers.join("")}<c:gapWidth val="130"/><c:overlap val="-10"/>${axIds}</c:barChart>`;
+  const lineGroup = `<c:lineChart>${prefix}${lineSers.join("")}${suffix}</c:lineChart>`;
+  return chartXml.replace(groupXml, `${barGroup}${lineGroup}`);
+}
+
+/**
+ * Turn a pptxgenjs line series into a clustered column series: solid fill in
+ * the series color, no line, no marker, no smoothing. Caches are rewritten at
+ * runtime; only structure + styling matter here.
+ */
+function buildBarSeries(serXml, spec, index) {
+  const color = spec.color;
+  const base = serXml
+    .replace(/<c:idx val="\d+"\/>/, `<c:idx val="${index}"/>`)
+    .replace(/<c:order val="\d+"\/>/, `<c:order val="${index}"/>`)
+    .replace(/<c:spPr>[\s\S]*?<\/c:spPr>/, `<c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:effectLst/></c:spPr>`)
+    .replace(/<c:marker>[\s\S]*?<\/c:marker>/, "")
+    .replace(/<c:smooth val="\d+"\/>/, "");
+  return base;
+}
+
+/**
+ * Style a line series by role: YTD/YTD-average keep the blue line + circle
+ * markers; benchmark (const) becomes a thin gray dashed reference line with no
+ * markers.
+ */
+function buildLineSeries(serXml, spec, index) {
+  let base = serXml
+    .replace(/<c:idx val="\d+"\/>/, `<c:idx val="${index}"/>`)
+    .replace(/<c:order val="\d+"\/>/, `<c:order val="${index}"/>`);
+  if (spec.mode === "const") {
+    base = base
       .replace(
-        /(<a:solidFill><a:srgbClr val=")[0-9A-Fa-f]{6}("\/><\/a:solidFill>)/,
-        `$1${C.gray}$2`
-      )
-      .replace(
-        /(<a:ln w=")\d+(" cap="flat">)/,
-        `$112700$2`
-      )
-      .replace(
-        /<a:ln w="\d+" cap="flat">[\s\S]*?<\/a:ln>/,
-        `<a:ln w="12700" cap="flat"><a:solidFill><a:srgbClr val="${C.gray}"/></a:solidFill><a:prstDash val="dash"/><a:round/></a:ln>`
+        /<c:spPr><a:solidFill><a:srgbClr val="[0-9A-Fa-f]{6}"\/><\/a:solidFill><a:ln[\s\S]*?<\/a:ln>/,
+        `<c:spPr><a:solidFill><a:srgbClr val="${C.gray}"/></a:solidFill><a:ln w="12700" cap="flat"><a:solidFill><a:srgbClr val="${C.gray}"/></a:solidFill><a:prstDash val="dash"/><a:round/></a:ln>`
       )
       .replace(/<c:symbol val="circle"\/>/, '<c:symbol val="none"/>');
-  });
+  }
+  return base;
 }
 
 // ═══════════════════════════════════════════════════════════════════
