@@ -105,18 +105,27 @@ function setParagraphText(
   for (let i = 1; i < runs.length; i++) paragraph.removeChild(runs[i]);
   const keep = runs[0];
   if (keep) {
+    // Only ever touch the missing <a:t> inside the retained run. Appending a
+    // whole new <a:r> into an existing <a:r> would create invalid nesting.
     const t = getElementsByTagNameNS(keep, "a", "t")[0];
-    if (t) t.textContent = text;
-    else keep.appendChild(createTextRun(ownerDoc, text, opts));
+    if (t) {
+      t.textContent = text;
+    } else {
+      const textNode = createElementNS(ownerDoc, "a", "t");
+      textNode.textContent = text;
+      keep.appendChild(textNode);
+    }
   } else {
     paragraph.appendChild(createTextRun(ownerDoc, text, opts));
   }
 }
 
 function makeHeadingParagraph(paragraph: XmlElement): void {
-  // Headings carry no bullet marker.
+  // Headings carry no bullet marker and no hanging indent.
   const pPr = getElementsByTagNameNS(paragraph, "a", "pPr")[0];
   if (!pPr) return;
+  pPr.setAttribute("marL", "0");
+  pPr.setAttribute("indent", "0");
   for (const localName of ["buFont", "buChar"]) {
     const children = [...pPr.childNodes];
     for (const child of children) {
@@ -135,9 +144,14 @@ function makeHeadingParagraph(paragraph: XmlElement): void {
 }
 
 /**
- * Render the heading/bullet lines into the Executive Readout shape, reusing
- * the template paragraph (bullet char + autofit) for bullets and suppressing
- * the bullet for section headings.
+ * Render the heading/bullet lines into the Executive Readout shape.
+ *
+ * A pristine copy of the template's bullet paragraph is captured BEFORE any
+ * mutation and is never modified. Every output paragraph (headings AND
+ * bullets) is a fresh clone of that pristine template: heading clones get
+ * their bullet suppressed via buNone, bullet clones keep the original bullet
+ * properties. Mutating one paragraph can therefore never leak "no bullet"
+ * formatting onto content paragraphs.
  */
 export function writeReadoutLines(
   shape: XmlElement,
@@ -146,23 +160,23 @@ export function writeReadoutLines(
   const txBody = getElementsByTagNameNS(shape, "p", "txBody")[0];
   if (!txBody) return;
 
-  const templateParagraph = getElementsByTagNameNS(txBody, "a", "p")[0];
-  if (!templateParagraph) return;
+  const pristineSource = getElementsByTagNameNS(txBody, "a", "p")[0];
+  if (!pristineSource) return;
 
-  // Trim any leftover paragraphs from earlier fills.
+  // Canonical bullet paragraph template - captured before any mutation and
+  // kept pristine for every content paragraph clone.
+  const pristineBulletParagraph = pristineSource.cloneNode(true) as XmlElement;
+
+  // Drop the donor's placeholder paragraph(s); every line is appended fresh
+  // so no heading mutation can contaminate later bullet clones.
   let live = getElementsByTagNameNS(txBody, "a", "p");
-  while (live.length > lines.length) {
+  while (live.length > 0) {
     txBody.removeChild(live[live.length - 1]);
     live = getElementsByTagNameNS(txBody, "a", "p");
   }
 
-  for (let i = 0; i < lines.length; i++) {
-    live = getElementsByTagNameNS(txBody, "a", "p");
-    const paragraph =
-      i < live.length
-        ? live[i]
-        : (txBody.appendChild(templateParagraph.cloneNode(true)) as XmlElement);
-    const line = lines[i];
+  for (const line of lines) {
+    const paragraph = pristineBulletParagraph.cloneNode(true) as XmlElement;
     if (line.kind === "heading") {
       makeHeadingParagraph(paragraph);
       setParagraphText(paragraph, line.text, {
@@ -177,12 +191,7 @@ export function writeReadoutLines(
         color: "111111",
       });
     }
-  }
-
-  live = getElementsByTagNameNS(txBody, "a", "p");
-  while (live.length > lines.length) {
-    txBody.removeChild(live[live.length - 1]);
-    live = getElementsByTagNameNS(txBody, "a", "p");
+    txBody.appendChild(paragraph);
   }
 }
 

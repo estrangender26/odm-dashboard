@@ -1,5 +1,13 @@
 # Monthly KPI Presentation — Data Completeness — Validation Report
 
+Review correction ccb72f3→head: readout writer now captures a pristine bullet
+paragraph BEFORE any mutation and clones it fresh for every output line, so
+headings get `buNone` while content/neutral lines always keep the donor
+bullet (`buChar •`); donor slide XML for later BU clones is also cached
+pristine so earlier-BU fills can never leak into later BU slides. XML-level
+regression tests verify heading/bullet markers, neutral bullets, multiple note
+lines, and no nested `a:r` elements.
+
 Branch: `fix/monthly-kpi-presentation-data-completeness`
 Baseline: `9781399` (main incl. PR #417)
 

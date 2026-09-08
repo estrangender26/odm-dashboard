@@ -6,6 +6,7 @@ import {
   normalizeStoredCommentary,
 } from "./allBusinessUnitsData";
 import { formatScorecardCell, generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
+import { parseXml } from "../executive-presentations/framework";
 import {
   NO_COMMENTARY_SUBMITTED,
   NO_SITUATION_SUBMITTED,
@@ -1219,6 +1220,106 @@ describe("Generated PPTX package validation (Monthly KPI deck)", () => {
       const xml = await zip.file(`ppt/charts/${part}`)!.async("string");
       expect(xml).toContain("<c:ptCount");
       expect(xml).toContain("<c:pt idx=");
+    }
+  });
+});
+
+function readoutInnerBody(xml: string): string {
+  const start = xml.indexOf('name="Executive Readout"');
+  const bodyStart = xml.indexOf("<p:txBody>", start);
+  const openEnd = xml.indexOf(">", bodyStart) + 1;
+  const bodyEnd = xml.indexOf("</p:txBody>", openEnd);
+  return xml.slice(openEnd, bodyEnd);
+}
+
+function readoutParagraphFlags(xml: string): Array<{ text: string; bullet: boolean; heading: boolean }> {
+  const body = readoutInnerBody(xml);
+  const out: Array<{ text: string; bullet: boolean; heading: boolean }> = [];
+  for (const m of body.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)) {
+    const p = m[0];
+    const text = [...p.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+      .map((x) => x[1])
+      .join("");
+    const hasBuNone = /<a:buNone\b[^>]*\/>/.test(p);
+    const hasBullet = /<a:buChar\b[^>]*char="•"/.test(p);
+    out.push({ text, bullet: hasBullet && !hasBuNone, heading: hasBuNone });
+  }
+  return out;
+}
+
+
+const DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
+
+function hasNestedRun(body: string): boolean {
+  const doc = parseXml(
+    `<?xml version="1.0"?><root xmlns:a="${DRAWINGML_NS}">${body}</root>`
+  );
+  const runs = doc.getElementsByTagNameNS(DRAWINGML_NS, "r");
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i];
+    const children = run.childNodes;
+    for (let c = 0; c < children.length; c++) {
+      const child = children[c] as unknown as Element;
+      if (
+        child &&
+        child.localName === "r" &&
+        child.namespaceURI === DRAWINGML_NS
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+describe("Readout heading/bullet XML structure (no buNone leakage, no nested runs)", () => {
+  async function slidesOfDeck() {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    return orderedSlideXml(zip);
+  }
+
+  it("headings have no bullet; content lines keep the bullet marker", async () => {
+    const slides = await slidesOfDeck();
+    // AMD slide (index 1): notes has 2 lines + situation 1 line.
+    const flags = readoutParagraphFlags(slides[1].xml);
+    expect(flags.map((f) => f.text)).toEqual([
+      "Notes / Commentary",
+      "Transformer overhaul completed.",
+      "Spare delivery tracked.",
+      "Situation",
+      "Corrective maintenance was completed inside the August window.",
+    ]);
+    expect(flags[0].heading).toBe(true);
+    expect(flags[0].bullet).toBe(false);
+    expect(flags[1].bullet).toBe(true);
+    expect(flags[2].bullet).toBe(true);
+    expect(flags[3].heading).toBe(true);
+    expect(flags[4].bullet).toBe(true);
+  });
+
+  it("neutral placeholder lines keep the bullet marker under their headings", async () => {
+    const slides = await slidesOfDeck();
+    // Tagum slide (index 5) has no stored notes/situation.
+    const flags = readoutParagraphFlags(slides[5].xml);
+    expect(flags.map((f) => f.text)).toEqual([
+      "Notes / Commentary",
+      "No commentary submitted.",
+      "Situation",
+      "No situation submitted.",
+    ]);
+    expect(flags[0].heading).toBe(true);
+    expect(flags[1].bullet).toBe(true);
+    expect(flags[2].heading).toBe(true);
+    expect(flags[3].bullet).toBe(true);
+  });
+
+  it("never produces nested a:r elements inside the readout", async () => {
+    const slides = await slidesOfDeck();
+    for (const slide of slides) {
+      if (!slide.xml.includes('name="Executive Readout"')) continue;
+      expect(hasNestedRun(readoutInnerBody(slide.xml))).toBe(false);
     }
   });
 });

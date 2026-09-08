@@ -683,6 +683,20 @@ export async function generateAllBusinessUnitsMonthlyKpiDeck(
 
   let nextChartNumber = (await maxChartNumber(zip)) + 1;
 
+  // Cache the PRISTINE donor slide XML up front. Slide 2/3 parts are updated
+  // in place for the first BU, so clones for later BUs must come from these
+  // untouched donor strings (never from the already-updated parts, which would
+  // leak earlier BUs' readout text/formatting into later BUs).
+  const pristineScorecardDonorXml = await zip
+    .file("ppt/slides/slide2.xml")
+    ?.async("string");
+  const pristineTrendsDonorXml = await zip
+    .file("ppt/slides/slide3.xml")
+    ?.async("string");
+  if (!pristineScorecardDonorXml || !pristineTrendsDonorXml) {
+    throw new Error("[TEMPLATE] Missing donor slide XML.");
+  }
+
   // Donor scorecard slide (slide2) and donor trends slide (slide3) serve the
   // first BU; each further BU receives clones of both donors.
   for (let i = 0; i < sections.length; i++) {
@@ -702,10 +716,8 @@ export async function generateAllBusinessUnitsMonthlyKpiDeck(
       continue;
     }
 
-    // Scorecard clone.
-    const scorecardDonorXml = await zip.file("ppt/slides/slide2.xml")?.async("string");
-    if (!scorecardDonorXml) throw new Error("[TEMPLATE] Missing Scorecard donor slide.");
-    const scorecardDoc = parseXml(scorecardDonorXml);
+    // Scorecard clone (from the pristine donor captured before any update).
+    const scorecardDoc = parseXml(pristineScorecardDonorXml);
     updateScorecardSlide(scorecardDoc, section);
     await addSlidePart(
       zip,
@@ -721,9 +733,7 @@ export async function generateAllBusinessUnitsMonthlyKpiDeck(
       await addChartClone(zip, c, target);
       chartNumbers.push(target);
     }
-    const trendsDonorXml = await zip.file("ppt/slides/slide3.xml")?.async("string");
-    if (!trendsDonorXml) throw new Error("[TEMPLATE] Missing Trends donor slide.");
-    const trendsDoc = parseXml(trendsDonorXml);
+    const trendsDoc = parseXml(pristineTrendsDonorXml);
     updateTrendsSlide(trendsDoc, section);
     await addSlidePart(
       zip,
