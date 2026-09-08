@@ -33,10 +33,11 @@ const base = {
 
 function makeRecords(
   businessUnit: string,
-  opts: { through?: number; notesBy?: Record<number, string> } = {}
+  opts: { through?: number; notesBy?: Record<number, string>; situationBy?: Record<number, string> } = {}
 ) {
   const through = opts.through ?? 8;
   const notesBy = opts.notesBy ?? {};
+  const situationBy = opts.situationBy ?? {};
   const out = [];
   for (let month = 1; month <= 12; month++) {
     if (month > through) {
@@ -47,6 +48,7 @@ function makeRecords(
         reporting_month: month,
         budget: 1000 * month,
         notes: null,
+        situation: null,
       });
       continue;
     }
@@ -58,6 +60,7 @@ function makeRecords(
       reporting_year: 2026,
       reporting_month: month,
       notes: notesBy[month] ?? null,
+      situation: situationBy[month] ?? null,
       pm_orders_completed_on_time: 100 - month,
       total_pm_orders: 100,
       actual_spend: 100 * month + 10,
@@ -81,15 +84,24 @@ function makeRecords(
   return out;
 }
 
+// AMD-EZ mirrors the verified production state for August 2026: no stored
+// Notes and no stored Situation -> its Slide 1 renders the neutral line only.
+// CWC carries the REAL production August 2026 note (verified read-only against
+// https://odm-dashboard.onrender.com) plus a clearly labeled demo Situation
+// line, because production has no stored Situation anywhere yet (the field is
+// introduced by this PR and remains NULL for existing records).
 const records = [
-  ...makeRecords("AMD-EZ", {
+  ...makeRecords("AMD-EZ", { through: 8 }),
+  ...makeRecords("CWC", {
     through: 8,
-    notesBy: { 8: "Transformer overhaul completed.\nSpare delivery tracked." },
-  }),
-  ...makeRecords("Clark Water", { through: 8, notesBy: { 8: "MTTR improved after spare parts availability." } }).map(
-    (r) => ({ ...r, pm_cost: null, cm_cost: null, pm_cm_cost_ratio: null })
-  ),
-  ...makeRecords("Tagum Water", { through: 6, notesBy: { 6: "VFD failure investigated." } }),
+    notesBy: {
+      8: "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+    },
+    situationBy: {
+      8: "Media replacement for the PS1 9MLD WTP and 6MLD GAC DW44 was completed inside the August window. (fixture-only demo Situation - production has no stored Situation yet)",
+    },
+  }).map((r) => ({ ...r, pm_cost: null, cm_cost: null, pm_cm_cost_ratio: null })),
+  ...makeRecords("Tagum Water", { through: 6 }),
 ];
 
 const data = buildAllBusinessUnitsDeckData(records, 2026, 9);

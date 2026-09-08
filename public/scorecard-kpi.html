@@ -1128,7 +1128,8 @@ var SummaryWorkbookColumns = {
   mtbf:'mtbf_days',
   mttr:'mttr_days',
   facilityUptime:'facility_uptime',
-  notes:'notes'
+  notes:'notes',
+  situation:'situation'
 };
 
 
@@ -1222,6 +1223,10 @@ function normalizeNotesValue(value){
 
 function getRecordNotes(record){
   return record ? normalizeNotesValue(record.notes) : '';
+}
+
+function getRecordSituation(record){
+  return record ? normalizeNotesValue(record.situation) : '';
 }
 
 function renderNotesValue(value){
@@ -2654,7 +2659,8 @@ function mapSummaryHeader(header){
   if(h==='mtbfdays'||h==='mtbf')return 'mtbf';
   if(h==='mttrdays'||h==='mttr')return 'mttr';
   if(h==='facilityuptime'||h==='facilityuptimepercent')return 'facilityUptime';
-  if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments'||h==='situation')return 'notes';
+  if(h==='situation')return 'situation';
+  if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';
   return null;
 }
 
@@ -2709,6 +2715,7 @@ function importSummaryWorkbook(workbook,fileName,buId){
       mttr_days: null,
       facility_uptime: null,
       notes: null,
+      situation: null,
       raw_imported_values: rawImportedValues
     };
     Object.keys(SummaryWorkbookColumns).forEach(function(key){
@@ -2720,9 +2727,10 @@ function importSummaryWorkbook(workbook,fileName,buId){
         rawImportedValues.values[dbKey] = null;
         return;
       }
-      if(key==='notes'){
+      if(key==='notes'||key==='situation'){
         var noteValue = normalizeNotesValue(rawValue);
-        dbRecord.notes = noteValue;
+        if(key==='notes')dbRecord.notes = noteValue;
+        else dbRecord.situation = noteValue;
         dbRecord[dbKey] = noteValue;
         rawImportedValues.values[dbKey] = rawImportedCellValue(rawValue,cell);
         return;
@@ -2836,6 +2844,7 @@ function applyPersistedMonthlyKpiRecords(records,options){
     record.number_of_repairs = row.number_of_repairs;
     record.total_operating_time = row.total_operating_time;
     record.notes = row.notes || null;
+    record.situation = row.situation || null;
     record.raw_imported_values = row.raw_imported_values || null;
     if(year===getSelectedYear() && month===getSelectedMonth())ScoreData[buId] = record;
   });
@@ -3087,7 +3096,7 @@ function renderMonthlyRecords(buId){
   //     average.
   // Trend charts show monthly actuals next to YTD/cumulative or running-average
   // trend lines where applicable.
-  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Rows: Budget Spend, PM:CM ratios, and MTTR are YTD/cumulative from January through each row\u2019s month; PM Compliance and Facility Uptime are that month\u2019s standalone value. KPI cards follow the effective reporting month (latest submitted when the selected month is Not Submitted): the four cumulative KPIs repeat the effective month\u2019s cumulative row, and the PM Compliance / Facility Uptime cards show the January-through-effective-month YTD average. Trend charts show monthly actuals alongside YTD/cumulative or running-average trend lines where applicable. Notes preserves imported commentary; Situation explains unavailable monthly values.</div>';
+  html += '<div class="matrix-subtitle" style="font-size:12px;color:#666;margin-bottom:8px;">Rows: Budget Spend, PM:CM ratios, and MTTR are YTD/cumulative from January through each row\u2019s month; PM Compliance and Facility Uptime are that month\u2019s standalone value. KPI cards follow the effective reporting month (latest submitted when the selected month is Not Submitted): the four cumulative KPIs repeat the effective month\u2019s cumulative row, and the PM Compliance / Facility Uptime cards show the January-through-effective-month YTD average. Trend charts show monthly actuals alongside YTD/cumulative or running-average trend lines where applicable. Notes preserves imported commentary; Situation shows user-entered context (falls back to data explanations when none stored).</div>';
   html += '<div style="overflow-x:auto"><table class="matrix-table monthly-records-table"><thead><tr>';
   ['Month','PM Compliance (%)','Budget Spend (%)','PM vs CM WO (%)','PM vs CM Cost (%)','MTTR (Days)','Facility Uptime (%)'].forEach(function(h){html += '<th>'+h+'</th>';});
   html += '<th class="notes-col">Notes</th><th class="situation-col">Situation</th>';
@@ -3111,7 +3120,9 @@ function renderMonthlyRecords(buId){
       html += '<td class="'+cls+'">'+display+'</td>';
     });
     html += '<td class="notes-col">'+renderNotesValue(getRecordNotes(r))+'</td>';
-    html += '<td class="situation-col">'+renderSituationValue(deriveMonthlySituation(importedRecord,month,latestImportedMonth))+'</td>';
+    var storedSituation = getRecordSituation(r);
+    var derivedSituation = deriveMonthlySituation(importedRecord,month,latestImportedMonth);
+    html += '<td class="situation-col">'+(storedSituation ? escapeHtml(storedSituation) : renderSituationValue(derivedSituation))+'</td>';
     html += '</tr>';
   }
   html += '</tbody></table></div>';
@@ -3499,6 +3510,7 @@ function initForm(){
     html += '<td><input type="number" step="0.01" id="form-manual-'+kpi.key+'" placeholder="--" aria-label="'+kpi.name+'"></td>';
   });
   html += '<td class="notes-col"><textarea id="form-manual-notes" placeholder="Management notes, exclusions, outages, or assumptions" aria-label="Notes"></textarea></td>';
+  html += '<td class="situation-col"><textarea id="form-manual-situation" placeholder="Operational situation for the reporting period" aria-label="Situation"></textarea></td>';
   html += '</tr>';
   tbody.innerHTML = html;
 }
@@ -3566,6 +3578,8 @@ function preloadManualFormValues(ctx){
   });
   var notes = document.getElementById('form-manual-notes');
   if(notes)notes.value = record ? getRecordNotes(record) : '';
+  var situation = document.getElementById('form-manual-situation');
+  if(situation)situation.value = record ? getRecordSituation(record) : '';
 }
 
 function validateManualContext(ctx){
@@ -3615,6 +3629,9 @@ function manualPayloadFromForm(ctx){
   var notes = document.getElementById('form-manual-notes');
   payload.notes = notes ? normalizeNotesValue(notes.value) : null;
   payload.raw_imported_values.values.notes = payload.notes;
+  var situation = document.getElementById('form-manual-situation');
+  payload.situation = situation ? normalizeNotesValue(situation.value) : null;
+  payload.raw_imported_values.values.situation = payload.situation;
   return payload;
 }
 

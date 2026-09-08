@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
 import {
   buildAllBusinessUnitsDeckData,
-  normalizeCommentaryBullets,
+  deriveMissingDataReasons,
+  normalizeStoredCommentary,
 } from "./allBusinessUnitsData";
 import {
   buildCommentaryBullets,
@@ -54,6 +55,7 @@ function monthValues(month: number) {
 type FixtureOptions = {
   through?: number;
   notesByMonth?: Record<number, string>;
+  situationByMonth?: Record<number, string>;
   omit?: {
     pmCost?: boolean;
     cmCost?: boolean;
@@ -81,6 +83,7 @@ function makeBusinessUnitRecords(
         reporting_month: month,
         budget: 1000 * month,
         notes: null,
+        situation: null,
       } as PersistedMonthlyKpiRecord);
       continue;
     }
@@ -92,6 +95,7 @@ function makeBusinessUnitRecords(
       reporting_year: 2026,
       reporting_month: month,
       notes: options.notesByMonth?.[month] ?? null,
+      situation: options.situationByMonth?.[month] ?? null,
       pm_compliance: omit.pmCompliance ? null : 100 - month,
       pm_orders_completed_on_time: omit.pmCompliance ? null : 100 - month,
       total_pm_orders: 100,
@@ -144,10 +148,16 @@ function buildFixture() {
       3: "Q1 planned outages completed.",
       8: "Transformer overhaul completed.\nSpare delivery tracked.",
     },
+    situationByMonth: {
+      8: "Corrective maintenance was completed inside the August window.",
+    },
   });
   const clark = makeBusinessUnitRecords("Clark Water", {
     notesByMonth: {
       8: "MTTR improved after spare parts availability.",
+    },
+    situationByMonth: {
+      8: "PM:CM cost data for August is still pending validation.",
     },
     omit: { pmCost: true, cmCost: true },
   });
@@ -279,7 +289,7 @@ describe("All-Business-Units Monthly KPI deck data", () => {
     }
   });
 
-  it("commentary uses each BU's own Notes and Situation without leaking or inventing content", () => {
+  it("stores each BU's own Notes and Situation for the effective month only", () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const amdEz = data.sections.find(
       section => section.businessUnit === "AMD-EZ"
@@ -287,82 +297,75 @@ describe("All-Business-Units Monthly KPI deck data", () => {
     const clark = data.sections.find(
       section => section.businessUnit === "Clark Water"
     )!;
-    // AMD-EZ notes = its August note (effective month), not Clark's.
-    expect(amdEz.notes).toContain("Transformer overhaul completed.");
-    expect(amdEz.notes).not.toContain("spare parts availability");
-    // Clark's own note only.
+    // AMD-EZ: stored Notes + stored Situation from its August record only.
+    expect(amdEz.notes).toBe(
+      "Transformer overhaul completed.\nSpare delivery tracked."
+    );
+    expect(amdEz.situation).toBe(
+      "Corrective maintenance was completed inside the August window."
+    );
+    expect(amdEz.notes).not.toContain("spare parts availability from Clark");
+    expect(amdEz.situation).not.toContain("pending validation");
+    // Clark: its own stored Notes + stored Situation (August only).
     expect(clark.notes).toContain(
       "MTTR improved after spare parts availability."
     );
+    expect(clark.situation).toContain("PM:CM cost data for August");
     expect(clark.notes).not.toContain("Transformer overhaul");
-    // Clark omitted PM/CM cost data, so a Situation bullet is produced from its
-    // own record - and no fabricated KPI praise is added.
-    expect(clark.situationBullets.join(" ").toLowerCase()).toContain(
-      "pm:cm cost not submitted"
-    );
-    const amdBullets = normalizeCommentaryBullets([
-      amdEz.notes,
-      ...amdEz.situationBullets,
+    expect(clark.situation).not.toContain("August window");
+    // Missing PM:CM cost is a missing-data reason, NOT a business Situation:
+    // no such phrase is stored on the section.
+    const amdBullets = buildCommentaryBullets(amdEz);
+    const clarkBullets = buildCommentaryBullets(clark);
+    expect(amdBullets).toEqual([
+      "Notes: Transformer overhaul completed.",
+      "Notes: Spare delivery tracked.",
+      "Situation: Corrective maintenance was completed inside the August window.",
     ]);
-    expect(
-      amdBullets.some(bullet =>
-        bullet.toLowerCase().includes("transformer overhaul")
-      )
-    ).toBe(true);
+    expect(clarkBullets.some(b => b.includes("not submitted"))).toBe(false);
+    expect(clarkBullets).toContain(
+      "Situation: PM:CM cost data for August is still pending validation."
+    );
     const invented = [
       "pm compliance remains strong",
       "budget needs monitoring",
       "mttr requires improvement",
+      "below benchmark",
+      "key exceptions",
     ];
-    for (const bullet of [
-      ...amdBullets,
-      ...normalizeCommentaryBullets([clark.notes, ...clark.situationBullets]),
-    ]) {
+    for (const bullet of [...amdBullets, ...clarkBullets]) {
       expect(
         invented.some(phrase => bullet.toLowerCase().includes(phrase))
       ).toBe(false);
     }
   });
 
-  it("earlier-month Notes are not silently reused for the effective month", () => {
+  it("earlier-month Notes/Situation are not silently reused for the effective month", () => {
     const tagum = buildAllBusinessUnitsDeckData(records, 2026, 9).sections.find(
       section => section.businessUnit === "Tagum Water"
     )!;
-    // Tagum has a June note but no August note; the deck must not relabel it.
+    // Tagum has a June note/situation but nothing stored for August; the deck
+    // must not relabel June commentary as the August commentary.
     expect(tagum.notes).toBeNull();
-    expect(tagum.situationBullets.join(" ").toLowerCase()).toContain(
-      "not submitted"
-    );
-    const bullets = normalizeCommentaryBullets([
-      tagum.notes,
-      ...tagum.situationBullets,
+    expect(tagum.situation).toBeNull();
+    const bullets = buildCommentaryBullets(tagum);
+    expect(bullets).toEqual([
+      "No commentary or situation recorded for the reporting period.",
     ]);
-    expect(
-      bullets.some(bullet => bullet.includes("VFD failure investigated."))
-    ).toBe(false);
+    expect(bullets.some(b => b.includes("VFD failure investigated."))).toBe(false);
+    expect(bullets.some(b => b.toLowerCase().includes("not submitted"))).toBe(false);
   });
 });
 
-describe("Situation bullets are factual (no false not-submitted)", () => {
-  function sectionFor(buRecords: PersistedMonthlyKpiRecord[], bu: string) {
-    return buildAllBusinessUnitsDeckData(buRecords, 2026, 9).sections.find(
-      section => section.businessUnit === bu
-    )!;
+describe("deriveMissingDataReasons — explicit missing-data helper (never presentation Situation)", () => {
+  function reasonsFor(buRecords: PersistedMonthlyKpiRecord[], bu: string, month = 8) {
+    return deriveMissingDataReasons(buRecords, bu, 2026, month);
   }
-  function allBullets(section: {
-    notes: string | null;
-    situationBullets: string[];
-  }) {
-    return normalizeCommentaryBullets([
-      section.notes,
-      ...section.situationBullets,
-    ]).map(b => b.toLowerCase());
-  }
+  const asLower = (reasons: string[]) => reasons.map((r) => r.toLowerCase());
 
-  it("a fully valid six-KPI record produces zero false 'not submitted' Situation bullets", () => {
-    const section = sectionFor(records, "AMD-EZ");
-    const bullets = allBullets(section);
-    expect(section.situationBullets.length).toBe(0);
+  it("a fully valid six-KPI record produces zero missing-data reasons", () => {
+    const reasons = reasonsFor(records, "AMD-EZ");
+    expect(reasons.length).toBe(0);
     for (const phrase of [
       "pm compliance not submitted",
       "facility uptime not submitted",
@@ -371,44 +374,24 @@ describe("Situation bullets are factual (no false not-submitted)", () => {
       "pm:cm cost not submitted",
       "mttr not submitted",
     ]) {
-      expect(bullets.some(bullet => bullet.includes(phrase))).toBe(false);
+      expect(reasons.some((r) => r.toLowerCase().includes(phrase))).toBe(false);
     }
   });
 
-  it("valid PM/CM WO, MTTR, and PM/CM Cost data never produce their own 'not submitted' bullets", () => {
-    // AMD-EZ submitted all six KPIs for the effective month.
-    const section = sectionFor(records, "AMD-EZ");
-    const bullets = allBullets(section);
-    expect(
-      bullets.some(b => b.includes("pm:cm work orders not submitted"))
-    ).toBe(false);
-    expect(bullets.some(b => b.includes("mttr not submitted"))).toBe(false);
-    expect(bullets.some(b => b.includes("pm:cm cost not submitted"))).toBe(
-      false
-    );
-    expect(bullets.some(b => b.includes("pm compliance not submitted"))).toBe(
-      false
-    );
+  it("valid PM/CM WO, MTTR and PM/CM Cost data never yield their own 'not submitted' reasons", () => {
+    const reasons = reasonsFor(records, "AMD-EZ");
+    expect(reasons.some((r) => r.toLowerCase().includes("pm:cm work orders not submitted"))).toBe(false);
+    expect(reasons.some((r) => r.toLowerCase().includes("mttr not submitted"))).toBe(false);
+    expect(reasons.some((r) => r.toLowerCase().includes("pm:cm cost not submitted"))).toBe(false);
+    expect(reasons.some((r) => r.toLowerCase().includes("pm compliance not submitted"))).toBe(false);
   });
 
-  it("truly missing PM:CM Cost data produces exactly the correct neutral missing bullet", () => {
-    const section = sectionFor(records, "Clark Water");
-    // Clark submitted every KPI except PM:CM cost.
-    expect(
-      section.situationBullets.some(b =>
-        b.toLowerCase().includes("pm:cm cost not submitted")
-      )
-    ).toBe(true);
-    const bullets = allBullets(section);
-    expect(bullets.some(b => b.includes("pm compliance not submitted"))).toBe(
-      false
-    );
-    expect(bullets.some(b => b.includes("facility uptime not submitted"))).toBe(
-      false
-    );
-    expect(bullets.some(b => b.includes("budget spend not submitted"))).toBe(
-      false
-    );
+  it("truly missing PM:CM Cost data yields exactly the correct reason and nothing else", () => {
+    const reasons = reasonsFor(records, "Clark Water");
+    expect(reasons.some((r) => r.toLowerCase().includes("pm:cm cost not submitted"))).toBe(true);
+    expect(reasons.some((r) => r.toLowerCase().includes("pm compliance not submitted"))).toBe(false);
+    expect(reasons.some((r) => r.toLowerCase().includes("facility uptime not submitted"))).toBe(false);
+    expect(reasons.some((r) => r.toLowerCase().includes("budget spend not submitted"))).toBe(false);
   });
 
   it("emits neutral reasons only when their exact conditions are met (No Budget / No Work Orders / No Qualifying Downtime / Not Applicable)", () => {
@@ -449,6 +432,7 @@ describe("Situation bullets are factual (no false not-submitted)", () => {
           facility_operating_time: 1000,
           facility_downtime: v.facilityDowntime,
           notes: null,
+          situation: null,
           raw_imported_values: { values: {} },
           ...overrides,
         };
@@ -462,99 +446,49 @@ describe("Situation bullets are factual (no false not-submitted)", () => {
       return out;
     };
 
-    const noBudget = sectionFor(
-      full({ budget: 0, actual_spend: null }),
-      "Special BU"
-    );
-    expect(noBudget.situationBullets).toContain("No Budget");
-    expect(
-      noBudget.situationBullets.some(b =>
-        b.toLowerCase().includes("budget spend not submitted")
-      )
-    ).toBe(false);
+    const noBudget = reasonsFor(full({ budget: 0, actual_spend: null }), "Special BU");
+    expect(noBudget).toContain("No Budget");
+    expect(asLower(noBudget).some((r) => r.includes("budget spend not submitted"))).toBe(false);
 
-    const noWorkOrders = sectionFor(
-      full({ pm_work_orders: 0, cm_work_orders: 0 }),
-      "Special BU"
-    );
-    expect(noWorkOrders.situationBullets).toContain("No Work Orders");
-    expect(
-      noWorkOrders.situationBullets.some(b =>
-        b.toLowerCase().includes("pm:cm work orders not submitted")
-      )
-    ).toBe(false);
+    const noWorkOrders = reasonsFor(full({ pm_work_orders: 0, cm_work_orders: 0 }), "Special BU");
+    expect(noWorkOrders).toContain("No Work Orders");
+    expect(asLower(noWorkOrders).some((r) => r.includes("pm:cm work orders not submitted"))).toBe(false);
 
-    const noDowntime = sectionFor(
-      full({ repair_count: 0, mttr_downtime: null, mttr_days: null }),
-      "Special BU"
-    );
-    expect(noDowntime.situationBullets).toContain("No Qualifying Downtime");
-    expect(
-      noDowntime.situationBullets.some(b =>
-        b.toLowerCase().includes("mttr not submitted")
-      )
-    ).toBe(false);
+    const noDowntime = reasonsFor(full({ repair_count: 0, mttr_downtime: null, mttr_days: null }), "Special BU");
+    expect(noDowntime).toContain("No Qualifying Downtime");
+    expect(asLower(noDowntime).some((r) => r.includes("mttr not submitted"))).toBe(false);
 
-    const noOrders = sectionFor(
-      full({ pm_orders_completed_on_time: null, total_pm_orders: 0 }),
-      "Special BU"
-    );
-    expect(noOrders.situationBullets).toContain(
-      "Not Applicable (no PM orders)"
-    );
-    expect(
-      noOrders.situationBullets.some(b =>
-        b.toLowerCase().includes("pm compliance not submitted")
-      )
-    ).toBe(false);
+    const noOrders = reasonsFor(full({ pm_orders_completed_on_time: null, total_pm_orders: 0 }), "Special BU");
+    expect(noOrders).toContain("Not Applicable (no PM orders)");
+    expect(asLower(noOrders).some((r) => r.includes("pm compliance not submitted"))).toBe(false);
 
-    // No CM Cost: both cost sides are explicitly zero, so the ratio cannot be
-    // computed and the neutral reason is "No CM Cost" - never a false
-    // "PM:CM Cost not submitted".
-    const noCmCost = sectionFor(full({ pm_cost: 0, cm_cost: 0 }), "Special BU");
-    expect(noCmCost.situationBullets).toContain("No CM Cost");
-    expect(
-      noCmCost.situationBullets.some(b =>
-        b.toLowerCase().includes("pm:cm cost not submitted")
-      )
-    ).toBe(false);
+    const noCmCost = reasonsFor(full({ pm_cost: 0, cm_cost: 0 }), "Special BU");
+    expect(noCmCost).toContain("No CM Cost");
+    expect(asLower(noCmCost).some((r) => r.includes("pm:cm cost not submitted"))).toBe(false);
   });
 
-  it("valid PM/CM WO, MTTR, and PM/CM Cost source data never produce their OWN 'not submitted' bullets even when other KPIs are missing", () => {
-    // A BU with every source field EXCEPT PM Compliance and Facility Uptime:
-    // only those two may carry a missing bullet; valid WO/MTTR/Cost/budget
-    // source data must stay silent.
+  it("valid PM/CM WO, MTTR, and PM/CM Cost source data never yield their OWN reasons when other KPIs are missing", () => {
     const buRecords = makeBusinessUnitRecords("Partial BU", {
       through: 8,
       omit: { pmCompliance: true, facilityUptime: true },
     });
-    const section = sectionFor(buRecords, "Partial BU");
-    const bullets = allBullets(section);
-    expect(bullets.some(b => b.includes("pm compliance not submitted"))).toBe(
-      true
-    );
-    expect(bullets.some(b => b.includes("facility uptime not submitted"))).toBe(
-      true
-    );
-    expect(
-      bullets.some(b => b.includes("pm:cm work orders not submitted"))
-    ).toBe(false);
-    expect(bullets.some(b => b.includes("mttr not submitted"))).toBe(false);
-    expect(bullets.some(b => b.includes("pm:cm cost not submitted"))).toBe(
-      false
-    );
-    expect(bullets.some(b => b.includes("budget spend not submitted"))).toBe(
-      false
-    );
+    const reasons = reasonsFor(buRecords, "Partial BU");
+    const lower = asLower(reasons);
+    expect(lower.some((r) => r.includes("pm compliance not submitted"))).toBe(true);
+    expect(lower.some((r) => r.includes("facility uptime not submitted"))).toBe(true);
+    expect(lower.some((r) => r.includes("pm:cm work orders not submitted"))).toBe(false);
+    expect(lower.some((r) => r.includes("mttr not submitted"))).toBe(false);
+    expect(lower.some((r) => r.includes("pm:cm cost not submitted"))).toBe(false);
+    expect(lower.some((r) => r.includes("budget spend not submitted"))).toBe(false);
   });
 
-  it("a BU with no valid submission anywhere in the year yields the six neutral missing bullets - nothing invented", () => {
+  it("a BU with no valid submission anywhere yields the six missing-data reasons - and nothing invented", () => {
     // Planned-budget-only rows are NOT submissions (live scorecard rule).
     const neverSubmitted = makeBusinessUnitRecords("Never Submitted BU", {
       through: 0,
     });
-    const section = sectionFor(neverSubmitted, "Never Submitted BU");
-    expect(section.situationBullets.length).toBe(6);
+    const reasons = reasonsFor(neverSubmitted, "Never Submitted BU", 9);
+    expect(reasons.length).toBe(6);
     for (const phrase of [
       "pm compliance not submitted",
       "facility uptime not submitted",
@@ -563,23 +497,67 @@ describe("Situation bullets are factual (no false not-submitted)", () => {
       "pm:cm cost not submitted",
       "mttr not submitted",
     ]) {
-      expect(
-        section.situationBullets.some(b => b.toLowerCase().includes(phrase))
-      ).toBe(true);
+      expect(reasons.some((r) => r.toLowerCase().includes(phrase))).toBe(true);
     }
-    // No invented operational commentary of any kind.
-    const bullets = allBullets(section);
-    for (const invented of [
-      "improved",
-      "remains strong",
-      "needs monitoring",
-      "risk",
-      "concern",
-    ]) {
-      expect(bullets.some(b => b.includes(invented))).toBe(false);
+    for (const invented of ["improved", "remains strong", "needs monitoring", "risk", "concern"]) {
+      expect(reasons.some((r) => r.toLowerCase().includes(invented))).toBe(false);
     }
   });
 });
+
+// Stored Notes/Situation are the ONLY source for deck commentary bullets.
+describe("Deck commentary uses stored Notes + Situation (never missing-data reasons)", () => {
+  it("stored Situation renders under the Situation label on the section and bullets", () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const amdEz = data.sections.find((section) => section.businessUnit === "AMD-EZ")!;
+    expect(amdEz.situation).toBe(
+      "Corrective maintenance was completed inside the August window."
+    );
+    const bullets = buildCommentaryBullets(amdEz);
+    expect(bullets).toContain(
+      "Situation: Corrective maintenance was completed inside the August window."
+    );
+    // No missing-data phrase is treated as a business Situation bullet.
+    for (const bullet of bullets) {
+      expect(bullet.toLowerCase()).not.toContain("not submitted");
+      expect(bullet.toLowerCase()).not.toContain("no budget");
+    }
+  });
+
+  it("missing Notes does not invent a Notes bullet and missing Situation does not invent derived KPI narrative", () => {
+    const tagum = buildAllBusinessUnitsDeckData(records, 2026, 9).sections.find(
+      (section) => section.businessUnit === "Tagum Water"
+    )!;
+    expect(tagum.notes).toBeNull();
+    expect(tagum.situation).toBeNull();
+    const bullets = buildCommentaryBullets(tagum);
+    expect(bullets.some((b) => b.startsWith("Notes:"))).toBe(false);
+    expect(bullets.some((b) => b.startsWith("Situation:"))).toBe(false);
+    expect(bullets.some((b) => b.toLowerCase().includes("not submitted"))).toBe(false);
+    expect(bullets).toEqual([
+      "No commentary or situation recorded for the reporting period.",
+    ]);
+  });
+
+  it("stored text is trimmed and line endings normalized, never rewritten", () => {
+    const data = buildAllBusinessUnitsDeckData(
+      makeBusinessUnitRecords("Trim BU", {
+        through: 8,
+        notesByMonth: { 8: "  Line one.\r\nLine two.  " },
+        situationByMonth: { 8: "\rStored situation text.\r\n" },
+      }),
+      2026,
+      9
+    );
+    const section = data.sections.find((s) => s.businessUnit === "Trim BU")!;
+    expect(section.notes).toBe("Line one.\nLine two.");
+    expect(section.situation).toBe("Stored situation text.");
+    expect(normalizeStoredCommentary("  x\r\ny  ")).toBe("x\ny");
+    expect(normalizeStoredCommentary(null)).toBeNull();
+    expect(normalizeStoredCommentary("   ")).toBeNull();
+  });
+});
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Manila Water master-clone deck structure (regression suite)
@@ -839,7 +817,7 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
         expect(
           bullet.startsWith("Notes:") ||
             bullet.startsWith("Situation:") ||
-            bullet === "No commentary recorded for the reporting period."
+            bullet === "No commentary or situation recorded for the reporting period."
         ).toBe(true);
       }
       // Notes must never leak from a different BU.

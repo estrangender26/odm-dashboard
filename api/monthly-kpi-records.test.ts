@@ -103,7 +103,10 @@ describe("Monthly KPI records API", () => {
     );
     const importRoute = routeBlock("post", "/api/monthly-kpi/import");
 
-    expect(normalizer).toContain("notes: asNullableText(input?.notes ?? input?.Notes)");
+    expect(normalizer).toContain(
+      "notes: asNullableText(input?.notes ?? input?.Notes ?? input?.commentary ?? input?.Commentary)"
+    );
+    expect(normalizer).toContain("situation: asNullableText(input?.situation ?? input?.Situation)");
     expectInOrder(importRoute, [
       "INSERT INTO monthly_kpi_records",
       "facility_uptime,",
@@ -166,8 +169,36 @@ describe("Monthly KPI records API", () => {
     expect(nullableText).toContain("if (value === null || value === undefined) return null");
     expect(nullableText).toContain("const text = String(value).trim()");
     expect(nullableText).toContain("return text || null");
-    expect(normalizer).toContain("notes: asNullableText(input?.notes ?? input?.Notes)");
+    expect(normalizer).toContain(
+      "notes: asNullableText(input?.notes ?? input?.Notes ?? input?.commentary ?? input?.Commentary)"
+    );
+    expect(normalizer).toContain("situation: asNullableText(input?.situation ?? input?.Situation)");
   });
+  it("persists Situation end-to-end through the import upsert, PATCH and list routes", () => {
+    const normalizer = sourceBlock(
+      "function normalizeMonthlyKpiRecord",
+      "logBootStage(\"registering monthly KPI scorecard routes\")",
+    );
+    const importRoute = routeBlock("post", "/api/monthly-kpi/import");
+    const patchRoute = routeBlock("patch", "/api/monthly-kpi/records/:id");
+    const listQuery = sourceBlock(
+      "async function fetchMonthlyKpiRecordsForResponse",
+      "async function fetchMonthlyKpiAggregateForResponse",
+    );
+    const aggregateQuery = sourceBlock(
+      "async function fetchMonthlyKpiAggregateForResponse",
+      "async function fetchOdmInspectionsForResponse",
+    );
+
+    expect(normalizer).toContain("situation: asNullableText(input?.situation ?? input?.Situation)");
+    expect(importRoute).toContain("situation,");
+    expect(importRoute).toContain("${record.situation},");
+    expect(importRoute).toContain("situation = EXCLUDED.situation,");
+    expect(patchRoute).toContain("situation = ${record.situation},");
+    expect(listQuery).toContain("situation,");
+    expect(aggregateQuery).toContain("situation,");
+  });
+
 
   it("imports all payload records and does not filter by fallback business_unit", () => {
     const importRoute = routeBlock("post", "/api/monthly-kpi/import");

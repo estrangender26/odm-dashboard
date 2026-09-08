@@ -15,7 +15,7 @@ import {
   normalizeKpiNumber,
   type PersistedMonthlyKpiRecord,
 } from "./kpiAggregation";
-import { buildAllBusinessUnitsDeckData } from "./allBusinessUnitsData";
+import { buildAllBusinessUnitsDeckData, normalizeStoredCommentary } from "./allBusinessUnitsData";
 import { generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
 import {
   evaluateKpiStatus,
@@ -139,8 +139,22 @@ function buildYtdRecord(
 
 function buildScorecard(
   records: PersistedMonthlyKpiRecord[],
-  aggregate: { businessUnit: string; reportingYear: number; recordCount: number } & Record<ScorecardKpiKey, number | null>
+  aggregate: { businessUnit: string; reportingYear: number; recordCount: number } & Record<ScorecardKpiKey, number | null>,
+  reportingMonth?: number
 ): BusinessUnitScorecard {
+  // Stored Notes/Commentary + Situation come from the record of the exact
+  // BU + reporting month (same authoritative source as the All-BU deck).
+  const reportingRecord =
+    reportingMonth !== undefined
+      ? records.find(
+          (record) =>
+            normalizeBusinessUnitLabel(record.business_unit) === aggregate.businessUnit &&
+            Number(record.reporting_year) === aggregate.reportingYear &&
+            Number(record.reporting_month) === reportingMonth
+        ) ?? null
+      : null;
+  const storedNotes = normalizeStoredCommentary(reportingRecord?.notes);
+  const storedSituation = normalizeStoredCommentary(reportingRecord?.situation);
   const ytd = buildYtdRecord(aggregate);
   const monthlyTrend = buildMonthlyTrend(records, aggregate.businessUnit, aggregate.reportingYear);
   const wins: string[] = [];
@@ -190,7 +204,8 @@ function buildScorecard(
     businessUnit: aggregate.businessUnit,
     monthlyTrend,
     ytd,
-    notes: null,
+    notes: storedNotes,
+    situation: storedSituation,
     majorWins: wins.length ? wins : ["Imported KPI data is available for review."],
     majorRisks: risks.length ? risks : ["No critical KPI risks identified from imported values."],
     actionItems: actions.length ? actions : ["Continue monthly KPI monitoring and validation."],
@@ -274,6 +289,7 @@ function monthlyKpiYearRowSelect(reportingYear: number) {
       source_sheet,
       import_batch_id,
       notes,
+      situation,
       raw_imported_values
     FROM monthly_kpi_records
     WHERE reporting_year = ${reportingYear}
@@ -319,6 +335,7 @@ async function fetchMonthlyKpiYearRows(
     source_sheet: row.source_sheet,
     import_batch_id: row.import_batch_id,
     notes: row.notes,
+    situation: row.situation,
     raw_imported_values: row.raw_imported_values,
   })) as PersistedMonthlyKpiRecord[];
 }
@@ -363,7 +380,9 @@ export async function fetchMonthlyKpiPresentationData(
   const records = await fetchMonthlyKpiYearRows(reportingYear);
 
   const aggregateResult = aggregateMonthlyKpiRecords(records, reportingYear, reportingMonth);
-  const allBus = aggregateResult.byBusinessUnit.map((agg) => buildScorecard(records, agg));
+  const allBus = aggregateResult.byBusinessUnit.map((agg) =>
+    buildScorecard(records, agg, reportingMonth)
+  );
 
   const selectedBu =
     allBus.find((bu) => bu.businessUnit === normalizedSelection) ??

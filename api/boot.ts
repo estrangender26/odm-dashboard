@@ -476,7 +476,8 @@ function normalizeMonthlyKpiRecord(input: any, fallbackSourceFileName?: string |
     mtbf_days: asNullableKpiNumber(input?.mtbf_days ?? input?.mtbfDays ?? input?.mtbf),
     mttr_days: asNullableKpiNumber(input?.mttr_days ?? input?.mttrDays ?? input?.mttr),
     facility_uptime: asNullableKpiNumber(input?.facility_uptime ?? input?.facilityUptime),
-    notes: asNullableText(input?.notes ?? input?.Notes),
+    notes: asNullableText(input?.notes ?? input?.Notes ?? input?.commentary ?? input?.Commentary),
+    situation: asNullableText(input?.situation ?? input?.Situation),
     raw_imported_values: input?.raw_imported_values ?? input?.rawImportedValues ?? null,
     ...rawFields,
   };
@@ -500,7 +501,8 @@ function normalizeMonthlyKpiRecord(input: any, fallbackSourceFileName?: string |
     mtbfDays: asNullableKpiNumber(input?.mtbf_days ?? input?.mtbfDays ?? input?.mtbf),
     mttrDays: pickComputed("mttrDays", normalizeKpiNumber(rawInputRecord.mttr_days)),
     facilityUptime: pickComputed("facilityUptime", normalizeKpiNumber(rawInputRecord.facility_uptime)),
-    notes: asNullableText(input?.notes ?? input?.Notes),
+    notes: asNullableText(input?.notes ?? input?.Notes ?? input?.commentary ?? input?.Commentary),
+    situation: asNullableText(input?.situation ?? input?.Situation),
     rawImportedValues: input?.raw_imported_values ?? input?.rawImportedValues ?? null,
     ...rawFields,
   };
@@ -556,6 +558,7 @@ async function fetchMonthlyKpiRecordsForResponse(filters: { businessUnit?: strin
       source_sheet,
       import_batch_id,
       notes,
+      situation,
       raw_imported_values
     FROM (
       SELECT
@@ -607,6 +610,7 @@ async function fetchMonthlyKpiAggregateForResponse(reportingYear: number, report
       source_sheet,
       import_batch_id,
       notes,
+      situation,
       raw_imported_values
     FROM monthly_kpi_records
     WHERE reporting_year = ${reportingYear}
@@ -722,6 +726,7 @@ app.post("/api/monthly-kpi/import", async (c) => {
           source_sheet,
           import_batch_id,
           notes,
+          situation,
           raw_imported_values
         ) VALUES (
           ${record.businessUnit},
@@ -752,6 +757,7 @@ app.post("/api/monthly-kpi/import", async (c) => {
           ${record.sourceSheet},
           ${record.importBatchId},
           ${record.notes},
+          ${record.situation},
           ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb
         )
         ON CONFLICT (business_unit, reporting_year, reporting_month)
@@ -781,6 +787,7 @@ app.post("/api/monthly-kpi/import", async (c) => {
           source_sheet = EXCLUDED.source_sheet,
           import_batch_id = EXCLUDED.import_batch_id,
           notes = EXCLUDED.notes,
+          situation = EXCLUDED.situation,
           raw_imported_values = EXCLUDED.raw_imported_values
         RETURNING
           id,
@@ -812,6 +819,7 @@ app.post("/api/monthly-kpi/import", async (c) => {
           source_sheet,
           import_batch_id,
           notes,
+          situation,
           raw_imported_values
       `);
       const row = ((result as any).rows ?? result)[0];
@@ -904,6 +912,7 @@ app.patch("/api/monthly-kpi/records/:id", async (c) => {
         source_sheet = ${record.sourceSheet},
         import_batch_id = ${record.importBatchId},
         notes = ${record.notes},
+        situation = ${record.situation},
         raw_imported_values = ${record.rawImportedValues ? JSON.stringify(record.rawImportedValues) : null}::jsonb
       WHERE id = ${id}
       RETURNING *
@@ -1893,6 +1902,7 @@ app.get("/api/governance/presentation-v3/generate", async (c) => {
 // GET /api/monthly-kpi/presentation/generate - generate and return the Monthly KPI scorecard PPTX
 app.get("/api/monthly-kpi/presentation/generate", async (c) => {
   try {
+    await ensureDbReady();
     const reportingYearParam = c.req.query("reporting_year");
     const reportingMonthParam = c.req.query("reporting_month");
     const businessUnitParam = c.req.query("business_unit");

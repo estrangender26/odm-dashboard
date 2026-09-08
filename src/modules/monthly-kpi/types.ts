@@ -32,7 +32,10 @@ export interface BusinessUnitScorecard {
   businessUnit: string;
   monthlyTrend: MonthlyKpiTrendRow[];
   ytd: Record<ScorecardKpiKey, MonthlyKpiValue>;
+  /** Stored Notes/Commentary for the reporting month (null when blank). */
   notes: string | null;
+  /** Stored Situation for the reporting month (null when blank). */
+  situation: string | null;
   majorWins: string[];
   majorRisks: string[];
   actionItems: string[];

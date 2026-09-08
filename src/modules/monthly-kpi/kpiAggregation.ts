@@ -28,6 +28,7 @@ export type PersistedMonthlyKpiRecord = {
   mttr_days: number | string | null;
   facility_uptime: number | string | null;
   notes?: string | null;
+  situation?: string | null;
   raw_imported_values?: unknown;
   // Raw input fields used to recompute KPIs inside the app.
   actual_spend?: number | string | null;
