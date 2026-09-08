@@ -696,7 +696,13 @@ function makeConsolidatedWorkbookWithRow(values: { pmCompliance?: number; budget
     expect(scorecardHtml).toContain("Business Unit Commentary");
     expect(scorecardHtml).toContain("'Notes': exportRecordValue(row,'notes')");
     expect(scorecardHtml).toContain("payload.raw_imported_values.values.notes = payload.notes");
-    expect(scorecardHtml).toContain("if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments'||h==='situation')return 'notes';");
+    expect(scorecardHtml).toContain("if(h==='situation')return 'situation';");
+    expect(scorecardHtml).toContain("if(h==='notes'||h==='note'||h==='remarks'||h==='commentary'||h==='comments')return 'notes';");
+    expect(scorecardHtml).toContain("situation:'situation'");
+    expect(scorecardHtml).toContain("form-manual-situation");
+    expect(scorecardHtml).toContain("payload.situation = situation ? normalizeNotesValue(situation.value) : null;");
+    expect(scorecardHtml).toContain("record.situation = row.situation || null;");
+    expect(scorecardHtml).toContain("Situation shows user-entered context");
     expect(scorecardHtml).toContain("textarea id=\"form-manual-notes\"");
   });
 

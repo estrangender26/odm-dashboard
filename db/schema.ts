@@ -80,6 +80,7 @@ export const monthlyKpiRecords = pgTable("monthly_kpi_records", {
   sourceSheet: varchar("source_sheet", { length: 255 }),
   importBatchId: varchar("import_batch_id", { length: 100 }),
   notes: text("notes"),
+  situation: text("situation"),
   rawImportedValues: jsonb("raw_imported_values"),
 }, (table) => [
   unique("monthly_kpi_records_bu_year_month_unique").on(table.businessUnit, table.reportingYear, table.reportingMonth),

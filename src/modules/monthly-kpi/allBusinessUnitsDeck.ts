@@ -207,8 +207,11 @@ export function scorecardCellFill(
   }
 }
 
-/** Commentary bullets: Notes then Situation, each labeled, deduped. */
-export function buildCommentaryBullets(section: BusinessUnitDeckSection): string[] {
+/** Commentary bullets from stored Notes + stored Situation, each labeled. */
+export function commentaryBulletsFromStored(
+  notes: string | null,
+  situation: string | null
+): string[] {
   const bullets: string[] = [];
   const seen = new Set<string>();
   const push = (text: string) => {
@@ -219,19 +222,27 @@ export function buildCommentaryBullets(section: BusinessUnitDeckSection): string
     seen.add(key);
     bullets.push(trimmed);
   };
-  if (section.notes) {
-    for (const part of String(section.notes).split(/\r?\n+/)) {
+  if (notes) {
+    for (const part of String(notes).split(/\r?\n+/)) {
       const line = part.trim();
       if (line) push(`Notes: ${line}`);
     }
   }
-  for (const situation of section.situationBullets) {
-    if (situation.trim()) push(`Situation: ${situation.trim()}`);
+  if (situation) {
+    for (const part of String(situation).split(/\r?\n+/)) {
+      const line = part.trim();
+      if (line) push(`Situation: ${line}`);
+    }
   }
   if (bullets.length === 0) {
-    return ["No commentary recorded for the reporting period."];
+    return ["No commentary or situation recorded for the reporting period."];
   }
   return bullets;
+}
+
+/** Commentary bullets for a deck section (stored Notes then Situation). */
+export function buildCommentaryBullets(section: BusinessUnitDeckSection): string[] {
+  return commentaryBulletsFromStored(section.notes, section.situation);
 }
 
 // ── Geometry helpers (EMU), mirroring the single-BU generator ──

@@ -32,6 +32,7 @@ function makeBuScorecard(
     monthlyTrend: [],
     ytd: ytd as unknown as BusinessUnitScorecard["ytd"],
     notes: null,
+    situation: null,
     majorWins: [],
     majorRisks: ["Test risk."],
     actionItems: ["Test action."],
@@ -389,15 +390,34 @@ describe("generateMonthlyKpiPresentation", () => {
     }
   });
 
-  it("renders exception-based executive readout text", async () => {
-    const blob = await generateMonthlyKpiPresentation(createTestData());
+  it("renders stored Notes/Situation only and shows the neutral placeholder when both are blank", async () => {
+    const data = createTestData();
+    const blob = await generateMonthlyKpiPresentation(data);
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string");
     expect(xml).toBeDefined();
-    expect(xml).toContain("Key exceptions:");
-    expect(xml).toContain("PM:CM ratios remain below benchmark");
-    expect(xml).toContain("PM compliance YTD 98% vs ≥98% target");
+    // No stored commentary in this fixture -> neutral line, no threshold/missing-data narrative.
+    expect(xml).toContain("No commentary or situation recorded for the reporting period.");
+    expect(xml).not.toContain("Key exceptions:");
+    expect(xml).not.toContain("not submitted");
+  });
+
+  it("renders the stored Notes and Situation bullets for the selected BU on Slide 1", async () => {
+    const data = createTestData();
+    const selected = data.buScorecards.find((b) => b.businessUnit === data.selectedBusinessUnit)!;
+    selected.notes = "Transformer overhaul completed.\nSpare delivery tracked.";
+    selected.situation = "Corrective maintenance was completed inside the window.";
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    expect(xml).toContain("Notes: Transformer overhaul completed.");
+    expect(xml).toContain("Notes: Spare delivery tracked.");
+    expect(xml).toContain(
+      "Situation: Corrective maintenance was completed inside the window."
+    );
+    expect(xml).not.toContain("Key exceptions:");
   });
 
   it("rounds KPI values for executive display on Slide 1", async () => {
@@ -443,7 +463,7 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(ytdAllRow![6]).toBe("100%"); // 99.77 rounded to whole number
   });
 
-  it("generates an all-green commentary when every KPI is within target", async () => {
+  it("never derives threshold commentary from KPI colors even when every KPI is within target", async () => {
     const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
       pmCompliance: 98,
       budgetSpend: 100,
@@ -452,24 +472,17 @@ describe("generateMonthlyKpiPresentation", () => {
       mttrDays: 63.64,
       facilityUptime: 100,
     });
-    const selected = data.buScorecards.find((b) => b.businessUnit === data.selectedBusinessUnit);
-    if (selected) {
-      selected.ytd.pmCompliance = { value: 98, status: "success", formatted: "98.00%" };
-      selected.ytd.budgetSpend = { value: 100, status: "success", formatted: "100.00%" };
-      selected.ytd.pmCmWorkOrderRatio = { value: 86, status: "success", formatted: "86.0%" };
-      selected.ytd.pmCmCostRatio = { value: 80, status: "success", formatted: "80.0%" };
-      selected.ytd.mttrDays = { value: 64, status: "success", formatted: "64.00 days" };
-      selected.ytd.facilityUptime = { value: 100, status: "success", formatted: "100.00%" };
-    }
     const blob = await generateMonthlyKpiPresentation(data);
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
-    expect(xml).toContain("All reported KPIs are within target/acceptable bands.");
+    // All-green RAG status never produces an "all within target" narrative.
+    expect(xml).toContain("No commentary or situation recorded for the reporting period.");
+    expect(xml).not.toContain("All reported KPIs are within target");
     expect(xml).not.toContain("Key exceptions:");
   });
 
-  it("generates red exception commentary and month ranges", async () => {
+  it("red RAG status never generates exception narrative without stored text", async () => {
     const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
       pmCompliance: 85,
       budgetSpend: 85,
@@ -482,10 +495,9 @@ describe("generateMonthlyKpiPresentation", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
-    expect(xml).toContain("Key exceptions:");
-    expect(xml).toContain("PM compliance was below target");
-    expect(xml).toContain("budget spend was outside the target range");
-    expect(xml).toContain("PM:CM ratios");
+    expect(xml).not.toContain("Key exceptions:");
+    expect(xml).not.toContain("PM compliance was below target");
+    expect(xml).toContain("No commentary or situation recorded for the reporting period.");
   });
 
   it("uses formatted fallback for no-data YTD values on Slide 2", async () => {

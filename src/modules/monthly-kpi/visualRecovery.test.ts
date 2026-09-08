@@ -79,6 +79,7 @@ function makeBuScorecard(
     })),
     ytd,
     notes: null,
+    situation: null,
     majorWins: [],
     majorRisks: ["PM compliance is in the warning band against the ≥98% benchmark."],
     actionItems: ["Review pm compliance drivers and recovery actions."],

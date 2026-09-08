@@ -42,6 +42,10 @@ async function ensureMonthlyKpiNotesColumn(db: ReturnType<typeof drizzle<typeof 
   await db.execute(sql`ALTER TABLE IF EXISTS "monthly_kpi_records" ADD COLUMN IF NOT EXISTS "notes" text`);
 }
 
+async function ensureMonthlyKpiSituationColumn(db: ReturnType<typeof drizzle<typeof schema>>): Promise<void> {
+  await db.execute(sql`ALTER TABLE IF EXISTS "monthly_kpi_records" ADD COLUMN IF NOT EXISTS "situation" text`);
+}
+
 async function ensureMonthlyKpiRawFields(db: ReturnType<typeof drizzle<typeof schema>>): Promise<void> {
   await db.execute(sql`
     ALTER TABLE "monthly_kpi_records"
@@ -52,6 +56,7 @@ async function ensureMonthlyKpiRawFields(db: ReturnType<typeof drizzle<typeof sc
       ADD COLUMN IF NOT EXISTS "source_sheet" varchar(255),
       ADD COLUMN IF NOT EXISTS "import_batch_id" varchar(100),
       ADD COLUMN IF NOT EXISTS "notes" text,
+      ADD COLUMN IF NOT EXISTS "situation" text,
       ADD COLUMN IF NOT EXISTS "raw_imported_values" jsonb
   `);
 }
@@ -145,6 +150,7 @@ export function getDb() {
       await migrate(_db!, { migrationsFolder: migrationsPath });
       await ensureTasksProcedureFamiliarityColumn(_db!);
       await ensureMonthlyKpiNotesColumn(_db!);
+      await ensureMonthlyKpiSituationColumn(_db!);
       await ensureMonthlyKpiRawFields(_db!);
       await _db!.execute(sql`SELECT 1`);
       console.log("[db] migration finish; verified tasks.procedure_familiarity");
@@ -167,6 +173,7 @@ export async function ensureDbReady(): Promise<void> {
   const db = getDb();
   if (_dbReady) await _dbReady;
   await ensureMonthlyKpiNotesColumn(db);
+  await ensureMonthlyKpiSituationColumn(db);
   await ensureMonthlyKpiRawFields(db);
 }
 

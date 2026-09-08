@@ -14,8 +14,9 @@
  *  - per-BU monthly trend series stop at the effective month (or the BU's own
  *    last submitted month when it lags behind the portfolio) and never plot
  *    future/unsubmitted months as zero;
- *  - commentary bullets come only from that BU's stored Notes and the derived
- *    Situation for the effective reporting period.
+ *  - commentary bullets come only from that BU's stored Notes and stored
+ *    Situation for the effective reporting period (never from KPI thresholds or
+ *    missing-data logic).
  */
 
 import {
@@ -125,8 +126,10 @@ export interface BusinessUnitDeckSection {
   businessUnit: string;
   summary: MonthlyKpiKpiValue2[];
   trends: BusinessUnitTrendPoint[];
+  /** Stored Notes/Commentary for the BU at the common effective month (null when blank). */
   notes: string | null;
-  situationBullets: string[];
+  /** Stored Situation for the BU at the common effective month (null when blank). */
+  situation: string | null;
   /** Slide reporting period: the ONE common portfolio effective month for the
    * whole deck (never a per-BU relabel). Chart data may stop at the BU's own
    * last submitted month, but the slide header stays the common period. */
@@ -145,6 +148,19 @@ export interface AllBusinessUnitsDeckData {
 function isPresentNumber(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
+
+/**
+ * Authoritative stored commentary text: trim surrounding whitespace and
+ * normalize line endings only. Wording is never rewritten or summarized.
+ */
+export function normalizeStoredCommentary(
+  value: string | null | undefined
+): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  return text || null;
+}
+
 
 function formatValue(key: ScorecardKpiKey2, value: number | null): string {
   if (!isPresentNumber(value)) return "No Data";
@@ -263,7 +279,16 @@ function standaloneMonthlyKpis(record: PersistedMonthlyKpiRecord | null) {
   };
 }
 
-function derivedSituationForBusinessUnit(
+/**
+ * Derive the missing-data/system-status REASONS for a BU/month (for example
+ * "PM Compliance not submitted", "No Budget", "No Qualifying Downtime").
+ *
+ * These are NOT business-unit Situation commentary: they are produced by
+ * missing-data logic, never by a user. Presentations must source their
+ * Situation bullets from the stored monthly_kpi_records.situation field and
+ * must not label these reasons as "Situation".
+ */
+export function deriveMissingDataReasons(
   records: PersistedMonthlyKpiRecord[],
   businessUnit: string,
   year: number,
@@ -440,22 +465,19 @@ export function buildAllBusinessUnitsDeckData(
       reportingYear,
       effectiveMonth
     );
-    const notes = effectiveRecord?.notes
-      ? String(effectiveRecord.notes).trim() || null
-      : null;
-    const situationBullets = derivedSituationForBusinessUnit(
-      buRecords,
-      businessUnit,
-      reportingYear,
-      effectiveMonth
-    );
+    // Stored Notes/Commentary and Situation for the BU at the common
+    // effective reporting month only. Earlier-month commentary is never
+    // silently reused; blank fields stay null so the deck shows no fake
+    // bullet and no derived missing-data narrative.
+    const notes = normalizeStoredCommentary(effectiveRecord?.notes);
+    const situation = normalizeStoredCommentary(effectiveRecord?.situation);
 
     return {
       businessUnit,
       summary,
       trends,
       notes,
-      situationBullets,
+      situation,
       reportingMonth,
       reportingMonthLabel,
     };
