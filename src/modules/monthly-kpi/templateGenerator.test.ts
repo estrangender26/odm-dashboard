@@ -427,6 +427,95 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(xml).not.toContain("Key exceptions:");
   });
 
+  it("single-BU CWC deck renders its exact stored note and the Situation neutral line", async () => {
+    const data = createTestData();
+    data.selectedBusinessUnit = "CWC";
+    const cwc = data.buScorecards.find((b) => b.businessUnit === "CWC")!;
+    cwc.notes =
+      "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44";
+    cwc.situation = null;
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    expect(xml).toContain("Notes / Commentary");
+    expect(xml).toContain(
+      "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44"
+    );
+    expect(xml).toContain("Situation");
+    expect(xml).toContain("No situation submitted.");
+    expect(xml).not.toContain("Key exceptions:");
+    expect(xml).not.toContain("Replacement of filters");
+    expect(xml).not.toContain("Transformer overhaul");
+  });
+
+  it.each([
+    // Arbitrary BU identities — the single-BU path must be BU-generic, not
+    // tied to the real seven names. Emulates the adapter contract for a
+    // September 2026 request that the server resolves to the August 2026
+    // effective month: data.reportingMonth=8 with each BU's own August record.
+    ["BU-A", "BU-A note", null, "No situation submitted."],
+    ["BU-B", "BU-B note", "BU-B situation", null],
+    ["BU-C", null, "BU-C situation", "No commentary submitted."],
+  ] as const)(
+    "selected arbitrary BU %s renders ONLY its own stored Notes/Situation at the effective month — no leakage from other BUs",
+    async (selectedName, ownNote, ownSituation, expectedOwnFallback) => {
+      const data = createTestData();
+      data.reportingMonth = 8;
+      data.reportingMonthLabel = "August 2026";
+      // Every fixture BU exists in the shared data (as the adapter would
+      // supply from records); only the SELECTED BU's text may reach its deck.
+      const fixtureNote: Record<string, string | null> = {
+        "BU-A": "BU-A note",
+        "BU-B": "BU-B note",
+        "BU-C": null,
+      };
+      const fixtureSituation: Record<string, string | null> = {
+        "BU-A": null,
+        "BU-B": "BU-B situation",
+        "BU-C": "BU-C situation",
+      };
+      for (const name of ["BU-A", "BU-B", "BU-C"]) {
+        const scorecard = makeBuScorecard(name, {});
+        scorecard.notes = fixtureNote[name];
+        scorecard.situation = fixtureSituation[name];
+        data.buScorecards.push(scorecard);
+      }
+      data.selectedBusinessUnit = selectedName;
+
+      const blob = await generateMonthlyKpiPresentation(data);
+      const arrayBuffer = await blob.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const slides = await Promise.all(
+        [1, 2, 3].map(async (n) =>
+          (await zip.file(`ppt/slides/slide${n}.xml`)?.async("string")) ?? ""
+        )
+      );
+      const allXml = slides.join("\n");
+
+      expect(allXml).toContain("Notes / Commentary");
+      expect(allXml).toContain("Situation");
+      if (ownNote !== null) expect(allXml).toContain(ownNote);
+      else expect(allXml).toContain(expectedOwnFallback);
+      if (ownSituation !== null) expect(allXml).toContain(ownSituation);
+      else expect(allXml).toContain(expectedOwnFallback);
+
+      // No cross-BU leakage: no other fixture BU's note or situation text may
+      // appear anywhere in the generated deck.
+      for (const name of ["BU-A", "BU-B", "BU-C"]) {
+        if (name === selectedName) continue;
+        const otherNote = fixtureNote[name];
+        const otherSituation = fixtureSituation[name];
+        if (otherNote !== null) expect(allXml).not.toContain(otherNote);
+        if (otherSituation !== null) expect(allXml).not.toContain(otherSituation);
+      }
+      // Real-name notes from sibling tests must never bleed into this deck.
+      expect(allXml).not.toContain("Exceed budget due to media replacement");
+      expect(allXml).not.toContain("Replacement of filters");
+      expect(allXml).not.toContain("Transformer overhaul");
+    }
+  );
+
   it("rounds KPI values for executive display on Slide 1", async () => {
     const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
       pmCompliance: 98.38,

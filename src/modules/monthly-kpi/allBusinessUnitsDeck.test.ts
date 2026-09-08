@@ -1315,11 +1315,118 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
     expect(flags[3].bullet).toBe(true);
   });
 
+  it("production-shaped CWC/LARC/AMD-EZ records render their exact readout sections without leakage", async () => {
+    const named = [
+      ...makeBusinessUnitRecords("AMD-EZ", { through: 8 }),
+      ...makeBusinessUnitRecords("CWC", {
+        through: 8,
+        notesByMonth: {
+          8: "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+        },
+      }),
+      ...makeBusinessUnitRecords("LARC", {
+        through: 8,
+        notesByMonth: {
+          8: "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)",
+        },
+      }),
+    ];
+    const data = buildAllBusinessUnitsDeckData(named, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    const byIndex = new Map<string, string>();
+    for (let i = 0; i < data.sections.length; i++) {
+      byIndex.set(data.sections[i].businessUnit, slides[1 + i * 2].xml);
+    }
+    const textsFor = (bu: string) =>
+      readoutParagraphFlags(byIndex.get(bu)!).map((f) => f.text);
+
+    expect(textsFor("AMD-EZ")).toEqual([
+      "Notes / Commentary",
+      NO_COMMENTARY_SUBMITTED,
+      "Situation",
+      NO_SITUATION_SUBMITTED,
+    ]);
+    expect(textsFor("CWC")).toEqual([
+      "Notes / Commentary",
+      "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+      "Situation",
+      NO_SITUATION_SUBMITTED,
+    ]);
+    expect(textsFor("LARC")).toEqual([
+      "Notes / Commentary",
+      "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)",
+      "Situation",
+      NO_SITUATION_SUBMITTED,
+    ]);
+    // No cross-BU leakage of note text.
+    expect(textsFor("CWC").join(" ")).not.toContain("Replacement of filters");
+    expect(textsFor("LARC").join(" ")).not.toContain("Exceed budget");
+    expect(textsFor("AMD-EZ").join(" ")).not.toContain("Exceed budget");
+    expect(textsFor("AMD-EZ").join(" ")).not.toContain("Replacement of filters");
+  });
+
   it("never produces nested a:r elements inside the readout", async () => {
     const slides = await slidesOfDeck();
     for (const slide of slides) {
       if (!slide.xml.includes('name="Executive Readout"')) continue;
       expect(hasNestedRun(readoutInnerBody(slide.xml))).toBe(false);
     }
+  });
+});
+describe("OPC/package integrity audit (generated All-BU deck)", () => {
+  function resolveTarget(relsFile: string, target: string): string {
+    if (target.startsWith("/")) return target.slice(1);
+    let base = relsFile.slice(0, relsFile.lastIndexOf("/") + 1);
+    if (base.endsWith("_rels/")) base = base.slice(0, -"_rels/".length);
+    const combined = (base + target).split("/");
+    const stack: string[] = [];
+    for (const part of combined) {
+      if (part === "..") stack.pop();
+      else if (part && part !== ".") stack.push(part);
+    }
+    return stack.join("/");
+  }
+
+  it("every relationship target exists; relationship ids are unique; xml parts parse; content types cover slides/charts", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+
+    const partNames = new Set(Object.keys(zip.files).filter((n) => !zip.files[n].dir));
+    const relFiles = [...partNames].filter((n) => n.endsWith(".rels"));
+    expect(relFiles.length).toBeGreaterThan(10);
+
+    for (const relFile of relFiles) {
+      const xml = await zip.file(relFile)!.async("string");
+      const ids = [...xml.matchAll(/Id="(rId\d+)"/g)].map((m) => m[1]);
+      expect(new Set(ids).size).toBe(ids.length); // no duplicate relationship ids
+      for (const m of xml.matchAll(/<Relationship\b[^>]*Target="([^"]+)"/g)) {
+        const resolved = resolveTarget(relFile, m[1]);
+        expect(
+          partNames.has(resolved),
+          `dangling target in ${relFile}: "${m[1]}" resolved to "${resolved}"`
+        ).toBe(true);
+      }
+    }
+
+    // Every XML part parses.
+    for (const name of partNames) {
+      if (!name.endsWith(".xml")) continue;
+      const text = await zip.file(name)!.async("string");
+      expect(() => parseXml(text)).not.toThrow();
+    }
+
+    const contentTypes = await zip.file("[Content_Types].xml")!.async("string");
+    const slideNames = [...partNames].filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+    const chartNames = [...partNames].filter((n) => /^ppt\/charts\/chart\d+\.xml$/.test(n));
+    for (const slide of slideNames) {
+      expect(contentTypes).toContain(`/${slide}`);
+    }
+    for (const chart of chartNames) {
+      expect(contentTypes).toContain(`/${chart}`);
+    }
+    expect(chartNames.length).toBe(6 * data.sections.length);
   });
 });
