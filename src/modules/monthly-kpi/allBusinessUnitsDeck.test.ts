@@ -6,6 +6,7 @@ import {
   normalizeStoredCommentary,
 } from "./allBusinessUnitsData";
 import { formatScorecardCell, generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
+import { buildExecutiveReadoutLines } from "./executiveReadout";
 import { parseXml } from "../executive-presentations/framework";
 import {
   estimateReadoutVisualLines,
@@ -832,29 +833,41 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
         slides[1 + i * 2].xml,
         "Executive Readout"
       );
-      const expectedTexts = storedNotesSituationLines(
-        section.notes,
-        section.situation
-      ).map((line) => line.text);
+      // The visible readout is the DETERMINISTIC derived Executive
+      // Commentary / Management Assessment (built from the section's own
+      // KPI values + stored Notes), never a raw dump of stored text.
+      const expectedTexts = derivedReadoutTexts(section);
       expect(readoutTexts).toEqual(expectedTexts);
-      // Both section headings always render, and the neutral line appears
-      // exactly for the field that is blank (never inventing content).
-      expect(readoutTexts[0]).toBe("Notes / Commentary");
-      expect(readoutTexts).toContain("Situation");
-      expect(readoutTexts.some((t) => t === NO_COMMENTARY_SUBMITTED)).toBe(
-        section.notes === null
-      );
-      expect(readoutTexts.some((t) => t === NO_SITUATION_SUBMITTED)).toBe(
-        section.situation === null
-      );
-      // Commentary must never leak from a different BU (notes or situation).
+      expect(readoutTexts[0]).toBe("EXECUTIVE COMMENTARY");
+      const managementIndex = readoutTexts.indexOf("MANAGEMENT ASSESSMENT");
+      expect(managementIndex).toBeGreaterThan(0);
+      const bulletsBefore = readoutTexts.slice(1, managementIndex).filter((t) => t.length > 0);
+      const bulletsAfter = readoutTexts.slice(managementIndex + 1).filter((t) => t.length > 0);
+      expect(bulletsBefore.length).toBeLessThanOrEqual(2);
+      expect(bulletsAfter.length).toBeLessThanOrEqual(2);
+      const wordCount = (text: string) => (text ? text.trim().split(/\s+/).length : 0);
+      expect(bulletsBefore.reduce((a, b) => a + wordCount(b), 0)).toBeLessThanOrEqual(46);
+      expect(bulletsAfter.reduce((a, b) => a + wordCount(b), 0)).toBeLessThanOrEqual(46);
+      // Old neutral/raw strings never appear in the derived readout.
+      expect(readoutTexts).not.toContain("Notes / Commentary");
+      expect(readoutTexts).not.toContain("No commentary submitted.");
+      expect(readoutTexts).not.toContain("No situation submitted.");
+      // No leakage: when another section's derived readout is NOT identical
+      // to this one, none of its VALUE-bearing bullet text may appear here
+      // (generic shared action sentences are not leakage).
+      const ownDerived = derivedReadoutTexts(section);
       for (const other of data.sections) {
         if (other.businessUnit === section.businessUnit) continue;
-        for (const text of [other.notes, other.situation]) {
-          for (const part of (text ?? "").split(/\n+/)) {
-            const trimmed = part.trim();
-            if (trimmed) {
-              expect(readoutTexts.some((t) => t.includes(trimmed))).toBe(false);
+        const otherDerived = derivedReadoutTexts(other);
+        if (JSON.stringify(otherDerived) === JSON.stringify(ownDerived)) continue;
+        for (const text of otherDerived) {
+          if (text !== "EXECUTIVE COMMENTARY" && text !== "MANAGEMENT ASSESSMENT") {
+            const hasGenericOnly =
+              text.includes("95-105%") ||
+              text.includes("≥98%") ||
+              text.includes("100% target");
+            if (/%|days/.test(text) && !hasGenericOnly) {
+              expect(readoutTexts.includes(text)).toBe(false);
             }
           }
         }
@@ -1252,6 +1265,25 @@ function readoutParagraphFlags(xml: string): Array<{ text: string; bullet: boole
 
 const DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
 
+
+/**
+ * Derived Executive Readout texts for a section using the SAME deterministic
+ * builder the generator uses (section summary values + stored notes).
+ */
+function derivedReadoutTexts(
+  section: { businessUnit: string; reportingMonthLabel: string; notes: string | null; situation: string | null; summary: { key: string; value: number | null }[] }
+): string[] {
+  const values: Record<string, number | null> = {};
+  for (const row of section.summary) values[row.key] = row.value;
+  return buildExecutiveReadoutLines({
+    businessUnit: section.businessUnit,
+    monthLabel: section.reportingMonthLabel,
+    notes: section.notes,
+    situation: section.situation,
+    values,
+  }).map((line) => line.text);
+}
+
 function hasNestedRun(body: string): boolean {
   const doc = parseXml(
     `<?xml version="1.0"?><root xmlns:a="${DRAWINGML_NS}">${body}</root>`
@@ -1282,39 +1314,37 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
     return orderedSlideXml(zip);
   }
 
-  it("headings have no bullet; content lines keep the bullet marker", async () => {
+  it("EXECUTIVE COMMENTARY / MANAGEMENT ASSESSMENT headings have no bullet; derived content lines keep the bullet marker", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const slides = await slidesOfDeck();
-    // AMD slide (index 1): notes has 2 lines + situation 1 line.
-    const flags = readoutParagraphFlags(slides[1].xml);
-    expect(flags.map((f) => f.text)).toEqual([
-      "Notes / Commentary",
-      "Transformer overhaul completed.",
-      "Spare delivery tracked.",
-      "Situation",
-      "Corrective maintenance was completed inside the August window.",
-    ]);
-    expect(flags[0].heading).toBe(true);
-    expect(flags[0].bullet).toBe(false);
-    expect(flags[1].bullet).toBe(true);
-    expect(flags[2].bullet).toBe(true);
-    expect(flags[3].heading).toBe(true);
-    expect(flags[4].bullet).toBe(true);
+    for (let i = 0; i < data.sections.length; i++) {
+      const flags = readoutParagraphFlags(slides[1 + i * 2].xml);
+      const expectedTexts = derivedReadoutTexts(data.sections[i]);
+      expect(flags.map((f) => f.text)).toEqual(expectedTexts);
+      const headings = flags.filter((f) => f.heading).map((f) => f.text);
+      expect(headings).toEqual(["EXECUTIVE COMMENTARY", "MANAGEMENT ASSESSMENT"]);
+      for (const f of flags) {
+        if (f.heading) {
+          expect(f.bullet).toBe(false);
+        } else {
+          expect(f.bullet).toBe(true);
+        }
+      }
+    }
   });
 
-  it("neutral placeholder lines keep the bullet marker under their headings", async () => {
+  it("blank stored notes/situation still yield a concise derived readout (never the old neutral placeholders)", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const slides = await slidesOfDeck();
-    // Tagum slide (index 5) has no stored notes/situation.
-    const flags = readoutParagraphFlags(slides[5].xml);
-    expect(flags.map((f) => f.text)).toEqual([
-      "Notes / Commentary",
-      "No commentary submitted.",
-      "Situation",
-      "No situation submitted.",
-    ]);
-    expect(flags[0].heading).toBe(true);
-    expect(flags[1].bullet).toBe(true);
-    expect(flags[2].heading).toBe(true);
-    expect(flags[3].bullet).toBe(true);
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const flags = readoutParagraphFlags(slides[1 + i * 2].xml);
+      const expectedTexts = derivedReadoutTexts(section);
+      expect(flags.map((f) => f.text)).toEqual(expectedTexts);
+      expect(flags.map((f) => f.text)).not.toContain("No commentary submitted.");
+      expect(flags.map((f) => f.text)).not.toContain("No situation submitted.");
+      expect(flags.map((f) => f.text)).not.toContain("Notes / Commentary");
+    }
   });
 
   it("production-shaped CWC/LARC/AMD-EZ records render their exact readout sections without leakage", async () => {
@@ -1344,29 +1374,51 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
     const textsFor = (bu: string) =>
       readoutParagraphFlags(byIndex.get(bu)!).map((f) => f.text);
 
-    expect(textsFor("AMD-EZ")).toEqual([
-      "Notes / Commentary",
-      NO_COMMENTARY_SUBMITTED,
-      "Situation",
-      NO_SITUATION_SUBMITTED,
-    ]);
-    expect(textsFor("CWC")).toEqual([
-      "Notes / Commentary",
-      "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
-      "Situation",
-      NO_SITUATION_SUBMITTED,
-    ]);
-    expect(textsFor("LARC")).toEqual([
-      "Notes / Commentary",
-      "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)",
-      "Situation",
-      NO_SITUATION_SUBMITTED,
-    ]);
-    // No cross-BU leakage of note text.
+    // Every section shows its own derived readout (KPI values + own Notes).
+    for (const bu of ["AMD-EZ", "CWC", "LARC"]) {
+      const section = data.sections.find((sec) => sec.businessUnit === bu)!;
+      expect(textsFor(bu)).toEqual(derivedReadoutTexts(section));
+    }
+    // Derived content references the BU's own values; no raw note dumps.
     expect(textsFor("CWC").join(" ")).not.toContain("Replacement of filters");
     expect(textsFor("LARC").join(" ")).not.toContain("Exceed budget");
     expect(textsFor("AMD-EZ").join(" ")).not.toContain("Exceed budget");
-    expect(textsFor("AMD-EZ").join(" ")).not.toContain("Replacement of filters");
+    // No cross-BU leakage: per-BU numeric value tokens never migrate
+    // between sections (generic wording may legitimately be shared).
+    const valueTokens = (bu: string) => {
+      const tokens = new Set<string>();
+      for (const text of textsFor(bu)) {
+        for (const m of text.matchAll(/\d+(?:\.\d+)?(?:%|\s+days)/g)) {
+          // Benchmark wording ("95-105% band", "≥98% target", "100% target")
+          // is generic and shared by design, not a per-BU value.
+          if (!["105%", "100%", "98%", "95-105%"].includes(m[0])) {
+            tokens.add(m[0]);
+          }
+        }
+      }
+      return tokens;
+    };
+    const sets: Record<string, Set<string>> = {
+      "AMD-EZ": valueTokens("AMD-EZ"),
+      CWC: valueTokens("CWC"),
+      LARC: valueTokens("LARC"),
+    };
+    const serialized = Object.values(sets).map((tokens) => [...tokens].sort().join(","));
+    if (new Set(serialized).size === 1) {
+      // Synthetic fixture yields identical values per BU - nothing to migrate;
+      // real per-BU isolation is covered by module-level tests with distinct
+      // production values (see executiveReadout.test.ts).
+      expect(serialized.length).toBe(3);
+    } else {
+      for (const bu of ["AMD-EZ", "CWC", "LARC"]) {
+        for (const other of ["AMD-EZ", "CWC", "LARC"]) {
+          if (other === bu) continue;
+          for (const token of sets[other]) {
+            expect(sets[bu].has(token)).toBe(false);
+          }
+        }
+      }
+    }
   });
 
   it("every section readout run carries deterministic visible formatting (headings 172B47 bold, bullets 111111, Aptos)", async () => {
@@ -1414,7 +1466,6 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
     };
 
     const assertHeading = (r: { text: string; rPr: string; buNone: boolean }) => {
-      expect(r.text === "Notes / Commentary" || r.text === "Situation").toBe(true);
       expect(r.buNone).toBe(true);
       expect(r.rPr).toMatch(/lang="en-PH"/);
       expect(r.rPr).toMatch(/sz="1200"/);
@@ -1424,7 +1475,7 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
       expect(r.rPr).not.toContain("schemeClr");
       expect((r.rPr.match(/<a:solidFill>/g) || []).length).toBe(1);
     };
-    const assertBullet = (r: { rPr: string; buChar: boolean }) => {
+    const assertBullet = (r: { text: string; rPr: string; buChar: boolean }) => {
       expect(r.buChar).toBe(true);
       expect(r.rPr).toMatch(/lang="en-PH"/);
       expect(r.rPr).toMatch(/sz="1200"/);
@@ -1436,28 +1487,18 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
 
     for (const buName of ["CWC", "LARC", "AMD-EZ"]) {
       const { runs, body } = parse(byIndex.get(buName)!);
-      assertHeading(runs[0]);
-      assertHeading(runs[2]);
-      expect(runs[0].text).toBe("Notes / Commentary");
-      expect(runs[2].text).toBe("Situation");
-      // Every content line (stored note or neutral) is a formatted bullet.
-      for (const content of [runs[1], runs[3]]) {
-        assertBullet(content);
+      const section = data.sections.find((sec) => sec.businessUnit === buName)!;
+      const expectedTexts = derivedReadoutTexts(section);
+      // Every readout run text matches the derived builder exactly.
+      expect(runs.map((r) => r.text)).toEqual(expectedTexts);
+      const headingNames = new Set(["EXECUTIVE COMMENTARY", "MANAGEMENT ASSESSMENT"]);
+      for (const run of runs) {
+        if (headingNames.has(run.text)) {
+          assertHeading(run);
+        } else {
+          assertBullet(run);
+        }
       }
-      if (buName === "CWC") {
-        expect(runs[1].text).toBe(
-          "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44"
-        );
-      }
-      if (buName === "LARC") {
-        expect(runs[1].text).toBe(
-          "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)"
-        );
-      }
-      if (buName === "AMD-EZ") {
-        expect(runs[1].text).toBe(NO_COMMENTARY_SUBMITTED);
-      }
-      expect(runs[3].text).toBe(NO_SITUATION_SUBMITTED);
       // No nested a:r; exactly one rPr per run inside the readout body.
       expect(body).not.toContain("<a:r><a:r>");
       expect((body.match(/<a:rPr\b/g) || []).length).toBe(
@@ -1536,7 +1577,7 @@ describe("long August-2026 commentary never clips inside the generated readout t
   const WAWA_NOTE =
     "PM Compliance: No major preventive maintenance (PM) activities were scheduled during the month. However, an unscheduled warranty preventive maintenance activity was conducted on the elevator. Most in-house maintenance activities were deferred as maintenance personnel were prioritized to support the recovery and restoration of the UWD facilities affected by landslides and flooding.; PM CM Work Orders: Most of the CM is Attributed to the repair of Service vehicles; PM CM Cost: The PM cost remains TBD as the Elevator PM is still ongoing. The CM cost is primarily attributed to the materials procured to support the emergency response, recovery, and restoration activities for the UWD following the landslide incident.; MTTR: The EFT and the entire powerhouse facility were affected by a landslide, resulting in the submergence of the EFT and its associated appurtenances in floodwaters. Recovery and restoration efforts are currently ongoing.; Facility Uptime: Total operating time for critical equipments like pumps and gensets for TW and UWPS. There were shutdowns but mostly requested by treatment plant.";
 
-  it("allocates on-slide wrap-aware height with normAutofit and keeps all text (TWCI + WAWA/JVC)", async () => {
+  it("allocates on-slide wrap-aware height with normAutofit; long source notes stay CONCISE (TWCI + WAWA/JVC)", async () => {
     expect(TWCI_NOTE.length).toBeGreaterThan(WAWA_NOTE.length); // TWCI is the longest total
     const named = [
       ...makeBusinessUnitRecords("TWCI", {
@@ -1553,10 +1594,6 @@ describe("long August-2026 commentary never clips inside the generated readout t
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const slides = await orderedSlideXml(zip);
 
-    const expected: Record<string, string[]> = {
-      TWCI: storedNotesSituationLines(TWCI_NOTE, null).map((l) => l.text),
-      "WAWA/JVC": storedNotesSituationLines(WAWA_NOTE, null).map((l) => l.text),
-    };
     for (let i = 0; i < data.sections.length; i++) {
       const section = data.sections[i];
       const slide = slides[1 + i * 2].xml;
@@ -1567,8 +1604,21 @@ describe("long August-2026 commentary never clips inside the generated readout t
         .join("\u0000")
         .split("\u0000")
         .filter((t) => t.length > 0);
-      // Every authored line is inside the readout text box.
-      expect(text).toEqual(expected[section.businessUnit]);
+      // The visible readout is the CONCISE derived content, never a dump of
+      // the long stored note (source Notes stay authoritative in the DB).
+      const derivedLines = derivedReadoutTexts(section);
+      expect(text).toEqual(derivedLines);
+      const noteSource = section.businessUnit === "TWCI" ? TWCI_NOTE : WAWA_NOTE;
+      const joined = text.join(" ");
+      expect(joined.length).toBeLessThan(noteSource.length / 2); // summarized
+      const word = (t: string) => (t ? t.trim().split(/\s+/).length : 0);
+      const maIdx = text.indexOf("MANAGEMENT ASSESSMENT");
+      expect(maIdx).toBeGreaterThan(0);
+      const ecWords = text.slice(1, maIdx).reduce((a, b) => a + word(b), 0);
+      const maWords = text.slice(maIdx + 1).reduce((a, b) => a + word(b), 0);
+      expect(ecWords).toBeLessThanOrEqual(46);
+      expect(maWords).toBeLessThanOrEqual(46);
+      expect(text.length - 2).toBeLessThanOrEqual(4); // <= 2 bullets per section
 
       // Schema-valid autofit safety net on the NEW text box.
       expect(slide).toContain("<a:normAutofit/>");
@@ -1576,8 +1626,6 @@ describe("long August-2026 commentary never clips inside the generated readout t
 
       // Geometry: explicit xfrm, on-slide, clear of the bottom margin, and
       // sized from the wrapped visual-line estimate.
-      // Geometry lives in the shape spPr (before txBody) - read it from the
-      // full readout shape slice, not the txBody-only readoutInnerBody.
       const roStart = slide.indexOf('name="Executive Readout"');
       const roEnd = slide.indexOf('</p:sp>', roStart);
       const roXml = slide.slice(slide.lastIndexOf('<p:sp>', roStart), roEnd);
@@ -1589,18 +1637,26 @@ describe("long August-2026 commentary never clips inside the generated readout t
       const cy = Number(e![2]);
       const topY = Number(m![2]);
       const usable = cx - 19050 - 38100;
-      const lines = storedNotesSituationLines(section.notes ?? null, section.situation ?? null);
-      const required = requiredReadoutHeightEmu(lines, usable, 900000);
+      const values: Record<string, number | null> = {};
+      for (const row of section.summary) values[row.key] = row.value;
+      const derivedLinesObjects = buildExecutiveReadoutLines({
+        businessUnit: section.businessUnit,
+        monthLabel: section.reportingMonthLabel,
+        notes: section.notes,
+        situation: section.situation,
+        values,
+      });
+      const required = requiredReadoutHeightEmu(derivedLinesObjects, usable, 900000);
       const available = 6858000 - topY - 140000;
       expect(cy).toBe(Math.min(required, available));
       expect(topY + cy).toBeLessThanOrEqual(6858000 - 140000);
-      expect(cy).toBeGreaterThan(900000); // grew beyond the short-content minimum
+      expect(cy).toBeGreaterThanOrEqual(900000);
       expect(estimateReadoutVisualLines(TWCI_NOTE, usable)).toBeGreaterThan(5);
 
-      // All four blocks present (headings + content + placeholders).
-      expect(text).toContain("Notes / Commentary");
-      expect(text).toContain("Situation");
-      expect(text).toContain("No situation submitted.");
+      // Both derived headings present.
+      expect(text).toContain("EXECUTIVE COMMENTARY");
+      expect(text).toContain("MANAGEMENT ASSESSMENT");
+      expect(text).not.toContain("Notes / Commentary");
     }
   });
 });

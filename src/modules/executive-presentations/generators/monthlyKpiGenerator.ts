@@ -32,10 +32,8 @@ import type {
   MonthlyKpiValue,
   ScorecardKpiKey,
 } from "../../monthly-kpi/types";
-import {
-  storedNotesSituationLines,
-  writeNotesSituationReadout,
-} from "../framework/readoutText";
+import { writeNotesSituationReadout } from "../framework/readoutText";
+import { buildExecutiveReadoutLines } from "../../monthly-kpi/executiveReadout";
 import {
   evaluateKpiStatus,
   getDefaultMonthlyKpiThresholdConfig,
@@ -400,7 +398,17 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   // depend on donor paragraphs/runs/rPr. Headings + bullets render even when
   // blank ("No commentary submitted." / "No situation submitted.").
   const donorReadout = findShapeByName(doc, "Executive Readout");
-  const lines = storedNotesSituationLines(selectedBu.notes, selectedBu.situation);
+  const readoutValues: Partial<Record<ScorecardKpiKey, number | null>> = {};
+  for (const key of TABLE_METRICS) {
+    readoutValues[key] = selectedBu.ytd[key].value;
+  }
+  const lines = buildExecutiveReadoutLines({
+    businessUnit: selectedBu.businessUnit,
+    monthLabel: data.reportingMonthLabel,
+    notes: selectedBu.notes,
+    situation: selectedBu.situation,
+    values: readoutValues,
+  });
   writeNotesSituationReadout(doc, donorReadout ?? null, lines, readoutTop, 700000);
 
   // Hide the legacy MTTR methodology note shape so it does not appear on
