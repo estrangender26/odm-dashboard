@@ -39,16 +39,6 @@ async function sha256Hex(input: string | ArrayBuffer): Promise<string> {
   return Math.abs(hash).toString(16).padStart(8, "0");
 }
 
-async function hashDataUrl(dataUrl: string): Promise<string> {
-  if (dataUrl.startsWith("data:")) {
-    const blob = dataUrlToBlob(dataUrl);
-    const buffer = await blob.arrayBuffer();
-    return sha256Hex(buffer);
-  }
-  return sha256Hex(dataUrl);
-}
-
-
 function getDateScopeLabel(deck: GeneratedPresentation): string {
   if (deck.dateFrom || deck.dateTo) {
     return `${deck.dateFrom ?? ""}|${deck.dateTo ?? ""}`;
@@ -139,7 +129,35 @@ function mapApiCategoryToPresentationCategory(
   }
 }
 
+/**
+ * Return the raw base64 payload of a data: URL (`data:<mime>;base64,<payload>`)
+ * or null when the value is not a data URL (e.g. an API download path). Only
+ * data-URL values carry actual deck bytes that may be saved.
+ */
+export function dataUrlBase64Payload(dataUrl: string): string | null {
+  const match = /^data:[^,]*;base64,(.+)$/s.exec(dataUrl);
+  return match ? match[1] : null;
+}
+
+/** Decode a base64 string to its bytes (browser/node global atob). */
+export function base64ToBytes(payload: string): Uint8Array {
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
 async function generatedDeckToApiPayload(deck: GeneratedPresentation) {
+  // API-backed decks carry a download URL as their dataUrl, NOT the bytes.
+  // Re-posting those here would store the URL string as the blob and corrupt
+  // the stored file on the next download - only decks whose dataUrl is a real
+  // data: URL may be (re)saved.
+  if (!deck.dataUrl) return null;
+  const payload = dataUrlBase64Payload(deck.dataUrl);
+  if (!payload) return null;
+
   const scope: Record<string, unknown> = {};
   if (deck.reportingYear) scope.reportingYear = deck.reportingYear;
   if (deck.reportingMonth) scope.reportingMonth = deck.reportingMonth;
@@ -151,14 +169,19 @@ async function generatedDeckToApiPayload(deck: GeneratedPresentation) {
   if (deck.category) scope.category = deck.category;
   if (deck.inspector) scope.inspector = deck.inspector;
 
+  // file_blob is the RAW base64 payload (never the full data: URL text) and
+  // the hash is computed over the decoded BYTES so stored metadata always
+  // matches the bytes /api/presentation-files/:id/download serves.
+  const bytes = base64ToBytes(payload).buffer as ArrayBuffer;
+
   return {
     file_name: deck.filename ?? deck.name,
     display_name: deck.name,
     title: deck.title ?? deck.name,
     version: deck.version ?? "1.0",
-    file_size_bytes: deck.size,
-    file_blob: deck.dataUrl,
-    sha256_hash: await hashDataUrl(deck.dataUrl),
+    file_size_bytes: bytes.byteLength,
+    file_blob: payload,
+    sha256_hash: await sha256Hex(bytes),
     generator_id: deck.generatorId,
     generator_name: deck.generatorName,
     template: deck.template,
@@ -322,6 +345,11 @@ export async function saveGeneratedPresentations(
   for (const deck of deduped) {
     try {
       const payload = await generatedDeckToApiPayload(deck);
+      // payload is null for API-backed decks (their dataUrl is a download URL,
+      // not the bytes) and for anything without a data: URL - those are already
+      // stored server-side and must never be re-posted (re-posting a URL string
+      // as the blob corrupts the stored file).
+      if (!payload) continue;
       await saveGeneratedPresentationFile(payload);
     } catch (error) {
       console.error("[PresentationCenter] Failed to sync generated deck to API", error);
