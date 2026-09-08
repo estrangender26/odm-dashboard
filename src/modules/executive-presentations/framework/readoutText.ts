@@ -117,122 +117,63 @@ function createTextRun(
 }
 
 /**
- * Make a run's effective formatting deterministic from `opts` even when the
- * run was retained from a donor paragraph:
+ * Build one deterministic readout paragraph from scratch.
  *
- * - collapses duplicate <a:rPr> elements (keeps the first, removes the rest);
- * - creates a missing <a:rPr> as the FIRST child of <a:r> (before <a:t>);
- * - resets lang/sz/b from opts;
- * - REPLACES every inherited child of <a:rPr> (fills, highlight, outlines,
- *   typefaces, scheme colors, …) with the canonical solidFill + Aptos set, so
- *   no conflicting donor formatting (e.g. a light/background color that makes
- *   the text invisible) can survive.
+ * Nothing is cloned or inherited from the donor/template paragraph: every
+ * <a:pPr> (bullet marker, indent, …) and every <a:r>/<a:rPr> (color, size,
+ * bold, typeface) is constructed explicitly here, so the visible Notes /
+ * Situation lines cannot depend on the donor's text-run state, scheme/theme
+ * colors, or empty formatting.
  *
- * Never creates a nested <a:r> and never duplicates rPr/solidFill.
+ *   headings: no bullet (buNone), bold, #172B47, 12pt Aptos
+ *   bullets:  hanging bullet "•", regular, #111111, 12pt Aptos
  */
-function applyRunFormatting(
-  run: XmlElement,
-  opts: { bold?: boolean; size?: number; color?: string }
-): void {
-  const ownerDoc = run.ownerDocument as XmlDocument;
-  const rPrs = getElementsByTagNameNS(run, "a", "rPr");
-  for (let i = rPrs.length - 1; i >= 1; i--) {
-    run.removeChild(rPrs[i]);
-  }
-  let rPr = rPrs[0];
-  if (!rPr) {
-    rPr = createElementNS(ownerDoc, "a", "rPr");
-    // <a:r> children must be (rPr?, t): insert before any existing <a:t>.
-    run.insertBefore(rPr, run.firstChild);
-  } else {
-    // Update in place: drop every inherited formatting child, then rebuild the
-    // canonical set below (no duplicate solidFill, no leftover schemeClr).
-    while (rPr.firstChild) rPr.removeChild(rPr.firstChild);
-  }
-  rPr.setAttribute("lang", "en-PH");
-  rPr.setAttribute("sz", String(opts.size ?? 1200));
-  rPr.setAttribute("b", opts.bold ? "1" : "0");
-  rPr.appendChild(appendSolidFill(ownerDoc, opts.color ?? "111111"));
-  appendAptosTypefaces(ownerDoc, rPr);
-}
+function makeReadoutParagraph(
+  ownerDoc: XmlDocument,
+  kind: ReadoutLine["kind"],
+  text: string
+): XmlElement {
+  const paragraph = createElementNS(ownerDoc, "a", "p");
+  const pPr = createElementNS(ownerDoc, "a", "pPr");
 
-function setParagraphText(
-  paragraph: XmlElement,
-  text: string,
-  opts: { bold?: boolean; size?: number; color?: string }
-): void {
-  const ownerDoc = paragraph.ownerDocument as XmlDocument;
-  const runs = getElementsByTagNameNS(paragraph, "a", "r");
-  for (let i = 1; i < runs.length; i++) paragraph.removeChild(runs[i]);
-  const keep = runs[0];
-  if (keep) {
-    // Normalize the retained run's rPr from opts BEFORE writing text, so the
-    // donor's inherited formatting can never make the line invisible or
-    // visually inconsistent (e.g. a leftover light scheme color or a large
-    // donor font size). Text is written into the existing run's <a:t> only -
-    // appending a whole new <a:r> inside an existing <a:r> would nest runs.
-    applyRunFormatting(keep, opts);
-    const t = getElementsByTagNameNS(keep, "a", "t")[0];
-    if (t) {
-      t.textContent = text;
-    } else {
-      const textNode = createElementNS(ownerDoc, "a", "t");
-      textNode.textContent = text;
-      keep.appendChild(textNode);
-    }
+  if (kind === "heading") {
+    pPr.setAttribute("marL", "0");
+    pPr.setAttribute("indent", "0");
+    pPr.appendChild(createElementNS(ownerDoc, "a", "buNone"));
   } else {
-    paragraph.appendChild(createTextRun(ownerDoc, text, opts));
+    // Hanging bullet indentation matching the approved Executive Readout.
+    pPr.setAttribute("marL", "285750");
+    pPr.setAttribute("indent", "-285750");
+    pPr.setAttribute("defTabSz", "609630");
+    const buFont = createElementNS(ownerDoc, "a", "buFont");
+    buFont.setAttribute("typeface", "Arial");
+    buFont.setAttribute("panose", "020B0604020202020204");
+    buFont.setAttribute("pitchFamily", "34");
+    buFont.setAttribute("charset", "0");
+    pPr.appendChild(buFont);
+    const buChar = createElementNS(ownerDoc, "a", "buChar");
+    buChar.setAttribute("char", "•");
+    pPr.appendChild(buChar);
   }
-}
+  paragraph.appendChild(pPr);
 
-function makeHeadingParagraph(paragraph: XmlElement): void {
-  // Headings carry no bullet marker and no hanging indent.
-  const pPr = getElementsByTagNameNS(paragraph, "a", "pPr")[0];
-  if (!pPr) return;
-  pPr.setAttribute("marL", "0");
-  pPr.setAttribute("indent", "0");
-  for (const localName of ["buFont", "buChar"]) {
-    const children = [...pPr.childNodes];
-    for (const child of children) {
-      const el = child as unknown as XmlElement;
-      if (el && el.localName === localName) pPr.removeChild(child);
-    }
-  }
-  if (getElementsByTagNameNS(pPr, "a", "buNone")[0]) return;
-
-  const ownerDoc = paragraph.ownerDocument as XmlDocument;
-  const buNone = createElementNS(ownerDoc, "a", "buNone");
-  // DrawingML requires <a:buNone> BEFORE tabLst/defRPr/extLst inside <a:pPr>.
-  // Inserting at the end (after defRPr) is schema-invalid and can make
-  // PowerPoint reject the slide. Place it before the first later-property
-  // element, mirroring where <a:buChar> used to sit.
-  const pPrChildren = [...pPr.childNodes];
-  const laterProperty = pPrChildren.find((child) => {
-    const el = child as unknown as XmlElement;
-    return (
-      el &&
-      el.namespaceURI === "http://schemas.openxmlformats.org/drawingml/2006/main" &&
-      (el.localName === "tabLst" ||
-        el.localName === "defRPr" ||
-        el.localName === "extLst")
-    );
-  });
-  if (laterProperty) {
-    pPr.insertBefore(buNone, laterProperty);
-  } else {
-    pPr.appendChild(buNone);
-  }
+  paragraph.appendChild(
+    createTextRun(ownerDoc, text, {
+      bold: kind === "heading",
+      size: 1200,
+      color: kind === "heading" ? "172B47" : "111111",
+    })
+  );
+  return paragraph;
 }
 
 /**
  * Render the heading/bullet lines into the Executive Readout shape.
  *
- * A pristine copy of the template's bullet paragraph is captured BEFORE any
- * mutation and is never modified. Every output paragraph (headings AND
- * bullets) is a fresh clone of that pristine template: heading clones get
- * their bullet suppressed via buNone, bullet clones keep the original bullet
- * properties. Mutating one paragraph can therefore never leak "no bullet"
- * formatting onto content paragraphs.
+ * The readout is REBUILT deterministically: all donor/template paragraphs are
+ * removed and every output paragraph is constructed from scratch (see
+ * makeReadoutParagraph). The result never depends on the donor's runs, rPr,
+ * colors, or placeholder state - the generator owns the visible content.
  */
 export function writeReadoutLines(
   shape: XmlElement,
@@ -240,16 +181,10 @@ export function writeReadoutLines(
 ): void {
   const txBody = getElementsByTagNameNS(shape, "p", "txBody")[0];
   if (!txBody) return;
+  const ownerDoc = txBody.ownerDocument as XmlDocument;
 
-  const pristineSource = getElementsByTagNameNS(txBody, "a", "p")[0];
-  if (!pristineSource) return;
-
-  // Canonical bullet paragraph template - captured before any mutation and
-  // kept pristine for every content paragraph clone.
-  const pristineBulletParagraph = pristineSource.cloneNode(true) as XmlElement;
-
-  // Drop the donor's placeholder paragraph(s); every line is appended fresh
-  // so no heading mutation can contaminate later bullet clones.
+  // Drop any donor/placeholder paragraphs; content paragraphs are appended
+  // fresh below, so no donor mutation or formatting can leak into them.
   let live = getElementsByTagNameNS(txBody, "a", "p");
   while (live.length > 0) {
     txBody.removeChild(live[live.length - 1]);
@@ -257,22 +192,7 @@ export function writeReadoutLines(
   }
 
   for (const line of lines) {
-    const paragraph = pristineBulletParagraph.cloneNode(true) as XmlElement;
-    if (line.kind === "heading") {
-      makeHeadingParagraph(paragraph);
-      setParagraphText(paragraph, line.text, {
-        bold: true,
-        size: 1200,
-        color: "172B47",
-      });
-    } else {
-      setParagraphText(paragraph, line.text, {
-        bold: false,
-        size: 1200,
-        color: "111111",
-      });
-    }
-    txBody.appendChild(paragraph);
+    txBody.appendChild(makeReadoutParagraph(ownerDoc, line.kind, line.text));
   }
 }
 
@@ -295,4 +215,146 @@ export function fitReadoutBoxHeight(
     Math.min(Math.max(lineCount, 1), 14) * 120000
   );
   ext.setAttribute("cy", String(Math.round(fitted)));
+}
+
+export type ReadoutGeometry = { x: number; y: number; cx: number; cy: number };
+
+/** Read a shape's plot-frame bbox (the a:xfrm inside spPr) in EMU. */
+export function readoutShapeGeometry(
+  shape: XmlElement
+): ReadoutGeometry | null {
+  const xfrm = getElementsByTagNameNS(shape, "a", "xfrm")[0];
+  if (!xfrm) return null;
+  const off = getElementsByTagNameNS(xfrm, "a", "off")[0];
+  const ext = getElementsByTagNameNS(xfrm, "a", "ext")[0];
+  if (!off || !ext) return null;
+  return {
+    x: Number(off.getAttribute("x") ?? 0),
+    y: Number(off.getAttribute("y") ?? 0),
+    cx: Number(ext.getAttribute("cx") ?? 0),
+    cy: Number(ext.getAttribute("cy") ?? 0),
+  };
+}
+
+/** Remove a shape element from the slide tree. */
+export function removeReadoutShape(shape: XmlElement): void {
+  const parent = shape.parentNode;
+  if (parent) parent.removeChild(shape);
+}
+
+function nextShapeId(doc: XmlDocument): number {
+  const cNvPrs = getElementsByTagNameNS(doc, "p", "cNvPr");
+  let maxId = 0;
+  for (const el of cNvPrs) {
+    const id = Number(el.getAttribute("id"));
+    if (Number.isFinite(id) && id > maxId) maxId = id;
+  }
+  return maxId + 1;
+}
+
+/**
+ * Build a BRAND-NEW <p:sp> text box that owns the visible Notes / Situation
+ * content. Nothing is cloned from any donor/template shape: the sp envelope,
+ * spPr, bodyPr, every paragraph and every run are constructed from scratch
+ * with explicit geometry and explicit srgb formatting (see
+ * makeReadoutParagraph). It must be appended to the slide's shape tree by the
+ * caller.
+ */
+export function createReadoutTextBox(
+  doc: XmlDocument,
+  geometry: ReadoutGeometry,
+  lines: ReadoutLine[]
+): XmlElement {
+  const sp = createElementNS(doc, "p", "sp");
+
+  // p:nvSpPr — brand new shape id + the "Executive Readout" name so viewers
+  // and tooling that locate the readout area keep working on the NEW object.
+  const nvSpPr = createElementNS(doc, "p", "nvSpPr");
+  const cNvPr = createElementNS(doc, "p", "cNvPr");
+  cNvPr.setAttribute("id", String(nextShapeId(doc)));
+  cNvPr.setAttribute("name", "Executive Readout");
+  nvSpPr.appendChild(cNvPr);
+  const cNvSpPr = createElementNS(doc, "p", "cNvSpPr");
+  const spLocks = createElementNS(doc, "a", "spLocks");
+  spLocks.setAttribute("noGrp", "1");
+  cNvSpPr.appendChild(spLocks);
+  cNvSpPr.appendChild(createElementNS(doc, "p", "txBox"));
+  nvSpPr.appendChild(cNvSpPr);
+  nvSpPr.appendChild(createElementNS(doc, "p", "nvPr"));
+  sp.appendChild(nvSpPr);
+
+  // p:spPr — explicit geometry, transparent fill, no outline.
+  const spPr = createElementNS(doc, "p", "spPr");
+  const xfrm = createElementNS(doc, "a", "xfrm");
+  const off = createElementNS(doc, "a", "off");
+  off.setAttribute("x", String(Math.round(geometry.x)));
+  off.setAttribute("y", String(Math.round(geometry.y)));
+  const ext = createElementNS(doc, "a", "ext");
+  ext.setAttribute("cx", String(Math.round(geometry.cx)));
+  ext.setAttribute("cy", String(Math.round(geometry.cy)));
+  xfrm.appendChild(off);
+  xfrm.appendChild(ext);
+  spPr.appendChild(xfrm);
+  const prstGeom = createElementNS(doc, "a", "prstGeom");
+  prstGeom.setAttribute("prst", "rect");
+  prstGeom.appendChild(createElementNS(doc, "a", "avLst"));
+  spPr.appendChild(prstGeom);
+  spPr.appendChild(createElementNS(doc, "a", "noFill"));
+  sp.appendChild(spPr);
+
+  // p:txBody — explicitly constructed paragraphs only.
+  const txBody = createElementNS(doc, "p", "txBody");
+  const bodyPr = createElementNS(doc, "a", "bodyPr");
+  bodyPr.setAttribute("wrap", "square");
+  bodyPr.setAttribute("lIns", "19050");
+  bodyPr.setAttribute("tIns", "9525");
+  bodyPr.setAttribute("rIns", "38100");
+  bodyPr.setAttribute("bIns", "9525");
+  bodyPr.setAttribute("anchor", "t");
+  txBody.appendChild(bodyPr);
+  txBody.appendChild(createElementNS(doc, "a", "lstStyle"));
+  for (const line of lines) {
+    txBody.appendChild(makeReadoutParagraph(doc, line.kind, line.text));
+  }
+  sp.appendChild(txBody);
+
+  return sp;
+}
+
+/**
+ * Replace the donor "Executive Readout" shape with a freshly generated text
+ * box that owns the visible Notes / Situation content.
+ *
+ * The donor is consulted ONLY for its horizontal geometry (x/cx of the
+ * lower-left readout area). Its text body is never used. The new shape is
+ * appended last in the slide shape tree (topmost z-order) at the caller's
+ * computed top Y, sized for the line count.
+ */
+export function writeNotesSituationReadout(
+  doc: XmlDocument,
+  donorShape: XmlElement | null,
+  lines: ReadoutLine[],
+  topY: number,
+  heightMinEmu = 700000,
+  fallback: { x: number; cx: number } = { x: 327478, cx: 8561614 }
+): XmlElement | null {
+  const donorGeometry = donorShape ? readoutShapeGeometry(donorShape) : null;
+  const x = donorGeometry ? donorGeometry.x : fallback.x;
+  const cx = donorGeometry ? donorGeometry.cx : fallback.cx;
+  const fittedHeight = Math.max(
+    heightMinEmu,
+    Math.min(Math.max(lines.length, 1), 14) * 120000
+  );
+
+  // Remove the donor shape entirely; its text state can no longer influence
+  // what PowerPoint shows.
+  if (donorShape) removeReadoutShape(donorShape);
+
+  const textBox = createReadoutTextBox(doc, { x, y: topY, cx, cy: fittedHeight }, lines);
+
+  // Append to the end of the slide shape tree so the readout is a real,
+  // topmost slide object (nothing can cover it).
+  const spTree = getElementsByTagNameNS(doc, "p", "spTree")[0];
+  if (spTree) spTree.appendChild(textBox);
+  return textBox;
 }
