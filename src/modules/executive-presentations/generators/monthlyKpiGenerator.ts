@@ -32,7 +32,11 @@ import type {
   MonthlyKpiValue,
   ScorecardKpiKey,
 } from "../../monthly-kpi/types";
-import { commentaryBulletsFromStored } from "../../monthly-kpi/allBusinessUnitsDeck";
+import {
+  fitReadoutBoxHeight,
+  storedNotesSituationLines,
+  writeReadoutLines,
+} from "../framework/readoutText";
 import {
   evaluateKpiStatus,
   getDefaultMonthlyKpiThresholdConfig,
@@ -121,69 +125,6 @@ function isPresentNumber(value: number | null | undefined): value is number {
 function cloneMonthlyRow(sourceRow: XmlElement): XmlElement {
   return sourceRow.cloneNode(true) as XmlElement;
 }
-
-/**
- * Write one bullet per paragraph into the Executive Readout shape, reusing the
- * template paragraph (bullet char + autofit). Styling is preserved by cloning
- * the first paragraph for extra bullets.
- */
-function setShapeBulletText(shape: XmlElement, bullets: string[]): void {
-  const txBody = getElementsByTagNameNS(shape, "p", "txBody")[0];
-  if (!txBody) return;
-  const templateParagraph = getElementsByTagNameNS(txBody, "a", "p")[0];
-  if (!templateParagraph) return;
-
-  for (let i = 0; i < bullets.length; i++) {
-    const live = getElementsByTagNameNS(txBody, "a", "p");
-    const paragraph =
-      i < live.length ? live[i] : (txBody.appendChild(cloneMonthlyRow(templateParagraph)) as XmlElement);
-    setParagraphPlainText(paragraph, bullets[i]);
-  }
-  let live = getElementsByTagNameNS(txBody, "a", "p");
-  while (live.length > bullets.length) {
-    txBody.removeChild(live[live.length - 1]);
-    live = getElementsByTagNameNS(txBody, "a", "p");
-  }
-}
-
-function setParagraphPlainText(p: XmlElement, text: string): void {
-  const ownerDoc = p.ownerDocument;
-  if (!ownerDoc) return;
-  const runs = getElementsByTagNameNS(p, "a", "r");
-  const keep = runs[0];
-  for (let i = 1; i < runs.length; i++) p.removeChild(runs[i]);
-  if (keep) {
-    const t = getElementsByTagNameNS(keep, "a", "t")[0];
-    if (t) t.textContent = text;
-    else keep.appendChild(textRun(ownerDoc, text));
-  } else {
-    p.appendChild(textRun(ownerDoc, text));
-  }
-}
-
-function textRun(ownerDoc: XmlDocument, text: string): XmlElement {
-  const run = createElementNS(ownerDoc, "a", "r");
-  const rPr = createElementNS(ownerDoc, "a", "rPr");
-  rPr.setAttribute("lang", "en-PH");
-  rPr.setAttribute("sz", "1400");
-  const solidFill = createElementNS(ownerDoc, "a", "solidFill");
-  const srgbClr = createElementNS(ownerDoc, "a", "srgbClr");
-  srgbClr.setAttribute("val", "111111");
-  solidFill.appendChild(srgbClr);
-  rPr.appendChild(solidFill);
-  for (const name of ["latin", "ea", "cs"]) {
-    const el = createElementNS(ownerDoc, "a", name);
-    el.setAttribute("typeface", "Aptos");
-    rPr.appendChild(el);
-  }
-  run.appendChild(rPr);
-  const t = createElementNS(ownerDoc, "a", "t");
-  t.textContent = text;
-  run.appendChild(t);
-  return run;
-}
-
-
 
 /**
  * Return the table-cell fill color for Slides 1 and 2 using the configurable
@@ -454,13 +395,15 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   const readoutTop = tableY + tableActualHeight + READOUT_TOP_MARGIN_EMU;
 
   // Commentary block below the table: stored Notes/Situation only (same
-  // authoritative source as the All-BU deck). No threshold/missing-data
-  // narrative; a neutral line is shown only when both fields are blank.
+  // authoritative source as the All-BU deck). Headings + bullets render even
+  // when blank ("No commentary submitted." / "No situation submitted.");
+  // no threshold/missing-data narrative is ever generated.
   const readoutShape = findShapeByName(doc, "Executive Readout");
   if (readoutShape) {
     setShapeY(readoutShape, readoutTop);
-    const bullets = commentaryBulletsFromStored(selectedBu.notes, selectedBu.situation);
-    setShapeBulletText(readoutShape, bullets);
+    const lines = storedNotesSituationLines(selectedBu.notes, selectedBu.situation);
+    writeReadoutLines(readoutShape, lines);
+    fitReadoutBoxHeight(readoutShape, lines.length, 700000);
   }
 
   // Hide the legacy MTTR methodology note shape so it does not appear on
