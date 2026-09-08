@@ -8,8 +8,10 @@ import {
 import { formatScorecardCell, generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
 import { parseXml } from "../executive-presentations/framework";
 import {
+  estimateReadoutVisualLines,
   NO_COMMENTARY_SUBMITTED,
   NO_SITUATION_SUBMITTED,
+  requiredReadoutHeightEmu,
   storedNotesSituationLines,
 } from "../executive-presentations/framework/readoutText";
 import {
@@ -1525,5 +1527,80 @@ describe("OPC/package integrity audit (generated All-BU deck)", () => {
       expect(contentTypes).toContain(`/${chart}`);
     }
     expect(chartNames.length).toBe(6 * data.sections.length);
+  });
+});
+
+describe("long August-2026 commentary never clips inside the generated readout text box", () => {
+  const TWCI_NOTE =
+    "PM Compliance: Other PMS activities such as Painting works, Service vehicle pms was deffered to September due to materials and request was still on going thru S4.; Budget Spend: Only low value procurement was disbursed for month of August, other preventive maintenance does not require expenses such as cleaning and facility upkeeping.; PM CM Work Orders: PM(Sedimentation Cleaning,Flucculation tank cleaning,AR Lagoon desilting,Chlorination system pms, 2 dmf tank cleaning and disinfection, 1 dredger pms, grasscutting. power line clearing, aircon preventive maintenance )\nCM(Additional long arm for AR Lagoon recovery, 41KVA Assessment and Repair)\nCM(Well 2 Transmission line pole repair); PM CM Cost: PM(Sedimentation Cleaning,Flucculation tank cleaning,AR Lagoon desilting,Chlorination system pms, 2 dmf tank cleaning and disinfection, 1 dredger pms, grasscutting )\nCM(Additional long arm for AR Lagoon recovery, 41KVA Assessment and Repair) no expenses on repairs\nCM(Well 2 Transmission line pole repair); MTTR: Well 2 was down for 2 days due to damage transmission line pole; Facility Uptime: No downtime but August 21-26 was low production.";
+  const WAWA_NOTE =
+    "PM Compliance: No major preventive maintenance (PM) activities were scheduled during the month. However, an unscheduled warranty preventive maintenance activity was conducted on the elevator. Most in-house maintenance activities were deferred as maintenance personnel were prioritized to support the recovery and restoration of the UWD facilities affected by landslides and flooding.; PM CM Work Orders: Most of the CM is Attributed to the repair of Service vehicles; PM CM Cost: The PM cost remains TBD as the Elevator PM is still ongoing. The CM cost is primarily attributed to the materials procured to support the emergency response, recovery, and restoration activities for the UWD following the landslide incident.; MTTR: The EFT and the entire powerhouse facility were affected by a landslide, resulting in the submergence of the EFT and its associated appurtenances in floodwaters. Recovery and restoration efforts are currently ongoing.; Facility Uptime: Total operating time for critical equipments like pumps and gensets for TW and UWPS. There were shutdowns but mostly requested by treatment plant.";
+
+  it("allocates on-slide wrap-aware height with normAutofit and keeps all text (TWCI + WAWA/JVC)", async () => {
+    expect(TWCI_NOTE.length).toBeGreaterThan(WAWA_NOTE.length); // TWCI is the longest total
+    const named = [
+      ...makeBusinessUnitRecords("TWCI", {
+        through: 8,
+        notesByMonth: { 8: TWCI_NOTE },
+      }),
+      ...makeBusinessUnitRecords("WAWA/JVC", {
+        through: 8,
+        notesByMonth: { 8: WAWA_NOTE },
+      }),
+    ];
+    const data = buildAllBusinessUnitsDeckData(named, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    const expected: Record<string, string[]> = {
+      TWCI: storedNotesSituationLines(TWCI_NOTE, null).map((l) => l.text),
+      "WAWA/JVC": storedNotesSituationLines(WAWA_NOTE, null).map((l) => l.text),
+    };
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const slide = slides[1 + i * 2].xml;
+      const body = readoutInnerBody(slide);
+
+      const text = [...body.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+        .map((m) => m[1])
+        .join("\u0000")
+        .split("\u0000")
+        .filter((t) => t.length > 0);
+      // Every authored line is inside the readout text box.
+      expect(text).toEqual(expected[section.businessUnit]);
+
+      // Schema-valid autofit safety net on the NEW text box.
+      expect(slide).toContain("<a:normAutofit/>");
+      expect(slide).not.toContain("noAutofit");
+
+      // Geometry: explicit xfrm, on-slide, clear of the bottom margin, and
+      // sized from the wrapped visual-line estimate.
+      // Geometry lives in the shape spPr (before txBody) - read it from the
+      // full readout shape slice, not the txBody-only readoutInnerBody.
+      const roStart = slide.indexOf('name="Executive Readout"');
+      const roEnd = slide.indexOf('</p:sp>', roStart);
+      const roXml = slide.slice(slide.lastIndexOf('<p:sp>', roStart), roEnd);
+      const m = roXml.match(/<a:off x="(-?\d+)" y="(-?\d+)"/);
+      const e = roXml.match(/<a:ext cx="(\d+)" cy="(\d+)"/);
+      expect(m).not.toBeNull();
+      expect(e).not.toBeNull();
+      const cx = Number(e![1]);
+      const cy = Number(e![2]);
+      const topY = Number(m![2]);
+      const usable = cx - 19050 - 38100;
+      const lines = storedNotesSituationLines(section.notes ?? null, section.situation ?? null);
+      const required = requiredReadoutHeightEmu(lines, usable, 900000);
+      const available = 6858000 - topY - 140000;
+      expect(cy).toBe(Math.min(required, available));
+      expect(topY + cy).toBeLessThanOrEqual(6858000 - 140000);
+      expect(cy).toBeGreaterThan(900000); // grew beyond the short-content minimum
+      expect(estimateReadoutVisualLines(TWCI_NOTE, usable)).toBeGreaterThan(5);
+
+      // All four blocks present (headings + content + placeholders).
+      expect(text).toContain("Notes / Commentary");
+      expect(text).toContain("Situation");
+      expect(text).toContain("No situation submitted.");
+    }
   });
 });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { parseXml, serializeXml } from "./xml";
-import { storedNotesSituationLines, writeReadoutLines } from "./readoutText";
+import {
+  estimateReadoutVisualLines,
+  requiredReadoutHeightEmu,
+  storedNotesSituationLines,
+  writeNotesSituationReadout,
+  writeReadoutLines,
+} from "./readoutText";
 import type { XmlDocument, XmlElement } from "./types";
 
 /**
@@ -182,5 +188,84 @@ describe("writeReadoutLines - deterministic, donor-independent readout", () => {
     ]);
     expect(paras[0].runRPr[0]).toContain('<a:srgbClr val="172B47"/>');
     expect(paras[1].runRPr[0]).toContain('<a:srgbClr val="111111"/>');
+  });
+});
+
+describe("writeNotesSituationReadout - long-commentary wrap protection", () => {
+  const SLIDE_EMU_H = 6858000;
+
+  function slideDoc(): XmlDocument {
+    const xml = `<?xml version="1.0"?>
+<p:sld xmlns:p="${P_NS}" xmlns:a="${A_NS}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld><p:spTree/></p:cSld>
+</p:sld>`;
+    return parseXml(xml) as XmlDocument;
+  }
+
+
+  it("allocates wrapped-line height and adds normAutofit for a long single-paragraph note", () => {
+    const doc = slideDoc();
+    // ~1100 chars, single paragraph (mirrors WAWA/JVC August note).
+    const longNote =
+      "PM Compliance: No major preventive maintenance activities were scheduled during the month. " +
+      "However, an unscheduled warranty preventive maintenance activity was conducted on the elevator. " +
+      "Most in-house maintenance activities were deferred as maintenance personnel were prioritized " +
+      "to support the recovery and restoration of the affected facilities. PM CM Work Orders: Most of " +
+      "the CM is attributed to the repair of service vehicles; PM CM Cost: The PM cost remains TBD as " +
+      "the elevator PM is still ongoing; MTTR: The EFT and the entire powerhouse facility were affected " +
+      "by a landslide, resulting in the submergence of the EFT and its associated appurtenances. " +
+      "Recovery and restoration efforts are currently ongoing; Facility Uptime: Total operating time " +
+      "for critical equipment like pumps and gensets. There were shutdowns but mostly requested by " +
+      "the treatment plant and requested by treatment plant operations staff during the month.";
+    const lines = storedNotesSituationLines(longNote, null);
+    const topY = 5167275;
+    const shape = writeNotesSituationReadout(doc, null, lines, topY, 700000);
+    expect(shape).not.toBeNull();
+
+    const xml = serializeXml(doc);
+    // bodyPr has the schema-valid autofit safety net, not noAutofit.
+    expect(xml).toContain("<a:normAutofit/>");
+    expect(xml).not.toContain("noAutofit");
+
+    // Expected geometry: wrap-aware height, clamped to the on-slide space above
+    // the footer/bottom margin.
+    const cx = 8561614;
+    const usable = cx - 19050 - 38100;
+    const required = requiredReadoutHeightEmu(lines, usable, 700000);
+    const available = SLIDE_EMU_H - topY - 140000;
+    const cy = Math.min(required, available);
+    const off = xml.match(/<a:off x="(-?\d+)" y="(-?\d+)"/);
+    const ext = xml.match(/<a:ext cx="(\d+)" cy="(\d+)"/);
+    expect(off).not.toBeNull();
+    expect(ext).not.toBeNull();
+    expect(Number(off![2])).toBe(topY);
+    expect(Number(ext![2])).toBe(cy);
+    expect(Number(ext![2])).toBeGreaterThan(700000); // grew beyond the 4-line minimum
+    expect(topY + Number(ext![2])).toBeLessThanOrEqual(SLIDE_EMU_H - 140000);
+    // Required height reflects the real wrapped visual-line estimate.
+    expect(estimateReadoutVisualLines(longNote, usable)).toBeGreaterThan(1);
+
+    // Every authored line remains present (heading + bullets + placeholders).
+    for (const text of ["Notes / Commentary", longNote, "Situation", "No situation submitted."]) {
+      expect(xml).toContain(text);
+    }
+  });
+
+  it("still clamps inside the slide when text is extreme", () => {
+    const doc = slideDoc();
+    const extreme = "Very long commentary. ".repeat(160); // ~2500 chars
+    const lines = storedNotesSituationLines(extreme, null);
+    const topY = 5167275;
+    writeNotesSituationReadout(doc, null, lines, topY, 700000);
+    const xml = serializeXml(doc);
+    const ext = xml.match(/<a:ext cx="\d+" cy="(\d+)"/);
+    const cy = Number(ext![1]);
+    expect(topY + cy).toBeLessThanOrEqual(SLIDE_EMU_H - 140000);
+    expect(xml).toContain("Notes / Commentary");
+    // Full text remains authored in the box (spot-check head + tail).
+    expect(xml).toContain(extreme.slice(0, 80));
+    expect(xml).toContain(extreme.slice(-80));
+    expect(xml).toContain("Situation");
+    expect(xml).toContain("No situation submitted.");
   });
 });

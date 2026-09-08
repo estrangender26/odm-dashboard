@@ -311,6 +311,10 @@ export function createReadoutTextBox(
   bodyPr.setAttribute("rIns", "38100");
   bodyPr.setAttribute("bIns", "9525");
   bodyPr.setAttribute("anchor", "t");
+  // Schema-valid autofit: PowerPoint scales text down (never clips) when the
+  // content exceeds the box, while 12pt remains the authored size for normal
+  // content. This is the safety net for very long wrapped commentary.
+  bodyPr.appendChild(createElementNS(doc, "a", "normAutofit"));
   txBody.appendChild(bodyPr);
   txBody.appendChild(createElementNS(doc, "a", "lstStyle"));
   for (const line of lines) {
@@ -319,6 +323,46 @@ export function createReadoutTextBox(
   sp.appendChild(txBody);
 
   return sp;
+}
+
+/**
+ * Deterministic, conservative estimate of how many VISUAL lines a readout
+ * line occupies after word-wrap, so the box height is allocated before
+ * PowerPoint lays text out.
+ *
+ * A single paragraph can wrap across several visual lines even though it is
+ * one <a:p>. At the authored 12pt size, an average Aptos glyph is roughly
+ * 6.6pt wide; chars per line = usable width (pt) / 6.6. Long real commentary
+ * (e.g. TWCI / WAWA/JVC August notes) wraps to many visual lines.
+ */
+export function estimateReadoutVisualLines(text: string, usableWidthEmu: number): number {
+  if (!text) return 0;
+  const usableWidthPt = usableWidthEmu / 12700; // 1pt = 12700 EMU
+  const avgCharWidthPt = 6.6;
+  const charsPerLine = Math.max(8, Math.floor(usableWidthPt / avgCharWidthPt));
+  return Math.max(1, Math.ceil(text.length / charsPerLine));
+}
+
+/**
+ * Required box height for the readout lines, accounting for wrapped visual
+ * lines. Each visual line is budgeted 190000 EMU (~12pt at 1.3 line spacing
+ * plus a small paragraph gap) plus an 80000 EMU paragraph lead-in.
+ */
+export function requiredReadoutHeightEmu(
+  lines: ReadoutLine[],
+  usableWidthEmu: number,
+  minHeightEmu: number
+): number {
+  let visualLines = 0;
+  for (const line of lines) {
+    visualLines += estimateReadoutVisualLines(line.text, usableWidthEmu);
+  }
+  const lineBudgetEmu = 190000;
+  const paragraphLeadEmu = 80000;
+  return Math.max(
+    minHeightEmu,
+    visualLines * lineBudgetEmu + paragraphLeadEmu
+  );
 }
 
 /**
@@ -336,21 +380,28 @@ export function writeNotesSituationReadout(
   lines: ReadoutLine[],
   topY: number,
   heightMinEmu = 700000,
-  fallback: { x: number; cx: number } = { x: 327478, cx: 8561614 }
+  fallback: { x: number; cx: number } = { x: 327478, cx: 8561614 },
+  slideHeightEmu = 6858000,
+  bottomPadEmu = 140000
 ): XmlElement | null {
   const donorGeometry = donorShape ? readoutShapeGeometry(donorShape) : null;
   const x = donorGeometry ? donorGeometry.x : fallback.x;
   const cx = donorGeometry ? donorGeometry.cx : fallback.cx;
-  const fittedHeight = Math.max(
-    heightMinEmu,
-    Math.min(Math.max(lines.length, 1), 14) * 120000
-  );
+
+  // Conservative wrapped-content height: long single paragraphs (EWG/LAWC/
+  // TWCI/WAWA/JVC August commentary) wrap across several VISUAL lines and must
+  // never be clipped. Cap the box so it stays on-slide above the footer/bottom
+  // margin; the bodyPr normAutofit is the final safety net for extreme text.
+  const usableWidthEmu = Math.max(cx - 19050 - 38100, 100000);
+  const neededHeight = requiredReadoutHeightEmu(lines, usableWidthEmu, heightMinEmu);
+  const availableHeight = Math.max(heightMinEmu, slideHeightEmu - topY - bottomPadEmu);
+  const cy = Math.min(neededHeight, availableHeight);
 
   // Remove the donor shape entirely; its text state can no longer influence
   // what PowerPoint shows.
   if (donorShape) removeReadoutShape(donorShape);
 
-  const textBox = createReadoutTextBox(doc, { x, y: topY, cx, cy: fittedHeight }, lines);
+  const textBox = createReadoutTextBox(doc, { x, y: topY, cx, cy }, lines);
 
   // Append to the end of the slide shape tree so the readout is a real,
   // topmost slide object (nothing can cover it).
