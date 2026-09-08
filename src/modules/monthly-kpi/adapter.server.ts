@@ -383,9 +383,10 @@ export async function fetchMonthlyKpiPresentationData(
   // The server stays the sole authority for the effective reporting month in
   // BOTH deck modes. A requested month that contains no valid submission
   // resolves to the latest submitted month of the year, so commentary,
-  // values, and labels always reflect the record that actually exists (for
-  // example requesting September 2026 while the portfolio is submitted
-  // through August uses the August CWC Notes/Situation).
+  // values, and labels always reflect the record that actually exists for
+  // the selected business unit (for example requesting September 2026 while
+  // the portfolio is submitted through August renders that BU's stored
+  // August Notes/Situation — generic for every business unit).
   const effectiveMonth =
     resolveEffectiveReportingMonth(records, reportingMonth) ?? reportingMonth;
   const reportingLabel =

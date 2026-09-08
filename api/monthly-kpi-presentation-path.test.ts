@@ -44,7 +44,40 @@ describe("Monthly KPI presentation path (UI -> route -> adapter -> generator)", 
     );
     expect(adapter).toContain("buildScorecard(records, agg, effectiveMonth)");
     expect(adapter).toContain("reportingMonth: effectiveMonth,");
-    expect(adapter).toContain("through August uses the August CWC Notes/Situation");
+    // Generic framing: the effective-month rule is described for every BU, not
+    // special-cased to CWC.
+    expect(adapter).toContain("generic for every business unit");
+    expect(adapter).not.toContain("uses the August CWC Notes/Situation");
+  });
+
+  it("adapter single-BU notes/situation lookup is BU-generic (no BU-name branch, own-identity record match)", () => {
+    const buildScorecardStart = adapter.indexOf("function buildScorecard");
+    const buildScorecardBody = adapter.slice(
+      adapter.indexOf("function buildScorecard"),
+      adapter.indexOf("function buildExecutiveReadout")
+    );
+    // The effective-month resolution block and scorecard/commentary builder
+    // must contain no per-BU equality branch (no CWC/AMD-EZ/... special case).
+    const effectiveBlock = adapter.slice(
+      adapter.indexOf("resolveEffectiveReportingMonth(records, reportingMonth)") - 1200,
+      adapter.indexOf("function buildScorecard")
+    );
+    expect(effectiveBlock).not.toMatch(/businessUnit\s*===\s*["']/);
+    expect(effectiveBlock).not.toMatch(/business_unit\s*===\s*["']/);
+    expect(buildScorecardBody).not.toMatch(/businessUnit\s*===\s*["']/);
+    expect(buildScorecardBody).not.toMatch(/business_unit\s*===\s*["']/);
+    // Commentary is read from the record matched by the aggregate's OWN
+    // business-unit identity at the effective month — never another BU.
+    expect(buildScorecardBody).toContain(
+      "normalizeBusinessUnitLabel(record.business_unit) === aggregate.businessUnit"
+    );
+    expect(buildScorecardBody).toContain("Number(record.reporting_month) === reportingMonth");
+    expect(buildScorecardBody).toContain(
+      "normalizeStoredCommentary(reportingRecord?.notes)"
+    );
+    expect(buildScorecardBody).toContain(
+      "normalizeStoredCommentary(reportingRecord?.situation)"
+    );
   });
 
   it("adapter year-row projection includes notes and situation for the generator", () => {
