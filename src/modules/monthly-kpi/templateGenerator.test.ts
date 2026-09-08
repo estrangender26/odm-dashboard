@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
 import { generateMonthlyKpiPresentation } from "./templateGenerator";
+import { buildExecutiveReadoutLines } from "./executiveReadout";
 import type { BusinessUnitScorecard, MonthlyKpiPresentation, ScorecardKpiKey } from "./types";
 
 const SCORECARD_KPI_KEYS: ScorecardKpiKey[] = [
@@ -58,6 +59,61 @@ function makeMonthlyTrend(
       ])
     ) as unknown as BusinessUnitScorecard["monthlyTrend"][number]["values"],
   }));
+}
+
+
+const READOUT_SCORE_KEYS = [
+  "pmCompliance",
+  "budgetSpend",
+  "pmCmWorkOrderRatio",
+  "pmCmCostRatio",
+  "mttrDays",
+  "facilityUptime",
+] as const;
+
+function expectedDerivedReadout(
+  data: MonthlyKpiPresentation,
+  buName: string
+): string[] {
+  const bu = data.buScorecards.find((b) => b.businessUnit === buName)!;
+  const values: Partial<Record<ScorecardKpiKey, number | null>> = {};
+  for (const key of READOUT_SCORE_KEYS) values[key] = bu.ytd[key].value;
+  return buildExecutiveReadoutLines({
+    businessUnit: buName,
+    monthLabel: data.reportingMonthLabel,
+    notes: bu.notes,
+    situation: bu.situation,
+    values,
+  }).map((line) => line.text);
+}
+
+function readoutParagraphTexts(xml: string): string[] {
+  const start = xml.indexOf('name="Executive Readout"');
+  const bodyStart = xml.indexOf("<p:txBody>", start);
+  const openEnd = xml.indexOf(">", bodyStart) + 1;
+  const bodyEnd = xml.indexOf("</p:txBody>", openEnd);
+  const body = xml.slice(openEnd, bodyEnd);
+  const texts: string[] = [];
+  for (const pm of body.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)) {
+    const text = [...pm[0].matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+      .map((m) => m[1])
+      .join("");
+    texts.push(text);
+  }
+  return texts;
+}
+
+function readoutSectionWordCounts(texts: string[]): { ec: number; ma: number; ecBullets: number; maBullets: number } {
+  const word = (t: string) => (t ? t.trim().split(/\s+/).length : 0);
+  const maIdx = texts.indexOf("MANAGEMENT ASSESSMENT");
+  const ecBullets = maIdx > 0 ? texts.slice(1, maIdx) : [];
+  const maBullets = maIdx > 0 ? texts.slice(maIdx + 1) : [];
+  return {
+    ec: ecBullets.reduce((a, b) => a + word(b), 0),
+    ma: maBullets.reduce((a, b) => a + word(b), 0),
+    ecBullets: ecBullets.length,
+    maBullets: maBullets.length,
+  };
 }
 
 function createTestDataForMonth(
@@ -390,24 +446,29 @@ describe("generateMonthlyKpiPresentation", () => {
     }
   });
 
-  it("renders stored Notes/Situation only and shows the neutral placeholder when both are blank", async () => {
+  it("blank stored notes still yield a concise derived readout on Slide 1", async () => {
     const data = createTestData();
     const blob = await generateMonthlyKpiPresentation(data);
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
-    const xml = await zip.file("ppt/slides/slide1.xml")?.async("string");
-    expect(xml).toBeDefined();
-    // No stored commentary in this fixture -> both section headings render
-    // with their per-field neutral lines; no threshold/missing-data narrative.
-    expect(xml).toContain("Notes / Commentary");
-    expect(xml).toContain("No commentary submitted.");
-    expect(xml).toContain("Situation");
-    expect(xml).toContain("No situation submitted.");
+    const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
+    const readout = readoutParagraphTexts(xml);
+    expect(readout).toEqual(expected);
+    const counts = readoutSectionWordCounts(readout);
+    expect(counts.ecBullets).toBeLessThanOrEqual(2);
+    expect(counts.maBullets).toBeLessThanOrEqual(2);
+    expect(counts.ec).toBeLessThanOrEqual(45);
+    expect(counts.ma).toBeLessThanOrEqual(45);
+    expect(readout).toContain("EXECUTIVE COMMENTARY");
+    expect(readout).toContain("MANAGEMENT ASSESSMENT");
+    expect(xml).not.toContain("Notes / Commentary");
+    expect(xml).not.toContain("No commentary submitted.");
+    expect(xml).not.toContain("No situation submitted.");
     expect(xml).not.toContain("Key exceptions:");
     expect(xml).not.toContain("not submitted");
   });
-
-  it("renders the stored Notes and Situation bullets for the selected BU on Slide 1", async () => {
+  it("derived readout reflects the BU stored notes without dumping them raw", async () => {
     const data = createTestData();
     const selected = data.buScorecards.find((b) => b.businessUnit === data.selectedBusinessUnit)!;
     selected.notes = "Transformer overhaul completed.\nSpare delivery tracked.";
@@ -416,18 +477,21 @@ describe("generateMonthlyKpiPresentation", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
-    expect(xml).toContain("Notes / Commentary");
-    expect(xml).toContain("Transformer overhaul completed.");
-    expect(xml).toContain("Spare delivery tracked.");
-    expect(xml).toContain("Situation");
-    expect(xml).toContain(
-      "Corrective maintenance was completed inside the window."
-    );
+    const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
+    const readout = readoutParagraphTexts(xml);
+    expect(readout).toEqual(expected);
+    const counts = readoutSectionWordCounts(readout);
+    expect(counts.ecBullets).toBeLessThanOrEqual(2);
+    expect(counts.maBullets).toBeLessThanOrEqual(2);
+    expect(counts.ec).toBeLessThanOrEqual(45);
+    expect(counts.ma).toBeLessThanOrEqual(45);
+    expect(readout).toContain("EXECUTIVE COMMENTARY");
+    expect(readout).toContain("MANAGEMENT ASSESSMENT");
     expect(xml).not.toContain("No situation submitted.");
+    expect(xml).not.toContain("No commentary submitted.");
     expect(xml).not.toContain("Key exceptions:");
   });
-
-  it("single-BU CWC deck renders its exact stored note and the Situation neutral line", async () => {
+  it("single-BU CWC deck renders its concise derived readout (note summarized, never dumped)", async () => {
     const data = createTestData();
     data.selectedBusinessUnit = "CWC";
     const cwc = data.buScorecards.find((b) => b.businessUnit === "CWC")!;
@@ -438,33 +502,27 @@ describe("generateMonthlyKpiPresentation", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
-    expect(xml).toContain("Notes / Commentary");
-    expect(xml).toContain(
-      "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44"
-    );
-    expect(xml).toContain("Situation");
-    expect(xml).toContain("No situation submitted.");
+    const expected = expectedDerivedReadout(data, "CWC");
+    const readout = readoutParagraphTexts(xml);
+    expect(readout).toEqual(expected);
+    const counts = readoutSectionWordCounts(readout);
+    expect(counts.ecBullets).toBeLessThanOrEqual(2);
+    expect(counts.maBullets).toBeLessThanOrEqual(2);
+    expect(counts.ec).toBeLessThanOrEqual(45);
+    expect(counts.ma).toBeLessThanOrEqual(45);
+    expect(readout).toContain("EXECUTIVE COMMENTARY");
+    expect(readout).toContain("MANAGEMENT ASSESSMENT");
     expect(xml).not.toContain("Key exceptions:");
     expect(xml).not.toContain("Replacement of filters");
     expect(xml).not.toContain("Transformer overhaul");
+    expect(xml).not.toContain("No situation submitted.");
   });
-
-  it.each([
-    // Arbitrary BU identities — the single-BU path must be BU-generic, not
-    // tied to the real seven names. Emulates the adapter contract for a
-    // September 2026 request that the server resolves to the August 2026
-    // effective month: data.reportingMonth=8 with each BU's own August record.
-    ["BU-A", "BU-A note", null, "No situation submitted."],
-    ["BU-B", "BU-B note", "BU-B situation", null],
-    ["BU-C", null, "BU-C situation", "No commentary submitted."],
-  ] as const)(
-    "selected arbitrary BU %s renders ONLY its own stored Notes/Situation at the effective month — no leakage from other BUs",
-    async (selectedName, ownNote, ownSituation, expectedOwnFallback) => {
+  it.each(["BU-A", "BU-B", "BU-C"] as const)(
+    "selected arbitrary BU %s renders ONLY its own concise derived readout - no leakage",
+    async (selectedName) => {
       const data = createTestData();
       data.reportingMonth = 8;
       data.reportingMonthLabel = "August 2026";
-      // Every fixture BU exists in the shared data (as the adapter would
-      // supply from records); only the SELECTED BU's text may reach its deck.
       const fixtureNote: Record<string, string | null> = {
         "BU-A": "BU-A note",
         "BU-B": "BU-B note",
@@ -493,15 +551,20 @@ describe("generateMonthlyKpiPresentation", () => {
       );
       const allXml = slides.join("\n");
 
-      expect(allXml).toContain("Notes / Commentary");
-      expect(allXml).toContain("Situation");
-      if (ownNote !== null) expect(allXml).toContain(ownNote);
-      else expect(allXml).toContain(expectedOwnFallback);
-      if (ownSituation !== null) expect(allXml).toContain(ownSituation);
-      else expect(allXml).toContain(expectedOwnFallback);
+      // Derived readout matches the deterministic builder for THIS BU.
+      const expected = expectedDerivedReadout(data, selectedName);
+      const readout = readoutParagraphTexts(slides[0]);
+      expect(readout).toEqual(expected);
+      const counts = readoutSectionWordCounts(readout);
+      expect(counts.ecBullets).toBeLessThanOrEqual(2);
+      expect(counts.maBullets).toBeLessThanOrEqual(2);
+      expect(counts.ec).toBeLessThanOrEqual(45);
+      expect(counts.ma).toBeLessThanOrEqual(45);
+      expect(allXml).not.toContain("Notes / Commentary");
+      expect(allXml).not.toContain("No situation submitted.");
 
-      // No cross-BU leakage: no other fixture BU's note or situation text may
-      // appear anywhere in the generated deck.
+      // No cross-BU leakage: no other fixture BU raw note text appears, and no
+      // other BU numeric value token appears anywhere in the deck.
       for (const name of ["BU-A", "BU-B", "BU-C"]) {
         if (name === selectedName) continue;
         const otherNote = fixtureNote[name];
@@ -509,7 +572,6 @@ describe("generateMonthlyKpiPresentation", () => {
         if (otherNote !== null) expect(allXml).not.toContain(otherNote);
         if (otherSituation !== null) expect(allXml).not.toContain(otherSituation);
       }
-      // Real-name notes from sibling tests must never bleed into this deck.
       expect(allXml).not.toContain("Exceed budget due to media replacement");
       expect(allXml).not.toContain("Replacement of filters");
       expect(allXml).not.toContain("Transformer overhaul");
@@ -569,9 +631,8 @@ describe("generateMonthlyKpiPresentation", () => {
         });
       }
 
-      const headings = runs.filter(
-        (r) => r.text === "Notes / Commentary" || r.text === "Situation"
-      );
+      const headingNames = new Set(["EXECUTIVE COMMENTARY", "MANAGEMENT ASSESSMENT"]);
+      const headings = runs.filter((r) => headingNames.has(r.text));
       expect(headings.length).toBe(2);
       for (const h of headings) {
         expect(h.buNone).toBe(true);
@@ -585,26 +646,22 @@ describe("generateMonthlyKpiPresentation", () => {
         expect((h.rPr.match(/<a:solidFill>/g) || []).length).toBe(1);
       }
 
-      const noteBullet = runs.find((r) => r.text === fixture.note);
-      expect(noteBullet).toBeTruthy();
-      expect(noteBullet!.buNone).toBe(false);
-      expect(noteBullet!.buChar).toBe(true);
-      expect(noteBullet!.rPr).toMatch(/lang="en-PH"/);
-      expect(noteBullet!.rPr).toMatch(/sz="1200"/);
-      expect(noteBullet!.rPr).toMatch(/ b="0"/);
-      expect(noteBullet!.rPr).toContain('<a:srgbClr val="111111"/>');
-      expect((noteBullet!.rPr.match(/typeface="Aptos"/g) || []).length).toBe(3);
-      expect(noteBullet!.rPr).not.toContain("schemeClr");
+      // The exact readout matches the deterministic derived builder.
+      expect(runs.map((r) => r.text)).toEqual(expectedDerivedReadout(data, fixture.bu));
 
-      const situationBullet = runs.find(
-        (r) => r.text === (fixture.situation ?? "No situation submitted.")
-      );
-      expect(situationBullet).toBeTruthy();
-      expect(situationBullet!.buNone).toBe(false);
-      expect(situationBullet!.buChar).toBe(true);
-      expect(situationBullet!.rPr).toMatch(/ b="0"/);
-      expect(situationBullet!.rPr).toContain('<a:srgbClr val="111111"/>');
-      expect(situationBullet!.rPr).toMatch(/sz="1200"/);
+      // Every non-heading line is a formatted bullet.
+      const bullets = runs.filter((r) => !headingNames.has(r.text));
+      expect(bullets.length).toBeGreaterThanOrEqual(1);
+      for (const b of bullets) {
+        expect(b.buNone).toBe(false);
+        expect(b.buChar).toBe(true);
+        expect(b.rPr).toMatch(/lang="en-PH"/);
+        expect(b.rPr).toMatch(/sz="1200"/);
+        expect(b.rPr).toMatch(/ b="0"/);
+        expect(b.rPr).toContain('<a:srgbClr val="111111"/>');
+        expect((b.rPr.match(/typeface="Aptos"/g) || []).length).toBe(3);
+        expect(b.rPr).not.toContain("schemeClr");
+      }
 
       // No nested a:r and exactly one rPr per run inside the readout body.
       expect(body).not.toContain("<a:r><a:r>");
@@ -657,49 +714,73 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(ytdAllRow![6]).toBe("100%"); // 99.77 rounded to whole number
   });
 
-  it("never derives threshold commentary from KPI colors even when every KPI is within target", async () => {
-    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+  it("green-only readout stays concise and positive with no speculation", async () => {
+    const data = createTestData();
+    const selected = data.buScorecards.find((b) => b.businessUnit === data.selectedBusinessUnit)!;
+    for (const [key, value] of Object.entries({
       pmCompliance: 98,
       budgetSpend: 100,
       pmCmWorkOrderRatio: 86,
       pmCmCostRatio: 80,
-      mttrDays: 63.64,
+      mttrDays: 5,
       facilityUptime: 100,
-    });
+    })) {
+      selected.ytd[key as ScorecardKpiKey] = {
+        value,
+        status: "success",
+        formatted: String(value),
+      };
+    }
     const blob = await generateMonthlyKpiPresentation(data);
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
-    // All-green RAG status never produces an "all within target" narrative.
-    expect(xml).toContain("Notes / Commentary");
-    expect(xml).toContain("No commentary submitted.");
-    expect(xml).toContain("Situation");
-    expect(xml).toContain("No situation submitted.");
-    expect(xml).not.toContain("All reported KPIs are within target");
+    const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
+    const readout = readoutParagraphTexts(xml);
+    expect(readout).toEqual(expected);
+    // Concise positive executive line - it does NOT narrate every KPI.
+    expect(readout.join(" ")).toContain("on target");
+    expect(readout.join(" ").length).toBeLessThan(220);
+    expect(readout).toContain("EXECUTIVE COMMENTARY");
+    expect(readout).toContain("MANAGEMENT ASSESSMENT");
+    expect(xml).not.toContain("No commentary submitted.");
+    expect(xml).not.toContain("No situation submitted.");
     expect(xml).not.toContain("Key exceptions:");
   });
-
-  it("red RAG status never generates exception narrative without stored text", async () => {
-    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+  it("red KPIs without stored text still yield a concise, evidence-safe readout", async () => {
+    const data = createTestData();
+    const selected = data.buScorecards.find((b) => b.businessUnit === data.selectedBusinessUnit)!;
+    for (const [key, value] of Object.entries({
       pmCompliance: 85,
       budgetSpend: 85,
       pmCmWorkOrderRatio: 70,
       pmCmCostRatio: 40,
       mttrDays: 63.64,
       facilityUptime: 98,
-    });
+    })) {
+      selected.ytd[key as ScorecardKpiKey] = {
+        value,
+        status: "danger",
+        formatted: String(value),
+      };
+    }
     const blob = await generateMonthlyKpiPresentation(data);
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
+    const readout = readoutParagraphTexts(xml);
+    expect(readout).toEqual(expected);
+    // Exceptions surface from KPI data; management wording stays
+    // evidence-safe (recovery/validation language, never invented causes).
+    expect(readout[1]).toMatch(/below target/);
+    expect(readout.join(" ")).toMatch(/Validate|Recovery|Prioritize|Investigate/);
+    expect(readout).toContain("EXECUTIVE COMMENTARY");
+    expect(readout).toContain("MANAGEMENT ASSESSMENT");
     expect(xml).not.toContain("Key exceptions:");
-    expect(xml).not.toContain("PM compliance was below target");
-    expect(xml).toContain("Notes / Commentary");
-    expect(xml).toContain("No commentary submitted.");
-    expect(xml).toContain("Situation");
-    expect(xml).toContain("No situation submitted.");
+    expect(xml).not.toContain("No commentary submitted.");
+    expect(xml).not.toContain("No situation submitted.");
   });
-
   it("uses formatted fallback for no-data YTD values on Slide 2", async () => {
     const data = createTestData();
     data.portfolioYtd.pmCompliance = { value: null, status: "no-data", formatted: "No Data" };

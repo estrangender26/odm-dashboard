@@ -61,9 +61,11 @@ import {
   setPresentationSlideOrder,
 } from "../executive-presentations/framework/slidePackage";
 import {
-  storedNotesSituationLines,
   writeNotesSituationReadout,
 } from "../executive-presentations/framework/readoutText";
+import { buildExecutiveReadoutLines } from "./executiveReadout";
+import type { ReadoutLine } from "../executive-presentations/framework/readoutText";
+import type { ScorecardKpiKey } from "./types";
 import {
   evaluateKpiStatus,
   getDefaultMonthlyKpiThresholdConfig,
@@ -451,7 +453,15 @@ function updateScorecardSlide(
 
   const readoutTop = tableY + tableActualHeight + READOUT_TOP_MARGIN_EMU;
 
-  const lines = storedNotesSituationLines(section.notes, section.situation);
+  const readoutValues: Partial<Record<ScorecardKpiKey, number | null>> = {};
+  for (const row of section.summary) readoutValues[row.key as ScorecardKpiKey] = row.value;
+  const lines = buildExecutiveReadoutLines({
+    businessUnit: section.businessUnit,
+    monthLabel: section.reportingMonthLabel,
+    notes: section.notes,
+    situation: section.situation,
+    values: readoutValues,
+  });
   setReadoutLinesForSlide(doc, lines, readoutTop, READOUT_TOP_MARGIN_EMU, READOUT_HEIGHT_EMU);
 
   // Keep the RAG legend aligned with the readout block.
@@ -479,7 +489,7 @@ function updateScorecardSlide(
  */
 function setReadoutLinesForSlide(
   doc: XmlDocument,
-  lines: ReturnType<typeof storedNotesSituationLines>,
+  lines: ReadoutLine[],
   readoutTop: number,
   _topMarginEmu: number,
   heightEmu: number
