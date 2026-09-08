@@ -133,12 +133,28 @@ function makeHeadingParagraph(paragraph: XmlElement): void {
       if (el && el.localName === localName) pPr.removeChild(child);
     }
   }
-  if (!getElementsByTagNameNS(pPr, "a", "buNone")[0]) {
-    const buNone = createElementNS(
-      paragraph.ownerDocument as XmlDocument,
-      "a",
-      "buNone"
+  if (getElementsByTagNameNS(pPr, "a", "buNone")[0]) return;
+
+  const ownerDoc = paragraph.ownerDocument as XmlDocument;
+  const buNone = createElementNS(ownerDoc, "a", "buNone");
+  // DrawingML requires <a:buNone> BEFORE tabLst/defRPr/extLst inside <a:pPr>.
+  // Inserting at the end (after defRPr) is schema-invalid and can make
+  // PowerPoint reject the slide. Place it before the first later-property
+  // element, mirroring where <a:buChar> used to sit.
+  const pPrChildren = [...pPr.childNodes];
+  const laterProperty = pPrChildren.find((child) => {
+    const el = child as unknown as XmlElement;
+    return (
+      el &&
+      el.namespaceURI === "http://schemas.openxmlformats.org/drawingml/2006/main" &&
+      (el.localName === "tabLst" ||
+        el.localName === "defRPr" ||
+        el.localName === "extLst")
     );
+  });
+  if (laterProperty) {
+    pPr.insertBefore(buNone, laterProperty);
+  } else {
     pPr.appendChild(buNone);
   }
 }

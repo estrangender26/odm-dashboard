@@ -427,6 +427,28 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(xml).not.toContain("Key exceptions:");
   });
 
+  it("single-BU CWC deck renders its exact stored note and the Situation neutral line", async () => {
+    const data = createTestData();
+    data.selectedBusinessUnit = "CWC";
+    const cwc = data.buScorecards.find((b) => b.businessUnit === "CWC")!;
+    cwc.notes =
+      "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44";
+    cwc.situation = null;
+    const blob = await generateMonthlyKpiPresentation(data);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+    expect(xml).toContain("Notes / Commentary");
+    expect(xml).toContain(
+      "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44"
+    );
+    expect(xml).toContain("Situation");
+    expect(xml).toContain("No situation submitted.");
+    expect(xml).not.toContain("Key exceptions:");
+    expect(xml).not.toContain("Replacement of filters");
+    expect(xml).not.toContain("Transformer overhaul");
+  });
+
   it("rounds KPI values for executive display on Slide 1", async () => {
     const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
       pmCompliance: 98.38,

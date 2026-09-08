@@ -13,6 +13,7 @@ import {
   aggregateMonthlyKpiRecords,
   normalizeBusinessUnitLabel,
   normalizeKpiNumber,
+  resolveEffectiveReportingMonth,
   type PersistedMonthlyKpiRecord,
 } from "./kpiAggregation";
 import { buildAllBusinessUnitsDeckData, normalizeStoredCommentary } from "./allBusinessUnitsData";
@@ -379,9 +380,20 @@ export async function fetchMonthlyKpiPresentationData(
 
   const records = await fetchMonthlyKpiYearRows(reportingYear);
 
-  const aggregateResult = aggregateMonthlyKpiRecords(records, reportingYear, reportingMonth);
+  // The server stays the sole authority for the effective reporting month in
+  // BOTH deck modes. A requested month that contains no valid submission
+  // resolves to the latest submitted month of the year, so commentary,
+  // values, and labels always reflect the record that actually exists (for
+  // example requesting September 2026 while the portfolio is submitted
+  // through August uses the August CWC Notes/Situation).
+  const effectiveMonth =
+    resolveEffectiveReportingMonth(records, reportingMonth) ?? reportingMonth;
+  const reportingLabel =
+    `${MONTH_NAMES[effectiveMonth - 1] ?? ""} ${reportingYear}`.trim();
+
+  const aggregateResult = aggregateMonthlyKpiRecords(records, reportingYear, effectiveMonth);
   const allBus = aggregateResult.byBusinessUnit.map((agg) =>
-    buildScorecard(records, agg, reportingMonth)
+    buildScorecard(records, agg, effectiveMonth)
   );
 
   const selectedBu =
@@ -397,14 +409,14 @@ export async function fetchMonthlyKpiPresentationData(
     selectedBu,
     allBus,
     portfolioYtd,
-    `${MONTH_NAMES[reportingMonth - 1]} ${reportingYear}`
+    reportingLabel
   );
 
   return {
     generatedAt: new Date().toISOString(),
     reportingYear,
-    reportingMonth,
-    reportingMonthLabel: `${MONTH_NAMES[reportingMonth - 1]} ${reportingYear}`,
+    reportingMonth: effectiveMonth,
+    reportingMonthLabel: reportingLabel,
     selectedBusinessUnit: normalizedSelection,
     businessUnits: allBus.map((bu) => bu.businessUnit),
     buScorecards: allBus,

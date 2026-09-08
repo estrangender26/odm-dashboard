@@ -1,0 +1,7 @@
+# Forensic original (schema-invalid, PowerPoint unreadable). Kept locally.
+CWC - Monthly KPI Executive Scorecard - August 2026.pptx
+# Regenerable decks (~24-25 MB each): rebuild with
+#   node --import tsx scripts/monthly-kpi-allbu/generate-validation-fixture-deck.mts
+# (single-BU CWC) and the adapter single-BU path (effective month 8).
+CWC - Monthly KPI Executive Scorecard - August 2026 (fixed).pptx
+All-BUs - Monthly KPI Scorecard - August 2026 (fixed).pptx
