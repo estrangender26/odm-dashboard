@@ -74,7 +74,7 @@ const KEYWORD_HINTS: Record<ScorecardKpiKey, string[]> = {
   budgetSpend: ["budget", "spend", "accru", "procurement", "media replacement", "filters", "cost of", "expenses"],
   pmCmWorkOrderRatio: ["pm:cm work orders", "work orders", "cm work"],
   pmCmCostRatio: ["pm:cm cost", "cost ratio", "cm cost"],
-  mttrDays: ["mttr", "downtime", "down", "outage", "repair", "days"],
+  mttrDays: ["mttr", "downtime", "outage", "repair", "days"],
   facilityUptime: ["facility uptime", "uptime", "operating time", "shutdown", "breakdown", "genset"],
 };
 
@@ -99,13 +99,10 @@ export function classifyExecutiveKpi(
 ): ExecutiveReadoutKpiStatus {
   const config = getDefaultMonthlyKpiThresholdConfig();
   if (value === null || value === undefined || !Number.isFinite(value)) return "missing";
-  if (key === "mttrDays") {
-    // MTTR has no green/amber/red threshold bands (dataExistsGreen). The decks
-    // treat reported MTTR as provisional/validation-pending. Only an elevated
-    // MTTR (>= 20 days) is surfaced as a watch exception; short MTTR is normal.
-    if (value <= 0) return "missing";
-    return value >= 20 ? "amber" : "green";
-  }
+  // MTTR has NO green/amber/red threshold bands in the authoritative config
+  // (dataExistsGreen) - it must not be silently classified with an invented
+  // numeric threshold here. evaluateKpiStatus returns green when data exists
+  // and missing otherwise; that authoritative result is used as-is.
   const evaluation = evaluateKpiStatus(
     key,
     value,
@@ -225,6 +222,21 @@ function hasOutage(clause: string | null): boolean {
   return OUTAGE_KEYWORDS.some((k) => lower.includes(k));
 }
 
+/**
+ * MTTR outage context must come from the BU's OWN MTTR-labelled clause and
+ * carry duration/failure evidence (e.g. "down for 2 days", "damage",
+ * "transmission pole"). Generic words like "downtime"/"breakdown" alone are
+ * NOT enough to route an MTTR validation bullet - that avoids inventing a
+ * reason when the reported MTTR is trivial.
+ */
+function hasMttrOutageContext(clause: string | null): boolean {
+  if (!clause) return false;
+  const lower = clause.toLowerCase();
+  return (
+    /\bdown for\b|\d+\s+days|\bdamage\b|\bpole\b|\boutage\b|\bfailed\b|\bfailure\b|breakdown of|\bgenset\b/.test(lower)
+  );
+}
+
 /** Compress a submitted-note clause into one short, meaning-preserving fragment. */
 function compressClause(clause: string, maxChars: number): string {
   const single = clause.replace(/\s+/g, " ").trim();
@@ -257,10 +269,8 @@ function exceptionClause(kpi: ExecutiveReadoutKpi): string {
       ? `${noun} (${formatted}) was below the 100% target`
       : `${noun} (${formatted}) was near, but below, the 100% target`;
   }
-  if (kpi.key === "mttrDays") {
-    const high = value >= 20 ? "elevated" : "reported";
-    return `${noun} (${formatted}) was ${high} and requires validation`;
-  }
+  // MTTR is never a threshold exception (no authoritative band); it is
+  // surfaced separately as a reported value with evidence-safe wording.
   return `${noun} (${formatted}) was below target`;
 }
 
@@ -294,6 +304,32 @@ function buildExecutiveCommentary(input: ExecutiveReadoutInput, kpis: ExecutiveR
     if (countWords(joinClauses([...clauses, candidate])) > 34) break;
     clauses.push(candidate);
   }
+
+  // Reported MTTR may be surfaced as a provisional value when it is relevant
+  // to an exception (100% uptime interplay or a BU-reported outage context) -
+  // WITHOUT inventing a numeric MTTR threshold. Wording stays evidence-bound.
+  if (clauses.length < 3) {
+    const mttr = kpis.find((k) => k.key === "mttrDays");
+    const mttrValue = mttr && mttr.value !== null ? (mttr.value as number) : null;
+    const fu = kpis.find((k) => k.key === "facilityUptime");
+    const fuValue = fu && fu.value !== null ? (fu.value as number) : null;
+    const mttrNote =
+      mttrValue !== null && mttrValue > 0
+        ? noteClauseForKpi(input.notes, "mttrDays", kpis)
+        : null;
+    const relevant =
+      mttrValue !== null &&
+      mttrValue > 0 &&
+      ((fuValue !== null && fuValue >= 99.99) ||
+        (mttrNote !== null && hasMttrOutageContext(mttrNote)));
+    if (relevant) {
+      const candidate = `MTTR (${mttr!.formatted}) was reported and requires validation`;
+      if (countWords(joinClauses([...clauses, candidate])) <= 34) {
+        clauses.push(candidate);
+      }
+    }
+  }
+
   const headline = joinClauses(clauses);
   const bullets: string[] = [headline];
 
@@ -337,19 +373,23 @@ function pmAssessment(input: ExecutiveReadoutInput, kpis: ExecutiveReadoutKpi[])
   return hasPmDeferral(clause) ? PM_DEFERRED_RECOVERY : PM_GENERIC_RECOVERY;
 }
 
+/**
+ * Evidence-safe MTTR validation wording. MTTR has no authoritative threshold
+ * band, so it is NEVER called "elevated" from a numeric cutoff: the bullet is
+ * only produced when the reported MTTR is relevant (100% facility uptime
+ * interplay or a BU-reported outage context) and always uses "reported".
+ */
 function mttrAssessment(input: ExecutiveReadoutInput, kpis: ExecutiveReadoutKpi[]): string | null {
   const mttr = kpis.find((k) => k.key === "mttrDays");
   const value = mttr && mttr.value !== null ? (mttr.value as number) : null;
   if (value === null || value <= 0 || mttr!.status === "missing") return null;
-  if (value >= 20) {
-    const clause = noteClauseForKpi(input.notes, "mttrDays", kpis);
-    const wellTwo = clause !== null && /well\s*2|transmission.{0,24}pole|pole/.test(clause.toLowerCase());
-    if (wellTwo) {
-      return `Validate the elevated MTTR (${mttr!.formatted}) and corrective actions from the reported Well 2 outage`;
-    }
-    return `Validate the elevated MTTR (${mttr!.formatted}) against the affected equipment population`;
+  const clause = noteClauseForKpi(input.notes, "mttrDays", kpis);
+  const wellTwo =
+    clause !== null && /well\s*2|transmission.{0,24}pole|pole/.test(clause.toLowerCase());
+  if (wellTwo) {
+    return `Validate the reported MTTR (${mttr!.formatted}) and corrective actions from the reported Well 2 outage`;
   }
-  return `Keep the reported MTTR (${mttr!.formatted}) under review`;
+  return `Validate the reported MTTR (${mttr!.formatted}) against the affected equipment population`;
 }
 
 function budgetAssessment(input: ExecutiveReadoutInput, kpis: ExecutiveReadoutKpi[]): string | null {
@@ -398,7 +438,16 @@ function buildManagementAssessment(input: ExecutiveReadoutInput, kpis: Executive
   const mttr = kpis.find((k) => k.key === "mttrDays");
   const mttrValue = mttr && mttr.value !== null ? (mttr.value as number) : null;
   const fuValue = fu && fu.value !== null ? (fu.value as number) : null;
-  const mttrHigh = mttrValue !== null && mttrValue >= 20;
+  // No invented MTTR threshold: MTTR is never classified by a numeric cutoff.
+  // It is surfaced for validation only under evidence-based triggers:
+  //   - the facility reported 100% uptime while a repair duration is reported
+  //     (cross-KPI interplay), or
+  //   - the BU's own notes report an outage/failure context for MTTR.
+  const mttrReported = mttrValue !== null && mttrValue > 0;
+  const mttrNote = mttrReported
+    ? noteClauseForKpi(input.notes, "mttrDays", kpis)
+    : null;
+  const mttrOutageContext = mttrNote !== null && hasMttrOutageContext(mttrNote);
   const fuPerfect = fuValue !== null && fuValue >= 99.99;
 
   if (present.length === 0) {
@@ -410,35 +459,32 @@ function buildManagementAssessment(input: ExecutiveReadoutInput, kpis: Executive
     ];
   }
 
-  // Deterministic priority order:
-  //   1. PM compliance recovery (incl. deferred-PM context)
-  //   2. Elevated-MTTR validation (+ 100%-uptime interplay note)
-  //   3. Budget Spend phasing / project-expenditure check
-  //   4. Facility-uptime action
-  //   5. PM:CM ratio strengthening
   const actions: string[] = [];
   const consider = (action: string | null) => {
     if (action && actions.length < 2 && !actions.includes(action)) actions.push(action);
   };
 
+  // Deterministic priority order (MTTR never uses an invented numeric band):
+  //   1. PM compliance recovery (incl. deferred-PM context)
+  //   2. Reported-MTTR validation only when evidence triggers it
+  //   3. 100%-uptime / reported-MTTR interplay confirmation
+  //   4. Budget Spend phasing / project-expenditure check
+  //   5. Facility-uptime action
+  //   6. PM:CM ratio strengthening
   consider(pmAssessment(input, kpis));
 
-  // Elevated MTTR validation outranks the remaining budget/ratio items.
-  if (mttrHigh) {
+  if (mttrReported && (fuPerfect || mttrOutageContext)) {
     consider(mttrAssessment(input, kpis));
-    if (fuPerfect) {
-      consider(
-        "Confirm whether long-duration repairs involved equipment that did not affect facility operation, given 100% facility uptime"
-      );
-    }
-  } else {
-    consider(budgetAssessment(input, kpis));
-    consider(facilityAssessment(input, kpis));
-    consider(ratioAssessment(kpis));
-    if (mttrValue !== null && mttrValue > 0) {
-      consider(mttrAssessment(input, kpis));
-    }
   }
+  if (mttrReported && fuPerfect) {
+    consider(
+      "Confirm whether long-duration repairs involved equipment that did not affect facility operation, given 100% facility uptime"
+    );
+  }
+
+  consider(budgetAssessment(input, kpis));
+  consider(facilityAssessment(input, kpis));
+  consider(ratioAssessment(kpis));
 
   // Word-budget enforcement: never exceed the section cap.
   while (actions.length > 1 && countWords(joinClauses(actions)) > MA_TOTAL_WORD_CAP) {

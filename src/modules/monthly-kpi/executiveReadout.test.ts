@@ -141,7 +141,8 @@ describe("Executive Commentary / Management Assessment - structure and limits", 
     // request to CONFIRM, never as a fact.
     expect(all).not.toMatch(/involved non-critical/i);
     expect(all).toMatch(/Confirm whether long-duration repairs involved equipment/i);
-    expect(all).toMatch(/Validate the elevated MTTR/i);
+    expect(all).toMatch(/Validate the reported MTTR/i);
+    expect(all).not.toMatch(/elevated MTTR/i);
     expect(all).not.toContain("No commentary submitted.");
     expect(all).not.toContain("No situation submitted.");
   });
@@ -215,8 +216,11 @@ describe("classifier and formatter sanity", () => {
     expect(classifyExecutiveKpi("budgetSpend", 107)).toBe("amber");
     expect(classifyExecutiveKpi("facilityUptime", 99.95)).toBe("amber");
     expect(classifyExecutiveKpi("facilityUptime", 100)).toBe("green");
-    expect(classifyExecutiveKpi("mttrDays", 42.25)).toBe("amber");
+    // MTTR has NO authoritative threshold band: reported data is "green"
+    // (dataExistsGreen) and missing/null is "missing" - never a custom band.
+    expect(classifyExecutiveKpi("mttrDays", 42.25)).toBe("green");
     expect(classifyExecutiveKpi("mttrDays", 2.27)).toBe("green");
+    expect(classifyExecutiveKpi("mttrDays", 0)).toBe("missing");
     expect(classifyExecutiveKpi("mttrDays", null)).toBe("missing");
   });
 });
