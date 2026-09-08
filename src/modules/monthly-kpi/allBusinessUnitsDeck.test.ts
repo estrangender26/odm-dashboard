@@ -8,8 +8,10 @@ import {
 import { formatScorecardCell, generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
 import { parseXml } from "../executive-presentations/framework";
 import {
+  estimateReadoutVisualLines,
   NO_COMMENTARY_SUBMITTED,
   NO_SITUATION_SUBMITTED,
+  requiredReadoutHeightEmu,
   storedNotesSituationLines,
 } from "../executive-presentations/framework/readoutText";
 import {
@@ -1367,6 +1369,103 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
     expect(textsFor("AMD-EZ").join(" ")).not.toContain("Replacement of filters");
   });
 
+  it("every section readout run carries deterministic visible formatting (headings 172B47 bold, bullets 111111, Aptos)", async () => {
+    const named = [
+      ...makeBusinessUnitRecords("AMD-EZ", { through: 8 }),
+      ...makeBusinessUnitRecords("CWC", {
+        through: 8,
+        notesByMonth: {
+          8: "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+        },
+      }),
+      ...makeBusinessUnitRecords("LARC", {
+        through: 8,
+        notesByMonth: {
+          8: "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)",
+        },
+      }),
+    ];
+    const data = buildAllBusinessUnitsDeckData(named, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    const byIndex = new Map<string, string>();
+    for (let i = 0; i < data.sections.length; i++) {
+      byIndex.set(data.sections[i].businessUnit, slides[1 + i * 2].xml);
+    }
+
+    const parse = (xml: string) => {
+      const body = readoutInnerBody(xml);
+      type RunInfo = { text: string; rPr: string; buNone: boolean; buChar: boolean };
+      const runs: RunInfo[] = [];
+      for (const pm of body.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)) {
+        const p = pm[0];
+        const text = [...p.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+          .map((x) => x[1])
+          .join("");
+        runs.push({
+          text,
+          rPr: p.match(/<a:rPr\b[^>]*>[\s\S]*?<\/a:rPr>/)?.[0] ?? "",
+          buNone: /<a:buNone\b[^>]*\/>/.test(p),
+          buChar: /<a:buChar\b[^>]*char="•"/.test(p),
+        });
+      }
+      return { runs, body };
+    };
+
+    const assertHeading = (r: { text: string; rPr: string; buNone: boolean }) => {
+      expect(r.text === "Notes / Commentary" || r.text === "Situation").toBe(true);
+      expect(r.buNone).toBe(true);
+      expect(r.rPr).toMatch(/lang="en-PH"/);
+      expect(r.rPr).toMatch(/sz="1200"/);
+      expect(r.rPr).toMatch(/ b="1"/);
+      expect(r.rPr).toContain('<a:srgbClr val="172B47"/>');
+      expect((r.rPr.match(/typeface="Aptos"/g) || []).length).toBe(3);
+      expect(r.rPr).not.toContain("schemeClr");
+      expect((r.rPr.match(/<a:solidFill>/g) || []).length).toBe(1);
+    };
+    const assertBullet = (r: { rPr: string; buChar: boolean }) => {
+      expect(r.buChar).toBe(true);
+      expect(r.rPr).toMatch(/lang="en-PH"/);
+      expect(r.rPr).toMatch(/sz="1200"/);
+      expect(r.rPr).toMatch(/ b="0"/);
+      expect(r.rPr).toContain('<a:srgbClr val="111111"/>');
+      expect((r.rPr.match(/typeface="Aptos"/g) || []).length).toBe(3);
+      expect(r.rPr).not.toContain("schemeClr");
+    };
+
+    for (const buName of ["CWC", "LARC", "AMD-EZ"]) {
+      const { runs, body } = parse(byIndex.get(buName)!);
+      assertHeading(runs[0]);
+      assertHeading(runs[2]);
+      expect(runs[0].text).toBe("Notes / Commentary");
+      expect(runs[2].text).toBe("Situation");
+      // Every content line (stored note or neutral) is a formatted bullet.
+      for (const content of [runs[1], runs[3]]) {
+        assertBullet(content);
+      }
+      if (buName === "CWC") {
+        expect(runs[1].text).toBe(
+          "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44"
+        );
+      }
+      if (buName === "LARC") {
+        expect(runs[1].text).toBe(
+          "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)"
+        );
+      }
+      if (buName === "AMD-EZ") {
+        expect(runs[1].text).toBe(NO_COMMENTARY_SUBMITTED);
+      }
+      expect(runs[3].text).toBe(NO_SITUATION_SUBMITTED);
+      // No nested a:r; exactly one rPr per run inside the readout body.
+      expect(body).not.toContain("<a:r><a:r>");
+      expect((body.match(/<a:rPr\b/g) || []).length).toBe(
+        (body.match(/<a:r\b/g) || []).length
+      );
+    }
+  });
+
   it("never produces nested a:r elements inside the readout", async () => {
     const slides = await slidesOfDeck();
     for (const slide of slides) {
@@ -1428,5 +1527,80 @@ describe("OPC/package integrity audit (generated All-BU deck)", () => {
       expect(contentTypes).toContain(`/${chart}`);
     }
     expect(chartNames.length).toBe(6 * data.sections.length);
+  });
+});
+
+describe("long August-2026 commentary never clips inside the generated readout text box", () => {
+  const TWCI_NOTE =
+    "PM Compliance: Other PMS activities such as Painting works, Service vehicle pms was deffered to September due to materials and request was still on going thru S4.; Budget Spend: Only low value procurement was disbursed for month of August, other preventive maintenance does not require expenses such as cleaning and facility upkeeping.; PM CM Work Orders: PM(Sedimentation Cleaning,Flucculation tank cleaning,AR Lagoon desilting,Chlorination system pms, 2 dmf tank cleaning and disinfection, 1 dredger pms, grasscutting. power line clearing, aircon preventive maintenance )\nCM(Additional long arm for AR Lagoon recovery, 41KVA Assessment and Repair)\nCM(Well 2 Transmission line pole repair); PM CM Cost: PM(Sedimentation Cleaning,Flucculation tank cleaning,AR Lagoon desilting,Chlorination system pms, 2 dmf tank cleaning and disinfection, 1 dredger pms, grasscutting )\nCM(Additional long arm for AR Lagoon recovery, 41KVA Assessment and Repair) no expenses on repairs\nCM(Well 2 Transmission line pole repair); MTTR: Well 2 was down for 2 days due to damage transmission line pole; Facility Uptime: No downtime but August 21-26 was low production.";
+  const WAWA_NOTE =
+    "PM Compliance: No major preventive maintenance (PM) activities were scheduled during the month. However, an unscheduled warranty preventive maintenance activity was conducted on the elevator. Most in-house maintenance activities were deferred as maintenance personnel were prioritized to support the recovery and restoration of the UWD facilities affected by landslides and flooding.; PM CM Work Orders: Most of the CM is Attributed to the repair of Service vehicles; PM CM Cost: The PM cost remains TBD as the Elevator PM is still ongoing. The CM cost is primarily attributed to the materials procured to support the emergency response, recovery, and restoration activities for the UWD following the landslide incident.; MTTR: The EFT and the entire powerhouse facility were affected by a landslide, resulting in the submergence of the EFT and its associated appurtenances in floodwaters. Recovery and restoration efforts are currently ongoing.; Facility Uptime: Total operating time for critical equipments like pumps and gensets for TW and UWPS. There were shutdowns but mostly requested by treatment plant.";
+
+  it("allocates on-slide wrap-aware height with normAutofit and keeps all text (TWCI + WAWA/JVC)", async () => {
+    expect(TWCI_NOTE.length).toBeGreaterThan(WAWA_NOTE.length); // TWCI is the longest total
+    const named = [
+      ...makeBusinessUnitRecords("TWCI", {
+        through: 8,
+        notesByMonth: { 8: TWCI_NOTE },
+      }),
+      ...makeBusinessUnitRecords("WAWA/JVC", {
+        through: 8,
+        notesByMonth: { 8: WAWA_NOTE },
+      }),
+    ];
+    const data = buildAllBusinessUnitsDeckData(named, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    const expected: Record<string, string[]> = {
+      TWCI: storedNotesSituationLines(TWCI_NOTE, null).map((l) => l.text),
+      "WAWA/JVC": storedNotesSituationLines(WAWA_NOTE, null).map((l) => l.text),
+    };
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const slide = slides[1 + i * 2].xml;
+      const body = readoutInnerBody(slide);
+
+      const text = [...body.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+        .map((m) => m[1])
+        .join("\u0000")
+        .split("\u0000")
+        .filter((t) => t.length > 0);
+      // Every authored line is inside the readout text box.
+      expect(text).toEqual(expected[section.businessUnit]);
+
+      // Schema-valid autofit safety net on the NEW text box.
+      expect(slide).toContain("<a:normAutofit/>");
+      expect(slide).not.toContain("noAutofit");
+
+      // Geometry: explicit xfrm, on-slide, clear of the bottom margin, and
+      // sized from the wrapped visual-line estimate.
+      // Geometry lives in the shape spPr (before txBody) - read it from the
+      // full readout shape slice, not the txBody-only readoutInnerBody.
+      const roStart = slide.indexOf('name="Executive Readout"');
+      const roEnd = slide.indexOf('</p:sp>', roStart);
+      const roXml = slide.slice(slide.lastIndexOf('<p:sp>', roStart), roEnd);
+      const m = roXml.match(/<a:off x="(-?\d+)" y="(-?\d+)"/);
+      const e = roXml.match(/<a:ext cx="(\d+)" cy="(\d+)"/);
+      expect(m).not.toBeNull();
+      expect(e).not.toBeNull();
+      const cx = Number(e![1]);
+      const cy = Number(e![2]);
+      const topY = Number(m![2]);
+      const usable = cx - 19050 - 38100;
+      const lines = storedNotesSituationLines(section.notes ?? null, section.situation ?? null);
+      const required = requiredReadoutHeightEmu(lines, usable, 900000);
+      const available = 6858000 - topY - 140000;
+      expect(cy).toBe(Math.min(required, available));
+      expect(topY + cy).toBeLessThanOrEqual(6858000 - 140000);
+      expect(cy).toBeGreaterThan(900000); // grew beyond the short-content minimum
+      expect(estimateReadoutVisualLines(TWCI_NOTE, usable)).toBeGreaterThan(5);
+
+      // All four blocks present (headings + content + placeholders).
+      expect(text).toContain("Notes / Commentary");
+      expect(text).toContain("Situation");
+      expect(text).toContain("No situation submitted.");
+    }
   });
 });

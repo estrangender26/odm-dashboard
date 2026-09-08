@@ -33,9 +33,8 @@ import type {
   ScorecardKpiKey,
 } from "../../monthly-kpi/types";
 import {
-  fitReadoutBoxHeight,
   storedNotesSituationLines,
-  writeReadoutLines,
+  writeNotesSituationReadout,
 } from "../framework/readoutText";
 import {
   evaluateKpiStatus,
@@ -395,16 +394,14 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   const readoutTop = tableY + tableActualHeight + READOUT_TOP_MARGIN_EMU;
 
   // Commentary block below the table: stored Notes/Situation only (same
-  // authoritative source as the All-BU deck). Headings + bullets render even
-  // when blank ("No commentary submitted." / "No situation submitted.");
-  // no threshold/missing-data narrative is ever generated.
-  const readoutShape = findShapeByName(doc, "Executive Readout");
-  if (readoutShape) {
-    setShapeY(readoutShape, readoutTop);
-    const lines = storedNotesSituationLines(selectedBu.notes, selectedBu.situation);
-    writeReadoutLines(readoutShape, lines);
-    fitReadoutBoxHeight(readoutShape, lines.length, 700000);
-  }
+  // authoritative source as the All-BU deck). A BRAND-NEW text box is created
+  // to own this content - the donor "Executive Readout" shape is used only for
+  // its horizontal geometry and then removed, so the visible lines can never
+  // depend on donor paragraphs/runs/rPr. Headings + bullets render even when
+  // blank ("No commentary submitted." / "No situation submitted.").
+  const donorReadout = findShapeByName(doc, "Executive Readout");
+  const lines = storedNotesSituationLines(selectedBu.notes, selectedBu.situation);
+  writeNotesSituationReadout(doc, donorReadout ?? null, lines, readoutTop, 700000);
 
   // Hide the legacy MTTR methodology note shape so it does not appear on
   // Slide 1 while remaining available in the template for other uses.

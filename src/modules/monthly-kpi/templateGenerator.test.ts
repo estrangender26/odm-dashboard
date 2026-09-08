@@ -516,6 +516,104 @@ describe("generateMonthlyKpiPresentation", () => {
     }
   );
 
+  it("Slide 1 readout runs carry deterministic visible formatting for CWC and LARC (headings 172B47 bold, bullets 111111, Aptos)", async () => {
+    const cases = [
+      {
+        bu: "CWC",
+        note:
+          "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+        situation: null,
+      },
+      {
+        bu: "LARC",
+        note:
+          "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)",
+        situation: "Genset restoration completed under warranty.",
+      },
+    ];
+    for (const fixture of cases) {
+      const data = createTestData();
+      data.selectedBusinessUnit = fixture.bu;
+      data.reportingMonth = 8;
+      data.reportingMonthLabel = "August 2026";
+      const bu = data.buScorecards.find(
+        (b) => b.businessUnit === fixture.bu
+      )!;
+      bu.notes = fixture.note;
+      bu.situation = fixture.situation;
+      const blob = await generateMonthlyKpiPresentation(data);
+      const arrayBuffer = await blob.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
+
+      const start = xml.indexOf('name="Executive Readout"');
+      const bodyStart = xml.indexOf("<p:txBody>", start);
+      const openEnd = xml.indexOf(">", bodyStart) + 1;
+      const bodyEnd = xml.indexOf("</p:txBody>", openEnd);
+      const body = xml.slice(openEnd, bodyEnd);
+
+      type RunInfo = { text: string; rPr: string; buNone: boolean; buChar: boolean };
+      const runs: RunInfo[] = [];
+      for (const pm of body.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)) {
+        const p = pm[0];
+        const text = [...p.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+          .map((x) => x[1])
+          .join("");
+        const rPr =
+          p.match(/<a:rPr\b[^>]*>[\s\S]*?<\/a:rPr>/)?.[0] ?? "";
+        runs.push({
+          text,
+          rPr,
+          buNone: /<a:buNone\b[^>]*\/>/.test(p),
+          buChar: /<a:buChar\b[^>]*char="•"/.test(p),
+        });
+      }
+
+      const headings = runs.filter(
+        (r) => r.text === "Notes / Commentary" || r.text === "Situation"
+      );
+      expect(headings.length).toBe(2);
+      for (const h of headings) {
+        expect(h.buNone).toBe(true);
+        expect(h.buChar).toBe(false);
+        expect(h.rPr).toMatch(/lang="en-PH"/);
+        expect(h.rPr).toMatch(/sz="1200"/);
+        expect(h.rPr).toMatch(/ b="1"/);
+        expect(h.rPr).toContain('<a:srgbClr val="172B47"/>');
+        expect((h.rPr.match(/typeface="Aptos"/g) || []).length).toBe(3);
+        expect(h.rPr).not.toContain("schemeClr");
+        expect((h.rPr.match(/<a:solidFill>/g) || []).length).toBe(1);
+      }
+
+      const noteBullet = runs.find((r) => r.text === fixture.note);
+      expect(noteBullet).toBeTruthy();
+      expect(noteBullet!.buNone).toBe(false);
+      expect(noteBullet!.buChar).toBe(true);
+      expect(noteBullet!.rPr).toMatch(/lang="en-PH"/);
+      expect(noteBullet!.rPr).toMatch(/sz="1200"/);
+      expect(noteBullet!.rPr).toMatch(/ b="0"/);
+      expect(noteBullet!.rPr).toContain('<a:srgbClr val="111111"/>');
+      expect((noteBullet!.rPr.match(/typeface="Aptos"/g) || []).length).toBe(3);
+      expect(noteBullet!.rPr).not.toContain("schemeClr");
+
+      const situationBullet = runs.find(
+        (r) => r.text === (fixture.situation ?? "No situation submitted.")
+      );
+      expect(situationBullet).toBeTruthy();
+      expect(situationBullet!.buNone).toBe(false);
+      expect(situationBullet!.buChar).toBe(true);
+      expect(situationBullet!.rPr).toMatch(/ b="0"/);
+      expect(situationBullet!.rPr).toContain('<a:srgbClr val="111111"/>');
+      expect(situationBullet!.rPr).toMatch(/sz="1200"/);
+
+      // No nested a:r and exactly one rPr per run inside the readout body.
+      expect(body).not.toContain("<a:r><a:r>");
+      expect((body.match(/<a:rPr\b/g) || []).length).toBe(
+        (body.match(/<a:r\b/g) || []).length
+      );
+    }
+  });
+
   it("rounds KPI values for executive display on Slide 1", async () => {
     const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
       pmCompliance: 98.38,

@@ -61,9 +61,8 @@ import {
   setPresentationSlideOrder,
 } from "../executive-presentations/framework/slidePackage";
 import {
-  fitReadoutBoxHeight,
   storedNotesSituationLines,
-  writeReadoutLines,
+  writeNotesSituationReadout,
 } from "../executive-presentations/framework/readoutText";
 import {
   evaluateKpiStatus,
@@ -473,9 +472,10 @@ function updateScorecardSlide(
 }
 
 /**
- * Position the Executive Readout area below the table and write the stored
- * Notes/Situation lines (headings + bullets). The box grows for long content
- * so PowerPoint's normAutofit does not shrink text below readability.
+ * Create a freshly-generated Notes/Situation text box in the readout area
+ * below the table. The donor shape is used only for its horizontal geometry
+ * and is then REMOVED - the visible content lives in a brand-new slide
+ * object the generator owns (never recycled donor paragraphs/runs).
  */
 function setReadoutLinesForSlide(
   doc: XmlDocument,
@@ -484,11 +484,8 @@ function setReadoutLinesForSlide(
   _topMarginEmu: number,
   heightEmu: number
 ): void {
-  const readoutShape = findShapeByName(doc, "Executive Readout");
-  if (!readoutShape) return;
-  setShapeY(readoutShape, readoutTop);
-  writeReadoutLines(readoutShape, lines);
-  fitReadoutBoxHeight(readoutShape, lines.length, heightEmu);
+  const donorReadout = findShapeByName(doc, "Executive Readout");
+  writeNotesSituationReadout(doc, donorReadout ?? null, lines, readoutTop, heightEmu);
 }
 
 // ── Cover slide ──
