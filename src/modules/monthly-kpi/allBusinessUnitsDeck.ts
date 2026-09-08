@@ -61,6 +61,11 @@ import {
   setPresentationSlideOrder,
 } from "../executive-presentations/framework/slidePackage";
 import {
+  fitReadoutBoxHeight,
+  storedNotesSituationLines,
+  writeReadoutLines,
+} from "../executive-presentations/framework/readoutText";
+import {
   evaluateKpiStatus,
   getDefaultMonthlyKpiThresholdConfig,
 } from "./kpiThresholds";
@@ -205,44 +210,6 @@ export function scorecardCellFill(
     default:
       return RAG_FILL.noData;
   }
-}
-
-/** Commentary bullets from stored Notes + stored Situation, each labeled. */
-export function commentaryBulletsFromStored(
-  notes: string | null,
-  situation: string | null
-): string[] {
-  const bullets: string[] = [];
-  const seen = new Set<string>();
-  const push = (text: string) => {
-    const trimmed = text.trim().replace(/\s+/g, " ");
-    if (!trimmed) return;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    bullets.push(trimmed);
-  };
-  if (notes) {
-    for (const part of String(notes).split(/\r?\n+/)) {
-      const line = part.trim();
-      if (line) push(`Notes: ${line}`);
-    }
-  }
-  if (situation) {
-    for (const part of String(situation).split(/\r?\n+/)) {
-      const line = part.trim();
-      if (line) push(`Situation: ${line}`);
-    }
-  }
-  if (bullets.length === 0) {
-    return ["No commentary or situation recorded for the reporting period."];
-  }
-  return bullets;
-}
-
-/** Commentary bullets for a deck section (stored Notes then Situation). */
-export function buildCommentaryBullets(section: BusinessUnitDeckSection): string[] {
-  return commentaryBulletsFromStored(section.notes, section.situation);
 }
 
 // ── Geometry helpers (EMU), mirroring the single-BU generator ──
@@ -485,8 +452,8 @@ function updateScorecardSlide(
 
   const readoutTop = tableY + tableActualHeight + READOUT_TOP_MARGIN_EMU;
 
-  const bullets = buildCommentaryBullets(section);
-  setReadoutBullets(doc, bullets, readoutTop, READOUT_TOP_MARGIN_EMU, READOUT_HEIGHT_EMU);
+  const lines = storedNotesSituationLines(section.notes, section.situation);
+  setReadoutLinesForSlide(doc, lines, readoutTop, READOUT_TOP_MARGIN_EMU, READOUT_HEIGHT_EMU);
 
   // Keep the RAG legend aligned with the readout block.
   const legendShape = findShapeByName(doc, "RAG Legend");
@@ -506,13 +473,13 @@ function updateScorecardSlide(
 }
 
 /**
- * Write Notes/Situation bullets into the "Executive Readout" bullet area.
- * The first template paragraph already carries the approved bullet char and
- * autofit behavior; extra paragraphs are clones of it so styling is uniform.
+ * Position the Executive Readout area below the table and write the stored
+ * Notes/Situation lines (headings + bullets). The box grows for long content
+ * so PowerPoint's normAutofit does not shrink text below readability.
  */
-function setReadoutBullets(
+function setReadoutLinesForSlide(
   doc: XmlDocument,
-  bullets: string[],
+  lines: ReturnType<typeof storedNotesSituationLines>,
   readoutTop: number,
   _topMarginEmu: number,
   heightEmu: number
@@ -520,89 +487,8 @@ function setReadoutBullets(
   const readoutShape = findShapeByName(doc, "Executive Readout");
   if (!readoutShape) return;
   setShapeY(readoutShape, readoutTop);
-
-  const txBody = getElementsByTagNameNS(readoutShape, "p", "txBody")[0];
-  if (!txBody) return;
-
-  const templateParagraph = getElementsByTagNameNS(txBody, "a", "p")[0];
-  if (!templateParagraph) return;
-
-  // Write the bullet texts over the existing paragraphs, cloning the styled
-  // template paragraph when more bullets are needed.
-  for (let i = 0; i < bullets.length; i++) {
-    const live = getElementsByTagNameNS(txBody, "a", "p");
-    if (i < live.length) {
-      setParagraphPlainText(live[i], bullets[i]);
-    } else {
-      const clone = deepClone(templateParagraph);
-      txBody.appendChild(clone);
-      setParagraphPlainText(clone, bullets[i]);
-    }
-  }
-  // Remove leftover paragraphs beyond the bullet block.
-  let live = getElementsByTagNameNS(txBody, "a", "p");
-  while (live.length > bullets.length) {
-    txBody.removeChild(live[live.length - 1]);
-    live = getElementsByTagNameNS(txBody, "a", "p");
-  }
-
-  // Grow the readout box so normAutofit does not shrink longer bullet blocks
-  // below the approved body size.
-  const ext = getElementsByTagNameNS(readoutShape, "a", "ext")[0];
-  if (ext) {
-    const fitted = Math.max(
-      heightEmu,
-      Math.min(Math.max(bullets.length, 1), 9) * 152400
-    );
-    ext.setAttribute("cy", String(Math.round(fitted)));
-  }
-}
-
-/** Replace a paragraph's text while preserving pPr + first-run rPr. */
-function setParagraphPlainText(p: XmlElement, text: string): void {
-  const ownerDoc = p.ownerDocument as XmlDocument;
-  const runs = getElementsByTagNameNS(p, "a", "r");
-  const keep = runs[0];
-  for (let i = 1; i < runs.length; i++) p.removeChild(runs[i]);
-  if (keep) {
-    const t = getElementsByTagNameNS(keep, "a", "t")[0];
-    if (t) t.textContent = text;
-    else keep.appendChild(createTextRun(ownerDoc, text));
-  } else {
-    // The approved readout body style (Aptos 14, #111111) mirrors the
-    // template's endParaRPr so injected bullet text matches the master.
-    p.appendChild(createReadoutRun(ownerDoc, text));
-  }
-}
-
-function createReadoutRun(ownerDoc: XmlDocument, text: string): XmlElement {
-  const run = createElementNS(ownerDoc, "a", "r");
-  const rPr = createElementNS(ownerDoc, "a", "rPr");
-  rPr.setAttribute("lang", "en-PH");
-  rPr.setAttribute("sz", "1400");
-  const solidFill = createElementNS(ownerDoc, "a", "solidFill");
-  const srgbClr = createElementNS(ownerDoc, "a", "srgbClr");
-  srgbClr.setAttribute("val", "111111");
-  solidFill.appendChild(srgbClr);
-  rPr.appendChild(solidFill);
-  for (const name of ["latin", "ea", "cs"]) {
-    const el = createElementNS(ownerDoc, "a", name);
-    el.setAttribute("typeface", "Aptos");
-    rPr.appendChild(el);
-  }
-  run.appendChild(rPr);
-  const t = createElementNS(ownerDoc, "a", "t");
-  t.textContent = text;
-  run.appendChild(t);
-  return run;
-}
-
-function createTextRun(ownerDoc: XmlDocument, text: string): XmlElement {
-  const run = createElementNS(ownerDoc, "a", "r");
-  const t = createElementNS(ownerDoc, "a", "t");
-  t.textContent = text;
-  run.appendChild(t);
-  return run;
+  writeReadoutLines(readoutShape, lines);
+  fitReadoutBoxHeight(readoutShape, lines.length, heightEmu);
 }
 
 // ── Cover slide ──
@@ -797,6 +683,20 @@ export async function generateAllBusinessUnitsMonthlyKpiDeck(
 
   let nextChartNumber = (await maxChartNumber(zip)) + 1;
 
+  // Cache the PRISTINE donor slide XML up front. Slide 2/3 parts are updated
+  // in place for the first BU, so clones for later BUs must come from these
+  // untouched donor strings (never from the already-updated parts, which would
+  // leak earlier BUs' readout text/formatting into later BUs).
+  const pristineScorecardDonorXml = await zip
+    .file("ppt/slides/slide2.xml")
+    ?.async("string");
+  const pristineTrendsDonorXml = await zip
+    .file("ppt/slides/slide3.xml")
+    ?.async("string");
+  if (!pristineScorecardDonorXml || !pristineTrendsDonorXml) {
+    throw new Error("[TEMPLATE] Missing donor slide XML.");
+  }
+
   // Donor scorecard slide (slide2) and donor trends slide (slide3) serve the
   // first BU; each further BU receives clones of both donors.
   for (let i = 0; i < sections.length; i++) {
@@ -816,10 +716,8 @@ export async function generateAllBusinessUnitsMonthlyKpiDeck(
       continue;
     }
 
-    // Scorecard clone.
-    const scorecardDonorXml = await zip.file("ppt/slides/slide2.xml")?.async("string");
-    if (!scorecardDonorXml) throw new Error("[TEMPLATE] Missing Scorecard donor slide.");
-    const scorecardDoc = parseXml(scorecardDonorXml);
+    // Scorecard clone (from the pristine donor captured before any update).
+    const scorecardDoc = parseXml(pristineScorecardDonorXml);
     updateScorecardSlide(scorecardDoc, section);
     await addSlidePart(
       zip,
@@ -835,9 +733,7 @@ export async function generateAllBusinessUnitsMonthlyKpiDeck(
       await addChartClone(zip, c, target);
       chartNumbers.push(target);
     }
-    const trendsDonorXml = await zip.file("ppt/slides/slide3.xml")?.async("string");
-    if (!trendsDonorXml) throw new Error("[TEMPLATE] Missing Trends donor slide.");
-    const trendsDoc = parseXml(trendsDonorXml);
+    const trendsDoc = parseXml(pristineTrendsDonorXml);
     updateTrendsSlide(trendsDoc, section);
     await addSlidePart(
       zip,

@@ -397,8 +397,12 @@ describe("generateMonthlyKpiPresentation", () => {
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string");
     expect(xml).toBeDefined();
-    // No stored commentary in this fixture -> neutral line, no threshold/missing-data narrative.
-    expect(xml).toContain("No commentary or situation recorded for the reporting period.");
+    // No stored commentary in this fixture -> both section headings render
+    // with their per-field neutral lines; no threshold/missing-data narrative.
+    expect(xml).toContain("Notes / Commentary");
+    expect(xml).toContain("No commentary submitted.");
+    expect(xml).toContain("Situation");
+    expect(xml).toContain("No situation submitted.");
     expect(xml).not.toContain("Key exceptions:");
     expect(xml).not.toContain("not submitted");
   });
@@ -412,11 +416,14 @@ describe("generateMonthlyKpiPresentation", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
-    expect(xml).toContain("Notes: Transformer overhaul completed.");
-    expect(xml).toContain("Notes: Spare delivery tracked.");
+    expect(xml).toContain("Notes / Commentary");
+    expect(xml).toContain("Transformer overhaul completed.");
+    expect(xml).toContain("Spare delivery tracked.");
+    expect(xml).toContain("Situation");
     expect(xml).toContain(
-      "Situation: Corrective maintenance was completed inside the window."
+      "Corrective maintenance was completed inside the window."
     );
+    expect(xml).not.toContain("No situation submitted.");
     expect(xml).not.toContain("Key exceptions:");
   });
 
@@ -477,7 +484,10 @@ describe("generateMonthlyKpiPresentation", () => {
     const zip = await JSZip.loadAsync(arrayBuffer);
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
     // All-green RAG status never produces an "all within target" narrative.
-    expect(xml).toContain("No commentary or situation recorded for the reporting period.");
+    expect(xml).toContain("Notes / Commentary");
+    expect(xml).toContain("No commentary submitted.");
+    expect(xml).toContain("Situation");
+    expect(xml).toContain("No situation submitted.");
     expect(xml).not.toContain("All reported KPIs are within target");
     expect(xml).not.toContain("Key exceptions:");
   });
@@ -497,7 +507,10 @@ describe("generateMonthlyKpiPresentation", () => {
     const xml = await zip.file("ppt/slides/slide1.xml")?.async("string") ?? "";
     expect(xml).not.toContain("Key exceptions:");
     expect(xml).not.toContain("PM compliance was below target");
-    expect(xml).toContain("No commentary or situation recorded for the reporting period.");
+    expect(xml).toContain("Notes / Commentary");
+    expect(xml).toContain("No commentary submitted.");
+    expect(xml).toContain("Situation");
+    expect(xml).toContain("No situation submitted.");
   });
 
   it("uses formatted fallback for no-data YTD values on Slide 2", async () => {

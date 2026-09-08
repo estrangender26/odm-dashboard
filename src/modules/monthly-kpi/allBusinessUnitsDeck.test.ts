@@ -5,11 +5,13 @@ import {
   deriveMissingDataReasons,
   normalizeStoredCommentary,
 } from "./allBusinessUnitsData";
+import { formatScorecardCell, generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
+import { parseXml } from "../executive-presentations/framework";
 import {
-  buildCommentaryBullets,
-  formatScorecardCell,
-  generateAllBusinessUnitsMonthlyKpiDeck,
-} from "./allBusinessUnitsDeck";
+  NO_COMMENTARY_SUBMITTED,
+  NO_SITUATION_SUBMITTED,
+  storedNotesSituationLines,
+} from "../executive-presentations/framework/readoutText";
 import {
   aggregateMonthlyKpiRecords,
   resolveEffectiveReportingMonth,
@@ -313,18 +315,21 @@ describe("All-Business-Units Monthly KPI deck data", () => {
     expect(clark.situation).toContain("PM:CM cost data for August");
     expect(clark.notes).not.toContain("Transformer overhaul");
     expect(clark.situation).not.toContain("August window");
-    // Missing PM:CM cost is a missing-data reason, NOT a business Situation:
-    // no such phrase is stored on the section.
-    const amdBullets = buildCommentaryBullets(amdEz);
-    const clarkBullets = buildCommentaryBullets(clark);
-    expect(amdBullets).toEqual([
-      "Notes: Transformer overhaul completed.",
-      "Notes: Spare delivery tracked.",
-      "Situation: Corrective maintenance was completed inside the August window.",
+    // Readout text = section headings + stored wording bullets (no prefixes,
+    // no missing-data phrases).
+    const amdLines = storedNotesSituationLines(amdEz.notes, amdEz.situation);
+    expect(amdLines.map(line => line.text)).toEqual([
+      "Notes / Commentary",
+      "Transformer overhaul completed.",
+      "Spare delivery tracked.",
+      "Situation",
+      "Corrective maintenance was completed inside the August window.",
     ]);
-    expect(clarkBullets.some(b => b.includes("not submitted"))).toBe(false);
-    expect(clarkBullets).toContain(
-      "Situation: PM:CM cost data for August is still pending validation."
+    const clarkLines = storedNotesSituationLines(clark.notes, clark.situation);
+    const clarkText = clarkLines.map(line => line.text);
+    expect(clarkText.some(t => t.includes("not submitted"))).toBe(false);
+    expect(clarkText).toContain(
+      "PM:CM cost data for August is still pending validation."
     );
     const invented = [
       "pm compliance remains strong",
@@ -333,9 +338,9 @@ describe("All-Business-Units Monthly KPI deck data", () => {
       "below benchmark",
       "key exceptions",
     ];
-    for (const bullet of [...amdBullets, ...clarkBullets]) {
+    for (const line of [...amdLines, ...clarkLines]) {
       expect(
-        invented.some(phrase => bullet.toLowerCase().includes(phrase))
+        invented.some(phrase => line.text.toLowerCase().includes(phrase))
       ).toBe(false);
     }
   });
@@ -348,12 +353,19 @@ describe("All-Business-Units Monthly KPI deck data", () => {
     // must not relabel June commentary as the August commentary.
     expect(tagum.notes).toBeNull();
     expect(tagum.situation).toBeNull();
-    const bullets = buildCommentaryBullets(tagum);
-    expect(bullets).toEqual([
-      "No commentary or situation recorded for the reporting period.",
+    const lines = storedNotesSituationLines(tagum.notes, tagum.situation);
+    expect(lines.map(line => line.text)).toEqual([
+      "Notes / Commentary",
+      NO_COMMENTARY_SUBMITTED,
+      "Situation",
+      NO_SITUATION_SUBMITTED,
     ]);
-    expect(bullets.some(b => b.includes("VFD failure investigated."))).toBe(false);
-    expect(bullets.some(b => b.toLowerCase().includes("not submitted"))).toBe(false);
+    expect(
+      lines.some(line => line.text.includes("VFD failure investigated."))
+    ).toBe(false);
+    expect(
+      lines.some(line => line.text.toLowerCase().includes("not submitted"))
+    ).toBe(false);
   });
 });
 
@@ -507,36 +519,41 @@ describe("deriveMissingDataReasons — explicit missing-data helper (never prese
 
 // Stored Notes/Situation are the ONLY source for deck commentary bullets.
 describe("Deck commentary uses stored Notes + Situation (never missing-data reasons)", () => {
-  it("stored Situation renders under the Situation label on the section and bullets", () => {
+  it("stored Situation renders under the Situation heading with raw wording", () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const amdEz = data.sections.find((section) => section.businessUnit === "AMD-EZ")!;
     expect(amdEz.situation).toBe(
       "Corrective maintenance was completed inside the August window."
     );
-    const bullets = buildCommentaryBullets(amdEz);
-    expect(bullets).toContain(
-      "Situation: Corrective maintenance was completed inside the August window."
+    const lines = storedNotesSituationLines(amdEz.notes, amdEz.situation);
+    const texts = lines.map((line) => line.text);
+    expect(texts).toContain("Situation");
+    expect(texts).toContain(
+      "Corrective maintenance was completed inside the August window."
     );
+    expect(texts[0]).toBe("Notes / Commentary");
     // No missing-data phrase is treated as a business Situation bullet.
-    for (const bullet of bullets) {
-      expect(bullet.toLowerCase()).not.toContain("not submitted");
-      expect(bullet.toLowerCase()).not.toContain("no budget");
+    for (const line of lines) {
+      expect(line.text.toLowerCase()).not.toContain("not submitted");
+      expect(line.text.toLowerCase()).not.toContain("no budget");
     }
   });
 
-  it("missing Notes does not invent a Notes bullet and missing Situation does not invent derived KPI narrative", () => {
+  it("missing Notes and missing Situation render per-field neutral lines under the headings", () => {
     const tagum = buildAllBusinessUnitsDeckData(records, 2026, 9).sections.find(
       (section) => section.businessUnit === "Tagum Water"
     )!;
     expect(tagum.notes).toBeNull();
     expect(tagum.situation).toBeNull();
-    const bullets = buildCommentaryBullets(tagum);
-    expect(bullets.some((b) => b.startsWith("Notes:"))).toBe(false);
-    expect(bullets.some((b) => b.startsWith("Situation:"))).toBe(false);
-    expect(bullets.some((b) => b.toLowerCase().includes("not submitted"))).toBe(false);
-    expect(bullets).toEqual([
-      "No commentary or situation recorded for the reporting period.",
+    const lines = storedNotesSituationLines(tagum.notes, tagum.situation);
+    const texts = lines.map((line) => line.text);
+    expect(texts).toEqual([
+      "Notes / Commentary",
+      NO_COMMENTARY_SUBMITTED,
+      "Situation",
+      NO_SITUATION_SUBMITTED,
     ]);
+    expect(texts.some((t) => t.toLowerCase().includes("not submitted"))).toBe(false);
   });
 
   it("stored text is trimmed and line endings normalized, never rewritten", () => {
@@ -809,24 +826,34 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
 
     for (let i = 0; i < data.sections.length; i++) {
       const section = data.sections[i];
-      const bullets = shapeTextsByGroup(slides[1 + i * 2].xml, "Executive Readout");
-      const expected = buildCommentaryBullets(section);
-      expect(bullets).toEqual(expected);
-      // Every bullet is a Notes/Situation statement (or the neutral placeholder).
-      for (const bullet of bullets) {
-        expect(
-          bullet.startsWith("Notes:") ||
-            bullet.startsWith("Situation:") ||
-            bullet === "No commentary or situation recorded for the reporting period."
-        ).toBe(true);
-      }
-      // Notes must never leak from a different BU.
+      const readoutTexts = shapeTextsByGroup(
+        slides[1 + i * 2].xml,
+        "Executive Readout"
+      );
+      const expectedTexts = storedNotesSituationLines(
+        section.notes,
+        section.situation
+      ).map((line) => line.text);
+      expect(readoutTexts).toEqual(expectedTexts);
+      // Both section headings always render, and the neutral line appears
+      // exactly for the field that is blank (never inventing content).
+      expect(readoutTexts[0]).toBe("Notes / Commentary");
+      expect(readoutTexts).toContain("Situation");
+      expect(readoutTexts.some((t) => t === NO_COMMENTARY_SUBMITTED)).toBe(
+        section.notes === null
+      );
+      expect(readoutTexts.some((t) => t === NO_SITUATION_SUBMITTED)).toBe(
+        section.situation === null
+      );
+      // Commentary must never leak from a different BU (notes or situation).
       for (const other of data.sections) {
         if (other.businessUnit === section.businessUnit) continue;
-        for (const noteLine of (other.notes ?? "").split(/\n+/)) {
-          const trimmed = noteLine.trim();
-          if (trimmed) {
-            expect(bullets.some((b) => b.includes(trimmed))).toBe(false);
+        for (const text of [other.notes, other.situation]) {
+          for (const part of (text ?? "").split(/\n+/)) {
+            const trimmed = part.trim();
+            if (trimmed) {
+              expect(readoutTexts.some((t) => t.includes(trimmed))).toBe(false);
+            }
           }
         }
       }
@@ -1019,6 +1046,280 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
           expect(Math.abs(Number(ytdValue) - expectedRaw)).toBeLessThanOrEqual(0.6);
         }
       }
+    }
+  });
+});
+
+describe("Monthly Actuals in Trend Charts (Group B) and Group A containment", () => {
+  function fixtureTrendActuals(section: { businessUnit: string; trends: { month: number; pmComplianceMonthly: number | null; facilityUptimeMonthly: number | null }[] }) {
+    // Underlying raw inputs per month for the standard fixture:
+    // pm compliance = (100 - month)/100*100, facility uptime = (1000-month)/1000*100.
+    for (const point of section.trends) {
+      expect(point.pmComplianceMonthly).toBeCloseTo(100 - point.month, 6);
+      expect(point.facilityUptimeMonthly).toBeCloseTo((1000 - point.month) / 1000 * 100, 6);
+    }
+  }
+
+  it("PM Compliance and Facility Uptime monthly actuals exist for every valid submitted month and equal the authoritative standalone values", () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    for (const section of data.sections) {
+      expect(section.trends.length).toBeGreaterThan(0);
+      fixtureTrendActuals(section);
+      // No future/unsubmitted months and no fabricated zeros.
+      expect(Math.max(...section.trends.map((p) => p.month))).toBeLessThanOrEqual(
+        data.effectiveReportingMonth
+      );
+      expect(
+        section.trends.every(
+          (p) =>
+            p.pmComplianceMonthly === null || p.pmComplianceMonthly > 0
+        )
+      ).toBe(true);
+    }
+  });
+
+  it("PM Compliance / Facility Uptime YTD averages match the running mean of the monthly actuals", () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    for (const section of data.sections) {
+      let sumPm = 0;
+      let sumFu = 0;
+      let count = 0;
+      for (const point of section.trends) {
+        if (point.pmComplianceMonthly !== null && point.facilityUptimeMonthly !== null) {
+          sumPm += point.pmComplianceMonthly;
+          sumFu += point.facilityUptimeMonthly;
+          count += 1;
+          expect(point.pmComplianceYtdAverage).toBeCloseTo(sumPm / count, 6);
+          expect(point.facilityUptimeYtdAverage).toBeCloseTo(sumFu / count, 6);
+        }
+      }
+      const last = section.trends[section.trends.length - 1];
+      const summaryByKey = Object.fromEntries(
+        section.summary.map((row) => [row.key, row.value])
+      );
+      expect(last.pmComplianceYtdAverage).toBeCloseTo(summaryByKey.pmCompliance as number, 6);
+      expect(last.facilityUptimeYtdAverage).toBeCloseTo(summaryByKey.facilityUptime as number, 6);
+    }
+  });
+
+  it("writes the monthly-actual bar series values + month labels into the chart caches", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const chartParts = await chartPartsForSlide(zip, slides[2 + i * 2].name);
+      // Panel order: 0 = PM Compliance (bar series 0), 5 = Facility Uptime (bar series 0).
+      for (const panel of [0, 5]) {
+        const cache = await chartCache(zip, chartParts[panel], 0);
+        expect(cache.cats).toEqual(section.trends.map((p) => p.monthLabel));
+        section.trends.forEach((point, idx) => {
+          const monthly =
+            panel === 0 ? point.pmComplianceMonthly : point.facilityUptimeMonthly;
+          if (monthly === null || monthly === undefined) return;
+          expect(cache.vals[idx]).toBeCloseTo(Math.round(monthly * 100) / 100, 5);
+        });
+      }
+    }
+  });
+
+  it("never introduces standalone monthly series into Group A cumulative charts", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    const chartParts = await chartPartsForSlide(zip, slides[2].name);
+    for (const idx of [1, 2, 3, 4]) {
+      const xml = await zip.file(`ppt/charts/${chartParts[idx]}`)!.async("string");
+      expect(xml).not.toContain("<c:barChart>");
+      expect(xml).not.toContain("Monthly Actual");
+    }
+  });
+
+  it("chart monthly-actual values never leak between BUs", async () => {
+    const base: Record<string, unknown> = {
+      pm_compliance: null,
+      budget_spend: null,
+      pm_cm_work_order_ratio: null,
+      pm_cm_cost_ratio: null,
+      mttr_days: null,
+      facility_uptime: null,
+    };
+    const distinct: PersistedMonthlyKpiRecord[] = [];
+    for (const [bu, pmBase] of [
+      ["Alpha", 40],
+      ["Beta", 60],
+    ] as const) {
+      for (let m = 1; m <= 8; m++) {
+        distinct.push({
+          ...(base as PersistedMonthlyKpiRecord),
+          business_unit: bu,
+          reporting_year: 2026,
+          reporting_month: m,
+          notes: null,
+          pm_compliance: pmBase,
+          pm_orders_completed_on_time: pmBase,
+          total_pm_orders: 100,
+          facility_uptime: 99,
+          facility_operating_time: 1000,
+          facility_downtime: 10,
+          raw_imported_values: { values: {} },
+        } as unknown as PersistedMonthlyKpiRecord);
+      }
+    }
+    const data = buildAllBusinessUnitsDeckData(distinct, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    const alphaIndex = data.sections.findIndex((s) => s.businessUnit === "Alpha");
+    const betaIndex = data.sections.findIndex((s) => s.businessUnit === "Beta");
+    const alphaParts = await chartPartsForSlide(zip, slides[2 + alphaIndex * 2].name);
+    const betaParts = await chartPartsForSlide(zip, slides[2 + betaIndex * 2].name);
+    const alphaPm = await chartCache(zip, alphaParts[0], 0);
+    const betaPm = await chartCache(zip, betaParts[0], 0);
+    for (let i = 0; i < alphaPm.vals.length; i++) {
+      if (alphaPm.vals[i] !== null) expect(alphaPm.vals[i]).toBeCloseTo(40, 5);
+      if (betaPm.vals[i] !== null) expect(betaPm.vals[i]).toBeCloseTo(60, 5);
+    }
+  });
+});
+
+describe("Generated PPTX package validation (Monthly KPI deck)", () => {
+  it("is a valid PPTX package whose native chart parts carry populated series names and value caches", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    expect(zip.file("ppt/presentation.xml")).toBeTruthy();
+    expect(zip.file("ppt/slides/slide1.xml")).toBeTruthy();
+
+    const chartNames = Object.keys(zip.files).filter((n) =>
+      /^ppt\/charts\/chart\d+\.xml$/.test(n)
+    );
+    expect(chartNames.length).toBe(6 * data.sections.length);
+
+    const slides = await orderedSlideXml(zip);
+    const amdIndex = data.sections.findIndex((s) => s.businessUnit === "AMD-EZ");
+    const parts = await chartPartsForSlide(zip, slides[2 + amdIndex * 2].name);
+    expect(parts.length).toBe(6);
+
+    const pmXml = await zip.file(`ppt/charts/${parts[0]}`)!.async("string");
+    expect(pmXml).toContain("Monthly Actual");
+    expect(pmXml).toContain("YTD Average");
+    expect(pmXml).toContain("Benchmark ≥98%");
+    const fuXml = await zip.file(`ppt/charts/${parts[5]}`)!.async("string");
+    expect(fuXml).toContain("Monthly Actual");
+    expect(fuXml).toContain("YTD Average");
+    expect(fuXml).toContain("Benchmark =100%");
+    const mttrXml = await zip.file(`ppt/charts/${parts[4]}`)!.async("string");
+    expect(mttrXml).toContain("YTD / Cumulative");
+
+    // Cached values are populated for a fully-submitted BU.
+    for (const part of parts) {
+      const xml = await zip.file(`ppt/charts/${part}`)!.async("string");
+      expect(xml).toContain("<c:ptCount");
+      expect(xml).toContain("<c:pt idx=");
+    }
+  });
+});
+
+function readoutInnerBody(xml: string): string {
+  const start = xml.indexOf('name="Executive Readout"');
+  const bodyStart = xml.indexOf("<p:txBody>", start);
+  const openEnd = xml.indexOf(">", bodyStart) + 1;
+  const bodyEnd = xml.indexOf("</p:txBody>", openEnd);
+  return xml.slice(openEnd, bodyEnd);
+}
+
+function readoutParagraphFlags(xml: string): Array<{ text: string; bullet: boolean; heading: boolean }> {
+  const body = readoutInnerBody(xml);
+  const out: Array<{ text: string; bullet: boolean; heading: boolean }> = [];
+  for (const m of body.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)) {
+    const p = m[0];
+    const text = [...p.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+      .map((x) => x[1])
+      .join("");
+    const hasBuNone = /<a:buNone\b[^>]*\/>/.test(p);
+    const hasBullet = /<a:buChar\b[^>]*char="•"/.test(p);
+    out.push({ text, bullet: hasBullet && !hasBuNone, heading: hasBuNone });
+  }
+  return out;
+}
+
+
+const DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
+
+function hasNestedRun(body: string): boolean {
+  const doc = parseXml(
+    `<?xml version="1.0"?><root xmlns:a="${DRAWINGML_NS}">${body}</root>`
+  );
+  const runs = doc.getElementsByTagNameNS(DRAWINGML_NS, "r");
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i];
+    const children = run.childNodes;
+    for (let c = 0; c < children.length; c++) {
+      const child = children[c] as unknown as Element;
+      if (
+        child &&
+        child.localName === "r" &&
+        child.namespaceURI === DRAWINGML_NS
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+describe("Readout heading/bullet XML structure (no buNone leakage, no nested runs)", () => {
+  async function slidesOfDeck() {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    return orderedSlideXml(zip);
+  }
+
+  it("headings have no bullet; content lines keep the bullet marker", async () => {
+    const slides = await slidesOfDeck();
+    // AMD slide (index 1): notes has 2 lines + situation 1 line.
+    const flags = readoutParagraphFlags(slides[1].xml);
+    expect(flags.map((f) => f.text)).toEqual([
+      "Notes / Commentary",
+      "Transformer overhaul completed.",
+      "Spare delivery tracked.",
+      "Situation",
+      "Corrective maintenance was completed inside the August window.",
+    ]);
+    expect(flags[0].heading).toBe(true);
+    expect(flags[0].bullet).toBe(false);
+    expect(flags[1].bullet).toBe(true);
+    expect(flags[2].bullet).toBe(true);
+    expect(flags[3].heading).toBe(true);
+    expect(flags[4].bullet).toBe(true);
+  });
+
+  it("neutral placeholder lines keep the bullet marker under their headings", async () => {
+    const slides = await slidesOfDeck();
+    // Tagum slide (index 5) has no stored notes/situation.
+    const flags = readoutParagraphFlags(slides[5].xml);
+    expect(flags.map((f) => f.text)).toEqual([
+      "Notes / Commentary",
+      "No commentary submitted.",
+      "Situation",
+      "No situation submitted.",
+    ]);
+    expect(flags[0].heading).toBe(true);
+    expect(flags[1].bullet).toBe(true);
+    expect(flags[2].heading).toBe(true);
+    expect(flags[3].bullet).toBe(true);
+  });
+
+  it("never produces nested a:r elements inside the readout", async () => {
+    const slides = await slidesOfDeck();
+    for (const slide of slides) {
+      if (!slide.xml.includes('name="Executive Readout"')) continue;
+      expect(hasNestedRun(readoutInnerBody(slide.xml))).toBe(false);
     }
   });
 });
