@@ -1367,6 +1367,103 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
     expect(textsFor("AMD-EZ").join(" ")).not.toContain("Replacement of filters");
   });
 
+  it("every section readout run carries deterministic visible formatting (headings 172B47 bold, bullets 111111, Aptos)", async () => {
+    const named = [
+      ...makeBusinessUnitRecords("AMD-EZ", { through: 8 }),
+      ...makeBusinessUnitRecords("CWC", {
+        through: 8,
+        notesByMonth: {
+          8: "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+        },
+      }),
+      ...makeBusinessUnitRecords("LARC", {
+        through: 8,
+        notesByMonth: {
+          8: "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)",
+        },
+      }),
+    ];
+    const data = buildAllBusinessUnitsDeckData(named, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    const byIndex = new Map<string, string>();
+    for (let i = 0; i < data.sections.length; i++) {
+      byIndex.set(data.sections[i].businessUnit, slides[1 + i * 2].xml);
+    }
+
+    const parse = (xml: string) => {
+      const body = readoutInnerBody(xml);
+      type RunInfo = { text: string; rPr: string; buNone: boolean; buChar: boolean };
+      const runs: RunInfo[] = [];
+      for (const pm of body.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)) {
+        const p = pm[0];
+        const text = [...p.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+          .map((x) => x[1])
+          .join("");
+        runs.push({
+          text,
+          rPr: p.match(/<a:rPr\b[^>]*>[\s\S]*?<\/a:rPr>/)?.[0] ?? "",
+          buNone: /<a:buNone\b[^>]*\/>/.test(p),
+          buChar: /<a:buChar\b[^>]*char="•"/.test(p),
+        });
+      }
+      return { runs, body };
+    };
+
+    const assertHeading = (r: { text: string; rPr: string; buNone: boolean }) => {
+      expect(r.text === "Notes / Commentary" || r.text === "Situation").toBe(true);
+      expect(r.buNone).toBe(true);
+      expect(r.rPr).toMatch(/lang="en-PH"/);
+      expect(r.rPr).toMatch(/sz="1200"/);
+      expect(r.rPr).toMatch(/ b="1"/);
+      expect(r.rPr).toContain('<a:srgbClr val="172B47"/>');
+      expect((r.rPr.match(/typeface="Aptos"/g) || []).length).toBe(3);
+      expect(r.rPr).not.toContain("schemeClr");
+      expect((r.rPr.match(/<a:solidFill>/g) || []).length).toBe(1);
+    };
+    const assertBullet = (r: { rPr: string; buChar: boolean }) => {
+      expect(r.buChar).toBe(true);
+      expect(r.rPr).toMatch(/lang="en-PH"/);
+      expect(r.rPr).toMatch(/sz="1200"/);
+      expect(r.rPr).toMatch(/ b="0"/);
+      expect(r.rPr).toContain('<a:srgbClr val="111111"/>');
+      expect((r.rPr.match(/typeface="Aptos"/g) || []).length).toBe(3);
+      expect(r.rPr).not.toContain("schemeClr");
+    };
+
+    for (const buName of ["CWC", "LARC", "AMD-EZ"]) {
+      const { runs, body } = parse(byIndex.get(buName)!);
+      assertHeading(runs[0]);
+      assertHeading(runs[2]);
+      expect(runs[0].text).toBe("Notes / Commentary");
+      expect(runs[2].text).toBe("Situation");
+      // Every content line (stored note or neutral) is a formatted bullet.
+      for (const content of [runs[1], runs[3]]) {
+        assertBullet(content);
+      }
+      if (buName === "CWC") {
+        expect(runs[1].text).toBe(
+          "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44"
+        );
+      }
+      if (buName === "LARC") {
+        expect(runs[1].text).toBe(
+          "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)"
+        );
+      }
+      if (buName === "AMD-EZ") {
+        expect(runs[1].text).toBe(NO_COMMENTARY_SUBMITTED);
+      }
+      expect(runs[3].text).toBe(NO_SITUATION_SUBMITTED);
+      // No nested a:r; exactly one rPr per run inside the readout body.
+      expect(body).not.toContain("<a:r><a:r>");
+      expect((body.match(/<a:rPr\b/g) || []).length).toBe(
+        (body.match(/<a:r\b/g) || []).length
+      );
+    }
+  });
+
   it("never produces nested a:r elements inside the readout", async () => {
     const slides = await slidesOfDeck();
     for (const slide of slides) {

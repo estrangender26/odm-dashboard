@@ -68,31 +68,92 @@ export function storedNotesSituationLines(
   return lines;
 }
 
+function appendSolidFill(ownerDoc: XmlDocument, color: string): XmlElement {
+  const solidFill = createElementNS(ownerDoc, "a", "solidFill");
+  const srgbClr = createElementNS(ownerDoc, "a", "srgbClr");
+  srgbClr.setAttribute("val", color);
+  solidFill.appendChild(srgbClr);
+  return solidFill;
+}
+
+function appendAptosTypefaces(ownerDoc: XmlDocument, rPr: XmlElement): void {
+  for (const name of ["latin", "ea", "cs"]) {
+    const el = createElementNS(ownerDoc, "a", name);
+    el.setAttribute("typeface", "Aptos");
+    rPr.appendChild(el);
+  }
+}
+
+/**
+ * Build a canonical <a:rPr> for one readout run. Children are written in
+ * schema-valid order (solidFill before latin/ea/cs) so the visible formatting
+ * is deterministic: dark text on the slide background, Aptos, at the requested
+ * size/boldness, with no inherited highlight/outline/scheme color.
+ */
+function buildCanonicalRunProperties(
+  ownerDoc: XmlDocument,
+  opts: { bold?: boolean; size?: number; color?: string }
+): XmlElement {
+  const rPr = createElementNS(ownerDoc, "a", "rPr");
+  rPr.setAttribute("lang", "en-PH");
+  rPr.setAttribute("sz", String(opts.size ?? 1200));
+  rPr.setAttribute("b", opts.bold ? "1" : "0");
+  rPr.appendChild(appendSolidFill(ownerDoc, opts.color ?? "111111"));
+  appendAptosTypefaces(ownerDoc, rPr);
+  return rPr;
+}
+
 function createTextRun(
   ownerDoc: XmlDocument,
   text: string,
   opts: { bold?: boolean; size?: number; color?: string }
 ): XmlElement {
   const run = createElementNS(ownerDoc, "a", "r");
-  const rPr = createElementNS(ownerDoc, "a", "rPr");
-  rPr.setAttribute("lang", "en-PH");
-  rPr.setAttribute("sz", String(opts.size ?? 1200));
-  rPr.setAttribute("b", opts.bold ? "1" : "0");
-  const solidFill = createElementNS(ownerDoc, "a", "solidFill");
-  const srgbClr = createElementNS(ownerDoc, "a", "srgbClr");
-  srgbClr.setAttribute("val", opts.color ?? "111111");
-  solidFill.appendChild(srgbClr);
-  rPr.appendChild(solidFill);
-  for (const name of ["latin", "ea", "cs"]) {
-    const el = createElementNS(ownerDoc, "a", name);
-    el.setAttribute("typeface", "Aptos");
-    rPr.appendChild(el);
-  }
-  run.appendChild(rPr);
+  run.appendChild(buildCanonicalRunProperties(ownerDoc, opts));
   const t = createElementNS(ownerDoc, "a", "t");
   t.textContent = text;
   run.appendChild(t);
   return run;
+}
+
+/**
+ * Make a run's effective formatting deterministic from `opts` even when the
+ * run was retained from a donor paragraph:
+ *
+ * - collapses duplicate <a:rPr> elements (keeps the first, removes the rest);
+ * - creates a missing <a:rPr> as the FIRST child of <a:r> (before <a:t>);
+ * - resets lang/sz/b from opts;
+ * - REPLACES every inherited child of <a:rPr> (fills, highlight, outlines,
+ *   typefaces, scheme colors, …) with the canonical solidFill + Aptos set, so
+ *   no conflicting donor formatting (e.g. a light/background color that makes
+ *   the text invisible) can survive.
+ *
+ * Never creates a nested <a:r> and never duplicates rPr/solidFill.
+ */
+function applyRunFormatting(
+  run: XmlElement,
+  opts: { bold?: boolean; size?: number; color?: string }
+): void {
+  const ownerDoc = run.ownerDocument as XmlDocument;
+  const rPrs = getElementsByTagNameNS(run, "a", "rPr");
+  for (let i = rPrs.length - 1; i >= 1; i--) {
+    run.removeChild(rPrs[i]);
+  }
+  let rPr = rPrs[0];
+  if (!rPr) {
+    rPr = createElementNS(ownerDoc, "a", "rPr");
+    // <a:r> children must be (rPr?, t): insert before any existing <a:t>.
+    run.insertBefore(rPr, run.firstChild);
+  } else {
+    // Update in place: drop every inherited formatting child, then rebuild the
+    // canonical set below (no duplicate solidFill, no leftover schemeClr).
+    while (rPr.firstChild) rPr.removeChild(rPr.firstChild);
+  }
+  rPr.setAttribute("lang", "en-PH");
+  rPr.setAttribute("sz", String(opts.size ?? 1200));
+  rPr.setAttribute("b", opts.bold ? "1" : "0");
+  rPr.appendChild(appendSolidFill(ownerDoc, opts.color ?? "111111"));
+  appendAptosTypefaces(ownerDoc, rPr);
 }
 
 function setParagraphText(
@@ -105,8 +166,12 @@ function setParagraphText(
   for (let i = 1; i < runs.length; i++) paragraph.removeChild(runs[i]);
   const keep = runs[0];
   if (keep) {
-    // Only ever touch the missing <a:t> inside the retained run. Appending a
-    // whole new <a:r> into an existing <a:r> would create invalid nesting.
+    // Normalize the retained run's rPr from opts BEFORE writing text, so the
+    // donor's inherited formatting can never make the line invisible or
+    // visually inconsistent (e.g. a leftover light scheme color or a large
+    // donor font size). Text is written into the existing run's <a:t> only -
+    // appending a whole new <a:r> inside an existing <a:r> would nest runs.
+    applyRunFormatting(keep, opts);
     const t = getElementsByTagNameNS(keep, "a", "t")[0];
     if (t) {
       t.textContent = text;
