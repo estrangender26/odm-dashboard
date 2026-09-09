@@ -38,12 +38,19 @@ export type ExecutiveReadoutKpiStatus = "green" | "amber" | "red" | "missing";
 export interface ExecutiveReadoutInput {
   businessUnit: string;
   monthLabel: string;
+  /** Numeric effective reporting month (1..12). */
+  reportingMonth: number;
   /** Stored monthly_kpi_records.notes for the exact BU/effective month. */
   notes: string | null;
   /** Stored monthly_kpi_records.situation for the exact BU/effective month. */
   situation: string | null;
   /** YTD values per scorecard KPI (same authority as the scorecard). */
   values: Partial<Record<ScorecardKpiKey, number | null>>;
+  /**
+   * STANDALONE values of the effective reporting month per KPI (authoritative
+   * monthly result used to give the commentary its "Month: value" context).
+   */
+  monthlyValues?: Partial<Record<ScorecardKpiKey, number | null>>;
 }
 
 export interface ExecutiveReadoutKpi {
@@ -171,14 +178,53 @@ function compressClause(clause: string, maxChars: number): string {
 // ---------------- public API ----------------
 
 const MAX_EXCEPTION_BULLETS = 3;
+const SHORT_MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+function isFailStatus(status: ExecutiveReadoutKpiStatus): boolean {
+  return status === "red" || status === "amber";
+}
+
+/**
+ * Deterministic period/value context for one KPI's submitted explanation.
+ *
+ * Association rule: Notes/Situation are stored on the BU's effective-month
+ * monthly_kpi_records row, so the explanation is presented against the
+ * STANDALONE result of that effective month ("Aug: 132.65%") when that monthly
+ * result itself fails target. Only when no monthly value exists, or the
+ * monthly result is not a failure while the YTD result is, is the YTD value
+ * shown ("YTD: 80.49%"). No invented association is made beyond this.
+ */
+function periodContextFor(
+  key: ScorecardKpiKey,
+  input: ExecutiveReadoutInput
+): { label: string; value: number | null; key: ScorecardKpiKey } {
+  const monthlyValue = input.monthlyValues?.[key] ?? null;
+  if (monthlyValue !== null && Number.isFinite(monthlyValue)) {
+    const monthlyStatus = classifyExecutiveKpi(key, monthlyValue);
+    if (isFailStatus(monthlyStatus)) {
+      const label =
+        SHORT_MONTHS[input.reportingMonth - 1] ??
+        String(input.reportingMonth);
+      return { label, value: monthlyValue, key };
+    }
+  }
+  return { label: "YTD", value: input.values[key] ?? null, key };
+}
 
 /**
  * Build the visible readout lines for one BU Summary slide:
  *
  *   EXECUTIVE COMMENTARY   (heading)
- *   - <=3 source-bound exception bullets
+ *   - <=3 NOTES/SITUATION-DRIVEN exception bullets with deterministic
+ *     period/value context, e.g.
+ *     "Budget Spend — Aug: 132.65% — Exceed budget due to media replacement..."
  *
- * There is deliberately NO Management Assessment section.
+ * A KPI is never listed merely because it failed: bullets exist ONLY when the
+ * BU submitted an authoritative Notes/Situation explanation relevant to that
+ * KPI. There is deliberately NO Management Assessment section.
  */
 export function buildExecutiveReadoutLines(input: ExecutiveReadoutInput): ReadoutLine[] {
   const kpis = buildExecutiveReadoutKpis(input.values);
@@ -189,7 +235,6 @@ export function buildExecutiveReadoutLines(input: ExecutiveReadoutInput): Readou
     ...qualifying.filter((k) => k.status === "red"),
     ...qualifying.filter((k) => k.status === "amber"),
   ];
-  const belowTargetCount = ordered.length;
 
   const bullets: string[] = [];
   for (const kpi of ordered) {
@@ -197,7 +242,7 @@ export function buildExecutiveReadoutLines(input: ExecutiveReadoutInput): Readou
     // Search BOTH authoritative sources per KPI: Notes then Situation.
     const noteClause = clauseForKpi(input.notes, kpi.key);
     const situationClause = clauseForKpi(input.situation, kpi.key);
-    if (!noteClause && !situationClause) continue; // no evidence -> no bullet
+    if (!noteClause && !situationClause) continue; // no evidence -> NO bullet
 
     let explanation: string;
     if (noteClause && situationClause) {
@@ -207,20 +252,19 @@ export function buildExecutiveReadoutLines(input: ExecutiveReadoutInput): Readou
     } else {
       explanation = compressClause(noteClause ?? situationClause!, 180);
     }
-    bullets.push(`${NOUN[kpi.key]} — ${explanation}`);
-  }
 
-  if (bullets.length > 0) {
-    // Keep at most three exception bullets.
-    bullets.length = Math.min(bullets.length, MAX_EXCEPTION_BULLETS);
-  } else if (belowTargetCount > 0) {
-    // Never manufacture an explanation for a below-target result.
-    bullets.push("No explanation was provided by the BU for the below-target KPIs.");
-  } else {
-    bullets.push("No below-target KPIs required an explanation this period.");
+    const ctx = periodContextFor(kpi.key, input);
+    const ctxValue =
+      ctx.value !== null && Number.isFinite(ctx.value)
+        ? formatExecutiveKpiValue(ctx.key, ctx.value)
+        : "";
+    const prefix = `${NOUN[kpi.key]} — ${ctx.label}${ctxValue ? `: ${ctxValue}` : ""} — `;
+    bullets.push(`${prefix}${explanation}`);
   }
 
   const lines: ReadoutLine[] = [{ kind: "heading", text: "EXECUTIVE COMMENTARY" }];
-  for (const bullet of bullets) lines.push({ kind: "bullet", text: bullet });
+  for (const bullet of bullets.slice(0, MAX_EXCEPTION_BULLETS)) {
+    lines.push({ kind: "bullet", text: bullet });
+  }
   return lines;
 }

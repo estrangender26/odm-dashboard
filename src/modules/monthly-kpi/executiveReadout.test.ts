@@ -67,6 +67,7 @@ function input(bu: string): ExecutiveReadoutInput {
   return {
     businessUnit: bu,
     monthLabel: "August 2026",
+    reportingMonth: 8,
     notes: NOTES[bu] ?? null,
     situation: null,
     values: AUG[bu] as Record<string, number | null>,
@@ -91,9 +92,9 @@ describe("source-bound EXECUTIVE COMMENTARY (no Management Assessment)", () => {
   it("AMD-EZ (blank notes) never invents an explanation or management language", () => {
     const { bullets } = sections(buildExecutiveReadoutLines(input("AMD-EZ")));
     const all = bullets.join(" ");
-    expect(bullets).toEqual([
-      "No explanation was provided by the BU for the below-target KPIs.",
-    ]);
+    // New rule: no authoritative explanation => NO Executive Commentary bullet.
+    expect(bullets).toEqual([]);
+    expect(all).toBe("");
     expect(all).not.toMatch(/Validate|MTTR|non-critical|Prioritize|Review|Monitor/i);
     expect(all).not.toMatch(/PM:CM work orders \(84\.4%\)/);
   });
@@ -168,6 +169,7 @@ describe("per-KPI Notes + Situation search, red-before-amber, source-bound", () 
     return {
       businessUnit: "TEST",
       monthLabel: "August 2026",
+      reportingMonth: 8,
       notes: null,
       situation: null,
       values: {
@@ -255,9 +257,8 @@ describe("per-KPI Notes + Situation search, red-before-amber, source-bound", () 
 
   it("E: AMD-EZ blank Notes/Situation still produces no invented cause", () => {
     const bullets = sections(buildExecutiveReadoutLines(input("AMD-EZ"))).bullets;
-    expect(bullets).toEqual([
-      "No explanation was provided by the BU for the below-target KPIs.",
-    ]);
+    expect(bullets).toEqual([]); // NO commentary without Notes/Situation
+    expect(bullets.join(" ")).toBe("");
     expect(bullets.join(" ")).not.toMatch(/Validate|MTTR|non-critical|Prioritize/i);
   });
 
@@ -269,4 +270,77 @@ describe("per-KPI Notes + Situation search, red-before-amber, source-bound", () 
     expect(twci.length).toBeLessThanOrEqual(3);
     expect(twci.join(" ")).not.toMatch(/Validate|Prioritize|Strengthen|Monitor/);
   });
+});
+
+describe("commentary period/value context (follow-up after PR #424)", () => {
+  function cwcStyle() {
+    return {
+      businessUnit: "CWC",
+      monthLabel: "August 2026",
+      reportingMonth: 8,
+      notes:
+        "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+      situation: null,
+      values: {
+        pmCompliance: 100,
+        budgetSpend: 80.49,
+        pmCmWorkOrderRatio: 99.7,
+        pmCmCostRatio: 83.36,
+        mttrDays: 2.27,
+        facilityUptime: 99.89,
+      },
+      monthlyValues: {
+        budgetSpend: 132.646086391792,
+      },
+    } as unknown as ExecutiveReadoutInput;
+  }
+
+  it("CWC: failing Budget Spend WITH Notes gets 'KPI - Aug: value - note' context", () => {
+    const bullets = sections(buildExecutiveReadoutLines(cwcStyle())).bullets;
+    expect(bullets[0]).toMatch(/^Budget Spend — Aug: 132\.65% — Exceed budget due to media replacement/);
+    // Historical failing months are NOT listed.
+    expect(bullets.join(" ")).not.toMatch(/Jan|Feb|Mar|Apr|May|Jun|Jul/);
+  });
+
+  it("YTD-only failure with monthly not failing uses 'YTD: value' context", () => {
+    const input = cwcStyle();
+    (input.monthlyValues as Record<string, number | null>).budgetSpend = 100; // monthly OK
+    const bullets = sections(buildExecutiveReadoutLines(input)).bullets;
+    expect(bullets[0]).toMatch(/^Budget Spend — YTD: 80\.49% — Exceed budget/);
+  });
+
+  it("failing KPI WITHOUT Notes/Situation produces NO bullet", () => {
+    const input = cwcStyle();
+    input.notes = null;
+    const bullets = sections(buildExecutiveReadoutLines(input)).bullets;
+    expect(bullets).toEqual([]);
+  });
+});
+
+function cwcInput() {
+  return {
+    businessUnit: "CWC",
+    monthLabel: "August 2026",
+    reportingMonth: 8,
+    notes: "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+    situation: null,
+    values: { pmCompliance: 100, budgetSpend: 80.49, pmCmWorkOrderRatio: 99.7, pmCmCostRatio: 83.36, mttrDays: 2.27, facilityUptime: 99.89 },
+    monthlyValues: { budgetSpend: 132.646086391792 },
+  } as unknown as ExecutiveReadoutInput;
+}
+
+it("D-edge: monthly value missing/not failing + YTD fails + Note exists -> YTD context", () => {
+  const input = cwcInput();
+  (input.monthlyValues as Record<string, number | null>).budgetSpend = 100; // monthly passes
+  input.values = { ...(input.values as Record<string, number | null>), budgetSpend: 80.49 };
+  const bullets = sections(buildExecutiveReadoutLines(input)).bullets;
+  expect(bullets[0]).toMatch(/^Budget Spend — YTD: 80\.49% — Exceed budget/);
+});
+
+it("I-edge: a Note for a GREEN KPI never creates exception commentary", () => {
+  const input = cwcInput();
+  input.values = { ...(input.values as Record<string, number | null>), budgetSpend: 100 };
+  (input.monthlyValues as Record<string, number | null>).budgetSpend = 100;
+  const bullets = sections(buildExecutiveReadoutLines(input)).bullets;
+  expect(bullets.some((b) => b.startsWith("Budget Spend"))).toBe(false);
 });
